@@ -205,7 +205,8 @@ package struct RepoExplorerView: View {
                 repoCache: repoCache
             ),
             paneRowFactsByPaneId: paneRowFactsByPaneId(now: paneRecencyDisplayReferenceDate),
-            tabGroupFactsByTabId: tabGroupFactsByTabId()
+            tabGroupFactsByTabId: tabGroupFactsByTabId(),
+            unavailablePullRequestRepoIds: repoCache.unavailablePullRequestRepoIds
         )
     }
 
@@ -235,6 +236,11 @@ package struct RepoExplorerView: View {
         _ = repoExplorerPrefs.sortOrder
         _ = sidebarCache.collapsedGroups
         _ = atom(\.workspaceEntityRecency).recentEntities
+        // A repo can resolve to terminal pull-request unavailability with zero change to its
+        // (empty) enrichment/facts slots read above, so this must be observed explicitly —
+        // otherwise that transition never admits a rebuild and the row keeps its stale pending
+        // glyph forever.
+        _ = repoCache.unavailablePullRequestRepoIds
 
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,

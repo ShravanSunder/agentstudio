@@ -279,6 +279,39 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: terminallyUnavailable))
     }
 
+    @Test("a stale positive PR count never renders once the repo resolves unavailable")
+    func stalePositivePullRequestCountDoesNotRenderOnceUnavailable() throws {
+        // GitBranchStatus.prCount and pullRequestDataUnavailable are independent fields: a repo can
+        // carry a stale positive prCount from an earlier successful fetch while now being marked
+        // terminally unavailable (no remote, or repeated failures past the honesty threshold). The
+        // outer shouldShowPullRequestChip gate already accounts for this (prCount != 0 &&
+        // !pullRequestDataUnavailable), but the chips-row render branch must independently guard the
+        // same combination too — a merge between the chip-spec unification and the forge-honesty
+        // work could otherwise drop this check from one side while keeping it on the other.
+        let terminallyUnavailableWithStaleCount = GitBranchStatus(
+            isDirty: false,
+            syncState: .synced,
+            prCount: 3,
+            pullRequestDataUnavailable: true,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+        #expect(
+            !RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(
+                branchStatus: terminallyUnavailableWithStaleCount))
+
+        let rowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+        let renderBranchStart = try #require(rowSource.range(of: "else if let prCount = branchStatus.prCount,"))
+        let renderBranchEnd = try #require(
+            rowSource.range(of: "{", range: renderBranchStart.upperBound..<rowSource.endIndex))
+        let renderBranchSource = String(rowSource[renderBranchStart.lowerBound..<renderBranchEnd.lowerBound])
+        #expect(renderBranchSource.contains("!branchStatus.pullRequestDataUnavailable"))
+    }
+
     @Test("pane trailing metadata suppresses zero pull requests")
     func paneTrailingMetadataSuppressesZeroPullRequests() {
         #expect(RepoExplorerPaneRow.normalizedPullRequestCount(nil) == nil)

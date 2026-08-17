@@ -231,7 +231,10 @@ struct RepoExplorerWorktreeRowContent: View {
                                 isFirstChipsLineItem
                                     ? AppStyles.Shell.Sidebar.chipHorizontalPadding : 0
                             )
-                    } else if let prCount = branchStatus.prCount, prCount > 0 {
+                    } else if let prCount = branchStatus.prCount,
+                        prCount > 0,
+                        !branchStatus.pullRequestDataUnavailable
+                    {
                         SidebarPullRequestChipSpec.chip(count: prCount, octiconLoader: octiconLoader)
                     }
 

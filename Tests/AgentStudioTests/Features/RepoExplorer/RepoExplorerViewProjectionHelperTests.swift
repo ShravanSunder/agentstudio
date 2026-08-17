@@ -98,7 +98,8 @@ private func repoExplorerProjectionRequestKey(
             pullRequestFactsSnapshot: RepoExplorerView.pullRequestFactsSnapshot(
                 for: worktreeEnrichmentSnapshot,
                 repoCache: repoCache
-            )
+            ),
+            unavailablePullRequestRepoIds: repoCache.unavailablePullRequestRepoIds
         )
     )
 }
@@ -388,6 +389,37 @@ struct RepoExplorerViewProjectionHelperTests {
         )
         #expect(counter.count == 1)
         #expect(requestKeyAfterRelevantChange != initialRequestKey)
+    }
+
+    @Test("a repo resolving to unavailable pull request data wakes capture and changes the admitted request key")
+    func repoResolvingPullRequestUnavailableWakesAndChangesRequestKey() {
+        let cache = RepoCacheAtom()
+        let worktreeId = UUIDv7.generate()
+        let repoId = UUIDv7.generate()
+        let counter = RepoExplorerProjectionInputInvalidationCounter()
+        cache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
+        )
+
+        let initialRequestKey = withObservationTracking {
+            repoExplorerProjectionRequestKey(
+                worktreeIds: [worktreeId],
+                repoCache: cache
+            )
+        } onChange: {
+            counter.record()
+        }
+
+        // No pull request facts ever arrive for this repo (zero-fact
+        // transition) — only the resolved-unavailable signal changes.
+        cache.markPullRequestsUnavailable(forRepository: repoId)
+        let changedRequestKey = repoExplorerProjectionRequestKey(
+            worktreeIds: [worktreeId],
+            repoCache: cache
+        )
+
+        #expect(counter.count == 1)
+        #expect(changedRequestKey != initialRequestKey)
     }
 
     @Test("pane navigation dispatches exact focusPane target")

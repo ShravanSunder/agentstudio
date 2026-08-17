@@ -11,6 +11,10 @@ struct RepoExplorerProjectionRequestKey: Equatable {
     let pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts]
     let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
     let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
+    /// Must be compared explicitly: a repo can resolve to terminal pull-request unavailability with
+    /// zero change to its (empty) facts snapshot, so omitting this field would let that transition
+    /// compare equal and silently skip re-projection.
+    let unavailablePullRequestRepoIds: Set<UUID>
 }
 
 extension RepoExplorerView {
@@ -133,7 +137,8 @@ extension RepoExplorerView {
             worktreeEnrichmentSnapshot: request.worktreeEnrichmentSnapshot,
             pullRequestFactsSnapshot: request.pullRequestFactsSnapshot,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
-            tabGroupFactsByTabId: request.tabGroupFactsByTabId
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId,
+            unavailablePullRequestRepoIds: request.unavailablePullRequestRepoIds
         )
     }
 
@@ -583,11 +588,13 @@ extension RepoExplorerView {
 
     static func mergeBranchStatuses(
         worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
-        pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts]
+        pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts],
+        unavailablePullRequestRepoIds: Set<UUID> = []
     ) -> [UUID: GitBranchStatus] {
         GitBranchStatus.merge(
             worktreeEnrichmentsByWorktreeId: worktreeEnrichmentsByWorktreeId,
-            pullRequestFactsByBranch: pullRequestFactsByBranch
+            pullRequestFactsByBranch: pullRequestFactsByBranch,
+            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds
         )
     }
 

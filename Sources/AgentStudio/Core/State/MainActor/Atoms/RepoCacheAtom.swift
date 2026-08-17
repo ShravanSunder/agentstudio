@@ -30,10 +30,12 @@ package final class RepoEnrichmentCacheAtom {
     @ObservationIgnored private let pullRequestFactsRevisionAtom = AtomRevision()
     /// Repositories whose pull request data is terminally unresolved (no
     /// GitHub remote, or provider queries have failed past the forge honesty
-    /// threshold). Tracked alongside `pullRequestFactsMap` and gated on the
-    /// same revision atom so readers observe both together: a repo in this
-    /// set carries no facts and none will arrive automatically.
+    /// threshold). Gated on its own revision atom, independent from
+    /// `pullRequestFactsRevisionAtom`, so a fact write for one repository
+    /// does not coarsely wake every reader of this set — only a change to
+    /// the unavailable membership itself does.
     @ObservationIgnored private var pullRequestUnavailableRepoIds: Set<UUID> = []
+    @ObservationIgnored private let pullRequestUnavailabilityRevisionAtom = AtomRevision()
     private(set) var sourceRevision: UInt64 = 0
     private(set) var lastRebuiltAt: Date?
 
@@ -65,7 +67,7 @@ package final class RepoEnrichmentCacheAtom {
     }
 
     package var unavailablePullRequestRepoIds: Set<UUID> {
-        _ = pullRequestFactsRevisionAtom.value
+        _ = pullRequestUnavailabilityRevisionAtom.value
         return pullRequestUnavailableRepoIds
     }
 
@@ -94,7 +96,7 @@ package final class RepoEnrichmentCacheAtom {
     }
 
     package func isPullRequestDataUnavailable(forRepository repoId: UUID) -> Bool {
-        _ = pullRequestFactsRevisionAtom.value
+        _ = pullRequestUnavailabilityRevisionAtom.value
         return pullRequestUnavailableRepoIds.contains(repoId)
     }
 
@@ -176,11 +178,14 @@ package final class RepoEnrichmentCacheAtom {
                 pullRequestFactsMap.removeValue(for: key, mutation: mutation)
             }
             let didInsert = pullRequestUnavailableRepoIds.insert(repoId).inserted
-            if didInsert {
+            if didInsert || !staleFactKeys.isEmpty {
                 mutation.recordAcceptedChange()
             }
-            if didInsert || !staleFactKeys.isEmpty {
+            if !staleFactKeys.isEmpty {
                 pullRequestFactsRevisionAtom.bump()
+            }
+            if didInsert {
+                pullRequestUnavailabilityRevisionAtom.bump()
             }
         }
     }
@@ -192,7 +197,7 @@ package final class RepoEnrichmentCacheAtom {
         guard pullRequestUnavailableRepoIds.remove(repoId) != nil else { return }
         mutate { mutation in
             mutation.recordAcceptedChange()
-            pullRequestFactsRevisionAtom.bump()
+            pullRequestUnavailabilityRevisionAtom.bump()
         }
     }
 

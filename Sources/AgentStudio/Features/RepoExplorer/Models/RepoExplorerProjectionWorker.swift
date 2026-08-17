@@ -18,6 +18,12 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
     let pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts]
     let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
     let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
+    /// Repos whose pull request data has resolved to a terminal absence (no remote, or provider
+    /// failures past the forge honesty threshold). This is independent of
+    /// `pullRequestFactsSnapshot`: a repo can transition into this set with zero change to its
+    /// (empty) facts snapshot, so every equality/admission check below must compare this field
+    /// explicitly — otherwise that transition compares equal and silently skips re-projection.
+    let unavailablePullRequestRepoIds: Set<UUID>
 
     init(
         generation: Int,
@@ -28,7 +34,8 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment] = [:],
         pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts] = [:],
         paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts] = [:],
-        tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts] = [:]
+        tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts] = [:],
+        unavailablePullRequestRepoIds: Set<UUID> = []
     ) {
         self.generation = generation
         self.snapshot = snapshot
@@ -39,6 +46,7 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         self.pullRequestFactsSnapshot = pullRequestFactsSnapshot
         self.paneRowFactsByPaneId = paneRowFactsByPaneId
         self.tabGroupFactsByTabId = tabGroupFactsByTabId
+        self.unavailablePullRequestRepoIds = unavailablePullRequestRepoIds
     }
 
     func generated(
@@ -54,7 +62,8 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
             worktreeEnrichmentSnapshot: worktreeEnrichmentSnapshot,
             pullRequestFactsSnapshot: pullRequestFactsSnapshot,
             paneRowFactsByPaneId: paneRowFactsByPaneId,
-            tabGroupFactsByTabId: tabGroupFactsByTabId
+            tabGroupFactsByTabId: tabGroupFactsByTabId,
+            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds
         )
     }
 
@@ -70,6 +79,7 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
                 == snapshot.bridgePaneCommandCandidatesByWorktreeId,
             previous.collapsedGroupIds == collapsedGroupIds,
             previous.isFiltering == isFiltering,
+            previous.unavailablePullRequestRepoIds == unavailablePullRequestRepoIds,
             previous.pullRequestFactsSnapshot == pullRequestFactsSnapshot
                 && previous.paneRowFactsByPaneId == paneRowFactsByPaneId
                 && previous.tabGroupFactsByTabId == tabGroupFactsByTabId
@@ -233,6 +243,7 @@ actor RepoExplorerProjectionWorker {
             snapshot: request.snapshot,
             worktreeEnrichmentByWorktreeId: request.worktreeEnrichmentSnapshot,
             pullRequestFactsByBranch: request.pullRequestFactsSnapshot,
+            unavailablePullRequestRepoIds: request.unavailablePullRequestRepoIds,
             cancellationCheck: { try Task.checkCancellation() }
         )
         let branchNameByWorktreeId = try branchNameByWorktreeId(
@@ -286,12 +297,14 @@ actor RepoExplorerProjectionWorker {
         snapshot: RepoExplorerSnapshot,
         worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment],
         pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts],
+        unavailablePullRequestRepoIds: Set<UUID>,
         cancellationCheck: () throws -> Void
     ) throws -> [UUID: GitBranchStatus] {
         let worktreeIds = snapshot.repos.flatMap(\.worktrees).map(\.id)
         var branchStatusByWorktreeId = GitBranchStatus.merge(
             worktreeEnrichmentsByWorktreeId: worktreeEnrichmentByWorktreeId,
-            pullRequestFactsByBranch: pullRequestFactsByBranch
+            pullRequestFactsByBranch: pullRequestFactsByBranch,
+            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds
         )
         branchStatusByWorktreeId.reserveCapacity(max(branchStatusByWorktreeId.count, worktreeIds.count))
         for (index, worktreeId) in worktreeIds.enumerated() where branchStatusByWorktreeId[worktreeId] == nil {
@@ -423,7 +436,9 @@ actor RepoExplorerProjectionWorker {
             .flatMap { request.pullRequestFactsSnapshot[$0] }
         branchStatuses[worktreeId] = GitBranchStatus.status(
             enrichment: enrichment,
-            pullRequestFacts: pullRequestFacts
+            pullRequestFacts: pullRequestFacts,
+            pullRequestDataUnavailable: enrichment.map { request.unavailablePullRequestRepoIds.contains($0.repoId) }
+                ?? false
         )
         branchNames[worktreeId] = branchName(enrichment: enrichment)
         return RepoExplorerProjectionResult(

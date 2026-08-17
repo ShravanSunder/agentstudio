@@ -30,6 +30,44 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(after.scopedChange(from: before) == .repo(repoId))
     }
 
+    @Test("a repo resolving to unavailable pull request data with zero facts refuses the scoped fast path")
+    func repoResolvingPullRequestUnavailableRefusesScopedFastPath() {
+        let repoId = UUID()
+        let repoOnly = repo(id: repoId, name: "agent-studio")
+        let before = request(repos: [repoOnly])
+        let after = request(repos: [repoOnly], unavailablePullRequestRepoIds: [repoId])
+
+        // Zero pull request facts change on either side of this transition —
+        // only the resolved-unavailable signal differs. If the equality
+        // guard omits it, this compares equal and the admission gate would
+        // silently skip re-projection, leaving a stale pending glyph on screen.
+        #expect(after.scopedChange(from: before) == nil)
+    }
+
+    @Test("a repo with zero pull request facts marked unavailable re-projects and drops its pending glyph state")
+    func repoWithZeroFactsMarkedUnavailableReprojectsAndDropsPendingGlyphState() throws {
+        let repoId = UUID()
+        let worktreeId = UUIDv7.generate()
+        let repoOnly = repo(id: repoId, worktreeId: worktreeId, name: "agent-studio")
+
+        // Before: zero pull request facts, not yet marked unavailable — this is the
+        // "pending" state the row renders a pending glyph for
+        // (`prCount == nil && !pullRequestDataUnavailable`).
+        let before = request(repos: [repoOnly])
+        let beforeResult = try RepoExplorerProjectionWorker.project(before)
+        let pendingStatus = try #require(beforeResult.branchStatusByWorktreeId[worktreeId])
+        #expect(pendingStatus.prCount == nil)
+        #expect(!pendingStatus.pullRequestDataUnavailable)
+
+        // After: the repo resolves to unavailable with the pull request facts snapshot
+        // still empty — the row must stop rendering the pending glyph.
+        let after = request(repos: [repoOnly], unavailablePullRequestRepoIds: [repoId])
+        let afterResult = try RepoExplorerProjectionWorker.project(after)
+        let resolvedStatus = try #require(afterResult.branchStatusByWorktreeId[worktreeId])
+        #expect(resolvedStatus.prCount == nil)
+        #expect(resolvedStatus.pullRequestDataUnavailable)
+    }
+
     @Test("scoped favorite projection matches the full reference without whole-surface projection")
     func scopedFavoriteProjectionMatchesReference() throws {
         let repoId = UUID()
@@ -678,8 +716,15 @@ struct RepoExplorerProjectionWorkerTests {
         )
     }
 
-    private func request(repos: [RepoPresentationItem]) -> RepoExplorerProjectionRequest {
-        request(repos: repos, generation: repos.reduce(0) { $0 + ($1.isFavorite ? 1 : 0) })
+    private func request(
+        repos: [RepoPresentationItem],
+        unavailablePullRequestRepoIds: Set<UUID> = []
+    ) -> RepoExplorerProjectionRequest {
+        request(
+            repos: repos,
+            generation: repos.reduce(0) { $0 + ($1.isFavorite ? 1 : 0) },
+            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds
+        )
     }
 
     private func request(
@@ -689,7 +734,8 @@ struct RepoExplorerProjectionWorkerTests {
         branchNameByWorktreeId: [UUID: String] = [:],
         query: String = "",
         bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:],
-        paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:]
+        paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:],
+        unavailablePullRequestRepoIds: Set<UUID> = []
     ) -> RepoExplorerProjectionRequest {
         RepoExplorerProjectionRequest(
             generation: generation,
@@ -728,7 +774,8 @@ struct RepoExplorerProjectionWorkerTests {
                         )
                     )
                 }
-            )
+            ),
+            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds
         )
     }
 
