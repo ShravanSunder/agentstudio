@@ -34,6 +34,15 @@ stack except RC2/Todo 1's live acceptance (blocked, reported to owner) and the
 forge no-remote/detached-HEAD live acceptance (rides this same sweep once
 unblocked).
 
+## Full aggregate rerun (2026-08-17, after commits b567b0649 + 3ee4f16de + 2b5097bfe)
+
+`SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise
+run test` — exit 0, 218.38s. Forge live acceptance is now closed (see item 2
+above). Only remaining open item is RC2/Todo 1's live acceptance — root cause
+narrowed to zero writes reaching PaneActivityStatusAtom despite a confirmed
+end-to-end settle pipeline; awaiting owner go-ahead on a temporary diagnostic
+log line to pin the exact call site (see tmp-RESULT.md).
+
 ## Binary-freshness gate (added 2026-08-17 after two stale-binary incidents)
 Before ANY visual validation or owner presentation: verify the running bundle
 binary's modification time is NEWER than the branch's last commit time
