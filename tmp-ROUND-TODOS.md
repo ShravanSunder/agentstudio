@@ -12,8 +12,36 @@
 | 2 | Forge-lane honesty: every outcome terminal; no-remote → no glyph; failure → backoff then nothing; pending only while fetch genuinely expected | forge-fixer | DONE, including live acceptance. Merged (commits 111e570ca, f8a15fe7f via feat/forge-honesty → 6f94ce855); projection re-render wiring completed by sidebar-finisher (commit 28b7ebd53); live acceptance PROVEN (pixel screenshot 2026-08-17): no-remote-repo/main, detached-repo/main, detached-repo-worktree/detached HEAD all render clean branch lines with no PR chip and no pending glyph. `tmp-screenshots/forge-live-proof/no-remote-and-detached-head-no-glyph.png`. |
 | 2b | Forge update cadence: PR-count refresh at most once per 3 MINUTES per repo/branch (owner policy; AppPolicies constant; verify what the system does today and enforce) | forge-fixer | merged via feat/forge-honesty (see #2) |
 | 5 | Unify second-line rendering: extend SidebarMetadataLine for octicon support, replace RepoExplorerWorktreeRow's hand-rolled branch/placement HStacks, sweep for other hand-rolled second-line `.foregroundStyle(.secondary)` usages | sidebar-finisher | done (commit 0f4b84532; 29+575 tests green incl. source-pinning tests; sweep found no other genuine duplicates — remaining `.foregroundStyle(.secondary)` sites are a different visual role: stale-PR-chip glyph, status/loading banners, empty-state view) |
+| Follow-up (tracked, NOT this round) | Watch-folder scan hangs indefinitely when a bare repo (a `.git` directory with no working tree, e.g. a local push/pull target) sits alongside working-tree repos under the same scanned parent | unowned | Found during the F1 sweep fixture setup (2026-08-17): `AGENTSTUDIO_STARTUP_WATCH_FOLDER` pointed at a directory containing 4 working-tree repos plus one bare `sync-origin.git` never completed scanning ("Scanning ... / Looking for git folders..." stuck indefinitely, `repo` table stayed empty). Removing the bare repo from the directory let the scan complete instantly; re-adding it reproduced the hang. Not investigated further (out of scope for the color/review remediation round) — root cause and fix location unknown, needs its own ticket if bare repos are a realistic watch-folder input. Worked around for the sweep by relocating the bare repo out of the scanned directory during capture. |
 
 Gate: all items land → full aggregate + lint → merged build → pixel validation (orchestrator) → owner review. #296 stays draft until owner approves.
+
+## Ledger note: color-directive delta re-capture already complete (2026-08-17)
+
+The owner's "OWNER COLOR DIRECTIVES" message and team-lead's later "sweep
+accepted, but that message still applies" message crossed with work already
+done: items 1-3 (tab-group icon, PR chip yellow, full sync audit) landed in
+commit `c009a3311`, and the delta re-capture (fresh binary, PR chips in all
+reachable views, tab-group header) landed in commit `17ece6593` — both
+pushed before the "still applies" message arrived. See ledger rows "3" and
+"Color-sync" above for the full writeup, and `tmp-RESULT.md` sections "Owner
+color directives" and "F1 sweep rerun on final colors" for evidence.
+
+**Superseded**: `tmp-screenshots/f1-final-sweep/` (v1) PR-chip and
+tab-group-icon shots show the pre-directive blue colors — superseded by
+`tmp-screenshots/f1-final-sweep-v2/14-prchip-yellow-final.png` and
+`15-tabicon-final-zoom.png`.
+
+**Still valid, not redone** (unaffected by the color-only change; matches
+team-lead's explicit instruction not to redo structural/behavioral proofs):
+L2 live real-terminal-content proof, grouping-mode persistence across
+restart, icon-to-text spacing/chip alignment, toggle border/fill geometry,
+empty states per mode, diff/sync chip matrix values — all from the v1 sweep
+(`tmp-screenshots/f1-final-sweep/`), same HEAD lineage, source files
+unchanged by the color commit.
+
+Item 6's positive "●" active glyph remains explicitly deferred to team-lead's
+own foregrounded validation pass, per their message.
 
 ## Done-gate (owner-ordered, 2026-08-17)
 1. Finisher completes stack + aggregate green.
