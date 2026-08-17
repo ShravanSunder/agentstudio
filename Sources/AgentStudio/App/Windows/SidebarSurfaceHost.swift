@@ -50,6 +50,7 @@ struct SidebarSurfaceHost: View {
     let sidebarCache: SidebarCacheState
     let inboxSidebarState: InboxSidebarState
     let inboxAtom: InboxNotificationAtom
+    let paneActivityStatusAtom: PaneActivityStatusAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let repoCache: RepoCacheAtom
     let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
@@ -119,7 +120,11 @@ struct SidebarSurfaceHost: View {
                     Self.rollUpAlertCount(for: worktree, inboxAtom: inboxAtom)
                 },
                 latestPaneMessageSnapshot: { paneId in
-                    inboxAtom.latestMessageText(forPaneId: paneId)
+                    // The pane's own runtime status fact (written at every settle regardless of
+                    // inbox notification suppression) wins; fall back to the inbox's latest
+                    // content-bearing/generic message text, unchanged from before.
+                    paneActivityStatusAtom.status(for: paneId)?.lastOutputLine
+                        ?? inboxAtom.latestMessageText(forPaneId: paneId)
                 },
                 performanceTraceRecorder: performanceTraceRecorder,
                 initialProjectionTrigger: initialProjectionTrigger,

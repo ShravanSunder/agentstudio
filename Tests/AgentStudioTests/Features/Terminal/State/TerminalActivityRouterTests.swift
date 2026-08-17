@@ -393,6 +393,66 @@ struct TerminalActivityRouterTests {
         await subscriber.shutdown()
     }
 
+    @Test("unseen settlement records the pane's activity status regardless of downstream suppression")
+    func unseenSettlementRecordsPaneActivityStatus() async {
+        // The router must publish the settled activity's last output line unconditionally: it has
+        // no knowledge of InboxNotificationRouter/InboxPromoter's later suppression decisions for
+        // the derived envelope it posts, so this recording call is the one place that guarantees a
+        // pane's own sidebar row learns its latest real content either way.
+        let bus = EventBus<RuntimeEnvelope>()
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let clock = TestPushClock()
+        final class RecordedCallBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private(set) var calls: [(paneId: UUID, lastOutputLine: String?)] = []
+
+            func record(paneId: UUID, lastOutputLine: String?) {
+                lock.lock()
+                calls.append((paneId, lastOutputLine))
+                lock.unlock()
+            }
+        }
+        let recordedCalls = RecordedCallBox()
+        let router = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
+            lastOutputLineReader: { _ in "seam-live-proof" },
+            recordSettledActivityStatus: { paneId, lastOutputLine in
+                recordedCalls.record(paneId: paneId, lastOutputLine: lastOutputLine)
+            },
+            unseenActivityDebounceDuration: .milliseconds(750),
+            unseenActivityClock: clock
+        )
+        let paneId = PaneId.generateUUIDv7()
+
+        await router.start()
+        await ingestActivity(
+            paneId: paneId,
+            totals: [100, 120, 140],
+            context: .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 30),
+            through: router
+        )
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        clock.advance(by: .milliseconds(750))
+
+        _ = await subscriber.firstEvent { envelope in
+            RuntimeEnvelopeHarness.paneEvents(from: [envelope]).contains {
+                if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
+                return false
+            }
+        }
+
+        #expect(recordedCalls.calls.count == 1)
+        #expect(recordedCalls.calls.first?.paneId == paneId.uuid)
+        #expect(recordedCalls.calls.first?.lastOutputLine == "seam-live-proof")
+
+        await router.stop()
+        await subscriber.shutdown()
+    }
+
     @Test("attended typed activity updates compact state without unseen settlement")
     func attendedTypedActivityUpdatesCompactStateWithoutUnseenSettlement() async {
         let bus = EventBus<RuntimeEnvelope>()

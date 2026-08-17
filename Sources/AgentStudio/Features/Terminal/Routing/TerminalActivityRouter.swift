@@ -32,6 +32,7 @@ package final class TerminalActivityRouter {
     private let isPaneCurrentlyAttended: @MainActor (UUID) -> Bool
     private let isPaneAgentClassified: @MainActor (UUID, PaneContentType) -> Bool
     private let lastOutputLineReader: @MainActor (UUID) -> String?
+    private let recordSettledActivityStatus: @MainActor (UUID, String?) -> Void
 
     private var busTask: Task<Void, Never>?
     private var derivedActivityPostTask: Task<Void, Never>?
@@ -51,6 +52,7 @@ package final class TerminalActivityRouter {
         isPaneCurrentlyAttended: (@MainActor (UUID) -> Bool)? = nil,
         isPaneAgentClassified: (@MainActor (UUID, PaneContentType) -> Bool)? = nil,
         lastOutputLineReader: (@MainActor (UUID) -> String?)? = nil,
+        recordSettledActivityStatus: (@MainActor (UUID, String?) -> Void)? = nil,
         unseenActivityDebounceDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
         agentSettledQuietDuration: Duration = AppPolicies.InboxNotification.agentSettledQuietDuration,
         unseenActivityClock: (any Clock<Duration> & Sendable)? = nil,
@@ -79,6 +81,7 @@ package final class TerminalActivityRouter {
         self.isPaneAgentClassified = isPaneAgentClassified ?? { _, paneKind in paneKind == .agent }
         self.lastOutputLineReader =
             lastOutputLineReader ?? { SurfaceManager.shared.readLastOutputLine(forSurfaceID: $0) }
+        self.recordSettledActivityStatus = recordSettledActivityStatus ?? { _, _ in }
     }
 
     deinit {
@@ -230,9 +233,15 @@ package final class TerminalActivityRouter {
                     paneID: paneID
                 ))
         case .unseenActivitySettled(_, let paneID, let activity):
+            // Written unconditionally, ahead of and independent of InboxNotificationRouter's
+            // consumption of the derived envelope below, so a pane's own sidebar row always learns
+            // its latest real output line even when InboxPromoter suppresses the notification for
+            // small observed/attended bursts.
+            recordSettledActivityStatus(paneID, activity.lastOutputLine)
             derivedEnvelopes.append(
                 derivedActivityEnvelope(.unseenActivitySettled(activity), paneID: paneID))
         case .agentSettledActivityPromoted(_, let paneID, let activity):
+            recordSettledActivityStatus(paneID, activity.lastOutputLine)
             derivedEnvelopes.append(
                 derivedActivityEnvelope(.agentSettledActivityPromoted(activity), paneID: paneID))
         case .agentSettledActivityRevoked(_, let paneID):

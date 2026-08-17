@@ -477,6 +477,10 @@ package enum AppPolicies {
         package static let agentSettledMinimumActiveDuration: Duration = .seconds(360)
         package static let agentSettledQuietDuration: Duration = .seconds(180)
         package static let terminalActivitySessionIdleTimeoutDuration: Duration = .seconds(300)
+        /// Timerless leading-edge rate limit for a pane's activity-status fact (sidebar L2 text):
+        /// at most one publish per pane within this window. A settle inside the window is dropped
+        /// entirely, not deferred; the next settle after the window naturally carries the latest line.
+        package static let paneActivityStatusMinimumPublishInterval: Duration = .seconds(10)
     }
 
     /// Drag-and-drop behavioral rules. These are decisions about HOW the

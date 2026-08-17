@@ -76,6 +76,12 @@ extension AppDelegate {
             isPaneAgentClassified: { [weak self] paneId, paneKind in
                 if paneKind == .agent { return true }
                 return self?.store.paneAtom.pane(paneId)?.metadata.contentType == .agent
+            },
+            recordSettledActivityStatus: { [weak self] paneId, lastOutputLine in
+                self?.atomStore.core.paneActivityStatus.recordSettledActivity(
+                    paneId: paneId,
+                    lastOutputLine: lastOutputLine
+                )
             }
         )
         Task { @MainActor [weak self] in

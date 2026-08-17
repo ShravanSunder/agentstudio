@@ -32,6 +32,7 @@ package final class CoreAtoms {
     package let transientKeyboardSurface: TransientKeyboardSurfaceAtom
     package let workspaceFocusOwner: WorkspaceFocusOwnerAtom
     package let sessionRuntime: SessionRuntimeAtom
+    package let paneActivityStatus: PaneActivityStatusAtom
     package let welcome: WelcomeAtom
 
     package init(
@@ -63,6 +64,7 @@ package final class CoreAtoms {
         transientKeyboardSurface: TransientKeyboardSurfaceAtom = .init(),
         workspaceFocusOwner: WorkspaceFocusOwnerAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init(),
+        paneActivityStatus: PaneActivityStatusAtom = .init(),
         welcome: WelcomeAtom = .init()
     ) {
         self.activeWorkspaceSelection = activeWorkspaceSelection
@@ -132,6 +134,7 @@ package final class CoreAtoms {
         self.transientKeyboardSurface = transientKeyboardSurface
         self.workspaceFocusOwner = workspaceFocusOwner
         self.sessionRuntime = sessionRuntime
+        self.paneActivityStatus = paneActivityStatus
         self.welcome = welcome
     }
 
