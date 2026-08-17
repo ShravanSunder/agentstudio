@@ -860,3 +860,76 @@ owner/orchestrator's next step per the done-gate ordering, not
 sidebar-finisher's. RC2/Todo 1's live acceptance is still blocked on the
 Ghostty C-API boundary documented above (`text_len == 0`); F3's ruling above
 does not change that separate live-acceptance blocker.
+
+## F1 final sweep (2026-08-17, HEAD 18bc7144f, fresh binary confirmed by owner)
+
+Aggregate GREEN per owner (230.24s, exit 0, `tmp-aggregate-f1.log`). This
+section is the one-build pixel/live sweep against the fresh binary (built
+from this exact HEAD, binary mtime 13:34+ vs commit 12:53:38). All
+screenshots under `tmp-screenshots/f1-final-sweep/`.
+
+**Fixture setup.** Reused the existing `tmp/chip-matrix-final-live/` fixture
+set (5 real git repos: `01-dirty` real dirty tree, `02-untracked` untracked
+file, `03-sync` ahead-1/behind-1 against a local bare origin, `04-clean`
+clean tree, `00-pr-agent-studio` pointed at the real
+`github.com/ShravanSunder/agentstudio` remote on branch
+`feat/sidebar-grouping-rows`, which has this round's real open PR #296).
+Registered via `AGENTSTUDIO_STARTUP_WATCH_FOLDER` pointed at the fixture
+parent directory. **Finding, not a code bug in scope this round:** the
+watch-folder scan hung indefinitely with the bare `sync-origin.git` present
+alongside the 5 working-tree repos; moving it out during the scan and back
+afterward worked around it. Worth a follow-up ticket if bare repos are a
+realistic watch-folder input, but out of scope for this remediation round.
+
+IPC recipe notes for future sweeps: `terminal.send`/`terminal.wait`/
+`pane.snapshot` take `{"handle": "pane:<uuid>", "input": ..., "condition":
+..., "timeoutSeconds": ...}` (not `paneId`/`text`/`timeoutMs` — corrected
+from an earlier round's notes). `PaneActivityStatusAtom`'s 10s leading-edge
+rate limit means two settles sent back-to-back on one pane will drop the
+second; wait >10s between settles you want to actually observe on L2.
+
+| Item | Verdict | Evidence |
+|---|---|---|
+| 1. By Repo unchanged | PASS | `08-byrepo-sidebar-zoom.png`, `34-icon-gap-zoom.png` — name/branch/chips rows for all 5 fixture repos |
+| 2. All Panes: grouped by repo, recency sort | PASS | `11-allpanes.png` (empty state, no panes yet); `24-l2-echo-allpanes.png`, `28-l2-ls-allpanes.png` (real pane rows, grouped) |
+| 3. By Tab: panes by tab, header = displayTitle + pane count, muted-primary icon | PASS | `12-bytab.png` (empty state); `30-l2-ls-zoom.png` — "IPC Smoke Terminal · 2 panes" header, blue/muted-primary tab icon |
+| 4. L1 bold "Pane n · title", fallback "Pane n · zsh" | PASS | `30-l2-ls-zoom.png` — "Pane 1 · zsh" (correct fallback vocabulary; no OSC title was set) |
+| 5. L2 real terminal content, ordinary shell activity | PASS (headline) | `30-l2-ls-zoom.png` — real `ls -la` output line `drwxr-xr-x@  - shravansunder 17 Aug 13:30...` rendered live on the sidebar row, driven end-to-end via IPC `terminal.send`("ls -la") → `terminal.wait`(commandFinished) → sidebar capture. This is the RC2 fix's live proof: the same `ipc-terminal-smoke` + cd-reassociation pane that previously hit the Ghostty `text_len == 0` read now renders real content. |
+| 6. L3 chips: PR / time ALWAYS / active only if focused | PASS (PR+time); see note (active) | `30-l2-ls-zoom.png`, `33-active-check-zoom.png` — time pill "5m" always present on both pane rows; neither row shows `●` active because this headless (`open -g`, no foreground steal) launch never makes the window key, so `KeyboardOwner.current(...)` never resolves to `.mainWindowChain` — this is F5's fix working as intended (the pre-fix tab-selection-only logic would have shown Pane 2 active regardless). Positive "●" pixel needs a foreground/key-window session, out of scope for a headless IPC sweep; covered live-equivalent by F5's automated `withTestCoreAtoms` test. |
+| 7. By Repo diff: dirty=+N-M, untracked-only, clean=none | PASS | `08-byrepo-sidebar-zoom.png` — `01-dirty`→`● +3 -2`, `02-untracked`→`● untracked`, `04-clean`→ no chip |
+| 8. By Repo sync: ↑N ↓M only if >0 | PASS | `08-byrepo-sidebar-zoom.png` — `03-sync`→`↑1 ↓1`; `04-clean`/`00-pr-agent-studio` show no sync chip (no upstream divergence) |
+| 9. By Repo PR: ⑂N whenever N>0, never disappears | PASS (real data) | `15-pr-chip-zoom.png` — `00-pr-agent-studio`→`⑂ 1`, live GitHub API result for the real open PR #296 on this exact branch |
+| 10. Toggle: 3 buttons, no borders, selected=accent icon+text+subtle fill, unselected=secondary icon only | PASS | `18-toggle-bytab-zoom.png`, `19-toggle-allpanes-zoom.png` — selected segment blue fill+icon+text, unselected segments plain secondary icons, no borders/outlines |
+| 11. Sort: rotation animates, stable identity | Not re-verified live this round | Unchanged by this remediation round; source-string tests in the existing suite (`chipRowsCarryNoTimelineDrivenAnimation`, toggle identity tests) remain green |
+| 12. Grouping mode persisted per window, restored on launch | PASS (live, cross-restart) | Set to "All Panes" (`14-allpanes-before-quit.png`), full app quit + relaunch, `local.sqlite` `repo_grouping_mode` read back `pane`, confirmed visually in `20-after-restart-allpanes.png` (toggle still shows "All Panes" immediately after restart, before any IPC calls) |
+| 13. Empty state per mode | PASS | `11-allpanes.png` ("No panes"), `12-bytab.png` ("No tabs") |
+| 14. Spacing rhythm identical across modes | PASS (visual) | Consistent row height/indent/chip position across `08-byrepo-sidebar-zoom.png`, `30-l2-ls-zoom.png` |
+| 15. Context menus/commands unchanged | Not touched this round | No source change in scope; existing menu tests remain green |
+| 16. All row facts cached reads; no per-row derivation/path strings | PASS | This is F6 itself — see F6 remediation section above; source-string guard test added |
+| 17. Icon-to-text gap identical (header vs row) | PASS (visual) | `34-icon-gap-zoom.png` — group-header chevron/icon-to-text gap visually matches row star/branch-icon-to-text gap |
+| 18. Chips row alignment: left, By Repo parity | PASS (visual) | `34-icon-gap-zoom.png` — chip pill's left edge aligns with the branch text's left edge above it |
+| 19. Pending PR bare glyph, disappears once known | PARTIAL — not caught live | Polled at 5s intervals from `auth.login`; PR fact for `00-pr-agent-studio` had already resolved to `⑂1` by the first poll (`10-pr-poll-0.png`) in every attempt, including a fresh instance capture at ~20-40s post-scan (`09-byrepo-pr-check1-zoom.png`, which shows neither a pending glyph nor a chip — genuinely empty, not caught mid-transition). The live GitHub round-trip is fast enough that this sweep could not pin the transient pending frame. Not a change introduced by this round; existing pixel/unit tests (`RepoExplorerWorktreeRowTests` "stale pull request metadata renders as a bare chip-height glyph") cover the rendering logic directly. |
+
+**Chip matrix (final gate).**
+
+| Matrix cell | Verdict | Evidence |
+|---|---|---|
+| By Repo diff: dirty +N-M | PASS | `08-byrepo-sidebar-zoom.png` (`01-dirty` → `● +3 -2`) |
+| By Repo diff: untracked-only | PASS | `08-byrepo-sidebar-zoom.png` (`02-untracked` → `● untracked`) |
+| By Repo diff: clean = none | PASS | `08-byrepo-sidebar-zoom.png` (`04-clean` → no chip) |
+| By Repo diff: unauthorized dot-alone `● changes` never appears | PASS | F7 fix; no fixture repo in this sweep can even reach that state anymore (case removed) |
+| By Repo sync: ↑N ↓M | PASS | `08-byrepo-sidebar-zoom.png` (`03-sync` → `↑1 ↓1`) |
+| By Repo sync: unknown/no-upstream = none | PASS | `08-byrepo-sidebar-zoom.png` (`04-clean`, `00-pr-agent-studio` → no sync chip) |
+| By Repo PR: ⑂N, N>0 | PASS (real) | `15-pr-chip-zoom.png` (`⑂ 1`, real PR #296) |
+| By Repo PR: stale bare glyph, prCount==nil | PARTIAL — see item 19 above | not caught live this sweep; existing test coverage unchanged |
+| All Panes pane row: PR/time/active | PASS (time); see item 6 (active) | `28-l2-ls-allpanes.png` |
+| By Tab pane row: PR/time/active | PASS (time); see item 6 (active) | `30-l2-ls-zoom.png` |
+| Universal: never a zero-value or dot-alone chip | PASS | No zero-value/dot-alone chip observed anywhere in this sweep; F7 removed the one reachable violating state |
+| Universal: left-aligned, chips-line leading x = L1/L2 leading x | PASS (visual) | `34-icon-gap-zoom.png` |
+| Universal: same pill style/sizing everywhere | PASS (visual) | consistent pill rendering across `08-byrepo-sidebar-zoom.png` and pane-row screenshots |
+| Universal: cached keyed reads, no per-row derivation | PASS | F6 |
+
+**Not captured this round (screen availability was not the blocker — the gaps are network-race and headless-window-focus limits, not lock state):**
+- Item 19 / stale-PR-matrix-cell transient pending glyph frame (GitHub round-trip resolved faster than the poll interval every attempt).
+- Item 6 positive "●" active glyph (requires a foreground/key window; this sweep ran fully headless via `open -g` per house rule against foreground stealing).
+- Item 11 sort-rotation animation and item 10's "no second reflow" claim (both need multi-frame/video capture, not single-shot screenshots; unchanged by this round, existing source-string tests still green).
