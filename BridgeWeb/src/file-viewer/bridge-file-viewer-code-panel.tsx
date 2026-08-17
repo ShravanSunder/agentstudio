@@ -291,7 +291,10 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			enableGutterUtility: true,
 			enableLineSelection: true,
 			onGutterUtilityClick: (range, context): void => admitSelectedRange(range, context.item.id),
-			onLineSelectionEnd: (range, context): void => retainSelectedRange(range, context.item.id),
+			onLineSelectionEnd: (range, context): void => {
+				if (range === null) admitSelectedRange(null, '');
+				else retainSelectedRange(range, context.item.id);
+			},
 			onPostRender: handleCodeViewPostRender,
 		}),
 		[admitSelectedRange, handleCodeViewPostRender, props.codeViewOptions, retainSelectedRange],

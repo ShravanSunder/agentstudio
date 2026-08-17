@@ -273,7 +273,10 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 				enableGutterUtility: true,
 				enableLineSelection: true,
 				onGutterUtilityClick: (range, context): void => admitSelectedRange(range, context.item),
-				onLineSelectionEnd: (range, context): void => retainSelectedRange(range, context.item.id),
+				onLineSelectionEnd: (range, context): void => {
+					if (range === null) admitSelectedRange(null, null);
+					else retainSelectedRange(range, context.item.id);
+				},
 			}) satisfies CodeViewOptions<undefined>,
 		[admitSelectedRange, props.codeViewOptions, retainSelectedRange],
 	);
