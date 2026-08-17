@@ -24,7 +24,12 @@ TOOLBAR
 10 toggle: 3 buttons, NO borders/outlines anywhere. Selected segment =
    accentColor ICON + its TEXT label ("By Repo"/"All Panes"/"By Tab") in
    accentColor + subtle standard fill. Unselected = secondary icon only,
-   no text. Tooltips all three.
+   no text. Tooltips all three. On selection, the fill, icon color, and one
+   continuous segment-width interpolation happen first. The selected text
+   then fades and slides in after that transition; it never appears at full
+   opacity in the selection-change frame. Neighbor segments must interpolate
+   smoothly without a second reflow, pop, flicker, or toggle-subtree identity
+   churn during projection updates.
 11 sort: rotation animates, no flicker (stable identity; inbox works).
 
 BEHAVIOR

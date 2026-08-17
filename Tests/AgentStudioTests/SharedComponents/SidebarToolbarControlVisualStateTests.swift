@@ -30,6 +30,19 @@ struct SidebarToolbarControlVisualStateTests {
         #expect(!source.contains("ChromeToolbarControlPalette.strokeColor"))
     }
 
+    @Test("selected label reveal follows the segment geometry transition")
+    func selectedLabelRevealFollowsSegmentGeometryTransition() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift",
+            encoding: .utf8
+        )
+
+        #expect(source.contains("selectedLabelInsertionTransition"))
+        #expect(source.contains("selectedLabelRemovalTransition"))
+        #expect(source.contains("labelRevealDelay"))
+        #expect(source.contains(".combined(with: .opacity)"))
+    }
+
     @Test("segmented control renders typed mode-name tooltips")
     func segmentedControlRendersTypedModeNameTooltips() throws {
         let controlSource = try String(

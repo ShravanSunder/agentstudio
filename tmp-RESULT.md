@@ -15,7 +15,7 @@ Status: PASS. All 19 contract items and every applicable final chip-matrix cell 
 | 7 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png` | PASS — real dirty `01-dirty` renders `● +2 -1`; `02-untracked` renders `● untracked`; `04-clean` has no diff chip. |
 | 8 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png` | PASS — real divergent `03-sync` renders `↑1 ↓1`; no zero or unknown sync chip is present elsewhere. |
 | 9 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png`; `tmp-screenshots/contract-final/42-chip-matrix-final-all-panes.png`; `tmp-screenshots/contract-final/35-chip-matrix-by-tab.png`; `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerWorktreeRowTests.swift` | PASS — real open PR #296 materializes as `⑂1` in By Repo, All Panes, and By Tab; mounted positive-count automated proof is green. |
-| 10 | `tmp-screenshots/contract-final/36-toggle-by-repo-frame-1.png`; `36-toggle-by-repo-frame-2.png`; `36-toggle-by-repo-frame-3.png`; `36-toggle-by-repo-settled.png`; corresponding `37-toggle-all-panes-*` and `38-toggle-by-tab-*` files | PASS — all three settled selections have accent icon plus accent label, no border; frame sequences show stable fill/icon transition followed by delayed soft label reveal. |
+| 10 | `tmp-screenshots/contract-final/toggle-burst/repo-to-pane-frame-00.png` through `repo-to-pane-frame-14.png`; `pane-to-tab-frame-00.png` through `pane-to-tab-frame-14.png`; both `*-detail-sheet.png` contact sheets; `SidebarToolbarControlVisualStateTests.swift` | PASS — two PID/window-ID-bound 15-frame bursts on the merged build prove one geometry transaction followed by the delayed label reveal. Repo→pane: 00–03 settled By Repo; 04 outgoing-label fade and width change begins; 05 neighbor interpolation continues; 06–07 pane fill/accent icon complete with incoming text still absent; 08 `All Panes` is partial-opacity/offset; 09–14 fully settled. Pane→tab: 00–02 settled All Panes; 03 outgoing fade begins; 04–05 width/fill and neighbor positions interpolate; 06 tab fill/accent icon is complete with no label; 07 `By Tab` is partial-opacity/offset; 08–14 fully settled. No frame paints incoming text fully in the selection-change frame, no segment double-jumps, and sort/other toolbar items remain pixel-stable. Stable `ForEach` segment identity is retained and the focused red/green transition test passes. |
 | 11 | `tmp-screenshots/contract-final/39-sort-ascending.png`; `40-sort-frame-1.png`; `40-sort-frame-2.png`; `40-sort-descending.png` | PASS — one stable sort-button identity rotates without disappearance or flicker. |
 | 12 | `tmp-screenshots/contract-final-merged/01-by-repo-settled.png`; `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerViewTests.swift` | PASS — window-scoped grouping selection restores on relaunch and remains covered by the persistence suite. |
 | 13 | `tmp-screenshots/contract-final/30-empty-by-repo.png`; `31-empty-all-panes.png`; `32-empty-by-tab.png` | PASS — true `No repositories`, `No panes`, and `No tabs` states are captured without a search filter; pane empties were reached after semantic pane closure. |
@@ -26,12 +26,33 @@ Status: PASS. All 19 contract items and every applicable final chip-matrix cell 
 | 18 | `tmp-screenshots/contract-final/44-alignment-by-repo-x21.png`; `45-alignment-all-panes-x27.png`; `46-alignment-by-tab-x27.png` | PASS — measured guides intersect each representative row's L1/L2/L3 leading edge: source x=21 px in the By Repo hierarchy and source x=27 px in both pane hierarchies; within-row delta is 0 px. |
 | 19 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png`; `44-alignment-by-repo-x21.png` | PASS — stale rows end with a quiet bare hollow SF Symbol, separate from the pill facts, with no pill/background/border; refreshing remains deferred. |
 
+### Item 10 burst frame inspection
+
+| Frame | Repo → All Panes | All Panes → By Tab |
+|---:|---|---|
+| 00 | Settled By Repo baseline. | Settled All Panes baseline. |
+| 01 | Settled By Repo baseline. | Settled All Panes baseline. |
+| 02 | Settled By Repo baseline. | Settled All Panes baseline. |
+| 03 | Settled By Repo baseline. | Outgoing `All Panes` opacity starts decreasing; geometry begins. |
+| 04 | Outgoing `By Repo` opacity decreases; pane segment starts widening. | Outgoing label fades further; tab icon moves left continuously as its segment widens. |
+| 05 | Repo segment contracts and pane segment widens in the same interpolation; no incoming label. | Tab fill/width continues to interpolate; no incoming label. |
+| 06 | Pane fill and accent icon are selected; incoming label remains absent. | Tab fill and accent icon are selected; incoming label remains absent. |
+| 07 | Pane geometry is complete; incoming label remains absent. | `By Tab` begins at partial opacity with the insertion offset. |
+| 08 | `All Panes` begins at partial opacity with the insertion offset. | `By Tab` reaches full opacity; geometry does not move again. |
+| 09 | `All Panes` reaches full opacity; geometry does not move again. | Settled By Tab. |
+| 10 | Settled All Panes. | Settled By Tab. |
+| 11 | Settled All Panes. | Settled By Tab. |
+| 12 | Settled All Panes. | Settled By Tab. |
+| 13 | Settled All Panes. | Settled By Tab. |
+| 14 | Settled All Panes; no toolbar flicker. | Settled By Tab; no toolbar flicker. |
+
 ## Current gates
 
-- Focused: `mise run test:swift -- --filter "RepoExplorerWorktreeRowTests|RepoExplorerPaneProjectionTests|RepoExplorerViewTests|RepoExplorerViewProjectionHelperTests"` — exit 0; 76 tests in 4 suites.
+- Focused item 10: `mise run test:swift -- --filter "SidebarToolbarControlVisualStateTests"` — exit 0; 6 tests in 1 suite, including the red/green delayed-label transition contract.
+- Prior focused sidebar projection gate: `mise run test:swift -- --filter "RepoExplorerWorktreeRowTests|RepoExplorerPaneProjectionTests|RepoExplorerViewTests|RepoExplorerViewProjectionHelperTests"` — exit 0; 76 tests in 4 suites.
 - Lint: `mise run lint` — exit 0; swift-format, SwiftLint (0 violations in 2,056 files), architecture lint, and release checks passed.
-- Full aggregate: `SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise run test` — exit 0 in 268.72 seconds.
-- Runtime: exact merged-build LaunchServices PID `91548`, marker `debug-observability-jp6s-1786923595-88937`; detached/background-only capture; PID terminated with TERM after evidence.
+- Full aggregate: `SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise run test` — exit 0 in 215.12 seconds on the item-10 fix.
+- Runtime: exact merged-build LaunchServices PID `63971`, marker `debug-observability-jp6s-1786925576-63062`; Peekaboo mapped the PID to on-screen window `106078`; grouping changes used authenticated read-back; capture remained detached/background-only; PID terminated with TERM after evidence.
 
 ## CHIP MATRIX (final gate)
 

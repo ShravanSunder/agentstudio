@@ -186,6 +186,10 @@ package enum AppStyles {
                 package static let groupingHorizontalPadding = AppStyles.General.Spacing.standard
                 package static let groupingLabelMinimumWidth: CGFloat = 32
                 package static let groupingChevronSize: CGFloat = 8
+                package static let selectionTransitionDuration = AppStyles.General.Animation.standard
+                package static let labelRevealDelay = selectionTransitionDuration
+                package static let labelRevealDuration = AppStyles.General.Animation.fast
+                package static let labelSlideDistance = AppStyles.General.Spacing.tight
                 package static let dividerHeight: CGFloat = 16
                 package static let popoverRowCornerRadius = AppStyles.General.CornerRadius.button
                 package static let popoverRowHorizontalPadding = AppStyles.General.Spacing.standard

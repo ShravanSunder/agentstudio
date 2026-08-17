@@ -71,6 +71,12 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                                     .trailing,
                                     AppStyles.Shell.Sidebar.ToolbarControl.groupingHorizontalPadding
                                 )
+                                .transition(
+                                    .asymmetric(
+                                        insertion: selectedLabelInsertionTransition,
+                                        removal: selectedLabelRemovalTransition
+                                    )
+                                )
                         }
                     }
                     .fixedSize(horizontal: true, vertical: false)
@@ -84,7 +90,32 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                 .controlHelp(segment.tooltipValue)
             }
         }
-        .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: selection)
+        .animation(
+            .easeInOut(
+                duration: AppStyles.Shell.Sidebar.ToolbarControl.selectionTransitionDuration
+            ),
+            value: selection
+        )
+    }
+
+    private var selectedLabelInsertionTransition: AnyTransition {
+        AnyTransition.offset(
+            x: -AppStyles.Shell.Sidebar.ToolbarControl.labelSlideDistance,
+            y: 0
+        )
+        .combined(with: .opacity)
+        .animation(
+            .easeOut(
+                duration: AppStyles.Shell.Sidebar.ToolbarControl.labelRevealDuration
+            )
+            .delay(AppStyles.Shell.Sidebar.ToolbarControl.labelRevealDelay)
+        )
+    }
+
+    private var selectedLabelRemovalTransition: AnyTransition {
+        .opacity.animation(
+            .easeOut(duration: AppStyles.General.Animation.fast)
+        )
     }
 }
 
