@@ -180,7 +180,9 @@ struct RepoExplorerWorktreeRowTests {
         // item it must supply the same compensating inset the row-level guide assumes every leading
         // chip pill provides; when a diff/sync chip already precedes it, no extra inset is added.
         #expect(rowSource.contains("private var isFirstChipsLineItem: Bool"))
-        let glyphUsageStart = try #require(rowSource.range(of: "if branchStatus.prCount == nil {"))
+        let glyphUsageStart = try #require(
+            rowSource.range(of: "if branchStatus.prCount == nil && !branchStatus.pullRequestDataUnavailable {")
+        )
         let glyphUsageEnd = try #require(
             rowSource.range(of: "} else if let prCount", range: glyphUsageStart.upperBound..<rowSource.endIndex)
         )
@@ -189,6 +191,35 @@ struct RepoExplorerWorktreeRowTests {
         #expect(glyphUsageSource.contains(".padding("))
         #expect(glyphUsageSource.contains("isFirstChipsLineItem"))
         #expect(glyphUsageSource.contains("AppStyles.Shell.Sidebar.chipHorizontalPadding"))
+    }
+
+    @Test("resolved-unavailable pull request state renders neither the pending glyph nor a chip")
+    func resolvedUnavailablePullRequestStateRendersNoGlyphAndNoChip() {
+        let pendingStillLoading = GitBranchStatus(
+            isDirty: false,
+            syncState: .synced,
+            prCount: nil,
+            pullRequestDataUnavailable: false,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+        let terminallyUnavailable = GitBranchStatus(
+            isDirty: false,
+            syncState: .synced,
+            prCount: nil,
+            pullRequestDataUnavailable: true,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+
+        // Genuinely pending (still waiting on the first forge query) keeps
+        // showing the pending signal so the row honestly reflects in-flight work.
+        #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: pendingStillLoading))
+        // Resolved-unavailable (no remote, or repeated failures past the
+        // honesty threshold) must never render as still-pending.
+        #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: terminallyUnavailable))
     }
 
     @Test("pane trailing metadata suppresses zero pull requests")

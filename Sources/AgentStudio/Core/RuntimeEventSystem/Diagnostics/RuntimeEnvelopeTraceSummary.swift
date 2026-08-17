@@ -487,6 +487,8 @@ extension ForgeEvent {
             return "forge.pullRequestBranchesInvalidated"
         case .pullRequestRepositoryInvalidated:
             return "forge.pullRequestRepositoryInvalidated"
+        case .pullRequestsUnavailable:
+            return "forge.pullRequestsUnavailable"
         case .checksUpdated:
             return "forge.checksUpdated"
         case .refreshFailed:

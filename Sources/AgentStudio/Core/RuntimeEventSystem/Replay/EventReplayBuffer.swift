@@ -334,6 +334,8 @@ package final class EventReplayBuffer {
                 }
         case .pullRequestRepositoryInvalidated:
             return 24
+        case .pullRequestsUnavailable:
+            return 24
         case .checksUpdated:
             return 32
         case .refreshFailed(_, let error):

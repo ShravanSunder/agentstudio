@@ -369,8 +369,8 @@ struct ForgeActorAdmissionEdgeTests {
         await fixture.stopObserving()
     }
 
-    @Test("origin loss and repository removal each invalidate repository facts")
-    func originLossAndRepositoryRemovalInvalidateFacts() async {
+    @Test("origin loss resolves to terminal unavailable; repository removal separately invalidates facts")
+    func originLossResolvesUnavailableAndRepositoryRemovalInvalidatesFacts() async {
         let fixture = await ForgeActorFixture.make()
         let repoId = UUIDv7.generate()
         let worktreeId = UUIDv7.generate()
@@ -386,13 +386,129 @@ struct ForgeActorAdmissionEdgeTests {
                 )
             )
         )
-        #expect(await fixture.events.waitForRepositoryInvalidation(repoId: repoId))
-        #expect(await fixture.events.repositoryInvalidationCount(repoId: repoId) == 1)
+        // Losing a previously known origin is a terminal "no data is coming"
+        // outcome, not a mid-flight invalidation: no automatic query can ever
+        // fire again with no origin, so the repo must resolve unavailable
+        // rather than fall back to an eternal pending state.
+        #expect(await fixture.events.waitForPullRequestsUnavailable(repoId: repoId))
+        #expect(await fixture.events.pullRequestsUnavailableCount(for: repoId) == 1)
+        #expect(await fixture.events.repositoryInvalidationCount(repoId: repoId) == 0)
 
         await fixture.actor.removeRepository(repo: repoId)
-        #expect(await fixture.events.waitForRepositoryInvalidationCount(repoId: repoId, expectedCount: 2))
+        #expect(await fixture.events.waitForRepositoryInvalidationCount(repoId: repoId, expectedCount: 1))
         await fixture.actor.shutdown()
         await fixture.stopObserving()
+    }
+
+    @Test("a worktree that never resolves an origin terminates as unavailable without ever querying")
+    func repositoryWithoutOriginNeverQueriesAndResolvesUnavailable() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+
+        await fixture.actor.register(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: URL(fileURLWithPath: "/tmp/acme-no-remote"),
+            branch: "main"
+        )
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        _ = await fixture.bus.post(
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(.originUnavailable(repoId: repoId)),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                )
+            )
+        )
+        // This is the reported bug: a repo that NEVER had an origin (first
+        // encounter, no prior ForgeActor state) must still resolve to
+        // unavailable exactly once, not silently stay pending forever.
+        #expect(await fixture.events.waitForPullRequestsUnavailable(repoId: repoId))
+        #expect(await fixture.events.pullRequestsUnavailableCount(for: repoId) == 1)
+
+        fixture.advance(by: .seconds(600))
+        await Task.yield()
+        #expect(await fixture.provider.callCount == 0)
+        #expect(await fixture.events.pullRequestsUnavailableCount(for: repoId) == 1)
+
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
+    @Test("repeated provider failures resolve to unavailable only after crossing the honesty threshold")
+    func repeatedFailuresResolveUnavailableAfterHonestyThreshold() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/unstable")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        await fixture.provider.resolve(callAt: 0, with: .failed(message: "offline"))
+        #expect(await fixture.events.waitForRefreshFailureCount(repoId: repoId, expectedCount: 1))
+        #expect(await fixture.events.pullRequestsUnavailableCount(for: repoId) == 0)
+
+        await fixture.clock.waitForPendingSleepCount(atLeast: 1)
+        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffBaseDelay)
+        #expect(await fixture.provider.waitForCallCount(2))
+        await fixture.provider.resolve(callAt: 1, with: .failed(message: "offline"))
+        #expect(await fixture.events.waitForRefreshFailureCount(repoId: repoId, expectedCount: 2))
+        #expect(await fixture.events.pullRequestsUnavailableCount(for: repoId) == 0)
+
+        await fixture.clock.waitForPendingSleepCount(atLeast: 1)
+        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffDelay(forConsecutiveFailureCount: 2))
+        #expect(await fixture.provider.waitForCallCount(3))
+        await fixture.provider.resolve(callAt: 2, with: .failed(message: "offline"))
+        #expect(await fixture.events.waitForRefreshFailureCount(repoId: repoId, expectedCount: 3))
+        // Crossing AppPolicies.Forge.consecutiveFailureHonestyThreshold (3) on
+        // the 3rd consecutive failure resolves the row to unavailable.
+        #expect(await fixture.events.waitForPullRequestsUnavailable(repoId: repoId))
+        #expect(await fixture.events.pullRequestsUnavailableCount(for: repoId) == 1)
+
+        // Bounded retries keep running at the normal backoff cadence.
+        await fixture.clock.waitForPendingSleepCount(atLeast: 1)
+        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffDelay(forConsecutiveFailureCount: 3))
+        #expect(await fixture.provider.waitForCallCount(4))
+        let recoveryURL = URL(string: "https://github.com/acme/studio/pull/9")!
+        await fixture.provider.resolve(
+            callAt: 3,
+            with: .complete([
+                ForgePullRequest(headRefName: "feature/unstable", url: recoveryURL)
+            ])
+        )
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/unstable",
+                expected: PullRequestFacts(openCount: 1, exactOpenURL: recoveryURL)
+            )
+        )
+        // Exactly one unavailable emission across the whole failure→recovery cycle.
+        #expect(await fixture.events.pullRequestsUnavailableCount(for: repoId) == 1)
+
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+}
+
+extension ObservedForgeEvents {
+    func pullRequestsUnavailableCount(for repoId: UUID) -> Int {
+        recordedEvents.count { event in
+            guard case .pullRequestsUnavailable(let eventRepoId) = event else { return false }
+            return eventRepoId == repoId
+        }
+    }
+
+    func waitForPullRequestsUnavailable(repoId: UUID, maxTurns: Int = 500) async -> Bool {
+        for _ in 0..<maxTurns {
+            if pullRequestsUnavailableCount(for: repoId) > 0 { return true }
+            await Task.yield()
+        }
+        Issue.record("Expected Forge pull requests unavailable for repoId=\(repoId)")
+        return false
     }
 }
 

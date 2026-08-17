@@ -649,6 +649,8 @@ final class WorkspaceCacheCoordinator {
             )
         case .pullRequestRepositoryInvalidated(let repoId):
             repoCache.removePullRequestFacts(forRepository: repoId)
+        case .pullRequestsUnavailable(let repoId):
+            repoCache.markPullRequestsUnavailable(forRepository: repoId)
         case .refreshFailed(let repoId, let error):
             Self.logger.error(
                 "Forge refresh failed for repoId=\(repoId.uuidString, privacy: .public): \(error, privacy: .public)"

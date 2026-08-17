@@ -13,6 +13,12 @@ package struct GitBranchStatus: Equatable, Sendable {
     package let isDirty: Bool
     package let syncState: SyncState
     package let prCount: Int?
+    /// True when this branch's repository has a resolved, terminal absence
+    /// of pull request data (no GitHub remote, or provider queries have
+    /// failed past the forge honesty threshold). Distinguishes "we haven't
+    /// heard back yet" (`prCount == nil` alone) from "no data is coming",
+    /// so consumers stop rendering a pending indicator for the latter.
+    package let pullRequestDataUnavailable: Bool
     package let linesAdded: Int
     package let linesDeleted: Int
     package let untrackedFileCount: Int
@@ -21,6 +27,7 @@ package struct GitBranchStatus: Equatable, Sendable {
         isDirty: false,
         syncState: .unknown,
         prCount: nil,
+        pullRequestDataUnavailable: false,
         linesAdded: 0,
         linesDeleted: 0,
         untrackedFileCount: 0
@@ -30,6 +37,7 @@ package struct GitBranchStatus: Equatable, Sendable {
         isDirty: Bool,
         syncState: SyncState,
         prCount: Int?,
+        pullRequestDataUnavailable: Bool = false,
         linesAdded: Int,
         linesDeleted: Int,
         untrackedFileCount: Int
@@ -37,6 +45,7 @@ package struct GitBranchStatus: Equatable, Sendable {
         self.isDirty = isDirty
         self.syncState = syncState
         self.prCount = prCount
+        self.pullRequestDataUnavailable = pullRequestDataUnavailable
         self.linesAdded = linesAdded
         self.linesDeleted = linesDeleted
         self.untrackedFileCount = untrackedFileCount
@@ -44,7 +53,8 @@ package struct GitBranchStatus: Equatable, Sendable {
 
     package static func merge(
         worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
-        pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts]
+        pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts],
+        unavailablePullRequestRepoIds: Set<UUID> = []
     ) -> [UUID: Self] {
         var mergedByWorktreeId: [UUID: Self] = [:]
         mergedByWorktreeId.reserveCapacity(worktreeEnrichmentsByWorktreeId.count)
@@ -54,7 +64,8 @@ package struct GitBranchStatus: Equatable, Sendable {
                 .flatMap { pullRequestFactsByBranch[$0] }
             mergedByWorktreeId[worktreeId] = status(
                 enrichment: enrichment,
-                pullRequestFacts: pullRequestFacts
+                pullRequestFacts: pullRequestFacts,
+                pullRequestDataUnavailable: unavailablePullRequestRepoIds.contains(enrichment.repoId)
             )
         }
 
@@ -63,13 +74,15 @@ package struct GitBranchStatus: Equatable, Sendable {
 
     package static func status(
         enrichment: WorktreeEnrichment?,
-        pullRequestFacts: PullRequestFacts?
+        pullRequestFacts: PullRequestFacts?,
+        pullRequestDataUnavailable: Bool = false
     ) -> Self {
         guard let enrichment else {
             return Self(
                 isDirty: Self.unknown.isDirty,
                 syncState: Self.unknown.syncState,
                 prCount: pullRequestFacts?.openCount,
+                pullRequestDataUnavailable: pullRequestDataUnavailable,
                 linesAdded: Self.unknown.linesAdded,
                 linesDeleted: Self.unknown.linesDeleted,
                 untrackedFileCount: Self.unknown.untrackedFileCount
@@ -114,6 +127,7 @@ package struct GitBranchStatus: Equatable, Sendable {
             isDirty: isDirty,
             syncState: syncState,
             prCount: pullRequestFacts?.openCount,
+            pullRequestDataUnavailable: pullRequestDataUnavailable,
             linesAdded: summary?.linesAdded ?? 0,
             linesDeleted: summary?.linesDeleted ?? 0,
             untrackedFileCount: summary?.untracked ?? 0

@@ -172,6 +172,12 @@ package enum ForgeEvent: Sendable {
     case pullRequestsChanged(repoId: UUID, factsByBranch: [String: PullRequestFacts])
     case pullRequestBranchesInvalidated(repoId: UUID, branches: Set<String>)
     case pullRequestRepositoryInvalidated(repoId: UUID)
+    /// Terminal resolution: this repository's pull request data will not
+    /// arrive automatically, either because it has no resolvable remote or
+    /// because provider queries have failed past the honesty threshold.
+    /// Consumers must stop presenting a pending/loading state for this repo
+    /// until a subsequent origin change or successful query clears it.
+    case pullRequestsUnavailable(repoId: UUID)
     case checksUpdated(repoId: UUID, status: ForgeChecksStatus)
     case refreshFailed(repoId: UUID, error: String)
     case rateLimited(repoId: UUID, retryAfterSeconds: Int?)
