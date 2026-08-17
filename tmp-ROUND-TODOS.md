@@ -3,11 +3,13 @@
 | # | Item | Owner | Status |
 |---|------|-------|--------|
 | A | Toggle selected ICON accent (#409CFF), pixel-proven | sidebar-finisher | done (commit 1c6a45e7e; pixel test AppEntityIconTests) |
-| B/1 | L2 real terminal output: status-fact split (keyed slots, equal-write suppression, 10s per-pane update cadence, timerless), live-proven in observed pane | sidebar-finisher | in progress |
+| B/1 | L2 real terminal output: status-fact split (keyed slots, equal-write suppression, 10s per-pane update cadence, timerless) | sidebar-finisher | code + unit/integration tests done (commit 7e17fe875); live acceptance BLOCKED — see RC2 row |
+| RC2 | commandFinished admitted as second settle-evidence source (Contract 7) so attended/fast-completing commands settle without scrollbar bursts | sidebar-finisher | code + unit/integration tests done (commits d4f477e98, 7fed04fbd — learned prompt signature, owner-ratified option 3, replaces the isBarePromptLine-only heuristic); live acceptance STILL not proven — settle pipeline confirmed to run end-to-end via corrected telemetry signal (inbox.decision attributes on eventbus.deliver, not the misleading terminal.activity.observed marker), but sidebar still shows stale content. Root cause not yet pinned down; three candidate explanations recorded in tmp-RESULT.md. |
 | 3 | PR chip parity: ONE glyph AND ONE COLOR everywhere (owner: color not fixed yet) — single shared chip spec (glyph + product accent token, not .accentColor vs octicon mix) | sidebar-finisher | done (commit c7295bb13; SidebarPullRequestChipSpec + pixel test) |
 | 4 | Toggle selected fill = shared accent token (match Zoom pill family, intensity via opacity tokens) | sidebar-finisher | done (commit d6ce6fdcd; ChromeToolbarControlPalette.fillColor wired for selected state) |
-| 2 | Forge-lane honesty: every outcome terminal; no-remote → no glyph; failure → backoff then nothing; pending only while fetch genuinely expected | forge-fixer | dispatching |
-| 2b | Forge update cadence: PR-count refresh at most once per 3 MINUTES per repo/branch (owner policy; AppPolicies constant; verify what the system does today and enforce) | forge-fixer | dispatching |
+| 2 | Forge-lane honesty: every outcome terminal; no-remote → no glyph; failure → backoff then nothing; pending only while fetch genuinely expected | forge-fixer | merged (commits 111e570ca, f8a15fe7f via feat/forge-honesty → 6f94ce855); projection re-render wiring completed by sidebar-finisher (commit 28b7ebd53: unavailablePullRequestRepoIds threaded through scopedChange + RepoExplorerProjectionRequestKey admission gates so the transition isn't silently skipped); live acceptance (no-remote/detached-HEAD fixtures render no glyph) still rides the final sweep |
+| 2b | Forge update cadence: PR-count refresh at most once per 3 MINUTES per repo/branch (owner policy; AppPolicies constant; verify what the system does today and enforce) | forge-fixer | merged via feat/forge-honesty (see #2) |
+| 5 | Unify second-line rendering: extend SidebarMetadataLine for octicon support, replace RepoExplorerWorktreeRow's hand-rolled branch/placement HStacks, sweep for other hand-rolled second-line `.foregroundStyle(.secondary)` usages | sidebar-finisher | done (commit 0f4b84532; 29+575 tests green incl. source-pinning tests; sweep found no other genuine duplicates — remaining `.foregroundStyle(.secondary)` sites are a different visual role: stale-PR-chip glyph, status/loading banners, empty-state view) |
 
 Gate: all items land → full aggregate + lint → merged build → pixel validation (orchestrator) → owner review. #296 stays draft until owner approves.
 
@@ -20,6 +22,17 @@ Gate: all items land → full aggregate + lint → merged build → pixel valida
 3. Orchestrator pixel validation on the built app (icon color sampled, alignment
    measured, L2 live-typed proof, no eternal pending).
 4. ONLY THEN owner review of #296. No merge without owner approval.
+
+## Full aggregate (2026-08-17, after commits 28b7ebd53 + 0f4b84532)
+
+`SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise
+run test` — exit 0, 226.73s. Covers Swift lint + architecture lint, BridgeWeb
+lint/typecheck/unit/integration/browser/Vite E2E, packaged BridgeWeb build,
+Swift non-serialized + serialized WebKit + E2E serialized tests. Done-gate step
+1 (finisher completes stack + aggregate green) satisfied for everything on the
+stack except RC2/Todo 1's live acceptance (blocked, reported to owner) and the
+forge no-remote/detached-HEAD live acceptance (rides this same sweep once
+unblocked).
 
 ## Binary-freshness gate (added 2026-08-17 after two stale-binary incidents)
 Before ANY visual validation or owner presentation: verify the running bundle

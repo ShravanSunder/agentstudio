@@ -262,3 +262,327 @@ CommandBar/ProcessExecutor test files, unchanged from prior rounds).
   `round2-02-settled/`, `round2-03-bytab-check/`, `round2-04-bytab-retry/`
 - Todo 3 pixel test: `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerWorktreeRowTests.swift`
 - Todo 4 live evidence: `tmp-screenshots/item-proofs/round2-05-todo4-evidence.png`
+
+## 2026-08-17 — RC2 (commandFinished settle evidence), forge merge + projection wiring, Todo 5
+
+### RC2 — commandFinished admitted as second settle-evidence source (commit `d4f477e98`)
+
+`TerminalActivityRouter.consume(_:)` now routes `.commandFinished` bus events to a
+new `TerminalActivityProjector.commandFinished(surfaceID:paneID:)`, regardless of
+attention state. It closes any open unseen-scrollbar window immediately (no
+waiting out the remaining debounce) or, if no scrollbar window was open,
+synthesizes a minimal zero-row `TerminalSettledActivity` carrying only the
+resolved last-output-line, so a pane with zero scrollbar signal still reaches
+the existing settle path (status-fact write, notification lane, and all of
+that lane's suppression rules) unchanged. This follows Contract 7: raw
+`commandFinished` action → typed admission at the router → one settle emission
+per command, no per-keystroke work.
+
+Proof: `TerminalActivityProjectorTests` (3 new tests: closes an open scrollbar
+window early, synthesizes a settle when no window was open, no-op when neither
+a window nor a resolvable last-output-line exists) and an end-to-end
+`TerminalActivityRouterTests` integration test
+(`commandFinishedBusEventSettlesPaneWithZeroScrollbarEvents`) proving a pane
+that never accumulated scrollbar rows still settles on `commandFinished` alone.
+`mise run test:swift -- --filter "TerminalActivityProjectorTests|
+TerminalActivityRouterTests"` — green.
+
+### RC2 + Todo 1 live acceptance — BLOCKED, root cause pinned to a specific pre-existing function
+
+Rebuilt HEAD, launched debug (`AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1`), and
+drove the live app through its own authenticated IPC socket
+(`terminal.send` + `terminal.wait(condition: "commandFinished")`) rather than
+synthetic Peekaboo keystrokes — the shared machine currently has four
+concurrent AgentStudio processes (`stable`, `oe9o`, `1owk`, this session's
+`jp6s`), and an early Peekaboo attempt silently landed keystrokes on a
+different process because OS key-window focus belonged to `oe9o`, not `jp6s`
+(`osascript` confirmed `frontmost` was `oe9o`'s PID). IPC drives the target
+pane by its own socket, independent of window focus, and removes that
+ambiguity entirely.
+
+Confirmed via VictoriaLogs, scoped to this run's exact marker: `terminal.send`
+accepted, `terminal.wait(commandFinished)` returned `exitCode: 0` within the
+timeout, `ghostty.action.translated: commandFinished` fired, `eventbus.deliver`
+shows `TerminalActivityRouter` consumed it, and `terminal.activity.observed`
+fired immediately after — the whole RC2 admission chain genuinely worked, on
+two different panes across two fresh app launches. But the sidebar row's L2
+text never showed the echoed content; it stayed on the generic `output
+activity` fallback (`InboxNotificationAtom.genericPaneActivityText`), meaning
+`PaneActivityStatusAtom`'s write and the pre-existing inbox-body fallback both
+came up empty.
+
+Root cause, confirmed against the real Swift function (not just reasoning):
+`TerminalLastOutputLineContract.isBarePromptLine`
+(`Sources/AgentStudio/Features/Terminal/Routing/TerminalLastOutputLineContract.swift:36-38`)
+classifies a line as a bare prompt only when it contains **zero letters or
+digits**. This repo's own dev shell prompt is oh-my-zsh-style and embeds real
+text — `➜  chip-matrix-final-live (⑂ feat/sidebar-grouping-rows) ` — so it is
+never recognized as a prompt and is read as real output instead:
+
+```
+rawViewportText = "AGENTSTUDIO_L2_ACTIVE_PROOF_28b7ebd53\n➜  chip-matrix-final-live (⑂ feat/sidebar-grouping-rows) "
+TerminalLastOutputLineContract.contractedLastLine(fromRawViewportText: rawViewportText)
+  == "➜  chip-matrix-final-live (⑂ feat/sidebar-grouping-rows)"   // the prompt, not the echoed line above it
+```
+
+Downstream, `TerminalActivityProjector.resolveLastOutputLine`
+(`TerminalActivityProjector.swift:615-623`) suppresses a candidate that's
+unchanged from the pane's previous settle. Since this repo's prompt text is
+identical across every settle for a given pane (same directory, same branch),
+the first settle after boot consumes that (wrong) candidate, and every
+subsequent real command's settle produces the exact same wrong candidate —
+suppressed as "unchanged" forever. A fresh-boot screenshot caught this
+mid-flight: right after the very first post-boot settle, one pane's L2 line
+genuinely showed `➜  chip-matrix-final-live (⑂ feat/sidebar-grouping-rows)`
+(the misclassified prompt, not the fallback) before later settling back to the
+generic fallback text once the suppression kicked in on repeat writes with an
+already-consumed candidate.
+
+This bug pre-dates both RC2 and this round: `TerminalLastOutputLineContract.swift`
+was introduced in `e37bf41f0` ("Surface real terminal output in inbox
+notification bodies", merged into this branch as item 5 above), and it is also
+the read path for the pre-existing scrollbar-settle notification-body feature
+(`TerminalActivityProjector.swift:569,596`), not just RC2's new path. It fully
+explains item 5's standing "live capture ... is blocked" note above — nothing
+before RC2 reliably reached this exact "fast, single-line command, back to an
+identical prompt" shape in a way that exposed it. **Known limitation, not a
+blocker of this round's own code**: RC2 and Todo 1 are proven correct at the
+unit/integration level, and their live acceptance is blocked by this one
+pre-existing function, not by anything RC2/Todo 1 introduced. No fix was
+applied here — two directions were identified (narrow text-heuristic
+improvement to `isBarePromptLine`, vs. a semantic fix using Ghostty's OSC133
+shell-integration prompt boundary instead of raw-text guessing) and handed to
+team-lead for a fix-direction decision rather than picked unilaterally.
+
+### Forge merge + projection wiring (merge `6f94ce855`, wiring commit `28b7ebd53`)
+
+Merged `feat/forge-honesty` (`111e570ca`, `f8a15fe7f`) cleanly. Found one
+additional gap while reconciling both sides' intent: `RepoExplorerWorktreeRow`'s
+PR-chip render branch (`else if let prCount = branchStatus.prCount, prCount > 0`)
+was missing the `!branchStatus.pullRequestDataUnavailable` guard that the outer
+`shouldShowPullRequestChip` gate already had, so a repo with a stale positive
+`prCount` from a prior fetch would still render a chip after resolving
+unavailable. Fixed, with a dedicated red/green test ("a stale positive PR count
+never renders once the repo resolves unavailable").
+
+Completed the projection wiring: `unavailablePullRequestRepoIds` now flows into
+`GitBranchStatus.merge(...)` (`RepoExplorerProjectionWorker.swift:292`) *and*
+into both re-projection admission gates —
+`RepoExplorerProjectionRequest.scopedChange(from:)`'s equality guard and
+`RepoExplorerProjectionRequestKey` — so a repo transitioning from empty facts
+to resolved-unavailable no longer compares equal to its prior request and
+silently skips re-render. While wiring this, found `RepoCacheAtom.unavailablePullRequestRepoIds`
+sharing `pullRequestFactsRevisionAtom` with the unrelated pull-request-facts
+map, so any repo's fact write coarsely woke every reader of the unavailable
+set — violates the keyed/minimal-wake convention used everywhere else in this
+atom's siblings. Gave it its own dedicated revision atom, bumped only when the
+set itself changes.
+
+Red-first tests: `scopedChange(from:)` refuses the fast path when only
+`unavailablePullRequestRepoIds` differs; a full `project(_:)` call on a repo
+with zero facts marked unavailable produces `prCount == nil,
+pullRequestDataUnavailable == true` (the row drops its pending-glyph
+condition); the observation-tracked `projectionRequestKey` changes and wakes
+capture when a repo resolves unavailable with zero facts.
+
+`mise run test:swift -- --filter "ForgeActor|RepoExplorerWorktreeRow|
+WorkspaceCacheCoordinator|RepoCacheAtom|RepoExplorerProjectionWorker|
+RepoExplorerViewProjectionHelperTests"` — 157 tests, exit 0. `mise run lint` —
+exit 0 (only pre-existing report-level findings, unrelated files). Live
+acceptance for the forge work (no-remote and detached-HEAD fixtures render no
+glyph after resolution) still rides the final sweep.
+
+### Todo 5 — unify second-line rendering (commit `0f4b84532`)
+
+`RepoExplorerWorktreeRow`'s branch-name and placement-text lines hand-rolled
+their own icon+text HStack, duplicating `SidebarMetadataLine`'s icon-column/
+text-column/foregroundStyle contract and drifting from it (its SF Symbol
+placement icon was tinted `.secondary`; `RepoExplorerPaneNavigation`'s
+identical placement icon, already routed through `SidebarMetadataLine`, was
+left untinted). Extended `SidebarMetadataLine` with an `IconSource` enum
+(`.systemName` or `.octicon(name:loader:)`) so both rows share one component
+and one icon-tint contract, then replaced both hand-rolled HStacks and updated
+the two other call sites (`RepoExplorerPaneNavigation`'s placement line,
+`InboxRow.metadataLine`).
+
+Swept the RepoExplorer row files for other hand-rolled second-line
+`.foregroundStyle(.secondary)` usages: the remaining ones
+(`RepoExplorerWorktreeRow`'s stale-PR-chip glyph, `RepoExplorerStatusRows`'
+fault/loading banners, `RepoExplorerEmptyStateView`) are a genuinely different
+visual role — different font sizes, animated symbol effects, multi-line text
+blocks, centered full-pane layout — not hand-rolled duplicates of the
+icon+single-line-text pattern `SidebarMetadataLine` encapsulates, so left
+as-is.
+
+Proof: a new source-pinning test confirms the branch/placement lines route
+through `SidebarMetadataLine` with the right icon/text bindings and no longer
+hand-roll `Image(systemName: "square.split.2x1")`; updated an existing
+pre-unification test (`paneRowsUseSharedSecondaryMetadataStyling`, which had
+been pinning the *old* hand-rolled pattern as a known-duplication tracker) to
+assert the new unified state instead. `mise run test:swift -- --filter
+"SidebarMetadataLineTests|RepoExplorerWorktreeRowTests|InboxRowTests"` — 29
+tests, exit 0; broader `mise run test:swift -- --filter
+"RepoExplorer|SharedComponents|InboxNotification"` — 575 tests, exit 0. `mise
+run lint` — exit 0. Visual proof: a live screenshot of the refactored build
+shows no crashes or visual corruption; AX-based interaction to switch into "By
+Repo" mode for a pixel-level branch-line check timed out repeatedly
+(`ax_incomplete_read`/deadline errors) on this heavily loaded four-instance
+desktop rather than from any app defect — accepted as sufficient given this is
+a same-visual-contract internal refactor backed by source-pinning tests, not a
+visual behavior change.
+
+### Full aggregate (after commits 28b7ebd53 + 0f4b84532)
+
+`SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise
+run test` — exit 0, 226.73s. Covers Swift lint + architecture lint, BridgeWeb
+lint/typecheck/unit/integration/browser/Vite E2E, packaged BridgeWeb build,
+Swift non-serialized + serialized WebKit + E2E serialized tests.
+
+### Forge live acceptance — partial, IPC-confirmed integration; pixel screenshot blocked by environment
+
+Built two disposable fixtures under `tmp/forge-live-proof/` (gitignored, not
+committed): `no-remote-repo` (a real git repo, zero remotes configured) and
+`detached-repo` with a linked worktree `detached-repo-worktree` checked out
+`--detach` at its first commit (zero remotes, `rev-parse --abbrev-ref HEAD ==
+"HEAD"`). Registered both with the running debug app via
+`AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=add-watch-folder` +
+`AGENTSTUDIO_STARTUP_WATCH_FOLDER=<path>` (the watch-folder env var alone does
+nothing without the diagnostic-action pairing —
+`AgentStudioStartupDiagnosticAction.watchFolderURL(from:)` is only read when
+`kind == .addWatchFolder`).
+
+Confirmed via the app's own authenticated IPC (`pane.snapshot`'s
+`workspace.repositories`) that both fixtures were discovered and registered
+into the live running workspace by name and path — the real topology/watch-folder
+pipeline processed them, the same pipeline the forge merge and projection
+wiring above depend on. Could not get a clean pixel-level sidebar screenshot
+confirming "no glyph, no chip" for these two specific rows: this machine
+currently has four concurrent AgentStudio processes (stable + three other
+debug identities), and Peekaboo's AX tree read timed out repeatedly
+(`ax_incomplete_read`/`deadline_reached`) for this session's window,
+independent of any app defect — the same environmental contention noted under
+Todo 5's visual proof above. The underlying suppression logic itself already
+has dedicated, passing red/green unit coverage
+(`RepoExplorerWorktreeRowTests`: "a detached-HEAD worktree resolves pull
+request data unavailable immediately", "resolved-unavailable pull request
+state renders neither the pending glyph nor a chip", "a stale positive PR
+count never renders once the repo resolves unavailable"). Given the
+integration-level registration is confirmed and the rendering logic is
+unit-proven, this is reported as strong-but-incomplete live acceptance rather
+than claimed fully proven — a pixel screenshot from a quieter desktop would
+close the gap.
+
+## 2026-08-17 (continued) — learned prompt signature (option 3, owner-ratified) implemented; live acceptance still open
+
+### Implementation (commit `7fed04fbd`)
+
+Built owner's "learned prompt signature" design exactly as specified: at each
+commandFinished-driven settle, `TerminalActivityProjector` learns the
+trailing non-empty raw-viewport line as the pane's `promptSignature` (that
+line is by construction the shell's freshly-printed prompt — shell
+integration prints it immediately after the command ends), then contracts
+the candidate line excluding that signature — learn-then-contract, so even a
+pane's first-ever settle never publishes the prompt itself. Scrollbar-driven
+settles read the last-known signature but never write it. The existing
+zero-letters `isBarePromptLine` heuristic remains as a fallback. Moved
+contraction from `SurfaceManager` (now returns raw viewport text, one
+Ghostty call per settle as before) into the projector, since only it holds
+the per-pane signature/suppression state.
+
+Proof: `TerminalLastOutputLineContractTests` — the exact
+`"➜  chip-matrix-final-live (⑂ feat/sidebar-grouping-rows)"` repro from the
+earlier finding, plus `trailingNonEmptyLine`/exclusion-only-viewport
+coverage. `TerminalActivityProjectorCommandFinishedTests` (new file, split
+off to stay under the file-length lint cap) — first-settle self-heal
+(prompt-only viewport never publishes), signature updates every settle as
+prompt text changes (`cd`/branch switch), unchanged-suppression still holds
+for genuinely repeated real output, plus the pre-existing RC2 tests updated
+to use realistic two-line (output + trailing prompt) raw text instead of the
+old single-line mocks that the new signature logic would otherwise treat as
+the prompt itself. `mise run test:swift -- --filter "Terminal"` — 585 tests
+in 122 suites, exit 0. `mise run lint` — exit 0.
+
+### Live acceptance — still not proven; two prior "confirmed" claims corrected
+
+Drove the running debug app through its own IPC (`terminal.send` +
+`terminal.wait(commandFinished)`, the standard procedure noted below) and
+the sidebar row's L2 text still showed stale, hours-old prompt-line text
+after two fresh echoed commands, not the freshly echoed marker.
+
+Investigating this surfaced a genuine misreading of my own earlier evidence,
+recorded here so it isn't repeated: `terminal.activity.observed` and the
+"eventbus.deliver: TerminalActivityRouter" trace record are emitted
+unconditionally at the *end* of `TerminalActivityRouter.consume(_:)`
+(`traceTerminalActivity`, called after the `commandFinished`-specific branch
+regardless of whether that branch ran), so their presence does **not** prove
+`projector.commandFinished(...)` executed — only that a terminal-classified
+envelope reached the router. The reliable signal turned out to be
+`eventbus.deliver`'s `agentstudio.inbox.decision`/`agentstudio.inbox.reason`
+attributes on the record with `agentstudio.eventbus.consumer:
+"InboxNotificationRouter"`: those only appear if the projector's settle
+actually emitted a derived envelope onto the bus. Re-checked with that
+correct signal and confirmed both `TerminalActivityRouter` and
+`InboxNotificationRouter` genuinely processed both of my test commands
+(`decision: ignore, reason: below_duration_threshold` — the settle ran
+end-to-end, the *notification* was correctly suppressed as too fast/generic
+to alert on, which is expected and unrelated to L2). So the settle pipeline
+does run to completion live; the gap is somewhere between
+`recordSettledActivityStatus` being called and the sidebar showing the new
+value.
+
+Attempted to close that specific gap with direct atom-write telemetry
+(`AGENTSTUDIO_TRACE_TAGS` including `atoms`, deliberately scoped rather than
+`*`, per the documented risk that `*` plus a large watch-folder scan
+previously crashed a debug session). The app did not crash but hung — alive,
+low CPU, never reached `app.did_finish_launching.succeeded` after several
+minutes — a slow-onset variant of the same documented risk against this
+session's now-large persisted workspace (~25 registered repos accumulated
+across this round's earlier fixture work). Aborted and force-quit rather
+than push further into a known-risky pattern; did not obtain atom-content
+telemetry.
+
+Remaining candidate explanations, none yet confirmed or ruled out:
+1. The real Ghostty viewport read has more structure than my test mocks
+   (prompt+echoed-command line, output line, fresh bare-prompt line — three
+   lines, not two) and something about that specific shape defeats the
+   exclusion logic in a way my two-line mocks don't exercise.
+2. A pane-scoping gap: `RepoExplorerView.projectionInputRevision` does
+   explicitly read `_ = latestPaneMessageSnapshot(paneID)` inside `for tab in
+   workspaceTab.tabs { for paneID in tab.allPaneIds { ... } }` — confirmed by
+   direct source read — but this specific IPC-driven pane may not be covered
+   by that loop in this live session's tab/workspace state, so its keyed
+   atom slot's changes are never observed.
+3. Something pane-identity-specific between the write side
+   (`AppDelegate+InboxNotificationBoot.swift` wiring `recordSettledActivityStatus`
+   to `atomStore.core.paneActivityStatus.recordSettledActivity`) and the read
+   side (`SidebarSurfaceHost.swift`'s `latestPaneMessageSnapshot` closure)
+   that unit tests, which construct both sides directly, don't exercise.
+
+Not claiming RC2/Todo 1 live acceptance done. The code change itself is
+correct and proven at the unit/integration level; the remaining gap is real,
+narrowed considerably from the original finding, but not yet root-caused.
+
+### Standard IPC-driven live-proof procedure (recorded per owner's request)
+
+This machine can have multiple concurrent AgentStudio processes (stable
+build plus several other debug identities). Peekaboo's synthetic keystrokes
+target whatever window/process the AX layer resolves for the given PID, but
+they are session-order-dependent when several windows overlap, and OS-level
+key-window focus (checked via `osascript ... frontmost`) does not reliably
+match the intended target either — an early attempt this round silently
+landed keystrokes on a different, unrelated debug instance. The reliable
+procedure is to drive input through the target app's own authenticated IPC
+socket instead of synthetic input:
+
+1. Launch with `AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1` (one-shot token at
+   `<data-root>/ipc/debug-token`, consumed on first `auth.login`).
+2. Connect to `<data-root>/ipc/runtime.json`'s `socketPath` over a Unix
+   domain socket, send newline-delimited JSON-RPC 2.0.
+3. `auth.login` with the token, `pane.list` to find target pane ids/handles.
+4. `terminal.send` with `{"handle": "pane:<id>", "input": "<command>\n"}`.
+5. `terminal.wait` with `{"handle": ..., "condition": "commandFinished",
+   "timeoutSeconds": N}` to block until the shell reports completion.
+
+This is unambiguous regardless of window z-order or which process currently
+has OS focus, and should be the standard procedure for future live proofs on
+a shared, multi-instance desktop.
