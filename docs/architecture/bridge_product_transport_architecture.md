@@ -80,6 +80,14 @@ Metadata may say that a file or Review item exists, changed, has a particular
 extent, and has an authorized content descriptor. It does not carry the file,
 diff, or rendered Markdown body.
 
+Item metadata and its content descriptor are not required to arrive in the same
+accepted stream event. A consumer may therefore admit selected demand after an
+item becomes addressable but before its descriptor is present. That intermediate
+condition is nonterminal: the consumer remains loading and waits for the
+descriptor mutation. Descriptor arrival is the event that reschedules the
+current demand. Only explicit application unavailability or a failed authorized
+content request is terminal for that demand.
+
 ## Content returns the requested application data
 
 The content route accepts an authorized application descriptor and produces a

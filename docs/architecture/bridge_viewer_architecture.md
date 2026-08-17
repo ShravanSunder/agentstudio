@@ -125,7 +125,10 @@ Metadata establishes what can be displayed. Content bodies are pulled only
 after demand. A metadata-complete pane can therefore still show a short
 "Waiting for content" state while a demanded body is fetched and rendered; it
 must not remain wedged after demand changes, invalidation, suspension, or
-failure.
+failure. File item metadata may become selectable before its content descriptor
+arrives; that ordering remains a nonterminal loading state whose descriptor
+mutation reschedules current demand. See [File selected-content
+lifecycle](bridge_web_runtime_architecture.md#file-selected-content-lifecycle).
 
 Finite application datasets requested by a control follow the same separation:
 the typed command initiates the query and returns a descriptor; the actual
