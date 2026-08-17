@@ -108,12 +108,16 @@ package enum WorkspaceLocalMigrations {
                 // app_workspace_selection in core.sqlite -- a separate database this local
                 // migration cannot reach (core and local prepare and migrate independently; see
                 // "SQLite ownership" in CLAUDE.md). The deterministic fallback is therefore the
-                // most-recently-updated legacy row, ordered by this table's own updated_at.
+                // most-recently-updated legacy row, ordered by this table's own updated_at; two
+                // rows can share an updated_at (e.g. both written in the same batch/import), so
+                // break ties with the table's own primary key (workspace_id DESC) to guarantee one
+                // deterministic winner rather than falling back to SQLite's unspecified row order
+                // (owner ruling, N1 tie-breaker).
                 if let existingGroupingMode = try String.fetchOne(
                     database,
                     sql: """
                         SELECT grouping_mode FROM local_repo_explorer_preferences
-                        ORDER BY updated_at DESC
+                        ORDER BY updated_at DESC, workspace_id DESC
                         LIMIT 1
                         """
                 ), SQLiteLocalUXStorage.isValidRepoExplorerGrouping(existingGroupingMode) {
