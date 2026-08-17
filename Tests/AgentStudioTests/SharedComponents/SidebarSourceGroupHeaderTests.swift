@@ -44,6 +44,10 @@ struct SidebarSourceGroupHeaderTests {
             AppEntityIcon.tabGroup.foregroundStyle
                 == AppStyles.Shell.Sidebar.tabGroupIconColor
         )
+        // Anchor rule (SIDEBAR-VISUAL-CONTRACT.md): By Repo's second-line text renders through
+        // SidebarMetadataProminence.secondary, i.e. plain Color.secondary. The tab-group header
+        // icon must match that exact shade, not a distinct accent-derived color.
+        #expect(AppStyles.Shell.Sidebar.tabGroupIconColor == Color.secondary)
     }
 
     @Test("group headers and row lines share one icon-to-text spacing token")

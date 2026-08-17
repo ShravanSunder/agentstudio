@@ -78,27 +78,28 @@ struct RepoExplorerWorktreeRowTests {
 
         #expect(renderedBitmap.pixelsWide > 0)
         // The only chip on this row is the positive PR chip (clean/synced branch, no diff or sync
-        // chip). Pixel-verifying the product accent color directly catches the exact regression the
-        // owner reported: pane rows rendering the same fact in system `.accentColor` instead of the
-        // shared `AppStyles.General.Accent.primaryColor` token.
-        #expect(containsAccentColoredPixel(in: renderedBitmap))
+        // chip). Pixel-verifying the checkout yellow directly catches a regression back to either
+        // system `.accentColor` (the pre-unification pane-row bug) or the product blue accent
+        // (the pre-owner-directive shared token): the fixture's `iconColor: .accentColor` proves
+        // the chip is NOT colored from the row's incidental `iconColor` either.
+        #expect(containsCheckoutYellowPixel(in: renderedBitmap))
     }
 
-    /// Scans for a pixel matching the product accent token's specific signature: #409CFF has a
-    /// clearly nonzero red channel (~0.25) alongside a saturated blue (~1.0). This is a real
-    /// distinguishing feature from macOS system blue (#007AFF, red ~0.0), which the fixture's
-    /// `iconColor: .accentColor` would have rendered before the fix — so this catches a regression
-    /// back to coloring the chip from the row's incidental `iconColor` instead of the shared token.
-    private func containsAccentColoredPixel(in bitmap: NSBitmapImageRep) -> Bool {
+    /// Scans for a pixel matching `AppStyles.Shell.Sidebar.checkoutDefaultAccentColor`'s specific
+    /// signature: `#F5C451` has a dominant red channel (~0.96) and mid-high green (~0.77) alongside
+    /// a clearly low blue (~0.32) — a real distinguishing feature from both macOS system blue
+    /// (`#007AFF`) and the prior product blue token (`#409CFF`), which the fixture's
+    /// `iconColor: .accentColor` or a regressed shared token would render instead.
+    private func containsCheckoutYellowPixel(in bitmap: NSBitmapImageRep) -> Bool {
         for y in stride(from: 0, to: bitmap.pixelsHigh, by: 2) {
             for x in stride(from: 0, to: bitmap.pixelsWide, by: 2) {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-                // Thresholds are loosened from the raw #409CFF values to tolerate the chip's own
+                // Thresholds are loosened from the raw #F5C451 values to tolerate the chip's own
                 // foreground opacity (0.82) blending over its translucent pill background.
-                let matchesRed = (0.10...0.45).contains(color.redComponent)
-                let matchesBlue = color.blueComponent > 0.65
-                let matchesGreen = (0.35...0.80).contains(color.greenComponent)
-                if matchesRed && matchesBlue && matchesGreen {
+                let matchesRed = color.redComponent > 0.55
+                let matchesGreen = (0.35...0.75).contains(color.greenComponent)
+                let matchesBlue = color.blueComponent < 0.40
+                if matchesRed && matchesGreen && matchesBlue {
                     return true
                 }
             }

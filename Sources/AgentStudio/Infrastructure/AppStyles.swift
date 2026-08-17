@@ -210,8 +210,15 @@ package enum AppStyles {
             package static let chipSuccessColor = Color(red: 0.42, green: 0.84, blue: 0.50)
             package static let chipWarningColor = Color(red: 0.93, green: 0.71, blue: 0.34)
             package static let chipDangerColor = Color(red: 0.93, green: 0.41, blue: 0.41)
-            package static let tabGroupIconColor = AppStyles.General.Accent.primaryColor.opacity(
-                AppStyles.General.Foreground.muted)
+            // Anchor rule (SIDEBAR-VISUAL-CONTRACT.md): By Repo's palette is the reference; other
+            // surfaces synchronize to it. By Repo's second-line text (branch/placement lines
+            // rendered through SidebarMetadataLine) uses SidebarMetadataProminence.secondary,
+            // whose color is the system Color.secondary with no opacity modifier. Reference that
+            // same system token directly here rather than a custom accent-derived value, so the
+            // tab-group header icon matches the exact shade By Repo's own text lines already use.
+            // (SharedComponents cannot be imported from Infrastructure, so this points at the
+            // shared underlying system color rather than at SidebarMetadataProminence itself.)
+            package static let tabGroupIconColor = Color.secondary
             package static let accentPaletteHexes: [String] = [
                 "#F5C451",
                 "#58C4FF",
@@ -226,6 +233,15 @@ package enum AppStyles {
                     ? accentPaletteHexes[index]
                     : accentPaletteHexes.first ?? ""
                 return Color(nsColor: NSColor(hex: hex) ?? AppStyles.General.Accent.primaryNSColor)
+            }
+
+            /// The automatic checkout palette's first color (`accentPaletteHexes[0]`, a yellow/gold
+            /// accent). `RepoPresentationGrouping.checkoutColorHex` resolves every singleton-worktree
+            /// repo to this same entry, which is what By Repo's favorite-star icon renders for the
+            /// common case. Anchor rule (SIDEBAR-VISUAL-CONTRACT.md): other surfaces reference this
+            /// same token rather than duplicating the hex literal.
+            package static var checkoutDefaultAccentColor: Color {
+                paletteColor(at: 0)
             }
         }
 

@@ -1,5 +1,16 @@
 # SIDEBAR REQUIREMENTS — ALL 16 MANDATORY. Regression in any = round fails.
 
+ANCHOR RULE (contract-level, 2026-08-17)
+0 By Repo's palette is the REFERENCE. All Panes and By Tab synchronize to
+  it: every color used for a given role (group-header icon, row title/
+  branch/placement text prominence, chip style) in All Panes or By Tab must
+  resolve to the exact same AppStyles/SharedComponents token that a By Repo
+  row uses for that same role — never a duplicated literal, never a
+  different token that happens to look similar. Where a role has no By Repo
+  counterpart (e.g. the pane row's "active" indicator), this rule does not
+  apply; note the absence explicitly rather than inventing a synchronization
+  target.
+
 MODES
 1 By Repo unchanged (name, branch line, chips row).
 2 "All Panes": every pane grouped by repo; recency sort in group.

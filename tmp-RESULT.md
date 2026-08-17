@@ -933,3 +933,60 @@ second; wait >10s between settles you want to actually observe on L2.
 - Item 19 / stale-PR-matrix-cell transient pending glyph frame (GitHub round-trip resolved faster than the poll interval every attempt).
 - Item 6 positive "●" active glyph (requires a foreground/key window; this sweep ran fully headless via `open -g` per house rule against foreground stealing).
 - Item 11 sort-rotation animation and item 10's "no second reflow" claim (both need multi-frame/video capture, not single-shot screenshots; unchanged by this round, existing source-string tests still green).
+
+## Owner color directives (2026-08-17, after F1 sweep, before rerun)
+
+Amended `SIDEBAR-VISUAL-CONTRACT.md` with an explicit anchor rule (item 0):
+By Repo's palette is the reference; All Panes/By Tab colors for a given role
+must resolve to the same token By Repo uses for that role.
+
+1. **Tab group icon**: `AppStyles.Shell.Sidebar.tabGroupIconColor` changed
+   from a muted-accent-blue derivation (`AppStyles.General.Accent.primaryColor.opacity(...)`)
+   to `Color.secondary` directly — the exact source By Repo's second-line
+   text uses via `SidebarMetadataProminence.secondary`. Can't reference
+   `SidebarMetadataProminence` itself from `AppStyles` (Infrastructure
+   cannot import SharedComponents), so this points at the same underlying
+   system token both consumers ultimately resolve to, not a new duplicate.
+   Strengthened `SidebarSourceGroupHeaderTests` to pin the token to
+   `Color.secondary` directly (previously only a structural equality check).
+
+2. **PR chip color**: `c7295bb13`'s diff shows the pre-unification By Repo
+   row colored its PR chip from the row's own `iconColor` param, which
+   resolves via `RepoPresentationGrouping.checkoutColorHex` →
+   `AppStyles.Shell.Sidebar.accentPaletteHexes[0]` (`#F5C451`, yellow/gold)
+   for the common singleton-worktree case — the same color the favorite-star
+   icon renders. Added a named `AppStyles.Shell.Sidebar.checkoutDefaultAccentColor`
+   accessor for that specific palette entry (rather than duplicating the hex)
+   and repointed `SidebarPullRequestChipSpec.chip(...)` to it, so all three
+   surfaces (By Repo, All Panes, By Tab) keep the single shared spec but now
+   render yellow instead of the product blue. Updated
+   `RepoExplorerWorktreeRowTests`'s pixel test signature from the blue
+   `#409CFF` band to the yellow `#F5C451` band (red > 0.55, green
+   0.35...0.75, blue < 0.40).
+
+3. **Full sync audit**: grepped for raw `.accentColor`/`Color.blue`/
+   `Color.yellow`/`Color(red:...)` literals across `Features/RepoExplorer`,
+   `Core/Views`, and `SharedComponents`. `AppEntityIcon.foregroundStyle`
+   already centralizes every group-header icon color through one switch
+   (`.repo`/`.pane`/`.tab`/`.workspace`/`.otherSources` → `.secondary`;
+   `.tabGroup` → the now-fixed `tabGroupIconColor`; `.coloredRepo`/`.checkout`
+   → the shared per-checkout hex resolver), so headers across all three
+   modes were already synchronized once item 1 landed. `SidebarSectionHeader`,
+   `SidebarGroupRow`, and `SidebarSourceGroupHeader` are shared components
+   used by all three modes (can't diverge by construction). Row title/branch
+   text prominence (`.primary`/`SidebarMetadataProminence.secondary`) matches
+   between `RepoExplorerWorktreeRow` and `RepoExplorerPaneNavigation`.
+   **One divergence found and flagged, not changed**:
+   `RepoExplorerPaneNavigation.swift`'s pane-row "active" chip uses raw
+   `.accentColor` (system blue) directly, not a named `AppStyles` token. This
+   has no By Repo counterpart role (By Repo has no "active" concept), so the
+   anchor rule doesn't mandate a specific target color for it — flagging
+   because it's still a raw-system-color usage inconsistent with the rest of
+   the codebase's token discipline, in case the owner wants it moved to a
+   named token in a future round.
+
+Proof: `mise run lint` (swift-format + swiftlint + architecture lint) clean;
+focused suites green — `RepoExplorerWorktreeRowTests` (30 tests incl. the
+updated yellow pixel test), `SidebarSourceGroupHeaderTests` (5 tests incl.
+the strengthened token assertion), full `RepoExplorer|SidebarChips|AppStyles`
+filter (211 tests / 24 suites).

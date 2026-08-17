@@ -12,7 +12,7 @@ package enum SidebarPullRequestChipSpec {
             icon: icon,
             octiconLoader: octiconLoader,
             text: "\(count)",
-            style: .accent(AppStyles.General.Accent.primaryColor)
+            style: .accent(AppStyles.Shell.Sidebar.checkoutDefaultAccentColor)
         )
     }
 }
