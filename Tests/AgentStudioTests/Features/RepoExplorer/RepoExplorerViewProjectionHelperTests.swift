@@ -174,6 +174,32 @@ struct RepoExplorerViewProjectionHelperTests {
         )
     }
 
+    @Test("F6c: pane row capture never derives URL/path/shell facts directly, only through the memoizing cache")
+    func paneRowCaptureNeverDerivesPathFactsDirectly() throws {
+        // Source-string guard against regressing F6b: paneRowFactsByPaneId must read the
+        // already-normalized title from RepoExplorerPaneDisplayTitleCache, never re-derive it
+        // inline by calling paneSecondaryText (or doing ad hoc path parsing) on every capture.
+        let helperSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+ProjectionHelpers.swift",
+            encoding: .utf8
+        )
+        guard
+            let captureRange = helperSource.range(of: "func paneRowFactsByPaneId("),
+            let captureBodyEnd = helperSource.range(
+                of: "\n    func tabGroupFactsByTabId()",
+                range: captureRange.upperBound..<helperSource.endIndex
+            )
+        else {
+            Issue.record("Could not isolate paneRowFactsByPaneId's body for the source guard")
+            return
+        }
+        let captureBody = helperSource[captureRange.upperBound..<captureBodyEnd.lowerBound]
+
+        #expect(!captureBody.contains("paneSecondaryText"))
+        #expect(!captureBody.contains(".lastPathComponent"))
+        #expect(captureBody.contains("paneDisplayTitleCache.resolve("))
+    }
+
     @Test("timeout-only repo enrichment wakes capture and changes scanning projection")
     func timeoutOnlyRepoEnrichmentWakesAndChangesProjection() {
         let repoCache = RepoCacheAtom()

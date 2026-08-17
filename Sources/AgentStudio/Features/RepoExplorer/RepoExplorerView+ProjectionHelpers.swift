@@ -298,10 +298,15 @@ extension RepoExplorerView {
             else { return nil }
             return atom(\.attendedPane).attendedPaneId
         }()
-        return Dictionary(
-            uniqueKeysWithValues: workspaceTab.tabs.flatMap(\.allPaneIds).compactMap { paneId -> PaneRowFactsEntry? in
+        let allPaneIds = workspaceTab.tabs.flatMap(\.allPaneIds)
+        let paneRowFactsByPaneId = Dictionary(
+            uniqueKeysWithValues: allPaneIds.compactMap { paneId -> PaneRowFactsEntry? in
                 guard let pane = store.paneAtom.pane(paneId) else { return nil }
-                let terminalTitle = Self.paneSecondaryText(
+                // F6: capture reads the memoized, already-normalized title; URL/shell-path
+                // derivation itself lives only in RepoExplorerPaneDisplayTitleCache.resolve, which
+                // re-derives only when this pane's title/cwd/shell inputs actually changed.
+                let terminalTitle = paneDisplayTitleCache.resolve(
+                    paneId: paneId,
                     liveTitle: pane.title,
                     cwd: pane.metadata.facets.cwd,
                     shellExecutablePath: pane.metadata.contentType == .terminal
@@ -325,6 +330,8 @@ extension RepoExplorerView {
                 )
             }
         )
+        paneDisplayTitleCache.retainOnly(paneIds: Set(allPaneIds))
+        return paneRowFactsByPaneId
     }
 
     func tabGroupFactsByTabId() -> [UUID: RepoExplorerTabGroupFacts] {

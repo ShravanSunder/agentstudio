@@ -153,6 +153,10 @@ package struct RepoExplorerView: View {
     @State private var projectionObservationID: UUID?
     @State private var scrollInstrumentationState = RepoExplorerScrollInstrumentationState()
     @State private var paneRecencyDisplayReferenceDate = Date()
+    // F6: memoizes paneSecondaryText's URL/shell-path derivation per pane so capture
+    // (paneRowFactsByPaneId) is a plain keyed read on the common unchanged-inputs path. Not
+    // `private`: read from the ProjectionHelpers extension file.
+    @State var paneDisplayTitleCache = RepoExplorerPaneDisplayTitleCache()
     private static let filterDebounceMilliseconds = 25
 
     private var sidebarRepos: [RepoPresentationItem] {

@@ -776,7 +776,7 @@ enum RepoExplorerProjection {
                             paneId: location.paneId,
                             repoId: repo.id,
                             worktreeId: worktree.id,
-                            worktreeLabel: worktree.path.lastPathComponent,
+                            worktreeLabel: worktree.name,
                             tabId: location.tabId,
                             tabIndex: location.tabIndex,
                             paneIndexInTab: location.paneIndexInTab,
