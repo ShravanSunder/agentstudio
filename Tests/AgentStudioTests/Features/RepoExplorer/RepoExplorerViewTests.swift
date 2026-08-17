@@ -41,12 +41,15 @@ struct RepoExplorerViewTests {
         #expect(positive.usesAccent)
     }
 
-    @Test("selected grouping segment icon overrides AppEntityIcon's baked secondary style with accent")
+    @Test("selected grouping segment icon call site passes the accent foregroundOverride")
     func selectedGroupingSegmentIconUsesAccentOverride() throws {
         // AppEntityIcon.swiftUIImage bakes its own `.foregroundStyle(.secondary)` directly onto the
-        // image; a foregroundStyle applied only by the enclosing button style does not reach it. The
-        // call site must chain an explicit override for the selected segment so the icon renders in the
-        // same accent color as its text label, not secondary.
+        // image; SwiftUI resolves that innermost style regardless of what an outer wrapper applies, so
+        // a foregroundStyle chained only from the call site never reaches the leaf (confirmed by live
+        // pixel measurement: the selected icon rendered grey (164,164,164), not accent). The override
+        // must be threaded into swiftUIImage's own foregroundOverride parameter instead; see
+        // AppEntityIconTests for the pixel-level proof that the parameter itself paints correctly. This
+        // test only verifies the call site wires the parameter to the real selection state.
         let source = try String(
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift",
             encoding: .utf8
@@ -57,7 +60,9 @@ struct RepoExplorerViewTests {
         let iconClosureSource = String(source[iconClosureStart.lowerBound..<iconClosureEnd.lowerBound])
 
         #expect(iconClosureSource.contains("groupingMode == repoExplorerPrefs.groupingMode"))
-        #expect(iconClosureSource.contains(".foregroundStyle(AppStyles.General.Accent.primaryColor)"))
+        #expect(iconClosureSource.contains("foregroundOverride:"))
+        #expect(iconClosureSource.contains("AppStyles.General.Accent.primaryColor"))
+        #expect(!iconClosureSource.contains(".foregroundStyle("))
     }
 
     @Test("flat list entries expand a resolved group into header and child rows")

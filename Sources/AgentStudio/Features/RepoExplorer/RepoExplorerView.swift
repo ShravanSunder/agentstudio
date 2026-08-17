@@ -1172,19 +1172,15 @@ extension RepoExplorerView {
                     },
                     selection: repoExplorerPrefs.groupingMode,
                     icon: { groupingMode in
-                        let icon = groupingModeIcon(for: groupingMode).swiftUIImage(
+                        // The accent must be injected into the icon construction: AppEntityIcon bakes
+                        // its own foreground style at the leaf, so an outer foregroundStyle never wins.
+                        groupingModeIcon(for: groupingMode).swiftUIImage(
                             loader: octiconLoader,
-                            size: AppStyles.General.Icon.compact
+                            size: AppStyles.General.Icon.compact,
+                            foregroundOverride: groupingMode == repoExplorerPrefs.groupingMode
+                                ? AppStyles.General.Accent.primaryColor
+                                : nil
                         )
-                        // AppEntityIcon bakes its own secondary foreground style onto the image, which
-                        // overrides the segmented button style's foregroundStyle for this leaf view. The
-                        // selected segment's icon must render in the same accent color as its text, so
-                        // it needs an explicit override here rather than relying on the button style.
-                        if groupingMode == repoExplorerPrefs.groupingMode {
-                            icon.foregroundStyle(AppStyles.General.Accent.primaryColor)
-                        } else {
-                            icon
-                        }
                     },
                     onSelect: { groupingMode in
                         let command = groupingCommand(for: groupingMode)
