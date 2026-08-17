@@ -97,6 +97,23 @@ package enum WorkspaceLocalMigrations {
                 )
             )
             if preferenceColumnNames.contains("grouping_mode") {
+                // Preserve an existing user's selection: copy the legacy per-workspace value into
+                // the new window-scoped column before the old column is dropped. A missing or
+                // unrecognized legacy value leaves the new column at its 'repo' default rather than
+                // failing the migration.
+                if let existingGroupingMode = try String.fetchOne(
+                    database,
+                    sql: "SELECT grouping_mode FROM local_repo_explorer_preferences LIMIT 1"
+                ), SQLiteLocalUXStorage.isValidRepoExplorerGrouping(existingGroupingMode) {
+                    try database.execute(
+                        sql: """
+                            UPDATE local_window_state
+                            SET repo_grouping_mode = ?
+                            WHERE window_role = 'main'
+                            """,
+                        arguments: [existingGroupingMode]
+                    )
+                }
                 try database.execute(
                     sql: "ALTER TABLE local_repo_explorer_preferences DROP COLUMN grouping_mode"
                 )

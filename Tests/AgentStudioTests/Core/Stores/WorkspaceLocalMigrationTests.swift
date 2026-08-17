@@ -100,6 +100,58 @@ struct WorkspaceLocalMigrationTests {
         )
     }
 
+    @Test("migration 005 copies the existing grouping selection into the main window row before drop")
+    func migrationCopiesExistingGroupingModeIntoMainWindowRow() throws {
+        // F4: a real pre-005 on-disk database owns the grouping selection on
+        // local_repo_explorer_preferences.grouping_mode; local_window_state does not yet have
+        // repo_grouping_mode. Simulate that exact shape by migrating only through 004, then
+        // manually reproducing the legacy column and a seeded All Panes / By Tab selection, so the
+        // upgrade path is proven to preserve it rather than silently reset every existing user to
+        // By Repo.
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "004_remove_persisted_pull_request_counts"
+        )
+        let workspaceId = UUIDv7.generate().uuidString
+        let windowId = UUIDv7.generate().uuidString
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    ALTER TABLE local_repo_explorer_preferences
+                    ADD COLUMN grouping_mode TEXT NOT NULL DEFAULT 'repo'
+                    """
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_repo_explorer_preferences(
+                        workspace_id, sort_order, visibility_mode, grouping_mode, updated_at
+                    ) VALUES (?, 'ascending', 'all', 'tab', 1)
+                    """,
+                arguments: [workspaceId]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_window_state(
+                        window_id, window_role, sidebar_width, window_frame_json, filter_text,
+                        is_filter_visible, sidebar_collapsed, sidebar_surface, updated_at
+                    ) VALUES (?, 'main', 240, NULL, '', 0, 0, 'repos', 1)
+                    """,
+                arguments: [windowId]
+            )
+        }
+
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        let repoGroupingMode = try databaseQueue.read { database in
+            try String.fetchOne(
+                database,
+                sql: "SELECT repo_grouping_mode FROM local_window_state WHERE window_role = 'main'"
+            )
+        }
+        #expect(repoGroupingMode == "tab")
+    }
+
     @Test("pull request cache hard cut drops legacy persisted counts")
     func pullRequestCacheHardCutDropsLegacyPersistedCounts() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
