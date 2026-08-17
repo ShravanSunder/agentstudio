@@ -767,3 +767,20 @@ headlessly — see the recipe note above) — that's the natural next
 falsification test if this needs to go further: does a *normal*,
 GUI-created worktree pane hit the same zero-length read, or is this
 specific to the ipc-terminal-smoke + cd-reassociation recipe.
+
+### Tab-icon blue vs white A/B capture (deliverable, no pass condition)
+
+Captured both variants of the By Tab tab-group header icon
+(`AppStyles.Shell.Sidebar.tabGroupIconColor`), same view state (one
+`ipc-terminal-smoke`-created tab, `single-repo` fixture), via
+`--no-elements` screenshots — no interaction needed.
+
+- Variant A (current): `AppStyles.General.Accent.primaryColor.opacity(AppStyles.General.Foreground.muted)`
+  — muted product-accent blue. `tmp-screenshots/tab-icon-ab/variantA-blue.png`
+  (+ zoomed crop).
+- Variant B: `Color.secondary` — matches the other group-header icons.
+  `tmp-screenshots/tab-icon-ab/variantB-white.png` (+ zoomed crop).
+
+Token reverted to variant A afterward (`git checkout --` confirmed clean,
+rebuilt). Owner picks from the pixels; whichever they choose is a one-line
+token change.
