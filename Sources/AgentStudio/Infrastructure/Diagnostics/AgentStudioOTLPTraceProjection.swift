@@ -236,6 +236,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.source",
     ]).union(AgentStudioOTLPAttributionProjectionKeys.stringAttributeKeys)
         .union(AgentStudioOTLPRepoExplorerTaxonomy.stringAttributeKeys)
+        .union(AgentStudioOTLPPaneDropTaxonomy.stringAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.stringKeys)
         .union(BridgeProductPaintProjectionKeys.stringKeys)
     private static let allowedPayloadNamedStringAttributeKeys: Set<String> = [
@@ -662,6 +663,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.rows_added",
         "terminal.activity.threshold_rows",
     ]).union(AgentStudioCoordinationProjectionKeys.numericKeys)
+        .union(AgentStudioOTLPPaneDropTaxonomy.numericAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.numericKeys)
         .union(BridgeProductPaintProjectionKeys.numericKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
@@ -774,6 +776,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.is_inferred",
         "terminal.activity.is_pinned_to_bottom",
     ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
+        .union(AgentStudioOTLPPaneDropTaxonomy.booleanAttributeKeys)
         .union(BridgeProductPaintProjectionKeys.booleanKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.booleanAttributeKeys)
     private static func projectedResource(_ safeResource: [String: String]) -> [String: String] {
@@ -893,6 +896,9 @@ extension AgentStudioOTLPTraceProjection {
             return isAllowed
         }
         if let isAllowed = AgentStudioOTLPRepoExplorerTaxonomy.isAllowedValue(key: key, value: value) {
+            return isAllowed
+        }
+        if let isAllowed = AgentStudioOTLPPaneDropTaxonomy.isAllowedValue(key: key, value: value) {
             return isAllowed
         }
         switch key {

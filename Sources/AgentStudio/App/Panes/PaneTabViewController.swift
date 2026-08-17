@@ -422,10 +422,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             rootView: tabBar,
             performanceTraceRecorder: performanceTraceRecorder
         )
-        hostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex, correlationId in
+        hostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, insertionIndex, correlationId in
             self?.handleTabReorder(
                 fromId: fromId,
-                toIndex: toIndex,
+                insertionIndex: insertionIndex,
                 correlationId: correlationId
             )
         }
@@ -1645,19 +1645,41 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         switch plan {
         case .paneAction(let action):
             dispatchAction(action)
-        case .moveTab(let tabId, let toIndex):
-            dispatchAction(.reorderTab(tabId: tabId, newIndex: toIndex))
-        case .extractPaneToTabThenMove(let paneId, let sourceTabId, let toIndex):
+        case .moveTab(let tabId, let insertionIndex):
+            dispatchAction(.reorderTab(tabId: tabId, insertionIndex: insertionIndex))
+        case .extractPaneToTabThenMove(let paneId, let sourceTabId, let insertionIndex):
             let tabCountBefore = store.tabLayoutAtom.tabs.count
             dispatchAction(.extractPaneToTab(tabId: sourceTabId, paneId: paneId))
             guard
                 store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
-                let extractedTabId = store.tabLayoutAtom.activeTabId
+                let extractedTabId = store.tabLayoutAtom.activeTabId,
+                let insertedTabIndexAfterExtraction = store.tabShellAtom.orderedTabIds.firstIndex(
+                    of: extractedTabId
+                )
             else {
                 return
             }
-            dispatchAction(.reorderTab(tabId: extractedTabId, newIndex: toIndex))
+            let postExtractionInsertionIndex = Self.postExtractionInsertionIndex(
+                preExtractionInsertionIndex: insertionIndex,
+                insertedTabIndexAfterExtraction: insertedTabIndexAfterExtraction
+            )
+            dispatchAction(
+                .reorderTab(
+                    tabId: extractedTabId,
+                    insertionIndex: postExtractionInsertionIndex
+                )
+            )
         }
+    }
+
+    private static func postExtractionInsertionIndex(
+        preExtractionInsertionIndex: Int,
+        insertedTabIndexAfterExtraction: Int
+    ) -> Int {
+        guard insertedTabIndexAfterExtraction < preExtractionInsertionIndex else {
+            return preExtractionInsertionIndex
+        }
+        return preExtractionInsertionIndex + 1
     }
 
     nonisolated static func splitDropCommitPlan(
@@ -2638,9 +2660,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     // MARK: - Tab Reordering
 
-    private func handleTabReorder(fromId: UUID, toIndex: Int, correlationId: UUID) {
+    private func handleTabReorder(fromId: UUID, insertionIndex: Int, correlationId: UUID) {
         interactionProbe?.beginInteraction(.tabMove, correlationId: correlationId)
-        dispatchAction(.reorderTab(tabId: fromId, newIndex: toIndex))
+        dispatchAction(.reorderTab(tabId: fromId, insertionIndex: insertionIndex))
         pendingTabMovePublication = PendingTabMovePublication(
             correlationId: correlationId,
             movedTabId: fromId,
@@ -2705,7 +2727,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             sourceTab.activePaneIds.count == 1
         {
             if let targetTabIndex {
-                dispatchAction(.reorderTab(tabId: tabId, newIndex: targetTabIndex))
+                dispatchAction(.reorderTab(tabId: tabId, insertionIndex: targetTabIndex))
             }
             return
         }
@@ -2716,12 +2738,24 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         // For tab-bar drops, place the newly extracted tab at the drop insertion index.
         guard let targetTabIndex,
             store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
-            let extractedTabId = store.tabLayoutAtom.activeTabId
+            let extractedTabId = store.tabLayoutAtom.activeTabId,
+            let insertedTabIndexAfterExtraction = store.tabShellAtom.orderedTabIds.firstIndex(
+                of: extractedTabId
+            )
         else {
             return
         }
 
-        dispatchAction(.reorderTab(tabId: extractedTabId, newIndex: targetTabIndex))
+        let postExtractionInsertionIndex = Self.postExtractionInsertionIndex(
+            preExtractionInsertionIndex: targetTabIndex,
+            insertedTabIndexAfterExtraction: insertedTabIndexAfterExtraction
+        )
+        dispatchAction(
+            .reorderTab(
+                tabId: extractedTabId,
+                insertionIndex: postExtractionInsertionIndex
+            )
+        )
     }
 
     private func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
