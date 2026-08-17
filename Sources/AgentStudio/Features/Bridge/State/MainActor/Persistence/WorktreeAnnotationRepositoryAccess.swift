@@ -13,6 +13,10 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
         -> WorktreeAnnotationSessionDetail
     func revertDraft(_ props: WorktreeAnnotationSQLiteRepository.RevertDraftProps) async throws
         -> WorktreeAnnotationSessionDetail
+    func acquireEditToken(_ props: WorktreeAnnotationSQLiteRepository.AcquireEditTokenProps) async throws
+        -> WorktreeAnnotationSessionDetail
+    func releaseEditToken(_ props: WorktreeAnnotationSQLiteRepository.ReleaseEditTokenProps) async throws
+        -> WorktreeAnnotationSessionDetail
     func createReplyDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateReplyDraftProps) async throws
         -> WorktreeAnnotationSessionDetail
     func setThreadResolution(_ props: WorktreeAnnotationSQLiteRepository.SetThreadResolutionProps) async throws
@@ -62,6 +66,20 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
 }
 
 extension WorktreeAnnotationRepositoryAccess {
+    func acquireEditToken(_ props: WorktreeAnnotationSQLiteRepository.AcquireEditTokenProps) async throws
+        -> WorktreeAnnotationSessionDetail
+    {
+        _ = props
+        throw WorktreeAnnotationRepositoryError.invalidState
+    }
+
+    func releaseEditToken(_ props: WorktreeAnnotationSQLiteRepository.ReleaseEditTokenProps) async throws
+        -> WorktreeAnnotationSessionDetail
+    {
+        _ = props
+        throw WorktreeAnnotationRepositoryError.invalidState
+    }
+
     func repeatOutputAttempt(
         sourceAttemptID: WorktreeAnnotationOutputAttemptID,
         repeatedAttemptID: WorktreeAnnotationOutputAttemptID,
@@ -145,6 +163,18 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
         -> WorktreeAnnotationSessionDetail
     {
         try await mutate { try $0.revertDraft(props) }
+    }
+
+    func acquireEditToken(_ props: WorktreeAnnotationSQLiteRepository.AcquireEditTokenProps) async throws
+        -> WorktreeAnnotationSessionDetail
+    {
+        try await mutate { try $0.acquireEditToken(props) }
+    }
+
+    func releaseEditToken(_ props: WorktreeAnnotationSQLiteRepository.ReleaseEditTokenProps) async throws
+        -> WorktreeAnnotationSessionDetail
+    {
+        try await mutate { try $0.releaseEditToken(props) }
     }
 
     func createReplyDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateReplyDraftProps) async throws

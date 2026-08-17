@@ -956,6 +956,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	return (
 		<BridgeCodeViewPanelFrame
 			codeViewOptions={annotationPresentation.codeViewOptions}
+			onSelectedLinesChange={annotationPresentation.onSelectedLinesChange}
 			handleCodeViewPostRender={handleCodeViewPostRender}
 			handleCodeViewScroll={handleCodeViewScroll}
 			handleCodeViewUserScrollIntent={handleCodeViewUserScrollIntent}
@@ -985,6 +986,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					: 'none'
 			}
 			selectionScrollDiagnostic={selectionScrollDiagnostic}
+			selectedLines={annotationPresentation.selectedLines}
 			renderAnnotation={annotationPresentation.renderAnnotation}
 			setCodeViewHandle={setCodeViewHandle}
 			sourceKey={sourceKey}

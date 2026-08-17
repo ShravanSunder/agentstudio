@@ -81,6 +81,19 @@ const annotationCommandOutcomeStatusSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('committed') }).strict(),
 	z
 		.object({
+			candidateSessionIds: z
+				.array(bridgeProductReviewPublicationIdSchema)
+				.min(1)
+				.max(128)
+				.refine((sessionIds) => new Set(sessionIds).size === sessionIds.length, {
+					message: 'Annotation admission candidates must be unique.',
+				}),
+			kind: z.literal('admission_required'),
+			reason: z.enum(['applicable_session_choice', 'uncertain_continuity_choice']),
+		})
+		.strict(),
+	z
+		.object({
 			kind: z.literal('output'),
 			outcome: annotationOutputCommandOutcomeSchema,
 		})

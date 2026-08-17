@@ -1,5 +1,6 @@
 import type {
 	CodeViewItem,
+	CodeViewLineSelection,
 	CodeViewOptions,
 	DiffLineAnnotation,
 	LineAnnotation,
@@ -33,6 +34,7 @@ interface BridgeCodeViewPanelFrameProps {
 	readonly materializationDiagnostic: BridgeCodeViewMaterializationDiagnostic;
 	readonly materializationResourceEntryItemIds: string;
 	readonly materializationResourceEntryCount: number;
+	readonly onSelectedLinesChange: (selection: CodeViewLineSelection | null) => void;
 	readonly selectedChangeKind: string;
 	readonly selectedContentCacheKeyCount: number;
 	readonly selectedContentCacheKeys: string;
@@ -45,6 +47,7 @@ interface BridgeCodeViewPanelFrameProps {
 	readonly selectedInitialItemIndex: number;
 	readonly selectedInitialItemIsFirst: boolean;
 	readonly selectedItemId: string | null;
+	readonly selectedLines: CodeViewLineSelection | null;
 	readonly selectedPresentationKind: string;
 	readonly selectedPresentationVersion: string | number;
 	readonly selectionScrollDiagnostic: BridgeCodeViewSelectionScrollDiagnostic;
@@ -133,10 +136,12 @@ export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): 
 						initialItems={props.initialItems}
 						key={props.sourceKey}
 						onScroll={props.handleCodeViewScroll}
+						onSelectedLinesChange={props.onSelectedLinesChange}
 						options={codeViewOptions}
 						ref={props.setCodeViewHandle}
 						renderHeaderMetadata={props.headerRenderers.renderHeaderMetadata}
 						renderHeaderPrefix={props.headerRenderers.renderHeaderPrefix}
+						selectedLines={props.selectedLines}
 						{...(props.renderAnnotation === undefined
 							? {}
 							: { renderAnnotation: props.renderAnnotation })}

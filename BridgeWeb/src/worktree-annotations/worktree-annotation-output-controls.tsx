@@ -21,6 +21,15 @@ import {
 	commentCountLabel,
 	type WorktreeAnnotationOutputFeedback,
 } from './worktree-annotation-output-presentation.js';
+import {
+	clearWorktreeAnnotationOutputSelection,
+	createWorktreeAnnotationOutputSelection,
+	selectAllEligibleWorktreeAnnotationOutput,
+	selectedWorktreeAnnotationMessageIds,
+	toggleWorktreeAnnotationOutputMessage,
+	worktreeAnnotationOutputWireSelection,
+	type WorktreeAnnotationOutputSelection,
+} from './worktree-annotation-output-selection.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationOutputHistorySummary,
@@ -49,7 +58,7 @@ interface SelectableSavedMessage {
 	};
 }
 
-type OutputInspectionState =
+export type WorktreeAnnotationOutputInspectionState =
 	| { readonly kind: 'loading'; readonly attemptId: string }
 	| {
 			readonly attemptId: string;
@@ -65,19 +74,25 @@ export function WorktreeAnnotationOutputControls(
 	const annotationClient = useWorktreeAnnotationSurfaceClient();
 	const projection = useWorktreeAnnotationProjection();
 	const [isOpen, setIsOpen] = useState(false);
-	const [deselectedRevisionKeys, setDeselectedRevisionKeys] = useState<ReadonlySet<string>>(
-		() => new Set(),
+	const [selection, setSelection] = useState<WorktreeAnnotationOutputSelection>(
+		createWorktreeAnnotationOutputSelection,
 	);
 	const [feedback, setFeedback] = useState<WorktreeAnnotationOutputFeedback | null>(null);
-	const [inspection, setInspection] = useState<OutputInspectionState | null>(null);
+	const [inspection, setInspection] = useState<WorktreeAnnotationOutputInspectionState | null>(
+		null,
+	);
 	const [isOutputPending, setIsOutputPending] = useState(false);
 	const compactTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const selectableMessages = useMemo(
 		() => selectableSavedMessages(projection.threads, props.activeSessionId),
 		[projection.threads, props.activeSessionId],
 	);
-	const selectedMessages = selectableMessages.filter(
-		(entry): boolean => !deselectedRevisionKeys.has(savedMessageRevisionKey(entry.message)),
+	const eligibleMessageIds = selectableMessages.map(({ message }) => message.messageId);
+	const selectedMessageIds = new Set(
+		selectedWorktreeAnnotationMessageIds(selection, eligibleMessageIds),
+	);
+	const selectedMessages = selectableMessages.filter(({ message }): boolean =>
+		selectedMessageIds.has(message.messageId),
 	);
 	const sessionHistory = projection.outputHistory.filter(
 		(summary): boolean => summary.sessionId === props.activeSessionId,
@@ -85,7 +100,7 @@ export function WorktreeAnnotationOutputControls(
 	const isInteractionDisabled = props.disabled === true;
 
 	useEffect((): void => {
-		setDeselectedRevisionKeys(new Set());
+		setSelection(clearWorktreeAnnotationOutputSelection());
 		setFeedback(null);
 		setInspection(null);
 	}, [props.activeSessionId]);
@@ -111,10 +126,7 @@ export function WorktreeAnnotationOutputControls(
 			const commandOutcome = await annotationClient.execute({
 				kind: 'output.prepare',
 				outputKind,
-				selection: {
-					kind: 'explicit',
-					messageIds: selectedMessages.map(({ message }) => message.messageId),
-				},
+				selection: worktreeAnnotationOutputWireSelection(selection),
 				sessionId: props.activeSessionId,
 			});
 			handleCommandOutcome(commandOutcome);
@@ -169,6 +181,12 @@ export function WorktreeAnnotationOutputControls(
 			throw new Error('Annotation output command returned no output result.');
 		}
 		const nextFeedback = annotationOutputFeedback(commandOutcome.status.outcome);
+		if (
+			commandOutcome.status.outcome.kind === 'succeeded' ||
+			commandOutcome.status.outcome.kind === 'unknown'
+		) {
+			setSelection(clearWorktreeAnnotationOutputSelection());
+		}
 		setFeedback(nextFeedback.message === null ? null : nextFeedback);
 		if (nextFeedback.toast !== null) toast.success(nextFeedback.toast);
 		if (nextFeedback.closeInteraction) setOutputInteractionOpen(false);
@@ -220,8 +238,8 @@ export function WorktreeAnnotationOutputControls(
 					</PopoverDescription>
 				</PopoverHeader>
 				<SavedMessageSelection
-					deselectedRevisionKeys={deselectedRevisionKeys}
-					onDeselectedRevisionKeysChange={setDeselectedRevisionKeys}
+					onSelectionChange={setSelection}
+					selection={selection}
 					selectableMessages={selectableMessages}
 				/>
 				<div className="flex items-center justify-end gap-1">
@@ -247,10 +265,10 @@ export function WorktreeAnnotationOutputControls(
 					<p
 						className={
 							feedback.severity === 'error'
-								? 'text-[10px] text-destructive'
+								? 'text-xs text-destructive'
 								: feedback.severity === 'warning'
-									? 'text-[10px] text-[var(--bridge-warning)]'
-									: 'text-[10px] text-[var(--bridge-added)]'
+									? 'text-xs text-warning'
+									: 'text-xs text-success'
 						}
 						role={feedback.severity === 'error' ? 'alert' : 'status'}
 					>
@@ -258,7 +276,7 @@ export function WorktreeAnnotationOutputControls(
 					</p>
 				)}
 				<Separator />
-				<OutputHistory
+				<WorktreeAnnotationOutputHistory
 					history={sessionHistory}
 					inspection={inspection}
 					isOutputPending={isOutputPending}
@@ -271,31 +289,29 @@ export function WorktreeAnnotationOutputControls(
 }
 
 function SavedMessageSelection(props: {
-	readonly deselectedRevisionKeys: ReadonlySet<string>;
-	readonly onDeselectedRevisionKeysChange: (keys: ReadonlySet<string>) => void;
+	readonly onSelectionChange: (selection: WorktreeAnnotationOutputSelection) => void;
+	readonly selection: WorktreeAnnotationOutputSelection;
 	readonly selectableMessages: readonly SelectableSavedMessage[];
 }): ReactElement {
-	const selectedMessageCount = props.selectableMessages.filter(
-		({ message }): boolean => !props.deselectedRevisionKeys.has(savedMessageRevisionKey(message)),
-	).length;
+	const eligibleMessageIds = props.selectableMessages.map(({ message }) => message.messageId);
+	const selectedMessageIds = new Set(
+		selectedWorktreeAnnotationMessageIds(props.selection, eligibleMessageIds),
+	);
+	const selectedMessageCount = selectedMessageIds.size;
 	const allAreSelected =
 		props.selectableMessages.length > 0 && selectedMessageCount === props.selectableMessages.length;
 	return (
 		<div className="flex flex-col gap-1.5">
 			<div className="flex items-center justify-between gap-2">
-				<p className="text-[10px] font-medium text-[var(--bridge-text-secondary)]">
-					Saved comments
-				</p>
+				<p className="text-xs font-medium text-comment-muted">Saved comments</p>
 				<Button
 					size="xs"
 					variant="ghost"
 					onClick={() =>
-						props.onDeselectedRevisionKeysChange(
+						props.onSelectionChange(
 							allAreSelected
-								? new Set(
-										props.selectableMessages.map(({ message }) => savedMessageRevisionKey(message)),
-									)
-								: new Set(),
+								? clearWorktreeAnnotationOutputSelection()
+								: selectAllEligibleWorktreeAnnotationOutput(),
 						)
 					}
 				>
@@ -303,7 +319,7 @@ function SavedMessageSelection(props: {
 				</Button>
 			</div>
 			{props.selectableMessages.length === 0 ? (
-				<p className="text-[10px] text-[var(--bridge-text-muted)]">
+				<p className="text-xs text-comment-muted">
 					Save at least one comment before preparing output.
 				</p>
 			) : (
@@ -311,33 +327,36 @@ function SavedMessageSelection(props: {
 					{props.selectableMessages.map((entry) => {
 						const revisionKey = savedMessageRevisionKey(entry.message);
 						const checkboxId = `annotation-output-${entry.message.messageId}-${entry.message.savedRevision}`;
-						const isSelected = !props.deselectedRevisionKeys.has(revisionKey);
+						const isSelected = selectedMessageIds.has(entry.message.messageId);
 						return (
 							<Label
 								htmlFor={checkboxId}
 								key={revisionKey}
-								className="flex cursor-default items-start gap-2 rounded-md px-1.5 py-1 hover:bg-[var(--bridge-annotation-hover)]"
+								className="flex cursor-default items-start gap-2 rounded-md px-1.5 py-1 hover:bg-comment-hover"
 							>
 								<Checkbox
 									aria-label={`Select ${entry.threadLabel}, ${entry.contextLabel}, ${entry.messageRoleLabel}, saved revision ${entry.message.savedRevision}`}
 									checked={isSelected}
 									id={checkboxId}
 									onCheckedChange={(checked): void => {
-										const nextKeys = new Set(props.deselectedRevisionKeys);
-										if (checked) nextKeys.delete(revisionKey);
-										else nextKeys.add(revisionKey);
-										props.onDeselectedRevisionKeysChange(nextKeys);
+										props.onSelectionChange(
+											toggleWorktreeAnnotationOutputMessage(
+												props.selection,
+												entry.message.messageId,
+												checked,
+											),
+										);
 									}}
 								/>
 								<span className="min-w-0">
-									<span className="block truncate text-[10px] text-[var(--bridge-text-secondary)]">
+									<span className="block truncate text-xs text-comment-muted">
 										{entry.contextLabel}
 									</span>
-									<span className="block truncate text-[10px] text-[var(--bridge-text-muted)]">
+									<span className="block truncate text-xs text-comment-muted">
 										{entry.threadLabel} · {entry.messageRoleLabel} · Saved revision{' '}
 										{entry.message.savedRevision}
 									</span>
-									<span className="block truncate text-xs text-[var(--bridge-text-primary)]">
+									<span className="block truncate text-xs text-comment-foreground">
 										{savedMessagePreview(entry.message.savedBody)}
 									</span>
 								</span>
@@ -350,34 +369,34 @@ function SavedMessageSelection(props: {
 	);
 }
 
-function OutputHistory(props: {
+export function WorktreeAnnotationOutputHistory(props: {
 	readonly history: readonly WorktreeAnnotationOutputHistorySummary[];
-	readonly inspection: OutputInspectionState | null;
+	readonly inspection: WorktreeAnnotationOutputInspectionState | null;
 	readonly isOutputPending: boolean;
 	readonly onInspect: (attemptId: string) => Promise<void>;
 	readonly onRepeat: (attemptId: string) => Promise<void>;
 }): ReactElement {
 	return (
 		<div className="flex flex-col gap-1.5" aria-label="Output history">
-			<p className="text-[10px] font-medium text-[var(--bridge-text-secondary)]">Output history</p>
+			<p className="text-xs font-medium text-comment-muted">Output history</p>
 			{props.history.length === 0 ? (
-				<p className="text-[10px] text-[var(--bridge-text-muted)]">No output attempts yet.</p>
+				<p className="text-xs text-comment-muted">No output attempts yet.</p>
 			) : (
 				props.history.map((summary, attemptIndex) => (
 					<div
 						key={summary.attemptId}
-						className="rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-bg)] p-1.5"
+						className="rounded-md border border-comment-border bg-comment-surface p-1.5"
 					>
 						<div className="flex items-start justify-between gap-2">
 							<div className="min-w-0">
-								<p className="text-[10px] font-medium text-[var(--bridge-text-primary)]">
+								<p className="text-xs font-medium text-comment-foreground">
 									{summary.outputKind === 'clipboard_markdown' ? 'Clipboard Markdown' : 'JSON file'}{' '}
 									· {commentCountLabel(summary.messageCount)}
 								</p>
-								<p className="text-[10px] text-[var(--bridge-text-muted)]">
+								<p className="text-xs text-comment-muted">
 									{annotationOutputHistoryStatus(summary.state, summary.outputKind)}
 								</p>
-								<p className="text-[10px] text-[var(--bridge-text-muted)]">
+								<p className="text-xs text-comment-muted">
 									Output attempt {attemptIndex + 1} · {annotationOutputTimestamp(summary.createdAt)}
 									{summary.repeatedFromAttemptId === null ? '' : ' · repeated output'}
 								</p>
@@ -404,16 +423,14 @@ function OutputHistory(props: {
 						</div>
 						{props.inspection?.attemptId === summary.attemptId ? (
 							props.inspection.kind === 'loading' ? (
-								<p className="mt-1 text-[10px] text-[var(--bridge-text-muted)]">
-									Loading exact bytes…
-								</p>
+								<p className="mt-1 text-xs text-comment-muted">Loading exact bytes…</p>
 							) : (
 								<div className="mt-1" data-testid="annotation-output-inspection">
-									<p className="text-[10px] text-[var(--bridge-text-secondary)]">
+									<p className="text-xs text-comment-muted">
 										Exact saved output · {props.inspection.byteLength} bytes ·{' '}
 										{props.inspection.contentType}
 									</p>
-									<pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap rounded bg-[var(--bridge-canvas-bg)] p-1.5 font-mono text-[10px] text-[var(--bridge-text-primary)]">
+									<pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap rounded bg-muted p-1.5 font-mono text-xs text-comment-foreground">
 										{props.inspection.content}
 									</pre>
 								</div>

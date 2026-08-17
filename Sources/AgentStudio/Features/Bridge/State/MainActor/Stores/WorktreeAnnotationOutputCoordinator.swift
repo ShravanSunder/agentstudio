@@ -319,7 +319,7 @@ package actor WorktreeAnnotationOutputCoordinator {
         return cancelled
     }
 
-    func recoverPreparedAttemptsAsUnknown() async throws -> Int {
+    package func recoverPreparedAttemptsAsUnknown() async throws -> Int {
         cancellationProofByAttemptID.removeAll()
         return try await store.markPreparedOutputAttemptsUnknown(now: now())
     }

@@ -12,6 +12,8 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
     )
     case createReply(MutationBody)
     case flushDraft(DraftMutationBody)
+    case acquireEditToken(DraftRevisionBody)
+    case releaseEditToken(DraftRevisionBody)
     case saveDraft(DraftRevisionBody)
     case revertDraft(DraftRevisionBody)
     case setThreadResolution(ThreadResolutionBody)
@@ -119,6 +121,8 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         case createReply = "reply.create"
         case createRoot = "root.create"
         case discoverSessions = "session.discover"
+        case acquireEditToken = "draft.edit.acquire"
+        case releaseEditToken = "draft.edit.release"
         case flushDraft = "draft.flush"
         case outputHistory = "output.history"
         case prepareOutput = "output.prepare"
@@ -156,14 +160,11 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
             )
         case .flushDraft:
             self = try Self.decodeFlushDraft(container, decoder)
+        case .acquireEditToken, .releaseEditToken:
+            let body = try Self.decodeDraftRevisionBody(container, decoder)
+            self = kind == .acquireEditToken ? .acquireEditToken(body) : .releaseEditToken(body)
         case .saveDraft, .revertDraft:
-            let body = DraftRevisionBody(
-                editToken: try Self.validatedIdentifier(container, .editToken, decoder),
-                expectedDraftRevision: try Self.nonnegative(container, .expectedDraftRevision, decoder),
-                expectedSessionRevision: try Self.nonnegative(container, .expectedSessionRevision, decoder),
-                messageId: try Self.decodeID(container, .messageId, decoder),
-                sessionId: try Self.decodeID(container, .sessionId, decoder)
-            )
+            let body = try Self.decodeDraftRevisionBody(container, decoder)
             self = kind == .saveDraft ? .saveDraft(body) : .revertDraft(body)
         case .setThreadResolution:
             self = .setThreadResolution(
@@ -291,6 +292,10 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
             try Self.encode(body, kind: .createReply, into: &container)
         case .flushDraft(let body):
             try Self.encode(body, kind: .flushDraft, into: &container)
+        case .acquireEditToken(let body):
+            try Self.encode(body, kind: .acquireEditToken, into: &container)
+        case .releaseEditToken(let body):
+            try Self.encode(body, kind: .releaseEditToken, into: &container)
         case .saveDraft(let body):
             try Self.encode(body, kind: .saveDraft, into: &container)
         case .revertDraft(let body):
@@ -336,7 +341,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
                 .body, .editToken, .expectedDraftRevision, .expectedSessionRevision, .kind,
                 .messageId, .sessionId,
             ]
-        case .saveDraft, .revertDraft:
+        case .acquireEditToken, .releaseEditToken, .saveDraft, .revertDraft:
             [.editToken, .expectedDraftRevision, .expectedSessionRevision, .kind, .messageId, .sessionId]
         case .setThreadResolution:
             [.expectedSessionRevision, .kind, .resolution, .sessionId, .threadId]
@@ -360,6 +365,19 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         _ decoder: Decoder
     ) throws -> UUID {
         try decodeUUIDv7(container, forKey: key, decoder: decoder)
+    }
+
+    private static func decodeDraftRevisionBody(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        _ decoder: Decoder
+    ) throws -> DraftRevisionBody {
+        DraftRevisionBody(
+            editToken: try validatedIdentifier(container, .editToken, decoder),
+            expectedDraftRevision: try nonnegative(container, .expectedDraftRevision, decoder),
+            expectedSessionRevision: try nonnegative(container, .expectedSessionRevision, decoder),
+            messageId: try decodeID(container, .messageId, decoder),
+            sessionId: try decodeID(container, .sessionId, decoder)
+        )
     }
 
     private static func validatedBody(

@@ -9,6 +9,98 @@ import Testing
 @MainActor
 @Suite("Worktree annotation Store")
 struct WorktreeAnnotationStoreTests {
+    @Test("located root admission publishes its exact inline placement immediately")
+    func locatedRootAdmissionPublishesExactPlacement() async throws {
+        let repository = try makeAnnotationRepository()
+        let projection = WorktreeAnnotationProjectionAtom()
+        let store = WorktreeAnnotationStore(
+            projection: projection,
+            repositoryAccess: RepositoryBackedWorktreeAnnotationAccess(repository: repository)
+        )
+
+        let detail = try await store.createRootDraft(
+            makeLocatedRootDraftProps(),
+            ownerGeneration: "worker-a",
+            placementContext: .init(contextID: "pane-a", surface: .file)
+        )
+        let thread = try #require(detail.threads.first?.thread)
+        let placement = try #require(
+            projection.placement(
+                contextID: "pane-a",
+                surface: .file,
+                sessionID: detail.session.id,
+                threadID: thread.id
+            )
+        )
+
+        #expect(placement.placement == .exact)
+        #expect(placement.currentPath == "Sources/Feature.swift")
+        #expect(placement.currentStartLine == 2)
+        #expect(placement.currentEndLine == 2)
+        #expect(placement.currentSourceIdentity == "source-original")
+    }
+
+    @Test("Store binds edit ownership to product generation and disconnect enables fenced reclaim")
+    func productGenerationEditOwnershipAndReclaim() async throws {
+        let repository = try makeAnnotationRepository()
+        let store = WorktreeAnnotationStore(
+            projection: WorktreeAnnotationProjectionAtom(),
+            repositoryAccess: RepositoryBackedWorktreeAnnotationAccess(repository: repository)
+        )
+        var detail = try await store.createRootDraft(
+            makeCreateRootDraftProps(),
+            ownerGeneration: "worker-a"
+        )
+        let message = try #require(detail.threads.first?.messages.first)
+        let originalDraft = try #require(message.draft)
+        let acquireProps = WorktreeAnnotationEditTokenCommandProps(
+            sessionID: detail.session.id,
+            messageID: message.id,
+            editToken: "editor-reclaimed",
+            expectedSessionRevision: detail.session.semanticRevision,
+            expectedDraftRevision: originalDraft.draftRevision,
+            now: Date(timeIntervalSince1970: 3)
+        )
+
+        await #expect(throws: WorktreeAnnotationRepositoryError.editTokenConflict) {
+            try await store.acquireEditToken(acquireProps, ownerGeneration: "worker-b")
+        }
+
+        store.invalidateEditOwnerGeneration("worker-a")
+        detail = try await store.acquireEditToken(acquireProps, ownerGeneration: "worker-b")
+        let reclaimedDraft = try #require(detail.threads.first?.messages.first?.draft)
+        #expect(reclaimedDraft.body == originalDraft.body)
+        #expect(reclaimedDraft.draftRevision == originalDraft.draftRevision + 1)
+
+        await #expect(throws: WorktreeAnnotationRepositoryError.editTokenConflict) {
+            try await store.flushDraft(
+                .init(
+                    sessionID: detail.session.id,
+                    messageID: message.id,
+                    editToken: "editor-1",
+                    expectedSessionRevision: detail.session.semanticRevision,
+                    expectedDraftRevision: originalDraft.draftRevision,
+                    body: "delayed old writer",
+                    now: Date(timeIntervalSince1970: 4)
+                ),
+                ownerGeneration: "worker-a"
+            )
+        }
+
+        detail = try await store.releaseEditToken(
+            .init(
+                sessionID: detail.session.id,
+                messageID: message.id,
+                editToken: "editor-reclaimed",
+                expectedSessionRevision: detail.session.semanticRevision,
+                expectedDraftRevision: reclaimedDraft.draftRevision,
+                now: Date(timeIntervalSince1970: 5)
+            ),
+            ownerGeneration: "worker-b"
+        )
+        #expect(detail.threads.first?.messages.first?.draft?.activeEditToken == nil)
+    }
+
     @Test("committed repository detail publishes only after mutation returns")
     func committedDetailPublishesAfterMutationReturns() async throws {
         let access = ControllableWorktreeAnnotationAccess()

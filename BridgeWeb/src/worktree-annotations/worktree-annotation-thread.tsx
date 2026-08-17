@@ -6,11 +6,21 @@ import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible.js'
 import { Textarea } from '@/components/ui/textarea.js';
 
 import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
+import {
+	WorktreeAnnotationAdmissionPopover,
+	type WorktreeAnnotationAdmissionRequirement,
+} from './worktree-annotation-admission-popover.js';
+import {
+	annotationErrorMessage,
+	annotationMarkdownValidationMessage,
+	assertCommittedAnnotationOutcome,
+} from './worktree-annotation-command-result.js';
 import { WorktreeAnnotationConversationFrame } from './worktree-annotation-conversation-frame.js';
 import {
 	browserWorktreeAnnotationDraftClock,
 	WorktreeAnnotationDraftScheduler,
 } from './worktree-annotation-draft-scheduler.js';
+import { WorktreeAnnotationEditOwnershipController } from './worktree-annotation-edit-ownership.js';
 import { createWorktreeAnnotationEditToken } from './worktree-annotation-edit-token.js';
 import {
 	WorktreeAnnotationCommandButton,
@@ -27,6 +37,7 @@ import type {
 import {
 	useWorktreeAnnotationActiveComposerEditTokens,
 	useWorktreeAnnotationComposerEditToken,
+	useWorktreeAnnotationDeferredComposerRelease,
 	useWorktreeAnnotationInteraction,
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionSelection,
@@ -133,7 +144,7 @@ export function WorktreeAnnotationThread(
 	);
 	return (
 		<WorktreeAnnotationConversationFrame
-			aria-label={annotationThreadAccessibleLabel(props.thread)}
+			aria-label={`${annotationThreadLocationLabel(props.thread)} annotation thread`}
 			data-annotation-placement={props.thread.context.placement}
 			data-annotation-resolution={props.thread.context.resolution}
 			data-testid="worktree-annotation-thread"
@@ -220,6 +231,7 @@ export interface WorktreeAnnotationNewMessageComposerProps {
 	readonly createOperation: (
 		body: string,
 		editToken: string,
+		admission?: WorktreeAnnotationRootAdmission,
 	) => BridgeProductWorktreeAnnotationOperation;
 	readonly editToken?: string | undefined;
 	readonly onCancel: () => void;
@@ -227,6 +239,16 @@ export interface WorktreeAnnotationNewMessageComposerProps {
 	readonly placement?: 'embedded' | 'standalone' | undefined;
 	readonly placeholder: string;
 }
+
+type WorktreeAnnotationRootAdmission = Extract<
+	BridgeProductWorktreeAnnotationOperation,
+	{ readonly kind: 'root.create' }
+>['admission'];
+
+type WorktreeAnnotationAdmissionDecision =
+	| { readonly kind: 'cancel' }
+	| { readonly kind: 'continue'; readonly sessionId: string }
+	| { readonly kind: 'newSession' };
 
 export function WorktreeAnnotationNewMessageComposer(
 	props: WorktreeAnnotationNewMessageComposerProps,
@@ -242,9 +264,15 @@ export function WorktreeAnnotationNewMessageComposer(
 	const [body, setBody] = useState(initialDurableBody ?? '');
 	const [isDurable, setIsDurable] = useState(initialDurableMessage !== null);
 	const [operationError, setOperationError] = useState<string | null>(null);
+	const [pendingAdmission, setPendingAdmission] = useState<{
+		readonly requirement: WorktreeAnnotationAdmissionRequirement;
+		readonly resolve: (decision: WorktreeAnnotationAdmissionDecision) => void;
+	} | null>(null);
+	const admissionAnchorRef = useRef<HTMLDivElement | null>(null);
 	const hasLocalEditSinceMountRef = useRef(false);
 	const targetMessageIdRef = useRef<string | null>(initialDurableMessage?.messageId ?? null);
 	useWorktreeAnnotationComposerEditToken(editTokenRef.current);
+	const releaseWhenComposerInactive = useWorktreeAnnotationDeferredComposerRelease();
 	const createOperationRef = useRef(props.createOperation);
 	createOperationRef.current = props.createOperation;
 	const scheduler = useMemo(
@@ -254,9 +282,44 @@ export function WorktreeAnnotationNewMessageComposer(
 				initialAcknowledgedBody: initialDurableBody,
 				persist: async (nextBody): Promise<void> => {
 					if (targetMessageIdRef.current === null) {
-						const outcome = await annotationClient.execute(
+						let outcome = await annotationClient.execute(
 							createOperationRef.current(nextBody, editTokenRef.current),
 						);
+						if (outcome.status.kind === 'admission_required') {
+							const admissionRequirement = outcome.status;
+							const decision = await new Promise<WorktreeAnnotationAdmissionDecision>(
+								(resolve): void => {
+									setPendingAdmission({ requirement: admissionRequirement, resolve });
+								},
+							);
+							setPendingAdmission(null);
+							if (decision.kind === 'cancel') return;
+							if (
+								decision.kind === 'continue' &&
+								admissionRequirement.reason === 'uncertain_continuity_choice'
+							) {
+								const session = annotationClient
+									.getSnapshot()
+									.sessions.find((candidate) => candidate.sessionId === decision.sessionId);
+								if (session === undefined) {
+									throw new Error('The selected annotation session is unavailable.');
+								}
+								const continuityOutcome = await annotationClient.execute({
+									decision: 'acceptCurrentSource',
+									expectedSessionRevision: session.semanticRevision,
+									kind: 'continuity.choose',
+									sessionId: session.sessionId,
+								});
+								assertCommittedAnnotationOutcome(continuityOutcome);
+							}
+							const admission: WorktreeAnnotationRootAdmission =
+								decision.kind === 'continue'
+									? { kind: 'selected', sessionId: decision.sessionId }
+									: { kind: 'newSession' };
+							outcome = await annotationClient.execute(
+								createOperationRef.current(nextBody, editTokenRef.current, admission),
+							);
+						}
 						assertCommittedAnnotationOutcome(outcome);
 						const createdMessage = await annotationClient.waitForSnapshot((snapshot) =>
 							messageByEditToken(snapshot, editTokenRef.current),
@@ -282,13 +345,34 @@ export function WorktreeAnnotationNewMessageComposer(
 					assertCommittedAnnotationOutcome(outcome);
 					await annotationClient.waitForSnapshot((snapshot) => {
 						const projectedMessage = currentMessageById(snapshot, currentMessage.messageId);
+						if (currentMessage.savedBody === null && nextBody.trim().length === 0) {
+							return projectedMessage === null ? currentMessage : null;
+						}
 						return projectedMessage?.draft?.body === nextBody ? projectedMessage : null;
 					});
 				},
 			}),
 		[annotationClient, initialDurableBody],
 	);
-	useEffect((): (() => void) => (): void => scheduler.dispose(), [scheduler]);
+	useEffect(
+		(): (() => void) => (): void => {
+			void scheduler
+				.teardown(async (): Promise<void> => {
+					await releaseWhenComposerInactive(editTokenRef.current, async (): Promise<void> => {
+						const messageId = targetMessageIdRef.current;
+						if (messageId === null) return;
+						const editOwnership = new WorktreeAnnotationEditOwnershipController({
+							annotationClient,
+							editToken: editTokenRef.current,
+							messageId,
+						});
+						await editOwnership.release();
+					});
+				})
+				.catch((): void => {});
+		},
+		[annotationClient, releaseWhenComposerInactive, scheduler],
+	);
 	const projectedDurableMessage = messageByEditToken(projection, editTokenRef.current);
 	useEffect((): void => {
 		const projectedDraft = projectedDurableMessage?.draft ?? null;
@@ -357,107 +441,131 @@ export function WorktreeAnnotationNewMessageComposer(
 		}
 	};
 	return (
-		<WorktreeAnnotationConversationFrame
-			aria-label={`${props.placeholder} composer`}
-			placement={props.placement}
-		>
-			<WorktreeAnnotationInlineSurface
-				active={props.active}
-				commands={
-					<>
-						<WorktreeAnnotationCommandButton
-							label="Revert draft"
-							onClick={() => void revert()}
-							preserveEditorFocus
-						>
-							<RotateCcw />
-						</WorktreeAnnotationCommandButton>
-						<WorktreeAnnotationCommandButton
-							disabled={!validation.ok}
-							label="Save annotation"
-							onClick={() => void save()}
-							preserveEditorFocus
-							primary
-						>
-							<Save />
-						</WorktreeAnnotationCommandButton>
-					</>
-				}
-				draft={isDurable}
-				metadata={
-					<>
-						<span className="font-medium text-comment-foreground">You</span>
-						<span aria-hidden="true">·</span>
-						{isDurable ? (
-							<>
-								<span className="inline-flex items-center gap-1 font-medium text-warning">
-									<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
-									Draft
-								</span>
-								<span aria-hidden="true">·</span>
-								<span>saved locally</span>
-							</>
-						) : (
-							<span>New comment</span>
-						)}
-					</>
-				}
+		<div ref={admissionAnchorRef}>
+			<WorktreeAnnotationConversationFrame
+				aria-label={`${props.placeholder} composer`}
+				placement={props.placement}
 			>
-				<div data-testid="worktree-annotation-new-message-composer">
-					<Textarea
-						autoFocus
-						aria-label={props.placeholder}
-						className="min-h-16 rounded-none border-0 bg-comment-composer-bg p-0 shadow-none focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-ring/30"
-						placeholder={props.placeholder}
-						value={body}
-						onBlur={(event) => {
-							const surface = event.currentTarget.closest(
-								'[data-testid="worktree-annotation-message"]',
-							);
-							if (
-								event.relatedTarget instanceof Node &&
-								surface?.contains(event.relatedTarget) === true
-							) {
-								return;
-							}
-							if (body.trim().length === 0) {
-								props.onCancel();
-								return;
-							}
-							void scheduler
-								.focusLost()
-								.catch((error: unknown) => setOperationError(annotationErrorMessage(error)));
-						}}
-						onChange={(event) => {
-							const nextBody = event.currentTarget.value;
-							hasLocalEditSinceMountRef.current = true;
-							setBody(nextBody);
-							scheduler.edit(nextBody);
-						}}
-						onKeyDown={(event) => {
-							if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-								event.preventDefault();
-								void save();
-							} else if (event.key === 'Escape') {
-								event.preventDefault();
-								if (body.trim().length === 0) props.onCancel();
-								else {
-									void scheduler
-										.focusLost()
-										.then(props.onCancel)
-										.catch((error: unknown) => setOperationError(annotationErrorMessage(error)));
+				<WorktreeAnnotationInlineSurface
+					active={props.active}
+					commands={
+						<>
+							<WorktreeAnnotationCommandButton
+								label="Revert draft"
+								onClick={() => void revert()}
+								preserveEditorFocus
+							>
+								<RotateCcw />
+							</WorktreeAnnotationCommandButton>
+							<WorktreeAnnotationCommandButton
+								disabled={!validation.ok}
+								label="Save annotation"
+								onClick={() => void save()}
+								preserveEditorFocus
+								primary
+							>
+								<Save />
+							</WorktreeAnnotationCommandButton>
+						</>
+					}
+					draft={isDurable}
+					metadata={
+						<>
+							<span className="font-medium text-comment-foreground">You</span>
+							<span aria-hidden="true">·</span>
+							{isDurable ? (
+								<>
+									<span className="inline-flex items-center gap-1 font-medium text-warning">
+										<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
+										Draft
+									</span>
+									<span aria-hidden="true">·</span>
+									<span>saved locally</span>
+								</>
+							) : (
+								<span>New comment</span>
+							)}
+						</>
+					}
+				>
+					<div data-testid="worktree-annotation-new-message-composer">
+						<Textarea
+							autoFocus
+							aria-label={props.placeholder}
+							className="min-h-16 rounded-none border-0 bg-comment-composer-bg p-0 shadow-none focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-ring/30"
+							placeholder={props.placeholder}
+							value={body}
+							onBlur={(event) => {
+								const surface = event.currentTarget.closest(
+									'[data-testid="worktree-annotation-message"]',
+								);
+								if (
+									event.relatedTarget instanceof Node &&
+									surface?.contains(event.relatedTarget) === true
+								) {
+									return;
 								}
-							}
-						}}
-					/>
-					{operationError === null ? null : (
-						<p className="text-xs text-destructive" role="alert">
-							{operationError}
-						</p>
-					)}
-				</div>
-			</WorktreeAnnotationInlineSurface>
-		</WorktreeAnnotationConversationFrame>
+								if (body.trim().length === 0 && targetMessageIdRef.current === null) {
+									props.onCancel();
+									return;
+								}
+								void scheduler
+									.focusLost()
+									.then((): void => {
+										if (body.trim().length === 0) props.onCancel();
+									})
+									.catch((error: unknown) => setOperationError(annotationErrorMessage(error)));
+							}}
+							onChange={(event) => {
+								const nextBody = event.currentTarget.value;
+								hasLocalEditSinceMountRef.current = true;
+								setBody(nextBody);
+								scheduler.edit(nextBody);
+							}}
+							onKeyDown={(event) => {
+								if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+									event.preventDefault();
+									void save();
+								} else if (event.key === 'Escape') {
+									event.preventDefault();
+									if (body.trim().length === 0) props.onCancel();
+									else {
+										void scheduler
+											.focusLost()
+											.then(props.onCancel)
+											.catch((error: unknown) => setOperationError(annotationErrorMessage(error)));
+									}
+								}
+							}}
+						/>
+						{operationError === null ? null : (
+							<p className="text-xs text-destructive" role="alert">
+								{operationError}
+							</p>
+						)}
+					</div>
+				</WorktreeAnnotationInlineSurface>
+			</WorktreeAnnotationConversationFrame>
+			{pendingAdmission === null ? null : (
+				<WorktreeAnnotationAdmissionPopover
+					anchor={admissionAnchorRef}
+					onContinue={(sessionId): void =>
+						pendingAdmission.resolve({ kind: 'continue', sessionId })
+					}
+					onDismiss={(): void => {
+						pendingAdmission.resolve({ kind: 'cancel' });
+						props.onCancel();
+					}}
+					onLeavePaused={(): void => {
+						pendingAdmission.resolve({ kind: 'cancel' });
+						props.onCancel();
+					}}
+					onStartAnother={(): void => pendingAdmission.resolve({ kind: 'newSession' })}
+					requirement={pendingAdmission.requirement}
+					sessions={projection.sessions}
+				/>
+			)}
+		</div>
 	);
 }
 
@@ -485,37 +593,10 @@ function messageByEditToken(
 	return null;
 }
 
-function assertCommittedAnnotationOutcome(
-	outcome: Awaited<ReturnType<ReturnType<typeof useWorktreeAnnotationSurfaceClient>['execute']>>,
-): void {
-	if (outcome.status.kind === 'failed') throw new Error(outcome.status.code);
-}
-
 function annotationThreadLocationLabel(thread: WorktreeAnnotationThreadProjection): string {
 	const location =
 		thread.context.startLine === null
 			? (thread.context.path ?? 'Session')
 			: `${thread.context.path ?? 'Source'}:${thread.context.startLine}-${thread.context.endLine ?? thread.context.startLine}`;
 	return thread.context.placement === 'relocated' ? `${location} · relocated` : location;
-}
-
-function annotationThreadAccessibleLabel(thread: WorktreeAnnotationThreadProjection): string {
-	return `${annotationThreadLocationLabel(thread)} annotation thread`;
-}
-
-function annotationErrorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : 'Annotation operation failed.';
-}
-
-function annotationMarkdownValidationMessage(
-	code: 'bodyTooLarge' | 'emptyBody' | 'levelOneHeading' | 'rawHtml' | 'unsafeLinkDestination',
-): string {
-	const messages = {
-		bodyTooLarge: 'Annotation Markdown must be 16 KiB or smaller.',
-		emptyBody: 'Annotation Markdown cannot be empty.',
-		levelOneHeading: 'Use H2-H6 headings; H1 is reserved for copied output.',
-		rawHtml: 'Raw HTML is not allowed in annotation Markdown.',
-		unsafeLinkDestination: 'Markdown links must use absolute HTTP(S) destinations.',
-	} satisfies Readonly<Record<typeof code, string>>;
-	return messages[code];
 }

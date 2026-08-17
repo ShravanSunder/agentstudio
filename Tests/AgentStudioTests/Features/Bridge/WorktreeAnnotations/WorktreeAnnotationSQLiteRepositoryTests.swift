@@ -8,6 +8,116 @@ import Testing
 
 @Suite("Worktree annotation SQLite repository")
 struct WorktreeAnnotationSQLiteRepositoryTests {
+    @Test("empty flush removes a never-saved message and its empty thread atomically")
+    func emptyFlushRemovesNeverSavedMessageAndThread() throws {
+        let repository = try makeRepository()
+        let detail = try makeRootDraft(repository: repository)
+        let message = try #require(detail.threads.first?.messages.first)
+
+        let committed = try repository.flushDraft(
+            .init(
+                sessionID: detail.session.id,
+                messageID: message.id,
+                editToken: "editor-root",
+                expectedSessionRevision: detail.session.semanticRevision,
+                expectedDraftRevision: try #require(message.draft?.draftRevision),
+                body: "  \n\t",
+                now: Date(timeIntervalSince1970: 2)
+            )
+        )
+
+        #expect(committed.threads.isEmpty)
+        #expect(try repository.fetchSessionDetail(sessionID: detail.session.id).threads.isEmpty)
+    }
+
+    @Test("edit token acquire rejects live ownership and reclaims orphaned ownership with a revision fence")
+    func editTokenAcquireReleaseAndOrphanReclaim() throws {
+        let repository = try makeRepository()
+        var detail = try makeRootDraft(repository: repository)
+        let original = try #require(detail.threads.first?.messages.first)
+        let originalDraft = try #require(original.draft)
+
+        #expect(throws: WorktreeAnnotationRepositoryError.editTokenConflict) {
+            try repository.acquireEditToken(
+                .init(
+                    sessionID: detail.session.id,
+                    messageID: original.id,
+                    editToken: "editor-other",
+                    expectedSessionRevision: detail.session.semanticRevision,
+                    expectedDraftRevision: originalDraft.draftRevision,
+                    liveEditTokens: ["editor-root"],
+                    now: Date(timeIntervalSince1970: 2)
+                )
+            )
+        }
+
+        detail = try repository.acquireEditToken(
+            .init(
+                sessionID: detail.session.id,
+                messageID: original.id,
+                editToken: "editor-reclaimed",
+                expectedSessionRevision: detail.session.semanticRevision,
+                expectedDraftRevision: originalDraft.draftRevision,
+                liveEditTokens: [],
+                now: Date(timeIntervalSince1970: 3)
+            )
+        )
+        let reclaimed = try #require(detail.threads.first?.messages.first?.draft)
+        #expect(reclaimed.body == originalDraft.body)
+        #expect(reclaimed.activeEditToken == "editor-reclaimed")
+        #expect(reclaimed.draftRevision == originalDraft.draftRevision + 1)
+
+        #expect(throws: WorktreeAnnotationRepositoryError.editTokenConflict) {
+            try repository.flushDraft(
+                .init(
+                    sessionID: detail.session.id,
+                    messageID: original.id,
+                    editToken: "editor-root",
+                    expectedSessionRevision: detail.session.semanticRevision,
+                    expectedDraftRevision: originalDraft.draftRevision,
+                    body: "late overwrite",
+                    now: Date(timeIntervalSince1970: 4)
+                )
+            )
+        }
+
+        detail = try repository.releaseEditToken(
+            .init(
+                sessionID: detail.session.id,
+                messageID: original.id,
+                editToken: "editor-reclaimed",
+                expectedSessionRevision: detail.session.semanticRevision,
+                expectedDraftRevision: reclaimed.draftRevision,
+                now: Date(timeIntervalSince1970: 5)
+            )
+        )
+        let released = try #require(detail.threads.first?.messages.first?.draft)
+        #expect(released.activeEditToken == nil)
+        #expect(released.draftRevision == reclaimed.draftRevision + 1)
+    }
+
+    @Test("orphan reclaim advances revision even when the caller presents the persisted token")
+    func sameTokenOrphanReclaimStillAdvancesRevision() throws {
+        let repository = try makeRepository()
+        let detail = try makeRootDraft(repository: repository)
+        let message = try #require(detail.threads.first?.messages.first)
+        let draft = try #require(message.draft)
+
+        let reclaimed = try repository.acquireEditToken(
+            .init(
+                sessionID: detail.session.id,
+                messageID: message.id,
+                editToken: try #require(draft.activeEditToken),
+                expectedSessionRevision: detail.session.semanticRevision,
+                expectedDraftRevision: draft.draftRevision,
+                liveEditTokens: [],
+                now: Date(timeIntervalSince1970: 2)
+            )
+        )
+
+        #expect(reclaimed.threads.first?.messages.first?.draft?.draftRevision == draft.draftRevision + 1)
+    }
+
     @Test("discovery is worktree-global and several sessions require an explicit choice")
     func discoveryIsWorktreeGlobalAndSeveralSessionsRequireChoice() throws {
         let repository = try makeRepository()
@@ -48,7 +158,14 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         #expect(first.session.id != second.session.id)
         #expect(try repository.discoverSessions(worktreeID: "worktree-1").count == 2)
 
-        #expect(throws: WorktreeAnnotationRepositoryError.sessionSelectionRequired) {
+        #expect(
+            throws: WorktreeAnnotationRepositoryError.sessionSelectionRequired(
+                .init(
+                    reason: .applicableSessionChoice,
+                    candidateSessionIDs: [first.session.id, second.session.id]
+                )
+            )
+        ) {
             try repository.createRootDraft(
                 .init(
                     admission: .implicitOrSingle,
@@ -79,6 +196,119 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         )
         #expect(selected.session.id == first.session.id)
         #expect(selected.threads.count == 2)
+    }
+
+    @Test("opposite-surface root admission preserves both source provenance axes")
+    func oppositeSurfaceRootAdmissionMergesSourceFingerprint() throws {
+        let repository = try makeRepository()
+        let reviewComparisonOrigin = WorktreeAnnotationReviewComparisonOrigin(
+            symbolicTarget: "HEAD",
+            resolvedTargetOID: "target-oid",
+            reviewedHeadOID: "head-oid",
+            baseRole: "commonCommit",
+            baseOID: "base-oid"
+        )
+        let reviewDetail = try repository.createRootDraft(
+            .init(
+                admission: .implicitOrSingle,
+                repositoryID: "repo-1",
+                worktreeID: "worktree-1",
+                originatingWorkspaceID: "workspace-1",
+                sourceFingerprint: .init(
+                    repositoryID: "repo-1",
+                    worktreeID: "worktree-1",
+                    fileSourceIdentity: nil,
+                    reviewComparisonOrigin: reviewComparisonOrigin
+                ),
+                origin: .located(
+                    .init(
+                        repositoryRelativePath: "Sources/Review.swift",
+                        startLine: 4,
+                        endLine: 8,
+                        sourceRole: .reviewHead,
+                        diffSide: .additions,
+                        sourceIdentity: "review-source-1",
+                        selectedExcerpt: "let reviewed = true",
+                        contextBefore: nil,
+                        contextAfter: nil
+                    )
+                ),
+                body: "Review draft",
+                editToken: "editor-review",
+                now: Date(timeIntervalSince1970: 1)
+            )
+        )
+
+        let mixedDetail = try repository.createRootDraft(
+            .init(
+                admission: .selected(reviewDetail.session.id),
+                repositoryID: "repo-1",
+                worktreeID: "worktree-1",
+                originatingWorkspaceID: "workspace-2",
+                sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
+                origin: .located(
+                    .init(
+                        repositoryRelativePath: "Sources/File.swift",
+                        startLine: 10,
+                        endLine: 12,
+                        sourceRole: .file,
+                        diffSide: nil,
+                        sourceIdentity: "file-source-1",
+                        selectedExcerpt: "let file = true",
+                        contextBefore: nil,
+                        contextAfter: nil
+                    )
+                ),
+                body: "File draft",
+                editToken: "editor-file",
+                now: Date(timeIntervalSince1970: 2)
+            )
+        )
+
+        #expect(mixedDetail.session.acceptedSourceFingerprint.fileSourceIdentity == "file-source-1")
+        #expect(
+            mixedDetail.session.acceptedSourceFingerprint.reviewComparisonOrigin
+                == reviewComparisonOrigin
+        )
+    }
+
+    @Test("relevant uncertain session blocks zero-session implicit creation")
+    func uncertainSessionHasPriorityOverImplicitCreation() throws {
+        let repository = try makeRepository()
+        var detail = try makeRootDraft(repository: repository)
+        detail = try repository.setSourceRelationship(
+            .init(
+                sessionID: detail.session.id,
+                relationship: .uncertain,
+                sourceFingerprint: nil,
+                expectedSessionRevision: detail.session.semanticRevision,
+                now: Date(timeIntervalSince1970: 2)
+            )
+        )
+
+        #expect(
+            throws: WorktreeAnnotationRepositoryError.sessionSelectionRequired(
+                .init(
+                    reason: .uncertainContinuityChoice,
+                    candidateSessionIDs: [detail.session.id]
+                )
+            )
+        ) {
+            try repository.createRootDraft(
+                .init(
+                    admission: .implicitOrSingle,
+                    repositoryID: "repo-1",
+                    worktreeID: "worktree-1",
+                    originatingWorkspaceID: nil,
+                    sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
+                    origin: .session,
+                    body: "Must choose continuity first",
+                    editToken: "editor-new",
+                    now: Date(timeIntervalSince1970: 3)
+                )
+            )
+        }
+        #expect(try repository.discoverSessions(worktreeID: "worktree-1").count == 1)
     }
 
     @Test("draft save revert replies and resolution use revisions and flat ordering")

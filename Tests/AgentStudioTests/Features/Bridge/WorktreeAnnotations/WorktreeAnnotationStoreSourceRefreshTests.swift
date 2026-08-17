@@ -632,6 +632,18 @@ actor RepositoryBackedWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAcce
         try repository.revertDraft(props)
     }
 
+    func acquireEditToken(_ props: WorktreeAnnotationSQLiteRepository.AcquireEditTokenProps) async throws
+        -> WorktreeAnnotationSessionDetail
+    {
+        try repository.acquireEditToken(props)
+    }
+
+    func releaseEditToken(_ props: WorktreeAnnotationSQLiteRepository.ReleaseEditTokenProps) async throws
+        -> WorktreeAnnotationSessionDetail
+    {
+        try repository.releaseEditToken(props)
+    }
+
     func createReplyDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateReplyDraftProps) async throws
         -> WorktreeAnnotationSessionDetail
     {

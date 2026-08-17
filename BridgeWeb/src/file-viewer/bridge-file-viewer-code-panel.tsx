@@ -1,4 +1,4 @@
-import type { CodeViewOptions, SelectedLineRange } from '@pierre/diffs';
+import type { CodeViewLineSelection, CodeViewOptions, SelectedLineRange } from '@pierre/diffs';
 import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
@@ -18,9 +18,11 @@ import {
 	type WorktreeAnnotationLocatedOrigin,
 } from '../review-viewer/code-view/worktree-annotation-pierre-adapter.js';
 import { BridgePierreWorkerPoolProvider } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
+import { useWorktreeAnnotationSelectionDismissal } from '../worktree-annotations/use-worktree-annotation-selection-dismissal.js';
 import { createWorktreeAnnotationEditToken } from '../worktree-annotations/worktree-annotation-edit-token.js';
 import {
 	useWorktreeAnnotationActiveComposerEditTokens,
+	useWorktreeAnnotationComposerEditToken,
 	useWorktreeAnnotationInteraction,
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionSelection,
@@ -87,6 +89,8 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	);
 	const [pendingAnnotationComposer, setPendingAnnotationComposer] =
 		useState<PendingFileAnnotationComposer | null>(null);
+	const pendingAnnotationComposerRef = useRef(pendingAnnotationComposer);
+	pendingAnnotationComposerRef.current = pendingAnnotationComposer;
 	const [composerPresentationRevision, setComposerPresentationRevision] = useState(0);
 	const [annotationSelection, setAnnotationSelection] =
 		useState<FileAnnotationAdmissionIdentity | null>(null);
@@ -94,6 +98,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		readonly fileId: string;
 		readonly path: string;
 	} | null>(null);
+	useWorktreeAnnotationComposerEditToken(pendingAnnotationComposer?.editToken ?? null);
 	const scrollEffectVersionRef = useRef(0);
 	const codeViewItems = useMemo(() => {
 		const items = bridgeFileViewerCodeViewItemsForPanelState({
@@ -207,6 +212,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	const retainSelectedRange = useCallback(
 		(range: SelectedLineRange | null, itemId: string): void => {
 			annotationInteraction.clearActiveThread();
+			if (range === null && pendingAnnotationComposerRef.current !== null) return;
 			const selectedItem = props.selectedCodeViewItem;
 			const sourceDescriptorId = selectedItem?.bridgeMetadata.sourceDescriptorId;
 			if (
@@ -258,10 +264,30 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		},
 		[props.selectedCodeViewItem],
 	);
+	const selectedAnnotationLines: CodeViewLineSelection | null =
+		annotationSelection === null
+			? null
+			: {
+					id: annotationSelection.codeViewItemId,
+					range: annotationSelection.range,
+				};
+	const handleSelectedAnnotationLinesChange = useCallback(
+		(selection: CodeViewLineSelection | null): void => {
+			retainSelectedRange(selection?.range ?? null, selection?.id ?? '');
+		},
+		[retainSelectedRange],
+	);
+	const clearAnnotationSelection = useCallback(
+		(): void => admitSelectedRange(null, ''),
+		[admitSelectedRange],
+	);
+	useWorktreeAnnotationSelectionDismissal({
+		active: selectedAnnotationLines !== null,
+		clearSelection: clearAnnotationSelection,
+	});
 	const codeViewOptions = useMemo<CodeViewOptions<undefined>>(
 		() => ({
 			...(props.codeViewOptions ?? bridgeFileViewerCodeViewOptions),
-			controlledSelection: true,
 			enableGutterUtility: true,
 			enableLineSelection: true,
 			onGutterUtilityClick: (range, context): void => admitSelectedRange(range, context.item.id),
@@ -270,16 +296,6 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		}),
 		[admitSelectedRange, handleCodeViewPostRender, props.codeViewOptions, retainSelectedRange],
 	);
-	useLayoutEffect((): void => {
-		const selectedItem = props.selectedCodeViewItem;
-		codeViewHandleRef.current?.setSelectedLines(
-			annotationSelection === null ||
-				selectedItem === null ||
-				!fileAnnotationIdentityMatchesItem(annotationSelection, selectedItem)
-				? null
-				: { id: selectedItem.id, range: annotationSelection.range },
-		);
-	}, [annotationSelection, props.selectedCodeViewItem]);
 	useLayoutEffect((): void => {
 		const selectedItem = props.selectedCodeViewItem;
 		const composerMatchesDisplayedFile =
@@ -370,6 +386,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 						className="bridge-code-view-scroll-owner bridge-scrollbar cv-scrollbar relative h-full min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [will-change:scroll-position] [&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]"
 						items={codeViewItems}
 						options={codeViewOptions}
+						onSelectedLinesChange={handleSelectedAnnotationLinesChange}
 						renderAnnotation={(annotation, item) => {
 							if (item.type !== 'file') return null;
 							const metadata = worktreeAnnotationMetadataForPierreAnnotation(annotation);
@@ -379,8 +396,8 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 							) {
 								return (
 									<WorktreeAnnotationNewMessageComposer
-										createOperation={(body, editToken) => ({
-											admission: annotationSessionSelection.rootAdmission,
+										createOperation={(body, editToken, admission) => ({
+											admission: admission ?? annotationSessionSelection.rootAdmission,
 											body,
 											editToken,
 											kind: 'root.create',
@@ -416,6 +433,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 							);
 						}}
 						ref={codeViewHandleRef}
+						selectedLines={selectedAnnotationLines}
 						style={{ height: '100%' }}
 					/>
 				</div>

@@ -5,6 +5,7 @@ import {
 	useEffect,
 	useLayoutEffect,
 	useMemo,
+	useRef,
 	useState,
 	useSyncExternalStore,
 	type ReactElement,
@@ -45,6 +46,7 @@ export interface WorktreeAnnotationSessionCapabilities {
 interface WorktreeAnnotationComposerRegistry {
 	readonly activeEditTokens: ReadonlySet<string>;
 	readonly register: (editToken: string) => () => void;
+	readonly releaseWhenInactive: (editToken: string, release: () => Promise<void>) => Promise<void>;
 }
 
 export type WorktreeAnnotationEditorState =
@@ -106,6 +108,7 @@ export function WorktreeAnnotationSurfaceProvider(
 	const [composerCountByEditToken, setComposerCountByEditToken] = useState<
 		ReadonlyMap<string, number>
 	>(() => new Map<string, number>());
+	const composerCountByEditTokenRef = useRef<ReadonlyMap<string, number>>(new Map());
 	const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 	const [expandedThreadIds, setExpandedThreadIds] = useState<ReadonlySet<string>>(
 		() => new Set<string>(),
@@ -174,22 +177,34 @@ export function WorktreeAnnotationSurfaceProvider(
 		[activeSessionId, capabilities, projection.sessions, requiresExplicitSelection, selectSession],
 	);
 	const registerComposerEditToken = useCallback((editToken: string): (() => void) => {
-		setComposerCountByEditToken((currentCounts) => {
-			const nextCounts = new Map(currentCounts);
-			nextCounts.set(editToken, (nextCounts.get(editToken) ?? 0) + 1);
-			return nextCounts;
-		});
+		const registeredCounts = new Map(composerCountByEditTokenRef.current);
+		registeredCounts.set(editToken, (registeredCounts.get(editToken) ?? 0) + 1);
+		composerCountByEditTokenRef.current = registeredCounts;
+		setComposerCountByEditToken(registeredCounts);
 		return (): void => {
-			setComposerCountByEditToken((currentCounts) => {
-				const currentCount = currentCounts.get(editToken) ?? 0;
-				if (currentCount === 0) return currentCounts;
-				const nextCounts = new Map(currentCounts);
-				if (currentCount === 1) nextCounts.delete(editToken);
-				else nextCounts.set(editToken, currentCount - 1);
-				return nextCounts;
-			});
+			const currentCounts = composerCountByEditTokenRef.current;
+			const currentCount = currentCounts.get(editToken) ?? 0;
+			if (currentCount === 0) return;
+			const unregisteredCounts = new Map(currentCounts);
+			if (currentCount === 1) unregisteredCounts.delete(editToken);
+			else unregisteredCounts.set(editToken, currentCount - 1);
+			composerCountByEditTokenRef.current = unregisteredCounts;
+			setComposerCountByEditToken(unregisteredCounts);
 		};
 	}, []);
+	const releaseComposerWhenInactive = useCallback(
+		(editToken: string, release: () => Promise<void>): Promise<void> =>
+			new Promise<void>((resolve, reject): void => {
+				queueMicrotask((): void => {
+					if ((composerCountByEditTokenRef.current.get(editToken) ?? 0) > 0) {
+						resolve();
+						return;
+					}
+					void release().then(resolve, reject);
+				});
+			}),
+		[],
+	);
 	const activeComposerEditTokens = useMemo<ReadonlySet<string>>(
 		() => new Set(composerCountByEditToken.keys()),
 		[composerCountByEditToken],
@@ -198,8 +213,9 @@ export function WorktreeAnnotationSurfaceProvider(
 		() => ({
 			activeEditTokens: activeComposerEditTokens,
 			register: registerComposerEditToken,
+			releaseWhenInactive: releaseComposerWhenInactive,
 		}),
-		[activeComposerEditTokens, registerComposerEditToken],
+		[activeComposerEditTokens, registerComposerEditToken, releaseComposerWhenInactive],
 	);
 	const activateThread = useCallback((threadId: string): void => {
 		setActiveThreadId(threadId);
@@ -310,13 +326,20 @@ export function useWorktreeAnnotationActiveComposerEditTokens(): ReadonlySet<str
 	return useContext(worktreeAnnotationComposerRegistryContext)?.activeEditTokens ?? emptyEditTokens;
 }
 
-export function useWorktreeAnnotationComposerEditToken(editToken: string): void {
+export function useWorktreeAnnotationComposerEditToken(editToken: string | null): void {
 	const composerRegistry = useContext(worktreeAnnotationComposerRegistryContext);
 	const register = composerRegistry?.register;
 	useLayoutEffect((): (() => void) | undefined => {
-		if (register === undefined) return undefined;
+		if (register === undefined || editToken === null) return undefined;
 		return register(editToken);
 	}, [editToken, register]);
+}
+
+export function useWorktreeAnnotationDeferredComposerRelease(): WorktreeAnnotationComposerRegistry['releaseWhenInactive'] {
+	return (
+		useContext(worktreeAnnotationComposerRegistryContext)?.releaseWhenInactive ??
+		releaseComposerImmediately
+	);
 }
 
 export function useWorktreeAnnotationProjection(): WorktreeAnnotationProjectionSnapshot {
@@ -345,3 +368,10 @@ function emptyAnnotationProjectionSnapshot(): WorktreeAnnotationProjectionSnapsh
 }
 
 const emptyEditTokens: ReadonlySet<string> = new Set<string>();
+
+function releaseComposerImmediately(
+	_editToken: string,
+	release: () => Promise<void>,
+): Promise<void> {
+	return release();
+}

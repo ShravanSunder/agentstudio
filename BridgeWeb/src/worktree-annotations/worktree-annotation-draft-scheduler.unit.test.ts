@@ -110,6 +110,43 @@ describe('WorktreeAnnotationDraftScheduler', () => {
 		});
 	});
 
+	test('persists the first changed saved-message edit immediately, including an empty edit', async () => {
+		const clock = new ControlledDraftClock();
+		const persistedBodies: string[] = [];
+		const scheduler = new WorktreeAnnotationDraftScheduler({
+			clock,
+			initialAcknowledgedBody: 'Saved body',
+			persistFirstChangedEditImmediately: true,
+			persist: async (body): Promise<void> => {
+				persistedBodies.push(body);
+			},
+		});
+
+		scheduler.edit('');
+		await clock.flushMicrotasks();
+
+		expect(persistedBodies).toEqual(['']);
+	});
+
+	test('flushes a cleared durable never-saved draft before teardown and then releases ownership', async () => {
+		const clock = new ControlledDraftClock();
+		const events: string[] = [];
+		const scheduler = new WorktreeAnnotationDraftScheduler({
+			clock,
+			initialAcknowledgedBody: 'Durable draft',
+			persist: async (body): Promise<void> => {
+				events.push(`persist:${body}`);
+			},
+		});
+		scheduler.edit('');
+
+		await scheduler.teardown(async (): Promise<void> => {
+			events.push('release');
+		});
+
+		expect(events).toEqual(['persist:', 'release']);
+	});
+
 	test('adopts a late durable acknowledgement without overwriting newer local input', () => {
 		const clock = new ControlledDraftClock();
 		const persist = vi.fn<(body: string) => Promise<void>>(async (): Promise<void> => {});

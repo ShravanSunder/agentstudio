@@ -97,6 +97,10 @@ const bridgeProductWorktreeAnnotationBodySchema = z
 		const byteLength = bridgeProductUnicodeScalarUtf8ByteLength(body);
 		return byteLength !== null && byteLength <= 16 * 1024;
 	}, 'Annotation bodies cannot exceed 16 KiB of UTF-8.');
+const bridgeProductWorktreeAnnotationDraftEditBodySchema = z.string().refine((body) => {
+	const byteLength = bridgeProductUnicodeScalarUtf8ByteLength(body);
+	return byteLength !== null && byteLength <= 16 * 1024;
+}, 'Annotation draft edits cannot exceed 16 KiB of UTF-8.');
 const bridgeProductWorktreeAnnotationAdmissionSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('implicitOrSingle') }).strict(),
 	z.object({ kind: z.literal('newSession') }).strict(),
@@ -177,7 +181,7 @@ export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUni
 		.strict(),
 	z
 		.object({
-			body: bridgeProductWorktreeAnnotationBodySchema,
+			body: bridgeProductWorktreeAnnotationDraftEditBodySchema,
 			editToken: bridgeProductIdentifierSchema,
 			expectedDraftRevision: z.number().int().nonnegative().nullable(),
 			expectedSessionRevision: z.number().int().nonnegative(),
@@ -186,6 +190,18 @@ export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUni
 			sessionId: bridgeProductWorktreeAnnotationIdSchema,
 		})
 		.strict(),
+	...(['draft.edit.acquire', 'draft.edit.release'] as const).map((kind) =>
+		z
+			.object({
+				editToken: bridgeProductIdentifierSchema,
+				expectedDraftRevision: z.number().int().nonnegative(),
+				expectedSessionRevision: z.number().int().nonnegative(),
+				kind: z.literal(kind),
+				messageId: bridgeProductWorktreeAnnotationIdSchema,
+				sessionId: bridgeProductWorktreeAnnotationIdSchema,
+			})
+			.strict(),
+	),
 	...(['draft.save', 'draft.revert'] as const).map((kind) =>
 		z
 			.object({

@@ -47,6 +47,16 @@ private struct WorktreeAnnotationTransportDemandKey: Hashable {
     let surface: BridgeProductSurface
 }
 
+private struct WorktreeAnnotationCreateRootTransportInput {
+    let admission: BridgeProductWorktreeAnnotationAdmission
+    let body: String
+    let editToken: String
+    let origin: BridgeProductWorktreeAnnotationOrigin
+    let surface: BridgeProductSurface
+    let productAdmission: BridgeProductAdmissionContext
+    let ownerGeneration: String
+}
+
 /// Maps committed File/Review product calls into the application-scoped Store.
 ///
 /// Transport acceptance and durable mutation completion are deliberately
@@ -54,7 +64,7 @@ private struct WorktreeAnnotationTransportDemandKey: Hashable {
 /// Store transaction or query returns.
 @MainActor
 final class WorktreeAnnotationTransportAdapter {
-    private let now: @Sendable () -> Date
+    let now: @Sendable () -> Date
     private let contextID: String
     private let originatingWorkspaceID: String?
     private let outputCoordinator: WorktreeAnnotationOutputCoordinator?
@@ -62,7 +72,7 @@ final class WorktreeAnnotationTransportAdapter {
     private let projection: WorktreeAnnotationProjectionAtom
     private let repositoryID: String
     private let sourceResolver: WorktreeAnnotationSourceResolver
-    private let store: WorktreeAnnotationStore
+    let store: WorktreeAnnotationStore
     private let worktreeID: String
     private var demandGenerationByKey: [WorktreeAnnotationTransportDemandKey: WorktreeAnnotationDemandGeneration] = [:]
 
@@ -113,7 +123,8 @@ final class WorktreeAnnotationTransportAdapter {
                 sessionID = try await apply(
                     request.operation,
                     surface: surface,
-                    productAdmission: productAdmission
+                    productAdmission: productAdmission,
+                    ownerGeneration: correlation.workerInstanceId
                 )
                 status = .committed
             }
@@ -126,12 +137,18 @@ final class WorktreeAnnotationTransportAdapter {
                 )
             )
         } catch {
+            let status: WorktreeAnnotationCommandOutcomeStatus
+            if case WorktreeAnnotationRepositoryError.sessionSelectionRequired(let choice) = error {
+                status = .admissionRequired(choice)
+            } else {
+                status = .failed(Self.failureCode(for: error))
+            }
             projection.publish(
                 commandOutcome: .init(
                     requestID: correlation.requestId,
                     surface: surface,
                     sessionID: Self.sessionID(in: request.operation),
-                    status: .failed(Self.failureCode(for: error))
+                    status: status
                 )
             )
         }
@@ -140,7 +157,8 @@ final class WorktreeAnnotationTransportAdapter {
     private func apply(
         _ operation: BridgeProductWorktreeAnnotationOperation,
         surface: BridgeProductSurface,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        ownerGeneration: String
     ) async throws -> WorktreeAnnotationSessionID? {
         switch operation {
         case .discoverSessions:
@@ -174,21 +192,28 @@ final class WorktreeAnnotationTransportAdapter {
             return typedSessionID
         case .createRoot(let admission, let body, let editToken, let origin):
             return try await createRoot(
-                admission: admission,
-                body: body,
-                editToken: editToken,
-                origin: origin,
-                surface: surface,
-                productAdmission: productAdmission
+                .init(
+                    admission: admission,
+                    body: body,
+                    editToken: editToken,
+                    origin: origin,
+                    surface: surface,
+                    productAdmission: productAdmission,
+                    ownerGeneration: ownerGeneration
+                )
             )
         case .createReply(let body):
-            return try await createReply(body)
+            return try await createReply(body, ownerGeneration: ownerGeneration)
         case .flushDraft(let body):
-            return try await flushDraft(body)
+            return try await flushDraft(body, ownerGeneration: ownerGeneration)
+        case .acquireEditToken(let body):
+            return try await acquireEditToken(body, ownerGeneration: ownerGeneration)
+        case .releaseEditToken(let body):
+            return try await releaseEditToken(body, ownerGeneration: ownerGeneration)
         case .saveDraft(let body):
-            return try await saveDraft(body)
+            return try await saveDraft(body, ownerGeneration: ownerGeneration)
         case .revertDraft(let body):
-            return try await revertDraft(body)
+            return try await revertDraft(body, ownerGeneration: ownerGeneration)
         case .setThreadResolution(let body):
             let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
             _ = try await store.setThreadResolution(
@@ -236,33 +261,35 @@ final class WorktreeAnnotationTransportAdapter {
     }
 
     private func createRoot(
-        admission: BridgeProductWorktreeAnnotationAdmission,
-        body: String,
-        editToken: String,
-        origin: BridgeProductWorktreeAnnotationOrigin,
-        surface: BridgeProductSurface,
-        productAdmission: BridgeProductAdmissionContext
+        _ input: WorktreeAnnotationCreateRootTransportInput
     ) async throws -> WorktreeAnnotationSessionID {
-        let capturedSource = try await sourceResolver.capture(origin, surface, productAdmission)
+        let capturedSource = try await sourceResolver.capture(
+            input.origin,
+            input.surface,
+            input.productAdmission
+        )
         try validateFingerprint(capturedSource.fingerprint)
         let detail = try await store.createRootDraft(
             .init(
-                admission: Self.sessionAdmission(admission),
+                admission: Self.sessionAdmission(input.admission),
                 repositoryID: repositoryID,
                 worktreeID: worktreeID,
                 originatingWorkspaceID: originatingWorkspaceID,
                 sourceFingerprint: capturedSource.fingerprint,
                 origin: capturedSource.origin,
-                body: body,
-                editToken: editToken,
+                body: input.body,
+                editToken: input.editToken,
                 now: now()
-            )
+            ),
+            ownerGeneration: input.ownerGeneration,
+            placementContext: .init(contextID: contextID, surface: input.surface)
         )
         return detail.session.id
     }
 
     private func createReply(
-        _ body: BridgeProductWorktreeAnnotationOperation.MutationBody
+        _ body: BridgeProductWorktreeAnnotationOperation.MutationBody,
+        ownerGeneration: String
     ) async throws -> WorktreeAnnotationSessionID {
         let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
         _ = try await store.createReplyDraft(
@@ -273,13 +300,15 @@ final class WorktreeAnnotationTransportAdapter {
                 body: body.body,
                 editToken: body.editToken,
                 now: now()
-            )
+            ),
+            ownerGeneration: ownerGeneration
         )
         return sessionID
     }
 
     private func flushDraft(
-        _ body: BridgeProductWorktreeAnnotationOperation.DraftMutationBody
+        _ body: BridgeProductWorktreeAnnotationOperation.DraftMutationBody,
+        ownerGeneration: String
     ) async throws -> WorktreeAnnotationSessionID {
         let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
         _ = try await store.flushDraft(
@@ -291,13 +320,15 @@ final class WorktreeAnnotationTransportAdapter {
                 expectedDraftRevision: body.expectedDraftRevision,
                 body: body.body,
                 now: now()
-            )
+            ),
+            ownerGeneration: ownerGeneration
         )
         return sessionID
     }
 
     private func saveDraft(
-        _ body: BridgeProductWorktreeAnnotationOperation.DraftRevisionBody
+        _ body: BridgeProductWorktreeAnnotationOperation.DraftRevisionBody,
+        ownerGeneration: String
     ) async throws -> WorktreeAnnotationSessionID {
         let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
         _ = try await store.saveDraft(
@@ -308,13 +339,15 @@ final class WorktreeAnnotationTransportAdapter {
                 expectedSessionRevision: body.expectedSessionRevision,
                 expectedDraftRevision: body.expectedDraftRevision,
                 now: now()
-            )
+            ),
+            ownerGeneration: ownerGeneration
         )
         return sessionID
     }
 
     private func revertDraft(
-        _ body: BridgeProductWorktreeAnnotationOperation.DraftRevisionBody
+        _ body: BridgeProductWorktreeAnnotationOperation.DraftRevisionBody,
+        ownerGeneration: String
     ) async throws -> WorktreeAnnotationSessionID {
         let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
         _ = try await store.revertDraft(
@@ -325,7 +358,8 @@ final class WorktreeAnnotationTransportAdapter {
                 expectedSessionRevision: body.expectedSessionRevision,
                 expectedDraftRevision: body.expectedDraftRevision,
                 now: now()
-            )
+            ),
+            ownerGeneration: ownerGeneration
         )
         return sessionID
     }
@@ -437,6 +471,11 @@ final class WorktreeAnnotationTransportAdapter {
             selectedMessages = eligibleMessages.filter { !excludedIDs.contains($0.id) }
         }
         guard !selectedMessages.isEmpty else { throw WorktreeAnnotationRepositoryError.emptySelection }
+        let comparisonLabel =
+            try outputLabels.comparisonLabel
+            ?? WorktreeAnnotationComparisonLabelProjector.project(
+                context.sessionDetail.session.acceptedSourceFingerprint.reviewComparisonOrigin
+            )
         let result = try await outputCoordinator.executeNew(
             .init(
                 outputKind: outputKind,
@@ -450,7 +489,7 @@ final class WorktreeAnnotationTransportAdapter {
                 placementsByThreadID: context.placementsByThreadID,
                 sessionLabel: outputLabels.sessionLabel,
                 worktreeLabel: outputLabels.worktreeLabel,
-                comparisonLabel: outputLabels.comparisonLabel
+                comparisonLabel: comparisonLabel
             )
         )
         return result.commandOutcome
@@ -496,7 +535,8 @@ final class WorktreeAnnotationTransportAdapter {
             .init(rawValue: body.sessionId)
         case .flushDraft(let body):
             .init(rawValue: body.sessionId)
-        case .saveDraft(let body), .revertDraft(let body):
+        case .acquireEditToken(let body), .releaseEditToken(let body),
+            .saveDraft(let body), .revertDraft(let body):
             .init(rawValue: body.sessionId)
         case .setThreadResolution(let body):
             .init(rawValue: body.sessionId)

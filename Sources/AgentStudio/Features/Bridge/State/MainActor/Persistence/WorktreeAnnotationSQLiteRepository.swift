@@ -48,6 +48,25 @@ struct WorktreeAnnotationSQLiteRepository {
         let now: Date
     }
 
+    struct AcquireEditTokenProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let messageID: WorktreeAnnotationMessageID
+        let editToken: String
+        let expectedSessionRevision: Int
+        let expectedDraftRevision: Int
+        let liveEditTokens: Set<String>
+        let now: Date
+    }
+
+    struct ReleaseEditTokenProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let messageID: WorktreeAnnotationMessageID
+        let editToken: String
+        let expectedSessionRevision: Int
+        let expectedDraftRevision: Int
+        let now: Date
+    }
+
     struct CreateReplyDraftProps: Sendable {
         let sessionID: WorktreeAnnotationSessionID
         let threadID: WorktreeAnnotationThreadID
@@ -165,17 +184,6 @@ struct WorktreeAnnotationSQLiteRepository {
                 sql: "SELECT saved_body FROM annotation_message WHERE id = ?",
                 arguments: [props.messageID.databaseValue]
             )
-            let body: String
-            if props.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                guard savedBody != nil,
-                    props.body.utf8.count <= WorktreeAnnotationMessagePolicy.maximumBodyUTF8Bytes
-                else {
-                    throw WorktreeAnnotationRepositoryError.invalidState
-                }
-                body = props.body
-            } else {
-                body = try WorktreeAnnotationMessagePolicy.validate(props.body)
-            }
             let existingDraft = try Row.fetchOne(
                 database,
                 sql: "SELECT active_edit_token, draft_revision FROM annotation_message_draft WHERE message_id = ?",
@@ -197,6 +205,43 @@ struct WorktreeAnnotationSQLiteRepository {
                     throw WorktreeAnnotationRepositoryError.conflict(currentRevision: 0)
                 }
                 nextDraftRevision = 0
+            }
+
+            if props.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                savedBody == nil
+            {
+                guard existingDraft != nil else {
+                    throw WorktreeAnnotationRepositoryError.invalidState
+                }
+                let threadID = try requireThreadID(database, messageID: props.messageID)
+                try database.execute(
+                    sql: "DELETE FROM annotation_message WHERE id = ?",
+                    arguments: [props.messageID.databaseValue]
+                )
+                let remainingMessageCount =
+                    try Int.fetchOne(
+                        database,
+                        sql: "SELECT COUNT(*) FROM annotation_message WHERE thread_id = ?",
+                        arguments: [threadID.databaseValue]
+                    ) ?? 0
+                if remainingMessageCount == 0 {
+                    try database.execute(
+                        sql: "DELETE FROM annotation_thread WHERE id = ?",
+                        arguments: [threadID.databaseValue]
+                    )
+                }
+                try advanceSession(database, sessionID: props.sessionID, now: props.now)
+                return try loadSessionDetail(database, sessionID: props.sessionID)
+            }
+
+            let body: String
+            if props.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                guard props.body.utf8.count <= WorktreeAnnotationMessagePolicy.maximumBodyUTF8Bytes else {
+                    throw WorktreeAnnotationRepositoryError.invalidState
+                }
+                body = props.body
+            } else {
+                body = try WorktreeAnnotationMessagePolicy.validate(props.body)
             }
 
             try database.execute(

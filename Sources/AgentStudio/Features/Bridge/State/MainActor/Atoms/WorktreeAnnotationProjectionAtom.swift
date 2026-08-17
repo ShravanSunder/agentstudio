@@ -26,6 +26,7 @@ enum WorktreeAnnotationCommandFailureCode: String, Codable, Equatable, Sendable 
 
 enum WorktreeAnnotationCommandOutcomeStatus: Equatable, Sendable {
     case committed
+    case admissionRequired(WorktreeAnnotationAdmissionChoice)
     case output(WorktreeAnnotationOutputCommandOutcome)
     case failed(WorktreeAnnotationCommandFailureCode)
 }
@@ -105,6 +106,41 @@ package final class WorktreeAnnotationProjectionAtom {
         ] = WorktreeAnnotationPlacementContext(
             sourceEpoch: sourceEpoch,
             placements: sourceEvaluation.placements
+        )
+        publishSnapshotChange()
+    }
+
+    func publish(
+        detail: WorktreeAnnotationSessionDetail,
+        exactPlacementFor threadID: WorktreeAnnotationThreadID,
+        contextID: String,
+        surface: BridgeProductSurface
+    ) {
+        guard
+            let thread = detail.threads.first(where: { $0.thread.id == threadID }),
+            case .located(let origin) = thread.thread.origin
+        else {
+            publish(detail: detail)
+            return
+        }
+        retain(detail: detail)
+        let contextKey = WorktreeAnnotationPlacementContextKey(
+            contextID: contextID,
+            surface: surface,
+            sessionID: detail.session.id
+        )
+        let existingContext = placementByContextKey[contextKey]
+        var placements = existingContext?.placements ?? [:]
+        placements[threadID] = WorktreeAnnotationThreadPlacementProjection(
+            placement: .exact,
+            currentPath: origin.repositoryRelativePath,
+            currentStartLine: origin.startLine,
+            currentEndLine: origin.endLine,
+            currentSourceIdentity: origin.sourceIdentity
+        )
+        placementByContextKey[contextKey] = WorktreeAnnotationPlacementContext(
+            sourceEpoch: existingContext?.sourceEpoch ?? 0,
+            placements: placements
         )
         publishSnapshotChange()
     }

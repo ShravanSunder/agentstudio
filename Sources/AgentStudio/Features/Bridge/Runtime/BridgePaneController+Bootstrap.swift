@@ -367,9 +367,13 @@ extension BridgePaneController {
                 )
                 let retirementReason: BridgePaneProductSessionRetirementReason =
                     reason == .workerReplacement ? .workerReplacement : .pageReload
+                let retiringWorkerInstanceID = await productSessionOwner.activeInstallation?.bootstrap.workerInstanceId
                 while await productSessionOwner.retire(reason: retirementReason) != .retired {
                     guard (productAdmission.withValidAdmission { true }) == true else { return }
                     await Task.yield()
+                }
+                if let retiringWorkerInstanceID {
+                    worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
                 }
                 guard
                     await productSessionOwner.activatePreparedCandidate(
@@ -432,9 +436,13 @@ extension BridgePaneController {
         } catch {
             bridgeProductBootstrapLogger.error("Bridge product session bootstrap delivery failed: \(error)")
             guard (productAdmission.withValidAdmission { true }) == true else { return }
+            let retiringWorkerInstanceID = await productSessionOwner.activeInstallation?.bootstrap.workerInstanceId
             while await productSessionOwner.retire(reason: .pageReload) != .retired {
                 guard (productAdmission.withValidAdmission { true }) == true else { return }
                 await Task.yield()
+            }
+            if let retiringWorkerInstanceID {
+                worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
             }
             setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
         }

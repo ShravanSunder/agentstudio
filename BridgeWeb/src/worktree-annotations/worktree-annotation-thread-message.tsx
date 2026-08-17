@@ -7,6 +7,7 @@ import {
 	browserWorktreeAnnotationDraftClock,
 	WorktreeAnnotationDraftScheduler,
 } from './worktree-annotation-draft-scheduler.js';
+import { WorktreeAnnotationEditOwnershipController } from './worktree-annotation-edit-ownership.js';
 import { createWorktreeAnnotationEditToken } from './worktree-annotation-edit-token.js';
 import {
 	WorktreeAnnotationCommandButton,
@@ -92,16 +93,31 @@ export function WorktreeAnnotationMessageEditor(
 	const projection = useWorktreeAnnotationProjection();
 	const initialBody = props.message.draft?.body ?? props.message.savedBody ?? '';
 	const acknowledgedBody = props.message.draft?.body ?? props.message.savedBody;
+	const editingSeedRef = useRef({
+		acknowledgedBody,
+		persistFirstChangedEditImmediately: props.message.draft === null,
+	});
+	editingSeedRef.current = {
+		acknowledgedBody,
+		persistFirstChangedEditImmediately: props.message.draft === null,
+	};
 	const [body, setBody] = useState(initialBody);
 	const [operationError, setOperationError] = useState<string | null>(null);
-	const editTokenRef = useRef(
-		props.message.draft?.activeEditToken ?? createWorktreeAnnotationEditToken(),
+	const editTokenRef = useRef(createWorktreeAnnotationEditToken());
+	const [editOwnershipReady, setEditOwnershipReady] = useState(props.message.draft === null);
+	const editOwnershipController = useMemo(
+		() =>
+			new WorktreeAnnotationEditOwnershipController({
+				annotationClient,
+				editToken: editTokenRef.current,
+				messageId: props.message.messageId,
+			}),
+		[annotationClient, props.message.messageId],
 	);
 	const scheduler = useMemo(
 		() =>
 			new WorktreeAnnotationDraftScheduler({
 				clock: browserWorktreeAnnotationDraftClock,
-				initialAcknowledgedBody: acknowledgedBody,
 				persist: async (nextBody): Promise<void> => {
 					const currentMessage = currentMessageById(
 						annotationClient.getSnapshot(),
@@ -120,13 +136,33 @@ export function WorktreeAnnotationMessageEditor(
 					assertCommittedAnnotationOutcome(outcome);
 					await annotationClient.waitForSnapshot((snapshot) => {
 						const projectedMessage = currentMessageById(snapshot, currentMessage.messageId);
+						if (currentMessage.savedBody === null && nextBody.trim().length === 0) {
+							return projectedMessage === null ? currentMessage : null;
+						}
 						return projectedMessage?.draft?.body === nextBody ? projectedMessage : null;
 					});
 				},
 			}),
-		[acknowledgedBody, annotationClient, props.message.messageId],
+		[annotationClient, props.message.messageId],
 	);
-	useEffect((): (() => void) => (): void => scheduler.dispose(), [scheduler]);
+	useEffect((): (() => void) | undefined => {
+		if (!props.isEditing) return undefined;
+		let effectIsActive = true;
+		scheduler.beginEditing(editingSeedRef.current);
+		setEditOwnershipReady(false);
+		void editOwnershipController
+			.acquire()
+			.then((): void => {
+				if (effectIsActive) setEditOwnershipReady(true);
+			})
+			.catch((error: unknown): void => {
+				if (effectIsActive) setOperationError(annotationErrorMessage(error));
+			});
+		return (): void => {
+			effectIsActive = false;
+			void scheduler.teardown(() => editOwnershipController.release()).catch((): void => {});
+		};
+	}, [editOwnershipController, props.isEditing, scheduler]);
 	useEffect((): void => {
 		if (!props.isEditing) setBody(props.message.draft?.body ?? props.message.savedBody ?? '');
 	}, [props.isEditing, props.message.draft?.body, props.message.savedBody]);
@@ -203,7 +239,7 @@ export function WorktreeAnnotationMessageEditor(
 				<RotateCcw />
 			</WorktreeAnnotationCommandButton>
 			<WorktreeAnnotationCommandButton
-				disabled={!validation.ok}
+				disabled={!validation.ok || !editOwnershipReady}
 				label="Save annotation"
 				onClick={() => void save()}
 				preserveEditorFocus
@@ -254,6 +290,7 @@ export function WorktreeAnnotationMessageEditor(
 					autoFocus
 					aria-label="Annotation Markdown"
 					className="min-h-16 rounded-none border-0 bg-comment-composer-bg p-0 shadow-none focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-ring/30"
+					disabled={!editOwnershipReady}
 					value={body}
 					onBlur={(event) => {
 						const surface = event.currentTarget.closest(
@@ -322,6 +359,7 @@ function assertCommittedAnnotationOutcome(
 	outcome: Awaited<ReturnType<ReturnType<typeof useWorktreeAnnotationSurfaceClient>['execute']>>,
 ): void {
 	if (outcome.status.kind === 'failed') throw new Error(outcome.status.code);
+	if (outcome.status.kind !== 'committed') throw new Error('Annotation command did not commit.');
 }
 
 function annotationMessageStateLabel(message: WorktreeAnnotationMessageEntry): string {

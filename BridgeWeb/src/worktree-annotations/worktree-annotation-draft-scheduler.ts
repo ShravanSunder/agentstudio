@@ -15,6 +15,7 @@ export interface WorktreeAnnotationDraftSchedulerProps {
 	readonly debounceMilliseconds?: number;
 	readonly initialAcknowledgedBody?: string | null | undefined;
 	readonly maximumWaitMilliseconds?: number;
+	readonly persistFirstChangedEditImmediately?: boolean;
 }
 
 const defaultDraftDebounceMilliseconds = 1_000;
@@ -33,6 +34,8 @@ export class WorktreeAnnotationDraftScheduler {
 	#inFlight: Promise<void> | null = null;
 	#inFlightBody: string | null = null;
 	#lastAcknowledgedBody: string | null = null;
+	#persistFirstChangedEditImmediately: boolean;
+	#processedFirstChangedEdit = false;
 	#status: WorktreeAnnotationDraftSchedulerSnapshot['status'] = 'idle';
 
 	constructor(props: WorktreeAnnotationDraftSchedulerProps) {
@@ -49,6 +52,7 @@ export class WorktreeAnnotationDraftScheduler {
 		this.#debounceMilliseconds = props.debounceMilliseconds ?? defaultDraftDebounceMilliseconds;
 		this.#maximumWaitMilliseconds =
 			props.maximumWaitMilliseconds ?? defaultDraftMaximumWaitMilliseconds;
+		this.#persistFirstChangedEditImmediately = props.persistFirstChangedEditImmediately ?? false;
 	}
 
 	edit(body: string): void {
@@ -57,6 +61,11 @@ export class WorktreeAnnotationDraftScheduler {
 			this.#cancelPendingFlush();
 			this.#dirtySinceMilliseconds = null;
 			this.#status = 'acknowledged';
+			return;
+		}
+		if (this.#persistFirstChangedEditImmediately && !this.#processedFirstChangedEdit) {
+			this.#processedFirstChangedEdit = true;
+			void this.#flushCurrentBody().catch((): void => {});
 			return;
 		}
 		if (!this.#hasAttemptedInitialPersist) {
@@ -87,6 +96,21 @@ export class WorktreeAnnotationDraftScheduler {
 		this.#scheduleFlush();
 	}
 
+	beginEditing(props: {
+		readonly acknowledgedBody: string | null;
+		readonly persistFirstChangedEditImmediately: boolean;
+	}): void {
+		this.#cancelPendingFlush();
+		this.#currentBody = props.acknowledgedBody ?? '';
+		this.#dirtySinceMilliseconds = null;
+		this.#emptyDraftPersistenceAllowed = props.acknowledgedBody !== null;
+		this.#hasAttemptedInitialPersist = props.acknowledgedBody !== null;
+		this.#lastAcknowledgedBody = props.acknowledgedBody;
+		this.#persistFirstChangedEditImmediately = props.persistFirstChangedEditImmediately;
+		this.#processedFirstChangedEdit = false;
+		this.#status = props.acknowledgedBody === null ? 'idle' : 'acknowledged';
+	}
+
 	async focusLost(): Promise<void> {
 		await this.#flushUntilCurrentAcknowledged();
 	}
@@ -106,6 +130,13 @@ export class WorktreeAnnotationDraftScheduler {
 
 	dispose(): void {
 		this.#cancelPendingFlush();
+	}
+
+	async teardown(afterFlush?: () => Promise<void>): Promise<void> {
+		this.#cancelPendingFlush();
+		await this.#flushUntilCurrentAcknowledged();
+		await afterFlush?.();
+		this.dispose();
 	}
 
 	#scheduleFlush(): void {
@@ -148,6 +179,7 @@ export class WorktreeAnnotationDraftScheduler {
 		this.#status = 'persisting';
 		const attempt = this.#persist(body)
 			.then((): void => {
+				this.#emptyDraftPersistenceAllowed = true;
 				this.#lastAcknowledgedBody = body;
 				this.#status = this.#currentBody === body ? 'acknowledged' : 'scheduled';
 			})

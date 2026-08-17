@@ -273,6 +273,18 @@ extension AppDelegate {
             store: worktreeAnnotationStore,
             effect: WorktreeAnnotationOutputEffects()
         )
+        do {
+            _ = try await worktreeAnnotationOutputCoordinator.recoverPreparedAttemptsAsUnknown()
+        } catch {
+            recordPersistenceRecovery(
+                PersistenceRecoveryEvent(
+                    store: .worktreeAnnotations,
+                    workspaceId: nil,
+                    recovery: .resetToDefaults
+                )
+            )
+            return
+        }
         if let recoveryEvent = await worktreeAnnotationStore.restoreRecoveryState() {
             recordPersistenceRecovery(recoveryEvent)
         }

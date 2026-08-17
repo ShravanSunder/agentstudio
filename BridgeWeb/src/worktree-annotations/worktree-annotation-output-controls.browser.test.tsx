@@ -103,7 +103,7 @@ describe('worktree annotation output controls', () => {
 				outputKind: 'clipboardMarkdown',
 				selection: {
 					kind: 'explicit',
-					messageIds: ['00000000-0000-7000-8000-000000000032'],
+					messageIds: ['00000000-0000-7000-8000-000000000031'],
 				},
 				sessionId: annotationSessionId,
 			},
@@ -126,6 +126,7 @@ describe('worktree annotation output controls', () => {
 		await publishOutputFixture(surface);
 
 		await openReviewOutput(rendered);
+		await performBrowserAction(() => rendered.getByRole('button', { name: 'Select all' }).click());
 		await performBrowserAction(() =>
 			rendered.getByRole('button', { name: 'Copy 1 comment' }).click(),
 		);
@@ -170,7 +171,7 @@ describe('worktree annotation output controls', () => {
 		await publishOutputFixture(surface);
 		await openReviewOutput(rendered);
 		await performBrowserAction(() => rendered.getByRole('checkbox').click());
-		await expect.element(rendered.getByRole('button', { name: 'Select all' })).toBeVisible();
+		await expect.element(rendered.getByRole('button', { name: 'Clear' })).toBeVisible();
 
 		await act(async (): Promise<void> => {
 			surface.publishThread({
@@ -332,6 +333,7 @@ describe('worktree annotation output controls', () => {
 		);
 		await publishOutputFixture(surface);
 		await openReviewOutput(rendered);
+		await performBrowserAction(() => rendered.getByRole('button', { name: 'Select all' }).click());
 
 		await performBrowserAction(() =>
 			rendered.getByRole('button', { name: 'Export 1 comment' }).click(),
@@ -355,6 +357,7 @@ describe('worktree annotation output controls', () => {
 		);
 		await publishOutputFixture(surface);
 		await openReviewOutput(rendered);
+		await performBrowserAction(() => rendered.getByRole('button', { name: 'Select all' }).click());
 
 		await performBrowserAction(() =>
 			rendered.getByRole('button', { name: 'Export 1 comment' }).click(),

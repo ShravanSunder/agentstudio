@@ -35,6 +35,8 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
+import { WorktreeAnnotationOutputHistoryControl } from '../../worktree-annotations/worktree-annotation-output-history-control.js';
+import { WorktreeAnnotationRecoveryWarning } from '../../worktree-annotations/worktree-annotation-recovery-warning.js';
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import type { BridgeCodeViewItemPresentation } from '../code-view/bridge-code-view-materialization.js';
 import type { BridgeReviewCodeViewOptions } from '../code-view/bridge-code-view-options.js';
@@ -456,26 +458,31 @@ export function renderReviewViewerShellPresentation(presentation: {
 					border: 'opaque',
 					layout: 'stack',
 					testId: 'bridge-review-sidebar',
-					toolbarBelow: treeSearchOpen ? (
-						<BridgeViewerSearchField
-							clearButtonTestId="bridge-review-search-clear"
-							errorMessage={treeSearchErrorMessage}
-							inputTestId="bridge-review-search-input"
-							onChange={(value): void => props.onTreeSearchTextChange?.(value)}
-							onClear={(): void => {
-								if (props.onTreeSearchClear !== undefined) {
-									props.onTreeSearchClear();
-									return;
-								}
-								props.onTreeSearchTextChange?.('');
-							}}
-							onClose={(): void => props.onTreeSearchClose?.()}
-							onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
-							regexToggleTestId="bridge-review-regex-toggle"
-							searchMode={treeSearchMode}
-							value={treeSearchText}
-						/>
-					) : null,
+					toolbarBelow: (
+						<>
+							<WorktreeAnnotationRecoveryWarning />
+							{treeSearchOpen ? (
+								<BridgeViewerSearchField
+									clearButtonTestId="bridge-review-search-clear"
+									errorMessage={treeSearchErrorMessage}
+									inputTestId="bridge-review-search-input"
+									onChange={(value): void => props.onTreeSearchTextChange?.(value)}
+									onClear={(): void => {
+										if (props.onTreeSearchClear !== undefined) {
+											props.onTreeSearchClear();
+											return;
+										}
+										props.onTreeSearchTextChange?.('');
+									}}
+									onClose={(): void => props.onTreeSearchClose?.()}
+									onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
+									regexToggleTestId="bridge-review-regex-toggle"
+									searchMode={treeSearchMode}
+									value={treeSearchText}
+								/>
+							) : null}
+						</>
+					),
 					toolbarFooter: (
 						<BridgeViewerSearchStatus
 							message={props.treeSearchStatusMessage ?? treeSearchErrorMessage}
@@ -509,6 +516,7 @@ export function renderReviewViewerShellPresentation(presentation: {
 									triggerRef={searchTriggerRef}
 								/>
 							</div>,
+							<WorktreeAnnotationOutputHistoryControl key="annotation-output-history" />,
 						],
 						trailingTestId: 'bridge-review-rail-toolbar-trailing',
 					}),

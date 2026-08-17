@@ -12,6 +12,8 @@ import { bridgeViewerTreeStyle } from '../app/bridge-viewer-tree-theme.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
+import { WorktreeAnnotationOutputHistoryControl } from '../worktree-annotations/worktree-annotation-output-history-control.js';
+import { WorktreeAnnotationRecoveryWarning } from '../worktree-annotations/worktree-annotation-recovery-warning.js';
 import type {
 	BridgeFileViewerFilterMode,
 	BridgeFileViewerSearchMode,
@@ -154,27 +156,33 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 									? {}
 									: { triggerRef: props.searchTriggerRef })}
 							/>
+							<WorktreeAnnotationOutputHistoryControl />
 						</>
 					),
 					trailingClassName: 'shrink-0',
 					trailingTestId: 'bridge-file-viewer-rail-toolbar-trailing',
 				}),
-				toolbarBelow: shouldShowSearchInput ? (
-					<BridgeViewerSearchField
-						clearButtonTestId="worktree-file-search-clear"
-						errorMessage={props.searchError === null ? null : 'Invalid regex'}
-						inputTestId="worktree-file-search-input"
-						onChange={props.onSearchTextChange}
-						onClear={props.onClearSearch}
-						onClose={props.onToggleSearch}
-						onSearchModeChange={(searchMode) => {
-							props.onSearchModeChange(searchMode.kind);
-						}}
-						regexToggleTestId="worktree-file-regex-toggle"
-						searchMode={{ kind: props.searchMode }}
-						value={props.searchText}
-					/>
-				) : null,
+				toolbarBelow: (
+					<>
+						<WorktreeAnnotationRecoveryWarning />
+						{shouldShowSearchInput ? (
+							<BridgeViewerSearchField
+								clearButtonTestId="worktree-file-search-clear"
+								errorMessage={props.searchError === null ? null : 'Invalid regex'}
+								inputTestId="worktree-file-search-input"
+								onChange={props.onSearchTextChange}
+								onClear={props.onClearSearch}
+								onClose={props.onToggleSearch}
+								onSearchModeChange={(searchMode) => {
+									props.onSearchModeChange(searchMode.kind);
+								}}
+								regexToggleTestId="worktree-file-regex-toggle"
+								searchMode={{ kind: props.searchMode }}
+								value={props.searchText}
+							/>
+						) : null}
+					</>
+				),
 				toolbarFooter: (
 					<BridgeViewerSearchStatus
 						message={props.searchStatusMessage ?? props.searchError}

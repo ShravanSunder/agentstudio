@@ -110,6 +110,39 @@ describe('Bridge product worktree annotation contracts', () => {
 			).toBe(false);
 		}
 	});
+
+	test('projects strict bounded admission-required outcomes for the blocked inline intent', () => {
+		const admissionOutcome = {
+			requestId: 'annotation-request-1',
+			sessionId: null,
+			status: {
+				candidateSessionIds: [lowercaseSessionId],
+				kind: 'admission_required',
+				reason: 'uncertain_continuity_choice',
+			},
+			surface: 'file',
+		} as const;
+		const admissionRequiredProjection = annotationProjectionWithSession(lowercaseSessionId, [
+			admissionOutcome,
+		]);
+
+		expect(bridgeProductWorktreeAnnotationEventSchema.parse(admissionRequiredProjection)).toEqual(
+			admissionRequiredProjection,
+		);
+		expect(
+			bridgeProductWorktreeAnnotationEventSchema.safeParse(
+				annotationProjectionWithSession(lowercaseSessionId, [
+					{
+						...admissionOutcome,
+						status: {
+							...admissionOutcome.status,
+							candidateSessionIds: [lowercaseSessionId, lowercaseSessionId],
+						},
+					},
+				]),
+			).success,
+		).toBe(false);
+	});
 });
 
 function annotationMessageBatch(
@@ -141,11 +174,14 @@ function annotationMessageBatch(
 	};
 }
 
-function annotationProjectionWithSession(sessionId: string): Readonly<Record<string, unknown>> {
+function annotationProjectionWithSession(
+	sessionId: string,
+	commandOutcomes: readonly Readonly<Record<string, unknown>>[] = [],
+): Readonly<Record<string, unknown>> {
 	return {
 		eventKind: 'projection.state',
 		payload: {
-			commandOutcomes: [],
+			commandOutcomes,
 			outputHistory: [],
 			recoveryStatus: 'available',
 			revision: 1,

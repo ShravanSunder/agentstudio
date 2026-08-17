@@ -730,9 +730,12 @@ gutter triggers, diff side, annotation slots, range highlighting, layout, and
 scrolling. It does not own threads, messages, drafts, persistence, resolution,
 continuity, placement meaning, or output history.
 
-`@pierre/diffs` 1.3.5 is a stable follow-up upgrade, not PR1 scope. That upgrade
-must move controlled selection from the old options placement to the React
-`selectedLines` prop rather than being mixed into this interaction redesign.
+`@pierre/diffs` 1.3.5 is a stable follow-up upgrade, not PR1 scope. Pierre
+1.2.10 already requires controlled selection to be fed back through the React
+`selectedLines` and `onSelectedLinesChange` props; `controlledSelection` in
+`CodeViewOptions` selects the interaction mode but does not own React feedback
+or paint. PR1 therefore wires those existing 1.2.10 props now. The later
+dependency upgrade must preserve this ownership rather than introducing it.
 
 ```text
 Pierre CodeView 1.2.10

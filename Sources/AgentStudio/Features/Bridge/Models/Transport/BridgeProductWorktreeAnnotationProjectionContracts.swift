@@ -73,10 +73,16 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
 struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sendable {
     enum Status: Codable, Equatable, Sendable {
         case committed
+        case admissionRequired(
+            reason: WorktreeAnnotationAdmissionChoiceReason,
+            candidateSessionIds: [UUID]
+        )
         case output(BridgeProductAnnotationOutputOutcomeDTO)
         case failed(WorktreeAnnotationCommandFailureCode)
 
-        private enum CodingKeys: String, CodingKey, CaseIterable { case code, kind, outcome }
+        private enum CodingKeys: String, CodingKey, CaseIterable {
+            case candidateSessionIds, code, kind, outcome, reason
+        }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -84,6 +90,12 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
             let allowedKeys: Set<String> =
                 switch kind {
                 case "committed": [CodingKeys.kind.rawValue]
+                case "admission_required":
+                    [
+                        CodingKeys.candidateSessionIds.rawValue,
+                        CodingKeys.kind.rawValue,
+                        CodingKeys.reason.rawValue,
+                    ]
                 case "output": [CodingKeys.kind.rawValue, CodingKeys.outcome.rawValue]
                 case "failed": [CodingKeys.code.rawValue, CodingKeys.kind.rawValue]
                 default: []
@@ -96,6 +108,23 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
             switch kind {
             case "committed":
                 self = .committed
+            case "admission_required":
+                let candidateSessionIds = try container.decode([UUID].self, forKey: .candidateSessionIds)
+                guard !candidateSessionIds.isEmpty,
+                    Set(candidateSessionIds).count == candidateSessionIds.count
+                else {
+                    throw BridgeProductContractDecoding.invalidValue(
+                        "Annotation admission candidates must be nonempty and unique",
+                        codingPath: decoder.codingPath
+                    )
+                }
+                self = .admissionRequired(
+                    reason: try container.decode(
+                        WorktreeAnnotationAdmissionChoiceReason.self,
+                        forKey: .reason
+                    ),
+                    candidateSessionIds: candidateSessionIds
+                )
             case "output":
                 self = .output(
                     try container.decode(
@@ -120,6 +149,10 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
             switch self {
             case .committed:
                 try container.encode("committed", forKey: .kind)
+            case .admissionRequired(let reason, let candidateSessionIds):
+                try container.encode(candidateSessionIds, forKey: .candidateSessionIds)
+                try container.encode("admission_required", forKey: .kind)
+                try container.encode(reason, forKey: .reason)
             case .output(let outcome):
                 try container.encode("output", forKey: .kind)
                 try container.encode(outcome, forKey: .outcome)
@@ -148,6 +181,11 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
         surface = outcome.surface
         switch outcome.status {
         case .committed: status = .committed
+        case .admissionRequired(let choice):
+            status = .admissionRequired(
+                reason: choice.reason,
+                candidateSessionIds: choice.candidateSessionIDs.map(\.rawValue)
+            )
         case .output(let output): status = .output(.init(output))
         case .failed(let code): status = .failed(code)
         }

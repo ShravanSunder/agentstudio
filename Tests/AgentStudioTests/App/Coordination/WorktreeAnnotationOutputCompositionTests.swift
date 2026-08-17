@@ -63,6 +63,23 @@ struct WorktreeAnnotationOutputCompositionTests {
             bridgeController.contains("worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator? = nil")
         )
         #expect(bridgeBootstrap.contains("outputCoordinator: input.worktreeAnnotationOutputCoordinator"))
+        #expect(
+            bridgeController.contains(
+                "worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)"
+            )
+        )
+        #expect(
+            bridgeBootstrap.contains(
+                "worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)"
+            )
+        )
+        let recoveryCall = try #require(
+            workspaceBoot.range(of: "recoverPreparedAttemptsAsUnknown()")
+        )
+        let surfaceComposition = try #require(
+            workspaceBoot.range(of: "WorkspaceSurfaceCoordinator(")
+        )
+        #expect(recoveryCall.lowerBound < surfaceComposition.lowerBound)
     }
 
     private func sourceFilesUnder(_ root: URL) throws -> [URL] {

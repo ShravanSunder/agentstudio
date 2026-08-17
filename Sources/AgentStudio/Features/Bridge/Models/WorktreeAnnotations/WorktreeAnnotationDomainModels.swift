@@ -63,6 +63,16 @@ enum WorktreeAnnotationOutputEventKind: String, Codable, CaseIterable, Sendable 
     case exported
 }
 
+enum WorktreeAnnotationAdmissionChoiceReason: String, Codable, Equatable, Sendable {
+    case applicableSessionChoice = "applicable_session_choice"
+    case uncertainContinuityChoice = "uncertain_continuity_choice"
+}
+
+struct WorktreeAnnotationAdmissionChoice: Equatable, Sendable {
+    let reason: WorktreeAnnotationAdmissionChoiceReason
+    let candidateSessionIDs: [WorktreeAnnotationSessionID]
+}
+
 struct WorktreeAnnotationSourceFingerprint: Codable, Equatable, Sendable {
     let repositoryID: String
     let worktreeID: String
@@ -211,7 +221,7 @@ enum WorktreeAnnotationRepositoryError: Error, Equatable, Sendable {
     case editTokenConflict
     case messageLocked
     case sessionReadOnly
-    case sessionSelectionRequired
+    case sessionSelectionRequired(WorktreeAnnotationAdmissionChoice)
     case openThreadCountConflict(currentCount: Int)
     case unresolvedWorkConfirmationRequired
     case notFound

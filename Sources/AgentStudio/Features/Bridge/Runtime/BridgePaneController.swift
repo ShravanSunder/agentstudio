@@ -57,6 +57,7 @@ package final class BridgePaneController {
     let reviewSourceProvider: any BridgeReviewSourceProvider
     let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
     let reviewComparisonTargetProjection: BridgeReviewComparisonTargetProjection
+    let worktreeAnnotationStore: WorktreeAnnotationStore?
     let reviewChangeIndex = BridgeChangeIndex()
     package var bridgePaneState: BridgePaneState
     let initialContributionTargetCommit:
@@ -136,6 +137,7 @@ package final class BridgePaneController {
         self.bridgePaneState = state
         let reviewComparisonTargetProjection = BridgeReviewComparisonTargetProjection(state: state)
         self.reviewComparisonTargetProjection = reviewComparisonTargetProjection
+        self.worktreeAnnotationStore = worktreeAnnotationStore
         let telemetryDependencies = Self.resolveTelemetryDependencies(
             traceRuntime: traceRuntime,
             telemetryRuntimePolicy: telemetryRuntimePolicy,
@@ -475,6 +477,7 @@ package final class BridgePaneController {
             preconditionFailure("Bridge teardown cleanup task was not installed")
         }
         let productSessionOwner = productSessionOwner
+        let worktreeAnnotationStore = worktreeAnnotationStore
         let lifecycleRetirementTask = Task { @MainActor [weak self] in
             if let telemetrySessionOwner = self?.telemetrySessionOwner {
                 do {
@@ -508,8 +511,11 @@ package final class BridgePaneController {
                 await telemetrySessionOwner.revoke()
             }
             self?.page.stopLoading()
-            let productSessionRetired =
-                await productSessionOwner.retire(reason: .paneDisposal) == .retired
+            let retiringWorkerInstanceID = await productSessionOwner.activeInstallation?.bootstrap.workerInstanceId
+            let productSessionRetired = await productSessionOwner.retire(reason: .paneDisposal) == .retired
+            if productSessionRetired, let retiringWorkerInstanceID {
+                worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
+            }
             await teardownCleanupTask.value
             if !productSessionRetired {
                 self?.lifecycleRetirementTask = nil

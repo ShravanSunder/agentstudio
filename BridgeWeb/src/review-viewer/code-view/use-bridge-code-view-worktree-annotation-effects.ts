@@ -18,7 +18,7 @@ export function useBridgeCodeViewWorktreeAnnotationEffects(props: {
 	readonly presentation: BridgeCodeViewWorktreeAnnotations;
 	readonly sourceKey: string;
 }): void {
-	const { annotateItem, projectionRevision, selectedItemIdRef, selectedRange } = props.presentation;
+	const { annotateItem, projectionRevision } = props.presentation;
 	const appliedProjectionKeyRef = useRef<string | null>(null);
 	useLayoutEffect((): void => {
 		const codeViewHandle = props.codeViewHandleRef.current;
@@ -54,14 +54,4 @@ export function useBridgeCodeViewWorktreeAnnotationEffects(props: {
 		projectionRevision,
 		props.sourceKey,
 	]);
-	useLayoutEffect((): void => {
-		const codeViewHandle = props.codeViewHandleRef.current;
-		if (codeViewHandle === null) return;
-		const selectedItemId = selectedItemIdRef.current;
-		codeViewHandle.setSelectedLines(
-			selectedItemId === null || selectedRange === null
-				? null
-				: { id: selectedItemId, range: selectedRange },
-		);
-	}, [props.codeViewHandleRef, props.codeViewMountVersion, selectedItemIdRef, selectedRange]);
 }

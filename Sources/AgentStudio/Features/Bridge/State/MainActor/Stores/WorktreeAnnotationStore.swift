@@ -45,6 +45,11 @@ struct WorktreeAnnotationSourceRefreshSnapshot: Equatable, Sendable {
     let requirements: [WorktreeAnnotationSourceRefreshRequirement]
 }
 
+struct WorktreeAnnotationRootPlacementContext: Sendable {
+    let contextID: String
+    let surface: BridgeProductSurface
+}
+
 struct WorktreeAnnotationOutputSnapshotContext: Sendable {
     let sessionDetail: WorktreeAnnotationSessionDetail
     let placementsByThreadID: [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
@@ -57,12 +62,13 @@ struct WorktreeAnnotationOutputSnapshotContext: Sendable {
 @MainActor
 package final class WorktreeAnnotationStore {
     package let projection: WorktreeAnnotationProjectionAtom
-    private let repositoryAccess: any WorktreeAnnotationRepositoryAccess
+    let repositoryAccess: any WorktreeAnnotationRepositoryAccess
     private var demandCountByKey: [WorktreeAnnotationDemandKey: Int] = [:]
     private var activeDemandGenerationByContextKey:
         [WorktreeAnnotationPlacementContextKey: WorktreeAnnotationDemandGeneration] = [:]
     private var latestSourceRefreshFenceByContextKey:
         [WorktreeAnnotationPlacementContextKey: WorktreeAnnotationSourceRefreshFence] = [:]
+    let editOwnership = WorktreeAnnotationEditOwnershipRegistry()
     private var unacknowledgedRecoveryWitness: WorktreeAnnotationRecoveryProvenance?
 
     init(
@@ -214,6 +220,30 @@ package final class WorktreeAnnotationStore {
         try requireMutationAllowed()
         let committedDetail = try await repositoryAccess.createRootDraft(props)
         projection.publish(detail: committedDetail)
+        return committedDetail
+    }
+
+    @discardableResult
+    func createRootDraft(
+        _ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps,
+        placementContext: WorktreeAnnotationRootPlacementContext
+    ) async throws -> WorktreeAnnotationSessionDetail {
+        try requireMutationAllowed()
+        let committedDetail = try await repositoryAccess.createRootDraft(props)
+        guard
+            let createdThreadID = committedDetail.threads
+                .filter({ $0.thread.origin == props.origin })
+                .max(by: { $0.thread.createdOrdinal < $1.thread.createdOrdinal })?
+                .thread.id
+        else {
+            throw WorktreeAnnotationRepositoryError.invalidState
+        }
+        projection.publish(
+            detail: committedDetail,
+            exactPlacementFor: createdThreadID,
+            contextID: placementContext.contextID,
+            surface: placementContext.surface
+        )
         return committedDetail
     }
 
@@ -478,7 +508,13 @@ package final class WorktreeAnnotationStore {
 
     func markPreparedOutputAttemptsUnknown(now: Date) async throws -> Int {
         try requireMutationAllowed()
-        let changedCount = try await repositoryAccess.markPreparedOutputAttemptsUnknown(now: now)
+        let changedCount: Int
+        do {
+            changedCount = try await repositoryAccess.markPreparedOutputAttemptsUnknown(now: now)
+        } catch {
+            projection.publishRecoveryState(.unavailable)
+            throw error
+        }
         if changedCount > 0 {
             projection.evictAllDetails()
             demandCountByKey.removeAll()
@@ -508,14 +544,14 @@ package final class WorktreeAnnotationStore {
         }
     }
 
-    private func requireMutationAllowed() throws {
+    func requireMutationAllowed() throws {
         try requireAvailableForReads()
         guard unacknowledgedRecoveryWitness == nil else {
             throw WorktreeAnnotationStoreError.recoveryAcknowledgementRequired
         }
     }
 
-    private func publishCommittedMutation(
+    func publishCommittedMutation(
         _ mutation: () async throws -> WorktreeAnnotationSessionDetail
     ) async throws -> WorktreeAnnotationSessionDetail {
         try requireMutationAllowed()

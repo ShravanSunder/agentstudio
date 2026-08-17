@@ -275,6 +275,66 @@ describe('worktree annotation inline thread', () => {
 		expect(document.querySelectorAll('[aria-label="Reply with Markdown"]')).toHaveLength(1);
 	});
 
+	test('completes the first Save across a durable projection remount', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const editToken = 'annotation-edit-save-across-remount';
+		const rendered = await render(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<ProjectionRemountingReplyComposer editToken={editToken} />
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				revision: 3,
+				sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
+			});
+			await rendered
+				.getByRole('textbox', { name: 'Reply with Markdown' })
+				.fill('Save across replacement');
+			await rendered.getByRole('button', { name: 'Save annotation' }).click();
+		});
+		await settleBrowserCondition(
+			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'reply.create'),
+			'Expected first Save to create the durable reply draft.',
+		);
+		const createOperation = surface.sentOperations.find(
+			(operation) => operation.kind === 'reply.create',
+		);
+		if (createOperation?.kind !== 'reply.create') throw new Error('Expected reply.create.');
+
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommitted();
+			surface.publishThread({
+				context: locatedContext,
+				message: {
+					...annotationMessage({
+						messageId: secondRootMessageId,
+						ordinal: 1,
+						sessionRevision: 4,
+						threadId: annotationHeadThreadId,
+					}),
+					draft: {
+						activeEditToken: createOperation.editToken,
+						body: 'Save across replacement',
+						revision: 0,
+					},
+					savedBody: null,
+					savedRevision: null,
+				},
+			});
+			await Promise.resolve();
+		});
+		await settleBrowserCondition(
+			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'draft.save'),
+			'Expected the original Save action to continue after the Pierre portal remount.',
+		);
+		expect(
+			surface.sentOperations
+				.map((operation) => operation.kind)
+				.filter((kind) => kind !== 'session.discover'),
+		).toEqual(['reply.create', 'draft.save']);
+	});
+
 	test('keeps an edit token active until every overlapping composer unregisters', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const editToken = 'annotation-edit-overlapping-portals';
@@ -313,6 +373,35 @@ describe('worktree annotation inline thread', () => {
 		await publishThreadMessages(surface, [draftMessage]);
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Resume draft' }).click();
+		});
+		await settleBrowserCondition(
+			(): boolean =>
+				surface.sentOperations.some((operation) => operation.kind === 'draft.edit.acquire'),
+			'Expected the resumed draft to acquire current-generation edit ownership.',
+		);
+		const acquireOperation = surface.sentOperations.find(
+			(operation) => operation.kind === 'draft.edit.acquire',
+		);
+		if (acquireOperation?.kind !== 'draft.edit.acquire') {
+			throw new Error('Expected draft.edit.acquire before Save.');
+		}
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommitted();
+			surface.publishThread({
+				context: locatedContext,
+				message: {
+					...draftMessage,
+					draft: {
+						activeEditToken: acquireOperation.editToken,
+						body: 'Reviewed body.',
+						revision: 2,
+					},
+					sessionRevision: 4,
+				},
+			});
+			await Promise.resolve();
+		});
+		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Save annotation' }).click();
 		});
 		await settleBrowserCondition(
@@ -333,7 +422,7 @@ describe('worktree annotation inline thread', () => {
 					draft: null,
 					savedBody: 'Reviewed body.',
 					savedRevision: 2,
-					sessionRevision: 4,
+					sessionRevision: 5,
 				},
 			});
 			await Promise.resolve();

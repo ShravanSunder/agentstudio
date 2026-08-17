@@ -29,18 +29,21 @@ extension WorktreeAnnotationSQLiteRepository {
         _ database: Database,
         props: CreateRootDraftProps
     ) throws -> WorktreeAnnotationSessionID {
-        let eligibleRows = try Row.fetchAll(
+        let candidateRows = try Row.fetchAll(
             database,
             sql: """
-                SELECT id FROM annotation_session
-                WHERE worktree_id = ? AND lifecycle = 'living' AND source_relationship = 'applicable'
+                SELECT id, source_relationship FROM annotation_session
+                WHERE worktree_id = ? AND lifecycle = 'living'
+                  AND source_relationship IN ('applicable', 'uncertain')
                 ORDER BY created_at ASC, id ASC
                 """,
             arguments: [props.worktreeID]
         )
-        let eligibleIDs = try eligibleRows.map { row -> WorktreeAnnotationSessionID in
-            try decodeIdentity(row["id"] as String)
+        let candidates = try candidateRows.map { row -> (WorktreeAnnotationSessionID, String) in
+            (try decodeIdentity(row["id"] as String), row["source_relationship"])
         }
+        let eligibleIDs = candidates.compactMap { $0.1 == "applicable" ? $0.0 : nil }
+        let uncertainIDs = candidates.compactMap { $0.1 == "uncertain" ? $0.0 : nil }
 
         let sessionID: WorktreeAnnotationSessionID
         switch props.admission {
@@ -49,16 +52,39 @@ extension WorktreeAnnotationSQLiteRepository {
         case .selected(let selectedSessionID):
             try requireWritableSession(database, sessionID: selectedSessionID)
             sessionID = selectedSessionID
-            try advanceSession(database, sessionID: sessionID, now: props.now)
+            try advanceSession(
+                database,
+                sessionID: sessionID,
+                accepting: props.sourceFingerprint,
+                now: props.now
+            )
         case .implicitOrSingle:
+            if !uncertainIDs.isEmpty {
+                throw WorktreeAnnotationRepositoryError.sessionSelectionRequired(
+                    .init(
+                        reason: .uncertainContinuityChoice,
+                        candidateSessionIDs: uncertainIDs
+                    )
+                )
+            }
             switch eligibleIDs.count {
             case 0:
                 sessionID = try insertSession(database, props: props)
             case 1:
                 sessionID = eligibleIDs[0]
-                try advanceSession(database, sessionID: sessionID, now: props.now)
+                try advanceSession(
+                    database,
+                    sessionID: sessionID,
+                    accepting: props.sourceFingerprint,
+                    now: props.now
+                )
             default:
-                throw WorktreeAnnotationRepositoryError.sessionSelectionRequired
+                throw WorktreeAnnotationRepositoryError.sessionSelectionRequired(
+                    .init(
+                        reason: .applicableSessionChoice,
+                        candidateSessionIDs: eligibleIDs
+                    )
+                )
             }
         }
         return sessionID
@@ -199,6 +225,54 @@ extension WorktreeAnnotationSQLiteRepository {
                 WHERE id = ?
                 """,
             arguments: [now.timeIntervalSince1970, sessionID.databaseValue]
+        )
+        guard database.changesCount == 1 else { throw WorktreeAnnotationRepositoryError.notFound }
+    }
+
+    func advanceSession(
+        _ database: Database,
+        sessionID: WorktreeAnnotationSessionID,
+        accepting sourceFingerprint: WorktreeAnnotationSourceFingerprint,
+        now: Date
+    ) throws {
+        guard
+            let acceptedFingerprintJSON = try String.fetchOne(
+                database,
+                sql: "SELECT accepted_source_fingerprint_json FROM annotation_session WHERE id = ?",
+                arguments: [sessionID.databaseValue]
+            )
+        else {
+            throw WorktreeAnnotationRepositoryError.notFound
+        }
+        let acceptedFingerprint = try Self.jsonDecoder.decode(
+            WorktreeAnnotationSourceFingerprint.self,
+            from: Data(acceptedFingerprintJSON.utf8)
+        )
+        guard acceptedFingerprint.repositoryID == sourceFingerprint.repositoryID,
+            acceptedFingerprint.worktreeID == sourceFingerprint.worktreeID
+        else {
+            throw WorktreeAnnotationRepositoryError.invalidState
+        }
+        let mergedFingerprint = WorktreeAnnotationSourceFingerprint(
+            repositoryID: sourceFingerprint.repositoryID,
+            worktreeID: sourceFingerprint.worktreeID,
+            fileSourceIdentity: sourceFingerprint.fileSourceIdentity
+                ?? acceptedFingerprint.fileSourceIdentity,
+            reviewComparisonOrigin: sourceFingerprint.reviewComparisonOrigin
+                ?? acceptedFingerprint.reviewComparisonOrigin
+        )
+        try database.execute(
+            sql: """
+                UPDATE annotation_session
+                SET accepted_source_fingerprint_json = ?, semantic_revision = semantic_revision + 1,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+            arguments: [
+                try Self.encodeJSONString(mergedFingerprint),
+                now.timeIntervalSince1970,
+                sessionID.databaseValue,
+            ]
         )
         guard database.changesCount == 1 else { throw WorktreeAnnotationRepositoryError.notFound }
     }

@@ -59,13 +59,36 @@ enum WorktreeAnnotationSourceEvaluator {
         return WorktreeAnnotationSourceEvaluationResult(
             sourceEpoch: input.sourceEpoch,
             sourceRelationship: .applicable,
-            acceptedSourceFingerprint: input.currentFingerprint,
+            acceptedSourceFingerprint: mergedFingerprint(for: input),
             placements: Dictionary(
                 uniqueKeysWithValues: input.threads.map { thread in
                     (thread.id, placement(for: thread.origin, material: input.material))
                 }
             )
         )
+    }
+
+    private static func mergedFingerprint(
+        for input: WorktreeAnnotationSourceEvaluationInput
+    ) -> WorktreeAnnotationSourceFingerprint {
+        let accepted = input.session.acceptedSourceFingerprint
+        let current = input.currentFingerprint
+        return switch input.surface {
+        case .file:
+            WorktreeAnnotationSourceFingerprint(
+                repositoryID: current.repositoryID,
+                worktreeID: current.worktreeID,
+                fileSourceIdentity: current.fileSourceIdentity,
+                reviewComparisonOrigin: accepted.reviewComparisonOrigin
+            )
+        case .review:
+            WorktreeAnnotationSourceFingerprint(
+                repositoryID: current.repositoryID,
+                worktreeID: current.worktreeID,
+                fileSourceIdentity: accepted.fileSourceIdentity,
+                reviewComparisonOrigin: current.reviewComparisonOrigin
+            )
+        }
     }
 
     private static func sourceRelationship(

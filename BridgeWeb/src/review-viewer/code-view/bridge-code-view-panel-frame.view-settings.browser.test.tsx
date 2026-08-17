@@ -98,6 +98,7 @@ const frameProps = {
 	},
 	materializationResourceEntryCount: 0,
 	materializationResourceEntryItemIds: '',
+	onSelectedLinesChange: (): void => {},
 	selectedChangeKind: 'none',
 	selectedContentCacheKeyCount: 0,
 	selectedContentCacheKeys: '',
@@ -110,6 +111,7 @@ const frameProps = {
 	selectedInitialItemIndex: -1,
 	selectedInitialItemIsFirst: false,
 	selectedItemId: null,
+	selectedLines: null,
 	selectedPresentationKind: 'none',
 	selectedPresentationVersion: 'none',
 	selectionScrollDiagnostic: {
