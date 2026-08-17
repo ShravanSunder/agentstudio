@@ -3,15 +3,18 @@ import Foundation
 import GhosttyKit
 
 extension SurfaceManager {
-    /// Reads a notification-safe "last output line" candidate from the
-    /// surface's trailing viewport rows. One MainActor Ghostty call per
-    /// settled burst (never per output event, never on a timer) — the caller
-    /// (`TerminalActivityProjector`) invokes this only at settle time.
+    /// Reads the raw trailing viewport text for `surfaceID`, bounded to the
+    /// last `AppPolicies.TerminalOutputCapture.viewportRowWindow` rows. One
+    /// MainActor Ghostty call per settled burst (never per output event,
+    /// never on a timer) — the caller (`TerminalActivityProjector`) invokes
+    /// this only at settle time and owns all line-level contraction
+    /// (`TerminalLastOutputLineContract`), since only it holds the per-pane
+    /// learned prompt signature and unchanged-line suppression state that
+    /// contraction needs.
     ///
     /// Returns nil when the surface is unavailable, the viewport has no
-    /// rows, the read fails, or the only printable content is a bare shell
-    /// prompt line (see `TerminalLastOutputLineContract`).
-    package func readLastOutputLine(forSurfaceID surfaceID: UUID) -> String? {
+    /// rows, or the read fails.
+    package func readViewportTrailingText(forSurfaceID surfaceID: UUID) -> String? {
         let result = withSurface(surfaceID) { surface -> String? in
             let size = ghostty_surface_size(surface)
             guard size.rows > 0 else { return nil }
@@ -39,7 +42,7 @@ extension SurfaceManager {
             let bytes = UnsafeRawBufferPointer(start: UnsafeRawPointer(cText), count: Int(text.text_len))
             return String(bytes: bytes, encoding: .utf8)
         }
-        guard case .success(let rawText) = result, let rawText else { return nil }
-        return TerminalLastOutputLineContract.contractedLastLine(fromRawViewportText: rawText)
+        guard case .success(let rawText) = result else { return nil }
+        return rawText
     }
 }

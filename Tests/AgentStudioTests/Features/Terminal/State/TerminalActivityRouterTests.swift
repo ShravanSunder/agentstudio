@@ -470,7 +470,9 @@ struct TerminalActivityRouterTests {
             activityAtom: atom,
             surfaceIDForPaneID: { $0 },
             isPaneCurrentlyAttended: { _ in true },
-            lastOutputLineReader: { _ in "echo-command-output" }
+            // Realistic raw viewport text: the real output line followed by the
+            // shell's freshly-printed (bare) prompt as the trailing line.
+            lastOutputLineReader: { _ in "echo-command-output\n$ " }
         )
         let paneId = PaneId.generateUUIDv7()
 

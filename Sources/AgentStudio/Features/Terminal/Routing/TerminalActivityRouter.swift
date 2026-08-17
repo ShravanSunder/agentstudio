@@ -80,7 +80,7 @@ package final class TerminalActivityRouter {
             }
         self.isPaneAgentClassified = isPaneAgentClassified ?? { _, paneKind in paneKind == .agent }
         self.lastOutputLineReader =
-            lastOutputLineReader ?? { SurfaceManager.shared.readLastOutputLine(forSurfaceID: $0) }
+            lastOutputLineReader ?? { SurfaceManager.shared.readViewportTrailingText(forSurfaceID: $0) }
         self.recordSettledActivityStatus = recordSettledActivityStatus ?? { _, _ in }
     }
 

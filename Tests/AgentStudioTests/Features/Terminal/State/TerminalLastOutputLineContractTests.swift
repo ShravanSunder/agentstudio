@@ -53,4 +53,46 @@ struct TerminalLastOutputLineContractTests {
 
         #expect(line == "done  with task")
     }
+
+    @Test("a prompt that embeds directory and branch text is excluded when it matches the learned signature")
+    func promptEmbeddingDirectoryAndBranchTextIsExcludedByLearnedSignature() {
+        // This is the exact reproduction from the live-acceptance investigation: an
+        // oh-my-zsh-style prompt contains letters (the directory and branch name), so the
+        // zero-letters bare-prompt heuristic alone cannot recognize it as a prompt — it must be
+        // excluded by an explicit learned signature instead.
+        let promptLine = "➜  chip-matrix-final-live (⑂ feat/sidebar-grouping-rows)"
+        let rawViewportText = "AGENTSTUDIO_L2_ACTIVE_PROOF_28b7ebd53\n\(promptLine) "
+
+        let unexcluded = TerminalLastOutputLineContract.contractedLastLine(fromRawViewportText: rawViewportText)
+        let excluded = TerminalLastOutputLineContract.contractedLastLine(
+            fromRawViewportText: rawViewportText,
+            excluding: promptLine
+        )
+
+        // Without a learned signature, the zero-letters heuristic alone misreads the prompt as output.
+        #expect(unexcluded == promptLine)
+        // With the learned signature excluded, the real echoed line surfaces instead.
+        #expect(excluded == "AGENTSTUDIO_L2_ACTIVE_PROOF_28b7ebd53")
+    }
+
+    @Test("trailingNonEmptyLine returns the freshly-printed prompt with no bare-prompt or signature filtering")
+    func trailingNonEmptyLineReturnsThePromptUnfiltered() {
+        let rawViewportText = "real output\n➜  agent-studio (⑂ main) "
+
+        let trailing = TerminalLastOutputLineContract.trailingNonEmptyLine(fromRawViewportText: rawViewportText)
+
+        #expect(trailing == "➜  agent-studio (⑂ main)")
+    }
+
+    @Test("a viewport containing only the learned-signature prompt yields no candidate line")
+    func onlyLearnedSignaturePromptYieldsNilCandidate() {
+        let promptLine = "➜  agent-studio (⑂ main)"
+
+        let line = TerminalLastOutputLineContract.contractedLastLine(
+            fromRawViewportText: "\(promptLine) ",
+            excluding: promptLine
+        )
+
+        #expect(line == nil)
+    }
 }
