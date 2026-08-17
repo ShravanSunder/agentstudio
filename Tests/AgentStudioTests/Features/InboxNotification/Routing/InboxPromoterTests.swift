@@ -548,6 +548,31 @@ struct InboxPromoterTests {
         #expect(fixture.atom.notifications.isEmpty)
     }
 
+    @Test("observed pinned small activity with a real last output line is retained as read history")
+    func observedPinnedSmallActivityWithRealContentIsRetainedAsReadHistory() throws {
+        // The small-activity suppression above exists to avoid a spam row for trivial scrollback noise
+        // while a pane is attended and pinned to bottom. It must not also swallow real, bounded content:
+        // a one-line `echo`/`printf` result is exactly the common case the pane row's L2 text needs to
+        // surface, and it produces very few rows. Only suppress entirely when there is truly nothing to
+        // show.
+        let paneId = UUID()
+        let fixture = Fixture(
+            policySnapshot: .init(observedPaneIds: [paneId], pinnedToBottomByPaneId: [paneId: true])
+        )
+
+        fixture.promoter.promoteSettledActivity(
+            makeSettledActivity(rowsAdded: 1, lastOutputLine: "seam-live-proof-095848"),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+
+        let notification = try #require(fixture.atom.notifications.first)
+        #expect(fixture.atom.notifications.count == 1)
+        #expect(notification.isRead == true)
+        #expect(notification.isDismissedFromPaneInbox == true)
+        #expect(notification.body == "seam-live-proof-095848")
+    }
+
     @Test("observed not pinned activity creates unread claim")
     func observedNotPinnedActivityCreatesUnreadClaim() {
         let paneId = UUID()
