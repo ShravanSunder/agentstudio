@@ -3,8 +3,8 @@
 #
 # Required variables (set by caller before sourcing):
 #   LOG_PREFIX         - Log prefix, e.g. "test" or "test-coverage"
-#   TIMEOUT_SECONDS    - Timeout in seconds for swift commands
-#   PREBUILD_TIMEOUT_SECONDS - Timeout in seconds for the one-time test bundle build
+#   TIMEOUT_SECONDS    - Maximum seconds without Swift command output progress
+#   PREBUILD_TIMEOUT_SECONDS - Maximum seconds without one-time test bundle build output progress
 #   BUILD_PATH         - Swift build path
 #
 # Optional variables:
@@ -47,6 +47,7 @@ aggregate_serial_non_webkit_filter_pattern() {
   local patterns=(
     EagerDerivedAtomTests
     EagerDerivedAtomFamilyTests
+    TerminalActivationSchedulerTests
     TabBarAdapterTests
     TabBarAdapterMaterializationTests
     TabBarAffectedItemTelemetryTests
@@ -198,16 +199,43 @@ run_webkit_suites() {
   done < <(webkit_suite_filters)
 }
 
+swift_test_watchdog_state() {
+  local previous_output_size="$1"
+  local current_output_size="$2"
+  local previous_progress_epoch="$3"
+  local current_epoch="$4"
+
+  if [ "$current_output_size" -gt "$previous_output_size" ]; then
+    printf '%s %s\n' "$current_output_size" "$current_epoch"
+  else
+    printf '%s %s\n' "$previous_output_size" "$previous_progress_epoch"
+  fi
+}
+
+swift_test_watchdog_timeout_status() {
+  local last_progress_epoch="$1"
+  local current_epoch="$2"
+  local timeout_seconds="$3"
+  local inactive_seconds=$((current_epoch - last_progress_epoch))
+
+  if [ "$inactive_seconds" -ge "$timeout_seconds" ]; then
+    return 124
+  fi
+  return 0
+}
+
 run_swift_with_timeout() {
   local label="$1"
   shift
   local timeout_seconds="$1"
   shift
 
-  echo "[$LOG_PREFIX] >>> $label (timeout=${timeout_seconds}s)"
+  echo "[$LOG_PREFIX] >>> $label (inactivity-timeout=${timeout_seconds}s)"
   local start_epoch
   start_epoch=$(date +%s)
   local last_heartbeat="$start_epoch"
+  local last_progress_epoch="$start_epoch"
+  local last_output_size=0
   local timed_out=0
 
   local xcb_pipe
@@ -226,20 +254,34 @@ run_swift_with_timeout() {
     local now_epoch
     now_epoch=$(date +%s)
     local elapsed_seconds=$((now_epoch - start_epoch))
+    local output_size
+    output_size=$(wc -c <"$output_file" | tr -d '[:space:]')
+    read -r last_output_size last_progress_epoch < <(
+      swift_test_watchdog_state \
+        "$last_output_size" \
+        "$output_size" \
+        "$last_progress_epoch" \
+        "$now_epoch"
+    )
+    local inactive_seconds=$((now_epoch - last_progress_epoch))
 
-    if [ "$elapsed_seconds" -ge "$timeout_seconds" ]; then
+    if ! swift_test_watchdog_timeout_status \
+      "$last_progress_epoch" \
+      "$now_epoch" \
+      "$timeout_seconds"
+    then
       timed_out=1
       break
     fi
 
     if [ $((now_epoch - last_heartbeat)) -ge 20 ]; then
-      echo "[$LOG_PREFIX] ... $label still running (${elapsed_seconds}s)"
+      echo "[$LOG_PREFIX] ... $label still running (${elapsed_seconds}s elapsed, ${inactive_seconds}s without output)"
       last_heartbeat="$now_epoch"
     fi
   done
 
   if [ "$timed_out" -eq 1 ]; then
-    echo "[$LOG_PREFIX] ERROR: timeout while running '$label' after ${timeout_seconds}s"
+    echo "[$LOG_PREFIX] ERROR: no output progress from '$label' for ${timeout_seconds}s"
     print_timeout_process_diagnostics "$label" "$command_pid"
     echo "[$LOG_PREFIX] raw output tail for '$label':"
     tail -n 120 "$output_file" || true
