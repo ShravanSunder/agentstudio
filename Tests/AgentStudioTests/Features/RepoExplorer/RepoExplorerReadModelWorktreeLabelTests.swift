@@ -13,15 +13,15 @@ extension RepoExplorerReadModelTests {
         // checkout directories are often disambiguated with a suffix). Using
         // `worktree.path.lastPathComponent` as the label is a path-derivation substitute for the
         // real keyed fact `Worktree.name` already carries.
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let mismatchedWorktree = Worktree(
             repoId: repoId,
             name: "feature-display-name",
             path: URL(fileURLWithPath: "/tmp/checkout-dir-does-not-match-a1b2c3"),
             isMainWorktree: false
         )
-        let paneId = UUID()
-        let tabId = UUID()
+        let paneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
         let projection = RepoExplorerProjection.project(
             RepoExplorerSnapshot(
                 repos: [repo(id: repoId, name: "agent-studio", worktrees: [mismatchedWorktree])],

@@ -62,35 +62,37 @@ struct TerminalActivityRouterCloseTests {
         await router.stop()
     }
 
-    @Test("ordered surface close clears pane activity status and resets its rate limit")
-    func orderedSurfaceCloseClearsPaneActivityStatus() async {
-        // F9: a closed pane must not retain its keyed PaneActivityStatusAtom fact or rate-limit
-        // date for the process lifetime. The canonical close owner (surfaceClosed) is the only
-        // place that knows a pane's identity is retiring, so it must invoke the clear closure the
-        // same way it already clears TerminalActivityAtom's compact state.
+    @Test("ordered surface close clears a real pane activity status fact and resets its rate limit")
+    func orderedSurfaceCloseClearsPaneActivityStatusAndResetsRateLimit() async {
+        // N3 (re-audit): a recorder-closure mock only proves the callback fired, not that the
+        // real keyed fact and rate-limit dictionary were actually cleared -- it would still pass
+        // if the production closure invoked a no-op, or if `clear(paneId:)` dropped the keyed
+        // fact but left `lastPublishedAtByPaneId` stale. Wire a real `PaneActivityStatusAtom`,
+        // seed a fact, close through the router, assert the fact is gone, then prove the rate
+        // limit itself was reset by publishing a DIFFERENT line at the EXACT same timestamp
+        // immediately after close: with a stale rate-limit entry this second publish would still
+        // be silently dropped (elapsed == 0 < the 10s minimum interval).
+        let fixedTimestamp = Date(timeIntervalSince1970: 1_000_000)
+        let statusAtom = PaneActivityStatusAtom(now: { fixedTimestamp })
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let surfaceLifetime = SurfaceLifetimeBox()
-        final class ClearedPaneIdsBox: @unchecked Sendable {
-            private let lock = NSLock()
-            private(set) var clearedPaneIds: [UUID] = []
-
-            func record(_ paneId: UUID) {
-                lock.lock()
-                clearedPaneIds.append(paneId)
-                lock.unlock()
-            }
-        }
-        let clearedPaneIds = ClearedPaneIdsBox()
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
             surfaceIDForPaneID: { surfaceLifetime.containsSurface() ? $0 : nil },
+            recordSettledActivityStatus: { paneId, lastOutputLine in
+                statusAtom.recordSettledActivity(paneId: paneId, lastOutputLine: lastOutputLine)
+            },
             clearPaneActivityStatus: { paneId in
-                clearedPaneIds.record(paneId)
+                statusAtom.clear(paneId: paneId)
             }
         )
         let paneId = PaneId.generateUUIDv7()
+
+        // Seed a real fact and its rate-limit entry for this pane, at fixedTimestamp.
+        #expect(statusAtom.recordSettledActivity(paneId: paneId.uuid, lastOutputLine: "before close"))
+        #expect(statusAtom.status(for: paneId.uuid)?.lastOutputLine == "before close")
 
         await router.start()
         surfaceLifetime.retire()
@@ -103,7 +105,16 @@ struct TerminalActivityRouterCloseTests {
             )
         )
 
-        #expect(clearedPaneIds.clearedPaneIds == [paneId.uuid])
+        // Keyed removal.
+        #expect(statusAtom.status(for: paneId.uuid) == nil)
+
+        // Rate-limit reset: a republish at the identical timestamp with a different line must
+        // succeed now, proving the pane's `lastPublishedAtByPaneId` entry was actually cleared,
+        // not just its keyed fact.
+        let republished = statusAtom.recordSettledActivity(paneId: paneId.uuid, lastOutputLine: "after close")
+        #expect(republished)
+        #expect(statusAtom.status(for: paneId.uuid)?.lastOutputLine == "after close")
+
         await router.stop()
     }
 

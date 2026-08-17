@@ -281,21 +281,26 @@ extension RepoExplorerView {
                 return (paneId, recency.lastInteractedAt)
             }
         )
-        // F5: "active" means this pane currently holds real user attention, not merely that it is
-        // the selected pane within its tab's arrangement. A pane stays selected while the sidebar
-        // has keyboard focus, another window is key, or the app itself is inactive, none of which
-        // should keep rendering the '● active' chip. attendedPane already gates on the workspace
-        // window being key and the management layer being inactive; the keyboard-owner check adds
-        // the missing sidebar-focus gate, matching the same canonical fact CommandBarState and
-        // AppDelegate+CommandBar use to resolve keyboard routing.
+        // F5/N2b: "active" means this pane currently holds real user attention, not merely that
+        // it is the selected pane within its tab's arrangement. A pane stays selected while the
+        // sidebar has keyboard focus, another window is key, the app itself is inactive, or a
+        // transient surface (command bar, arrangement panel, rename field, etc.) owns keyboard
+        // input, none of which should keep rendering the '● active' chip. attendedPane already
+        // gates on the workspace window being key and the management layer being inactive.
+        // KeyboardRoutingContext is the richer canonical fact (used by CommandBarState and
+        // AppDelegate+CommandBar for real keyboard routing): only its `.stable(.mainWindowChain)`
+        // surface means the main pane chain genuinely owns the keyboard right now -- `.commandBar`
+        // and `.transient` cases must drop the active dot even though the underlying window/
+        // management-layer/sidebar-focus facts alone would otherwise resolve to mainWindowChain.
         let focusedPaneId: UUID? = {
-            guard
-                case .mainWindowChain = KeyboardOwner.current(
-                    windowLifecycle: atom(\.windowLifecycle),
-                    managementLayer: atom(\.managementLayer),
-                    uiState: atom(\.workspaceSidebarState)
-                )
-            else { return nil }
+            let routingContext = KeyboardRoutingContext.current(
+                windowLifecycle: atom(\.windowLifecycle),
+                managementLayer: atom(\.managementLayer),
+                uiState: atom(\.workspaceSidebarState),
+                commandBarSurface: atom(\.commandBarSurface),
+                transientKeyboardSurface: atom(\.transientKeyboardSurface)
+            )
+            guard routingContext.isStableMainWindowChain else { return nil }
             return atom(\.attendedPane).attendedPaneId
         }()
         let allPaneIds = workspaceTab.tabs.flatMap(\.allPaneIds)

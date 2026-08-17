@@ -15,7 +15,12 @@ MODES
 1 By Repo unchanged (name, branch line, chips row).
 2 "All Panes": every pane grouped by repo; recency sort in group.
 3 By Tab: panes by tab, tab order; header = tab displayTitle + pane count;
-  tab icon = muted-primary token (not yellow/gray).
+  tab icon = the By Repo second-line text shade (`SidebarMetadataProminence
+  .secondary`, i.e. `Color.secondary`) via the shared token — NOT the
+  product accent blue and NOT a distinct yellow/gray literal. Owner ruling
+  (2026-08-17, N6): this supersedes this item's earlier "muted-primary...
+  not yellow/gray" wording, which predates and conflicts with item 0's
+  anchor rule; item 0 governs.
 
 PANE ROW — 3 LINES (both pane modes; By Repo text sizes/spacing)
 4 L1 bold: "Pane <n> · <terminal title>"; fallback "Pane <n> · zsh".

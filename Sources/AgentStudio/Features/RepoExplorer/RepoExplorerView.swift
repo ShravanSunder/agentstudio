@@ -216,8 +216,10 @@ package struct RepoExplorerView: View {
 
     /// Reads only the keyed observation slots that can change the projection.
     /// The comparatively expensive immutable request is assembled after an
-    /// observed slot has admitted a rebuild.
-    private var projectionInputRevision: Int {
+    /// observed slot has admitted a rebuild. Not `private`: N2a regression tests assert this
+    /// fingerprint actually changes across a focus-only transition (see
+    /// RepoExplorerViewProjectionHelperTests).
+    var projectionInputRevision: Int {
         let repositoryIDs = store.repositoryTopologyAtom.repositoryIdsInOrder
         var observedSlotCount = Self.observeRepoEnrichmentInputs(
             repositoryIDs: repositoryIDs,
@@ -245,6 +247,21 @@ package struct RepoExplorerView: View {
         // otherwise that transition never admits a rebuild and the row keeps its stale pending
         // glyph forever.
         _ = repoCache.unavailablePullRequestRepoIds
+        // N2a (re-audit): paneRowFactsByPaneId's isActive composition reads the exact same
+        // KeyboardRoutingContext + attendedPane facts computed here, so a focus-only transition
+        // (sidebar gains/loses focus, the window resigns key, a command bar or transient surface
+        // opens/closes) must admit a rebuild even when nothing else about the projection changed —
+        // otherwise a previously published '● active' row would stay stale until an unrelated
+        // input woke it. Calling the identical composition here (discarding the result) keeps this
+        // gate's dependency set from drifting out of sync with the real computation.
+        _ = KeyboardRoutingContext.current(
+            windowLifecycle: atom(\.windowLifecycle),
+            managementLayer: atom(\.managementLayer),
+            uiState: atom(\.workspaceSidebarState),
+            commandBarSurface: atom(\.commandBarSurface),
+            transientKeyboardSurface: atom(\.transientKeyboardSurface)
+        )
+        _ = atom(\.attendedPane).attendedPaneId
 
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,

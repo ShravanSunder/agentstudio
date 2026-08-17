@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -20,7 +21,7 @@ struct RepoExplorerPaneDisplayTitleCacheTests {
     func unchangedInputsSkipRederivation() {
         let recorder = NormalizeCallRecorder()
         let cache = RepoExplorerPaneDisplayTitleCache(normalize: recorder.normalize)
-        let paneId = UUID()
+        let paneId = UUIDv7.generate()
         let cwd = URL(filePath: "/tmp/agent-studio")
 
         let first = cache.resolve(paneId: paneId, liveTitle: "building", cwd: cwd, shellExecutablePath: "/bin/zsh")
@@ -35,7 +36,7 @@ struct RepoExplorerPaneDisplayTitleCacheTests {
     func changedInputRederives() {
         let recorder = NormalizeCallRecorder()
         let cache = RepoExplorerPaneDisplayTitleCache(normalize: recorder.normalize)
-        let paneId = UUID()
+        let paneId = UUIDv7.generate()
         let cwd = URL(filePath: "/tmp/agent-studio")
 
         _ = cache.resolve(paneId: paneId, liveTitle: "building", cwd: cwd, shellExecutablePath: "/bin/zsh")
@@ -50,8 +51,8 @@ struct RepoExplorerPaneDisplayTitleCacheTests {
     func entriesAreIsolatedPerPane() {
         let recorder = NormalizeCallRecorder()
         let cache = RepoExplorerPaneDisplayTitleCache(normalize: recorder.normalize)
-        let firstPaneId = UUID()
-        let secondPaneId = UUID()
+        let firstPaneId = UUIDv7.generate()
+        let secondPaneId = UUIDv7.generate()
         let cwd = URL(filePath: "/tmp/agent-studio")
 
         let firstPaneTitle = cache.resolve(
@@ -67,8 +68,8 @@ struct RepoExplorerPaneDisplayTitleCacheTests {
     func retainOnlyDropsMissingPaneEntries() {
         let recorder = NormalizeCallRecorder()
         let cache = RepoExplorerPaneDisplayTitleCache(normalize: recorder.normalize)
-        let retainedPaneId = UUID()
-        let closedPaneId = UUID()
+        let retainedPaneId = UUIDv7.generate()
+        let closedPaneId = UUIDv7.generate()
         let cwd = URL(filePath: "/tmp/agent-studio")
 
         _ = cache.resolve(paneId: retainedPaneId, liveTitle: "kept", cwd: cwd, shellExecutablePath: "/bin/zsh")

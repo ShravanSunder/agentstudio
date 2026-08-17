@@ -101,9 +101,21 @@ package enum WorkspaceLocalMigrations {
                 // the new window-scoped column before the old column is dropped. A missing or
                 // unrecognized legacy value leaves the new column at its 'repo' default rather than
                 // failing the migration.
+                //
+                // Deterministic mapping (owner ruling, N1): local_repo_explorer_preferences is
+                // keyed by workspace_id, so more than one legacy row is possible. The ideal winner
+                // is the currently active workspace, but that selection lives in
+                // app_workspace_selection in core.sqlite -- a separate database this local
+                // migration cannot reach (core and local prepare and migrate independently; see
+                // "SQLite ownership" in CLAUDE.md). The deterministic fallback is therefore the
+                // most-recently-updated legacy row, ordered by this table's own updated_at.
                 if let existingGroupingMode = try String.fetchOne(
                     database,
-                    sql: "SELECT grouping_mode FROM local_repo_explorer_preferences LIMIT 1"
+                    sql: """
+                        SELECT grouping_mode FROM local_repo_explorer_preferences
+                        ORDER BY updated_at DESC
+                        LIMIT 1
+                        """
                 ), SQLiteLocalUXStorage.isValidRepoExplorerGrouping(existingGroupingMode) {
                     try database.execute(
                         sql: """
