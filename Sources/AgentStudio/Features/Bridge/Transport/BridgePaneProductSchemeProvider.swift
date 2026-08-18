@@ -27,6 +27,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             BridgeProductControlCorrelation,
             BridgeProductAdmissionContext
         ) async -> Void
+    let queryWorktreeAnnotationOutputCandidates:
+        @MainActor @Sendable (
+            BridgeProductAnnotationCandidateQuery,
+            BridgeProductSurface
+        ) async throws -> WorktreeAnnotationOutputCandidatePage
     private let annotationOutputSource: BridgePaneProductWorktreeAnnotationOutputSource
     private let authorizeReviewComparisonTargets:
         @Sendable () async -> BridgeProductReviewComparisonTargetsAuthorization?
@@ -81,6 +86,13 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 BridgeProductControlCorrelation,
                 BridgeProductAdmissionContext
             ) async -> Void = { _, _, _, _ in },
+        queryWorktreeAnnotationOutputCandidates:
+            @escaping @MainActor @Sendable (
+                BridgeProductAnnotationCandidateQuery,
+                BridgeProductSurface
+            ) async throws -> WorktreeAnnotationOutputCandidatePage = { _, _ in
+                throw WorktreeAnnotationStoreError.unavailable
+            },
         authorizeReviewComparisonTargets:
             @escaping @Sendable () async ->
             BridgeProductReviewComparisonTargetsAuthorization? = { nil },
@@ -119,12 +131,12 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         self.applyActiveViewerModeUpdate = applyActiveViewerModeUpdate
         self.applyReviewComparisonUpdate = applyReviewComparisonUpdate
         self.applyWorktreeAnnotationCommand = applyWorktreeAnnotationCommand
+        self.queryWorktreeAnnotationOutputCandidates = queryWorktreeAnnotationOutputCandidates
         self.authorizeReviewComparisonTargets = authorizeReviewComparisonTargets
         self.reviewComparisonTargetCatalogProducer = reviewComparisonTargetCatalogProducer
         self.comparisonTargetCatalogTraceRecorder = comparisonTargetCatalogTraceRecorder
     }
 
-    // swiftlint:disable:next function_body_length
     func response(
         for request: BridgeProductControlRequest
     ) async -> BridgeProductControlResponse {
@@ -133,118 +145,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             case .workerSessionOpen:
                 return try .workerSessionAccepted(correlating: request)
             case .productCall(let callRequest):
-                switch callRequest.call {
-                case .fileAnnotationsCommand:
-                    return try .callCompleted(
-                        correlating: request,
-                        result: .fileAnnotationsCommand(
-                            .accepted(requestID: request.correlation.requestId)
-                        )
-                    )
-                case .fileAnnotationsOutputInspect(let inspectionRequest),
-                    .reviewAnnotationsOutputInspect(let inspectionRequest):
-                    return try await annotationOutputInspectionResponse(
-                        call: callRequest.call,
-                        inspectionRequest: inspectionRequest,
-                        request: request
-                    )
-                case .fileSourceCurrent:
-                    return try .callCompleted(
-                        correlating: request,
-                        result: .fileSourceCurrent(await fileMetadataSource.currentSource())
-                    )
-                case .fileActiveViewerModeUpdate:
-                    return try .callCompleted(
-                        correlating: request,
-                        result: .fileActiveViewerModeUpdate
-                    )
-                case .reviewActiveViewerModeUpdate:
-                    return try .callCompleted(
-                        correlating: request,
-                        result: .reviewActiveViewerModeUpdate
-                    )
-                case .reviewComparisonUpdate:
-                    return try .callCompleted(
-                        correlating: request,
-                        result: .reviewComparisonUpdate
-                    )
-                case .reviewComparisonTargetsQuery:
-                    let authorizationStartedAt = ContinuousClock.now
-                    guard let authorization = await authorizeReviewComparisonTargets() else {
-                        recordComparisonTargetCatalogTrace(
-                            stage: .authorization,
-                            outcome: .unavailable,
-                            queryRequestSequence: request.requestSequence,
-                            duration: authorizationStartedAt.duration(to: ContinuousClock.now)
-                        )
-                        return try .requestError(
-                            correlating: request,
-                            code: .internal,
-                            nextExpectedRequestSequence: request.requestSequence + 1,
-                            retryAfterMilliseconds: nil,
-                            retryable: true,
-                            safeMessage: "Comparison targets are unavailable"
-                        )
-                    }
-                    guard
-                        let reservation = BridgeProductReviewComparisonTargetsReservation(
-                            authorization: authorization,
-                            issuing: request
-                        )
-                    else {
-                        recordComparisonTargetCatalogTrace(
-                            stage: .authorization,
-                            outcome: .unavailable,
-                            queryRequestSequence: request.requestSequence,
-                            duration: authorizationStartedAt.duration(to: ContinuousClock.now)
-                        )
-                        return try .requestError(
-                            correlating: request,
-                            code: .internal,
-                            nextExpectedRequestSequence: request.requestSequence + 1,
-                            retryAfterMilliseconds: nil,
-                            retryable: true,
-                            safeMessage: "Comparison targets are unavailable"
-                        )
-                    }
-                    pendingComparisonTargetReservation = reservation
-                    recordComparisonTargetCatalogTrace(
-                        stage: .authorization,
-                        outcome: .success,
-                        queryRequestSequence: reservation.queryRequestSequence,
-                        duration: authorizationStartedAt.duration(to: ContinuousClock.now)
-                    )
-                    return try .callCompleted(
-                        correlating: request,
-                        result: .reviewComparisonTargetsQuery(
-                            BridgeProductReviewComparisonTargetsQueryResult(
-                                descriptor: reservation.descriptor
-                            )
-                        )
-                    )
-                case .reviewMarkFileViewed:
-                    return try .callCompleted(
-                        correlating: request,
-                        result: .reviewMarkFileViewed
-                    )
-                case .reviewIntakeReady:
-                    return try .callCompleted(
-                        correlating: request,
-                        result: .reviewIntakeReady
-                    )
-                case .reviewPublicationApplied:
-                    return try .callCompleted(
-                        correlating: request,
-                        result: .reviewPublicationApplied
-                    )
-                case .reviewAnnotationsCommand:
-                    return try .callCompleted(
-                        correlating: request,
-                        result: .reviewAnnotationsCommand(
-                            .accepted(requestID: request.correlation.requestId)
-                        )
-                    )
-                }
+                return try await productCallResponse(callRequest, request: request)
             case .subscriptionOpen(let openRequest):
                 guard await metadataCoordinator.hasActiveStream else {
                     return try metadataStreamRequiredError(for: request)
@@ -289,6 +190,119 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         }
     }
 
+    private func productCallResponse(
+        _ callRequest: BridgeProductCallControlRequest,
+        request: BridgeProductControlRequest
+    ) async throws -> BridgeProductControlResponse {
+        switch callRequest.call {
+        case .fileAnnotationsCommand:
+            return try .callCompleted(
+                correlating: request,
+                result: .fileAnnotationsCommand(.accepted(requestID: request.correlation.requestId))
+            )
+        case .fileAnnotationsOutputInspect(let inspectionRequest),
+            .reviewAnnotationsOutputInspect(let inspectionRequest):
+            return try await annotationOutputInspectionResponse(
+                call: callRequest.call,
+                inspectionRequest: inspectionRequest,
+                request: request
+            )
+        case .fileAnnotationsOutputCandidatesQuery(let queryRequest):
+            return try await annotationOutputCandidateQueryResponse(
+                queryRequest: queryRequest,
+                surface: .file,
+                request: request
+            )
+        case .reviewAnnotationsOutputCandidatesQuery(let queryRequest):
+            return try await annotationOutputCandidateQueryResponse(
+                queryRequest: queryRequest,
+                surface: .review,
+                request: request
+            )
+        case .fileSourceCurrent:
+            return try .callCompleted(
+                correlating: request,
+                result: .fileSourceCurrent(await fileMetadataSource.currentSource())
+            )
+        case .fileActiveViewerModeUpdate:
+            return try .callCompleted(correlating: request, result: .fileActiveViewerModeUpdate)
+        case .reviewActiveViewerModeUpdate:
+            return try .callCompleted(correlating: request, result: .reviewActiveViewerModeUpdate)
+        case .reviewComparisonUpdate:
+            return try .callCompleted(correlating: request, result: .reviewComparisonUpdate)
+        case .reviewComparisonTargetsQuery:
+            return try await reviewComparisonTargetsQueryResponse(for: request)
+        case .reviewMarkFileViewed:
+            return try .callCompleted(correlating: request, result: .reviewMarkFileViewed)
+        case .reviewIntakeReady:
+            return try .callCompleted(correlating: request, result: .reviewIntakeReady)
+        case .reviewPublicationApplied:
+            return try .callCompleted(correlating: request, result: .reviewPublicationApplied)
+        case .reviewAnnotationsCommand:
+            return try .callCompleted(
+                correlating: request,
+                result: .reviewAnnotationsCommand(.accepted(requestID: request.correlation.requestId))
+            )
+        }
+    }
+
+    private func reviewComparisonTargetsQueryResponse(
+        for request: BridgeProductControlRequest
+    ) async throws -> BridgeProductControlResponse {
+        let authorizationStartedAt = ContinuousClock.now
+        guard let authorization = await authorizeReviewComparisonTargets() else {
+            recordComparisonTargetCatalogTrace(
+                stage: .authorization,
+                outcome: .unavailable,
+                queryRequestSequence: request.requestSequence,
+                duration: authorizationStartedAt.duration(to: ContinuousClock.now)
+            )
+            return try comparisonTargetsUnavailableError(for: request)
+        }
+        guard
+            let reservation = BridgeProductReviewComparisonTargetsReservation(
+                authorization: authorization,
+                issuing: request
+            )
+        else {
+            recordComparisonTargetCatalogTrace(
+                stage: .authorization,
+                outcome: .unavailable,
+                queryRequestSequence: request.requestSequence,
+                duration: authorizationStartedAt.duration(to: ContinuousClock.now)
+            )
+            return try comparisonTargetsUnavailableError(for: request)
+        }
+        pendingComparisonTargetReservation = reservation
+        recordComparisonTargetCatalogTrace(
+            stage: .authorization,
+            outcome: .success,
+            queryRequestSequence: reservation.queryRequestSequence,
+            duration: authorizationStartedAt.duration(to: ContinuousClock.now)
+        )
+        return try .callCompleted(
+            correlating: request,
+            result: .reviewComparisonTargetsQuery(
+                BridgeProductReviewComparisonTargetsQueryResult(
+                    descriptor: reservation.descriptor
+                )
+            )
+        )
+    }
+
+    private func comparisonTargetsUnavailableError(
+        for request: BridgeProductControlRequest
+    ) throws -> BridgeProductControlResponse {
+        try .requestError(
+            correlating: request,
+            code: .internal,
+            nextExpectedRequestSequence: request.requestSequence + 1,
+            retryAfterMilliseconds: nil,
+            retryable: true,
+            safeMessage: "Comparison targets are unavailable"
+        )
+    }
+
     private func annotationOutputInspectionResponse(
         call: BridgeProductCallRequest,
         inspectionRequest: BridgeProductAnnotationOutputInspectRequest,
@@ -318,6 +332,24 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             case .review:
                 .reviewAnnotationsOutputInspect(.init(descriptor: descriptor))
             }
+        return try .callCompleted(correlating: request, result: result)
+    }
+
+    private func annotationOutputCandidateQueryResponse(
+        queryRequest: BridgeProductAnnotationCandidateQuery,
+        surface: BridgeProductSurface,
+        request: BridgeProductControlRequest
+    ) async throws -> BridgeProductControlResponse {
+        let page: WorktreeAnnotationOutputCandidatePage
+        do {
+            page = try await queryWorktreeAnnotationOutputCandidates(queryRequest, surface)
+        } catch {
+            return try annotationOutputUnavailableError(for: request)
+        }
+        let result: BridgeProductCallResult =
+            surface == .file
+            ? .fileAnnotationsOutputCandidatesQuery(.init(page))
+            : .reviewAnnotationsOutputCandidatesQuery(.init(page))
         return try .callCompleted(correlating: request, result: result)
     }
 
@@ -630,76 +662,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         )
     }
 
-    func runBufferedContentProducer(
-        _ body: BufferedContentBody,
-        lease: BridgeProductProducerLease,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        session: BridgeProductSession
-    ) async throws -> BufferedContentDeliveryDisposition {
-        var offsetBytes = 0
-        while offsetBytes < body.data.count {
-            guard !Task.isCancelled else { return .cancelled }
-            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .cancelled }
-            let endOffset = min(
-                offsetBytes + BridgeProductWireContract.maximumContentDataPayloadBytes,
-                body.data.count
-            )
-            let chunkOffsetBytes = offsetBytes
-            let payload = body.data.subdata(in: offsetBytes..<endOffset)
-            let result = try await session.enqueueContentFrame(
-                for: lease,
-                productAdmission: productAdmission,
-                foregroundWorkAdmission: foregroundWorkAdmission,
-                build: { sequence in
-                    .content(
-                        .init(
-                            header: try .data(
-                                contentSequence: sequence,
-                                offsetBytes: chunkOffsetBytes
-                            ),
-                            payload: payload
-                        )
-                    )
-                },
-                overflowReset: { sequence in
-                    .content(
-                        .init(
-                            header: try .reset(
-                                contentSequence: sequence,
-                                reason: .producerOverflow
-                            ),
-                            payload: Data()
-                        )
-                    )
-                }
-            )
-            guard case .enqueued = result else { return .deliveryFailed }
-            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .cancelled }
-            offsetBytes = endOffset
-        }
-        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .cancelled }
-        let terminalResult = try await session.enqueueTerminalContentFrame(
-            for: lease,
-            productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission,
-            build: { sequence in
-                .content(
-                    .init(
-                        header: try .end(
-                            contentSequence: sequence,
-                            endOfSource: body.endOfSource,
-                            observedByteLength: body.data.count,
-                            observedSha256: body.sha256
-                        ),
-                        payload: Data()
-                    )
-                )
-            }
-        )
-        guard case .enqueued = terminalResult else { return .deliveryFailed }
-        return .complete
-    }
     private func runFileContentProducer(
         request: BridgeProductFileContentRequest,
         lease: BridgeProductProducerLease,

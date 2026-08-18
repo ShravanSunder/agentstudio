@@ -74,11 +74,43 @@ struct WorktreeAnnotationTransportContractTests {
         let threadID = "00000000-0000-7000-8000-000000000012"
         let messageID = "00000000-0000-7000-8000-000000000013"
         let attemptID = "00000000-0000-7000-8000-000000000015"
+        let operations =
+            annotationLifecycleOperations(
+                sessionID: sessionID,
+                threadID: threadID,
+                messageID: messageID
+            )
+            + annotationOutputOperations(
+                sessionID: sessionID,
+                messageID: messageID,
+                attemptID: attemptID
+            )
+
+        for operation in operations {
+            do {
+                _ = try decodeStrict(
+                    BridgeProductCallRequest.self,
+                    object: [
+                        "method": "file.annotations.command",
+                        "request": ["operation": operation],
+                    ]
+                )
+            } catch {
+                Issue.record("Failed to decode annotation operation \(operation): \(error)")
+            }
+        }
+    }
+
+    private func annotationLifecycleOperations(
+        sessionID: String,
+        threadID: String,
+        messageID: String
+    ) -> [[String: Any]] {
         let commonRevisionFields: [String: Any] = [
             "expectedSessionRevision": 4,
             "sessionId": sessionID,
         ]
-        let operations: [[String: Any]] = [
+        return [
             ["kind": "session.discover"],
             ["kind": "demand.acquire", "sessionId": sessionID],
             ["kind": "demand.release", "sessionId": sessionID],
@@ -142,29 +174,165 @@ struct WorktreeAnnotationTransportContractTests {
                 "sessionId": sessionID,
                 "sourceEpoch": 5,
             ],
+        ]
+    }
+
+    private func annotationOutputOperations(
+        sessionID: String,
+        messageID: String,
+        attemptID: String
+    ) -> [[String: Any]] {
+        [
             [
-                "kind": "output.prepare",
+                "kind": "output.selection.begin",
                 "outputKind": "clipboardMarkdown",
-                "selection": ["kind": "explicit", "messageIds": [messageID]],
+                "selectionMode": "explicit",
                 "sessionId": sessionID,
+                "transferId": "transfer-1",
+            ],
+            [
+                "kind": "output.selection.chunk",
+                "messageIds": [messageID],
+                "ordinal": 0,
+                "selectionMode": "explicit",
+                "sessionId": sessionID,
+                "transferId": "transfer-1",
+            ],
+            [
+                "kind": "output.selection.commit",
+                "selectionMode": "explicit",
+                "sessionId": sessionID,
+                "transferId": "transfer-1",
+            ],
+            [
+                "kind": "output.selection.cancel",
+                "selectionMode": "allEligible",
+                "sessionId": sessionID,
+                "transferId": "transfer-2",
             ],
             ["kind": "output.history", "sessionId": sessionID],
             ["attemptId": attemptID, "kind": "output.repeat"],
             ["kind": "recovery.acknowledge"],
         ]
+    }
 
-        for operation in operations {
-            do {
-                _ = try decodeStrict(
-                    BridgeProductCallRequest.self,
-                    object: [
-                        "method": "file.annotations.command",
-                        "request": ["operation": operation],
-                    ]
-                )
-            } catch {
-                Issue.record("Failed to decode annotation operation \(operation): \(error)")
-            }
+    @Test("File and Review candidate queries return bounded pages outside projection state")
+    func candidateQueriesUsePairedDirectProductCalls() throws {
+        let sessionID = "00000000-0000-7000-8000-000000000011"
+        let messageID = "00000000-0000-7000-8000-000000000013"
+        let threadID = "00000000-0000-7000-8000-000000000012"
+        let page: [String: Any] = [
+            "candidates": [
+                [
+                    "authoredAt": 1,
+                    "endLine": 12,
+                    "excerpt": "Keep the owner",
+                    "flatOrdinal": 0,
+                    "location": "current",
+                    "messageId": messageID,
+                    "path": "Sources/Feature.swift",
+                    "placement": "exact",
+                    "startLine": 12,
+                    "state": "eligible",
+                    "threadId": threadID,
+                ]
+            ],
+            "eligibleMessageCount": 1,
+            "eligibleWithoutInlinePlacementCount": 0,
+            "nextCursor": NSNull(),
+            "sessionId": sessionID,
+            "sessionRevision": 4,
+        ]
+        for (method, surface) in [
+            ("file.annotations.output.candidates.query", BridgeProductSurface.file),
+            ("review.annotations.output.candidates.query", BridgeProductSurface.review),
+        ] {
+            let request = try decodeStrict(
+                BridgeProductCallRequest.self,
+                object: [
+                    "method": method,
+                    "request": [
+                        "cursor": ["kind": "start"],
+                        "expectedSessionRevision": 4,
+                        "limit": 16,
+                        "sessionId": sessionID,
+                    ],
+                ]
+            )
+            let result = try decodeStrict(
+                BridgeProductCallResult.self,
+                object: ["method": method, "result": page]
+            )
+            #expect(request.surface == surface)
+            #expect(result.surface == surface)
+        }
+    }
+
+    @Test("maximum candidate page fits one control response and candidate bytes stay outside projection owners")
+    func maximumCandidatePageFitsControlResponseOutsideProjection() throws {
+        let sessionID = WorktreeAnnotationSessionID(rawValue: annotationContractUUID(500))
+        let candidates = (0..<16).map { index in
+            WorktreeAnnotationOutputCandidate(
+                messageID: .init(rawValue: annotationContractUUID(600 + index)),
+                threadID: .init(rawValue: annotationContractUUID(700 + index)),
+                flatOrdinal: index,
+                path: String(repeating: "p", count: 4096),
+                startLine: 1,
+                endLine: 1,
+                location: .original,
+                placement: .unavailable,
+                authoredAt: Date(timeIntervalSince1970: 1),
+                state: .eligible,
+                excerpt: String(repeating: "é", count: 256)
+            )
+        }
+        let page = WorktreeAnnotationOutputCandidatePage(
+            sessionID: sessionID,
+            sessionRevision: 4,
+            candidates: candidates,
+            nextCursor: .init(flatOrdinal: 15, messageID: candidates[15].messageID),
+            eligibleMessageCount: 16,
+            eligibleWithoutInlinePlacementCount: 16
+        )
+        let request = try decodeStrict(
+            BridgeProductControlRequest.self,
+            object: [
+                "kind": "product.call",
+                "paneSessionId": "pane-session-1",
+                "requestId": "candidate-query-1",
+                "requestSequence": 1,
+                "wireVersion": 2,
+                "workerDerivationEpoch": 1,
+                "workerInstanceId": "worker-instance-1",
+                "call": [
+                    "method": "file.annotations.output.candidates.query",
+                    "request": [
+                        "cursor": ["kind": "start"],
+                        "expectedSessionRevision": 4,
+                        "limit": 16,
+                        "sessionId": sessionID.rawValue.uuidString.lowercased(),
+                    ],
+                ],
+            ]
+        )
+        let response = try BridgeProductControlResponse.callCompleted(
+            correlating: request,
+            result: .fileAnnotationsOutputCandidatesQuery(.init(page))
+        )
+        let encodedResponse = try JSONEncoder().encode(response)
+        #expect(encodedResponse.count <= BridgeProductWireContract.maximumRequestBodyBytes)
+
+        let projectRoot = try #require(String(#filePath).components(separatedBy: "/Tests/").first)
+        for relativePath in [
+            "Sources/AgentStudio/Features/Bridge/State/MainActor/Atoms/WorktreeAnnotationProjectionAtom.swift",
+            "Sources/AgentStudio/Features/Bridge/Models/Transport/BridgeProductWorktreeAnnotationProjectionContracts.swift",
+        ] {
+            let source = try String(
+                contentsOf: URL(fileURLWithPath: projectRoot).appending(path: relativePath),
+                encoding: .utf8
+            )
+            #expect(!source.contains("outputCandidates"))
+            #expect(!source.contains("WorktreeAnnotationOutputCandidatePage"))
         }
     }
 
@@ -218,20 +386,21 @@ struct WorktreeAnnotationTransportContractTests {
                 "origin": validLocatedOrigin,
             ],
             [
-                "kind": "output.prepare",
-                "outputKind": "clipboardMarkdown",
-                "selection": ["kind": "explicit", "messageIds": []],
+                "kind": "output.selection.chunk",
+                "messageIds": [],
+                "ordinal": 0,
+                "selectionMode": "explicit",
                 "sessionId": sessionID,
+                "transferId": "transfer-1",
             ],
             [
-                "kind": "output.prepare",
-                "outputKind": "clipboardMarkdown",
-                "selection": [
-                    "kind": "explicit",
-                    "messageIds": [messageID],
-                    "unexpected": true,
-                ],
+                "kind": "output.selection.chunk",
+                "messageIds": [messageID],
+                "ordinal": 0,
+                "selectionMode": "explicit",
                 "sessionId": sessionID,
+                "transferId": "transfer-1",
+                "unexpected": true,
             ],
             [
                 "kind": "source.refresh",
@@ -408,4 +577,8 @@ private func decodeStrict<TValue: Decodable>(
         type,
         from: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     )
+}
+
+private func annotationContractUUID(_ suffix: Int) -> UUID {
+    UUID(uuidString: String(format: "00000000-0000-7000-8000-%012d", suffix))!
 }

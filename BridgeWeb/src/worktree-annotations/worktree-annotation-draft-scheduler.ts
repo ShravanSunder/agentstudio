@@ -128,6 +128,12 @@ export class WorktreeAnnotationDraftScheduler {
 		};
 	}
 
+	retryFailedPersistence(): void {
+		if (this.#status !== 'failed' || !this.#currentBodyNeedsPersistence()) return;
+		this.#dirtySinceMilliseconds = this.#clock.now();
+		this.#scheduleFlush();
+	}
+
 	dispose(): void {
 		this.#cancelPendingFlush();
 	}

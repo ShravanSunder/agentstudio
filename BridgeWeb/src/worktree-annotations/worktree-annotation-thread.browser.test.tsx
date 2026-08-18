@@ -23,13 +23,14 @@ import {
 	useWorktreeAnnotationProjection,
 	WorktreeAnnotationSurfaceProvider,
 } from './worktree-annotation-surface-provider.js';
+import { WorktreeAnnotationThreadOverlayHost } from './worktree-annotation-thread-overlay.js';
 import {
 	WorktreeAnnotationNewMessageComposer,
 	WorktreeAnnotationThread,
 } from './worktree-annotation-thread.js';
 
 describe('worktree annotation inline thread', () => {
-	test('renders one message directly without a disclosure control', async () => {
+	test('renders one message directly with the exact compact controls', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
 
@@ -38,11 +39,17 @@ describe('worktree annotation inline thread', () => {
 		]);
 
 		await expect.element(rendered.getByText('Keep the refresh asynchronous.')).toBeVisible();
-		await expect.element(rendered.getByRole('button', { name: 'Review output' })).toBeVisible();
-		expect(document.querySelector('[aria-label^="Expand "]')).toBeNull();
+		await expect.element(rendered.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
+		await expect.element(rendered.getByRole('button', { name: 'Reply to thread' })).toBeVisible();
+		await expect.element(rendered.getByRole('button', { name: 'Resolve thread' })).toBeVisible();
+		await expect.element(rendered.getByRole('button', { name: 'Expand 1 message' })).toBeVisible();
+		await expect
+			.element(rendered.getByRole('button', { name: 'More comment actions' }))
+			.toBeVisible();
+		expect(document.querySelector('[aria-label^="Show source range"]')).toBeNull();
 	});
 
-	test('collapses multiple messages to the latest summary and expands once in flat order', async () => {
+	test('renders summary plus latest inline and all messages once in the floating overlay', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
 
@@ -60,25 +67,25 @@ describe('worktree annotation inline thread', () => {
 
 		await expect.element(rendered.getByText('Add coverage for the failure case.')).toBeVisible();
 		expect(document.body.textContent).not.toContain('Keep the refresh asynchronous.');
-		expect(document.querySelector('[aria-label="Review output"]')).toBeNull();
+		await expect.element(rendered.getByTestId('worktree-annotation-thread-summary')).toBeVisible();
+		expect(
+			rendered.getByTestId('worktree-annotation-thread-summary').element().textContent,
+		).toContain('2 messages');
 		await expect.element(rendered.getByRole('button', { name: 'Expand 2 messages' })).toBeVisible();
+		const compactFrame = rendered.getByTestId('worktree-annotation-thread').element();
 
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Expand 2 messages' }).click();
 		});
 
 		await expect.element(rendered.getByText('Keep the refresh asynchronous.')).toBeVisible();
-		await expect.element(rendered.getByText('Add coverage for the failure case.')).toBeVisible();
-		await expect.element(rendered.getByRole('button', { name: 'Review output' })).toBeVisible();
-		await expect
-			.element(rendered.getByRole('button', { name: 'Collapse 2 messages' }))
-			.toBeVisible();
-		expect(document.querySelectorAll('[data-testid="worktree-annotation-message"]')).toHaveLength(
-			2,
-		);
+		expect(rendered.getByText('Add coverage for the failure case.').all()).toHaveLength(2);
+		const overlay = rendered.getByTestId('worktree-annotation-thread-overlay').element();
+		expect(compactFrame.contains(overlay)).toBe(false);
+		expect(overlay.querySelectorAll('[data-testid="worktree-annotation-message"]')).toHaveLength(2);
 	});
 
-	test('keeps disclosure independent for same-coordinate threads', async () => {
+	test('keeps one overlay keyed to the selected same-coordinate thread', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
 
@@ -120,6 +127,79 @@ describe('worktree annotation inline thread', () => {
 
 		await expect.element(rendered.getByText('Thread A root.')).toBeVisible();
 		expect(document.body.textContent).not.toContain('Thread B root.');
+		expect(
+			document.querySelectorAll('[data-testid="worktree-annotation-thread-overlay"]'),
+		).toHaveLength(1);
+	});
+
+	test('returns focus to the nearest surviving compact thread when the invoker is removed', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+		const thirdThreadId = '00000000-0000-7000-8000-000000000095';
+		const firstThread = {
+			context: locatedContext,
+			messages: [makeSavedMessage({ body: 'First thread.', messageId: rootMessageId })],
+		};
+		const secondThread = {
+			context: { ...locatedContext, threadId: annotationBaseThreadId },
+			messages: [
+				makeSavedMessage({
+					body: 'Second thread.',
+					messageId: secondRootMessageId,
+					threadId: annotationBaseThreadId,
+				}),
+			],
+		};
+		const thirdThread = {
+			context: { ...locatedContext, threadId: thirdThreadId },
+			messages: [
+				makeSavedMessage({
+					body: 'Third thread.',
+					messageId: secondReplyMessageId,
+					threadId: thirdThreadId,
+				}),
+			],
+		};
+		await publishThreads(surface, [firstThread, secondThread, thirdThread]);
+		const thirdFrame = document.querySelector<HTMLElement>(
+			`[data-annotation-thread-id="${thirdThreadId}"]`,
+		);
+		if (thirdFrame === null) throw new Error('Expected the third compact thread.');
+		await act(async (): Promise<void> => {
+			thirdFrame.querySelector<HTMLButtonElement>('[aria-label="Expand 1 message"]')?.click();
+			await Promise.resolve();
+		});
+		await expect.element(rendered.getByTestId('worktree-annotation-thread-overlay')).toBeVisible();
+
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				expectedThreadCount: 2,
+				revision: 4,
+				sessions: [annotationSessionSummary({ revision: 4, sessionId: annotationSessionId })],
+			});
+			for (const thread of [firstThread, secondThread]) {
+				surface.publishThreadMessages({
+					context: thread.context,
+					messages: thread.messages.map((message) =>
+						Object.assign({}, message, { sessionRevision: 4 }),
+					),
+				});
+			}
+			await Promise.resolve();
+		});
+		await settleBrowserCondition(
+			(): boolean =>
+				document.querySelector('[data-testid="worktree-annotation-thread-overlay"]') === null,
+			'Expected removal of the exact thread identity to close its overlay.',
+		);
+		const secondFrame = document.querySelector<HTMLElement>(
+			`[data-annotation-thread-id="${annotationBaseThreadId}"]`,
+		);
+		await settleBrowserCondition(
+			(): boolean => secondFrame?.contains(document.activeElement) === true,
+			'Expected focus to return to the nearest surviving compact thread.',
+		);
+		expect(secondFrame?.contains(document.activeElement)).toBe(true);
 	});
 
 	test('summarizes hidden draft, locked, and relocated thread state', async () => {
@@ -180,24 +260,26 @@ describe('worktree annotation inline thread', () => {
 			await Promise.resolve();
 		});
 		await act(async (): Promise<void> => {
-			surface.publishThread({ context: locatedContext, message: root });
-			surface.publishThread({
+			surface.publishThreadMessages({
 				context: locatedContext,
-				message: {
-					...annotationMessage({
-						messageId: secondRootMessageId,
-						ordinal: 1,
-						sessionRevision: 4,
-						threadId: annotationHeadThreadId,
-					}),
-					draft: {
-						activeEditToken: createOperation.editToken,
-						body: 'Durable reply',
-						revision: 1,
+				messages: [
+					{ ...root, sessionRevision: 4 },
+					{
+						...annotationMessage({
+							messageId: secondRootMessageId,
+							ordinal: 1,
+							sessionRevision: 4,
+							threadId: annotationHeadThreadId,
+						}),
+						draft: {
+							activeEditToken: createOperation.editToken,
+							body: 'Durable reply',
+							revision: 1,
+						},
+						savedBody: null,
+						savedRevision: null,
 					},
-					savedBody: null,
-					savedRevision: null,
-				},
+				],
 			});
 			await Promise.resolve();
 		});
@@ -230,6 +312,7 @@ describe('worktree annotation inline thread', () => {
 		);
 		await act(async (): Promise<void> => {
 			surface.publishProjectionState({
+				expectedThreadCount: 0,
 				revision: 3,
 				sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
 			});
@@ -241,12 +324,12 @@ describe('worktree annotation inline thread', () => {
 		);
 
 		await act(async (): Promise<void> => {
-			surface.settleMostRecentCommitted();
+			surface.settleMostRecentCommitted(annotationSessionId, 1);
 			await Promise.resolve();
 		});
 		await expect
 			.element(rendered.getByRole('textbox', { name: 'Reply with Markdown' }))
-			.toHaveValue('');
+			.toHaveValue('Durable reply');
 
 		await act(async (): Promise<void> => {
 			surface.publishThread({
@@ -285,6 +368,7 @@ describe('worktree annotation inline thread', () => {
 		);
 		await act(async (): Promise<void> => {
 			surface.publishProjectionState({
+				expectedThreadCount: 0,
 				revision: 3,
 				sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
 			});
@@ -303,7 +387,7 @@ describe('worktree annotation inline thread', () => {
 		if (createOperation?.kind !== 'reply.create') throw new Error('Expected reply.create.');
 
 		await act(async (): Promise<void> => {
-			surface.settleMostRecentCommitted();
+			surface.settleMostRecentCommitted(annotationSessionId, 1);
 			surface.publishThread({
 				context: locatedContext,
 				message: {
@@ -431,7 +515,9 @@ describe('worktree annotation inline thread', () => {
 			(): boolean => document.querySelector('[aria-label="Annotation Markdown"]') === null,
 			'Expected the committed Save to close the editor.',
 		);
-		await expect.element(rendered.getByText('Reviewed body.')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('worktree-annotation-thread').getByText('Reviewed body.'))
+			.toBeVisible();
 	});
 
 	test('persists an empty draft while editing an already saved message', async () => {
@@ -476,7 +562,7 @@ describe('worktree annotation inline thread', () => {
 		expect(flushOperation.body).toBe('');
 	});
 
-	test('supports keyboard disclosure and forces authoring expansion until empty Escape', async () => {
+	test('supports keyboard overlay entry and two-stage Escape while editing', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
 
@@ -491,24 +577,61 @@ describe('worktree annotation inline thread', () => {
 			await userEvent.keyboard('{Enter}');
 		});
 		await expect.element(rendered.getByText('Root body.')).toBeVisible();
-		expect(document.activeElement).toBe(
-			rendered.getByRole('button', { name: 'Collapse 2 messages' }).element(),
-		);
+		await expect.element(rendered.getByTestId('worktree-annotation-thread-overlay')).toBeVisible();
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
+			await rendered
+				.getByTestId('worktree-annotation-thread')
+				.getByRole('button', { name: 'Reply to thread' })
+				.click();
 		});
 		const composer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
 		await expect.element(composer).toBeVisible();
-		await expect
-			.element(rendered.getByRole('button', { name: 'Collapse 2 messages' }))
-			.toBeDisabled();
 
 		await act(async (): Promise<void> => {
 			composer.element().focus();
 			await userEvent.keyboard('{Escape}');
 		});
 		expect(document.querySelector('[aria-label="Reply with Markdown"]')).toBeNull();
+		await expect.element(rendered.getByTestId('worktree-annotation-thread-overlay')).toBeVisible();
+
+		await act(async (): Promise<void> => {
+			await userEvent.keyboard('{Escape}');
+		});
+		expect(document.querySelector('[data-testid="worktree-annotation-thread-overlay"]')).toBeNull();
+		expect(document.activeElement).toBe(
+			rendered
+				.getByTestId('worktree-annotation-thread')
+				.getByRole('button', { name: 'Reply to thread' })
+				.element(),
+		);
+	});
+
+	test('flushes the active editor before outside press closes and restores focus', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Outside-close root.', messageId: rootMessageId }),
+		]);
+		const replyButton = rendered
+			.getByTestId('worktree-annotation-thread')
+			.getByRole('button', { name: 'Reply to thread' });
+		await act(async (): Promise<void> => {
+			await replyButton.click();
+		});
+		await expect
+			.element(rendered.getByRole('textbox', { name: 'Reply with Markdown' }))
+			.toBeVisible();
+		await act(async (): Promise<void> => {
+			document.body.click();
+			await Promise.resolve();
+		});
+		await settleBrowserCondition(
+			(): boolean =>
+				document.querySelector('[data-testid="worktree-annotation-thread-overlay"]') === null,
+			'Expected outside press to close only after the active editor exited.',
+		);
+		expect(document.activeElement).toBe(replyButton.element());
 	});
 });
 
@@ -586,6 +709,7 @@ async function renderAnnotationProjection(
 	return await render(
 		<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
 			<AnnotationProjection />
+			<WorktreeAnnotationThreadOverlayHost />
 		</WorktreeAnnotationSurfaceProvider>,
 	);
 }
@@ -596,6 +720,7 @@ async function renderRemountingAnnotationProjection(
 	return await render(
 		<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
 			<RemountingAnnotationProjection />
+			<WorktreeAnnotationThreadOverlayHost />
 		</WorktreeAnnotationSurfaceProvider>,
 	);
 }
@@ -617,13 +742,12 @@ async function publishThreads(
 ): Promise<void> {
 	await act(async (): Promise<void> => {
 		surface.publishProjectionState({
+			expectedThreadCount: threads.length,
 			revision: 3,
 			sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
 		});
 		for (const thread of threads) {
-			for (const message of thread.messages) {
-				surface.publishThread({ context: thread.context, message });
-			}
+			surface.publishThreadMessages({ context: thread.context, messages: thread.messages });
 		}
 		await Promise.resolve();
 	});

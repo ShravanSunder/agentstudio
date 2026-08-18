@@ -4,16 +4,18 @@ import type { BridgeProductWorktreeAnnotationEvent } from './bridge-product-work
 import type {
 	BridgeWorkerAnnotationCommandAcceptedEvent,
 	BridgeWorkerAnnotationProjectionEvent,
-} from './bridge-worker-contracts.js';
+} from './bridge-worker-annotation-contracts.js';
 
 export function bridgeCommWorkerAnnotationProjectionEvent(props: {
 	readonly event: BridgeProductWorktreeAnnotationEvent;
+	readonly subscriptionId: string;
 	readonly surface: 'fileView' | 'review';
 }): BridgeWorkerAnnotationProjectionEvent {
 	return {
 		direction: 'serverWorkerToMain',
 		event: props.event,
 		kind: 'annotationProjection',
+		subscriptionId: props.subscriptionId,
 		surface: props.surface,
 		transferDescriptors: [],
 		wireVersion: 1,

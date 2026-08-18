@@ -478,19 +478,10 @@ actor BridgePaneProductMetadataCoordinator {
             return
         }
         do {
-            let enqueueResult = try await activeStream.session.enqueueProducerFrame(
+            let enqueueResult = try await activeStream.session.enqueueOrdinaryMetadataFrame(
                 for: activeStream.lease,
                 productAdmission: activeStream.productAdmission,
                 build: { streamSequence in
-                    try .metadata(
-                        .panePresentation(
-                            stream: activeStream.correlation,
-                            streamSequence: streamSequence,
-                            snapshot: snapshot
-                        )
-                    )
-                },
-                overflowReset: { streamSequence in
                     try .metadata(
                         .panePresentation(
                             stream: activeStream.correlation,
@@ -576,19 +567,10 @@ actor BridgePaneProductMetadataCoordinator {
         _ request: BridgePaneSurfaceSelectionRequest,
         activeStream: ActiveStream
     ) async throws -> BridgeProductProducerEnqueueResult {
-        try await activeStream.session.enqueueProducerFrame(
+        try await activeStream.session.enqueueOrdinaryMetadataFrame(
             for: activeStream.lease,
             productAdmission: activeStream.productAdmission,
             build: { streamSequence in
-                try .metadata(
-                    .paneSurfaceSelectionRequested(
-                        stream: activeStream.correlation,
-                        streamSequence: streamSequence,
-                        request: request
-                    )
-                )
-            },
-            overflowReset: { streamSequence in
                 try .metadata(
                     .paneSurfaceSelectionRequested(
                         stream: activeStream.correlation,

@@ -1,12 +1,12 @@
 import { buildBridgeWorkerRuntimeCommandFailedHealthEvent } from './bridge-comm-worker-runtime-health.js';
 import { sendBridgeCommWorkerActionWithTimeout } from './bridge-comm-worker-runtime-support.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
-import { bridgeWorkerAnnotationOutputInspectionEventSchema } from './bridge-worker-annotation-contracts.js';
 import {
-	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeWorkerAnnotationOutputInspectionEventSchema,
 	type BridgeWorkerAnnotationOutputInspectCommand,
 	type BridgeWorkerAnnotationOutputInspectionEvent,
-} from './bridge-worker-contracts.js';
+} from './bridge-worker-annotation-contracts.js';
+import { BRIDGE_WORKER_WIRE_VERSION } from './bridge-worker-contracts.js';
 import {
 	prepareBridgeWorkerStructuredMessage,
 	type PreparedBridgeWorkerStructuredMessage,

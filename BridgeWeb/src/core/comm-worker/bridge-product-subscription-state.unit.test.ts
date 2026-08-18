@@ -63,6 +63,7 @@ describe('Bridge product subscription state', () => {
 							eventKind: 'projection.state',
 							payload: {
 								commandOutcomes: [],
+								expectedThreadCount: 0,
 								outputHistory: [],
 								recoveryStatus: 'available',
 								revision: 1,

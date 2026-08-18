@@ -20,6 +20,43 @@ import {
 const annotationWorktreeId = '00000000-0000-7000-8000-000000000001';
 
 describe('Bridge comm worker annotation runtime protocol', () => {
+	test('returns one correlated candidate page through the paired direct product query', async () => {
+		const calledMethods: string[] = [];
+		const candidatePage = {
+			candidates: [],
+			eligibleMessageCount: 0,
+			eligibleWithoutInlinePlacementCount: 0,
+			nextCursor: null,
+			sessionId: '00000000-0000-7000-8000-000000000011',
+			sessionRevision: 4,
+		} as const;
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			productTransport: createAnnotationProductTransport({
+				calledMethods,
+				candidatePage,
+				fileAnnotationEvents: new BridgeProductBoundedAsyncQueue(1),
+				reviewAnnotationEvents: new BridgeProductBoundedAsyncQueue(1),
+				subscribedKinds: [],
+			}),
+		});
+		dispatch.message(annotationOutputCandidatesQueryCommand('fileView'));
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(calledMethods).toContain('file.annotations.output.candidates.query');
+		expect(postedMessages.map(({ message }) => message)).toContainEqual(
+			expect.objectContaining({
+				kind: 'annotationOutputCandidatesPage',
+				page: candidatePage,
+				requestId: 'annotation-output-candidates-request',
+				surface: 'fileView',
+			}),
+		);
+		expect(postedMessages.map(({ message }) => message.kind)).not.toContain('annotationProjection');
+	});
+
 	test('calls inspection before content open and transfers the exact correlated output bytes once', async () => {
 		const exactBytes = new TextEncoder().encode('# Exact annotation output\n').buffer;
 		const descriptor = annotationOutputDescriptor({ byteLength: exactBytes.byteLength });
@@ -175,6 +212,7 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 			expect.objectContaining({
 				event: expect.objectContaining({ payload: expect.objectContaining({ revision: 11 }) }),
 				kind: 'annotationProjection',
+				subscriptionId: 'file.annotations-subscription',
 				surface: 'fileView',
 			}),
 		);
@@ -182,6 +220,7 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 			expect.objectContaining({
 				event: expect.objectContaining({ payload: expect.objectContaining({ revision: 22 }) }),
 				kind: 'annotationProjection',
+				subscriptionId: 'review.annotations-subscription',
 				surface: 'review',
 			}),
 		);
@@ -385,6 +424,25 @@ function annotationOutputInspectCommand(
 	};
 }
 
+function annotationOutputCandidatesQueryCommand(surface: 'fileView' | 'review'): unknown {
+	return {
+		command: 'annotationOutputCandidatesQuery',
+		direction: 'mainToServerWorker',
+		epoch: 1,
+		kind: 'command',
+		query: {
+			cursor: { kind: 'start' },
+			expectedSessionRevision: 4,
+			limit: 16,
+			sessionId: '00000000-0000-7000-8000-000000000011',
+		},
+		requestId: 'annotation-output-candidates-request',
+		surface,
+		transferDescriptors: [],
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+	};
+}
+
 function annotationOutputDescriptor(props: {
 	readonly byteLength: number;
 	readonly surface?: 'file' | 'review';
@@ -411,6 +469,7 @@ function annotationProjectionEvent(
 		eventKind: 'projection.state',
 		payload: {
 			commandOutcomes: [],
+			expectedThreadCount: 0,
 			outputHistory: [],
 			recoveryStatus: 'available',
 			revision,
@@ -422,6 +481,14 @@ function annotationProjectionEvent(
 
 function createAnnotationProductTransport(props: {
 	readonly calledMethods: string[];
+	readonly candidatePage?: {
+		readonly candidates: readonly [];
+		readonly eligibleMessageCount: number;
+		readonly eligibleWithoutInlinePlacementCount: number;
+		readonly nextCursor: null;
+		readonly sessionId: string;
+		readonly sessionRevision: number;
+	};
 	readonly failingAnnotationMethod?: 'file.annotations.command' | 'review.annotations.command';
 	readonly fileAnnotationEvents: BridgeProductBoundedAsyncQueue<
 		BridgeProductSubscriptionEvent<'file.annotations'>
@@ -462,6 +529,12 @@ function createAnnotationProductTransport(props: {
 			) {
 				props.inspection?.operationOrder.push(method);
 				return { descriptor: props.inspection?.descriptor };
+			}
+			if (
+				method === 'file.annotations.output.candidates.query' ||
+				method === 'review.annotations.output.candidates.query'
+			) {
+				return props.candidatePage;
 			}
 			if (method === props.failingAnnotationMethod) throw new Error('native annotation failure');
 			if (method === 'file.source.current') {

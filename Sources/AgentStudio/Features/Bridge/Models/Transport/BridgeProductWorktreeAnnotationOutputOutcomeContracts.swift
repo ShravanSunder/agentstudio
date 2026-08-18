@@ -93,7 +93,6 @@ enum BridgeProductAnnotationOutputOutcomeDTO: Codable, Equatable, Sendable {
         summary: BridgeProductAnnotationOutputResultDTO,
         finalizationError: String
     )
-    case unknown(BridgeProductAnnotationOutputResultDTO)
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case cleanupError
@@ -125,8 +124,6 @@ enum BridgeProductAnnotationOutputOutcomeDTO: Codable, Equatable, Sendable {
                 summary: .init(summary),
                 finalizationError: finalizationError
             )
-        case .unknown(let summary):
-            self = .unknown(.init(summary))
         }
     }
 
@@ -139,7 +136,7 @@ enum BridgeProductAnnotationOutputOutcomeDTO: Codable, Equatable, Sendable {
             allowedKeys = [CodingKeys.kind.rawValue]
         case "destination_selection_failed":
             allowedKeys = [CodingKeys.kind.rawValue, CodingKeys.selectionError.rawValue]
-        case "succeeded", "unknown":
+        case "succeeded":
             allowedKeys = [CodingKeys.kind.rawValue, CodingKeys.summary.rawValue]
         case "effect_failed":
             allowedKeys = [
@@ -196,8 +193,6 @@ enum BridgeProductAnnotationOutputOutcomeDTO: Codable, Equatable, Sendable {
                 summary: try Self.summary(container),
                 finalizationError: try Self.nonemptyString(container, .finalizationError, decoder)
             )
-        case "unknown":
-            self = .unknown(try Self.summary(container))
         default:
             preconditionFailure("Outcome kind was validated above")
         }
@@ -226,9 +221,6 @@ enum BridgeProductAnnotationOutputOutcomeDTO: Codable, Equatable, Sendable {
         case .partialSuccess(let summary, let finalizationError):
             try container.encode(finalizationError, forKey: .finalizationError)
             try container.encode("partial_success", forKey: .kind)
-            try container.encode(summary, forKey: .summary)
-        case .unknown(let summary):
-            try container.encode("unknown", forKey: .kind)
             try container.encode(summary, forKey: .summary)
         }
     }

@@ -20,77 +20,13 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
     case setSessionLifecycle(SessionLifecycleBody)
     case chooseContinuity(ContinuityBody)
     case refreshSource(SourceRefreshBody)
-    case prepareOutput(OutputPreparationBody)
+    case outputSelectionBegin(OutputSelectionBeginBody)
+    case outputSelectionChunk(OutputSelectionChunkBody)
+    case outputSelectionCommit(OutputSelectionTerminalBody)
+    case outputSelectionCancel(OutputSelectionTerminalBody)
     case outputHistory(sessionID: UUID)
     case repeatOutput(attemptID: UUID)
     case acknowledgeRecovery
-
-    struct MutationBody: Codable, Equatable, Sendable {
-        let body: String
-        let editToken: String
-        let expectedSessionRevision: Int
-        let sessionId: UUID
-        let threadId: UUID
-    }
-
-    struct DraftMutationBody: Codable, Equatable, Sendable {
-        let body: String
-        let editToken: String
-        let expectedDraftRevision: Int?
-        let expectedSessionRevision: Int
-        let messageId: UUID
-        let sessionId: UUID
-    }
-
-    struct DraftRevisionBody: Codable, Equatable, Sendable {
-        let editToken: String
-        let expectedDraftRevision: Int
-        let expectedSessionRevision: Int
-        let messageId: UUID
-        let sessionId: UUID
-    }
-
-    struct ThreadResolutionBody: Codable, Equatable, Sendable {
-        let expectedSessionRevision: Int
-        let resolution: WorktreeAnnotationThreadResolution
-        let sessionId: UUID
-        let threadId: UUID
-    }
-
-    struct SessionLifecycleBody: Codable, Equatable, Sendable {
-        let confirmsUnresolvedWork: Bool
-        let expectedOpenThreadCount: Int
-        let expectedSessionRevision: Int
-        let lifecycle: WorktreeAnnotationSessionLifecycle
-        let sessionId: UUID
-    }
-
-    enum ContinuityDecision: String, Codable, Equatable, Sendable {
-        case acceptCurrentSource
-        case keepDetached
-    }
-
-    struct ContinuityBody: Codable, Equatable, Sendable {
-        let decision: ContinuityDecision
-        let expectedSessionRevision: Int
-        let sessionId: UUID
-    }
-
-    struct SourceRefreshBody: Codable, Equatable, Sendable {
-        let sessionId: UUID
-        let sourceEpoch: Int
-    }
-
-    enum OutputKind: String, Codable, Equatable, Sendable {
-        case clipboardMarkdown
-        case jsonFile
-    }
-
-    struct OutputPreparationBody: Codable, Equatable, Sendable {
-        let outputKind: OutputKind
-        let selection: BridgeProductWorktreeAnnotationOutputSelection
-        let sessionId: UUID
-    }
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case admission
@@ -107,11 +43,14 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         case messageId
         case origin
         case outputKind
+        case selectionMode
         case resolution
-        case selection
+        case ordinal
+        case messageIds
         case sessionId
         case sourceEpoch
         case threadId
+        case transferId
     }
 
     private enum Kind: String, Codable {
@@ -125,7 +64,10 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         case releaseEditToken = "draft.edit.release"
         case flushDraft = "draft.flush"
         case outputHistory = "output.history"
-        case prepareOutput = "output.prepare"
+        case outputSelectionBegin = "output.selection.begin"
+        case outputSelectionChunk = "output.selection.chunk"
+        case outputSelectionCommit = "output.selection.commit"
+        case outputSelectionCancel = "output.selection.cancel"
         case releaseDemand = "demand.release"
         case repeatOutput = "output.repeat"
         case revertDraft = "draft.revert"
@@ -149,15 +91,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         case .createRoot:
             self = try Self.decodeCreateRoot(container, decoder)
         case .createReply:
-            self = .createReply(
-                MutationBody(
-                    body: try Self.validatedBody(container, decoder),
-                    editToken: try Self.validatedIdentifier(container, .editToken, decoder),
-                    expectedSessionRevision: try Self.nonnegative(container, .expectedSessionRevision, decoder),
-                    sessionId: try Self.decodeID(container, .sessionId, decoder),
-                    threadId: try Self.decodeID(container, .threadId, decoder)
-                )
-            )
+            self = try Self.decodeCreateReply(container, decoder)
         case .flushDraft:
             self = try Self.decodeFlushDraft(container, decoder)
         case .acquireEditToken, .releaseEditToken:
@@ -167,47 +101,20 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
             let body = try Self.decodeDraftRevisionBody(container, decoder)
             self = kind == .saveDraft ? .saveDraft(body) : .revertDraft(body)
         case .setThreadResolution:
-            self = .setThreadResolution(
-                ThreadResolutionBody(
-                    expectedSessionRevision: try Self.nonnegative(container, .expectedSessionRevision, decoder),
-                    resolution: try container.decode(
-                        WorktreeAnnotationThreadResolution.self,
-                        forKey: .resolution
-                    ),
-                    sessionId: try Self.decodeID(container, .sessionId, decoder),
-                    threadId: try Self.decodeID(container, .threadId, decoder)
-                )
-            )
+            self = try Self.decodeThreadResolution(container, decoder)
         case .setSessionLifecycle:
-            self = .setSessionLifecycle(
-                SessionLifecycleBody(
-                    confirmsUnresolvedWork: try container.decode(Bool.self, forKey: .confirmsUnresolvedWork),
-                    expectedOpenThreadCount: try Self.nonnegative(container, .expectedOpenThreadCount, decoder),
-                    expectedSessionRevision: try Self.nonnegative(container, .expectedSessionRevision, decoder),
-                    lifecycle: try container.decode(
-                        WorktreeAnnotationSessionLifecycle.self,
-                        forKey: .lifecycle
-                    ),
-                    sessionId: try Self.decodeID(container, .sessionId, decoder)
-                )
-            )
+            self = try Self.decodeSessionLifecycle(container, decoder)
         case .chooseContinuity:
-            self = .chooseContinuity(
-                ContinuityBody(
-                    decision: try container.decode(ContinuityDecision.self, forKey: .decision),
-                    expectedSessionRevision: try Self.nonnegative(container, .expectedSessionRevision, decoder),
-                    sessionId: try Self.decodeID(container, .sessionId, decoder)
-                )
-            )
+            self = try Self.decodeContinuity(container, decoder)
         case .refreshSource:
-            self = .refreshSource(
-                SourceRefreshBody(
-                    sessionId: try Self.decodeID(container, .sessionId, decoder),
-                    sourceEpoch: try Self.nonnegative(container, .sourceEpoch, decoder)
-                )
-            )
-        case .prepareOutput:
-            self = try Self.decodePrepareOutput(container, decoder)
+            self = try Self.decodeSourceRefresh(container, decoder)
+        case .outputSelectionBegin:
+            self = try Self.decodeOutputSelectionBegin(container, decoder)
+        case .outputSelectionChunk:
+            self = try Self.decodeOutputSelectionChunk(container, decoder)
+        case .outputSelectionCommit, .outputSelectionCancel:
+            let body = try Self.decodeOutputSelectionTerminal(container, decoder)
+            self = kind == .outputSelectionCommit ? .outputSelectionCommit(body) : .outputSelectionCancel(body)
         case .outputHistory:
             self = .outputHistory(sessionID: try Self.decodeID(container, .sessionId, decoder))
         case .repeatOutput:
@@ -232,6 +139,115 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         )
     }
 
+    private static func decodeCreateReply(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        _ decoder: Decoder
+    ) throws -> Self {
+        .createReply(
+            MutationBody(
+                body: try validatedBody(container, decoder),
+                editToken: try validatedIdentifier(container, .editToken, decoder),
+                expectedSessionRevision: try nonnegative(container, .expectedSessionRevision, decoder),
+                sessionId: try decodeID(container, .sessionId, decoder),
+                threadId: try decodeID(container, .threadId, decoder)
+            )
+        )
+    }
+
+    private static func decodeThreadResolution(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        _ decoder: Decoder
+    ) throws -> Self {
+        .setThreadResolution(
+            ThreadResolutionBody(
+                expectedSessionRevision: try nonnegative(container, .expectedSessionRevision, decoder),
+                resolution: try container.decode(WorktreeAnnotationThreadResolution.self, forKey: .resolution),
+                sessionId: try decodeID(container, .sessionId, decoder),
+                threadId: try decodeID(container, .threadId, decoder)
+            )
+        )
+    }
+
+    private static func decodeSessionLifecycle(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        _ decoder: Decoder
+    ) throws -> Self {
+        .setSessionLifecycle(
+            SessionLifecycleBody(
+                confirmsUnresolvedWork: try container.decode(Bool.self, forKey: .confirmsUnresolvedWork),
+                expectedOpenThreadCount: try nonnegative(container, .expectedOpenThreadCount, decoder),
+                expectedSessionRevision: try nonnegative(container, .expectedSessionRevision, decoder),
+                lifecycle: try container.decode(WorktreeAnnotationSessionLifecycle.self, forKey: .lifecycle),
+                sessionId: try decodeID(container, .sessionId, decoder)
+            )
+        )
+    }
+
+    private static func decodeContinuity(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        _ decoder: Decoder
+    ) throws -> Self {
+        .chooseContinuity(
+            ContinuityBody(
+                decision: try container.decode(ContinuityDecision.self, forKey: .decision),
+                expectedSessionRevision: try nonnegative(container, .expectedSessionRevision, decoder),
+                sessionId: try decodeID(container, .sessionId, decoder)
+            )
+        )
+    }
+
+    private static func decodeSourceRefresh(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        _ decoder: Decoder
+    ) throws -> Self {
+        .refreshSource(
+            SourceRefreshBody(
+                sessionId: try decodeID(container, .sessionId, decoder),
+                sourceEpoch: try nonnegative(container, .sourceEpoch, decoder)
+            )
+        )
+    }
+
+    private static func decodeOutputSelectionBegin(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        _ decoder: Decoder
+    ) throws -> Self {
+        .outputSelectionBegin(
+            OutputSelectionBeginBody(
+                outputKind: try container.decode(OutputKind.self, forKey: .outputKind),
+                selectionMode: try container.decode(OutputSelectionMode.self, forKey: .selectionMode),
+                sessionId: try decodeID(container, .sessionId, decoder),
+                transferId: try validatedIdentifier(container, .transferId, decoder)
+            )
+        )
+    }
+
+    private static func decodeOutputSelectionChunk(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        _ decoder: Decoder
+    ) throws -> Self {
+        .outputSelectionChunk(
+            OutputSelectionChunkBody(
+                messageIds: try decodeOutputMessageIDs(container, decoder),
+                ordinal: try nonnegative(container, .ordinal, decoder),
+                selectionMode: try container.decode(OutputSelectionMode.self, forKey: .selectionMode),
+                sessionId: try decodeID(container, .sessionId, decoder),
+                transferId: try validatedIdentifier(container, .transferId, decoder)
+            )
+        )
+    }
+
+    private static func decodeOutputSelectionTerminal(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        _ decoder: Decoder
+    ) throws -> OutputSelectionTerminalBody {
+        OutputSelectionTerminalBody(
+            selectionMode: try container.decode(OutputSelectionMode.self, forKey: .selectionMode),
+            sessionId: try decodeID(container, .sessionId, decoder),
+            transferId: try validatedIdentifier(container, .transferId, decoder)
+        )
+    }
+
     private static func decodeFlushDraft(
         _ container: KeyedDecodingContainer<CodingKeys>,
         _ decoder: Decoder
@@ -252,22 +268,6 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
                 expectedDraftRevision: expectedDraftRevision,
                 expectedSessionRevision: try nonnegative(container, .expectedSessionRevision, decoder),
                 messageId: try decodeID(container, .messageId, decoder),
-                sessionId: try decodeID(container, .sessionId, decoder)
-            )
-        )
-    }
-
-    private static func decodePrepareOutput(
-        _ container: KeyedDecodingContainer<CodingKeys>,
-        _ decoder: Decoder
-    ) throws -> Self {
-        .prepareOutput(
-            OutputPreparationBody(
-                outputKind: try container.decode(OutputKind.self, forKey: .outputKind),
-                selection: try container.decode(
-                    BridgeProductWorktreeAnnotationOutputSelection.self,
-                    forKey: .selection
-                ),
                 sessionId: try decodeID(container, .sessionId, decoder)
             )
         )
@@ -313,8 +313,14 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
                 forKey: .sessionId
             )
             try container.encode(body.sourceEpoch, forKey: .sourceEpoch)
-        case .prepareOutput(let body):
-            try Self.encode(body, kind: .prepareOutput, into: &container)
+        case .outputSelectionBegin(let body):
+            try Self.encode(body, kind: .outputSelectionBegin, into: &container)
+        case .outputSelectionChunk(let body):
+            try Self.encode(body, kind: .outputSelectionChunk, into: &container)
+        case .outputSelectionCommit(let body):
+            try Self.encode(body, kind: .outputSelectionCommit, into: &container)
+        case .outputSelectionCancel(let body):
+            try Self.encode(body, kind: .outputSelectionCancel, into: &container)
         case .outputHistory(let sessionID):
             try Self.encode(kind: .outputHistory, id: sessionID, key: .sessionId, into: &container)
         case .repeatOutput(let attemptID):
@@ -354,8 +360,12 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
             [.decision, .expectedSessionRevision, .kind, .sessionId]
         case .refreshSource:
             [.kind, .sessionId, .sourceEpoch]
-        case .prepareOutput:
-            [.kind, .outputKind, .selection, .sessionId]
+        case .outputSelectionBegin:
+            [.kind, .outputKind, .selectionMode, .sessionId, .transferId]
+        case .outputSelectionChunk:
+            [.kind, .messageIds, .ordinal, .selectionMode, .sessionId, .transferId]
+        case .outputSelectionCommit, .outputSelectionCancel:
+            [.kind, .selectionMode, .sessionId, .transferId]
         }
     }
 
@@ -540,17 +550,65 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
     }
 
     private static func encode(
-        _ body: OutputPreparationBody,
+        _ body: OutputSelectionBeginBody,
         kind: Kind,
         into container: inout KeyedEncodingContainer<CodingKeys>
     ) throws {
         try container.encode(kind, forKey: .kind)
         try container.encode(body.outputKind, forKey: .outputKind)
-        try container.encode(body.selection, forKey: .selection)
+        try container.encode(body.selectionMode, forKey: .selectionMode)
         try container.encode(
             BridgeProductReviewPublicationIdContract.encode(body.sessionId),
             forKey: .sessionId
         )
+        try container.encode(body.transferId, forKey: .transferId)
+    }
+
+    private static func encode(
+        _ body: OutputSelectionChunkBody,
+        kind: Kind,
+        into container: inout KeyedEncodingContainer<CodingKeys>
+    ) throws {
+        try container.encode(kind, forKey: .kind)
+        try container.encode(body.messageIds.map(BridgeProductReviewPublicationIdContract.encode), forKey: .messageIds)
+        try container.encode(body.ordinal, forKey: .ordinal)
+        try container.encode(body.selectionMode, forKey: .selectionMode)
+        try container.encode(BridgeProductReviewPublicationIdContract.encode(body.sessionId), forKey: .sessionId)
+        try container.encode(body.transferId, forKey: .transferId)
+    }
+
+    private static func encode(
+        _ body: OutputSelectionTerminalBody,
+        kind: Kind,
+        into container: inout KeyedEncodingContainer<CodingKeys>
+    ) throws {
+        try container.encode(kind, forKey: .kind)
+        try container.encode(body.selectionMode, forKey: .selectionMode)
+        try container.encode(BridgeProductReviewPublicationIdContract.encode(body.sessionId), forKey: .sessionId)
+        try container.encode(body.transferId, forKey: .transferId)
+    }
+
+    private static func decodeOutputMessageIDs(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        _ decoder: Decoder
+    ) throws -> [UUID] {
+        let encodedIDs = try container.decode([String].self, forKey: .messageIds)
+        guard (1...64).contains(encodedIDs.count) else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Annotation output selection chunk must contain between 1 and 64 identities",
+                codingPath: decoder.codingPath
+            )
+        }
+        let ids = try encodedIDs.map {
+            try BridgeProductReviewPublicationIdContract.decode($0, codingPath: decoder.codingPath)
+        }
+        guard Set(ids).count == ids.count else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Annotation output selection chunk contains duplicate identities",
+                codingPath: decoder.codingPath
+            )
+        }
+        return ids
     }
 }
 

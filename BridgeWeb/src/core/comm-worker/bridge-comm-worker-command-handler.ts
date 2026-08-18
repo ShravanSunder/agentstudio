@@ -491,6 +491,8 @@ function handleBridgeWorkerCommand(
 					: { scheduleDemandExecution: props.scheduleDemandExecution }),
 			});
 		case 'annotationOutputInspect':
+		case 'annotationOutputCandidatesQuery':
+		case 'annotationProjectionResync':
 			return [];
 		case 'markFileViewed':
 		case 'annotationCommand':

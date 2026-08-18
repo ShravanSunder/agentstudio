@@ -73,6 +73,7 @@ describe('Bridge comm worker product controller', () => {
 			eventKind: 'projection.state',
 			payload: {
 				commandOutcomes: [],
+				expectedThreadCount: 0,
 				outputHistory: [],
 				recoveryStatus: 'available',
 				revision: 1,

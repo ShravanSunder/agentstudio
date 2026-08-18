@@ -56,6 +56,12 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
         sessionID: WorktreeAnnotationSessionID,
         limit: Int
     ) async throws -> [WorktreeAnnotationOutputHistorySummary]
+    func fetchOutputCandidates(
+        sessionID: WorktreeAnnotationSessionID,
+        expectedSessionRevision: Int,
+        cursor: WorktreeAnnotationOutputCandidateCursor?,
+        limit: Int
+    ) async throws -> WorktreeAnnotationRepositoryOutputCandidatePage
     func markPreparedOutputAttemptsUnknown(now: Date) async throws -> Int
     func fetchUnacknowledgedRecoveryProvenance() async throws
         -> WorktreeAnnotationRecoveryProvenance?
@@ -113,6 +119,16 @@ extension WorktreeAnnotationRepositoryAccess {
         limit: Int
     ) async throws -> [WorktreeAnnotationOutputHistorySummary] {
         _ = (sessionID, limit)
+        throw WorktreeAnnotationRepositoryError.invalidState
+    }
+
+    func fetchOutputCandidates(
+        sessionID: WorktreeAnnotationSessionID,
+        expectedSessionRevision: Int,
+        cursor: WorktreeAnnotationOutputCandidateCursor?,
+        limit: Int
+    ) async throws -> WorktreeAnnotationRepositoryOutputCandidatePage {
+        _ = (sessionID, expectedSessionRevision, cursor, limit)
         throw WorktreeAnnotationRepositoryError.invalidState
     }
 }
@@ -325,6 +341,22 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
         limit: Int
     ) async throws -> [WorktreeAnnotationOutputHistorySummary] {
         try await restore { try $0.fetchOutputHistory(sessionID: sessionID, limit: limit) }
+    }
+
+    func fetchOutputCandidates(
+        sessionID: WorktreeAnnotationSessionID,
+        expectedSessionRevision: Int,
+        cursor: WorktreeAnnotationOutputCandidateCursor?,
+        limit: Int
+    ) async throws -> WorktreeAnnotationRepositoryOutputCandidatePage {
+        try await restore {
+            try $0.fetchOutputCandidates(
+                sessionID: sessionID,
+                expectedSessionRevision: expectedSessionRevision,
+                cursor: cursor,
+                limit: limit
+            )
+        }
     }
 
     func markPreparedOutputAttemptsUnknown(now: Date) async throws -> Int {

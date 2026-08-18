@@ -118,6 +118,7 @@ async function publishSessions(
 ): Promise<void> {
 	await act(async (): Promise<void> => {
 		surface.publishProjectionState({
+			expectedThreadCount: 0,
 			revision: 3,
 			sessions: [
 				annotationSessionSummary({

@@ -1,5 +1,13 @@
 import { Pencil, RotateCcw, Save } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type ReactElement,
+	type ReactNode,
+} from 'react';
 
 import { Textarea } from '@/components/ui/textarea.js';
 
@@ -33,10 +41,11 @@ export interface WorktreeAnnotationMessageEditorProps {
 	readonly editToken: string | null;
 	readonly isEditing: boolean;
 	readonly message: WorktreeAnnotationMessageEntry;
-	readonly onBeginEdit: () => void;
+	readonly onBeginEdit: (invoker: HTMLElement) => void;
 	readonly onFinishEdit: () => void;
 	readonly ordinal: number;
 	readonly path: string | null;
+	readonly registerExitHandler?: ((handler: () => Promise<void>) => () => void) | undefined;
 }
 
 export interface WorktreeAnnotationThreadSummaryProps {
@@ -151,6 +160,9 @@ export function WorktreeAnnotationMessageEditor(
 			}),
 		[annotationClient, editToken, props.message.messageId],
 	);
+	useEffect((): void => {
+		if (projection.transportStatus.kind === 'available') scheduler.retryFailedPersistence();
+	}, [projection.transportStatus.kind, scheduler]);
 	useEffect((): (() => void) | undefined => {
 		if (!props.isEditing) return undefined;
 		let effectIsActive = true;
@@ -178,6 +190,20 @@ export function WorktreeAnnotationMessageEditor(
 		if (!canEdit && isEditing) onFinishEdit();
 	}, [canEdit, isEditing, onFinishEdit]);
 	const validation = validateWorktreeAnnotationMarkdown(body);
+	const registerExitHandler = props.registerExitHandler;
+	const flushAndFinish = useCallback(async (): Promise<void> => {
+		try {
+			await scheduler.focusLost();
+			onFinishEdit();
+		} catch (error: unknown) {
+			setOperationError(annotationErrorMessage(error));
+			throw error;
+		}
+	}, [onFinishEdit, scheduler]);
+	useEffect((): (() => void) | undefined => {
+		if (!isEditing || registerExitHandler === undefined) return undefined;
+		return registerExitHandler(flushAndFinish);
+	}, [flushAndFinish, isEditing, registerExitHandler]);
 	const save = async (): Promise<void> => {
 		if (!props.canEdit) return;
 		setOperationError(null);
@@ -262,7 +288,7 @@ export function WorktreeAnnotationMessageEditor(
 				<WorktreeAnnotationCommandButton
 					disabled={!props.canEdit}
 					label={props.message.draft === null ? 'Edit annotation' : 'Resume draft'}
-					onClick={props.onBeginEdit}
+					onClick={(event) => props.onBeginEdit(event.currentTarget)}
 				>
 					<Pencil />
 				</WorktreeAnnotationCommandButton>
@@ -297,7 +323,7 @@ export function WorktreeAnnotationMessageEditor(
 				<Textarea
 					autoFocus
 					aria-label="Annotation Markdown"
-					className="min-h-16 rounded-none border-0 bg-comment-composer-bg p-0 shadow-none focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-ring/30"
+					className="min-h-16 border-0 bg-comment-composer-bg p-0 shadow-none focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-ring/30"
 					disabled={!editOwnershipReady}
 					value={body}
 					onBlur={(event) => {
@@ -370,7 +396,7 @@ function assertCommittedAnnotationOutcome(
 	if (outcome.status.kind !== 'committed') throw new Error('Annotation command did not commit.');
 }
 
-function annotationMessageStateLabel(message: WorktreeAnnotationMessageEntry): string {
+export function annotationMessageStateLabel(message: WorktreeAnnotationMessageEntry): string {
 	if (message.status === 'locked') return 'Output locked';
 	if (message.savedBody === null) return 'Draft';
 	if (message.draft !== null) return 'Saved · draft changes';
@@ -396,7 +422,7 @@ function annotationPlainTextExcerpt(markdown: string): string {
 		: `${plainText.slice(0, annotationSummaryCharacterLimit - 1).trimEnd()}…`;
 }
 
-function annotationRelativeTime(appleReferenceSeconds: number): string {
+export function annotationRelativeTime(appleReferenceSeconds: number): string {
 	const unixMilliseconds = (appleReferenceSeconds + appleReferenceDateUnixSeconds) * 1_000;
 	const elapsedSeconds = Math.max(0, Math.floor((Date.now() - unixMilliseconds) / 1_000));
 	if (elapsedSeconds < 60) return 'now';

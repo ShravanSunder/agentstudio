@@ -65,15 +65,17 @@ private struct WorktreeAnnotationCreateRootTransportInput {
 @MainActor
 final class WorktreeAnnotationTransportAdapter {
     let now: @Sendable () -> Date
-    private let contextID: String
+    let contextID: String
     private let originatingWorkspaceID: String?
-    private let outputCoordinator: WorktreeAnnotationOutputCoordinator?
-    private let outputLabels: WorktreeAnnotationOutputLabels?
+    let outputCoordinator: WorktreeAnnotationOutputCoordinator?
+    let outputLabels: WorktreeAnnotationOutputLabels?
     private let projection: WorktreeAnnotationProjectionAtom
     private let repositoryID: String
     private let sourceResolver: WorktreeAnnotationSourceResolver
     let store: WorktreeAnnotationStore
     private let worktreeID: String
+    private let outputSelectionAssembler = WorktreeAnnotationOutputSelectionAssembler()
+    private var activeProductSessionID: String?
     private var demandGenerationByKey: [WorktreeAnnotationTransportDemandKey: WorktreeAnnotationDemandGeneration] = [:]
 
     init(
@@ -105,12 +107,22 @@ final class WorktreeAnnotationTransportAdapter {
         correlation: BridgeProductControlCorrelation,
         productAdmission: BridgeProductAdmissionContext
     ) async {
+        if let activeProductSessionID,
+            activeProductSessionID != correlation.workerInstanceId
+        {
+            outputSelectionAssembler.disconnect(productSessionID: activeProductSessionID)
+        }
+        activeProductSessionID = correlation.workerInstanceId
         do {
             let sessionID: WorktreeAnnotationSessionID?
             let status: WorktreeAnnotationCommandOutcomeStatus
             switch request.operation {
-            case .prepareOutput(let body):
-                let output = try await executeOutputPreparation(body, surface: surface)
+            case .outputSelectionCommit(let body):
+                let selection = try outputSelectionAssembler.commit(
+                    body,
+                    productSessionID: correlation.workerInstanceId
+                )
+                let output = try await executeOutputPreparation(selection, surface: surface)
                 sessionID = output.summary?.sessionID
                 status = .output(output)
             case .repeatOutput(let attemptID):
@@ -215,17 +227,7 @@ final class WorktreeAnnotationTransportAdapter {
         case .revertDraft(let body):
             return try await revertDraft(body, ownerGeneration: ownerGeneration)
         case .setThreadResolution(let body):
-            let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
-            _ = try await store.setThreadResolution(
-                .init(
-                    sessionID: sessionID,
-                    threadID: .init(rawValue: body.threadId),
-                    resolution: body.resolution,
-                    expectedSessionRevision: body.expectedSessionRevision,
-                    now: now()
-                )
-            )
-            return sessionID
+            return try await setThreadResolution(body)
         case .setSessionLifecycle(let body):
             let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
             _ = try await store.setSessionLifecycle(
@@ -243,7 +245,16 @@ final class WorktreeAnnotationTransportAdapter {
             return try await chooseContinuity(body, surface: surface, productAdmission: productAdmission)
         case .refreshSource(let body):
             return try await refreshSource(body, surface: surface, productAdmission: productAdmission)
-        case .prepareOutput:
+        case .outputSelectionBegin(let body):
+            try outputSelectionAssembler.begin(body, productSessionID: ownerGeneration)
+            return .init(rawValue: body.sessionId)
+        case .outputSelectionChunk(let body):
+            try outputSelectionAssembler.append(body, productSessionID: ownerGeneration)
+            return .init(rawValue: body.sessionId)
+        case .outputSelectionCancel(let body):
+            try outputSelectionAssembler.cancel(body, productSessionID: ownerGeneration)
+            return .init(rawValue: body.sessionId)
+        case .outputSelectionCommit:
             throw WorktreeAnnotationTransportAdapterError.outputUnavailable
         case .outputHistory(let sessionID):
             let typedSessionID = WorktreeAnnotationSessionID(rawValue: sessionID)
@@ -258,6 +269,22 @@ final class WorktreeAnnotationTransportAdapter {
             try await store.acknowledgeRecovery(at: now())
             return nil
         }
+    }
+
+    private func setThreadResolution(
+        _ body: BridgeProductWorktreeAnnotationOperation.ThreadResolutionBody
+    ) async throws -> WorktreeAnnotationSessionID {
+        let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
+        _ = try await store.setThreadResolution(
+            .init(
+                sessionID: sessionID,
+                threadID: .init(rawValue: body.threadId),
+                resolution: body.resolution,
+                expectedSessionRevision: body.expectedSessionRevision,
+                now: now()
+            )
+        )
+        return sessionID
     }
 
     private func createRoot(
@@ -433,77 +460,6 @@ final class WorktreeAnnotationTransportAdapter {
         return sessionID
     }
 
-    private func executeOutputPreparation(
-        _ body: BridgeProductWorktreeAnnotationOperation.OutputPreparationBody,
-        surface: BridgeProductSurface
-    ) async throws -> WorktreeAnnotationOutputCommandOutcome {
-        guard let outputCoordinator, let outputLabels else {
-            throw WorktreeAnnotationTransportAdapterError.outputUnavailable
-        }
-        let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
-        let context = try await store.outputSnapshotContext(
-            sessionID: sessionID,
-            contextID: contextID,
-            surface: surface
-        )
-        let outputKind: WorktreeAnnotationOutputKind =
-            switch body.outputKind {
-            case .clipboardMarkdown: .clipboardMarkdown
-            case .jsonFile: .jsonFile
-            }
-        let eligibleMessages = context.sessionDetail.threads.flatMap(\.messages).filter {
-            $0.savedBody != nil && $0.savedRevision != nil && $0.draft == nil && $0.status == .editable
-        }
-        let selectedMessages: [WorktreeAnnotationMessage]
-        switch body.selection {
-        case .explicit(let messageIds):
-            let selectedIDs = Set(messageIds.map(WorktreeAnnotationMessageID.init(rawValue:)))
-            selectedMessages = eligibleMessages.filter { selectedIDs.contains($0.id) }
-            guard selectedMessages.count == selectedIDs.count else {
-                throw WorktreeAnnotationRepositoryError.invalidState
-            }
-        case .allEligible(let excludedMessageIds):
-            let excludedIDs = Set(excludedMessageIds.map(WorktreeAnnotationMessageID.init(rawValue:)))
-            let knownIDs = Set(context.sessionDetail.threads.flatMap(\.messages).map(\.id))
-            guard excludedIDs.isSubset(of: knownIDs) else {
-                throw WorktreeAnnotationRepositoryError.notFound
-            }
-            selectedMessages = eligibleMessages.filter { !excludedIDs.contains($0.id) }
-        }
-        guard !selectedMessages.isEmpty else { throw WorktreeAnnotationRepositoryError.emptySelection }
-        let comparisonLabel =
-            try outputLabels.comparisonLabel
-            ?? WorktreeAnnotationComparisonLabelProjector.project(
-                context.sessionDetail.session.acceptedSourceFingerprint.reviewComparisonOrigin
-            )
-        let result = try await outputCoordinator.executeNew(
-            .init(
-                outputKind: outputKind,
-                sessionDetail: context.sessionDetail,
-                selectedMessages: try selectedMessages.map { message in
-                    guard let savedRevision = message.savedRevision else {
-                        throw WorktreeAnnotationRepositoryError.invalidState
-                    }
-                    return .init(messageID: message.id, expectedSavedRevision: savedRevision)
-                },
-                placementsByThreadID: context.placementsByThreadID,
-                sessionLabel: outputLabels.sessionLabel,
-                worktreeLabel: outputLabels.worktreeLabel,
-                comparisonLabel: comparisonLabel
-            )
-        )
-        return result.commandOutcome
-    }
-
-    private func executeOutputRepeat(
-        attemptID: WorktreeAnnotationOutputAttemptID
-    ) async throws -> WorktreeAnnotationOutputCommandOutcome {
-        guard let outputCoordinator else {
-            throw WorktreeAnnotationTransportAdapterError.outputUnavailable
-        }
-        return try await outputCoordinator.executeRepeat(sourceAttemptID: attemptID).commandOutcome
-    }
-
     private func validateFingerprint(_ fingerprint: WorktreeAnnotationSourceFingerprint) throws {
         guard fingerprint.repositoryID == repositoryID,
             fingerprint.worktreeID == worktreeID
@@ -546,7 +502,11 @@ final class WorktreeAnnotationTransportAdapter {
             .init(rawValue: body.sessionId)
         case .refreshSource(let body):
             .init(rawValue: body.sessionId)
-        case .prepareOutput(let body):
+        case .outputSelectionBegin(let body):
+            .init(rawValue: body.sessionId)
+        case .outputSelectionChunk(let body):
+            .init(rawValue: body.sessionId)
+        case .outputSelectionCommit(let body), .outputSelectionCancel(let body):
             .init(rawValue: body.sessionId)
         case .acknowledgeRecovery, .createRoot, .discoverSessions, .repeatOutput:
             nil
@@ -578,7 +538,9 @@ final class WorktreeAnnotationTransportAdapter {
             case .invalidSource: .invalidSource
             case .unavailable: .unavailable
             }
-        } else if error is WorktreeAnnotationTransportAdapterError {
+        } else if error is WorktreeAnnotationTransportAdapterError
+            || error is WorktreeAnnotationOutputSelectionAssemblerError
+        {
             .outputUnavailable
         } else {
             .unexpected
@@ -586,6 +548,6 @@ final class WorktreeAnnotationTransportAdapter {
     }
 }
 
-private enum WorktreeAnnotationTransportAdapterError: Error {
+enum WorktreeAnnotationTransportAdapterError: Error {
     case outputUnavailable
 }

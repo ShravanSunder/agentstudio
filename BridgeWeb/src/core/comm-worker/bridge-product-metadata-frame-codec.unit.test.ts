@@ -111,6 +111,7 @@ describe('Bridge product metadata frame decoder', () => {
 			eventKind: 'projection.state',
 			payload: {
 				commandOutcomes: [],
+				expectedThreadCount: 0,
 				outputHistory: [],
 				recoveryStatus: 'available',
 				revision: 1,

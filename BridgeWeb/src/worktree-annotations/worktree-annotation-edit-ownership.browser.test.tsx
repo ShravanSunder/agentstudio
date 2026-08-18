@@ -16,6 +16,7 @@ import {
 	useWorktreeAnnotationProjection,
 	WorktreeAnnotationSurfaceProvider,
 } from './worktree-annotation-surface-provider.js';
+import { WorktreeAnnotationThreadOverlayHost } from './worktree-annotation-thread-overlay.js';
 import { WorktreeAnnotationThread } from './worktree-annotation-thread.js';
 
 describe('worktree annotation browser edit ownership', () => {
@@ -24,6 +25,7 @@ describe('worktree annotation browser edit ownership', () => {
 		const rendered = await render(
 			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
 				<ProjectedThread portalGeneration={0} />
+				<WorktreeAnnotationThreadOverlayHost />
 			</WorktreeAnnotationSurfaceProvider>,
 		);
 		await publishMessage(
@@ -58,6 +60,7 @@ describe('worktree annotation browser edit ownership', () => {
 		await rendered.rerender(
 			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
 				<ProjectedThread portalGeneration={1} />
+				<WorktreeAnnotationThreadOverlayHost />
 			</WorktreeAnnotationSurfaceProvider>,
 		);
 		await act(async (): Promise<void> => settleInteraction());
@@ -77,6 +80,7 @@ describe('worktree annotation browser edit ownership', () => {
 		const rendered = await render(
 			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
 				<ProjectedThread />
+				<WorktreeAnnotationThreadOverlayHost />
 			</WorktreeAnnotationSurfaceProvider>,
 		);
 		await publishMessage(
@@ -182,6 +186,7 @@ async function publishMessage(
 ): Promise<void> {
 	await act(async (): Promise<void> => {
 		surface.publishProjectionState({
+			expectedThreadCount: 1,
 			revision: 3,
 			sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
 		});

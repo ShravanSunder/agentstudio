@@ -10,6 +10,8 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case completedAt
         case createdAt
+        case eligibleMessageCount
+        case eligibleWithoutInlinePlacementCount
         case lifecycle
         case semanticRevision
         case sessionId
@@ -19,15 +21,23 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
 
     let completedAt: Date?
     let createdAt: Date
+    let eligibleMessageCount: Int
+    let eligibleWithoutInlinePlacementCount: Int
     let lifecycle: WorktreeAnnotationSessionLifecycle
     let semanticRevision: Int
     let sessionId: UUID
     let sourceRelationship: WorktreeAnnotationSourceRelationship
     let updatedAt: Date
 
-    init(_ session: WorktreeAnnotationSession) {
+    init(
+        _ session: WorktreeAnnotationSession,
+        eligibleMessageCount: Int,
+        eligibleWithoutInlinePlacementCount: Int
+    ) {
         completedAt = session.completedAt
         createdAt = session.createdAt
+        self.eligibleMessageCount = eligibleMessageCount
+        self.eligibleWithoutInlinePlacementCount = eligibleWithoutInlinePlacementCount
         lifecycle = session.lifecycle
         semanticRevision = session.semanticRevision
         sessionId = session.id.rawValue
@@ -45,6 +55,11 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
             codingPath: decoder.codingPath
         )
         createdAt = try container.decode(Date.self, forKey: .createdAt)
+        eligibleMessageCount = try container.decode(Int.self, forKey: .eligibleMessageCount)
+        eligibleWithoutInlinePlacementCount = try container.decode(
+            Int.self,
+            forKey: .eligibleWithoutInlinePlacementCount
+        )
         lifecycle = try container.decode(WorktreeAnnotationSessionLifecycle.self, forKey: .lifecycle)
         semanticRevision = try container.decode(Int.self, forKey: .semanticRevision)
         sessionId = try container.decode(UUID.self, forKey: .sessionId)
@@ -53,12 +68,26 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
             forKey: .sourceRelationship
         )
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        guard eligibleMessageCount >= 0,
+            eligibleWithoutInlinePlacementCount >= 0,
+            eligibleWithoutInlinePlacementCount <= eligibleMessageCount
+        else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Annotation output candidate counts are invalid",
+                codingPath: decoder.codingPath
+            )
+        }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(completedAt, forKey: .completedAt)
         try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(eligibleMessageCount, forKey: .eligibleMessageCount)
+        try container.encode(
+            eligibleWithoutInlinePlacementCount,
+            forKey: .eligibleWithoutInlinePlacementCount
+        )
         try container.encode(lifecycle, forKey: .lifecycle)
         try container.encode(semanticRevision, forKey: .semanticRevision)
         try container.encode(
@@ -549,6 +578,7 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
 struct BridgeProductWorktreeAnnotationProjectionState: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case commandOutcomes
+        case expectedThreadCount
         case outputHistory
         case recoveryStatus
         case revision
@@ -557,21 +587,47 @@ struct BridgeProductWorktreeAnnotationProjectionState: Codable, Equatable, Senda
     }
 
     let commandOutcomes: [BridgeProductWorktreeAnnotationCommandOutcomeDTO]
+    let expectedThreadCount: Int
     let outputHistory: [BridgeProductAnnotationOutputHistoryDTO]
     let recoveryStatus: String
     let revision: Int
     let sessions: [BridgeProductWorktreeAnnotationSessionSummary]
     let worktreeId: String
 
-    init(_ snapshot: WorktreeAnnotationProjectionSnapshot) {
+    init(_ snapshot: WorktreeAnnotationProjectionSnapshot, expectedThreadCount: Int) {
         commandOutcomes = snapshot.commandOutcomes.map(
             BridgeProductWorktreeAnnotationCommandOutcomeDTO.init
         )
+        self.expectedThreadCount = expectedThreadCount
         outputHistory = snapshot.outputHistory.map(
             BridgeProductAnnotationOutputHistoryDTO.init
         )
         revision = snapshot.revision
-        sessions = snapshot.sessions.map(BridgeProductWorktreeAnnotationSessionSummary.init)
+        sessions = snapshot.sessions.map { session in
+            let detail = snapshot.details.first { $0.session.id == session.id }
+            let eligibleMessagesByThread =
+                detail?.threads.map { thread in
+                    (
+                        thread.thread.id,
+                        thread.messages.filter {
+                            $0.status == .editable
+                                && $0.savedBody != nil
+                                && $0.savedRevision != nil
+                                && $0.draft == nil
+                        }.count
+                    )
+                } ?? []
+            let eligibleMessageCount = eligibleMessagesByThread.reduce(0) { $0 + $1.1 }
+            let eligibleWithoutInlinePlacementCount = eligibleMessagesByThread.reduce(0) { count, entry in
+                let placement = snapshot.placementsByThreadID[entry.0]?.placement
+                return count + ((placement == .exact || placement == .relocated) ? 0 : entry.1)
+            }
+            return BridgeProductWorktreeAnnotationSessionSummary(
+                session,
+                eligibleMessageCount: eligibleMessageCount,
+                eligibleWithoutInlinePlacementCount: eligibleWithoutInlinePlacementCount
+            )
+        }
         worktreeId = snapshot.worktreeID
         switch snapshot.recoveryState {
         case .available: recoveryStatus = "available"
@@ -587,6 +643,13 @@ struct BridgeProductWorktreeAnnotationProjectionState: Codable, Equatable, Senda
             [BridgeProductWorktreeAnnotationCommandOutcomeDTO].self,
             forKey: .commandOutcomes
         )
+        expectedThreadCount = try container.decode(Int.self, forKey: .expectedThreadCount)
+        guard expectedThreadCount >= 0 else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Annotation expected thread count must be nonnegative",
+                codingPath: decoder.codingPath + [CodingKeys.expectedThreadCount]
+            )
+        }
         outputHistory = try container.decode(
             [BridgeProductAnnotationOutputHistoryDTO].self,
             forKey: .outputHistory
@@ -705,7 +768,18 @@ enum BridgeProductWorktreeAnnotationProjectionPacker {
         snapshot: WorktreeAnnotationProjectionSnapshot,
         surface: BridgeProductSurface
     ) throws -> [BridgeProductWorktreeAnnotationEvent] {
-        var events: [BridgeProductWorktreeAnnotationEvent] = [.projectionState(.init(snapshot))]
+        let expectedThreadIDs = Set(
+            snapshot.details.flatMap { detail in
+                detail.threads.compactMap { threadDetail in
+                    threadDetail.messages.isEmpty ? nil : threadDetail.thread.id
+                }
+            }
+        )
+        var events: [BridgeProductWorktreeAnnotationEvent] = [
+            .projectionState(
+                .init(snapshot, expectedThreadCount: expectedThreadIDs.count)
+            )
+        ]
         for detail in snapshot.details {
             for threadDetail in detail.threads {
                 let context = try BridgeProductWorktreeAnnotationThreadContext(

@@ -24,6 +24,7 @@ import type {
 } from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
 import { WorktreeAnnotationSurfaceProvider } from '../worktree-annotations/worktree-annotation-surface-provider.js';
+import { WorktreeAnnotationThreadOverlayHost } from '../worktree-annotations/worktree-annotation-thread-overlay.js';
 import type { BridgeFileTreeFilterCandidate } from './bridge-app-control.js';
 import {
 	bridgeAppReviewNavigationSourceForDisplaySlice,
@@ -483,14 +484,17 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 			markdownWorkerClient={props.markdownWorkerClient}
 			surfaceClient={reviewClient}
 		>
-			<BridgeReviewViewerShellBoundary
-				comparisonPaneState={comparisonPaneState}
-				isActive={isActive}
-				onRetryComparison={controller.updateReviewComparisonTarget}
-				presentationState={presentationState}
-				viewerContextSwitcher={viewerContextSwitcher}
-				viewerHeaderControls={contentHeaderControls}
-			/>
+			<>
+				<BridgeReviewViewerShellBoundary
+					comparisonPaneState={comparisonPaneState}
+					isActive={isActive}
+					onRetryComparison={controller.updateReviewComparisonTarget}
+					presentationState={presentationState}
+					viewerContextSwitcher={viewerContextSwitcher}
+					viewerHeaderControls={contentHeaderControls}
+				/>
+				<WorktreeAnnotationThreadOverlayHost />
+			</>
 		</WorktreeAnnotationSurfaceProvider>
 	);
 }

@@ -30,6 +30,30 @@ describe('WorktreeAnnotationDraftScheduler', () => {
 		});
 	});
 
+	test('reschedules failed pending intent when projection transport recovers', async () => {
+		const clock = new ControlledDraftClock();
+		const persistedBodies: string[] = [];
+		let transportAvailable = false;
+		const scheduler = new WorktreeAnnotationDraftScheduler({
+			clock,
+			persist: async (body): Promise<void> => {
+				persistedBodies.push(body);
+				if (!transportAvailable) throw new Error('transport unavailable');
+			},
+		});
+
+		scheduler.edit('Pending body');
+		await clock.flushMicrotasks();
+		expect(scheduler.snapshot().status).toBe('failed');
+		transportAvailable = true;
+		scheduler.retryFailedPersistence();
+		clock.advanceBy(1_000);
+		await clock.flushMicrotasks();
+
+		expect(persistedBodies).toEqual(['Pending body', 'Pending body']);
+		expect(scheduler.snapshot().status).toBe('acknowledged');
+	});
+
 	test('debounces focused edits at one second and enforces a five-second maximum wait', async () => {
 		const clock = new ControlledDraftClock();
 		const persistedBodies: string[] = [];

@@ -51,4 +51,36 @@ extension BridgeDevelopmentProductHost {
             )
         }
     }
+
+    @MainActor
+    static func makeWorktreeAnnotationOutputCandidateQueryHandler(
+        _ dependencies: WorktreeAnnotationCommandHandlerDependencies
+    )
+        -> @MainActor @Sendable (
+            BridgeProductAnnotationCandidateQuery,
+            BridgeProductSurface
+        ) async throws -> WorktreeAnnotationOutputCandidatePage
+    {
+        guard let store = dependencies.store else {
+            return { _, _ in throw WorktreeAnnotationStoreError.unavailable }
+        }
+        let contextID = dependencies.source.paneID.uuidString.lowercased()
+        return { request, surface in
+            let cursor: WorktreeAnnotationOutputCandidateCursor? =
+                switch request.cursor {
+                case .start:
+                    nil
+                case .after(let flatOrdinal, let messageID):
+                    .init(flatOrdinal: flatOrdinal, messageID: .init(rawValue: messageID))
+                }
+            return try await store.fetchOutputCandidates(
+                sessionID: .init(rawValue: request.sessionId),
+                expectedSessionRevision: request.expectedSessionRevision,
+                cursor: cursor,
+                limit: request.limit,
+                contextID: contextID,
+                surface: surface
+            )
+        }
+    }
 }

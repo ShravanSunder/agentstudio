@@ -5,6 +5,8 @@ import { bridgeProductIdentifierSchema } from './bridge-product-contract-primiti
 import { bridgeProductWorktreeAnnotationEventSchema } from './bridge-product-worktree-annotation-contracts.js';
 import {
 	bridgeProductAnnotationOutputContentDescriptorSchema,
+	bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
+	bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema,
 	bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
 } from './bridge-product-worktree-annotation-output-contracts.js';
 import {
@@ -13,6 +15,13 @@ import {
 	bridgeWorkerRequestIdSchema,
 	bridgeWorkerServerToMainBaseSchema,
 } from './bridge-worker-wire-base-contracts.js';
+
+export const bridgeWorkerAnnotationProjectionFailureClassSchema = z.enum([
+	'excessThreadCount',
+	'duplicateTerminal',
+	'postTerminalBatch',
+	'messageIdentityViolation',
+]);
 
 export const bridgeWorkerAnnotationCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
@@ -30,6 +39,26 @@ export const bridgeWorkerAnnotationOutputInspectCommandSchema = bridgeWorkerMain
 	})
 	.strict();
 
+export const bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema =
+	bridgeWorkerMainToServerBaseSchema
+		.extend({
+			command: z.literal('annotationOutputCandidatesQuery'),
+			query: bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema,
+			surface: bridgeWorkerInteractionSurfaceSchema,
+		})
+		.strict();
+
+export const bridgeWorkerAnnotationProjectionResyncCommandSchema =
+	bridgeWorkerMainToServerBaseSchema
+		.extend({
+			command: z.literal('annotationProjectionResync'),
+			failureClass: bridgeWorkerAnnotationProjectionFailureClassSchema,
+			revision: z.number().int().nonnegative(),
+			subscriptionId: bridgeProductIdentifierSchema,
+			surface: bridgeWorkerInteractionSurfaceSchema,
+		})
+		.strict();
+
 export const bridgeWorkerAnnotationCommandAcceptedEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
 		kind: z.literal('annotationCommandAccepted'),
@@ -43,6 +72,7 @@ export const bridgeWorkerAnnotationProjectionEventSchema = bridgeWorkerServerToM
 	.extend({
 		event: bridgeProductWorktreeAnnotationEventSchema,
 		kind: z.literal('annotationProjection'),
+		subscriptionId: bridgeProductIdentifierSchema,
 		surface: bridgeWorkerInteractionSurfaceSchema,
 	})
 	.strict();
@@ -94,12 +124,34 @@ export const bridgeWorkerAnnotationOutputInspectionEventSchema = bridgeWorkerSer
 		}
 	});
 
+export const bridgeWorkerAnnotationOutputCandidatesPageEventSchema =
+	bridgeWorkerServerToMainBaseSchema
+		.extend({
+			kind: z.literal('annotationOutputCandidatesPage'),
+			page: bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
+			requestId: bridgeWorkerRequestIdSchema,
+			surface: bridgeWorkerInteractionSurfaceSchema,
+		})
+		.strict();
+
 export type BridgeWorkerAnnotationCommand = z.infer<typeof bridgeWorkerAnnotationCommandSchema>;
 export type BridgeWorkerAnnotationOutputInspectCommand = z.infer<
 	typeof bridgeWorkerAnnotationOutputInspectCommandSchema
 >;
+export type BridgeWorkerAnnotationOutputCandidatesQueryCommand = z.infer<
+	typeof bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema
+>;
+export type BridgeWorkerAnnotationProjectionFailureClass = z.infer<
+	typeof bridgeWorkerAnnotationProjectionFailureClassSchema
+>;
+export type BridgeWorkerAnnotationProjectionResyncCommand = z.infer<
+	typeof bridgeWorkerAnnotationProjectionResyncCommandSchema
+>;
 export type BridgeWorkerAnnotationOutputInspectionEvent = z.infer<
 	typeof bridgeWorkerAnnotationOutputInspectionEventSchema
+>;
+export type BridgeWorkerAnnotationOutputCandidatesPageEvent = z.infer<
+	typeof bridgeWorkerAnnotationOutputCandidatesPageEventSchema
 >;
 export type BridgeWorkerAnnotationCommandAcceptedEvent = z.infer<
 	typeof bridgeWorkerAnnotationCommandAcceptedEventSchema

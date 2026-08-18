@@ -137,6 +137,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			).toHaveAttribute('data-bridge-code-view-overflow', 'scroll');
 			await act(async (): Promise<void> => {
 				annotationHarness.surface.publishProjectionState({
+					expectedThreadCount: 0,
 					recoveryStatus: 'recovered_degraded',
 					revision: 1,
 					sessions: [],

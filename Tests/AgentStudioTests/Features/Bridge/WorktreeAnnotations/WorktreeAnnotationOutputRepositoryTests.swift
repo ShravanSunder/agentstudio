@@ -240,6 +240,77 @@ struct WorktreeAnnotationOutputRepositoryTests {
         #expect(history.first?.messageCount == 1)
         #expect(history.first?.attemptID != cancelled.attempt.id)
     }
+
+    @Test("candidate pages are revision-fenced, bounded, and distinguish same-thread messages")
+    func candidatePagesAreBoundedAndRevisionFenced() throws {
+        let fixture = try makeOutputRepositoryFixture()
+        let threadID = try #require(fixture.detail.threads.first?.thread.id)
+        var detail = try fixture.repository.createReplyDraft(
+            .init(
+                sessionID: fixture.detail.session.id,
+                threadID: threadID,
+                expectedSessionRevision: fixture.detail.session.semanticRevision,
+                body: "## Second request\n\nUse a separate owner.",
+                editToken: "reply-candidate",
+                now: Date(timeIntervalSince1970: 4)
+            )
+        )
+        let reply = try #require(detail.threads.first?.messages.last)
+        detail = try fixture.repository.saveDraft(
+            .init(
+                sessionID: detail.session.id,
+                messageID: reply.id,
+                editToken: "reply-candidate",
+                expectedSessionRevision: detail.session.semanticRevision,
+                expectedDraftRevision: try #require(reply.draft?.draftRevision),
+                now: Date(timeIntervalSince1970: 5)
+            )
+        )
+
+        let first = try fixture.repository.fetchOutputCandidates(
+            sessionID: detail.session.id,
+            expectedSessionRevision: detail.session.semanticRevision,
+            cursor: nil,
+            limit: 1
+        )
+        let firstCursor = try #require(first.nextCursor)
+        let second = try fixture.repository.fetchOutputCandidates(
+            sessionID: detail.session.id,
+            expectedSessionRevision: detail.session.semanticRevision,
+            cursor: firstCursor,
+            limit: 1
+        )
+
+        #expect(first.eligibleMessageCount == 2)
+        #expect(first.candidates.count == 1)
+        #expect(second.candidates.count == 1)
+        #expect(first.candidates[0].threadID == second.candidates[0].threadID)
+        #expect(first.candidates[0].flatOrdinal == 0)
+        #expect(second.candidates[0].flatOrdinal == 1)
+        #expect(first.candidates[0].savedBodyPrefix != second.candidates[0].savedBodyPrefix)
+        #expect(second.nextCursor == nil)
+
+        _ = try fixture.repository.createReplyDraft(
+            .init(
+                sessionID: detail.session.id,
+                threadID: threadID,
+                expectedSessionRevision: detail.session.semanticRevision,
+                body: "Newly ineligible draft",
+                editToken: "reply-stale",
+                now: Date(timeIntervalSince1970: 6)
+            )
+        )
+        #expect(
+            throws: WorktreeAnnotationRepositoryError.conflict(currentRevision: detail.session.semanticRevision + 1)
+        ) {
+            try fixture.repository.fetchOutputCandidates(
+                sessionID: detail.session.id,
+                expectedSessionRevision: detail.session.semanticRevision,
+                cursor: nil,
+                limit: 1
+            )
+        }
+    }
 }
 
 private struct OutputRepositoryFixture {

@@ -16,6 +16,7 @@ export const annotationSessionId = '00000000-0000-7000-8000-000000000011';
 export const annotationSecondSessionId = '00000000-0000-7000-8000-000000000014';
 export const annotationHeadThreadId = '00000000-0000-7000-8000-000000000012';
 export const annotationBaseThreadId = '00000000-0000-7000-8000-000000000013';
+const annotationSubscriptionId = 'annotation-browser-subscription-1';
 
 export interface WorktreeAnnotationBrowserProviderHarness {
 	readonly surface: RecordingAnnotationBrowserSurface;
@@ -54,8 +55,24 @@ export class RecordingAnnotationBrowserSurface {
 	readonly #listeners = new Set<(message: BridgeWorkerServerToMainMessage) => void>();
 	readonly client: BridgePaneSurfaceClient;
 	readonly sentOperations: BridgeProductWorktreeAnnotationOperation[] = [];
+	readonly sentOutputCandidateQueries: Array<{
+		readonly cursor:
+			| { readonly kind: 'start' }
+			| { readonly flatOrdinal: number; readonly kind: 'after'; readonly messageId: string };
+		readonly expectedSessionRevision: number;
+		readonly limit: number;
+		readonly sessionId: string;
+	}> = [];
 	readonly sentOutputInspectionAttemptIds: string[] = [];
+	readonly sentProjectionResyncs: Array<{
+		readonly failureClass: string;
+		readonly revision: number;
+		readonly subscriptionId: string;
+		readonly workerRequestId: string;
+	}> = [];
 	#lastOutputInspectionRequestId: string | null = null;
+	#candidateQueryCount = 0;
+	readonly #candidateQueryFailureCalls: ReadonlySet<number>;
 	#nextRequest = 0;
 	#outputHistory: readonly WorktreeAnnotationOutputHistorySummary[] = [];
 	#revision = 0;
@@ -67,14 +84,18 @@ export class RecordingAnnotationBrowserSurface {
 		string,
 		{
 			readonly context: WorktreeAnnotationThreadContext;
-			readonly message: WorktreeAnnotationMessageEntry;
+			readonly messages: readonly WorktreeAnnotationMessageEntry[];
 		}
 	>();
 
 	constructor(
 		surface: 'fileView' | 'review',
-		props: { readonly failRootCreateWithConflict?: boolean } = {},
+		props: {
+			readonly candidateQueryFailureCalls?: readonly number[];
+			readonly failRootCreateWithConflict?: boolean;
+		} = {},
 	) {
+		this.#candidateQueryFailureCalls = new Set(props.candidateQueryFailureCalls ?? []);
 		const renderStore = createBridgeMainRenderSnapshotStore();
 		this.client = {
 			lifecycle: {
@@ -87,7 +108,9 @@ export class RecordingAnnotationBrowserSurface {
 			send: (command): string => {
 				if (
 					command.command !== 'annotationCommand' &&
-					command.command !== 'annotationOutputInspect'
+					command.command !== 'annotationOutputCandidatesQuery' &&
+					command.command !== 'annotationOutputInspect' &&
+					command.command !== 'annotationProjectionResync'
 				) {
 					throw new Error(`Unexpected browser annotation command ${command.command}.`);
 				}
@@ -98,7 +121,37 @@ export class RecordingAnnotationBrowserSurface {
 					this.#lastOutputInspectionRequestId = requestId;
 					return requestId;
 				}
+				if (command.command === 'annotationOutputCandidatesQuery') {
+					this.sentOutputCandidateQueries.push(command.query);
+					this.#candidateQueryCount += 1;
+					if (this.#candidateQueryFailureCalls.has(this.#candidateQueryCount)) {
+						queueMicrotask((): void => this.publishHealth(requestId, 'degraded'));
+					} else {
+						queueMicrotask((): void => this.#publishCandidatePage(requestId, command.query));
+					}
+					return requestId;
+				}
+				if (command.command === 'annotationProjectionResync') {
+					this.sentProjectionResyncs.push({
+						failureClass: command.failureClass,
+						revision: command.revision,
+						subscriptionId: command.subscriptionId,
+						workerRequestId: requestId,
+					});
+					return requestId;
+				}
 				this.sentOperations.push(command.operation);
+				const operation = command.operation;
+				if (
+					operation.kind === 'output.selection.begin' ||
+					operation.kind === 'output.selection.chunk' ||
+					operation.kind === 'output.selection.cancel'
+				) {
+					const sessionId = operation.sessionId;
+					queueMicrotask((): void =>
+						this.#publishCommandStatus(requestId, { kind: 'committed' }, sessionId),
+					);
+				}
 				if (props.failRootCreateWithConflict === true && command.operation.kind === 'root.create') {
 					queueMicrotask((): void => this.#publishConflict(requestId));
 				}
@@ -114,13 +167,16 @@ export class RecordingAnnotationBrowserSurface {
 		};
 	}
 
-	publishProjection(revision: number): void {
+	publishProjection(revision: number, expectedThreadCount: number): void {
 		this.publishProjectionState({
+			expectedThreadCount,
 			revision,
 			sessions: [
 				{
 					completedAt: null,
 					createdAt: 1,
+					eligibleMessageCount: 0,
+					eligibleWithoutInlinePlacementCount: 0,
 					lifecycle: 'living',
 					semanticRevision: revision,
 					sessionId: annotationSessionId,
@@ -133,36 +189,73 @@ export class RecordingAnnotationBrowserSurface {
 
 	publishProjectionState(props: {
 		readonly commandOutcomes?: readonly AnnotationCommandOutcome[];
+		readonly expectedThreadCount: number;
 		readonly outputHistory?: readonly WorktreeAnnotationOutputHistorySummary[];
 		readonly recoveryStatus?: 'available' | 'recovered_degraded' | 'unavailable';
 		readonly revision: number;
 		readonly sessions: readonly AnnotationSessionSummary[];
+		readonly subscriptionId?: string;
 	}): void {
 		this.#revision = props.revision;
 		this.#sessions = props.sessions;
 		this.#outputHistory = props.outputHistory ?? [];
-		this.#publishAnnotationEvent({
-			eventKind: 'projection.state',
-			payload: {
-				commandOutcomes: props.commandOutcomes ?? [],
-				outputHistory: this.#outputHistory,
-				recoveryStatus: props.recoveryStatus ?? 'available',
-				revision: props.revision,
-				sessions: this.#sessions,
-				worktreeId: 'worktree-1',
+		this.#publishAnnotationEvent(
+			{
+				eventKind: 'projection.state',
+				payload: {
+					commandOutcomes: props.commandOutcomes ?? [],
+					expectedThreadCount: props.expectedThreadCount,
+					outputHistory: this.#outputHistory,
+					recoveryStatus: props.recoveryStatus ?? 'available',
+					revision: props.revision,
+					sessions: this.#sessions,
+					worktreeId: 'worktree-1',
+				},
 			},
-		});
+			props.subscriptionId,
+		);
 	}
 
 	publishThread(props: {
 		readonly context: WorktreeAnnotationThreadContext;
 		readonly message: WorktreeAnnotationMessageEntry;
 	}): void {
-		this.#threadsById.set(props.context.threadId, props);
-		this.#publishThreadEvent(props);
+		const thread = { context: props.context, messages: [props.message] };
+		this.#threadsById.set(props.context.threadId, thread);
+		this.#publishThreadEvent(thread);
 	}
 
-	settleMostRecentCommitted(sessionId: string = annotationSessionId): void {
+	publishThreadMessages(props: {
+		readonly context: WorktreeAnnotationThreadContext;
+		readonly messages: readonly WorktreeAnnotationMessageEntry[];
+		readonly subscriptionId?: string;
+	}): void {
+		this.#threadsById.set(props.context.threadId, props);
+		this.#publishThreadEvent(props, props.subscriptionId);
+	}
+
+	publishAnnotationEvent(
+		event: BridgeProductWorktreeAnnotationEvent,
+		subscriptionId: string,
+	): void {
+		this.#publishAnnotationEvent(event, subscriptionId);
+	}
+
+	publishHealth(requestId: string, status: 'degraded' | 'ready'): void {
+		this.#publish({
+			direction: 'serverWorkerToMain',
+			kind: 'health',
+			requestId,
+			status,
+			transferDescriptors: [],
+			wireVersion: 1,
+		});
+	}
+
+	settleMostRecentCommitted(
+		sessionId: string = annotationSessionId,
+		expectedThreadCount: number = this.#threadsById.size,
+	): void {
 		if (this.#nextRequest === 0) throw new Error('No annotation command is pending.');
 		const workerRequestId = `worker-request-${this.#nextRequest}`;
 		const productRequestId = `product-${workerRequestId}`;
@@ -185,6 +278,7 @@ export class RecordingAnnotationBrowserSurface {
 					surface: this.client.surface === 'fileView' ? 'file' : 'review',
 				},
 			],
+			expectedThreadCount,
 			outputHistory: this.#outputHistory,
 			revision: this.#revision,
 			sessions: this.#sessions,
@@ -221,6 +315,7 @@ export class RecordingAnnotationBrowserSurface {
 					surface: this.client.surface === 'fileView' ? 'file' : 'review',
 				},
 			],
+			expectedThreadCount: this.#threadsById.size,
 			outputHistory: this.#outputHistory,
 			revision: this.#revision,
 			sessions: this.#sessions,
@@ -250,6 +345,7 @@ export class RecordingAnnotationBrowserSurface {
 					surface: this.client.surface === 'fileView' ? 'file' : 'review',
 				},
 			],
+			expectedThreadCount: this.#threadsById.size,
 			outputHistory: this.#outputHistory,
 			revision: this.#revision,
 			sessions: this.#sessions,
@@ -313,19 +409,25 @@ export class RecordingAnnotationBrowserSurface {
 		this.#lastOutputInspectionRequestId = null;
 	}
 
-	#publishThreadEvent(props: {
-		readonly context: WorktreeAnnotationThreadContext;
-		readonly message: WorktreeAnnotationMessageEntry;
-	}): void {
-		this.#publishAnnotationEvent({
-			eventKind: 'message.batch',
-			payload: {
-				context: props.context,
-				isLastBatchForThread: true,
-				messages: [props.message],
-				revision: this.#revision,
+	#publishThreadEvent(
+		props: {
+			readonly context: WorktreeAnnotationThreadContext;
+			readonly messages: readonly WorktreeAnnotationMessageEntry[];
+		},
+		subscriptionId?: string,
+	): void {
+		this.#publishAnnotationEvent(
+			{
+				eventKind: 'message.batch',
+				payload: {
+					context: props.context,
+					isLastBatchForThread: true,
+					messages: props.messages,
+					revision: this.#revision,
+				},
 			},
-		});
+			subscriptionId,
+		);
 	}
 
 	#publishConflict(workerRequestId: string): void {
@@ -350,6 +452,7 @@ export class RecordingAnnotationBrowserSurface {
 			eventKind: 'projection.state',
 			payload: {
 				commandOutcomes: [outcome],
+				expectedThreadCount: this.#threadsById.size,
 				outputHistory: [],
 				recoveryStatus: 'available',
 				revision: this.#revision,
@@ -359,11 +462,125 @@ export class RecordingAnnotationBrowserSurface {
 		});
 	}
 
-	#publishAnnotationEvent(event: BridgeProductWorktreeAnnotationEvent): void {
+	#publishCandidatePage(
+		workerRequestId: string,
+		operation: RecordingAnnotationBrowserSurface['sentOutputCandidateQueries'][number],
+	): void {
+		const allCandidates = [...this.#threadsById.values()]
+			.flatMap((thread) =>
+				thread.messages
+					.filter(
+						(message): boolean =>
+							message.sessionId === operation.sessionId &&
+							message.savedBody !== null &&
+							message.savedRevision !== null &&
+							message.draft === null &&
+							message.status === 'editable',
+					)
+					.map((message) => ({ context: thread.context, message })),
+			)
+			.toSorted((left, right) => {
+				if (left.context.path !== right.context.path) {
+					return left.context.path.localeCompare(right.context.path);
+				}
+				if (left.context.startLine !== right.context.startLine) {
+					return left.context.startLine - right.context.startLine;
+				}
+				return left.message.messageId.localeCompare(right.message.messageId);
+			});
+		const startIndex = operation.cursor.kind === 'start' ? 0 : operation.cursor.flatOrdinal + 1;
+		const pageEntries = allCandidates.slice(startIndex, startIndex + operation.limit);
+		const candidates = pageEntries.map(({ context, message }, index) => ({
+			authoredAt: message.createdAt,
+			endLine: context.endLine,
+			excerpt:
+				message.savedBody
+					?.replaceAll(/[#*_`>|[\]()~-]/g, '')
+					.trim()
+					.slice(0, 240) ?? '',
+			flatOrdinal: startIndex + index,
+			location:
+				context.placement === 'exact' || context.placement === 'relocated'
+					? ('current' as const)
+					: ('original' as const),
+			messageId: message.messageId,
+			path: context.path,
+			placement: context.placement,
+			startLine: context.startLine,
+			state: 'eligible' as const,
+			threadId: context.threadId,
+		}));
+		const lastCandidate = candidates.at(-1);
+		this.#publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationOutputCandidatesPage',
+			page: {
+				candidates,
+				eligibleMessageCount: allCandidates.length,
+				eligibleWithoutInlinePlacementCount: allCandidates.filter(
+					({ context }): boolean =>
+						context.placement !== 'exact' && context.placement !== 'relocated',
+				).length,
+				nextCursor:
+					startIndex + candidates.length < allCandidates.length && lastCandidate !== undefined
+						? {
+								flatOrdinal: lastCandidate.flatOrdinal,
+								kind: 'after',
+								messageId: lastCandidate.messageId,
+							}
+						: null,
+				sessionId: operation.sessionId,
+				sessionRevision: operation.expectedSessionRevision,
+			},
+			requestId: workerRequestId,
+			surface: this.client.surface,
+			transferDescriptors: [],
+			wireVersion: 1,
+		});
+	}
+
+	#publishCommandStatus(
+		workerRequestId: string,
+		status: AnnotationCommandOutcome['status'],
+		sessionId: string | null,
+	): void {
+		const productRequestId = `product-${workerRequestId}`;
+		this.#publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationCommandAccepted',
+			productRequestId,
+			requestId: workerRequestId,
+			surface: this.client.surface,
+			transferDescriptors: [],
+			wireVersion: 1,
+		});
+		this.#revision += 1;
+		this.publishProjectionState({
+			commandOutcomes: [
+				{
+					requestId: productRequestId,
+					sessionId,
+					status,
+					surface: this.client.surface === 'fileView' ? 'file' : 'review',
+				},
+			],
+			expectedThreadCount: this.#threadsById.size,
+			outputHistory: this.#outputHistory,
+			revision: this.#revision,
+			sessions: this.#sessions,
+		});
+		for (const thread of this.#threadsById.values()) this.#publishThreadEvent(thread);
+	}
+
+	#publishAnnotationEvent(
+		event: BridgeProductWorktreeAnnotationEvent,
+		subscriptionId: string = annotationSubscriptionId,
+	): void {
 		this.#publish({
 			direction: 'serverWorkerToMain',
 			event,
 			kind: 'annotationProjection',
+			subscriptionId,
 			surface: this.client.surface,
 			transferDescriptors: [],
 			wireVersion: 1,
@@ -376,6 +593,8 @@ export class RecordingAnnotationBrowserSurface {
 }
 
 export function annotationSessionSummary(props: {
+	readonly eligibleMessageCount?: number;
+	readonly eligibleWithoutInlinePlacementCount?: number;
 	readonly lifecycle?: 'completed' | 'living';
 	readonly revision: number;
 	readonly sessionId: string;
@@ -384,6 +603,8 @@ export function annotationSessionSummary(props: {
 	return {
 		completedAt: props.lifecycle === 'completed' ? props.revision : null,
 		createdAt: props.revision,
+		eligibleMessageCount: props.eligibleMessageCount ?? 0,
+		eligibleWithoutInlinePlacementCount: props.eligibleWithoutInlinePlacementCount ?? 0,
 		lifecycle: props.lifecycle ?? 'living',
 		semanticRevision: props.revision,
 		sessionId: props.sessionId,

@@ -91,6 +91,7 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 				messages: [message],
 			},
 		],
+		transportStatus: { kind: 'available' },
 		worktreeId: 'worktree-1',
 	});
 	const client: WorktreeAnnotationSurfaceClient = {
@@ -133,6 +134,9 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 		getSnapshot: snapshot,
 		inspectOutput: async () => {
 			throw new Error('Unexpected output inspection.');
+		},
+		queryOutputCandidates: async () => {
+			throw new Error('Unexpected output candidate query.');
 		},
 		subscribe: () => (): void => {},
 		waitForSnapshot: async (select) => {

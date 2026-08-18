@@ -32,6 +32,7 @@ import { WorktreeAnnotationNewMessageComposer } from './worktree-annotation-thre
 
 const headMessageId = '00000000-0000-7000-8000-000000000021';
 const baseMessageId = '00000000-0000-7000-8000-000000000022';
+const headReplyMessageId = '00000000-0000-7000-8000-000000000023';
 
 describe('worktree annotation Pierre integration', () => {
 	test('publishes completed Review batches through updateItem without remounting or losing collapse', async () => {
@@ -92,6 +93,7 @@ describe('worktree annotation Pierre integration', () => {
 
 			await act(async (): Promise<void> => {
 				surface.publishProjectionState({
+					expectedThreadCount: 2,
 					recoveryStatus: 'recovered_degraded',
 					revision: 1,
 					sessions: [annotationSessionSummary({ revision: 1, sessionId: annotationSessionId })],
@@ -119,21 +121,8 @@ describe('worktree annotation Pierre integration', () => {
 				});
 				await Promise.resolve();
 			});
-			await settleBrowserCondition(
-				(): boolean => updatedItems.length > updatesBeforeMessages,
-				'Expected a completed same-revision message batch to update Pierre.',
-			);
-			expect(codeView.getItem('item-source')?.annotations).toEqual([
-				{
-					lineNumber: 2,
-					metadata: {
-						kind: 'thread',
-						range: { end: 2, endSide: 'additions', side: 'additions', start: 2 },
-						threadId: annotationHeadThreadId,
-					},
-					side: 'additions',
-				},
-			]);
+			expect(updatedItems).toHaveLength(updatesBeforeMessages);
+			expect(codeView.getItem('item-source')?.annotations ?? []).toEqual([]);
 
 			await act(async (): Promise<void> => {
 				surface.publishThread({
@@ -153,7 +142,7 @@ describe('worktree annotation Pierre integration', () => {
 			await settleBrowserCondition(
 				(): boolean =>
 					document.querySelectorAll('[data-testid="worktree-annotation-thread"]').length === 2,
-				'Expected both Review threads to render in Pierre annotation slots.',
+				'Expected both Review threads to publish atomically into Pierre annotation slots.',
 			);
 			expect(codeView.getItem('item-source')?.annotations).toEqual([
 				{
@@ -185,7 +174,7 @@ describe('worktree annotation Pierre integration', () => {
 					version: (beforeCollapse.version ?? 0) + 1,
 				});
 				await Promise.resolve();
-				surface.publishProjection(2);
+				surface.publishProjection(2, 1);
 				await Promise.resolve();
 				surface.publishThread({
 					context: annotationContext({
@@ -210,7 +199,7 @@ describe('worktree annotation Pierre integration', () => {
 			expect(mountedCodeViews).toHaveLength(1);
 
 			await act(async (): Promise<void> => {
-				surface.publishProjection(3);
+				surface.publishProjection(3, 0);
 				await Promise.resolve();
 			});
 			await settleBrowserCondition(
@@ -382,7 +371,7 @@ describe('worktree annotation Pierre integration', () => {
 				throw new Error('Expected the File root.create operation.');
 			}
 			await act(async (): Promise<void> => {
-				surface.publishProjection(1);
+				surface.publishProjection(1, 1);
 				surface.publishThread({
 					context: {
 						diffSide: null,
@@ -431,6 +420,173 @@ describe('worktree annotation Pierre integration', () => {
 		} finally {
 			CodeView.prototype.setOptions = originalSetOptions;
 		}
+	});
+
+	test('keeps the exact File reply editor mounted across separate projection state and batches', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rootMessage = annotationMessage({
+			messageId: headMessageId,
+			threadId: annotationHeadThreadId,
+		});
+		const context: WorktreeAnnotationThreadContext = {
+			diffSide: null,
+			endLine: 4,
+			path: 'Sources/App/View.swift',
+			placement: 'exact',
+			resolution: 'open',
+			scope: 'located',
+			sourceIdentity: 'descriptor-file-1',
+			sourceRole: 'file',
+			startLine: 4,
+			threadId: annotationHeadThreadId,
+		};
+		const rendered = await render(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<BridgeFileViewerCodePanel
+					codeViewWorkerPoolEnabled={false}
+					openFileState={{
+						displayItem: null,
+						fileId: 'file-1',
+						path: 'Sources/App/View.swift',
+						status: 'ready',
+					}}
+					renderFulfillmentCoordinator={{
+						observePostRender: (): void => {},
+						reconcilePublication: (): void => {},
+					}}
+					selectedCodeViewItem={makeFileItem()}
+					totalHeightPixels={null}
+				/>
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				expectedThreadCount: 1,
+				revision: 1,
+				sessions: [annotationSessionSummary({ revision: 1, sessionId: annotationSessionId })],
+			});
+			surface.publishThread({ context, message: rootMessage });
+			await Promise.resolve();
+		});
+		await settleBrowserCondition(
+			(): boolean =>
+				document.querySelectorAll('[data-testid="worktree-annotation-thread"]').length === 1,
+			'Expected one saved thread in the actual Pierre annotation slot.',
+		);
+		const compactThread = document.querySelector<HTMLElement>(
+			'[data-testid="worktree-annotation-thread"]',
+		);
+		const codeViewScrollOwner = document.querySelector<HTMLElement>(
+			'.bridge-code-view-scroll-owner',
+		);
+		if (compactThread === null || codeViewScrollOwner === null) {
+			throw new Error('Expected the slotted compact thread and CodeView scroll owner.');
+		}
+		await settleBrowserCondition(
+			(): boolean => compactThread.getBoundingClientRect().height > 0,
+			'Expected Pierre to finish measuring the compact annotation row.',
+		);
+		const rowBoundsBeforeOverlay = compactThread.getBoundingClientRect();
+		const scrollTopBeforeOverlay = codeViewScrollOwner.scrollTop;
+
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
+		});
+		const threadOverlay = rendered.getByTestId('worktree-annotation-thread-overlay').element();
+		expect(compactThread.contains(threadOverlay)).toBe(false);
+		expect(compactThread.isConnected).toBe(true);
+		const rowBoundsAfterOverlay = compactThread.getBoundingClientRect();
+		expect(rowBoundsAfterOverlay.height).toBeCloseTo(rowBoundsBeforeOverlay.height, 1);
+		expect(rowBoundsAfterOverlay.top).toBeCloseTo(rowBoundsBeforeOverlay.top, 1);
+		expect(codeViewScrollOwner.scrollTop).toBe(scrollTopBeforeOverlay);
+		const replyComposer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
+		const originalTextarea = replyComposer.element();
+		if (!(originalTextarea instanceof HTMLTextAreaElement)) {
+			throw new Error('Expected the Reply composer to use the owned Textarea.');
+		}
+		await act(async (): Promise<void> => {
+			await replyComposer.fill('h');
+			await Promise.resolve();
+		});
+		await settleBrowserCondition(
+			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'reply.create'),
+			'Expected the first Reply character to issue reply.create.',
+		);
+		const replyCreate = surface.sentOperations.find(
+			(operation) => operation.kind === 'reply.create',
+		);
+		if (replyCreate?.kind !== 'reply.create') throw new Error('Expected reply.create.');
+		const durableReply = {
+			...annotationMessage({
+				messageId: baseMessageId,
+				ordinal: 1,
+				sessionRevision: 2,
+				threadId: annotationHeadThreadId,
+			}),
+			draft: {
+				activeEditToken: replyCreate.editToken,
+				body: 'h',
+				revision: 1,
+			},
+			savedBody: null,
+			savedRevision: null,
+		} as const;
+
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommitted();
+			surface.publishAnnotationEvent(
+				{
+					eventKind: 'message.batch',
+					payload: {
+						context,
+						isLastBatchForThread: true,
+						messages: [{ ...durableReply, threadId: annotationBaseThreadId }],
+						revision: 2,
+					},
+				},
+				'annotation-browser-subscription-1',
+			);
+			await Promise.resolve();
+		});
+		expect(surface.sentProjectionResyncs).toHaveLength(1);
+		expect(originalTextarea.isConnected).toBe(true);
+		expect(document.activeElement).toBe(originalTextarea);
+		expect(originalTextarea.value).toBe('h');
+		expect(compactThread.getBoundingClientRect().height).toBeCloseTo(
+			rowBoundsBeforeOverlay.height,
+			1,
+		);
+		expect(codeViewScrollOwner.scrollTop).toBe(scrollTopBeforeOverlay);
+		const resyncRequest = surface.sentProjectionResyncs[0];
+		if (resyncRequest === undefined) throw new Error('Expected projection resync request.');
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				expectedThreadCount: 1,
+				revision: 2,
+				sessions: [annotationSessionSummary({ revision: 2, sessionId: annotationSessionId })],
+				subscriptionId: 'annotation-browser-subscription-2',
+			});
+			surface.publishHealth(resyncRequest.workerRequestId, 'ready');
+			surface.publishThreadMessages({
+				context,
+				messages: [{ ...rootMessage, sessionRevision: 2 }, durableReply],
+				subscriptionId: 'annotation-browser-subscription-2',
+			});
+			await Promise.resolve();
+		});
+
+		expect(originalTextarea.isConnected).toBe(true);
+		expect(document.activeElement).toBe(originalTextarea);
+		expect(originalTextarea.value).toBe('h');
+		expect(document.querySelectorAll('[data-testid="worktree-annotation-thread"]')).toHaveLength(1);
+		expect(document.querySelectorAll('[aria-label="Reply with Markdown"]')).toHaveLength(1);
+		expect(
+			surface.sentOperations.filter((operation) => operation.kind === 'reply.create'),
+		).toHaveLength(1);
+		expect(
+			surface.sentOperations.filter((operation) => operation.kind === 'draft.edit.release'),
+		).toHaveLength(0);
 	});
 
 	test('never rebinds a pending File composer across file or descriptor navigation', async () => {
@@ -538,29 +694,44 @@ describe('worktree annotation Pierre integration', () => {
 		);
 		await act(async (): Promise<void> => {
 			surface.publishProjectionState({
+				expectedThreadCount: 2,
 				revision: 4,
 				sessions: [annotationSessionSummary({ revision: 4, sessionId: annotationSessionId })],
 			});
 			for (const [index, threadId] of [annotationHeadThreadId, annotationBaseThreadId].entries()) {
-				surface.publishThread({
-					context: {
-						diffSide: null,
-						endLine: 4,
-						path: 'Sources/App/View.swift',
-						placement: 'exact',
-						resolution: 'open',
-						scope: 'located',
-						sourceIdentity: 'descriptor-file-1',
-						sourceRole: 'file',
-						startLine: index === 0 ? 3 : 4,
-						threadId,
-					},
-					message: annotationMessage({
-						messageId: index === 0 ? headMessageId : baseMessageId,
-						sessionRevision: 4,
-						threadId,
-					}),
+				const context = {
+					diffSide: null,
+					endLine: 4,
+					path: 'Sources/App/View.swift',
+					placement: 'exact',
+					resolution: 'open',
+					scope: 'located',
+					sourceIdentity: 'descriptor-file-1',
+					sourceRole: 'file',
+					startLine: index === 0 ? 3 : 4,
+					threadId,
+				} satisfies WorktreeAnnotationThreadContext;
+				const rootMessage = annotationMessage({
+					messageId: index === 0 ? headMessageId : baseMessageId,
+					sessionRevision: 4,
+					threadId,
 				});
+				if (index === 0) {
+					surface.publishThreadMessages({
+						context,
+						messages: [
+							rootMessage,
+							annotationMessage({
+								messageId: headReplyMessageId,
+								ordinal: 1,
+								sessionRevision: 4,
+								threadId,
+							}),
+						],
+					});
+				} else {
+					surface.publishThread({ context, message: rootMessage });
+				}
 			}
 			await Promise.resolve();
 		});
@@ -576,6 +747,24 @@ describe('worktree annotation Pierre integration', () => {
 		for (const threadFrame of threadFrames) {
 			expect(threadFrame.getBoundingClientRect().width).toBeLessThanOrEqual(600);
 		}
+		const firstThreadFrame = threadFrames.find(
+			(frame): boolean => frame.dataset['annotationThreadId'] === annotationHeadThreadId,
+		);
+		if (firstThreadFrame === undefined) throw new Error('Expected the multi-message File thread.');
+		expect(firstThreadFrame.textContent).toContain('2 messages');
+		expect(firstThreadFrame.textContent).toContain('Comment 3');
+		expect(firstThreadFrame.textContent).not.toContain('Comment 1');
+		await act(async (): Promise<void> => {
+			firstThreadFrame
+				.querySelector<HTMLButtonElement>('[aria-label="Expand 2 messages"]')
+				?.click();
+			await Promise.resolve();
+		});
+		const chronology = document.querySelector<HTMLElement>(
+			'[data-testid="worktree-annotation-thread-chronology"]',
+		);
+		expect(chronology?.textContent).toContain('Comment 1');
+		expect(chronology?.textContent).toContain('Comment 3');
 		const firstBounds = threadFrames[0]?.getBoundingClientRect();
 		const secondBounds = threadFrames[1]?.getBoundingClientRect();
 		if (firstBounds === undefined || secondBounds === undefined) {

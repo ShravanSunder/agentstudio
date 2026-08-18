@@ -5,6 +5,12 @@ import Testing
 
 @Suite("Worktree annotation output coordinator")
 struct WorktreeAnnotationOutputCoordinatorTests {
+    @Test("live effect outcomes are exhaustively known")
+    func liveEffectOutcomesAreExhaustivelyKnown() {
+        #expect(classifyLiveEffectOutcome(.succeeded) == "succeeded")
+        #expect(classifyLiveEffectOutcome(.failed("unavailable")) == "failed")
+    }
+
     @Test("generation failure occurs before prepare or effect")
     func generationFailureHasNoDurableOrExternalEffect() async throws {
         let fixture = makeCoordinatorFixture(effectOutcome: .succeeded)
@@ -127,20 +133,22 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         #expect(await fixture.recorder.events == ["prepare", "effect", "finalize", "mark-finalization-failed"])
     }
 
-    @Test("unknown effect remains prepared until recovery marks it unknown without replay")
-    func unknownOutcomeRecoversWithoutAutomaticReplay() async throws {
-        let fixture = makeCoordinatorFixture(effectOutcome: .unknown)
+    @Test("startup recovery marks a retained prepared attempt unknown without replay")
+    func preparedAttemptRecoversUnknownWithoutAutomaticReplay() async throws {
+        let fixture = makeCoordinatorFixture(effectOutcome: .failed("clipboard unavailable"))
+        await fixture.store.setCancelFailureEnabled(true)
 
         let result = try await fixture.coordinator.executeNew(fixture.request())
-        guard case .unknown(let output) = result else {
-            Issue.record("Expected unknown output")
+        guard case .effectAndCleanupFailed(let output, _, _) = result else {
+            Issue.record("Expected retained prepared output")
             return
         }
         #expect(await fixture.store.state(attemptID: output.attempt.id) == .prepared)
 
+        await fixture.store.setCancelFailureEnabled(false)
         #expect(try await fixture.coordinator.recoverPreparedAttemptsAsUnknown() == 1)
         #expect(await fixture.store.state(attemptID: output.attempt.id) == .unknown)
-        #expect(await fixture.recorder.events == ["prepare", "effect", "recover-unknown"])
+        #expect(await fixture.recorder.events == ["prepare", "effect", "cancel", "recover-unknown"])
     }
 
     @Test("explicit repetition sends only persisted exact bytes and membership")
@@ -189,6 +197,17 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         #expect(output.attempt.destinationPath == "/tmp/repeated-export.json")
         #expect(await fixture.effect.lastRequest?.destinationPath == "/tmp/repeated-export.json")
         #expect(await fixture.effect.lastRequest?.exactBytes == persistedBytes)
+    }
+}
+
+private func classifyLiveEffectOutcome(
+    _ outcome: WorktreeAnnotationOutputEffectOutcome
+) -> String {
+    switch outcome {
+    case .succeeded:
+        "succeeded"
+    case .failed:
+        "failed"
     }
 }
 

@@ -314,26 +314,40 @@ struct WorktreeAnnotationTransportAdapterTests {
         let outputCorrelation = try makeAnnotationCorrelation(requestID: "annotation-output-prepare")
 
         // Act
-        await harness.adapter.apply(
-            try decodeAnnotationCommand(
+        let transferID = "annotation-output-transfer-1"
+        for (requestID, operation) in [
+            (
+                "annotation-output-begin",
                 """
-                {
-                  "operation": {
-                    "kind": "output.prepare",
-                    "outputKind": "clipboardMarkdown",
-                    "selection": {
-                      "kind": "explicit",
-                      "messageIds": ["\(savedMessage.id.rawValue.uuidString.lowercased())"]
-                    },
-                    "sessionId": "\(sessionID.rawValue.uuidString.lowercased())"
-                  }
-                }
+                { "kind": "output.selection.begin", "outputKind": "clipboardMarkdown",
+                  "selectionMode": "explicit", "sessionId": "\(sessionID.rawValue.uuidString.lowercased())",
+                  "transferId": "\(transferID)" }
                 """
             ),
-            surface: .file,
-            correlation: outputCorrelation,
-            productAdmission: harness.productAdmission
-        )
+            (
+                "annotation-output-chunk",
+                """
+                { "kind": "output.selection.chunk",
+                  "messageIds": ["\(savedMessage.id.rawValue.uuidString.lowercased())"], "ordinal": 0,
+                  "selectionMode": "explicit", "sessionId": "\(sessionID.rawValue.uuidString.lowercased())",
+                  "transferId": "\(transferID)" }
+                """
+            ),
+            (
+                outputCorrelation.requestId,
+                """
+                { "kind": "output.selection.commit", "selectionMode": "explicit",
+                  "sessionId": "\(sessionID.rawValue.uuidString.lowercased())", "transferId": "\(transferID)" }
+                """
+            ),
+        ] {
+            await harness.adapter.apply(
+                try decodeAnnotationCommand("{ \"operation\": \(operation) }"),
+                surface: .file,
+                correlation: try makeAnnotationCorrelation(requestID: requestID),
+                productAdmission: harness.productAdmission
+            )
+        }
 
         // Assert
         let outcome = try #require(
@@ -350,6 +364,110 @@ struct WorktreeAnnotationTransportAdapterTests {
         let effectText = try #require(String(bytes: effectRequest.exactBytes, encoding: .utf8))
         #expect(effectText.contains("## Preserve this behavior"))
         #expect(effectRequest.attemptID == summary.attemptID.rawValue)
+    }
+
+    @Test("130 eligible messages preserve the middle 65 through explicit and complementary all-eligible transfers")
+    func arbitraryOutputSelectionPreservesCanonicalMembership() async throws {
+        let outputEffect = TransportTestOutputEffect(outcome: .failed("proof effect"))
+        let harness = try await makeTransportAdapterHarness(outputEffect: outputEffect)
+        defer { try? FileManager.default.removeItem(at: harness.root) }
+        let savedRoot = try await createSavedTransportMessage(harness: harness)
+        var detail = savedRoot.detail
+        let threadID = try #require(detail.threads.first?.thread.id)
+        for ordinal in 1..<130 {
+            let editToken = "selection-reply-\(ordinal)"
+            detail = try await harness.store.createReplyDraft(
+                .init(
+                    sessionID: detail.session.id,
+                    threadID: threadID,
+                    expectedSessionRevision: detail.session.semanticRevision,
+                    body: "Request \(ordinal)",
+                    editToken: editToken,
+                    now: Date(timeIntervalSince1970: Double(200 + ordinal))
+                )
+            )
+            let draft = try #require(detail.threads.first?.messages.last)
+            detail = try await harness.store.saveDraft(
+                .init(
+                    sessionID: detail.session.id,
+                    messageID: draft.id,
+                    editToken: editToken,
+                    expectedSessionRevision: detail.session.semanticRevision,
+                    expectedDraftRevision: try #require(draft.draft?.draftRevision),
+                    now: Date(timeIntervalSince1970: Double(400 + ordinal))
+                )
+            )
+        }
+        let orderedMessageIDs = try #require(detail.threads.first).messages.map(\.id)
+        #expect(orderedMessageIDs.count == 130)
+        let middle = Array(orderedMessageIDs[32..<97])
+        let complement = orderedMessageIDs.filter { !Set(middle).contains($0) }
+
+        try await executeOutputTransfer(
+            harness: harness,
+            messageIDs: middle,
+            mode: .explicit,
+            sessionID: detail.session.id,
+            transferID: "middle-explicit"
+        )
+        try await executeOutputTransfer(
+            harness: harness,
+            messageIDs: complement,
+            mode: .allEligible,
+            sessionID: detail.session.id,
+            transferID: "complement-excluded"
+        )
+
+        let requests = await outputEffect.requests
+        #expect(requests.count == 2)
+        for request in requests {
+            let snapshot = try WorktreeAnnotationBatchProjector.decodeJSON(request.exactBytes)
+            #expect(snapshot.entries.map(\.messageID) == middle)
+            #expect(snapshot.entries.map(\.batchOrdinal) == Array(0..<65))
+        }
+    }
+}
+
+@MainActor
+private func executeOutputTransfer(
+    harness: WorktreeAnnotationTransportAdapterHarness,
+    messageIDs: [WorktreeAnnotationMessageID],
+    mode: BridgeProductWorktreeAnnotationOperation.OutputSelectionMode,
+    sessionID: WorktreeAnnotationSessionID,
+    transferID: String
+) async throws {
+    let sessionIDString = sessionID.rawValue.uuidString.lowercased()
+    let outputKind = "jsonFile"
+    let operations: [String] =
+        [
+            """
+            { "kind": "output.selection.begin", "outputKind": "\(outputKind)",
+              "selectionMode": "\(mode.rawValue)", "sessionId": "\(sessionIDString)",
+              "transferId": "\(transferID)" }
+            """
+        ]
+        + stride(from: 0, to: messageIDs.count, by: 64).enumerated().map { ordinal, offset in
+            let ids = messageIDs[offset..<min(offset + 64, messageIDs.count)]
+                .map { "\"\($0.rawValue.uuidString.lowercased())\"" }
+                .joined(separator: ",")
+            return """
+                { "kind": "output.selection.chunk", "messageIds": [\(ids)], "ordinal": \(ordinal),
+                  "selectionMode": "\(mode.rawValue)", "sessionId": "\(sessionIDString)",
+                  "transferId": "\(transferID)" }
+                """
+        } + [
+            """
+            { "kind": "output.selection.commit", "selectionMode": "\(mode.rawValue)",
+              "sessionId": "\(sessionIDString)", "transferId": "\(transferID)" }
+            """
+        ]
+    for (index, operation) in operations.enumerated() {
+        await harness.adapter.apply(
+            try decodeAnnotationCommand("{ \"operation\": \(operation) }"),
+            surface: .file,
+            correlation: try makeAnnotationCorrelation(requestID: "\(transferID)-\(index)"),
+            productAdmission: harness.productAdmission
+        )
     }
 }
 
@@ -564,7 +682,8 @@ private func makeTransportAdapterHarness(
 
 private actor TransportTestOutputEffect: WorktreeAnnotationOutputEffect {
     private let outcome: WorktreeAnnotationOutputEffectOutcome
-    private(set) var lastRequest: WorktreeAnnotationOutputEffectRequest?
+    private(set) var requests: [WorktreeAnnotationOutputEffectRequest] = []
+    var lastRequest: WorktreeAnnotationOutputEffectRequest? { requests.last }
 
     init(outcome: WorktreeAnnotationOutputEffectOutcome) {
         self.outcome = outcome
@@ -580,7 +699,7 @@ private actor TransportTestOutputEffect: WorktreeAnnotationOutputEffect {
     func perform(
         _ request: WorktreeAnnotationOutputEffectRequest
     ) -> WorktreeAnnotationOutputEffectOutcome {
-        lastRequest = request
+        requests.append(request)
         return outcome
     }
 }

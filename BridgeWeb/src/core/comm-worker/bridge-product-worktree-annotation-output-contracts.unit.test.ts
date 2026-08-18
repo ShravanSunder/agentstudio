@@ -108,6 +108,7 @@ function annotationProjectionEvent(outcome: unknown): Readonly<Record<string, un
 					surface: 'file',
 				},
 			],
+			expectedThreadCount: 0,
 			outputHistory: [],
 			recoveryStatus: 'available',
 			revision: 1,

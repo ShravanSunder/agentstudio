@@ -15,6 +15,7 @@ extension BridgeProductSession {
                 else {
                     return .rejected(.unknownLease)
                 }
+                settlePendingMetadataAdmissions(forSubscriptionId: subscriptionId)
                 let result = try producerRegistry.enqueueNonterminalFrame(
                     for: target.lease,
                     build: { streamSequence in
@@ -50,59 +51,23 @@ extension BridgeProductSession {
         data: BridgeProductSubscriptionData,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-    ) throws -> BridgeProductProducerEnqueueResult {
-        try foregroundWorkAdmission.withValidAdmission {
-            try productAdmission.withValidAdmission {
-                let target = try activeMetadataFrameTarget()
-                guard producerAdmissionMatches(productAdmission, for: target.lease),
-                    var delivery = protocolSubscriptionDeliveryById[subscriptionId],
-                    delivery.correlation.subscriptionKind == data.subscriptionKind
-                else {
-                    return .rejected(.unknownLease)
-                }
-                let correlation = delivery.correlation
-                let dataCorrelation = try correlation.replacingSourceGeneration(
-                    with: data.sourceGeneration
-                )
-                let subscriptionSequence = delivery.nextSequence
-                let result = try producerRegistry.enqueueNonterminalFrame(
-                    for: target.lease,
-                    build: { streamSequence in
-                        .metadata(
-                            try .subscriptionData(
-                                stream: target.stream,
-                                streamSequence: streamSequence,
-                                subscription: dataCorrelation,
-                                subscriptionSequence: subscriptionSequence,
-                                data: data
-                            )
-                        )
-                    },
-                    overflowReset: metadataStreamOverflowReset(for: target)
-                )
-                switch result {
-                case .enqueued:
-                    delivery.correlation = dataCorrelation
-                    delivery.nextSequence += 1
-                    protocolSubscriptionDeliveryById[subscriptionId] = delivery
-                    resumeProducerFrameWaiterIfPossible(for: target.lease)
-                case .queueReset:
-                    terminateAllProtocolSubscriptionsWithDeliveries()
-                    resumeProducerFrameWaiterIfPossible(for: target.lease)
-                case .rejected:
-                    break
-                }
-                return result
-            } ?? .rejected(.lifecycleClosed)
-        } ?? .rejected(.lifecycleClosed)
+    ) async throws -> BridgeProductProducerEnqueueResult {
+        try await enqueueOrdinarySubscriptionData(
+            subscriptionId: subscriptionId,
+            data: data,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
+        )
     }
 
     private func terminateProtocolSubscription(subscriptionId: String) {
+        settlePendingMetadataAdmissions(forSubscriptionId: subscriptionId)
         protocolSubscriptionDeliveryById.removeValue(forKey: subscriptionId)
         subscriptionState.terminate(subscriptionId: subscriptionId)
     }
 
     private func terminateAllProtocolSubscriptionsWithDeliveries() {
+        settleEveryPendingMetadataAdmission()
         let subscriptionIds = protocolSubscriptionDeliveryById.keys
         for subscriptionId in subscriptionIds {
             subscriptionState.terminate(subscriptionId: subscriptionId)
@@ -129,13 +94,26 @@ extension BridgeProductSession {
         _ result: BridgeProductSubscriptionResyncResult
     ) {
         for subscriptionId in result.revokedNativeOnlySubscriptionIds {
+            settlePendingMetadataAdmissions(forSubscriptionId: subscriptionId)
             protocolSubscriptionDeliveryById.removeValue(forKey: subscriptionId)
         }
         for outcome in result.reconciliation {
             switch outcome {
             case .cancelled, .reopenRequired:
+                settlePendingMetadataAdmissions(forSubscriptionId: outcome.subscriptionId)
                 protocolSubscriptionDeliveryById.removeValue(forKey: outcome.subscriptionId)
-            case .retained, .reset:
+            case .reset:
+                settlePendingMetadataAdmissions(forSubscriptionId: outcome.subscriptionId)
+                guard
+                    let snapshot = subscriptionState.snapshot(
+                        subscriptionId: outcome.subscriptionId
+                    ),
+                    let correlation = try? Self.subscriptionFrameCorrelation(for: snapshot),
+                    var delivery = protocolSubscriptionDeliveryById[outcome.subscriptionId]
+                else { continue }
+                delivery.correlation = correlation
+                protocolSubscriptionDeliveryById[outcome.subscriptionId] = delivery
+            case .retained:
                 guard
                     let snapshot = subscriptionState.snapshot(
                         subscriptionId: outcome.subscriptionId
@@ -221,10 +199,11 @@ extension BridgeProductSession {
                 )
             }
         )
+        settlePendingMetadataAdmissions(forSubscriptionId: snapshot.subscriptionId)
         protocolSubscriptionDeliveryById.removeValue(forKey: snapshot.subscriptionId)
     }
 
-    private func activeMetadataFrameTarget() throws -> BridgeProductProtocolMetadataFrameTarget {
+    func activeMetadataFrameTarget() throws -> BridgeProductProtocolMetadataFrameTarget {
         for (leaseId, state) in producerRegistry.producersByLeaseId {
             guard case .metadata(let metadataKey) = state.key,
                 state.openingFrameState != .required,

@@ -442,6 +442,13 @@ function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKin
 				throw new Error('Bridge product File annotation inspection returned a cross-wired result.');
 			}
 			return call.result;
+		case 'file.annotations.output.candidates.query':
+			if (call.method !== 'file.annotations.output.candidates.query') {
+				throw new Error(
+					'Bridge product File annotation candidate query returned a cross-wired result.',
+				);
+			}
+			return call.result;
 		case 'file.source.current':
 			if (call.method !== 'file.source.current') {
 				throw new Error('Bridge product File source call returned a cross-wired result.');
@@ -471,6 +478,13 @@ function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKin
 			if (call.method !== 'review.annotations.output.inspect') {
 				throw new Error(
 					'Bridge product Review annotation inspection returned a cross-wired result.',
+				);
+			}
+			return call.result;
+		case 'review.annotations.output.candidates.query':
+			if (call.method !== 'review.annotations.output.candidates.query') {
+				throw new Error(
+					'Bridge product Review annotation candidate query returned a cross-wired result.',
 				);
 			}
 			return call.result;

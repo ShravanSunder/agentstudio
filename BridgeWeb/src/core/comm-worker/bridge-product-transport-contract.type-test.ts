@@ -140,6 +140,7 @@ void syntheticCrossWiredTerminal;
 const surfaceByCallKind = {
 	'file.annotations.command': 'file',
 	'file.annotations.output.inspect': 'file',
+	'file.annotations.output.candidates.query': 'file',
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'review.activeViewerMode.update': 'review',
@@ -150,6 +151,7 @@ const surfaceByCallKind = {
 	'review.publication.applied': 'review',
 	'review.annotations.command': 'review',
 	'review.annotations.output.inspect': 'review',
+	'review.annotations.output.candidates.query': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
 };

@@ -210,6 +210,7 @@ extension BridgeProductSession {
         else {
             return false
         }
+        drainPendingMetadataAdmissions()
         resolveProducerObservationPacingIfPossible(for: receipt)
         switch observation {
         case .awaiting:
@@ -370,6 +371,7 @@ extension BridgeProductSession {
                 completedResult: true
             )
         }
+        settlePendingMetadataAdmissions(for: lease)
         if abandonOutstandingDelivery {
             abandonProducerFrameDelivery(for: lease)
         }
@@ -515,6 +517,7 @@ extension BridgeProductSession {
         acknowledgeLifecycle: @escaping ProducerLifecycleAcknowledger,
         stopRequest: BridgeProductProducerRegistry.StopRequest?
     ) async -> Bool {
+        settlePendingMetadataAdmissions(for: lease)
         let acknowledgement: BridgeProductProducerLifecycleAcknowledgement
         if let pendingAcknowledgement = producerRegistry.pendingLifecycleAcknowledgement(
             for: lease

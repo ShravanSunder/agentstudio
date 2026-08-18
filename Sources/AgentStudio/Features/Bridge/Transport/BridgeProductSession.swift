@@ -27,6 +27,7 @@ actor BridgeProductSession {
         [:]
     var producerFrameWaitersByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameWaiter] = [:]
     var producerObservationPacingWaitersByLease: [BridgeProductProducerLease: BridgeProductProducerPacingWaiter] = [:]
+    var pendingMetadataAdmissions: [BridgeProductPendingMetadataAdmission] = []
     var producerRetirementStateByLease: [BridgeProductProducerLease: BridgeProductSessionProducerRetirementState] = [:]
     private var controlReplay: BridgeProductControlReplayCache
     private var lifecycle: BridgeProductSessionLifecycle = .awaitingOpen
@@ -43,6 +44,7 @@ actor BridgeProductSession {
         workerInstanceId: String,
         capabilityBytes: [UInt8],
         maximumRequestOrResponseBytes: Int = BridgeProductWireContract.maximumRequestBodyBytes,
+        producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         producerObservationPacingRegistrationObserver:
             ProducerObservationPacingRegistrationObserver? = nil
     ) throws {
@@ -63,7 +65,7 @@ actor BridgeProductSession {
         self.producerObservationPacingRegistrationObserver =
             producerObservationPacingRegistrationObserver
         self.lastAcceptedMetadataFrameAcknowledgement = nil
-        self.producerRegistry = BridgeProductProducerRegistry()
+        self.producerRegistry = BridgeProductProducerRegistry(limits: producerQueueLimits)
         self.controlReplay = .init(
             maximumRequestOrResponseBytes: maximumRequestOrResponseBytes
         )
@@ -249,6 +251,7 @@ actor BridgeProductSession {
     func stopProducer(
         _ lease: BridgeProductProducerLease
     ) async -> Bool {
+        settlePendingMetadataAdmissions(for: lease)
         guard let stopRequest = producerRegistry.requestStop([lease]).first else {
             return false
         }
@@ -262,6 +265,7 @@ actor BridgeProductSession {
         guard lifecycle != .revoked,
             producerRetirementStateByLease[lease] == nil
         else { return nil }
+        settlePendingMetadataAdmissions(for: lease)
         return producerRegistry.unregister(lease)
     }
 
@@ -295,6 +299,7 @@ actor BridgeProductSession {
     func producerSnapshot() -> BridgeProductProducerRegistrySnapshot {
         producerRegistry.snapshot().includingSessionAdmissionResidue(
             contentAdmissionCount: contentAdmissionByProducerLease.count,
+            pendingMetadataAdmissionCount: pendingMetadataAdmissions.count,
             productAdmissionCount: productAdmissionByProducerLease.count
         )
     }
@@ -630,6 +635,7 @@ actor BridgeProductSession {
             return BridgeProductSessionRevocationBarrier(id: id, completedResult: true)
         }
         lifecycle = .revoked
+        settleEveryPendingMetadataAdmission()
         lastAcceptedMetadataFrameAcknowledgement = nil
         lastAcceptedContentFrameAcknowledgementByProducerLease.removeAll(
             keepingCapacity: false
@@ -671,7 +677,7 @@ actor BridgeProductSession {
                         break
                     }
                 }
-                didRevoke = didRevoke && producerRegistry.snapshot().hasZeroResidue
+                didRevoke = didRevoke && producerSnapshot().hasZeroResidue
                 revocationState = didRevoke ? .succeeded(id: revocationId) : .idle
                 return didRevoke
             }
@@ -728,6 +734,7 @@ actor BridgeProductSession {
     }
 
     private func producerOperationFinished(_ lease: BridgeProductProducerLease) {
+        settlePendingMetadataAdmissions(for: lease)
         resolveProducerObservationPacingCancellation(for: lease)
         producerRegistry.producerOperationFinished(lease)
         resumeProducerFrameWaiterIfPossible(for: lease)
@@ -752,6 +759,7 @@ actor BridgeProductSession {
             return lease
         }
         for staleLease in staleLeases {
+            settlePendingMetadataAdmissions(for: staleLease)
             abandonProducerFrameDelivery(for: staleLease)
         }
         _ = producerRegistry.requestStop(staleLeases)

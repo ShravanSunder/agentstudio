@@ -2,9 +2,7 @@ export type WorktreeAnnotationOutputSelection =
 	| { readonly kind: 'explicit'; readonly messageIds: ReadonlySet<string> }
 	| { readonly excludedMessageIds: ReadonlySet<string>; readonly kind: 'allEligible' };
 
-export type WorktreeAnnotationOutputWireSelection =
-	| { readonly kind: 'explicit'; readonly messageIds: string[] }
-	| { readonly excludedMessageIds: string[]; readonly kind: 'allEligible' };
+import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
 
 export function createWorktreeAnnotationOutputSelection(): WorktreeAnnotationOutputSelection {
 	return { kind: 'explicit', messageIds: new Set() };
@@ -47,14 +45,41 @@ export function selectedWorktreeAnnotationMessageIds(
 	);
 }
 
-export function worktreeAnnotationOutputWireSelection(
-	selection: WorktreeAnnotationOutputSelection,
-): WorktreeAnnotationOutputWireSelection {
-	if (selection.kind === 'explicit') {
-		return { kind: 'explicit', messageIds: [...selection.messageIds] };
+export function worktreeAnnotationOutputTransferOperations(props: {
+	readonly outputKind: 'clipboardMarkdown' | 'jsonFile';
+	readonly selection: WorktreeAnnotationOutputSelection;
+	readonly sessionId: string;
+	readonly transferId: string;
+}): readonly BridgeProductWorktreeAnnotationOperation[] {
+	const selectionMode = props.selection.kind;
+	const messageIds =
+		props.selection.kind === 'explicit'
+			? [...props.selection.messageIds]
+			: [...props.selection.excludedMessageIds];
+	const operations: BridgeProductWorktreeAnnotationOperation[] = [
+		{
+			kind: 'output.selection.begin',
+			outputKind: props.outputKind,
+			selectionMode,
+			sessionId: props.sessionId,
+			transferId: props.transferId,
+		},
+	];
+	for (let offset = 0, ordinal = 0; offset < messageIds.length; offset += 64, ordinal += 1) {
+		operations.push({
+			kind: 'output.selection.chunk',
+			messageIds: messageIds.slice(offset, offset + 64),
+			ordinal,
+			selectionMode,
+			sessionId: props.sessionId,
+			transferId: props.transferId,
+		});
 	}
-	return {
-		excludedMessageIds: [...selection.excludedMessageIds],
-		kind: 'allEligible',
-	};
+	operations.push({
+		kind: 'output.selection.commit',
+		selectionMode,
+		sessionId: props.sessionId,
+		transferId: props.transferId,
+	});
+	return operations;
 }

@@ -1,130 +1,35 @@
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
+import type {
+	BridgeProductCallRequest,
+	BridgeProductCallResult,
+} from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeProductAnnotationOutputContentDescriptor } from '../core/comm-worker/bridge-product-content-contracts.js';
-import type { BridgeProductWorktreeAnnotationEvent } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
-
-type WorktreeAnnotationProjectionStateEvent = Extract<
-	BridgeProductWorktreeAnnotationEvent,
-	{ readonly eventKind: 'projection.state' }
->;
-type WorktreeAnnotationMessageBatchEvent = Extract<
-	BridgeProductWorktreeAnnotationEvent,
-	{ readonly eventKind: 'message.batch' }
->;
-
-export type WorktreeAnnotationCommandOutcome =
-	WorktreeAnnotationProjectionStateEvent['payload']['commandOutcomes'][number];
-export type WorktreeAnnotationOutputHistorySummary =
-	WorktreeAnnotationProjectionStateEvent['payload']['outputHistory'][number];
-export type WorktreeAnnotationSessionSummary =
-	WorktreeAnnotationProjectionStateEvent['payload']['sessions'][number];
-export type WorktreeAnnotationMessageEntry =
-	WorktreeAnnotationMessageBatchEvent['payload']['messages'][number];
-export type WorktreeAnnotationThreadContext =
-	WorktreeAnnotationMessageBatchEvent['payload']['context'];
-
-export interface WorktreeAnnotationThreadProjection {
-	readonly context: WorktreeAnnotationThreadContext;
-	readonly messages: readonly WorktreeAnnotationMessageEntry[];
-}
+import {
+	WorktreeAnnotationProjectionStore,
+	type WorktreeAnnotationCommandOutcome,
+	type WorktreeAnnotationProjectionAssemblyFailure,
+	type WorktreeAnnotationProjectionSnapshot,
+} from './worktree-annotation-projection-store.js';
+export {
+	emptyWorktreeAnnotationProjectionSnapshot,
+	WorktreeAnnotationProjectionStore,
+} from './worktree-annotation-projection-store.js';
+export type {
+	WorktreeAnnotationCommandOutcome,
+	WorktreeAnnotationMessageEntry,
+	WorktreeAnnotationOutputHistorySummary,
+	WorktreeAnnotationProjectionAssemblyFailureClass,
+	WorktreeAnnotationProjectionSnapshot,
+	WorktreeAnnotationSessionSummary,
+	WorktreeAnnotationThreadContext,
+	WorktreeAnnotationThreadProjection,
+} from './worktree-annotation-projection-store.js';
 
 export interface WorktreeAnnotationOutputInspection {
 	readonly descriptor: BridgeProductAnnotationOutputContentDescriptor;
 	readonly exactBytes: Uint8Array;
-}
-
-export interface WorktreeAnnotationProjectionSnapshot {
-	readonly commandOutcomes: readonly WorktreeAnnotationCommandOutcome[];
-	readonly outputHistory: readonly WorktreeAnnotationOutputHistorySummary[];
-	readonly presentationRevision: number;
-	readonly recoveryStatus: 'available' | 'recovered_degraded' | 'unavailable';
-	readonly revision: number | null;
-	readonly sessions: readonly WorktreeAnnotationSessionSummary[];
-	readonly threads: readonly WorktreeAnnotationThreadProjection[];
-	readonly worktreeId: string | null;
-}
-
-export const emptyWorktreeAnnotationProjectionSnapshot: WorktreeAnnotationProjectionSnapshot = {
-	commandOutcomes: [],
-	outputHistory: [],
-	presentationRevision: 0,
-	recoveryStatus: 'available',
-	revision: null,
-	sessions: [],
-	threads: [],
-	worktreeId: null,
-};
-
-export class WorktreeAnnotationProjectionStore {
-	readonly #listeners = new Set<() => void>();
-	readonly #messagesByThreadId = new Map<string, Map<string, WorktreeAnnotationMessageEntry>>();
-	readonly #publishedThreadsById = new Map<string, WorktreeAnnotationThreadProjection>();
-	#snapshot = emptyWorktreeAnnotationProjectionSnapshot;
-
-	getSnapshot = (): WorktreeAnnotationProjectionSnapshot => this.#snapshot;
-
-	getServerSnapshot = (): WorktreeAnnotationProjectionSnapshot => this.#snapshot;
-
-	subscribe = (listener: () => void): (() => void) => {
-		this.#listeners.add(listener);
-		return (): void => {
-			this.#listeners.delete(listener);
-		};
-	};
-
-	apply(event: BridgeProductWorktreeAnnotationEvent): void {
-		if (event.eventKind === 'projection.state') {
-			this.#applyProjectionState(event);
-			return;
-		}
-		this.#applyMessageBatch(event);
-	}
-
-	#applyProjectionState(event: WorktreeAnnotationProjectionStateEvent): void {
-		if (this.#snapshot.revision !== null && event.payload.revision < this.#snapshot.revision) {
-			return;
-		}
-		this.#messagesByThreadId.clear();
-		this.#publishedThreadsById.clear();
-		this.#publish({
-			commandOutcomes: event.payload.commandOutcomes,
-			outputHistory: event.payload.outputHistory,
-			recoveryStatus: event.payload.recoveryStatus,
-			revision: event.payload.revision,
-			sessions: event.payload.sessions,
-			threads: [],
-			worktreeId: event.payload.worktreeId,
-		});
-	}
-
-	#applyMessageBatch(event: WorktreeAnnotationMessageBatchEvent): void {
-		if (event.payload.revision !== this.#snapshot.revision) return;
-		const threadId = event.payload.context.threadId;
-		const messagesById = this.#messagesByThreadId.get(threadId) ?? new Map();
-		for (const message of event.payload.messages) messagesById.set(message.messageId, message);
-		this.#messagesByThreadId.set(threadId, messagesById);
-		if (!event.payload.isLastBatchForThread) return;
-
-		this.#publishedThreadsById.set(threadId, {
-			context: event.payload.context,
-			messages: [...messagesById.values()].sort(
-				(left, right): number => left.ordinal - right.ordinal,
-			),
-		});
-		this.#publish({
-			...this.#snapshot,
-			threads: [...this.#publishedThreadsById.values()].sort(compareAnnotationThreads),
-		});
-	}
-
-	#publish(snapshot: Omit<WorktreeAnnotationProjectionSnapshot, 'presentationRevision'>): void {
-		this.#snapshot = {
-			...snapshot,
-			presentationRevision: this.#snapshot.presentationRevision + 1,
-		};
-		for (const listener of this.#listeners) listener();
-	}
 }
 
 export interface WorktreeAnnotationSurfaceClient {
@@ -136,6 +41,9 @@ export interface WorktreeAnnotationSurfaceClient {
 	readonly getServerSnapshot: () => WorktreeAnnotationProjectionSnapshot;
 	readonly getSnapshot: () => WorktreeAnnotationProjectionSnapshot;
 	readonly inspectOutput: (attemptId: string) => Promise<WorktreeAnnotationOutputInspection>;
+	readonly queryOutputCandidates: (
+		query: BridgeProductCallRequest<'file.annotations.output.candidates.query'>,
+	) => Promise<BridgeProductCallResult<'file.annotations.output.candidates.query'>>;
 	readonly subscribe: (listener: () => void) => () => void;
 	readonly waitForSnapshot: <TResult>(
 		select: (snapshot: WorktreeAnnotationProjectionSnapshot) => TResult | null,
@@ -153,14 +61,29 @@ interface PendingAnnotationOutputInspection {
 	readonly resolve: (inspection: WorktreeAnnotationOutputInspection) => void;
 }
 
+interface PendingAnnotationOutputCandidateQuery {
+	readonly reject: (error: Error) => void;
+	readonly resolve: (
+		page: BridgeProductCallResult<'file.annotations.output.candidates.query'>,
+	) => void;
+}
+
+interface PendingAnnotationProjectionResync {
+	readonly failure: WorktreeAnnotationProjectionAssemblyFailure;
+	readonly workerRequestId: string;
+}
+
 export function createWorktreeAnnotationSurfaceClient(
 	surfaceClient: BridgePaneSurfaceClient,
 ): WorktreeAnnotationSurfaceClient {
-	const projectionStore = new WorktreeAnnotationProjectionStore();
 	const pendingCommandsByWorkerRequestId = new Map<string, PendingAnnotationCommand>();
 	const pendingOutputInspectionsByWorkerRequestId = new Map<
 		string,
 		PendingAnnotationOutputInspection
+	>();
+	const pendingOutputCandidateQueriesByWorkerRequestId = new Map<
+		string,
+		PendingAnnotationOutputCandidateQuery
 	>();
 	const pendingWorkerRequestIdByProductRequestId = new Map<string, string>();
 	const acceptedProductRequestIdByWorkerRequestId = new Map<string, string>();
@@ -171,6 +94,30 @@ export function createWorktreeAnnotationSurfaceClient(
 	let isDisposed = false;
 	let observedSurfaceEpoch = currentSurfaceEpoch(surfaceClient);
 	let nextSourceRefreshEpoch = 0;
+	let pendingProjectionResync: PendingAnnotationProjectionResync | null = null;
+	const projectionStore = new WorktreeAnnotationProjectionStore((failure) => {
+		if (
+			isDisposed ||
+			(pendingProjectionResync !== null &&
+				failure.revision <= pendingProjectionResync.failure.revision)
+		) {
+			return 'blocked';
+		}
+		try {
+			const workerRequestId = surfaceClient.send({
+				command: 'annotationProjectionResync',
+				epoch: currentSurfaceEpoch(surfaceClient),
+				failureClass: failure.failureClass,
+				revision: failure.revision,
+				subscriptionId: failure.subscriptionId,
+				surface: surfaceClient.surface,
+			});
+			pendingProjectionResync = { failure, workerRequestId };
+			return 'requested';
+		} catch {
+			return 'blocked';
+		}
+	});
 
 	const settleProductOutcome = (outcome: WorktreeAnnotationCommandOutcome): void => {
 		outcomesByProductRequestId.set(outcome.requestId, outcome);
@@ -198,7 +145,13 @@ export function createWorktreeAnnotationSurfaceClient(
 	const failWorkerRequest = (workerRequestId: string, error: Error): void => {
 		const pendingCommand = pendingCommandsByWorkerRequestId.get(workerRequestId);
 		const pendingOutputInspection = pendingOutputInspectionsByWorkerRequestId.get(workerRequestId);
-		if (pendingCommand === undefined && pendingOutputInspection === undefined) {
+		const pendingCandidateQuery =
+			pendingOutputCandidateQueriesByWorkerRequestId.get(workerRequestId);
+		if (
+			pendingCommand === undefined &&
+			pendingOutputInspection === undefined &&
+			pendingCandidateQuery === undefined
+		) {
 			degradedFailureByWorkerRequestId.set(workerRequestId, error);
 			return;
 		}
@@ -213,10 +166,15 @@ export function createWorktreeAnnotationSurfaceClient(
 			pendingOutputInspectionsByWorkerRequestId.delete(workerRequestId);
 			pendingOutputInspection.reject(error);
 		}
+		if (pendingCandidateQuery !== undefined) {
+			pendingOutputCandidateQueriesByWorkerRequestId.delete(workerRequestId);
+			pendingCandidateQuery.reject(error);
+		}
 	};
 
 	const unsubscribeMessages = surfaceClient.subscribeMessages(
 		(message: BridgeWorkerServerToMainMessage): void => {
+			if (isDisposed) return;
 			if (message.kind === 'annotationOutputInspection') {
 				const pendingInspection = pendingOutputInspectionsByWorkerRequestId.get(message.requestId);
 				if (pendingInspection === undefined) return;
@@ -227,17 +185,39 @@ export function createWorktreeAnnotationSurfaceClient(
 				});
 				return;
 			}
+			if (message.kind === 'annotationOutputCandidatesPage') {
+				const pendingQuery = pendingOutputCandidateQueriesByWorkerRequestId.get(message.requestId);
+				if (pendingQuery === undefined) return;
+				pendingOutputCandidateQueriesByWorkerRequestId.delete(message.requestId);
+				pendingQuery.resolve(message.page);
+				return;
+			}
 			if (message.kind === 'annotationCommandAccepted') {
 				acceptProductRequest(message.requestId, message.productRequestId);
 				return;
 			}
 			if (message.kind === 'annotationProjection') {
-				projectionStore.apply(message.event);
+				projectionStore.apply(message.event, message.subscriptionId);
+				if (projectionStore.getSnapshot().transportStatus.kind === 'available') {
+					pendingProjectionResync = null;
+				}
 				if (message.event.eventKind === 'projection.state') {
 					for (const outcome of message.event.payload.commandOutcomes) {
 						settleProductOutcome(outcome);
 					}
 				}
+				return;
+			}
+			const currentProjectionResync = pendingProjectionResync;
+			if (
+				message.kind === 'health' &&
+				currentProjectionResync !== null &&
+				message.requestId === currentProjectionResync.workerRequestId
+			) {
+				projectionStore.updateTransportRecovery(
+					currentProjectionResync.failure,
+					message.status === 'ready' ? 'awaitingReplay' : 'blocked',
+				);
 				return;
 			}
 			if (
@@ -257,6 +237,12 @@ export function createWorktreeAnnotationSurfaceClient(
 		operation: BridgeProductWorktreeAnnotationOperation,
 	): Promise<WorktreeAnnotationCommandOutcome> => {
 		if (isDisposed) return Promise.reject(new Error('Annotation surface client is disposed.'));
+		if (
+			projectionStore.getSnapshot().transportStatus.kind === 'unavailable' &&
+			annotationOperationRequiresCurrentProjection(operation)
+		) {
+			return Promise.reject(new Error('Annotation projection transport is unavailable.'));
+		}
 		const workerRequestId = surfaceClient.send({
 			command: 'annotationCommand',
 			epoch: currentSurfaceEpoch(surfaceClient),
@@ -294,6 +280,24 @@ export function createWorktreeAnnotationSurfaceClient(
 		});
 		return new Promise<WorktreeAnnotationOutputInspection>((resolve, reject): void => {
 			pendingOutputInspectionsByWorkerRequestId.set(workerRequestId, { reject, resolve });
+			const degradedFailure = degradedFailureByWorkerRequestId.get(workerRequestId);
+			if (degradedFailure === undefined) return;
+			degradedFailureByWorkerRequestId.delete(workerRequestId);
+			failWorkerRequest(workerRequestId, degradedFailure);
+		});
+	};
+	const queryOutputCandidates = (
+		query: BridgeProductCallRequest<'file.annotations.output.candidates.query'>,
+	): Promise<BridgeProductCallResult<'file.annotations.output.candidates.query'>> => {
+		if (isDisposed) return Promise.reject(new Error('Annotation surface client is disposed.'));
+		const workerRequestId = surfaceClient.send({
+			command: 'annotationOutputCandidatesQuery',
+			epoch: currentSurfaceEpoch(surfaceClient),
+			query,
+			surface: surfaceClient.surface,
+		});
+		return new Promise((resolve, reject): void => {
+			pendingOutputCandidateQueriesByWorkerRequestId.set(workerRequestId, { reject, resolve });
 			const degradedFailure = degradedFailureByWorkerRequestId.get(workerRequestId);
 			if (degradedFailure === undefined) return;
 			degradedFailureByWorkerRequestId.delete(workerRequestId);
@@ -363,6 +367,7 @@ export function createWorktreeAnnotationSurfaceClient(
 		dispose: (): void => {
 			if (isDisposed) return;
 			isDisposed = true;
+			pendingProjectionResync = null;
 			unsubscribeMessages();
 			unsubscribeSourceEpoch();
 			const disposalError = new Error('Annotation surface client is disposed.');
@@ -374,6 +379,10 @@ export function createWorktreeAnnotationSurfaceClient(
 				pendingInspection.reject(disposalError);
 			}
 			pendingOutputInspectionsByWorkerRequestId.clear();
+			for (const pendingQuery of pendingOutputCandidateQueriesByWorkerRequestId.values()) {
+				pendingQuery.reject(disposalError);
+			}
+			pendingOutputCandidateQueriesByWorkerRequestId.clear();
 			pendingWorkerRequestIdByProductRequestId.clear();
 			for (const rejectWaiter of rejectPendingSnapshotWaiters) rejectWaiter(disposalError);
 			rejectPendingSnapshotWaiters.clear();
@@ -383,6 +392,7 @@ export function createWorktreeAnnotationSurfaceClient(
 		getServerSnapshot: projectionStore.getServerSnapshot,
 		getSnapshot: projectionStore.getSnapshot,
 		inspectOutput,
+		queryOutputCandidates,
 		subscribe: projectionStore.subscribe,
 		waitForSnapshot,
 	};
@@ -395,21 +405,32 @@ function currentSurfaceEpoch(surfaceClient: BridgePaneSurfaceClient): number {
 		: (renderSnapshot.reviewDisplayFreshness?.epoch ?? 0);
 }
 
-function compareAnnotationThreads(
-	left: WorktreeAnnotationThreadProjection,
-	right: WorktreeAnnotationThreadProjection,
-): number {
-	const leftKey = [
-		left.context.path ?? '',
-		left.context.startLine ?? -1,
-		left.context.endLine ?? -1,
-		left.context.threadId,
-	];
-	const rightKey = [
-		right.context.path ?? '',
-		right.context.startLine ?? -1,
-		right.context.endLine ?? -1,
-		right.context.threadId,
-	];
-	return JSON.stringify(leftKey).localeCompare(JSON.stringify(rightKey));
+function annotationOperationRequiresCurrentProjection(
+	operation: BridgeProductWorktreeAnnotationOperation,
+): boolean {
+	switch (operation.kind) {
+		case 'demand.acquire':
+		case 'demand.release':
+		case 'output.history':
+		case 'session.discover':
+			return false;
+		case 'continuity.choose':
+		case 'draft.edit.acquire':
+		case 'draft.edit.release':
+		case 'draft.flush':
+		case 'draft.revert':
+		case 'draft.save':
+		case 'output.selection.begin':
+		case 'output.selection.cancel':
+		case 'output.selection.chunk':
+		case 'output.selection.commit':
+		case 'output.repeat':
+		case 'recovery.acknowledge':
+		case 'reply.create':
+		case 'root.create':
+		case 'source.refresh':
+		case 'thread.resolution.set':
+			return true;
+	}
+	throw new Error(`Unhandled annotation operation: ${JSON.stringify(operation)}`);
 }

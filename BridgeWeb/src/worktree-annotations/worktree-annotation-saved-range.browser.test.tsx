@@ -22,8 +22,8 @@ import {
 import type { WorktreeAnnotationThreadContext } from './worktree-annotation-surface-client.js';
 import { WorktreeAnnotationSurfaceProvider } from './worktree-annotation-surface-provider.js';
 
-describe('saved annotation range activation', () => {
-	test('selects and reveals the exact saved File range through Pierre', async () => {
+describe.sequential('saved annotation range activation', () => {
+	test('focuses the saved File range without opening or scrolling', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const selectedLineCalls: Parameters<CodeView['setSelectedLines']>[0][] = [];
 		const scrollCalls: Parameters<CodeView['scrollTo']>[0][] = [];
@@ -45,7 +45,7 @@ describe('saved annotation range activation', () => {
 		};
 
 		try {
-			const rendered = await render(
+			await render(
 				<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
 					<BridgeFileViewerCodePanel
 						codeViewWorkerPoolEnabled={false}
@@ -65,39 +65,44 @@ describe('saved annotation range activation', () => {
 				</WorktreeAnnotationSurfaceProvider>,
 			);
 			await publishSavedThread(surface, fileRangeContext);
-			await settleBrowserCondition(
-				(): boolean =>
-					document.querySelector(
-						'button[aria-label="Show source range Sources/App/View.swift:4-7"]',
-					) !== null,
-				'Expected the saved File range action.',
+			const commentSurface = await stableAnnotationInteractionSurface(
+				'Expected the stable saved File comment surface.',
 			);
+			const scrollCallCountBeforeFocus = scrollCalls.length;
 
 			await act(async (): Promise<void> => {
-				await rendered
-					.getByRole('button', { name: 'Show source range Sources/App/View.swift:4-7' })
-					.click();
+				if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+				await Promise.resolve();
+				commentSurface.focus();
 				await Promise.resolve();
 			});
+			await settleBrowserCondition(
+				(): boolean =>
+					selectedLineCalls.some(
+						(selection): boolean =>
+							selection?.id === 'file:file-1' &&
+							selection.range.start === 4 &&
+							selection.range.end === 7,
+					),
+				'Expected focus to publish the complete saved File range.',
+			);
 
 			expect(selectedLineCalls).toContainEqual({
 				id: 'file:file-1',
 				range: { end: 7, start: 4 },
 			});
-			expect(scrollCalls).toContainEqual({
-				align: 'center',
-				behavior: 'instant',
-				id: 'file:file-1',
-				range: { end: 7, start: 4 },
-				type: 'range',
-			});
+			expect(scrollCalls).toHaveLength(scrollCallCountBeforeFocus);
+			expect(
+				document.querySelector('[data-testid="worktree-annotation-thread-overlay"]'),
+			).toBeNull();
+			expect(document.querySelector('[aria-label^="Show source range"]')).toBeNull();
 		} finally {
 			CodeView.prototype.setSelectedLines = originalSetSelectedLines;
 			CodeView.prototype.scrollTo = originalScrollTo;
 		}
 	});
 
-	test('selects and reveals the exact saved Review range through Pierre', async () => {
+	test('focuses the saved Review range without opening or scrolling', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('review');
 		const selectedLineCalls: Parameters<CodeView['setSelectedLines']>[0][] = [];
 		const scrollCalls: Parameters<CodeView['scrollTo']>[0][] = [];
@@ -143,20 +148,15 @@ describe('saved annotation range activation', () => {
 				</WorktreeAnnotationSurfaceProvider>,
 			);
 			await publishSavedThread(surface, reviewRangeContext);
-			await settleBrowserCondition(
-				(): boolean =>
-					document.querySelector(
-						'button[aria-label="Show source range Sources/App/View.swift:2-2"]',
-					) !== null,
-				'Expected the saved Review range action.',
+			const commentSurface = await stableAnnotationInteractionSurface(
+				'Expected the stable saved Review comment surface.',
 			);
-			const reviewRangeButton = document.querySelector<HTMLButtonElement>(
-				'button[aria-label="Show source range Sources/App/View.swift:2-2"]',
-			);
-			if (reviewRangeButton === null) throw new Error('Expected the saved Review range button.');
+			const scrollCallCountBeforeFocus = scrollCalls.length;
 
 			await act(async (): Promise<void> => {
-				reviewRangeButton.click();
+				if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+				await Promise.resolve();
+				commentSurface.focus();
 				await Promise.resolve();
 			});
 
@@ -166,14 +166,22 @@ describe('saved annotation range activation', () => {
 				side: 'additions',
 				start: 2,
 			} as const;
+			await settleBrowserCondition(
+				(): boolean =>
+					selectedLineCalls.some(
+						(selection): boolean =>
+							selection?.id === 'item-source' &&
+							selection.range.start === 2 &&
+							selection.range.end === 2,
+					),
+				'Expected focus to publish the complete saved Review range.',
+			);
 			expect(selectedLineCalls).toContainEqual({ id: 'item-source', range: expectedRange });
-			expect(scrollCalls).toContainEqual({
-				align: 'center',
-				behavior: 'instant',
-				id: 'item-source',
-				range: expectedRange,
-				type: 'range',
-			});
+			expect(scrollCalls).toHaveLength(scrollCallCountBeforeFocus);
+			expect(
+				document.querySelector('[data-testid="worktree-annotation-thread-overlay"]'),
+			).toBeNull();
+			expect(document.querySelector('[aria-label^="Show source range"]')).toBeNull();
 		} finally {
 			CodeView.prototype.setSelectedLines = originalSetSelectedLines;
 			CodeView.prototype.scrollTo = originalScrollTo;
@@ -188,6 +196,7 @@ async function publishSavedThread(
 ): Promise<void> {
 	await act(async (): Promise<void> => {
 		surface.publishProjectionState({
+			expectedThreadCount: 1,
 			revision: 3,
 			sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
 		});
@@ -298,4 +307,27 @@ async function settleBrowserCondition(
 	if (predicate()) return;
 	if (remainingFrames <= 0) throw new Error(failureMessage);
 	await settleBrowserCondition(predicate, failureMessage, remainingFrames - 1);
+}
+
+async function stableAnnotationInteractionSurface(failureMessage: string): Promise<HTMLElement> {
+	let previousSurface: HTMLElement | null = null;
+	let stableFrameCount = 0;
+	await settleBrowserCondition((): boolean => {
+		const currentSurface = document.querySelector<HTMLElement>(
+			'[data-worktree-annotation-interaction]',
+		);
+		if (currentSurface === null || !currentSurface.isConnected) {
+			previousSurface = null;
+			stableFrameCount = 0;
+			return false;
+		}
+		if (currentSurface === previousSurface) stableFrameCount += 1;
+		else {
+			previousSurface = currentSurface;
+			stableFrameCount = 0;
+		}
+		return stableFrameCount >= 2;
+	}, failureMessage);
+	if (previousSurface === null) throw new Error(failureMessage);
+	return previousSurface;
 }

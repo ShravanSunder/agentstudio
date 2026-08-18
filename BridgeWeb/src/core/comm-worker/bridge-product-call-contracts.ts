@@ -13,6 +13,8 @@ import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-revi
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 import { bridgeProductFileSourceConfigurationSchema } from './bridge-product-subscription-contracts.js';
 import {
+	bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
+	bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema,
 	bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
 	bridgeProductWorktreeAnnotationOutputInspectResultSchema,
 } from './bridge-product-worktree-annotation-output-contracts.js';
@@ -125,27 +127,17 @@ const bridgeProductWorktreeAnnotationOriginSchema = z
 	.refine((origin) => origin.endLine >= origin.startLine, {
 		message: 'Annotation endLine cannot precede startLine.',
 	});
-const bridgeProductWorktreeAnnotationMessageIdListSchema = z
+const bridgeProductWorktreeAnnotationMessageIdChunkSchema = z
 	.array(bridgeProductWorktreeAnnotationIdSchema)
+	.min(1)
 	.max(64)
 	.refine((messageIds) => new Set(messageIds).size === messageIds.length, {
 		message: 'Annotation output selection cannot repeat a message identity.',
 	});
-const bridgeProductWorktreeAnnotationOutputSelectionSchema = z.discriminatedUnion('kind', [
-	z
-		.object({
-			kind: z.literal('explicit'),
-			messageIds: bridgeProductWorktreeAnnotationMessageIdListSchema.min(1),
-		})
-		.strict(),
-	z
-		.object({
-			excludedMessageIds: bridgeProductWorktreeAnnotationMessageIdListSchema,
-			kind: z.literal('allEligible'),
-		})
-		.strict(),
+const bridgeProductWorktreeAnnotationOutputSelectionModeSchema = z.enum([
+	'explicit',
+	'allEligible',
 ]);
-
 export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('session.discover') }).strict(),
 	z
@@ -240,12 +232,33 @@ export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUni
 		.strict(),
 	z
 		.object({
-			kind: z.literal('output.prepare'),
+			kind: z.literal('output.selection.begin'),
 			outputKind: z.enum(['clipboardMarkdown', 'jsonFile']),
-			selection: bridgeProductWorktreeAnnotationOutputSelectionSchema,
+			selectionMode: bridgeProductWorktreeAnnotationOutputSelectionModeSchema,
 			sessionId: bridgeProductWorktreeAnnotationIdSchema,
+			transferId: bridgeProductIdentifierSchema,
 		})
 		.strict(),
+	z
+		.object({
+			kind: z.literal('output.selection.chunk'),
+			messageIds: bridgeProductWorktreeAnnotationMessageIdChunkSchema,
+			ordinal: z.number().int().nonnegative(),
+			selectionMode: bridgeProductWorktreeAnnotationOutputSelectionModeSchema,
+			sessionId: bridgeProductWorktreeAnnotationIdSchema,
+			transferId: bridgeProductIdentifierSchema,
+		})
+		.strict(),
+	...(['output.selection.commit', 'output.selection.cancel'] as const).map((kind) =>
+		z
+			.object({
+				kind: z.literal(kind),
+				selectionMode: bridgeProductWorktreeAnnotationOutputSelectionModeSchema,
+				sessionId: bridgeProductWorktreeAnnotationIdSchema,
+				transferId: bridgeProductIdentifierSchema,
+			})
+			.strict(),
+	),
 	z
 		.object({
 			kind: z.literal('output.history'),
@@ -302,6 +315,13 @@ export type BridgeProductCallRegistry = {
 		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationOutputInspectResultSchema>;
 		readonly surface: 'file';
 	};
+	readonly 'file.annotations.output.candidates.query': {
+		readonly request: z.infer<
+			typeof bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema
+		>;
+		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationOutputCandidatePageSchema>;
+		readonly surface: 'file';
+	};
 	readonly 'file.source.current': {
 		readonly request: z.infer<typeof bridgeProductFileSourceCurrentRequestSchema>;
 		readonly result: z.infer<typeof bridgeProductFileSourceCurrentResultSchema>;
@@ -352,6 +372,13 @@ export type BridgeProductCallRegistry = {
 		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationOutputInspectResultSchema>;
 		readonly surface: 'review';
 	};
+	readonly 'review.annotations.output.candidates.query': {
+		readonly request: z.infer<
+			typeof bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema
+		>;
+		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationOutputCandidatePageSchema>;
+		readonly surface: 'review';
+	};
 };
 
 export type BridgeProductCallKind = keyof BridgeProductCallRegistry;
@@ -363,6 +390,7 @@ export type BridgeProductCallResult<TCallKind extends BridgeProductCallKind> =
 const bridgeProductSurfaceByCallKind = {
 	'file.annotations.command': 'file',
 	'file.annotations.output.inspect': 'file',
+	'file.annotations.output.candidates.query': 'file',
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'review.activeViewerMode.update': 'review',
@@ -373,6 +401,7 @@ const bridgeProductSurfaceByCallKind = {
 	'review.publication.applied': 'review',
 	'review.annotations.command': 'review',
 	'review.annotations.output.inspect': 'review',
+	'review.annotations.output.candidates.query': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
 };
@@ -384,6 +413,12 @@ export function bridgeProductSurfaceForCallKind<TCallKind extends BridgeProductC
 }
 
 export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
+	z
+		.object({
+			method: z.literal('file.annotations.output.candidates.query'),
+			request: bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema,
+		})
+		.strict(),
 	z
 		.object({
 			method: z.literal('file.annotations.command'),
@@ -456,9 +491,21 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 			request: bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
 		})
 		.strict(),
+	z
+		.object({
+			method: z.literal('review.annotations.output.candidates.query'),
+			request: bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema,
+		})
+		.strict(),
 ]);
 
 export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
+	z
+		.object({
+			method: z.literal('file.annotations.output.candidates.query'),
+			result: bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
+		})
+		.strict(),
 	z
 		.object({
 			method: z.literal('file.annotations.command'),
@@ -529,6 +576,12 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.annotations.output.inspect'),
 			result: bridgeProductReviewAnnotationOutputInspectResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.annotations.output.candidates.query'),
+			result: bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
 		})
 		.strict(),
 ]);

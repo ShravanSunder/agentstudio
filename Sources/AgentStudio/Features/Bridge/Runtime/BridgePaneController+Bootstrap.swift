@@ -106,7 +106,9 @@ final class BridgePaneProductCommittedCallTarget {
         let update: BridgeProductActiveViewerModeUpdateRequest
         switch call {
         case .fileAnnotationsCommand, .fileAnnotationsOutputInspect,
-            .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect, .fileSourceCurrent:
+            .fileAnnotationsOutputCandidatesQuery,
+            .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
+            .reviewAnnotationsOutputCandidatesQuery, .fileSourceCurrent:
             return
         case .fileActiveViewerModeUpdate(let request):
             mode = .file
@@ -560,6 +562,9 @@ extension BridgePaneController {
                 input,
                 fileMetadataSource: fileMetadataSource
             ),
+            queryWorktreeAnnotationOutputCandidates: makeWorktreeAnnotationOutputCandidateQueryHandler(
+                input
+            ),
             authorizeReviewComparisonTargets: makeReviewComparisonTargetsAuthorization(input),
             reviewComparisonTargetCatalogProducer: BridgeReviewComparisonTargetCatalogProducer(
                 reviewSourceProvider: input.reviewSourceProvider,
@@ -703,6 +708,39 @@ extension BridgePaneController {
                 surface: surface,
                 correlation: correlation,
                 productAdmission: productAdmission
+            )
+        }
+    }
+
+    private static func makeWorktreeAnnotationOutputCandidateQueryHandler(
+        _ input: BridgeProductSessionDependencyInput
+    )
+        -> @MainActor @Sendable (
+            BridgeProductAnnotationCandidateQuery,
+            BridgeProductSurface
+        ) async throws -> WorktreeAnnotationOutputCandidatePage
+    {
+        guard let store = input.worktreeAnnotationStore else {
+            return { _, _ in throw WorktreeAnnotationStoreError.unavailable }
+        }
+        return { request, surface in
+            let cursor: WorktreeAnnotationOutputCandidateCursor? =
+                switch request.cursor {
+                case .start:
+                    nil
+                case .after(let flatOrdinal, let messageID):
+                    .init(
+                        flatOrdinal: flatOrdinal,
+                        messageID: .init(rawValue: messageID)
+                    )
+                }
+            return try await store.fetchOutputCandidates(
+                sessionID: .init(rawValue: request.sessionId),
+                expectedSessionRevision: request.expectedSessionRevision,
+                cursor: cursor,
+                limit: request.limit,
+                contextID: input.paneSessionId,
+                surface: surface
             )
         }
     }

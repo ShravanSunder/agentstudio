@@ -146,7 +146,9 @@ function bridgeWorkerCommandMatchesSurface(
 ): boolean {
 	switch (command.command) {
 		case 'annotationCommand':
+		case 'annotationOutputCandidatesQuery':
 		case 'annotationOutputInspect':
+		case 'annotationProjectionResync':
 			return command.surface === surface;
 		case 'fileDisplayResync':
 		case 'fileQueryUpdate':
@@ -214,6 +216,7 @@ function bridgeWorkerMessageMatchesSurface(
 ): boolean {
 	switch (message.kind) {
 		case 'annotationCommandAccepted':
+		case 'annotationOutputCandidatesPage':
 		case 'annotationOutputInspection':
 		case 'annotationProjection':
 			return message.surface === surface;
@@ -248,6 +251,7 @@ function settleBridgeWorkerRpcLifecycleFromMessage(props: {
 }): void {
 	if (
 		props.message.kind !== 'annotationCommandAccepted' &&
+		props.message.kind !== 'annotationOutputCandidatesPage' &&
 		props.message.kind !== 'annotationOutputInspection' &&
 		props.message.kind !== 'health' &&
 		props.message.kind !== 'subscription' &&

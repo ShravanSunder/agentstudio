@@ -91,6 +91,44 @@ struct WorktreeAnnotationProjectionTransportTests {
         await source.cancel(subscriptionId: subscription.subscriptionId)
     }
 
+    @Test("source coalesces queued full-snapshot revisions to the newest revision")
+    @MainActor
+    func sourceCoalescesQueuedProjectionRevisions() async throws {
+        // Arrange
+        let projection = WorktreeAnnotationProjectionAtom()
+        let source = BridgePaneProductWorktreeAnnotationSource(
+            projection: projection,
+            contextID: "pane-test",
+            worktreeID: "worktree-1"
+        )
+        let subscription = BridgeProductSubscriptionSnapshot(
+            subscription: .fileAnnotations,
+            subscriptionId: "annotation-subscription-coalescing",
+            subscriptionKind: .fileAnnotations,
+            workerDerivationEpoch: 1,
+            interestRevision: 0,
+            interestSha256: try BridgeProductSubscriptionInterestState.fileAnnotations.sha256Hex(),
+            interestState: .fileAnnotations,
+            hasStagedUpdate: false
+        )
+        let recorder = WorktreeAnnotationCoalescingRecorder()
+        try await source.open(subscription: subscription, surface: .file) { event in
+            await recorder.record(event)
+        }
+        await recorder.waitUntilFirstEventStarts()
+
+        // Act
+        for _ in 0..<100 {
+            projection.publishDiscovery([], worktreeID: "worktree-1")
+        }
+        await recorder.releaseFirstEvent()
+        await recorder.waitUntilEventCount(2)
+
+        // Assert
+        #expect(await recorder.eventSourceGenerations == [0, 100])
+        await source.cancel(subscriptionId: subscription.subscriptionId)
+    }
+
     @Test("maximum legal complete messages pack without splitting across 128 KiB frames")
     func maximumMessagesPackAcrossFramesWithoutSplitting() throws {
         // Arrange
@@ -153,6 +191,53 @@ struct WorktreeAnnotationProjectionTransportTests {
             )
             #expect(decodedEvent == event)
         }
+    }
+
+    @Test("projection state requires a nonnegative emitted-thread count")
+    func projectionStateRequiresExpectedThreadCount() throws {
+        // Arrange
+        let populatedEvents = try BridgeProductWorktreeAnnotationProjectionPacker.events(
+            snapshot: makeProjectionSnapshot(messageCount: 1),
+            surface: .file
+        )
+        let projectionState = try #require(
+            populatedEvents.first { event in
+                if case .projectionState = event { return true }
+                return false
+            }
+        )
+        let encoded = try JSONEncoder().encode(projectionState)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        let payload = try #require(object["payload"] as? [String: Any])
+
+        // Act / Assert
+        #expect(payload["expectedThreadCount"] as? Int == 1)
+        for invalidValue: Any? in [nil, -1, "unknown"] {
+            var invalidPayload = payload
+            invalidPayload["expectedThreadCount"] = invalidValue
+            var invalidObject = object
+            invalidObject["payload"] = invalidPayload
+            let invalidData = try JSONSerialization.data(withJSONObject: invalidObject)
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(
+                    BridgeProductWorktreeAnnotationEvent.self,
+                    from: invalidData
+                )
+            }
+        }
+
+        let emptyEvents = try BridgeProductWorktreeAnnotationProjectionPacker.events(
+            snapshot: makeProjectionSnapshot(messageCount: 0),
+            surface: .file
+        )
+        guard case .projectionState(let emptyState) = try #require(emptyEvents.first) else {
+            Issue.record("Expected empty projection state")
+            return
+        }
+        #expect(emptyState.expectedThreadCount == 0)
+        #expect(emptyEvents.count == 1)
     }
 
     @Test("projection emits annotation identities as lowercase UUIDv7 text")
@@ -365,6 +450,55 @@ private actor WorktreeAnnotationEventRecorder {
             let waiters = eventCountWaiters.removeValue(forKey: target) ?? []
             for waiter in waiters { waiter.resume() }
         }
+    }
+
+    func waitUntilEventCount(_ targetCount: Int) async {
+        guard events.count < targetCount else { return }
+        await withCheckedContinuation { continuation in
+            eventCountWaiters[targetCount, default: []].append(continuation)
+        }
+    }
+}
+
+private actor WorktreeAnnotationCoalescingRecorder {
+    private var events: [BridgeProductWorktreeAnnotationEvent] = []
+    private var eventCountWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
+    private var firstEventRelease: CheckedContinuation<Void, Never>?
+    private var firstEventStarted = false
+    private var firstEventStartedWaiters: [CheckedContinuation<Void, Never>] = []
+
+    var eventSourceGenerations: [Int] {
+        events.map(\.sourceGeneration)
+    }
+
+    func record(_ event: BridgeProductWorktreeAnnotationEvent) async {
+        if !firstEventStarted {
+            firstEventStarted = true
+            let waiters = firstEventStartedWaiters
+            firstEventStartedWaiters.removeAll(keepingCapacity: false)
+            for waiter in waiters { waiter.resume() }
+            await withCheckedContinuation { continuation in
+                firstEventRelease = continuation
+            }
+        }
+        events.append(event)
+        let readyTargets = eventCountWaiters.keys.filter { $0 <= events.count }
+        for target in readyTargets {
+            let waiters = eventCountWaiters.removeValue(forKey: target) ?? []
+            for waiter in waiters { waiter.resume() }
+        }
+    }
+
+    func waitUntilFirstEventStarts() async {
+        guard !firstEventStarted else { return }
+        await withCheckedContinuation { continuation in
+            firstEventStartedWaiters.append(continuation)
+        }
+    }
+
+    func releaseFirstEvent() {
+        firstEventRelease?.resume()
+        firstEventRelease = nil
     }
 
     func waitUntilEventCount(_ targetCount: Int) async {

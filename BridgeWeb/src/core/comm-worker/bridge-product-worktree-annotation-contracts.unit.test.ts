@@ -8,6 +8,27 @@ import {
 const lowercaseSessionId = '01890abc-def0-7abc-8def-0123456789ab';
 
 describe('Bridge product worktree annotation contracts', () => {
+	test('requires a nonnegative fixed-size expected thread count', () => {
+		const projection = annotationProjectionWithSession(lowercaseSessionId);
+		const payload = projection['payload'] as Readonly<Record<string, unknown>>;
+		const { expectedThreadCount: _omitted, ...missingExpectedThreadCount } = payload;
+
+		expect(
+			bridgeProductWorktreeAnnotationEventSchema.safeParse({
+				...projection,
+				payload: missingExpectedThreadCount,
+			}).success,
+		).toBe(false);
+		for (const expectedThreadCount of [-1, 'unknown']) {
+			expect(
+				bridgeProductWorktreeAnnotationEventSchema.safeParse({
+					...projection,
+					payload: { ...payload, expectedThreadCount },
+				}).success,
+			).toBe(false);
+		}
+	});
+
 	test('admits only lowercase UUIDv7 annotation identities in projections', () => {
 		const lowercaseProjection = annotationProjectionWithSession(lowercaseSessionId);
 
@@ -182,6 +203,7 @@ function annotationProjectionWithSession(
 		eventKind: 'projection.state',
 		payload: {
 			commandOutcomes,
+			expectedThreadCount: 0,
 			outputHistory: [],
 			recoveryStatus: 'available',
 			revision: 1,
@@ -189,6 +211,8 @@ function annotationProjectionWithSession(
 				{
 					completedAt: null,
 					createdAt: 1,
+					eligibleMessageCount: 0,
+					eligibleWithoutInlinePlacementCount: 0,
 					lifecycle: 'living',
 					semanticRevision: 1,
 					sessionId,

@@ -152,16 +152,31 @@ describe('Bridge product call contracts', () => {
 			},
 			{ kind: 'source.refresh', sessionId, sourceEpoch: 5 },
 			{
-				kind: 'output.prepare',
+				kind: 'output.selection.begin',
 				outputKind: 'clipboardMarkdown',
-				selection: { kind: 'explicit', messageIds: [messageId] },
+				selectionMode: 'explicit',
 				sessionId,
+				transferId: 'transfer-1',
 			},
 			{
-				kind: 'output.prepare',
-				outputKind: 'jsonFile',
-				selection: { kind: 'allEligible', excludedMessageIds: [messageId] },
+				kind: 'output.selection.chunk',
+				messageIds: [messageId],
+				ordinal: 0,
+				selectionMode: 'explicit',
 				sessionId,
+				transferId: 'transfer-1',
+			},
+			{
+				kind: 'output.selection.commit',
+				selectionMode: 'explicit',
+				sessionId,
+				transferId: 'transfer-1',
+			},
+			{
+				kind: 'output.selection.cancel',
+				selectionMode: 'allEligible',
+				sessionId,
+				transferId: 'transfer-2',
 			},
 			{ kind: 'output.history', sessionId },
 			{ attemptId, kind: 'output.repeat' },
@@ -188,10 +203,12 @@ describe('Bridge product call contracts', () => {
 				sessionId,
 			},
 			{
-				kind: 'output.prepare',
+				kind: 'output.selection.begin',
 				outputKind: 'clipboardMarkdown',
+				selectionMode: 'explicit',
 				selectedVersions: [{ messageId, versionId: messageId }],
 				sessionId,
+				transferId: 'transfer-1',
 			},
 			{ kind: 'source.refresh', sessionId, sourceEpoch: -1 },
 			{ kind: 'source.refresh', sessionId, sourceEpoch: 5, unexpected: true },
@@ -245,6 +262,50 @@ describe('Bridge product call contracts', () => {
 					},
 				}).success,
 			).toBe(false);
+		}
+	});
+
+	test('defines paired bounded annotation output candidate query calls', () => {
+		const sessionId = '00000000-0000-7000-8000-000000000011';
+		const candidate = {
+			authoredAt: 1,
+			endLine: 12,
+			excerpt: 'Keep the owner',
+			flatOrdinal: 0,
+			location: 'current',
+			messageId: '00000000-0000-7000-8000-000000000013',
+			path: 'Sources/Feature.swift',
+			placement: 'exact',
+			startLine: 12,
+			state: 'eligible',
+			threadId: '00000000-0000-7000-8000-000000000012',
+		} as const;
+		for (const method of [
+			'file.annotations.output.candidates.query',
+			'review.annotations.output.candidates.query',
+		] as const) {
+			const request = {
+				method,
+				request: {
+					cursor: { kind: 'start' as const },
+					expectedSessionRevision: 4,
+					limit: 16,
+					sessionId,
+				},
+			};
+			const result = {
+				method,
+				result: {
+					candidates: [candidate],
+					eligibleMessageCount: 1,
+					eligibleWithoutInlinePlacementCount: 0,
+					nextCursor: null,
+					sessionId,
+					sessionRevision: 4,
+				},
+			};
+			expect(bridgeProductCallRequestSchema.parse(request)).toEqual(request);
+			expect(bridgeProductCallResultSchema.parse(result)).toEqual(result);
 		}
 	});
 

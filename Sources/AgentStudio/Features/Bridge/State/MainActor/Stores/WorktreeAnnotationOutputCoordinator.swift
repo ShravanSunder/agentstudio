@@ -76,13 +76,12 @@ enum WorktreeAnnotationOutputCommandOutcome: Equatable, Sendable {
         cleanupError: String
     )
     case partialSuccess(summary: WorktreeAnnotationOutputResultSummary, finalizationError: String)
-    case unknown(WorktreeAnnotationOutputResultSummary)
 
     var summary: WorktreeAnnotationOutputResultSummary? {
         switch self {
         case .destinationCancelled, .destinationSelectionFailed:
             nil
-        case .succeeded(let summary), .unknown(let summary):
+        case .succeeded(let summary):
             summary
         case .effectFailed(let summary, _),
             .effectAndCleanupFailed(let summary, _, _),
@@ -122,7 +121,6 @@ package struct WorktreeAnnotationOutputEffectRequest: Equatable, Sendable {
 package enum WorktreeAnnotationOutputEffectOutcome: Equatable, Sendable {
     case succeeded
     case failed(String)
-    case unknown
 }
 
 package enum WorktreeAnnotationOutputDestinationOutcome: Equatable, Sendable {
@@ -158,7 +156,6 @@ enum WorktreeAnnotationOutputExecutionResult: Equatable, Sendable {
         output: WorktreeAnnotationSQLiteRepository.PreparedOutput,
         finalizationError: String
     )
-    case unknown(WorktreeAnnotationSQLiteRepository.PreparedOutput)
 
     var commandOutcome: WorktreeAnnotationOutputCommandOutcome {
         switch self {
@@ -178,8 +175,6 @@ enum WorktreeAnnotationOutputExecutionResult: Equatable, Sendable {
             )
         case .partialSuccess(let output, let finalizationError):
             .partialSuccess(summary: .init(output), finalizationError: finalizationError)
-        case .unknown(let output):
-            .unknown(.init(output))
         }
     }
 }
@@ -343,8 +338,6 @@ package actor WorktreeAnnotationOutputCoordinator {
             return await finalizeKnownSuccess(prepared)
         case .failed(let effectError):
             return await cancelKnownFailure(prepared, effectError: effectError)
-        case .unknown:
-            return .unknown(prepared)
         }
     }
 

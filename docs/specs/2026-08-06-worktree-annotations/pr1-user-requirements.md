@@ -89,10 +89,13 @@ main File / Review surface
   source line or range
        +-- select range → highlighted range + endpoint add control
        `-- inline thread
-             one message  → show that message directly
-             two or more → show one compact thread summary
-                             → expand to the complete flat thread
-             [Save] [Revert] [Reply] [Resolve whole thread]
+             one message  → show M1 directly
+             two or more → show compact M-summary + M-last
+             explicit Expand / Edit / Reply
+                         → anchored floating overlay with complete flat thread
+                           and reply/edit authoring
+             new root    → inline Save / Revert
+             whole thread → Resolve / Reopen
 
   no PR1 global-review panel, whole-file comments, session comment chrome,
   or comment sidebar
@@ -136,11 +139,15 @@ PR1 human boundary
   edit, a message draft survives focus changes, view replacement, pane
   recreation, leaving Zoom, and Agent Studio restart without requiring an
   explicit Save. Focus loss flushes the draft immediately; Escape or starting
-  another range flushes and collapses a non-empty draft. Clearing a never-saved
-  message back to empty removes that unsaved message when the change is flushed.
+  another range flushes and collapses a non-empty new-root draft. Clearing a
+  never-saved message back to empty removes that unsaved message when the change
+  is flushed. Reply and edit composers follow P1-U14's overlay-close behavior.
   Clearing an existing saved message creates a durable empty working draft so
   the edit is not lost; Save remains unavailable until the body is valid, while
-  Revert restores the saved body.
+  Revert restores the saved body. The active editor, visible text, focus, and
+  containing thread remain continuous while a first edit becomes durable and
+  its updated thread becomes visible; an intermediate update must not make the
+  editor or thread disappear.
 - Why: Draft text is human work product and must not be lost merely because the
   review surface or process lifecycle changes.
 - Evidence: owner confirmation on 2026-08-14.
@@ -189,7 +196,14 @@ PR1 human boundary
   clicking outside, or pressing Escape clears the pending range. A single-line
   gutter `+` opens its composer directly. Located selections are made in the
   source or diff line presentation; Markdown files remain annotatable there.
-  Located threads appear inline beside their source in the main view.
+  Located threads appear inline beside their source in the main view, anchored
+  at the range endpoint. At most one comment is active: focusing its compact
+  surface or controls paints its complete stored range but does not open its
+  floating chronology overlay. Once opened explicitly, that overlay keeps the
+  range painted while open. Moving activity to another comment moves the paint
+  to that comment's range; clearing comment-system focus/activity removes
+  saved-range paint. Inactive saved threads keep only their inline card and no
+  range paint. No separate location command is needed.
 - Why: The reviewer needs precise requests that remain useful to the working
   model without relying on pane, DOM, SVG, or machine-local path identity, and
   range selection must provide feedback before it commits the reviewer to a
@@ -381,10 +395,16 @@ thread state remains open until explicit Resolve
 - Need: Creating an annotation creates a thread with one root human message.
   Every root message and reply belongs to that thread and may receive a later
   human reply. Replies form one flat chronological sequence; they do not nest.
-  A one-message thread shows its only message directly. A thread with two or
-  more messages shows one compact thread summary instead of showing its root
-  message in the collapsed state; expanding it reveals every message in the
-  same flat chronological sequence. The summary is presentation, not another
+  A one-message thread shows M1 directly. A thread with two or more messages
+  keeps exactly one compact inline projection containing M-summary plus M-last;
+  the complete M1 through Mn chronology appears only in an anchored floating
+  overlay that does not expand Pierre's normal-flow annotation row. Explicit
+  Expand, Edit, or Reply opens that overlay; focus alone does not. Reply and
+  Edit authoring occur inside the overlay. Save or Revert ends editing but keeps
+  the overlay open. Escape during active editing first flushes and exits edit
+  mode while leaving the overlay open; a later Escape closes it. Outside click
+  safely flushes an active draft and closes the overlay. Closing returns focus
+  to the inline control that opened it. The summary is presentation, not another
   message. PR1 has no standalone comments and no agent-authored messages.
 - Why: Once output has exposed a message, its content must remain stable while
   later clarification remains possible without erasing history. A flat thread
@@ -471,8 +491,14 @@ message status
 thread history
   every annotation is a thread with a human root message
   replies form one flat chronological sequence
-  one message is shown directly; two or more collapse to a thread summary
-  expanding the summary shows every message; the summary is not a message
+  one message is shown directly
+  two or more show compact M-summary + M-last inline
+  the complete chronology opens only in an anchored floating overlay
+  explicit Expand/Edit/Reply opens it; focus alone does not
+  Reply/Edit authoring lives in that overlay; Save/Revert keeps it open
+  Escape exits editing before it closes the overlay; outside click safely
+  flushes and closes; focus returns to the invoking inline control
+  the summary is not a message
   resolution applies to the whole thread
   successful or crash-unknown output changes each included message to locked
   later clarification is a new human reply
@@ -488,6 +514,11 @@ output
 
 main-view presentation
   located threads → inline beside source
+  focused/active compact thread → paint its complete stored range
+  overlay open → keep that one thread's range painted
+  another thread active → move paint to the new thread's range
+  comment activity cleared → clear saved-range paint
+  inactive saved thread → endpoint-anchored inline card only
   pending range → Pierre highlight; composer only after endpoint +
   single line → gutter + opens composer directly
   no PR1 global-review panel, whole-file/session comments, or sidebar

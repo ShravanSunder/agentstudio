@@ -277,6 +277,7 @@ describe('worktree annotation Pierre range selection', () => {
 			await act(async (): Promise<void> => {
 				surface.settleMostRecentCommitted();
 				surface.publishProjectionState({
+					expectedThreadCount: 1,
 					revision: 3,
 					sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
 				});

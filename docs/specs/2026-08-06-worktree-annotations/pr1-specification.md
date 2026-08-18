@@ -19,7 +19,7 @@ inline review threads without any direct agent integration.
 
 ```text
 inspect source-backed material
-  → start or reply to an inline human thread in the main view
+  → start an inline human thread, or open its overlay to reply/edit
   → autosave and recover message draft
   → Save intentional message content
   → select saved messages
@@ -34,14 +34,19 @@ main File / Review view
   drag range ──► Pierre highlight ──► endpoint + ──► inline composer
   hover line ───────────────────────► gutter + ────► inline composer
 
-  inline located thread
-    strongly rounded shared shell
-      avatar as the left timeline node │ rounded message surface
-      author/time/status in the timeline row
-      icon-only commands in an invisible bottom-right rail
-      1 message: M1
-      2+ messages: compact summary; expand to M1…Mn
-      Draft · Save/Revert · Reply · Resolve/Reopen
+  Pierre normal flow: exactly one compact located-thread surface
+      1 message   ─► M1
+      2+ messages ─► M-summary + M-last
+      inactive saved thread ─► endpoint-anchored card; no range paint
+      focused/active thread ─► paint its complete stored range
+      icon-only core commands occupy an independent right column
+
+  explicit Expand / Edit / Reply
+      │
+      └─► anchored, non-modal, bounded thread overlay
+           M1 … Mn + reply/edit authoring
+           keep that thread's range painted while open
+           no Pierre row-height change
 
   Copy selected → clipboard → "Copied N comments" toast
                                copy interaction closes
@@ -85,29 +90,33 @@ composer immediately without a separate drag-confirmation step.
   │  ╭──────────────────────────────────────────────╮
   │  │ Write Markdown…                              │
   │  │                                              │
-  │  │ The body is the writing surface.             │
-  │  │ It has no nested textarea card or dividers.  │
+  │  │ The body starts at the top and grows with     │
+  │  │ content.                                      │
   │  │                                          ↶   │ Revert
   │  │                                          ●   │ Save, primary
   │  ╰──────────────────────────────────────────────╯
-       rounded body surface      invisible bottom-right rail
+       one rounded surface         independent right column
 ```
 
 The avatar is the left timeline node. Author, time, and thread/message status
 occupy its timeline row instead of a separate header or right-aligned date.
-Commands use icon-only shadcn `Button` controls stacked vertically at the
-bottom-right of the message surface; their rail has no visible card or divider.
-Every icon retains an accessible name and tooltip. `Draft` plus a
-warning-semantic cue communicates durability without relying on color alone.
-Save is the only primary action.
+The composer is one rounded surface composed from the product's owned shadcn
+primitives: its writing area introduces no second card, border, radius, or
+divider. Revert and Save are canonical icon-only controls stacked vertically at
+the bottom-right. Their column has no visible card and cannot determine the
+writing area's height or alignment. Each control has a tooltip and accessible
+name. `Draft` plus a warning-semantic cue communicates durability without
+relying on color alone. Save is the only primary-treated action; primary
+treatment does not require a visible text label.
 
 ### Saved one-message thread
 
 ```text
-  ◉── You · 2m · Open
+  ◉── You · 2m · Saved · Open    Include   Expand   More
   │
   │  ╭──────────────────────────────────────────────╮
   │  │ Please keep source refresh separate.        │
+  │  │                                          ✎   │ Edit
   │  │                                          ↩   │ Reply
   │  │                                          ✓   │ Resolve
   │  ╰──────────────────────────────────────────────╯
@@ -115,53 +124,68 @@ Save is the only primary action.
   resolved state: same thread and history; Resolve becomes Reopen
 ```
 
-When the thread contains exactly one message, that message is the inline body;
-there is no thread-summary or disclosure control.
+When the thread contains exactly one message, M1 is the inline body; there is
+no synthetic summary. The body is top-aligned and content-sized. The right
+command column contains exactly Edit, Reply, and Resolve/Reopen, and its height
+never sets the body height. Expand is a separate timeline action and is never
+implied by focus.
 
-### Collapsed multi-message thread summary
+### Compact multi-message thread
 
 ```text
-  ◉── Latest: You · 1m · Open · 2 messages
+  ◉── 3 messages · latest 1m · Open    Include   Expand   More
   │
   │  ╭──────────────────────────────────────────────╮
-  │  │ Add coverage for the failure case…          │
+  │  │ M-summary: 3 messages · latest by You       │
+  │  │ M-last: Add coverage for the failure case…  │
+  │  │                                          ✎   │ Edit M-last
   │  │                                          ↩   │ Reply
   │  │                                          ✓   │ Resolve
-  │  │                                          ▾   │ Expand
   │  ╰──────────────────────────────────────────────╯
 ```
 
-For two or more messages, the collapsed inline body is one synthetic thread
-summary, not M1. It deterministically shows a bounded plain-text excerpt of the
-latest message, that message's author and time, the total message count, and
-the thread's open/resolved state. Placement and hidden-draft state remain
-visible when they are not exact/absent. The summary is not authored Markdown,
-not a message, not independently selectable, and not clipboard/JSON content.
-Reply, Resolve/Reopen, and Expand are sibling commands rather than children of
-the disclosure trigger.
+For two or more messages, the inline body contains exactly two projections:
+M-summary and M-last. M-summary deterministically presents message count, latest
+activity, resolution, and any hidden Draft, placement, inclusion, or lock state
+needed to avoid a false compact representation. M-last presents a bounded view
+of the latest actual message. M-summary is not authored Markdown, not another
+message, and not independently selectable or output content. The right command
+column contains exactly Edit M-last, Reply, and Resolve/Reopen.
 
-### Expanded multi-message thread
+### Floating complete-thread overlay
 
 ```text
-  ◉── You · 2m
-  │  ╭──────────────────────────────────────────────╮
-  │  │ M1: Please keep source refresh separate.    │
-  │  ╰──────────────────────────────────────────────╯
-  │
-  ◉── You · 1m · Open · 2 messages
-  │  ╭──────────────────────────────────────────────╮
-  │  │ M2: This also needs a failure case.         │
-  │  │                                          ↩   │ Reply
-  │  │                                          ✓   │ Resolve
-  │  │                                          ▴   │ Collapse
-  │  ╰──────────────────────────────────────────────╯
+  ╭─ compact inline anchor (Pierre normal flow) ─────╮
+  │ M1  OR  M-summary + M-last                       │
+  ╰──────────────────────────────────────────────────╯
+                         │ anchored above code;
+                         │ Pierre row height unchanged
+                         ▼
+  ╭─ complete thread overlay ─────── Resolve/Reopen ─╮
+  │ M1                                          ✎  ↩ │
+  │ ──────────── bounded scroll area ────────────── │
+  │ M2                                             ↩ │
+  │ …                                                │
+  │ Mn                                          ✎  ↩ │
+  │ reply/edit composer                         ↶  ● │
+  ╰──────────────────────────────────────────────────╯
 ```
 
-Activating the summary expands the same inline thread and reveals M1 through
-Mn exactly once in flat chronological order. Replies do not become nested
-cards. Saved-message inclusion and contextual Copy/Export remain available
-with the inline thread; PR1 introduces no persistent global handoff toolbar or
-session chrome. Resolve and Reopen always operate on the whole thread.
+Expand, Edit, or Reply opens the anchored overlay; merely focusing an inline
+message or command does not. The overlay is non-modal, bounded in height, and
+internally scrollable. It displays M1 through Mn exactly once in flat
+chronological order above the compact inline anchor. Opening or closing it does
+not change Pierre's annotation-row height or scroll anchor. Each overlay message
+exposes Edit when editable and Reply in its right command column. The whole
+overlay exposes Resolve/Reopen once for the thread, never once per message.
+
+Reply and Edit authoring live inside the overlay. Save or Revert exits edit mode
+and keeps the overlay open so the resulting chronology remains inspectable.
+Escape while editing first flushes safely, exits edit mode, and keeps the
+overlay open; a later Escape closes it. Outside click safely flushes any active
+draft and closes the overlay. Closing returns focus to the exact inline control
+that invoked it. When closed, overlay content and controls leave keyboard and
+accessibility traversal.
 
 ### Collapsed durable draft
 
@@ -172,32 +196,44 @@ session chrome. Resolve and Reopen always operate on the whole thread.
   │  ╰──────────────────────────────────────────────╯
 ```
 
-An empty composer disappears. A durable non-empty draft may collapse, but its
-text summary, `Draft` label, author, and Resume action remain visible in the
-same shell rather than moving to a separate panel.
+An empty composer disappears. A durable non-empty new-root draft may collapse,
+but its text summary, `Draft` label, author, and Resume action remain visible in
+the same shell rather than moving to a separate panel. Reply and edit drafts
+remain part of their thread overlay contract above.
 
 ### Command ownership
 
 ```text
-thread commands
-  Reply · Resolve/Reopen · Expand/Collapse
+M1 right command column
+  Edit · Reply · Resolve/Reopen
 
-message commands
-  Edit when editable · Include/Exclude saved body from output
+multi-message compact right command column
+  Edit M-last · Reply · Resolve/Reopen
 
-draft commands
-  Revert · Save (the only primary action)
+composer right command column
+  Revert · Save primary
+
+timeline row
+  status · Include/Exclude · Expand · More
+  never Edit, Reply, or Resolve/Reopen
+
+overlay message right command column
+  Edit when editable · Reply
+
+overlay thread level
+  Resolve/Reopen exactly once
 
 output interaction
   Copy selected · Export selected as JSON
 ```
 
-Resolve/Reopen never appears as a message mutation, and Copy/Export never
-appears as delivery or resolution. Collapsed multi-message summaries expose
-only thread commands; message selection and editing become reachable after
-expansion. Commands render as icon-only buttons in the bottom-right rail with
-accessible names and tooltips; the product meaning above does not depend on one
-particular icon glyph.
+The core right-column controls are icon-only owned shadcn controls with one
+canonical command identity, optical-size rule, tooltip, and accessible name per
+action. Save alone receives primary treatment. The timeline uses one Expand
+action immediately before More and never duplicates Edit or the other core
+commands. Resolve/Reopen never appears as a message mutation, and Copy/Export
+never appears as delivery or resolution. The exact glyph and component mapping
+may be refined without changing this command ownership or visible hierarchy.
 
 ## Consumers and surfaces
 
@@ -302,10 +338,21 @@ new thread composer
           └─ Revert → empty composer
 
 saved root or reply message
-  → edit
+  → Edit opens anchored thread overlay
       → optional durable draft beside savedBody
-          → Save   → replace savedBody; clear draft
-          → Revert → clear draft; show savedBody
+          → Save   → replace savedBody; clear draft; overlay stays open
+          → Revert → clear draft; show savedBody; overlay stays open
+          → Escape → flush; exit edit mode; overlay stays open
+
+saved root or reply message
+  → Reply opens anchored thread overlay
+      → durable reply draft in the same flat thread
+
+overlay with no active editor
+  → Escape / outside click → close; return focus to inline invoker
+
+overlay with active editor
+  → outside click → flush draft; close; return focus to inline invoker
 
 savedBody absent + draft present   → new unsaved message
 savedBody present + draft absent   → saved message
@@ -407,6 +454,18 @@ Review view. Placement and immutable origin MUST remain durable when an inline
 slot is unavailable; PR1 MUST NOT invent a global fallback panel or fabricated
 line slot.
 
+An inactive saved thread MUST retain its inline annotation card anchored at its
+range endpoint and MUST NOT keep its source range painted. Focusing or otherwise
+activating a compact thread surface or one of its controls MUST paint that
+thread's complete stored range through Pierre's `selectedLines` presentation.
+While any saved comment is active, exactly that one comment's range MUST be
+painted; otherwise no saved comment range may be painted. Activating another
+thread MUST move the paint to that thread's range, and clearing comment-system
+focus and active state MUST clear saved-range paint. While a thread's
+complete-thread overlay remains open, its range MUST remain the one painted
+range. Focus alone MUST NOT open that overlay. The inline surface MUST NOT add a
+separate location command.
+
 Basis: P1-U5.
 
 ### R-P1-003 — First-non-empty durable draft
@@ -422,15 +481,27 @@ after the latest edit and MUST be persisted at least once every five seconds
 during continuous editing. Losing composer focus MUST request an immediate
 flush of current draft content. An untouched or whitespace-only composer MUST
 disappear on focus loss, Escape, or selection abandonment without creating a
-thread or message. Escape or admission of another range while a non-empty draft
-is expanded MUST request an immediate flush and collapse that composer; focus
-loss after non-empty input MUST flush but leave the draft visible.
+thread or message. Escape or admission of another range while a non-empty
+new-root draft is expanded MUST request an immediate flush and collapse that
+composer; focus loss after non-empty input MUST flush but leave the draft
+visible. Reply and edit composers MUST instead follow R-P1-016's overlay close
+sequence.
+
+From the first non-whitespace edit through every committed projection update,
+the same visible editor, local text, focus, and containing thread MUST remain
+continuous. If replacement thread state arrives in parts, the UI MUST keep the
+last complete demanded thread visible until its complete replacement is ready;
+it MUST NOT expose a temporary empty or partial projection that unmounts the
+editor, loses the first character, releases editing authority, or creates a
+duplicate reply.
 
 Basis: P1-U2, P1-U3.
 
 Failure expectation: after restart, the reviewer MUST see the latest completely
 persisted draft. A hard failure may lose an edit whose persistence had not
-completed, but MUST NOT lose an earlier completed flush.
+completed, but MUST NOT lose an earlier completed flush. A successful first
+draft commit MUST NOT cause even a transient disappearance, replacement, or
+focus loss of the editor or containing thread.
 
 ### R-P1-004 — Explicit message Save and Revert
 
@@ -499,6 +570,11 @@ Placement changes MUST NOT resolve or reopen a thread. Only explicit human
 actions may resolve or reopen the whole thread in PR1. Individual messages MUST
 NOT carry independent resolution state.
 
+Source-range paint MUST represent only the one currently active/focused comment
+or overlay-open thread; it MUST NOT encode open/resolved state or persist merely
+because a saved thread is visible. Moving or clearing that paint MUST remain a
+presentation-only change and MUST NOT change placement or resolution.
+
 Basis: P1-U6, P1-U8.
 
 ### R-P1-008 — Continuity assessment and reviewer authority
@@ -522,8 +598,9 @@ presented as proof of continuity. A continuity-evaluation failure MUST become
 Living/completed lifecycle and open-thread counts MUST remain durable canonical
 facts and MUST NOT be changed by Save, Copy, Export, placement updates, or
 thread resolution. PR1 MUST NOT expose customer-facing session finish/reopen,
-history, or open-thread warning chrome. A completed session remains read-only;
-its management surface is follow-up scope.
+session-history, or open-thread warning chrome. This prohibition does not remove
+R-P1-013's output-event history interaction. A completed session remains
+read-only; its management surface is follow-up scope.
 
 Basis: P1-U8.
 
@@ -864,30 +941,48 @@ reply message MUST be replyable, including after it becomes immutable through
 successful output. PR1 MUST expose no agent author, reply, query, or mutation
 behavior.
 
-A thread containing exactly one message MUST render that message directly
-inline and MUST NOT expose a thread disclosure. A thread containing two or more
-messages MUST initially render one synthetic thread-summary surface instead of
-M1. The summary MUST derive deterministically from the current thread
-projection, MUST identify the latest-message excerpt and author/time, total
-message count, resolution, and any hidden Draft, placement, inclusion, or lock
-status needed to avoid a false collapsed representation, and MUST NOT become a
-stored, selectable, exportable, or replyable message.
+A thread containing exactly one message MUST render M1 directly in its one
+compact inline surface. A thread containing two or more messages MUST render
+exactly M-summary plus M-last in that same compact surface; it MUST NOT render
+M1 through Mn as stacked content in Pierre normal flow. M-summary MUST derive
+deterministically from the current thread projection and identify message
+count, latest activity, resolution, and any hidden Draft, placement, inclusion,
+or lock state needed to avoid a false compact representation. It MUST NOT
+become a stored, selectable, exportable, or replyable message. M-last MUST
+remain the projection of the actual latest message.
 
-Activating the summary MUST expand that same inline thread to expose every
-message exactly once in flat chronological order. Starting or resuming a reply
-or edit MUST expand the thread and MUST keep it expanded while the editor is
-active. Per-message inclusion and reply actions hidden by the summary MUST
-remain reachable through expansion. Threads remain independently expandable
-and resolvable, including when Pierre presents several thread components in one
-physical annotation row at the same source coordinate. Resolve and Reopen MUST
-continue to affect the whole thread only.
+The inline surface MUST own one rounded visual boundary composed from the
+product's owned shadcn primitives. Its message body MUST be top-aligned and
+content-sized; the vertically stacked right command column MUST NOT determine
+body height. The M1 right column MUST contain exactly Edit M1 when M1 is
+editable, Reply, and Resolve/Reopen. The multi-message right column MUST contain
+exactly Edit M-last when M-last is editable, Reply, and Resolve/Reopen. Composer
+right columns MUST contain Revert and the primary-treated Save. These core
+controls MUST be icon-only controls with a canonical identity, tooltip, and
+accessible name. The separate timeline row MUST own status, contextually
+available Include/Exclude, Expand, and More; it MUST NOT duplicate Edit, Reply,
+or Resolve/Reopen, and Expand MUST appear immediately before More.
 
-The summary disclosure MUST be keyboard operable through Enter and Space,
-retain focus on its trigger when expanded, and keep Reply, Resolve/Reopen,
-Expand/Collapse, links, and selection controls outside the trigger. Hidden message
-controls MUST NOT remain in keyboard or accessibility traversal while the
-thread is collapsed. Disclosure MUST NOT consume Escape, which retains its
-range and draft behavior.
+Explicit activation of Expand, Edit, or Reply MUST open an anchored, non-modal,
+bounded-height, internally scrollable overlay above the compact inline anchor;
+focus alone MUST NOT open it. Focus on the compact surface or any of its controls
+MUST instead activate that thread and paint its complete stored range without
+changing Pierre row height. An open overlay MUST keep its thread active and its
+range painted while focus moves within the overlay. The overlay MUST expose M1
+through Mn exactly once in flat chronological order and MUST NOT change Pierre's
+annotation-row height or scroll anchor. Each overlay message's right column MUST
+expose Edit when that message is editable and Reply. Resolve/Reopen MUST appear
+once at overlay thread level and continue to affect the whole thread only.
+Threads MUST remain independently openable and resolvable when several thread
+projections share one physical annotation row or source coordinate.
+
+Reply and Edit authoring MUST occur in the overlay. Save or Revert MUST exit
+editing while leaving the overlay open. Escape during editing MUST first flush
+the active draft, exit edit mode, and leave the overlay open; a later Escape
+MUST close it. Outside click MUST safely flush an active draft and close the
+overlay. Closing MUST return focus to the exact inline control that opened it.
+Expand, Edit, Reply, and overlay controls MUST be keyboard operable, and closed
+overlay content MUST NOT remain in keyboard or accessibility traversal.
 
 Basis: P1-U14 and the confirmed PR1/PR2 boundary.
 
@@ -996,7 +1091,8 @@ PR1 does not define or imply:
 - a global/general-review panel, whole-file or session-level comment UI,
   persistent session chrome, or a comment sidebar (the planned follow-up PR
   owning thread navigation);
-- customer-facing session finish/reopen/history or open-thread warning UI;
+- customer-facing session finish/reopen/session-history or open-thread warning
+  UI; output-event history remains required by R-P1-013;
 - a Pierre dependency upgrade; 1.3.5 is stable follow-up work, not part of PR1.
 
 Stable session, thread, message, and batch identities; immutable
@@ -1008,27 +1104,34 @@ authorization to prebuild PR2 delivery machinery.
 | Requirements | Required evidence class |
 | --- | --- |
 | R-P1-001, R-P1-008, R-P1-009 | automated lifecycle/thread behavior plus manual cross-view interaction |
-| R-P1-002, R-P1-007 | automated selection/admission and placement-state behavior using real source evidence plus manual range-highlight, endpoint/gutter `+`, and inline-only visual proof |
-| R-P1-003, R-P1-004, R-P1-006 | automated draft/save/revert behavior with controlled time and restart state inspection |
+| R-P1-002, R-P1-007 | automated selection/admission and placement-state behavior using real source evidence plus manual pending-range and endpoint/gutter `+` proof; focus each compact thread and its controls, move activity between threads, keep overlay activity, and clear comment activity to prove exactly one full stored range is painted through `selectedLines`, inactive cards retain no range paint, and no location command exists |
+| R-P1-003, R-P1-004, R-P1-006 | automated draft/save/revert behavior with controlled time and restart state inspection, plus a real-thread Reply/Edit projection-reconciliation case proving the first character, editor identity, local value, focus, containing thread, and single editing authority remain continuous while state and content updates arrive separately |
 | R-P1-005, R-P1-017 | automated Markdown/size/frame admission plus manual visual inspection and boundary rejection |
 | R-P1-010, R-P1-011 | deterministic snapshot/Markdown behavior plus actual clipboard inspection |
 | R-P1-012 | schema validation, encode/decode, malformed-input, and unsupported-version evidence |
 | R-P1-013 | automated failure/partial-success behavior plus actual file/clipboard effect inspection |
 | R-P1-014 | integration behavior across File/Review and restart with canonical state inspection |
-| R-P1-016 | automated one-message direct rendering, two-or-more-message summary replacement, expansion to exactly one flat chronological sequence, independent same-coordinate threads, authoring-forced expansion, and keyboard/focus behavior plus manual File/Review, narrow-width, 200% text, reduced-motion, and packaged VoiceOver interaction |
+| R-P1-016 | automated M1-only and M-summary-plus-M-last inline rendering, focus activation without overlay expansion, overlay-retained active range, overlay-only flat chronology, unchanged Pierre row height/scroll anchor, exact command ownership, independent same-coordinate threads, overlay authoring, Escape/outside-click/focus-return behavior, and closed-overlay accessibility exclusion plus manual File/Review, narrow-width, 200% text, reduced-motion, and packaged VoiceOver interaction |
 | R-P1-015 | dependency/surface inspection proving the complete journey without PR2 machinery |
 | Reliability obligations | corrupt-local-database recovery proving visible pre-acknowledgement degradation, rejected mutations, retained recovery witness, and retained quarantined files |
 
 Packaged interaction proof MUST demonstrate the complete human journey in both
 viewers, including drag feedback without composer creation, endpoint and
 single-line gutter `+` admission, empty-composer dismissal, non-empty draft
-collapse/recovery, one-message direct rendering, multi-message summary without
-M1, expansion to every message, independent expansion of same-coordinate
-threads, keyboard Save/newline/disclosure behavior, shared-shell visual quality,
-actual clipboard Markdown, actual JSON export, worktree change, placement
-degradation, explicit whole-thread resolution, and restoration. It MUST also
-show that summary/full-thread replacement reflows through Pierre without
-clipping, overlapping, persistent flicker, or a competing scroll writer.
+collapse/recovery, first Reply/Edit character continuity without editor remount,
+M1-only inline rendering, M-summary plus M-last inline rendering, overlay-only
+M1-through-Mn chronology, independent overlays for same-coordinate threads,
+keyboard Save/newline/overlay behavior, exact timeline/right-column commands,
+top-aligned content-sized bodies, and one rounded shared-shell visual quality.
+It MUST prove that focus activates but does not expand a compact comment, an
+open overlay retains its range, activity moves paint to another complete stored
+range, clearing comment activity removes range paint, and inactive saved
+threads retain only endpoint-anchored cards. It MUST inspect actual clipboard
+Markdown and JSON export, then demonstrate worktree change, placement
+degradation, explicit whole-thread resolution, and restoration. Opening and closing the
+overlay MUST leave Pierre row height and scroll anchoring unchanged, with no
+clipping, overlap, editor disappearance, first-character loss, persistent
+flicker, duplicate reply, or competing scroll writer.
 
 ## Traceability
 

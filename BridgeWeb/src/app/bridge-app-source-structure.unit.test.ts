@@ -56,6 +56,23 @@ describe('BridgeApp source structure', () => {
 		expect(source).not.toContain('renderSemantics: []');
 		expect(source).not.toContain('rows: []');
 	});
+
+	test('owns the Review annotation overlay beside the stable viewer shell', () => {
+		const reviewModeSource = readSource('bridge-app-review-viewer-mode.tsx');
+		const annotationHookSource = readSource(
+			'../review-viewer/code-view/use-bridge-code-view-worktree-annotations.tsx',
+		);
+		const codeViewPanelSource = readSource('../review-viewer/code-view/bridge-code-view-panel.tsx');
+		const codeViewFrameSource = readSource(
+			'../review-viewer/code-view/bridge-code-view-panel-frame.tsx',
+		);
+
+		expect(reviewModeSource).toContain('<WorktreeAnnotationThreadOverlayHost />');
+		expect(annotationHookSource).not.toContain('WorktreeAnnotationThreadOverlayHost');
+		expect(annotationHookSource).not.toContain('readonly overlay: ReactNode');
+		expect(codeViewPanelSource).not.toContain('annotationOverlay=');
+		expect(codeViewFrameSource).not.toContain('annotationOverlay');
+	});
 });
 
 function readSource(relativePath: string): string {

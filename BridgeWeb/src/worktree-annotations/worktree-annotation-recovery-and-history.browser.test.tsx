@@ -20,6 +20,7 @@ describe('worktree annotation recovery and rail history controls', () => {
 		const rendered = await render(<RecoveryAndHistoryFixture surface={surface} />);
 		await act(async (): Promise<void> => {
 			surface.publishProjectionState({
+				expectedThreadCount: 0,
 				recoveryStatus: 'recovered_degraded',
 				revision: 1,
 				sessions: [],
@@ -44,7 +45,7 @@ describe('worktree annotation recovery and rail history controls', () => {
 		const surface = new RecordingAnnotationBrowserSurface('review');
 		const rendered = await render(<RecoveryAndHistoryFixture surface={surface} />);
 		await act(async (): Promise<void> => {
-			surface.publishProjectionState({ revision: 1, sessions: [] });
+			surface.publishProjectionState({ expectedThreadCount: 0, revision: 1, sessions: [] });
 			await Promise.resolve();
 		});
 		await expect
@@ -53,6 +54,7 @@ describe('worktree annotation recovery and rail history controls', () => {
 
 		await act(async (): Promise<void> => {
 			surface.publishProjectionState({
+				expectedThreadCount: 0,
 				outputHistory: [outputHistorySummary()],
 				revision: 2,
 				sessions: [annotationSessionSummary({ revision: 2, sessionId: annotationSessionId })],

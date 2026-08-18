@@ -27,7 +27,10 @@ import {
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationCommandSchema,
 	bridgeWorkerAnnotationOutputInspectCommandSchema,
+	bridgeWorkerAnnotationOutputCandidatesPageEventSchema,
+	bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
+	bridgeWorkerAnnotationProjectionResyncCommandSchema,
 	bridgeWorkerAnnotationProjectionEventSchema,
 } from './bridge-worker-annotation-contracts.js';
 import {
@@ -95,14 +98,6 @@ export {
 	bridgeWorkerTransferDescriptorSchema,
 } from './bridge-worker-wire-base-contracts.js';
 export type { BridgeWorkerTransferDescriptor } from './bridge-worker-wire-base-contracts.js';
-export type {
-	BridgeWorkerAnnotationCommand,
-	BridgeWorkerAnnotationCommandAcceptedEvent,
-	BridgeWorkerAnnotationOutputInspectCommand,
-	BridgeWorkerAnnotationOutputInspectionEvent,
-	BridgeWorkerAnnotationProjectionEvent,
-} from './bridge-worker-annotation-contracts.js';
-
 export const bridgeWorkerSelectCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
 		command: z.literal('select'),
@@ -360,6 +355,8 @@ export const bridgeWorkerFileViewContentMetadataSchema = z
 export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('command', [
 	bridgeWorkerAnnotationCommandSchema,
 	bridgeWorkerAnnotationOutputInspectCommandSchema,
+	bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema,
+	bridgeWorkerAnnotationProjectionResyncCommandSchema,
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	bridgeWorkerHoverCommandSchema,
@@ -917,6 +914,7 @@ function validateBridgeWorkerPierreRenderPublicationIdentity(
 export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind', [
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
+	bridgeWorkerAnnotationOutputCandidatesPageEventSchema,
 	bridgeWorkerAnnotationProjectionEventSchema,
 	bridgeWorkerHealthEventSchema,
 	bridgeWorkerSlicePatchEventSchema,
@@ -934,6 +932,7 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('kind', [
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
+	bridgeWorkerAnnotationOutputCandidatesPageEventSchema,
 	bridgeWorkerAnnotationProjectionEventSchema,
 	bridgeWorkerHealthEventSchema,
 	bridgeWorkerSlicePatchEventSchema,

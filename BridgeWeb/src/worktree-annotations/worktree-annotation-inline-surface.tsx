@@ -1,8 +1,7 @@
-import type { ReactElement, ReactNode, Ref } from 'react';
+import type { FocusEvent, MouseEvent, ReactElement, ReactNode } from 'react';
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar.js';
 import { Button } from '@/components/ui/button.js';
-import { CollapsibleTrigger } from '@/components/ui/collapsible.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.js';
 import { cn } from '@/lib/utils.js';
 
@@ -13,6 +12,9 @@ export interface WorktreeAnnotationInlineSurfaceProps {
 	readonly continueTimeline?: boolean | undefined;
 	readonly draft?: boolean | undefined;
 	readonly metadata: ReactNode;
+	readonly onBlurCapture?: ((event: FocusEvent<HTMLElement>) => void) | undefined;
+	readonly onFocusCapture?: ((event: FocusEvent<HTMLElement>) => void) | undefined;
+	readonly timelineActions?: ReactNode | undefined;
 }
 
 export function WorktreeAnnotationInlineSurface(
@@ -24,12 +26,21 @@ export function WorktreeAnnotationInlineSurface(
 			data-annotation-active={props.active === true ? 'true' : 'false'}
 			data-annotation-draft={props.draft === true ? 'present' : 'absent'}
 			data-testid="worktree-annotation-message"
+			data-worktree-annotation-interaction
+			onBlurCapture={props.onBlurCapture}
+			onFocusCapture={props.onFocusCapture}
+			tabIndex={0}
 		>
 			<Avatar aria-label="You">
 				<AvatarFallback>Y</AvatarFallback>
 			</Avatar>
-			<div className="flex min-w-0 flex-wrap items-center gap-1.5 self-center text-xs/relaxed text-comment-muted">
-				{props.metadata}
+			<div className="flex min-w-0 items-center gap-1.5 self-center text-xs/relaxed text-comment-muted">
+				<div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{props.metadata}</div>
+				{props.timelineActions === undefined ? null : (
+					<div aria-label="Comment timeline actions" className="flex shrink-0 items-center gap-0.5">
+						{props.timelineActions}
+					</div>
+				)}
 			</div>
 			<div className="flex justify-center" aria-hidden="true">
 				{props.continueTimeline === false ? null : (
@@ -38,13 +49,16 @@ export function WorktreeAnnotationInlineSurface(
 			</div>
 			<div
 				className={cn(
-					'mt-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-end overflow-hidden rounded-2xl border bg-comment-surface text-comment-foreground shadow-sm transition-colors',
+					'relative mt-1 min-h-16 min-w-0 overflow-hidden rounded-2xl border bg-comment-surface text-comment-foreground shadow-sm transition-colors',
 					props.active === true ? 'border-comment-active' : 'border-comment-border',
 				)}
 			>
-				<div className="min-w-0 p-3">{props.children}</div>
+				<div className="min-w-0 p-3 pr-8">{props.children}</div>
 				{props.commands === undefined ? null : (
-					<div aria-label="Comment commands" className="flex flex-col items-center gap-0.5 p-1">
+					<div
+						aria-label="Comment commands"
+						className="absolute right-1 bottom-1 flex flex-col items-center gap-0.5"
+					>
 						{props.commands}
 					</div>
 				)}
@@ -57,7 +71,7 @@ export interface WorktreeAnnotationCommandButtonProps {
 	readonly children: ReactNode;
 	readonly disabled?: boolean | undefined;
 	readonly label: string;
-	readonly onClick: () => void;
+	readonly onClick: (event: MouseEvent<HTMLButtonElement>) => void;
 	readonly preserveEditorFocus?: boolean | undefined;
 	readonly primary?: boolean | undefined;
 }
@@ -78,40 +92,6 @@ export function WorktreeAnnotationCommandButton(
 						onPointerDown={(event) => {
 							if (props.preserveEditorFocus === true) event.preventDefault();
 						}}
-					/>
-				}
-			>
-				{props.children}
-			</TooltipTrigger>
-			<TooltipContent side="right">{props.label}</TooltipContent>
-		</Tooltip>
-	);
-}
-
-export interface WorktreeAnnotationDisclosureButtonProps {
-	readonly buttonRef?: Ref<HTMLButtonElement> | undefined;
-	readonly children: ReactNode;
-	readonly disabled?: boolean | undefined;
-	readonly label: string;
-}
-
-export function WorktreeAnnotationDisclosureButton(
-	props: WorktreeAnnotationDisclosureButtonProps,
-): ReactElement {
-	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<CollapsibleTrigger
-						render={
-							<Button
-								aria-label={props.label}
-								disabled={props.disabled}
-								ref={props.buttonRef}
-								size="icon-xs"
-								variant="ghost"
-							/>
-						}
 					/>
 				}
 			>

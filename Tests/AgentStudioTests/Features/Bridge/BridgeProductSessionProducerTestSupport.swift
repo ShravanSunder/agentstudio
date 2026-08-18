@@ -56,6 +56,16 @@ actor BridgeProductProducerRegistryTestHarness {
         )
     }
 
+    func attemptNonterminalFrameAdmission(
+        for lease: BridgeProductProducerLease,
+        build: BridgeProductProducerRegistry.FrameBuilder
+    ) throws -> BridgeProductProducerNonterminalAdmissionResult {
+        try registry.attemptNonterminalFrameAdmission(
+            for: lease,
+            build: build
+        )
+    }
+
     func enqueueTerminalFrame(
         for lease: BridgeProductProducerLease,
         build: BridgeProductProducerRegistry.FrameBuilder
@@ -168,14 +178,18 @@ struct BridgeProductSessionProducerHarness {
     let productAdmission: BridgeProductAdmissionContext
     let session: BridgeProductSession
 
-    static func opened() async throws -> Self {
+    static func opened(
+        session providedSession: BridgeProductSession? = nil
+    ) async throws -> Self {
         let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes)
-        let session = try BridgeProductSession(
-            paneSessionId: bridgeProductTestPaneSessionId,
-            workerInstanceId: bridgeProductTestWorkerInstanceId,
-            capabilityBytes: capabilityBytes
-        )
+        let session =
+            try providedSession
+            ?? BridgeProductSession(
+                paneSessionId: bridgeProductTestPaneSessionId,
+                workerInstanceId: bridgeProductTestWorkerInstanceId,
+                capabilityBytes: capabilityBytes
+            )
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let request = try bridgeProductControlRequest([
             "kind": "workerSession.open",

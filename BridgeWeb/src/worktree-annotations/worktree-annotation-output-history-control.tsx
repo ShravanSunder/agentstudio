@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/popover.js';
 
 import {
+	WorktreeAnnotationOutputControls,
 	WorktreeAnnotationOutputHistory,
 	type WorktreeAnnotationOutputInspectionState,
 } from './worktree-annotation-output-controls.js';
@@ -33,8 +34,11 @@ export function WorktreeAnnotationOutputHistoryControl(props: {
 	const [isOutputPending, setIsOutputPending] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
 	const history = projection.outputHistory;
+	const handoffSession = projection.sessions.find(
+		(session): boolean => session.eligibleWithoutInlinePlacementCount > 0,
+	);
 
-	if (history.length === 0) return null;
+	if (history.length === 0 && handoffSession === undefined) return null;
 
 	const inspectOutput = async (attemptId: string): Promise<void> => {
 		setInspection({ attemptId, kind: 'loading' });
@@ -71,43 +75,54 @@ export function WorktreeAnnotationOutputHistoryControl(props: {
 	};
 
 	return (
-		<Popover
-			onOpenChange={(nextOpen): void => {
-				setIsOpen(nextOpen);
-				if (!nextOpen) setInspection(null);
-			}}
-			open={isOpen}
-		>
-			<Button
-				aria-label="Output history"
-				data-testid={props['data-testid']}
-				onClick={() => setIsOpen(true)}
-				ref={triggerRef}
-				size="icon-xs"
-				title="Output history"
-				variant="ghost"
-			>
-				<HistoryIcon />
-			</Button>
-			<PopoverContent
-				align="end"
-				anchor={triggerRef}
-				className="max-h-[min(36rem,var(--available-height))] w-96 gap-2 overflow-y-auto"
-			>
-				<PopoverHeader>
-					<PopoverTitle>Output history</PopoverTitle>
-					<PopoverDescription>
-						Inspect or repeat exact durable output. This view does not navigate comments.
-					</PopoverDescription>
-				</PopoverHeader>
-				<WorktreeAnnotationOutputHistory
-					history={history}
-					inspection={inspection}
-					isOutputPending={isOutputPending}
-					onInspect={inspectOutput}
-					onRepeat={repeatOutput}
+		<>
+			{handoffSession === undefined ? null : (
+				<WorktreeAnnotationOutputControls
+					activeSessionId={handoffSession.sessionId}
+					compact
+					triggerLabel="Handoff saved comments"
 				/>
-			</PopoverContent>
-		</Popover>
+			)}
+			{history.length === 0 ? null : (
+				<Popover
+					onOpenChange={(nextOpen): void => {
+						setIsOpen(nextOpen);
+						if (!nextOpen) setInspection(null);
+					}}
+					open={isOpen}
+				>
+					<Button
+						aria-label="Output history"
+						data-testid={props['data-testid']}
+						onClick={() => setIsOpen(true)}
+						ref={triggerRef}
+						size="icon-xs"
+						title="Output history"
+						variant="ghost"
+					>
+						<HistoryIcon />
+					</Button>
+					<PopoverContent
+						align="end"
+						anchor={triggerRef}
+						className="max-h-[min(36rem,var(--available-height))] w-96 gap-2 overflow-y-auto"
+					>
+						<PopoverHeader>
+							<PopoverTitle>Output history</PopoverTitle>
+							<PopoverDescription>
+								Inspect or repeat exact durable output. This view does not navigate comments.
+							</PopoverDescription>
+						</PopoverHeader>
+						<WorktreeAnnotationOutputHistory
+							history={history}
+							inspection={inspection}
+							isOutputPending={isOutputPending}
+							onInspect={inspectOutput}
+							onRepeat={repeatOutput}
+						/>
+					</PopoverContent>
+				</Popover>
+			)}
+		</>
 	);
 }

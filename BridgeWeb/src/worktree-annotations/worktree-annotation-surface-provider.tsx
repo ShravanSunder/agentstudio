@@ -14,7 +14,10 @@ import {
 
 import type { BridgeMarkdownRenderWorkerClient } from '../app/markdown/worker/bridge-markdown-render-worker-client.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
-import { createWorktreeAnnotationEditToken } from './worktree-annotation-edit-token.js';
+import {
+	useWorktreeAnnotationInteraction,
+	WorktreeAnnotationInteractionProvider,
+} from './worktree-annotation-interaction.js';
 import {
 	createWorktreeAnnotationSurfaceClient,
 	emptyWorktreeAnnotationProjectionSnapshot,
@@ -30,8 +33,6 @@ const worktreeAnnotationSessionSelectionContext =
 	createContext<WorktreeAnnotationSessionSelection | null>(null);
 const worktreeAnnotationEditSurfaceRegistryContext =
 	createContext<WorktreeAnnotationEditSurfaceRegistry | null>(null);
-const worktreeAnnotationInteractionContext =
-	createContext<WorktreeAnnotationInteractionController | null>(null);
 
 export interface WorktreeAnnotationSessionCapabilities {
 	readonly canCreateAnnotations: boolean;
@@ -55,22 +56,6 @@ type WorktreeAnnotationEditSurfaceKind = 'message' | 'newMessage';
 interface WorktreeAnnotationEditSurfaceCounts {
 	readonly message: number;
 	readonly newMessage: number;
-}
-
-export type WorktreeAnnotationEditorState =
-	| { readonly editToken: string; readonly kind: 'message'; readonly messageId: string }
-	| { readonly editToken: string; readonly kind: 'reply' };
-
-export interface WorktreeAnnotationInteractionController {
-	readonly activeThreadId: string | null;
-	readonly activateThread: (threadId: string) => void;
-	readonly clearActiveThread: () => void;
-	readonly clearEditor: (threadId: string) => void;
-	readonly editorForThread: (threadId: string) => WorktreeAnnotationEditorState | null;
-	readonly isThreadExpanded: (threadId: string) => boolean;
-	readonly setThreadExpanded: (threadId: string, expanded: boolean) => void;
-	readonly startMessageEdit: (threadId: string, messageId: string) => void;
-	readonly startReply: (threadId: string) => void;
 }
 
 export interface WorktreeAnnotationSessionSelection {
@@ -119,13 +104,6 @@ export function WorktreeAnnotationSurfaceProvider(
 	const editSurfaceCountsByEditTokenRef = useRef<
 		ReadonlyMap<string, WorktreeAnnotationEditSurfaceCounts>
 	>(new Map());
-	const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-	const [expandedThreadIds, setExpandedThreadIds] = useState<ReadonlySet<string>>(
-		() => new Set<string>(),
-	);
-	const [editorsByThreadId, setEditorsByThreadId] = useState<
-		ReadonlyMap<string, WorktreeAnnotationEditorState>
-	>(() => new Map<string, WorktreeAnnotationEditorState>());
 	useEffect((): void => {
 		if (explicitSessionId === null && applicableLivingSessionIds.length === 1) {
 			setExplicitSessionId(applicableLivingSessionIds[0] ?? null);
@@ -144,7 +122,8 @@ export function WorktreeAnnotationSurfaceProvider(
 			: null;
 	const activeSession =
 		projection.sessions.find((session): boolean => session.sessionId === activeSessionId) ?? null;
-	const recoveryAllowsMutations = projection.recoveryStatus === 'available';
+	const recoveryAllowsMutations =
+		projection.recoveryStatus === 'available' && projection.transportStatus.kind === 'available';
 	const canMutateActiveSession =
 		recoveryAllowsMutations &&
 		activeSession?.lifecycle === 'living' &&
@@ -253,68 +232,6 @@ export function WorktreeAnnotationSurfaceProvider(
 			releaseEditWhenInactive,
 		],
 	);
-	const activateThread = useCallback((threadId: string): void => {
-		setActiveThreadId(threadId);
-	}, []);
-	const clearActiveThread = useCallback((): void => {
-		setActiveThreadId(null);
-	}, []);
-	const setThreadExpanded = useCallback((threadId: string, expanded: boolean): void => {
-		setExpandedThreadIds((currentThreadIds) => {
-			if (currentThreadIds.has(threadId) === expanded) return currentThreadIds;
-			const nextThreadIds = new Set(currentThreadIds);
-			if (expanded) nextThreadIds.add(threadId);
-			else nextThreadIds.delete(threadId);
-			return nextThreadIds;
-		});
-	}, []);
-	const setThreadEditor = useCallback(
-		(threadId: string, editor: WorktreeAnnotationEditorState | null): void => {
-			setEditorsByThreadId((currentEditors) => {
-				const nextEditors = new Map(currentEditors);
-				if (editor === null) nextEditors.delete(threadId);
-				else nextEditors.set(threadId, editor);
-				return nextEditors;
-			});
-			if (editor !== null) {
-				setActiveThreadId(threadId);
-				setExpandedThreadIds((currentThreadIds) => new Set([...currentThreadIds, threadId]));
-			}
-		},
-		[],
-	);
-	const interactionController = useMemo<WorktreeAnnotationInteractionController>(
-		() => ({
-			activeThreadId,
-			activateThread,
-			clearActiveThread,
-			clearEditor: (threadId): void => setThreadEditor(threadId, null),
-			editorForThread: (threadId): WorktreeAnnotationEditorState | null =>
-				editorsByThreadId.get(threadId) ?? null,
-			isThreadExpanded: (threadId): boolean => expandedThreadIds.has(threadId),
-			setThreadExpanded,
-			startMessageEdit: (threadId, messageId): void =>
-				setThreadEditor(threadId, {
-					editToken: createWorktreeAnnotationEditToken(),
-					kind: 'message',
-					messageId,
-				}),
-			startReply: (threadId): void =>
-				setThreadEditor(threadId, {
-					editToken: createWorktreeAnnotationEditToken(),
-					kind: 'reply',
-				}),
-		}),
-		[
-			activeThreadId,
-			activateThread,
-			clearActiveThread,
-			editorsByThreadId,
-			expandedThreadIds,
-			setThreadEditor,
-			setThreadExpanded,
-		],
-	);
 	useEffect((): (() => void) => {
 		void annotationClient.execute({ kind: 'session.discover' }).catch((): void => {});
 		return (): void => annotationClient.dispose();
@@ -322,13 +239,13 @@ export function WorktreeAnnotationSurfaceProvider(
 	return (
 		<worktreeAnnotationMarkdownClientContext.Provider value={props.markdownWorkerClient ?? null}>
 			<worktreeAnnotationSurfaceClientContext.Provider value={annotationClient}>
-				<worktreeAnnotationInteractionContext.Provider value={interactionController}>
+				<WorktreeAnnotationInteractionProvider>
 					<worktreeAnnotationEditSurfaceRegistryContext.Provider value={editSurfaceRegistry}>
 						<worktreeAnnotationSessionSelectionContext.Provider value={sessionSelection}>
 							{props.children}
 						</worktreeAnnotationSessionSelectionContext.Provider>
 					</worktreeAnnotationEditSurfaceRegistryContext.Provider>
-				</worktreeAnnotationInteractionContext.Provider>
+				</WorktreeAnnotationInteractionProvider>
 			</worktreeAnnotationSurfaceClientContext.Provider>
 		</worktreeAnnotationMarkdownClientContext.Provider>
 	);
@@ -354,13 +271,7 @@ export function useWorktreeAnnotationSessionSelection(): WorktreeAnnotationSessi
 	return selection;
 }
 
-export function useWorktreeAnnotationInteraction(): WorktreeAnnotationInteractionController {
-	const interaction = useContext(worktreeAnnotationInteractionContext);
-	if (interaction === null) {
-		throw new Error('Worktree annotation interaction requires a surface provider.');
-	}
-	return interaction;
-}
+export { useWorktreeAnnotationInteraction };
 
 export function useWorktreeAnnotationActiveEditTokens(): ReadonlySet<string> {
 	return (

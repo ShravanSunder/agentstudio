@@ -1,15 +1,44 @@
 import { describe, expect, test } from 'vitest';
 
+import { bridgeProductWorktreeAnnotationOperationSchema } from '../core/comm-worker/bridge-product-call-contracts.js';
 import {
 	clearWorktreeAnnotationOutputSelection,
 	createWorktreeAnnotationOutputSelection,
 	selectAllEligibleWorktreeAnnotationOutput,
 	selectedWorktreeAnnotationMessageIds,
 	toggleWorktreeAnnotationOutputMessage,
-	worktreeAnnotationOutputWireSelection,
+	worktreeAnnotationOutputTransferOperations,
 } from './worktree-annotation-output-selection.js';
 
 describe('worktree annotation output selection', () => {
+	test('chunks the middle 65 of 130 eligible messages into one total explicit transfer', () => {
+		const eligibleMessageIds = Array.from(
+			{ length: 130 },
+			(_value, index): string => `00000000-0000-7000-8000-${String(index + 1).padStart(12, '0')}`,
+		);
+		const middleSixtyFive = eligibleMessageIds.slice(32, 97);
+
+		const operations = worktreeAnnotationOutputTransferOperations({
+			outputKind: 'clipboardMarkdown',
+			selection: { kind: 'explicit', messageIds: new Set(middleSixtyFive) },
+			sessionId: '00000000-0000-7000-8000-000000000001',
+			transferId: 'transfer-middle-65',
+		});
+
+		expect(operations.map((operation) => operation.kind)).toEqual([
+			'output.selection.begin',
+			'output.selection.chunk',
+			'output.selection.chunk',
+			'output.selection.commit',
+		]);
+		expect(
+			operations.every(
+				(operation) => bridgeProductWorktreeAnnotationOperationSchema.safeParse(operation).success,
+			),
+		).toBe(true);
+		expect(operations[1]).toMatchObject({ messageIds: middleSixtyFive.slice(0, 64), ordinal: 0 });
+		expect(operations[2]).toMatchObject({ messageIds: middleSixtyFive.slice(64), ordinal: 1 });
+	});
 	test('starts as an empty explicit selection and toggles individual messages explicitly', () => {
 		const emptySelection = createWorktreeAnnotationOutputSelection();
 		const selected = toggleWorktreeAnnotationOutputMessage(emptySelection, 'message-1', true);
@@ -18,10 +47,6 @@ describe('worktree annotation output selection', () => {
 		expect(selectedWorktreeAnnotationMessageIds(selected, ['message-1', 'message-2'])).toEqual([
 			'message-1',
 		]);
-		expect(worktreeAnnotationOutputWireSelection(selected)).toEqual({
-			kind: 'explicit',
-			messageIds: ['message-1'],
-		});
 	});
 
 	test('select all uses allEligible and tracks later deselections as exclusions', () => {
@@ -31,10 +56,6 @@ describe('worktree annotation output selection', () => {
 		expect(selectedWorktreeAnnotationMessageIds(excluded, ['message-1', 'message-2'])).toEqual([
 			'message-1',
 		]);
-		expect(worktreeAnnotationOutputWireSelection(excluded)).toEqual({
-			excludedMessageIds: ['message-2'],
-			kind: 'allEligible',
-		});
 		expect(clearWorktreeAnnotationOutputSelection()).toEqual({
 			kind: 'explicit',
 			messageIds: new Set(),
@@ -49,9 +70,13 @@ describe('worktree annotation output selection', () => {
 		const selectedAll = selectAllEligibleWorktreeAnnotationOutput();
 
 		expect(selectedWorktreeAnnotationMessageIds(selectedAll, eligibleMessageIds)).toHaveLength(65);
-		expect(worktreeAnnotationOutputWireSelection(selectedAll)).toEqual({
-			excludedMessageIds: [],
-			kind: 'allEligible',
-		});
+		expect(
+			worktreeAnnotationOutputTransferOperations({
+				outputKind: 'jsonFile',
+				selection: selectedAll,
+				sessionId: '00000000-0000-7000-8000-000000000001',
+				transferId: 'transfer-all',
+			}).map((operation) => operation.kind),
+		).toEqual(['output.selection.begin', 'output.selection.commit']);
 	});
 });

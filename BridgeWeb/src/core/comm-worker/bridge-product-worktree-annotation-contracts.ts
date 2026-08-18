@@ -15,13 +15,22 @@ const annotationSessionSummarySchema = z
 	.object({
 		completedAt: annotationNullableDateSchema,
 		createdAt: annotationDateSchema,
+		eligibleMessageCount: bridgeProductNonnegativeSequenceSchema,
+		eligibleWithoutInlinePlacementCount: bridgeProductNonnegativeSequenceSchema,
 		lifecycle: z.enum(['living', 'completed']),
 		semanticRevision: bridgeProductNonnegativeSequenceSchema,
 		sessionId: bridgeProductReviewPublicationIdSchema,
 		sourceRelationship: z.enum(['applicable', 'uncertain', 'detached']),
 		updatedAt: annotationDateSchema,
 	})
-	.strict();
+	.strict()
+	.refine(
+		(session) => session.eligibleWithoutInlinePlacementCount <= session.eligibleMessageCount,
+		{
+			message: 'Eligible messages without inline placement cannot exceed all eligible messages.',
+			path: ['eligibleWithoutInlinePlacementCount'],
+		},
+	);
 
 const annotationOutputResultSummarySchema = z
 	.object({
@@ -66,12 +75,6 @@ const annotationOutputCommandOutcomeSchema = z.discriminatedUnion('kind', [
 		.object({
 			finalizationError: z.string().min(1),
 			kind: z.literal('partial_success'),
-			summary: annotationOutputResultSummarySchema,
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal('unknown'),
 			summary: annotationOutputResultSummarySchema,
 		})
 		.strict(),
@@ -236,6 +239,7 @@ export const bridgeProductWorktreeAnnotationMessageEntrySchema = z
 const annotationProjectionStateSchema = z
 	.object({
 		commandOutcomes: z.array(annotationCommandOutcomeSchema).max(128).readonly(),
+		expectedThreadCount: bridgeProductNonnegativeSequenceSchema,
 		outputHistory: z.array(annotationOutputHistorySummarySchema).max(128).readonly(),
 		recoveryStatus: z.enum(['available', 'recovered_degraded', 'unavailable']),
 		revision: bridgeProductNonnegativeSequenceSchema,

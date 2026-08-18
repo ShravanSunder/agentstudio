@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import Foundation
 import GRDB
 import Testing
 
@@ -6,6 +7,19 @@ import Testing
 
 @Suite("WorktreeAnnotationMigrationTests")
 struct WorktreeAnnotationMigrationTests {
+    @Test("output candidate SQL binds product enum values instead of owning their vocabulary")
+    func outputCandidateSQLBindsProductEnumValues() throws {
+        let projectRoot = try #require(String(#filePath).components(separatedBy: "/Tests/").first)
+        let sourceURL = URL(fileURLWithPath: projectRoot).appending(
+            path:
+                "Sources/AgentStudio/Features/Bridge/State/MainActor/Persistence/WorktreeAnnotationSQLiteRepository+OutputCandidates.swift"
+        )
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(!source.contains("message.status = 'editable'"))
+        #expect(source.contains("WorktreeAnnotationMessageStatus.editable.rawValue"))
+    }
+
     @Test("local migration creates the complete annotation authority schema")
     func localMigrationCreatesCompleteAnnotationAuthoritySchema() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()

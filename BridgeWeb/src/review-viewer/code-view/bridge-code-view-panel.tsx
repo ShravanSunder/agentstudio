@@ -328,7 +328,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		},
 		[scheduleVisibleHeaderItemIdsPublish],
 	);
-
 	const setCodeViewHandle = useCallback(
 		(handle: CodeViewHandle<undefined> | null): void => {
 			const previousHandle = codeViewHandleRef.current;
@@ -495,7 +494,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		presentation: annotationPresentation,
 		sourceKey,
 	});
-
 	useEffect((): (() => void) | void => {
 		const codeViewHandle = codeViewHandleRef.current;
 		const codeViewInstance = codeViewHandle?.getInstance();

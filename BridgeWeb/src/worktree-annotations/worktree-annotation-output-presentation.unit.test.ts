@@ -50,7 +50,7 @@ describe('worktree annotation output presentation', () => {
 		});
 	});
 
-	test('states exactly what partial and unknown Copy outcomes prove', () => {
+	test('states exactly what a partial Copy outcome proves', () => {
 		expect(
 			annotationOutputFeedback({
 				finalizationError: 'forcedFailure',
@@ -59,16 +59,6 @@ describe('worktree annotation output presentation', () => {
 			}),
 		).toMatchObject({
 			message: 'Clipboard contains 2 comments, but durable history was not recorded.',
-			severity: 'warning',
-		});
-		expect(
-			annotationOutputFeedback({
-				kind: 'unknown',
-				summary: outputSummary({ messageCount: 2, outputKind: 'clipboard_markdown' }),
-			}),
-		).toMatchObject({
-			message:
-				'Exact bytes for 2 comments are saved, but whether the clipboard was changed is unknown.',
 			severity: 'warning',
 		});
 	});

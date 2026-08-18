@@ -24,7 +24,8 @@ extension BridgePaneProductSchemeProvider {
                     request.correlation,
                     productAdmission
                 )
-            case .fileAnnotationsOutputInspect, .reviewAnnotationsOutputInspect:
+            case .fileAnnotationsOutputInspect, .reviewAnnotationsOutputInspect,
+                .fileAnnotationsOutputCandidatesQuery, .reviewAnnotationsOutputCandidatesQuery:
                 break
             case .fileSourceCurrent:
                 break

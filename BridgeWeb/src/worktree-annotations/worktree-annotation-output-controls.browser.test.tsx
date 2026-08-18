@@ -15,6 +15,7 @@ import {
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import { WorktreeAnnotationOutputControls } from './worktree-annotation-output-controls.js';
+import { WorktreeAnnotationOutputHistoryControl } from './worktree-annotation-output-history-control.js';
 import type {
 	WorktreeAnnotationCommandOutcome,
 	WorktreeAnnotationOutputHistorySummary,
@@ -31,6 +32,74 @@ type WorktreeAnnotationOutputResultSummary = Extract<
 >['summary'];
 
 describe('worktree annotation output controls', () => {
+	test.each(['fileView', 'review'] as const)(
+		'offers first Copy and Export in %s when every eligible thread lacks an inline placement',
+		async (surfaceKind) => {
+			const surface = new RecordingAnnotationBrowserSurface(surfaceKind);
+			const rendered = await render(
+				<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+					<WorktreeAnnotationOutputHistoryControl />
+				</WorktreeAnnotationSurfaceProvider>,
+			);
+			await act(async (): Promise<void> => {
+				surface.publishProjectionState({
+					expectedThreadCount: 1,
+					revision: 3,
+					sessions: [
+						annotationSessionSummary({
+							eligibleMessageCount: 1,
+							eligibleWithoutInlinePlacementCount: 1,
+							revision: 3,
+							sessionId: annotationSessionId,
+						}),
+					],
+				});
+				surface.publishThread({
+					context: {
+						...annotationSessionThreadContext(annotationHeadThreadId),
+						placement: 'outdated',
+					},
+					message: annotationMessage({
+						messageId: '00000000-0000-7000-8000-000000000031',
+						sessionRevision: 3,
+						threadId: annotationHeadThreadId,
+					}),
+				});
+				await Promise.resolve();
+			});
+
+			await expect
+				.element(rendered.getByRole('button', { name: 'Handoff saved comments' }))
+				.toBeVisible();
+			await performBrowserAction(() =>
+				rendered.getByRole('button', { name: 'Handoff saved comments' }).click(),
+			);
+			await settleBrowserCondition(
+				(): boolean => outputPopoverElement() !== null,
+				'Expected all-unplaced output surface to open.',
+			);
+			await performBrowserAction(() =>
+				rendered.getByRole('button', { name: 'Select all' }).click(),
+			);
+			await performBrowserAction(() =>
+				rendered.getByRole('button', { name: 'Copy 1 comment' }).click(),
+			);
+			await performBrowserAction(async (): Promise<void> => {
+				surface.settleMostRecentOutput({ kind: 'destination_cancelled' });
+			});
+			await performBrowserAction(() =>
+				rendered.getByRole('button', { name: 'Export 1 comment' }).click(),
+			);
+			await performBrowserAction(async (): Promise<void> => {
+				surface.settleMostRecentOutput({ kind: 'destination_cancelled' });
+			});
+			expect(
+				surface.sentOperations
+					.filter((operation) => operation.kind === 'output.selection.begin')
+					.map((operation) => operation.outputKind),
+			).toEqual(['clipboardMarkdown', 'jsonFile']);
+		},
+	);
 	test('prepares only the saved messages selected by the reviewer', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await render(
@@ -40,9 +109,11 @@ describe('worktree annotation output controls', () => {
 		);
 		await act(async (): Promise<void> => {
 			surface.publishProjectionState({
+				expectedThreadCount: 2,
 				revision: 3,
 				sessions: [
 					annotationSessionSummary({
+						eligibleMessageCount: 2,
 						revision: 3,
 						sessionId: annotationSessionId,
 					}),
@@ -69,7 +140,7 @@ describe('worktree annotation output controls', () => {
 		const savedMessageCheckboxes = rendered.getByRole('checkbox');
 		await expect.element(savedMessageCheckboxes).toHaveLength(2);
 		await expect
-			.element(rendered.getByText('Thread 1 · Root comment · Saved revision 1'))
+			.element(rendered.getByText('Sources/App/View.swift:8 · current · exact'))
 			.toBeVisible();
 		expect(outputPopoverElement()?.textContent).not.toContain('00000099');
 		const popover = outputPopoverElement();
@@ -97,20 +168,72 @@ describe('worktree annotation output controls', () => {
 			rendered.getByRole('button', { name: 'Copy 1 comment' }).click(),
 		);
 
-		expect(surface.sentOperations.find((operation) => operation.kind === 'output.prepare')).toEqual(
-			{
-				kind: 'output.prepare',
-				outputKind: 'clipboardMarkdown',
-				selection: {
-					kind: 'explicit',
-					messageIds: ['00000000-0000-7000-8000-000000000031'],
-				},
-				sessionId: annotationSessionId,
-			},
+		const transferOperations = surface.sentOperations.filter(
+			(operation): operation is Extract<typeof operation, { readonly transferId: string }> =>
+				'transferId' in operation,
 		);
+		expect(transferOperations.map((operation) => operation.kind)).toEqual([
+			'output.selection.begin',
+			'output.selection.chunk',
+			'output.selection.commit',
+		]);
+		expect(transferOperations[1]).toMatchObject({
+			messageIds: ['00000000-0000-7000-8000-000000000031'],
+			ordinal: 0,
+			selectionMode: 'explicit',
+		});
+		expect(new Set(transferOperations.map((operation) => operation.transferId))).toHaveLength(1);
 		await performBrowserAction(async (): Promise<void> => {
 			surface.settleMostRecentOutput({ kind: 'destination_cancelled' });
 		});
+	});
+
+	test('keeps selection across candidate pages and retries a failed next page', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView', {
+			candidateQueryFailureCalls: [2],
+		});
+		const rendered = await render(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<TestOutputComposition />
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				expectedThreadCount: 17,
+				revision: 3,
+				sessions: [
+					annotationSessionSummary({
+						eligibleMessageCount: 17,
+						revision: 3,
+						sessionId: annotationSessionId,
+					}),
+				],
+			});
+			for (let index = 0; index < 17; index += 1) {
+				const suffix = String(index + 40).padStart(12, '0');
+				const threadId = `00000000-0000-7000-8000-${String(index + 80).padStart(12, '0')}`;
+				surface.publishThread({
+					context: annotationOutputThreadContext(threadId, index + 1),
+					message: annotationMessage({
+						messageId: `00000000-0000-7000-8000-${suffix}`,
+						ordinal: index,
+						sessionRevision: 3,
+						threadId,
+					}),
+				});
+			}
+			await Promise.resolve();
+		});
+
+		await openReviewOutput(rendered);
+		await expect.element(rendered.getByRole('checkbox')).toHaveLength(16);
+		await performBrowserAction(() => rendered.getByRole('checkbox').nth(0).click());
+		await performBrowserAction(() => rendered.getByRole('button', { name: 'Load more' }).click());
+		await expect.element(rendered.getByRole('button', { name: 'Retry' })).toBeVisible();
+		await expect.element(rendered.getByRole('checkbox').nth(0)).toBeChecked();
+		await performBrowserAction(() => rendered.getByRole('button', { name: 'Retry' }).click());
+		await expect.element(rendered.getByRole('checkbox')).toHaveLength(17);
+		await expect.element(rendered.getByRole('checkbox').nth(0)).toBeChecked();
 	});
 
 	test('shows the Copy toast, closes only output UI, and does not resolve the saved comment', async () => {
@@ -134,7 +257,8 @@ describe('worktree annotation output controls', () => {
 			(): boolean =>
 				surface.sentOperations.some(
 					(operation): boolean =>
-						operation.kind === 'output.prepare' && operation.outputKind === 'clipboardMarkdown',
+						operation.kind === 'output.selection.commit' &&
+						operation.selectionMode === 'allEligible',
 				),
 			'Expected a clipboard output preparation command.',
 		);
@@ -192,14 +316,11 @@ describe('worktree annotation output controls', () => {
 			rendered.getByRole('button', { name: 'Copy 1 comment' }).click(),
 		);
 		expect(
-			surface.sentOperations.findLast((operation) => operation.kind === 'output.prepare'),
-		).toEqual({
-			kind: 'output.prepare',
-			outputKind: 'clipboardMarkdown',
-			selection: {
-				kind: 'explicit',
-				messageIds: ['00000000-0000-7000-8000-000000000031'],
-			},
+			surface.sentOperations.findLast((operation) => operation.kind === 'output.selection.chunk'),
+		).toMatchObject({
+			messageIds: ['00000000-0000-7000-8000-000000000031'],
+			ordinal: 0,
+			selectionMode: 'explicit',
 			sessionId: annotationSessionId,
 		});
 		await performBrowserAction(async (): Promise<void> => {
@@ -217,6 +338,7 @@ describe('worktree annotation output controls', () => {
 		);
 		await act(async (): Promise<void> => {
 			surface.publishProjectionState({
+				expectedThreadCount: 0,
 				outputHistory: [outputHistorySummary({ attemptId, state: 'unknown' })],
 				revision: 4,
 				sessions: [
@@ -268,7 +390,8 @@ describe('worktree annotation output controls', () => {
 		});
 		await performBrowserAction(async (): Promise<void> => {
 			surface.settleMostRecentOutput({
-				kind: 'unknown',
+				effectError: 'clipboard unavailable',
+				kind: 'effect_failed',
 				summary: outputResultSummary({
 					messageCount: 1,
 					outputKind: 'clipboard_markdown',
@@ -288,6 +411,7 @@ describe('worktree annotation output controls', () => {
 		);
 		await act(async (): Promise<void> => {
 			surface.publishProjectionState({
+				expectedThreadCount: 0,
 				outputHistory: [
 					outputHistorySummary({
 						attemptId: partialAttemptId,
@@ -437,9 +561,11 @@ function annotationOutputThreadContext(
 async function publishOutputFixture(surface: RecordingAnnotationBrowserSurface): Promise<void> {
 	await act(async (): Promise<void> => {
 		surface.publishProjectionState({
+			expectedThreadCount: 1,
 			revision: 3,
 			sessions: [
 				annotationSessionSummary({
+					eligibleMessageCount: 1,
 					revision: 3,
 					sessionId: annotationSessionId,
 				}),

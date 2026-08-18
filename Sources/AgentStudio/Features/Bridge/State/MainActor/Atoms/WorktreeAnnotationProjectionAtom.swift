@@ -257,7 +257,7 @@ package final class WorktreeAnnotationProjectionAtom {
         surface: BridgeProductSurface
     ) -> AsyncStream<WorktreeAnnotationProjectionSnapshot> {
         let subscriptionID = UUIDv7.generate()
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             snapshotSubscriptions[subscriptionID] = WorktreeAnnotationSnapshotSubscription(
                 worktreeID: worktreeID,
                 contextID: contextID,

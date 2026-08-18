@@ -1,4 +1,6 @@
+import { runBridgeCommWorkerAnnotationOutputCandidatesQuery } from './bridge-comm-worker-annotation-output-candidates-query.js';
 import { runBridgeCommWorkerAnnotationOutputInspection } from './bridge-comm-worker-annotation-output-inspection.js';
+import { runAnnotationProjectionResyncWithDeadline } from './bridge-comm-worker-annotation-projection-resync.js';
 import {
 	bridgeCommWorkerAnnotationCommandAcceptedEvent,
 	bridgeCommWorkerAnnotationProjectionEvent,
@@ -550,8 +552,15 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 						? {}
 						: { telemetryClient: props.telemetryClient }),
 				}),
-			onFileAnnotationEvent: (event): void => {
-				port.postMessage(bridgeCommWorkerAnnotationProjectionEvent({ event, surface: 'fileView' }));
+			isCurrentController: (): boolean => productController === installedProductController,
+			onFileAnnotationEvent: (event, subscriptionId): void => {
+				port.postMessage(
+					bridgeCommWorkerAnnotationProjectionEvent({
+						event,
+						subscriptionId,
+						surface: 'fileView',
+					}),
+				);
 			},
 			onFileMetadataDemandFailure: (): void => {
 				port.postMessage(buildBridgeWorkerFileMetadataInterestFailureHealthEvent());
@@ -631,8 +640,14 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				publishUpdatingChrome();
 				return receipt;
 			},
-			onReviewAnnotationEvent: (event): void => {
-				port.postMessage(bridgeCommWorkerAnnotationProjectionEvent({ event, surface: 'review' }));
+			onReviewAnnotationEvent: (event, subscriptionId): void => {
+				port.postMessage(
+					bridgeCommWorkerAnnotationProjectionEvent({
+						event,
+						subscriptionId,
+						surface: 'review',
+					}),
+				);
 			},
 			onReviewMetadataFailure: (_error, workerDerivationEpoch): void => {
 				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
@@ -777,6 +792,33 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		for (const message of immediateMessages) {
 			port.postMessage(message);
 		}
+		if (parsedMessage.data.command === 'annotationProjectionResync' && messages.length === 0) {
+			const currentController = productController;
+			if (currentController === null) {
+				port.postMessage(
+					buildBridgeWorkerRuntimeCommandFailedHealthEvent({
+						message: 'Annotation projection resync is unavailable.',
+						requestId: parsedMessage.data.requestId,
+					}),
+				);
+			} else {
+				const task = currentController.beginAnnotationProjectionResync({
+					requestId: parsedMessage.data.requestId,
+					subscriptionId: parsedMessage.data.subscriptionId,
+					surface: parsedMessage.data.surface === 'fileView' ? 'file' : 'review',
+				});
+				runAnnotationProjectionResyncWithDeadline({
+					publish: (message): void => port.postMessage(message),
+					...(props.scheduleAnnotationProjectionResyncDeadline === undefined
+						? {}
+						: {
+								scheduleDeadline: props.scheduleAnnotationProjectionResyncDeadline,
+							}),
+					task,
+					timeoutMilliseconds: productControlTimeoutMilliseconds,
+				});
+			}
+		}
 		if (
 			productControlCommand?.command.method === 'review.comparisonTargets.query' &&
 			!shouldSendProductControl
@@ -791,6 +833,16 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					port.postMessage(inspection.message, [...inspection.transferList]);
 				},
 				productTransport,
+				signal: panePresentationAuthority.workSignal,
+				timeoutMilliseconds: productControlTimeoutMilliseconds,
+			});
+		}
+		if (parsedMessage.data.command === 'annotationOutputCandidatesQuery' && messages.length === 0) {
+			runBridgeCommWorkerAnnotationOutputCandidatesQuery({
+				command: parsedMessage.data,
+				productTransport,
+				publishFailure: (failure): void => port.postMessage(failure),
+				publishPage: (page): void => port.postMessage(page),
 				signal: panePresentationAuthority.workSignal,
 				timeoutMilliseconds: productControlTimeoutMilliseconds,
 			});

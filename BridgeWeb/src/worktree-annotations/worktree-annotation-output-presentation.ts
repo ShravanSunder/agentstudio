@@ -57,8 +57,6 @@ export function annotationOutputFeedback(
 			);
 		case 'partial_success':
 			return visibleOutputFeedback(partialSuccessMessage(outcome.summary), 'warning');
-		case 'unknown':
-			return visibleOutputFeedback(unknownOutcomeMessage(outcome.summary), 'warning');
 		default:
 			return assertNeverOutputOutcome(outcome);
 	}
@@ -116,15 +114,6 @@ function partialSuccessMessage(
 	return summary.destinationFilename === null
 		? `A file containing ${count} was written, but durable history and its destination filename were not recorded.`
 		: `${summary.destinationFilename} contains ${count}, but durable history was not recorded.`;
-}
-
-function unknownOutcomeMessage(
-	summary: Extract<WorktreeAnnotationOutputOutcome, { readonly kind: 'unknown' }>['summary'],
-): string {
-	const count = commentCountLabel(summary.messageCount);
-	return summary.outputKind === 'clipboard_markdown'
-		? `Exact bytes for ${count} are saved, but whether the clipboard was changed is unknown.`
-		: `Exact bytes for ${count} are saved, but whether a file was written is unknown.`;
 }
 
 function visibleOutputFeedback(
