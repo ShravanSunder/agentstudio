@@ -276,6 +276,8 @@ struct RepoExplorerCommandPresentationBatchTests {
                     let pane = store.createPane()
                     let tab = Tab(paneId: pane.id)
                     store.appendTab(tab)
+                    let secondPane = store.createPane()
+                    store.appendTab(Tab(paneId: secondPane.id))
                     visibleWorktrees.setVisibleWorktreeIds([])
 
                     let batch = RepoExplorerCommandPresentationBatch(
@@ -321,15 +323,6 @@ struct RepoExplorerCommandPresentationBatchTests {
                     for _ in 0..<20 { await Task.yield() }
                     #expect(batch.snapshot.generation == managementGeneration)
 
-                    let capabilityBatchCountBeforeActiveTab =
-                        replacementHandler.repoExplorerCapabilityRequestBatches.count
-                    let secondPane = store.createPane()
-                    store.appendTab(Tab(paneId: secondPane.id))
-                    await eventually("active tab capability recompute") {
-                        replacementHandler.repoExplorerCapabilityRequestBatches.count
-                            > capabilityBatchCountBeforeActiveTab
-                    }
-                    #expect(batch.snapshot.generation == managementGeneration)
                     let activeTabGeneration = managementGeneration
                     let presentationBeforeUnrelatedRepo = batch.snapshot.results
                     let capabilityBatchCountBeforeUnrelatedRepo =
@@ -347,6 +340,44 @@ struct RepoExplorerCommandPresentationBatchTests {
                         replacementHandler.repoExplorerCapabilityRequestBatches.count
                             == capabilityBatchCountBeforeUnrelatedRepo
                     )
+                }
+            }
+        )
+    }
+
+    @Test("active tab recomputes capability without changing equal presentation")
+    func activeTabRecomputesCapabilityWithoutChangingEqualPresentation() async throws {
+        let handler = RepoExplorerCommandPresentationRecordingHandler()
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = handler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                await withAsyncTestCoreAtoms { _ in
+                    let store = WorkspaceStore()
+                    let firstPane = store.createPane()
+                    store.appendTab(Tab(paneId: firstPane.id))
+                    let batch = RepoExplorerCommandPresentationBatch(
+                        store: store,
+                        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                        visibleWorktrees: SidebarVisibleWorktreesRuntimeAtom(),
+                        dispatcher: .shared
+                    )
+                    batch.start()
+                    defer { batch.stop() }
+
+                    _ = await handler.batchArrivals.wait { _ in true }
+                    let initialGeneration = batch.snapshot.generation
+                    handler.repoExplorerCapabilityRequestBatches.removeAll()
+
+                    let secondPane = store.createPane()
+                    store.appendTab(Tab(paneId: secondPane.id))
+
+                    _ = await handler.batchArrivals.wait { _ in true }
+                    #expect(!handler.repoExplorerCapabilityRequestBatches.isEmpty)
+                    #expect(batch.snapshot.generation == initialGeneration)
                 }
             }
         )
