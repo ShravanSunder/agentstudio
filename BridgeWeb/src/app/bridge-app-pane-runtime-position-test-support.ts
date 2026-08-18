@@ -445,10 +445,9 @@ interface ReviewPositionFile {
 function makeReviewFiles(): readonly ReviewPositionFile[] {
 	return Array.from({ length: reviewFileCount }, (_, fileIndex): ReviewPositionFile => {
 		const ordinal = String(fileIndex + 1).padStart(3, '0');
-		const groupOrdinal = String(Math.floor(fileIndex / 4) + 1).padStart(2, '0');
 		return {
 			itemId: `position-review-${ordinal}`,
-			path: `Sources/PositionGroup${groupOrdinal}/PositionReview${ordinal}.swift`,
+			path: `Sources/PositionFile${ordinal}.swift`,
 		};
 	});
 }
@@ -536,6 +535,8 @@ function makeReviewDisplayItem(reviewFile: ReviewPositionFile): BridgeWorkerRevi
 			{ contentRole: 'head', itemId: reviewFile.itemId, lineCount: reviewLineCount },
 		],
 		metadata: {
+			additions: 1,
+			deletions: 1,
 			basePath: reviewFile.path,
 			changeKind: 'modified',
 			contentDescriptorIdsByRole: {},

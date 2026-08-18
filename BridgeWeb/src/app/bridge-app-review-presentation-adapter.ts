@@ -663,7 +663,7 @@ function presentationItemForDisplay(
 		displayItem.extentFacts.map((fact) => [fact.contentRole, fact.lineCount]),
 	);
 	return {
-		additions: 0,
+		additions: metadata.additions,
 		annotationSummary: { commentCount: 0, threadCount: 0, unresolvedThreadCount: 0 },
 		baseContentHash: metadata.contentHashesByRole.base ?? null,
 		basePath: metadata.basePath,
@@ -673,7 +673,7 @@ function presentationItemForDisplay(
 		contentHashAlgorithm: displayItem.contentFacts[0]?.contentDigest.algorithm ?? 'unknown',
 		contentLineCountsByRole,
 		contentRoles: {},
-		deletions: 0,
+		deletions: metadata.deletions,
 		extension: metadata.extension,
 		fileClass: metadata.fileClass,
 		headContentHash: metadata.contentHashesByRole.head ?? null,

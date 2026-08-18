@@ -2,6 +2,8 @@ import type { BridgeProductReviewItemMetadata } from './bridge-product-review-me
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 
 const reviewItemMetadata = {
+	additions: 1,
+	deletions: 1,
 	basePath: 'Sources/App.swift',
 	changeKind: 'modified',
 	contentDescriptorIdsByRole: {},

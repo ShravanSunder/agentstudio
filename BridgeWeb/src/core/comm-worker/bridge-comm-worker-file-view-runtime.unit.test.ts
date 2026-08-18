@@ -253,7 +253,7 @@ describe('Bridge comm worker File View runtime', () => {
 		});
 	});
 
-	test('publishes unavailable instead of leaving selected File View content loading when descriptor is absent', async () => {
+	test('keeps selected File View content loading while its streamed descriptor is still pending', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
 		let openCount = 0;
 		const store = createSelectedFileViewRuntimeStore();
@@ -273,29 +273,8 @@ describe('Bridge comm worker File View runtime', () => {
 		});
 
 		expect(openCount).toBe(0);
-		expect(store.getState().availabilityByItemId.get('file-1')).toBe('unavailable');
-		expect(postedMessages).toEqual([
-			{
-				message: {
-					wireVersion: 1,
-					direction: 'serverWorkerToMain',
-					kind: 'fileRenderPatch',
-					publicationSequence: 12,
-					surface: 'file',
-					transferDescriptors: [],
-					workerDerivationEpoch: 17,
-					patches: [
-						{
-							slice: 'contentAvailability',
-							operation: 'upsert',
-							itemId: 'file-1',
-							payload: { reason: 'descriptor_missing', state: 'unavailable' },
-						},
-					],
-				},
-				transferList: [],
-			},
-		]);
+		expect(store.getState().availabilityByItemId.get('file-1')).toBe('loading');
+		expect(postedMessages).toEqual([]);
 	});
 
 	test('publishes unavailable instead of opening content when selected metadata is not File View content', async () => {

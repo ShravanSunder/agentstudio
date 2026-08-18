@@ -397,6 +397,8 @@ function reviewMetadataWindowRange(props: {
 
 function reviewItem(itemId: string, path: string): BridgeProductReviewItemMetadata {
 	return {
+		additions: 1,
+		deletions: 1,
 		basePath: path,
 		changeKind: 'modified' as const,
 		contentDescriptorIdsByRole: { head: `descriptor-${itemId}` },

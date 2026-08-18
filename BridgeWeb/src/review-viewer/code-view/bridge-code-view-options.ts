@@ -52,12 +52,12 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 	themeType: 'dark',
 	// F1 height truth: give Pierre estimate metrics that match the rendered CSS instead of
 	// its 20/44/8 defaults, so an unhydrated item reserves the height it will measure. The
-	// header estimate must match the `[data-diffs-header] { min-height: 32px }` below; the
+	// header estimate must match the `[data-diffs-header] { height: 40px }` below; the
 	// line height matches Pierre's own `--diffs-line-height` default (20px), and spacing
 	// stays at the package default because the layout does not override hunk/file padding.
 	itemMetrics: {
 		lineHeight: 20,
-		diffHeaderHeight: 32,
+		diffHeaderHeight: 40,
 		spacing: 8,
 	},
 	diffStyle: 'split',
@@ -89,7 +89,8 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 			container-name: bridge-code-view-sticky-header;
 			background-color: var(--bridge-surface-bg);
 			cursor: default;
-			min-height: 32px;
+			height: 40px;
+			min-height: 40px;
 			user-select: none;
 		}
 
@@ -109,6 +110,7 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 		}
 
 		[data-diffs-header='default'] {
+			align-items: center;
 			border-block: 1px solid var(--bridge-border-subtle);
 			color: var(--bridge-text-secondary);
 			padding-inline: 12px;

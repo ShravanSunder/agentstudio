@@ -551,6 +551,9 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 					/>,
 				),
 			);
+			expect(
+				document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
+			).toContain('Loading file');
 			await rendered.rerender(
 				annotationHarness.wrap(
 					<BridgeFileViewerCodePanel

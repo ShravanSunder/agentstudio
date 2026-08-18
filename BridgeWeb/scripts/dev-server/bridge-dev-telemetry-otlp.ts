@@ -91,6 +91,8 @@ const elapsedHistogramBounds = [
 ] as const satisfies readonly number[];
 
 const bridgeDevStringAttributeKeys = new Set<string>([
+	'agentstudio.bridge.activation.cause',
+	'agentstudio.bridge.activation.from_viewer',
 	'agentstudio.bridge.comparison.attempt.status',
 	'agentstudio.bridge.comparison.package_match',
 	'agentstudio.bridge.comparison.pane_state',
@@ -125,6 +127,7 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.result',
 	'agentstudio.bridge.result_reason',
 	'agentstudio.bridge.rpc.method_class',
+	'agentstudio.bridge.selection.origin',
 	'agentstudio.bridge.slice',
 	'agentstudio.bridge.surface',
 	'agentstudio.bridge.telemetry.drop_reason',
@@ -133,13 +136,22 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.viewer.ttfi_variant',
 	'agentstudio.bridge.worker.action',
 	'agentstudio.bridge.worker.command',
+	'agentstudio.bridge.worker.file_mode_dispatch',
+	'agentstudio.bridge.worker.file_select_dispatch',
 	'agentstudio.bridge.worker.lane',
 	'agentstudio.bridge.worker.payload_class',
+	'agentstudio.bridge.worker.review_select_dispatch',
+	'agentstudio.bridge.worker.session_state',
 	'agentstudio.bridge.worker.task_kind',
 	'agentstudio.bridge.worker.work_kind',
 ]);
 
 const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySet<string>>([
+	[
+		'agentstudio.bridge.activation.cause',
+		new Set(['context_switcher', 'native_request', 'review_file_corner']),
+	],
+	['agentstudio.bridge.activation.from_viewer', new Set(['file', 'review'])],
 	[
 		'agentstudio.bridge.comparison.attempt.status',
 		new Set(['absent', 'pending', 'selection_required', 'settled', 'unavailable']),
@@ -188,9 +200,30 @@ const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySe
 		new Set(['applied', 'idempotent_replay', 'published', 'rendered']),
 	],
 	['agentstudio.bridge.viewer.ttfi_variant', new Set(['cold', 'warm'])],
+	[
+		'agentstudio.bridge.selection.origin',
+		new Set(['context_switcher', 'native_request', 'review_file_corner']),
+	],
+	[
+		'agentstudio.bridge.worker.file_mode_dispatch',
+		new Set(['dropped_detached', 'none', 'posted', 'queued_not_ready']),
+	],
+	[
+		'agentstudio.bridge.worker.file_select_dispatch',
+		new Set(['dropped_detached', 'none', 'posted', 'queued_not_ready']),
+	],
+	[
+		'agentstudio.bridge.worker.review_select_dispatch',
+		new Set(['dropped_detached', 'none', 'posted', 'queued_not_ready']),
+	],
+	[
+		'agentstudio.bridge.worker.session_state',
+		new Set(['awaiting_bootstrap', 'bootstrapping', 'disposed', 'ready', 'replacement_requested']),
+	],
 ]);
 
 const bridgeDevNumericAttributeKeys = new Set<string>([
+	'agentstudio.bridge.activation.sequence',
 	'agentstudio.bridge.content.byte_length',
 	'agentstudio.bridge.content.byte_count',
 	'agentstudio.bridge.content.chunk_byte_count',
@@ -215,6 +248,7 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.presentation.revision',
 	'agentstudio.bridge.interaction.sequence',
 	'agentstudio.bridge.review.generation',
+	'agentstudio.bridge.source.generation',
 	'agentstudio.bridge.review.item_count',
 	'agentstudio.bridge.scroll.frame_gap.max_ms',
 	'agentstudio.bridge.scroll.frame_gap.over_16ms.count',
@@ -231,8 +265,11 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.visible_publisher.skipped.count',
 	'agentstudio.bridge.visible_row.count',
 	'agentstudio.bridge.worker.handler_duration_ms',
+	'agentstudio.bridge.worker.native_bootstrap_install.count',
 	'agentstudio.bridge.worker.patch_count',
+	'agentstudio.bridge.worker.queued_command.count',
 	'agentstudio.bridge.worker.queue_wait_ms',
+	'agentstudio.bridge.worker.replacement_request.count',
 	'agentstudio.bridge.worker.derivation_epoch',
 	'agentstudio.bridge.worker.source_epoch',
 	'agentstudio.bridge.worker.touched_key_count',
@@ -245,6 +282,7 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 ]);
 
 const bridgeDevBooleanAttributeKeys = new Set<string>([
+	'agentstudio.bridge.activation.source_available',
 	'agentstudio.bridge.already_selected',
 	'agentstudio.bridge.header_missing',
 	'agentstudio.bridge.header_supported',
@@ -264,6 +302,11 @@ const bridgeDevTelemetryUnsafeValuePatterns = [
 	/(^|[._-])comms?([._-]|$)/i,
 ] as const satisfies readonly RegExp[];
 
+const bridgeDevExplicitSafeTelemetryNames = new Set(['performance.bridge.web.comm_worker_session']);
+const bridgeDevExplicitSafeStringAttributePairs = new Set([
+	'agentstudio.bridge.phase\u0000comm_worker_session_snapshot',
+]);
+
 export function bridgeDevTelemetryObservationIsSafe(
 	observation: BridgeDevTelemetryObservation,
 ): boolean {
@@ -271,7 +314,10 @@ export function bridgeDevTelemetryObservationIsSafe(
 		return false;
 	}
 	for (const sample of observation.samples) {
-		if (!bridgeDevTelemetryStringValueIsSafe(sample.name)) {
+		if (
+			!bridgeDevTelemetryStringValueIsSafe(sample.name) &&
+			!bridgeDevExplicitSafeTelemetryNames.has(sample.name)
+		) {
 			return false;
 		}
 		for (const [key, value] of Object.entries(sample.stringAttributes)) {
@@ -583,11 +629,17 @@ function resourceAttributesForBridgeDevTelemetry(props: {
 }
 
 function bridgeDevStringAttributeIsSafe(key: string, value: string): boolean {
-	if (!bridgeDevStringAttributeKeys.has(key) || !bridgeDevTelemetryStringValueIsSafe(value)) {
+	if (!bridgeDevStringAttributeKeys.has(key)) {
 		return false;
 	}
 	const restrictedValues = bridgeDevRestrictedStringAttributeValuesByKey.get(key);
-	return restrictedValues === undefined || restrictedValues.has(value);
+	if (restrictedValues !== undefined) {
+		return restrictedValues.has(value);
+	}
+	return (
+		bridgeDevTelemetryStringValueIsSafe(value) ||
+		bridgeDevExplicitSafeStringAttributePairs.has(`${key}\u0000${value}`)
+	);
 }
 
 function bridgeDevTelemetryStringValueIsSafe(value: string): boolean {

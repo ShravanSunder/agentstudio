@@ -4,10 +4,7 @@ import type {
 	BridgeReviewItemDescriptor,
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeCodeViewContentFacts } from './bridge-code-view-materialization.js';
-import {
-	selectedBridgeCodeViewReviewContext,
-	type BridgeCodeViewMaterializationDiagnostic,
-} from './bridge-code-view-panel-support.js';
+import type { BridgeCodeViewMaterializationDiagnostic } from './bridge-code-view-panel-support.js';
 import type { BridgeCodeViewPanelProps } from './bridge-code-view-panel-types.js';
 
 interface SelectedContentSummary {
@@ -34,8 +31,14 @@ export function selectedBridgeCodeViewPanelContext(
 	readonly selectedDisplayPath: string | null;
 	readonly selectedReviewItem: BridgeReviewItemDescriptor | null;
 } {
+	const selectedItemId = props.selectedItemId;
 	return {
-		...selectedBridgeCodeViewReviewContext(props),
+		selectedDisplayPath:
+			selectedItemId === null
+				? null
+				: (props.projection.primaryDisplayPathByItemId[selectedItemId] ?? null),
+		selectedReviewItem:
+			selectedItemId === null ? null : (props.reviewPackage.itemsById[selectedItemId] ?? null),
 		selectedContentDiagnostics: selectedContentDiagnosticsForPanel({
 			selectedCodeViewItem: props.selectedCodeViewItem,
 			selectedItemId: props.selectedItemId,

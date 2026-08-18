@@ -31,6 +31,8 @@ export interface BridgeFileViewerTreePanelProps {
 	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
 	readonly filterMode: BridgeFileViewerFilterMode;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
+	readonly fileActivationSequence?: number | null;
+	readonly fileActivationStartedAtPerfNow?: number | null;
 	readonly isActive: boolean;
 	readonly isFilterMenuOpen: boolean;
 	readonly isSearchOpen: boolean;
@@ -67,6 +69,8 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 	const { searchError, searchText } = props;
 	const treeRuntime = useBridgeFileViewerPierreTreeRuntime({
 		completeFileQueryTransaction: props.completeFileQueryTransaction,
+		fileActivationSequence: props.fileActivationSequence ?? null,
+		fileActivationStartedAtPerfNow: props.fileActivationStartedAtPerfNow ?? null,
 		fileTreePatchStream: props.fileTreePatchStream,
 		treeRowByPath: props.treeRowByPath,
 		onSelectFile: props.onSelectFile,

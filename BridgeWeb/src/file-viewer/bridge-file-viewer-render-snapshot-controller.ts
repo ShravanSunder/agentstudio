@@ -291,13 +291,12 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 				const selection = props.selection ?? null;
 				if (
 					bridgeFileDisplayEventIsAccepted(currentFreshness, message) &&
-					(message.epoch > (currentFreshness?.epoch ?? message.epoch) ||
-						message.patches.some(
-							(patch): boolean =>
-								patch.slice === 'fileTree' &&
-								(patch.operation === 'reset' || patch.operation === 'replacementCommit'),
-						) ||
-						fileDisplayPatchDeletesSelection(message, selection))
+					(message.patches.some(
+						(patch): boolean =>
+							patch.slice === 'fileTree' &&
+							(patch.operation === 'reset' || patch.operation === 'replacementCommit'),
+					) ||
+						fileDisplayPatchInvalidatesSelection(message, selection))
 				) {
 					const retainedSelectedItem = fileDisplayPatchRetainsSelection(message, selection)
 						? selectedBridgeFileViewerCodeViewItemForSnapshot({
@@ -459,7 +458,7 @@ function fileDisplayPatchRetainsSelection(
 	return beginsSourceReplacement || commitsSourceReplacement;
 }
 
-function fileDisplayPatchDeletesSelection(
+function fileDisplayPatchInvalidatesSelection(
 	message: Extract<BridgeWorkerServerToMainMessage, { readonly kind: 'fileDisplayPatch' }>,
 	selection: BridgeFileViewerSelection | null,
 ): boolean {
@@ -467,8 +466,11 @@ function fileDisplayPatchDeletesSelection(
 	return message.patches.some(
 		(patch): boolean =>
 			patch.slice === 'fileItem' &&
-			((patch.operation === 'delete' && patch.itemId === selection.fileId) ||
-				patch.operation === 'reset'),
+			(patch.operation === 'reset' ||
+				(patch.operation === 'delete' && patch.itemId === selection.fileId) ||
+				(patch.operation === 'upsert' &&
+					patch.itemId === selection.fileId &&
+					patch.payload.displayPath !== selection.path)),
 	);
 }
 

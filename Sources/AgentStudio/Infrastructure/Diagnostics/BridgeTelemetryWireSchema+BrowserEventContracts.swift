@@ -33,6 +33,8 @@ extension BridgeTelemetryWireSchema {
         switch name {
         case "performance.bridge.web.code_view_item_materialize":
             codeViewItemMaterializeContractMatches(contract)
+        case "performance.bridge.web.comm_worker_session":
+            commWorkerSessionContractMatches(contract)
         case "performance.bridge.web.content_fetch":
             contentFetchContractMatches(contract)
         case "performance.bridge.web.frame_jank":
@@ -68,6 +70,8 @@ extension BridgeTelemetryWireSchema {
             rpcSendContractMatches(contract)
         case "performance.bridge.web.telemetry_drop":
             telemetryDropContractMatches(contract)
+        case "performance.bridge.web.viewer_activation":
+            viewerActivationContractMatches(contract)
         case "performance.bridge.web.worktree_file_intake_reject":
             worktreeFileIntakeRejectContractMatches(contract)
         default:
@@ -349,6 +353,9 @@ extension BridgeTelemetryWireSchema {
         if contract.phase == "review_ready" {
             return reviewReadyContractMatches(contract)
         }
+        if contract.phase == "selection_commit" {
+            return selectionCommitContractMatches(contract)
+        }
 
         let expectedNumericKeys: Set<String> =
             switch contract.phase {
@@ -359,17 +366,10 @@ extension BridgeTelemetryWireSchema {
             default:
                 []
             }
-        let expectedAdditionalStringKeys: Set<String> =
-            contract.phase == "selection_commit"
-            ? [
-                "agentstudio.bridge.result",
-                "agentstudio.bridge.result_reason",
-                "agentstudio.bridge.viewer",
-            ]
-            : [
-                "agentstudio.bridge.result",
-                "agentstudio.bridge.result_reason",
-            ]
+        let expectedAdditionalStringKeys: Set<String> = [
+            "agentstudio.bridge.result",
+            "agentstudio.bridge.result_reason",
+        ]
 
         return contract.matches(
             .init(
@@ -381,6 +381,71 @@ extension BridgeTelemetryWireSchema {
                 attributeKeys: .init(
                     additionalStringKeys: expectedAdditionalStringKeys,
                     numericKeys: expectedNumericKeys
+                )
+            )
+        )
+    }
+
+    private static func selectionCommitContractMatches(_ contract: EventContract) -> Bool {
+        let reviewMatches = contract.matches(
+            .init(
+                phase: "selection_commit",
+                plane: .data,
+                priority: .warm,
+                slice: .reviewProjection,
+                transport: "local",
+                additionalStringKeys: [
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.result_reason",
+                    "agentstudio.bridge.viewer",
+                ]
+            )
+        )
+        let fileMatches = contract.matches(
+            .init(
+                phase: "selection_commit",
+                plane: .data,
+                priority: .warm,
+                slice: .treePrepareInput,
+                transport: "local",
+                attributeKeys: .init(
+                    additionalStringKeys: [
+                        "agentstudio.bridge.result",
+                        "agentstudio.bridge.result_reason",
+                        "agentstudio.bridge.selection.origin",
+                        "agentstudio.bridge.viewer",
+                    ],
+                    numericKeys: [
+                        "agentstudio.bridge.activation.sequence",
+                        "agentstudio.bridge.source.generation",
+                    ]
+                )
+            )
+        )
+        return reviewMatches || fileMatches
+    }
+
+    private static func viewerActivationContractMatches(_ contract: EventContract) -> Bool {
+        contract.matches(
+            .init(
+                phase: "viewer_activation_requested",
+                plane: .control,
+                priority: .warm,
+                slice: .reviewRPC,
+                transport: "local",
+                attributeKeys: .init(
+                    additionalStringKeys: [
+                        "agentstudio.bridge.activation.cause",
+                        "agentstudio.bridge.activation.from_viewer",
+                        "agentstudio.bridge.result",
+                        "agentstudio.bridge.viewer",
+                    ],
+                    numericKeys: [
+                        "agentstudio.bridge.activation.sequence"
+                    ],
+                    booleanKeys: [
+                        "agentstudio.bridge.activation.source_available"
+                    ]
                 )
             )
         )

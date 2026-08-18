@@ -480,6 +480,52 @@ describe('Bridge File viewer render snapshot controller', () => {
 		expect(store.getSnapshot().rowPaintById['file-2']).toBeUndefined();
 	});
 
+	test('keeps selected File content ready across an unrelated incremental metadata mutation', () => {
+		const store = createBridgeMainRenderSnapshotStore();
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [fileDisplayEvent({ epoch: 1, projectionRevision: 1, sequence: 1 })],
+			renderSnapshotStore: store,
+			selection: { fileId: 'file-1', path: 'README.md' },
+		});
+		store.setWorkerCodeViewItem({ item: selectedItem, itemId: 'file-1' });
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [fileRenderPatchEvent({ workerDerivationEpoch: 1, publicationSequence: 2 })],
+			renderSnapshotStore: store,
+			selection: { fileId: 'file-1', path: 'README.md' },
+		});
+		const incrementalEvent = fileDisplayEvent({ epoch: 2, projectionRevision: 2, sequence: 3 });
+		const incrementalFilePatch = incrementalEvent.patches.find(
+			(patch) => patch.slice === 'fileItem' && patch.operation === 'upsert',
+		);
+		if (incrementalFilePatch?.slice !== 'fileItem' || incrementalFilePatch.operation !== 'upsert')
+			throw new Error('Expected an incremental File item patch fixture.');
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [
+				{
+					...incrementalEvent,
+					patches: [
+						{
+							...incrementalFilePatch,
+							itemId: 'file-2',
+							payload: {
+								...incrementalFilePatch.payload,
+								displayPath: 'OTHER.md',
+								rowId: 'row-2',
+							},
+						},
+					],
+				},
+			],
+			renderSnapshotStore: store,
+			selection: { fileId: 'file-1', path: 'README.md' },
+		});
+		expect(store.getSnapshot().codeViewItemsById['file-1']).toEqual(selectedItem);
+		expect(store.getSnapshot().contentAvailabilityById['file-1']).toEqual({ state: 'ready' });
+		expect(store.getSnapshot().rowPaintById['file-1']).toEqual({
+			contentCacheKey: 'cache-file-1',
+		});
+	});
+
 	test('projects selected stale source reconciliation availability as no File availability', () => {
 		// Arrange
 		const store = createBridgeMainRenderSnapshotStore();

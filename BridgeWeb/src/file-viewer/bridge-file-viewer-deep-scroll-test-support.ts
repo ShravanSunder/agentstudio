@@ -119,7 +119,11 @@ export async function assertCompleteFilePositionSurvivesModeSwitch(props: {
 	await actClick(requireActiveContextButton('review'));
 	await actFrame();
 	expect(appRoot.getAttribute('data-bridge-viewer-mode')).toBe('review');
-	expect(fileHost.hidden).toBe(true);
+	expect(fileHost.hidden).toBe(false);
+	expect(fileHost.getAttribute('aria-hidden')).toBe('true');
+	expect(fileHost.getAttribute('data-bridge-viewer-mode-active')).toBe('false');
+	expect(fileHost.inert).toBe(true);
+	expect(getComputedStyle(fileHost).visibility).toBe('hidden');
 	expect(props.treeScrollOwner.isConnected).toBe(true);
 	expect(props.codeScrollOwner.isConnected).toBe(true);
 
@@ -129,6 +133,10 @@ export async function assertCompleteFilePositionSurvivesModeSwitch(props: {
 
 	expect(appRoot.getAttribute('data-bridge-viewer-mode')).toBe('file');
 	expect(fileHost.hidden).toBe(false);
+	expect(fileHost.getAttribute('aria-hidden')).toBe('false');
+	expect(fileHost.getAttribute('data-bridge-viewer-mode-active')).toBe('true');
+	expect(fileHost.inert).toBe(false);
+	expect(getComputedStyle(fileHost).visibility).toBe('visible');
 	expect(findBridgeViewerTreeScrollOwner()).toBe(props.treeScrollOwner);
 	expect(document.querySelector('.bridge-code-view-scroll-owner')).toBe(props.codeScrollOwner);
 	expect(initialTreeScrollTop).toBeGreaterThan(0);

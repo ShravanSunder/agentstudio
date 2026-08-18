@@ -25,7 +25,6 @@ import {
 	bridgeCodeViewLoadingPlaceholderMatchesDescriptor,
 	codeViewHandleHasInstance,
 	controllerForHandle,
-	createBridgeCodeViewHeaderRenderers,
 	emptyMaterializationDiagnostic,
 	hasRenderedItemsSource,
 	isBridgeCodeViewItem,
@@ -74,6 +73,7 @@ import {
 	type BridgeCodeViewWorkerPreparedTelemetryContext,
 } from './bridge-code-view-worker-prepared-telemetry.js';
 import { useBridgeCodeViewCollapseController } from './use-bridge-code-view-collapse-controller.js';
+import { useBridgeCodeViewHeaderRenderers } from './use-bridge-code-view-header-renderers.js';
 import { useBridgeCodeViewInitialSelection } from './use-bridge-code-view-initial-selection.js';
 import { useBridgeCodeViewProgrammaticScroll } from './use-bridge-code-view-programmatic-scroll.js';
 import { useBridgeCodeViewSelectionScroll } from './use-bridge-code-view-selection-scroll.js';
@@ -386,16 +386,13 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			onControlHandleChange(null);
 		};
 	}, [onControlHandleChange, scrollToItem, setItemCollapsed]);
-	const headerRenderers = useMemo(
-		() =>
-			createBridgeCodeViewHeaderRenderers({
-				collapsedItemIds,
-				onHeaderVisibilityChange: handleHeaderVisibilityChange,
-				onToggleItemCollapse: toggleItemCollapse,
-				reviewPackage: props.reviewPackage,
-			}),
-		[collapsedItemIds, handleHeaderVisibilityChange, props.reviewPackage, toggleItemCollapse],
-	);
+	const headerRenderers = useBridgeCodeViewHeaderRenderers({
+		collapsedItemIds,
+		onHeaderVisibilityChange: handleHeaderVisibilityChange,
+		onOpenFile: props.onOpenFile,
+		onToggleItemCollapse: toggleItemCollapse,
+		reviewPackage: props.reviewPackage,
+	});
 	const loadingMaterializationItemIds = useMemo((): readonly string[] => {
 		return bridgeCodeViewLoadingMaterializationItemIdsForPanel({
 			selectedContentLoadingItemId: props.selectedContentLoadingItemId,

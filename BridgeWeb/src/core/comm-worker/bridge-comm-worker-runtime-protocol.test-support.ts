@@ -330,11 +330,13 @@ function reviewProductSnapshotFromRuntimeSource(
 		const contentRoles = itemContentSources.map((descriptor) => descriptor.role);
 		const displayPath = semantics?.displayPath ?? contentItem.path;
 		return {
+			additions: 0,
 			basePath: semantics?.basePath ?? displayPath,
 			changeKind: semantics?.changeKind ?? 'modified',
 			contentDescriptorIdsByRole,
 			contentHashesByRole,
 			contentRoles,
+			deletions: 0,
 			extension: reviewProductTestPathExtension(displayPath),
 			fileClass: 'source' as const,
 			headPath: semantics?.headPath ?? displayPath,

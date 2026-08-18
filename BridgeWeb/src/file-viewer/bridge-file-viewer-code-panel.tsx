@@ -150,7 +150,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		props.openFileState,
 		props.selectedCodeViewItem,
 	]);
-	const shouldRenderContentState = props.selectedCodeViewItem === null;
+	const shouldRenderContentState = props.openFileState.status !== 'ready';
 	useLayoutEffect((): void => {
 		if (props.selectedCodeViewItem === null) return;
 		reconcileBridgeCodeViewRenderFulfillment({
@@ -479,7 +479,7 @@ function BridgeFileViewerContentState(props: {
 	const label =
 		props.state.status === 'idle'
 			? 'Select a file'
-			: props.state.status === 'loading'
+			: props.state.status === 'loading' || props.state.status === 'stale'
 				? 'Loading file'
 				: 'Content unavailable';
 	return (

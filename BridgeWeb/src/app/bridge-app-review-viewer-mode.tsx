@@ -80,6 +80,7 @@ export interface BridgeReviewViewerModeProps {
 	readonly onNavigationSourceChange: (
 		source: Extract<BridgeAppNavigationSource, { readonly sourceKind: 'review' }> | null,
 	) => void;
+	readonly onOpenFile?: (path: string) => void;
 	readonly reviewClient: BridgePaneSurfaceClient;
 	readonly target?: EventTarget;
 	readonly telemetryRecorderRef: { readonly current: BridgeTelemetryRecorder };
@@ -102,6 +103,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		navigationCommand,
 		onActiveSourceChange,
 		onNavigationSourceChange,
+		onOpenFile,
 		reviewClient,
 		target = document,
 		telemetryRecorderRef,
@@ -478,6 +480,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		onFacetMenuOpenChange: setFacetMenuOpen,
 		onFilterChange: setReviewFilter,
 		onHoveredItemIdChange: publishHoveredReviewItemId,
+		...(onOpenFile === undefined ? {} : { onOpenFile }),
 	});
 	return (
 		<WorktreeAnnotationSurfaceProvider
@@ -573,6 +576,7 @@ function reviewPresentationState(props: {
 	readonly onFacetMenuOpenChange: (isOpen: boolean) => void;
 	readonly onFilterChange: (filter: BridgeReviewFilterCandidate) => void;
 	readonly onHoveredItemIdChange: (itemId: string | null) => void;
+	readonly onOpenFile?: (path: string) => void;
 }): BridgeReviewViewerPresentationState {
 	if (props.reviewSourceSlice === null) return { status: 'empty' };
 	if (props.reviewSourceSlice.status === 'failed') {
@@ -601,6 +605,7 @@ function reviewPresentationState(props: {
 			onFilterChange: props.onFilterChange,
 			onFacetMenuOpenChange: props.onFacetMenuOpenChange,
 			onHoveredItemIdChange: props.onHoveredItemIdChange,
+			...(props.onOpenFile === undefined ? {} : { onOpenFile: props.onOpenFile }),
 			onRetryComparison: props.onRetryComparison,
 			panelChromeSlice: props.panelChromeSlice,
 			projectionMode: props.projectionMode,

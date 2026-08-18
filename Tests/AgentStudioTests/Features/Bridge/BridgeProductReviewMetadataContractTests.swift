@@ -431,11 +431,13 @@ private func reviewContentSourceObject() -> [String: Any] {
 
 private func reviewItemMetadataObject() -> [String: Any] {
     [
+        "additions": 2,
         "basePath": "src/file.ts",
         "changeKind": "modified",
         "contentDescriptorIdsByRole": ["head": "review-descriptor-1"],
         "contentHashesByRole": ["head": String(repeating: "a", count: 64)],
         "contentRoles": ["head"],
+        "deletions": 1,
         "extension": "ts",
         "fileClass": "source",
         "headPath": "src/file.ts",

@@ -1,4 +1,5 @@
 import type { CodeView, CodeViewItem } from '@pierre/diffs';
+import { expect } from 'vitest';
 
 export interface CurrentRenderedReviewRows {
 	readonly baseLines: readonly HTMLElement[];
@@ -43,6 +44,34 @@ export function createExactItemReceiptLog<
 
 export function paintedSourceCorrelations(element: Element): string | null {
 	return element.getAttribute('data-bridge-painted-source-correlations');
+}
+
+export function assertBridgeCodeViewHeaderGeometry(props: {
+	readonly metadata: HTMLElement;
+	readonly pierreHeaderTitle: HTMLElement;
+}): void {
+	const pierreHeader = props.pierreHeaderTitle.closest('[data-diffs-header]');
+	if (!(pierreHeader instanceof HTMLElement)) {
+		throw new Error('Expected the surrounding Pierre file header.');
+	}
+	expect(Math.round(pierreHeader.getBoundingClientRect().height)).toBe(40);
+	const openFileButton = props.metadata.querySelector(
+		'[data-testid="bridge-code-view-open-file-button"]',
+	);
+	if (!(openFileButton instanceof HTMLElement)) {
+		throw new Error('Expected the shadcn open-file button inside the Pierre file header.');
+	}
+	const openFileButtonBox = openFileButton.getBoundingClientRect();
+	expect(Math.round(openFileButtonBox.width)).toBe(28);
+	expect(Math.round(openFileButtonBox.height)).toBe(28);
+	const pierreHeaderBox = pierreHeader.getBoundingClientRect();
+	expect(
+		Math.abs(
+			openFileButtonBox.y +
+				openFileButtonBox.height / 2 -
+				(pierreHeaderBox.y + pierreHeaderBox.height / 2),
+		),
+	).toBeLessThanOrEqual(1);
 }
 
 export function requireCurrentRenderedReviewRows(

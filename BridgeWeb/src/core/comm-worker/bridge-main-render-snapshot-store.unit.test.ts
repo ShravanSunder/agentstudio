@@ -897,6 +897,8 @@ function makeReviewDisplayPatchEvent(): BridgeWorkerReviewDisplayPatchEvent {
 							contentFacts: [],
 							extentFacts: [],
 							metadata: {
+								additions: 1,
+								deletions: 1,
 								basePath: 'Sources/App.swift',
 								changeKind: 'modified',
 								contentDescriptorIdsByRole: {},
