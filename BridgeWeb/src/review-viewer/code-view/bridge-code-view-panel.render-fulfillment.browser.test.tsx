@@ -31,6 +31,7 @@ import { waitForBridgeViewerCodeHeaderCollapseButton } from '../test-support/bri
 import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
 import { BridgeCodeViewPanel } from './bridge-code-view-panel.js';
 import {
+	assertBridgeCodeViewHeaderGeometry,
 	createExactItemReceiptLog,
 	paintedSourceCorrelations,
 	requireCurrentRenderedReviewRows,
@@ -310,6 +311,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 		expect(dispositionKinds(dispositions)).toEqual(['queued']);
 
 		const panelProps = {
+			onOpenFile: (): void => {},
 			presentationPositionKey: 'render-fulfillment-position',
 			projection,
 			renderFulfillmentCoordinator,
@@ -392,6 +394,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			if (!(pierreHeaderTitle instanceof HTMLElement)) {
 				throw new Error('Expected the surrounding Pierre header navigation title.');
 			}
+			assertBridgeCodeViewHeaderGeometry({ metadata, pierreHeaderTitle });
 			const surroundingNavigationFontSize = Number.parseFloat(
 				getComputedStyle(pierreHeaderTitle).fontSize,
 			);

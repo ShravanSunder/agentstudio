@@ -84,6 +84,8 @@ export function reviewDisplayItem(itemId: string, path: string): BridgeWorkerRev
 		contentFacts: [],
 		extentFacts: [],
 		metadata: {
+			additions: 1,
+			deletions: 1,
 			basePath: path,
 			changeKind: 'modified',
 			contentDescriptorIdsByRole: {},

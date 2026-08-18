@@ -38,6 +38,8 @@ import {
 
 export interface UseBridgeFileViewerPierreTreeRuntimeProps {
 	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
+	readonly fileActivationSequence: number | null;
+	readonly fileActivationStartedAtPerfNow: number | null;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
 	readonly onSelectFile: (selection: BridgeFileViewerSelection) => void;
 	readonly onVisibleFileDemandChange?: (change: BridgeFileViewerVisibleFileDemandChange) => void;
@@ -64,6 +66,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 	const isSyncingSelectedPathRef = useRef(false);
 	const firstInteractionMountStartedAtRef = useRef(performance.now());
 	const hasRecordedFirstInteractionRef = useRef(false);
+	const recordedActivationSequenceRef = useRef<number | null>(null);
 	onSelectFileRef.current = props.onSelectFile;
 	treeRowByPathRef.current = props.treeRowByPath;
 	completeFileQueryTransactionRef.current = props.completeFileQueryTransaction;
@@ -118,6 +121,18 @@ export function useBridgeFileViewerPierreTreeRuntime(
 	const onVisibleFileDemandChange = props.onVisibleFileDemandChange;
 	const telemetryRecorder = props.telemetryRecorder;
 	const telemetryTraceContext = props.telemetryTraceContext ?? null;
+	useLayoutEffect((): void => {
+		if (
+			props.fileActivationSequence === null ||
+			recordedActivationSequenceRef.current === props.fileActivationSequence
+		) {
+			return;
+		}
+		recordedActivationSequenceRef.current = props.fileActivationSequence;
+		firstInteractionMountStartedAtRef.current =
+			props.fileActivationStartedAtPerfNow ?? performance.now();
+		hasRecordedFirstInteractionRef.current = false;
+	}, [props.fileActivationSequence, props.fileActivationStartedAtPerfNow]);
 	const publishVisibleFileDemand = useCallback((): void => {
 		if (onVisibleFileDemandChange === undefined) {
 			return;
@@ -147,6 +162,25 @@ export function useBridgeFileViewerPierreTreeRuntime(
 	useLayoutEffect((): (() => void) => {
 		let scrollElement: BridgePierreTreeScrollOwner | null = null;
 		let animationFrameId: number | null = null;
+		const recordFirstInteractionIfReady = (): void => {
+			if (hasRecordedFirstInteractionRef.current || props.fileTreePatchStream.getCursor() <= 0) {
+				return;
+			}
+			hasRecordedFirstInteractionRef.current = true;
+			recordBridgeViewerFirstInteractionReady({
+				fallbackTraceContext: telemetryTraceContext,
+				mountStartedAtPerfNow: firstInteractionMountStartedAtRef.current,
+				telemetryRecorder,
+				viewer: 'file',
+				visibleItemCount:
+					visibleFileDemandChangeForPierreDemand({
+						model,
+						telemetryRecorder,
+						telemetryTraceContext,
+						treeRowByPath: treeRowByPathRef.current,
+					})?.visibleItemIds.length ?? 0,
+			});
+		};
 		const rebindScrollElement = (): void => {
 			const nextScrollElement = pierreFileTreeScrollElementForDemand(model);
 			if (nextScrollElement === scrollElement) {
@@ -164,27 +198,13 @@ export function useBridgeFileViewerPierreTreeRuntime(
 				animationFrameId = null;
 				rebindScrollElement();
 				publishVisibleFileDemand();
+				recordFirstInteractionIfReady();
 			});
 		};
 		const setupFrameId = requestAnimationFrame((): void => {
 			rebindScrollElement();
 			publishVisibleFileDemand();
-			if (!hasRecordedFirstInteractionRef.current && props.fileTreePatchStream.getCursor() > 0) {
-				hasRecordedFirstInteractionRef.current = true;
-				recordBridgeViewerFirstInteractionReady({
-					fallbackTraceContext: telemetryTraceContext,
-					mountStartedAtPerfNow: firstInteractionMountStartedAtRef.current,
-					telemetryRecorder,
-					viewer: 'file',
-					visibleItemCount:
-						visibleFileDemandChangeForPierreDemand({
-							model,
-							telemetryRecorder,
-							telemetryTraceContext,
-							treeRowByPath: treeRowByPathRef.current,
-						})?.visibleItemIds.length ?? 0,
-				});
-			}
+			recordFirstInteractionIfReady();
 		});
 		handleTreePatchStreamDrainRef.current = (): void => {
 			rebindScrollElement();
@@ -202,6 +222,8 @@ export function useBridgeFileViewerPierreTreeRuntime(
 		};
 	}, [
 		model,
+		props.fileActivationSequence,
+		props.fileActivationStartedAtPerfNow,
 		props.fileTreePatchStream,
 		publishVisibleFileDemand,
 		telemetryRecorder,

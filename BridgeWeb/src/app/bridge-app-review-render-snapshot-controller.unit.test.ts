@@ -924,6 +924,8 @@ function reviewDisplayItem(itemId: string): BridgeWorkerReviewDisplayItem {
 		contentFacts: [],
 		extentFacts: [],
 		metadata: {
+			additions: 1,
+			deletions: 1,
 			basePath: `${itemId}.ts`,
 			changeKind: 'modified',
 			contentDescriptorIdsByRole: {},

@@ -786,7 +786,7 @@ describe('Bridge comm worker store', () => {
 		expect(JSON.stringify(firstPatchEvent)).not.toMatch(/contentHandle|resourceUrl|contents|body/i);
 	});
 
-	test('file view source updates repair selected unavailable content into loading demand', () => {
+	test('file view source updates arm pending selected content without republishing loading', () => {
 		const store = createBridgeCommWorkerStore({
 			surface: 'file',
 			contentItems: [],
@@ -810,17 +810,28 @@ describe('Bridge comm worker store', () => {
 			'sourceRows',
 			'sourceContentMetadata',
 			'contentMetadata:file-1',
-			'availability:file-1',
 			'demand:file-1',
 		]);
-		expect(store.actions.takePendingSlicePatchEvent({ epoch: 10, sequence: 2 })?.patches).toEqual([
-			{
-				slice: 'contentAvailability',
-				operation: 'upsert',
-				itemId: 'file-1',
-				payload: { state: 'loading' },
-			},
-		]);
+		expect(store.actions.takePendingSlicePatchEvent({ epoch: 10, sequence: 2 })).toBeNull();
+	});
+
+	test('file view selection treats known unfetchable content as unavailable', () => {
+		const store = createBridgeCommWorkerStore({
+			surface: 'file',
+			contentItems: [
+				makeWorkerFileViewContentMetadata('file-binary', {
+					canFetchContent: false,
+					isBinary: true,
+				}),
+			],
+			rows: [{ id: 'file-binary', parentId: null, index: 0 }],
+		});
+
+		store.actions.applySelectedFact({ itemId: 'file-binary', epoch: 11 });
+
+		expect(store.getState().availabilityByItemId.get('file-binary')).toBe('unavailable');
+		expect(store.getState().selectedDemandEnabled).toBe(false);
+		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({});
 	});
 
 	test('file view source updates retain selected stale paint when metadata is temporarily absent', () => {

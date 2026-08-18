@@ -65,25 +65,7 @@ describe('Bridge comm worker File View command handler', () => {
 			},
 		});
 
-		expect(messages).toEqual([
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				transferDescriptors: [],
-				kind: 'fileRenderPatch',
-				patches: [
-					{
-						slice: 'contentAvailability',
-						operation: 'upsert',
-						itemId: 'file-1',
-						payload: { state: 'loading' },
-					},
-				],
-				publicationSequence: 42,
-				surface: 'file',
-				workerDerivationEpoch: 2,
-			},
-		]);
+		expect(messages).toEqual([]);
 	});
 
 	test('select command schedules selected File View preparation instead of Review preparation', () => {
@@ -180,25 +162,7 @@ describe('Bridge comm worker File View command handler', () => {
 			},
 		});
 
-		expect(messages).toEqual([
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				transferDescriptors: [],
-				kind: 'fileRenderPatch',
-				patches: [
-					{
-						slice: 'contentAvailability',
-						operation: 'upsert',
-						itemId: 'file-1',
-						payload: { state: 'loading' },
-					},
-				],
-				publicationSequence: 62,
-				surface: 'file',
-				workerDerivationEpoch: 2,
-			},
-		]);
+		expect(messages).toEqual([]);
 		expect(scheduledReviewPreparations).toEqual([]);
 		expect(scheduledFileViewPreparations).toHaveLength(1);
 		expect(scheduledFileViewPreparations[0]?.itemId).toBe('file-1');

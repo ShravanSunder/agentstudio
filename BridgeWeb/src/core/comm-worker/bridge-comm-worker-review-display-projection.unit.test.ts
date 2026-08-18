@@ -404,6 +404,8 @@ function reviewItemMetadata(index: number): BridgeProductReviewItemMetadata {
 	const itemId = `item-${index.toString().padStart(4, '0')}`;
 	const path = `Sources/${itemId}.swift`;
 	return {
+		additions: 1,
+		deletions: 1,
 		basePath: path,
 		changeKind: 'modified',
 		contentDescriptorIdsByRole: { head: `descriptor-${itemId}` },

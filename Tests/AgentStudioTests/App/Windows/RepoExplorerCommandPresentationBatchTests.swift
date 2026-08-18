@@ -273,12 +273,16 @@ struct RepoExplorerCommandPresentationBatchTests {
                     let store = WorkspaceStore()
                     let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
                     let prefs = RepoExplorerSidebarPrefsAtom()
+                    let visibleRepo = store.addRepo(
+                        at: FileManager.default.temporaryDirectory.appending(
+                            path: "repo-command-visible-\(UUIDv7.generate().uuidString)"
+                        )
+                    )
+                    let visibleWorktree = try! #require(visibleRepo.worktrees.first)
                     let pane = store.createPane()
                     let tab = Tab(paneId: pane.id)
                     store.appendTab(tab)
-                    let secondPane = store.createPane()
-                    store.appendTab(Tab(paneId: secondPane.id))
-                    visibleWorktrees.setVisibleWorktreeIds([])
+                    visibleWorktrees.setVisibleWorktreeIds([visibleWorktree.id])
 
                     let batch = RepoExplorerCommandPresentationBatch(
                         store: store,
@@ -298,6 +302,13 @@ struct RepoExplorerCommandPresentationBatchTests {
                     replacementHandler.canExecuteResult = false
                     replacementHandler.targetedCanExecuteResult = false
                     AppCommandDispatcher.shared.handler = replacementHandler
+                    let ownedCapabilityBatchCount = {
+                        replacementHandler.repoExplorerCapabilityRequestBatches.filter { requests in
+                            requests.contains { request in
+                                request.target == visibleWorktree.id
+                            }
+                        }.count
+                    }
                     for _ in 0..<20 {
                         await Task.yield()
                     }
@@ -323,10 +334,25 @@ struct RepoExplorerCommandPresentationBatchTests {
                     for _ in 0..<20 { await Task.yield() }
                     #expect(batch.snapshot.generation == managementGeneration)
 
+                    let ownedCapabilityBatchCountBeforeActiveTab = ownedCapabilityBatchCount()
+                    let secondPane = store.createPane()
+                    store.appendTab(Tab(paneId: secondPane.id))
+                    await eventually("active tab capability recompute") {
+                        ownedCapabilityBatchCount() > ownedCapabilityBatchCountBeforeActiveTab
+                    }
+                    #expect(batch.snapshot.generation == managementGeneration)
                     let activeTabGeneration = managementGeneration
                     let presentationBeforeUnrelatedRepo = batch.snapshot.results
-                    let capabilityBatchCountBeforeUnrelatedRepo =
-                        replacementHandler.repoExplorerCapabilityRequestBatches.count
+                    let ownedCapabilityBatchCountBeforeUnrelatedRepo = ownedCapabilityBatchCount()
+
+                    // The dispatcher is process-global, so unrelated toolbar traffic must not be
+                    // attributed to this batch owner's exact visible-worktree request set.
+                    _ = AppCommandDispatcher.shared.repoExplorerCommandPresentationSnapshot(
+                        requests: RepoExplorerToolbarCommandPresentation.requests(
+                            nextSortOrder: prefs.sortOrder.toggled
+                        ),
+                        generation: batch.snapshot.generation &+ 1
+                    )
 
                     _ = store.addRepo(
                         at: FileManager.default.temporaryDirectory.appending(
@@ -337,47 +363,8 @@ struct RepoExplorerCommandPresentationBatchTests {
                     #expect(batch.snapshot.generation == activeTabGeneration)
                     #expect(batch.snapshot.results == presentationBeforeUnrelatedRepo)
                     #expect(
-                        replacementHandler.repoExplorerCapabilityRequestBatches.count
-                            == capabilityBatchCountBeforeUnrelatedRepo
+                        ownedCapabilityBatchCount() == ownedCapabilityBatchCountBeforeUnrelatedRepo
                     )
-                }
-            }
-        )
-    }
-
-    @Test("active tab recomputes capability without changing equal presentation")
-    func activeTabRecomputesCapabilityWithoutChangingEqualPresentation() async throws {
-        let handler = RepoExplorerCommandPresentationRecordingHandler()
-
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                AppCommandDispatcher.shared.handler = handler
-                AppCommandDispatcher.shared.appCommandRouter = nil
-            },
-            body: {
-                await withAsyncTestCoreAtoms { _ in
-                    let store = WorkspaceStore()
-                    let firstPane = store.createPane()
-                    store.appendTab(Tab(paneId: firstPane.id))
-                    let batch = RepoExplorerCommandPresentationBatch(
-                        store: store,
-                        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-                        visibleWorktrees: SidebarVisibleWorktreesRuntimeAtom(),
-                        dispatcher: .shared
-                    )
-                    batch.start()
-                    defer { batch.stop() }
-
-                    _ = await handler.batchArrivals.wait { _ in true }
-                    let initialGeneration = batch.snapshot.generation
-                    handler.repoExplorerCapabilityRequestBatches.removeAll()
-
-                    let secondPane = store.createPane()
-                    store.appendTab(Tab(paneId: secondPane.id))
-
-                    _ = await handler.batchArrivals.wait { _ in true }
-                    #expect(!handler.repoExplorerCapabilityRequestBatches.isEmpty)
-                    #expect(batch.snapshot.generation == initialGeneration)
                 }
             }
         )

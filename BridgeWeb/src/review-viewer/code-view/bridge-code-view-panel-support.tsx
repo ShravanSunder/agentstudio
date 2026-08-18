@@ -1,6 +1,6 @@
 import type { CodeViewItem } from '@pierre/diffs';
 import type { CodeViewHandle } from '@pierre/diffs/react';
-import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
+import { ChevronDownIcon, ChevronRightIcon, FileCodeCornerIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useLayoutEffect } from 'react';
 
@@ -668,6 +668,7 @@ interface CreateBridgeCodeViewHeaderRenderersProps {
 	readonly collapsedItemIds: ReadonlySet<string>;
 	readonly onHeaderVisibilityChange: (itemId: string, isVisible: boolean) => void;
 	readonly onToggleItemCollapse: (itemId: string) => void;
+	readonly onOpenFile: ((path: string) => void) | undefined;
 	readonly reviewPackage: BridgeReviewPackage;
 }
 
@@ -684,7 +685,11 @@ export function createBridgeCodeViewHeaderRenderers(
 				reviewPackage: props.reviewPackage,
 			}),
 		renderHeaderMetadata: (item: CodeViewItem): ReactNode =>
-			renderBridgeCodeViewHeaderMetadata({ item, reviewPackage: props.reviewPackage }),
+			renderBridgeCodeViewHeaderMetadata({
+				item,
+				onOpenFile: props.onOpenFile,
+				reviewPackage: props.reviewPackage,
+			}),
 	};
 }
 
@@ -693,6 +698,7 @@ interface RenderBridgeCodeViewHeaderProps {
 	readonly item: CodeViewItem;
 	readonly onHeaderVisibilityChange?: (itemId: string, isVisible: boolean) => void;
 	readonly onToggleItemCollapse?: (itemId: string) => void;
+	readonly onOpenFile?: ((path: string) => void) | undefined;
 	readonly reviewPackage: BridgeReviewPackage;
 }
 
@@ -773,6 +779,7 @@ function renderBridgeCodeViewHeaderMetadata(props: RenderBridgeCodeViewHeaderPro
 			: contentState === 'loading'
 				? 'Loading content'
 				: null;
+	const filePath = descriptor.headPath ?? null;
 
 	return (
 		<span
@@ -788,6 +795,24 @@ function renderBridgeCodeViewHeaderMetadata(props: RenderBridgeCodeViewHeaderPro
 			)}
 			<span className="shrink-0 text-[var(--bridge-deleted)]">{`-${descriptor.deletions}`}</span>
 			<span className="shrink-0 text-[var(--bridge-added)]">{`+${descriptor.additions}`}</span>
+			{props.onOpenFile === undefined || filePath === null ? null : (
+				<Button
+					aria-label={`Open ${filePath} in Files`}
+					data-bridge-code-view-file-path={filePath}
+					data-testid="bridge-code-view-open-file-button"
+					onClick={(event): void => {
+						event.preventDefault();
+						event.stopPropagation();
+						props.onOpenFile?.(filePath);
+					}}
+					size="icon"
+					title="Open in Files"
+					type="button"
+					variant="ghost"
+				>
+					<FileCodeCornerIcon aria-hidden="true" />
+				</Button>
+			)}
 		</span>
 	);
 }

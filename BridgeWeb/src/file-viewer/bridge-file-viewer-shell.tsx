@@ -39,6 +39,8 @@ export interface BridgeFileViewerShellProps {
 	readonly filterMode: BridgeFileViewerFilterMode;
 	readonly isFilterMenuOpen: boolean;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
+	readonly fileActivationSequence?: number | null;
+	readonly fileActivationStartedAtPerfNow?: number | null;
 	readonly isActive: boolean;
 	readonly isSearchOpen: boolean;
 	readonly onClearSearch: () => void;
@@ -174,6 +176,8 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 						filterMode={props.filterMode}
 						isFilterMenuOpen={props.isFilterMenuOpen}
 						fileTreePatchStream={props.fileTreePatchStream}
+						fileActivationSequence={props.fileActivationSequence ?? null}
+						fileActivationStartedAtPerfNow={props.fileActivationStartedAtPerfNow ?? null}
 						isActive={props.isActive}
 						isSearchOpen={props.isSearchOpen}
 						onFilterMenuOpenChange={props.onFilterMenuOpenChange}

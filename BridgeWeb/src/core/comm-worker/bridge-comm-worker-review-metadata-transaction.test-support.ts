@@ -190,6 +190,8 @@ function reviewPayload(
 		extentFacts: [],
 		itemMetadata: [
 			{
+				additions: 1,
+				deletions: 1,
 				basePath: path,
 				changeKind: 'modified' as const,
 				contentDescriptorIdsByRole: {},

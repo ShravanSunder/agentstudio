@@ -20,27 +20,13 @@ package enum AgentStudioOTLPTraceProjection {
             attributes: attributes
         )
     }
-    private static let allowedResourceKeys: Set<String> = [
-        "agentstudio.build.config",
-        "agentstudio.release_channel",
-        "agentstudio.runtime_flavor",
-        "agent.proof.launch",
-        "agent.proof.marker",
-        "dev.build.config",
-        "dev.branch.name",
-        "dev.release.channel",
-        "dev.repo.hash",
-        "dev.runtime.flavor",
-        "dev.worktree.hash",
-        "service.name",
-        "service.version",
-    ]
-    private static let allowedSafeResourceKeys: Set<String> = allowedResourceKeys
     private static let allowedStringAttributeKeys: Set<String> = Set([
         "agent.proof.marker",
         "agent.proof.launch",
         "agentstudio.app.startup.outcome",
         "agentstudio.app.startup.phase",
+        "agentstudio.bridge.activation.cause",
+        "agentstudio.bridge.activation.from_viewer",
         "agentstudio.bridge.anchor_restore.phase",
         "agentstudio.bridge.cache.result",
         "agentstudio.bridge.comparison.attempt.status",
@@ -86,6 +72,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.scroll.offset",
         "agentstudio.bridge.scroll.reason",
         "agentstudio.bridge.scroll_target.kind",
+        "agentstudio.bridge.selection.origin",
         "agentstudio.bridge.slice",
         "agentstudio.bridge.telemetry.drop_reason",
         "agentstudio.bridge.telemetry.event_name",
@@ -101,8 +88,12 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.viewer.ttfi_variant",
         "agentstudio.bridge.worker.action",
         "agentstudio.bridge.worker.command",
+        "agentstudio.bridge.worker.file_mode_dispatch",
+        "agentstudio.bridge.worker.file_select_dispatch",
         "agentstudio.bridge.worker.lane",
         "agentstudio.bridge.worker.payload_class",
+        "agentstudio.bridge.worker.review_select_dispatch",
+        "agentstudio.bridge.worker.session_state",
         "agentstudio.bridge.worker.task_kind",
         "agentstudio.bridge.worker.work_kind",
         "agentstudio.command.name",
@@ -240,14 +231,11 @@ package enum AgentStudioOTLPTraceProjection {
         .union(AgentStudioOTLPPaneDropTaxonomy.stringAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.stringKeys)
         .union(BridgeProductPaintProjectionKeys.stringKeys)
-    private static let allowedPayloadNamedStringAttributeKeys: Set<String> = [
-        "agentstudio.bridge.tree_path_count_bucket",
-        "agentstudio.bridge.worker.payload_class",
-        "agentstudio.performance.tabbar.context_menu.hit_view_class",
-        "agentstudio.performance.tabbar.context_menu.phase",
-    ]
     private static let allowedNumericAttributeKeys: Set<String> = Set([
         "agentstudio.sqlite.result_code",
+        "agentstudio.bridge.activation.sequence",
+        "agentstudio.bridge.active_viewer.sequence",
+        "agentstudio.bridge.active_viewer.signal_accepted.count",
         "agentstudio.bridge.batch.sample_count",
         "agentstudio.bridge.content.byte_count",
         "agentstudio.bridge.content.byte_length",
@@ -361,9 +349,12 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.worktree_file.tree.window.start_index",
         "agentstudio.bridge.worktree_file.tree.window.count",
         "agentstudio.bridge.worker.handler_duration_ms",
+        "agentstudio.bridge.worker.native_bootstrap_install.count",
         "agentstudio.bridge.worker.derivation_epoch",
         "agentstudio.bridge.worker.patch_count",
+        "agentstudio.bridge.worker.queued_command.count",
         "agentstudio.bridge.worker.queue_wait_ms",
+        "agentstudio.bridge.worker.replacement_request.count",
         "agentstudio.bridge.worker.source_epoch",
         "agentstudio.bridge.worker.touched_key_count",
         "agentstudio.display.count",
@@ -676,6 +667,7 @@ package enum AgentStudioOTLPTraceProjection {
         .union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
     private static let allowedBooleanAttributeKeys: Set<String> = Set([
         "agentstudio.app.is_active",
+        "agentstudio.bridge.activation.source_available",
         "agentstudio.bridge.cache_hit",
         "agentstudio.bridge.content.binary",
         "agentstudio.bridge.content.stale",
@@ -805,6 +797,31 @@ extension AgentStudioOTLPTraceProjection {
         }
         return projected
     }
+}
+extension AgentStudioOTLPTraceProjection {
+    private static let allowedResourceKeys: Set<String> = [
+        "agentstudio.build.config",
+        "agentstudio.release_channel",
+        "agentstudio.runtime_flavor",
+        "agent.proof.launch",
+        "agent.proof.marker",
+        "dev.build.config",
+        "dev.branch.name",
+        "dev.release.channel",
+        "dev.repo.hash",
+        "dev.runtime.flavor",
+        "dev.worktree.hash",
+        "service.name",
+        "service.version",
+    ]
+    private static let allowedSafeResourceKeys: Set<String> = allowedResourceKeys
+
+    private static let allowedPayloadNamedStringAttributeKeys: Set<String> = [
+        "agentstudio.bridge.tree_path_count_bucket",
+        "agentstudio.bridge.worker.payload_class",
+        "agentstudio.performance.tabbar.context_menu.hit_view_class",
+        "agentstudio.performance.tabbar.context_menu.phase",
+    ]
 
     private static func projectedResource(_ safeResource: [String: String]) -> [String: String] {
         safeResource.filter { key, _ in

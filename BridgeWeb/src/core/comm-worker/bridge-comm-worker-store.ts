@@ -314,7 +314,10 @@ export function createBridgeCommWorkerStore(
 				const contentMetadata = store.getState().contentMetadataByItemId.get(fact.itemId) ?? null;
 				const isDemandEligible = isBridgeCommWorkerDemandEligibleContentMetadata(contentMetadata);
 				const selectedDemandEnabled = isDemandEligible;
-				const nextAvailabilityState = selectedDemandEnabled ? 'loading' : 'unavailable';
+				const nextAvailabilityState =
+					(props.surface === 'file' && contentMetadata === null) || selectedDemandEnabled
+						? 'loading'
+						: 'unavailable';
 				store.setState((state) => {
 					const selectedState = {
 						...state,

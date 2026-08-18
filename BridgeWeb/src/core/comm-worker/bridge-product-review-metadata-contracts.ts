@@ -154,6 +154,7 @@ export const bridgeProductReviewQuerySchema = z
 
 export const bridgeProductReviewItemMetadataSchema = z
 	.object({
+		additions: bridgeProductNonnegativeSequenceSchema,
 		basePath: bridgeProductDisplayPathSchema.nullable(),
 		changeKind: bridgeProductReviewFileChangeKindSchema,
 		contentDescriptorIdsByRole: z
@@ -173,6 +174,7 @@ export const bridgeProductReviewItemMetadataSchema = z
 			})
 			.strict(),
 		contentRoles: z.array(bridgeProductReviewContentRoleSchema).readonly(),
+		deletions: bridgeProductNonnegativeSequenceSchema,
 		extension: bridgeProductOpaqueReferenceSchema.nullable(),
 		fileClass: bridgeProductReviewFileClassSchema,
 		headPath: bridgeProductDisplayPathSchema.nullable(),

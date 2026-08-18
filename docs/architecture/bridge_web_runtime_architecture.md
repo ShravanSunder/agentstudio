@@ -91,6 +91,87 @@ addressable through a new generation.
 Metadata intake is not content hydration. It makes tree rows, item descriptors,
 content handles, and render semantics available so demand can be derived.
 
+## File Selected-Content Lifecycle
+
+File item metadata and its authorized content descriptor are separate accepted
+inputs. Metadata can make a selected item demand-eligible before the descriptor
+for that item arrives. Descriptor absence at that point is incomplete ordering,
+not terminal unavailability.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Loading: select current File item
+    Loading --> Loading: descriptor absent / pending
+    Loading --> Ready: content opens and render fulfills
+    Loading --> Failed: content open or preparation fails
+    Loading --> Unavailable: binary, unsupported, or explicitly unavailable
+    Ready --> Stale: source or descriptor invalidated
+    Ready --> Loading: current item reselected or refreshed
+    Stale --> Loading: current metadata or descriptor changes
+    Failed --> Loading: a new current demand is admitted
+    Unavailable --> Loading: a new current demand is admitted
+    Loading --> Idle: clear selection
+    Ready --> Idle: clear selection
+    Stale --> Idle: clear selection
+    Failed --> Idle: clear selection
+    Unavailable --> Idle: clear selection
+```
+
+`pending` is an internal fetch result, not a React presentation state. It
+publishes no terminal content-availability patch, so the selected item remains
+`loading`. A later `file.descriptorReady` event applies the content-request
+mutation and reschedules preparation for the current selected demand. This is
+event-driven retry; File loading does not poll or wait on a timer.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant R as Review
+    participant A as BridgeApp
+    participant F as File presentation
+    participant W as Comm worker
+    participant N as Native File source
+
+    U->>R: Click file-corner action
+    R->>A: Open exact path in File
+    A->>F: Activate retained File host and deliver path command
+    F->>W: Commit selected File item
+    W-->>F: Publish loading availability
+    N-->>W: Item metadata arrives before descriptor
+    W->>W: Prepare selected content
+    W->>W: Descriptor absent -> pending
+    Note over W,F: No terminal patch; File remains visibly loading
+    N-->>W: file.descriptorReady
+    W->>W: Abort superseded preparation and apply descriptor mutation
+    W->>W: Selected content request changed -> reschedule
+    W->>N: content.open with current descriptor
+    N-->>W: Accepted bounded content bytes
+    W->>W: Validate and prepare Pierre/Shiki result
+    W-->>F: Transfer render payload and ready availability
+    F->>F: Mount current content and fulfill paint
+```
+
+The lifecycle invariants are:
+
+- metadata presence does not imply descriptor presence in the same event;
+- a missing descriptor for current demand remains `loading`, with no terminal
+  publication;
+- only an explicit binary/unsupported/unavailable classification or a genuine
+  content failure produces a terminal result for the current demand;
+- descriptor arrival is the retry owner and must reschedule only the current
+  selection epoch;
+- `ready` requires ready worker availability plus a prepared File render item;
+- every non-ready File presentation renders an explicit status instead of a
+  blank canvas; and
+- File/Review activation changes foreground demand without disposing either
+  retained surface host or its selection, data, and scroll state.
+
+Marker-scoped runtime proof correlates the path with `viewer_activation`,
+`selection_commit`, and `file_open_ready`. Those events witness activation,
+accepted selection, and terminal ready paint; they do not replace the state
+machine or its unit/browser coverage.
+
 ## Demand Is A Pipeline
 
 ```mermaid
@@ -262,6 +343,8 @@ bug, not a valid idle state.
 | One worker session | `bridge-pane-comm-worker-session.ts` |
 | Worker entry and runtime protocol | `bridge-comm-worker-entry.ts`, `bridge-comm-worker-runtime-protocol.ts` |
 | File/Review worker state | `bridge-comm-worker-store.ts`, `bridge-comm-worker-file-view-runtime.ts`, `bridge-comm-worker-review-runtime.ts` |
+| File selected-content retry | `bridge-comm-worker-selection-demand.ts`, `bridge-comm-worker-file-view-runtime-source.ts` |
+| File open-state presentation | `BridgeWeb/src/file-viewer/bridge-file-viewer-display-model.ts`, `bridge-file-viewer-code-panel.tsx` |
 | Review demand scheduling | `bridge-comm-worker-review-demand-scheduling.ts` |
 | Demand policy | `BridgeWeb/src/core/demand/bridge-content-demand-policy.ts` |
 | Content preparation pump | `bridge-worker-content-preparation-pump.ts` |

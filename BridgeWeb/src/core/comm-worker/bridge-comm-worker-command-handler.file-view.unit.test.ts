@@ -186,6 +186,116 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 		]);
 	});
 
+	test('keeps a pre-metadata File selection pending through path and descriptor mutations', () => {
+		const demands: BridgeCommWorkerFileMetadataDemand[] = [];
+		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			scheduleSelectedFileViewContentReadyPreparation: (preparation): void => {
+				scheduledFileViewPreparations.push(preparation);
+			},
+			scheduleSelectedReviewContentReadyPreparation: (): void => {},
+			updateFileMetadataDemand: (demand): void => {
+				demands.push(demand);
+			},
+		});
+		handler.applyFileViewRuntimeMutation({
+			epoch: 1,
+			mutation: {
+				contentRequestUpserts: [],
+				contentUpserts: [],
+				filePathUpserts: [],
+				kind: 'reset',
+				rowUpserts: [],
+			},
+		});
+
+		const selectionMessages = handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 10,
+				requestId: 'select-before-file-metadata-mutations',
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+				surface: 'fileView',
+			}),
+		);
+		expect(selectionMessages[0]).toMatchObject({
+			kind: 'slicePatch',
+			patches: expect.arrayContaining([
+				expect.objectContaining({
+					itemId: 'file-1',
+					payload: { state: 'loading' },
+					slice: 'contentAvailability',
+				}),
+			]),
+		});
+		expect(scheduledFileViewPreparations).toEqual([]);
+
+		handler.applyFileViewRuntimeMutation({
+			epoch: 2,
+			mutation: {
+				contentRemovals: [],
+				contentRequestRemovals: [],
+				contentRequestUpserts: [],
+				contentUpserts: [
+					{
+						...makeWorkerFileViewContentMetadata({ path: 'Sources/App/file-2.swift' }),
+						itemId: 'file-2',
+					},
+				],
+				filePathRemovals: [],
+				filePathUpserts: [{ itemId: 'file-2', path: 'Sources/App/file-2.swift' }],
+				kind: 'delta',
+				rowRemovals: [],
+				rowUpserts: [{ id: 'file-2', parentId: null, index: 1 }],
+			},
+		});
+		expect(scheduledFileViewPreparations).toEqual([]);
+
+		handler.applyFileViewRuntimeMutation({
+			epoch: 2,
+			mutation: {
+				contentRemovals: [],
+				contentRequestRemovals: [],
+				contentRequestUpserts: [],
+				contentUpserts: [],
+				filePathRemovals: [],
+				filePathUpserts: [{ itemId: 'file-1', path: 'Sources/App/file-1.swift' }],
+				kind: 'delta',
+				rowRemovals: [],
+				rowUpserts: [{ id: 'file-1', parentId: null, index: 0 }],
+			},
+		});
+		expect(demands.at(-1)).toEqual({
+			epoch: 10,
+			nearbyPaths: [],
+			selectedPath: 'Sources/App/file-1.swift',
+			visiblePaths: [],
+		});
+		expect(scheduledFileViewPreparations).toEqual([]);
+
+		handler.applyFileViewRuntimeMutation({
+			epoch: 2,
+			mutation: {
+				contentRemovals: [],
+				contentRequestRemovals: [],
+				contentRequestUpserts: [makeProductFileViewContentRequest(2)],
+				contentUpserts: [makeWorkerFileViewContentMetadata()],
+				filePathRemovals: [],
+				filePathUpserts: [],
+				kind: 'delta',
+				rowRemovals: [],
+				rowUpserts: [],
+			},
+		});
+		expect(scheduledFileViewPreparations).toHaveLength(1);
+		expect(scheduledFileViewPreparations[0]?.epoch).toBe(2);
+		expect(scheduledFileViewPreparations[0]?.store.getState().demandByKey.get('file-1')).toBe(
+			'selected:2',
+		);
+	});
+
 	test('applies worker-owned product File source facts without a main command envelope', () => {
 		// Arrange
 		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
@@ -220,25 +330,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 		});
 
 		// Assert
-		expect(messages).toEqual([
-			{
-				direction: 'serverWorkerToMain',
-				kind: 'fileRenderPatch',
-				patches: [
-					{
-						itemId: 'file-1',
-						operation: 'upsert',
-						payload: { state: 'loading' },
-						slice: 'contentAvailability',
-					},
-				],
-				publicationSequence: 402,
-				surface: 'file',
-				transferDescriptors: [],
-				wireVersion: 1,
-				workerDerivationEpoch: 7,
-			},
-		]);
+		expect(messages).toEqual([]);
 		expect(scheduledFileViewPreparations).toHaveLength(1);
 		expect(scheduledFileViewPreparations[0]?.epoch).toBe(7);
 		expect(scheduledFileViewPreparations[0]?.itemId).toBe('file-1');

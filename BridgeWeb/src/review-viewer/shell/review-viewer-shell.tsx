@@ -105,6 +105,7 @@ export interface ReviewViewerShellProps {
 	readonly showBinary?: boolean;
 	readonly showLarge?: boolean;
 	readonly onCodeViewControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
+	readonly onOpenFile?: (path: string) => void;
 	readonly onCodeViewVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onTreeVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
@@ -376,6 +377,7 @@ export function renderReviewViewerShellPresentation(presentation: {
 									}
 									selectedItemId={props.selectedItemId}
 									selectedItemPresentation={props.selectedItemPresentation ?? null}
+									{...(props.onOpenFile === undefined ? {} : { onOpenFile: props.onOpenFile })}
 									telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
 									visibleCodeViewItems={props.visibleCodeViewItems ?? []}
 									{...(props.codeViewOptions === undefined
