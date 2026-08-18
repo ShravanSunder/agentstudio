@@ -58,6 +58,19 @@ aggregate_serial_non_webkit_filter_pattern() {
   echo "${patterns[*]}"
 }
 
+fast_serial_process_filter_pattern() {
+  echo "SQLiteDatabaseFactoryProcessTests"
+}
+
+run_fast_serial_process_swift_tests() {
+  run_swift_with_timeout \
+    "serial fast process suites" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+    --filter "$(fast_serial_process_filter_pattern)" \
+    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+}
+
 prebuild_swift_tests() {
   # shellcheck disable=SC2086
   run_swift_with_timeout \
@@ -109,9 +122,10 @@ run_fast_non_webkit_swift_tests() {
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       "${parallel_args[@]}" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip "GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
+      --skip "GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)" --build-path "$BUILD_PATH"
 
     run_aggregate_serial_non_webkit_swift_tests
+    run_fast_serial_process_swift_tests
   else
     run_swift_with_timeout \
       "serial fast non-WebKit suites" \

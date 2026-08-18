@@ -259,12 +259,12 @@ package enum WorkspaceCommandValidator {
             }
             return .success(ValidatedAction(action))
 
-        case .reorderTab(let tabId, let newIndex):
+        case .reorderTab(let tabId, let insertionIndex):
             guard state.tab(tabId) != nil else {
                 return .failure(.tabNotFound(tabId: tabId))
             }
-            guard newIndex >= 0 && newIndex < state.tabCount else {
-                return .failure(.tabReorderIndexOutOfRange(index: newIndex))
+            guard insertionIndex >= 0 && insertionIndex <= state.tabCount else {
+                return .failure(.tabReorderIndexOutOfRange(index: insertionIndex))
             }
             return .success(ValidatedAction(action))
 

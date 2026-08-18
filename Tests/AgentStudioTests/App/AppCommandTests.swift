@@ -759,12 +759,16 @@ final class AppCommandTests {
                 dispatcher.appCommandRouter = nil
             },
             body: {
-                dispatcher.dispatchExtractPaneToTab(tabId: tabId, paneId: paneId, targetTabIndex: 2)
+                dispatcher.dispatchExtractPaneToTab(
+                    tabId: tabId,
+                    paneId: paneId,
+                    targetTabInsertionIndex: 2
+                )
 
                 #expect(handler.extractedPaneRequests.count == 1)
                 #expect(handler.extractedPaneRequests[0].tabId == tabId)
                 #expect(handler.extractedPaneRequests[0].paneId == paneId)
-                #expect(handler.extractedPaneRequests[0].targetTabIndex == 2)
+                #expect(handler.extractedPaneRequests[0].targetTabInsertionIndex == 2)
             }
         )
     }

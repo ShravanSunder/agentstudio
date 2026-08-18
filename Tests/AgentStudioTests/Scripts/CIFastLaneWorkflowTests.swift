@@ -323,11 +323,6 @@ struct CIFastLaneWorkflowTests {
         #expect(nonSerializedRunner.contains("--skip ZmxE2ETests"))
         #expect(fastRunner.contains("--parallel"))
         #expect(fastRunner.contains("--num-workers \"$SWIFT_TEST_NUM_WORKERS\""))
-        #expect(
-            fastRunner.contains(
-                "--skip \"GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)\""
-            )
-        )
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(!testHelperScript.contains("app_ipc_live_socket_suite_filters"))
         #expect(!fastRunner.contains("serial App IPC service live socket suites"))
@@ -353,6 +348,19 @@ struct CIFastLaneWorkflowTests {
         #expect(!testHelperScript.contains("standalone_swift_test_filters"))
         #expect(!testHelperScript.contains("isolated_swift_test_class_filters"))
         #expect(!testHelperScript.contains("swift test list ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build"))
+    }
+
+    @Test("SQLite crash fixture stays in the serial fast process lane")
+    func sqliteCrashFixtureStaysInSerialFastProcessLane() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
+        let serialRunner = try shellFunction(named: "run_fast_serial_process_swift_tests", in: helperScript)
+        let serialFilter = try shellFunction(named: "fast_serial_process_filter_pattern", in: helperScript)
+
+        #expect(fastRunner.contains("$(fast_serial_process_filter_pattern)"))
+        #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
+        #expect(serialRunner.contains("serial fast process suites"))
+        #expect(serialFilter.contains("SQLiteDatabaseFactoryProcessTests"))
     }
 
     @Test("routine Swift proof uses bounded fast and large lanes")
@@ -456,10 +464,11 @@ struct CIFastLaneWorkflowTests {
         #expect(aggregateRunner.contains("--filter \"$(aggregate_serial_non_webkit_filter_pattern)\""))
         #expect(
             fastRunner.contains(
-                "--skip \"GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)\""
+                "--skip \"GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)\""
             )
         )
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
+        #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
     }
 
     @Test("real zmx lifecycle proof stays in its dedicated E2E lane")

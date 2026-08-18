@@ -228,6 +228,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.source",
     ]).union(AgentStudioOTLPAttributionProjectionKeys.stringAttributeKeys)
         .union(AgentStudioOTLPRepoExplorerTaxonomy.stringAttributeKeys)
+        .union(AgentStudioOTLPPaneDropTaxonomy.stringAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.stringKeys)
         .union(BridgeProductPaintProjectionKeys.stringKeys)
     private static let allowedNumericAttributeKeys: Set<String> = Set([
@@ -660,6 +661,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.rows_added",
         "terminal.activity.threshold_rows",
     ]).union(AgentStudioCoordinationProjectionKeys.numericKeys)
+        .union(AgentStudioOTLPPaneDropTaxonomy.numericAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.numericKeys)
         .union(BridgeProductPaintProjectionKeys.numericKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
@@ -773,9 +775,12 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.is_inferred",
         "terminal.activity.is_pinned_to_bottom",
     ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
+        .union(AgentStudioOTLPPaneDropTaxonomy.booleanAttributeKeys)
         .union(BridgeProductPaintProjectionKeys.booleanKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.booleanAttributeKeys)
         .union(PaneAssociationRuntimeProofProjectionKeys.booleanAttributeKeys)
+}
+extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributes(
         _ attributes: [String: AgentStudioTraceValue],
         resource: [String: String]

@@ -126,7 +126,7 @@ struct TabBarAffectedItemTelemetryTests {
             }
             adapter.visibleProjectionDidRender()
 
-            store.tabLayoutAtom.reorderTab(secondTab.id, to: 0)
+            store.tabLayoutAtom.reorderTab(secondTab.id, insertionIndex: 0)
             await eventually("tab reorder publication") {
                 adapter.tabs.map(\.id) == [secondTab.id, firstTab.id]
                     && adapter.outputPublicationRevision == initialRevision + 2
