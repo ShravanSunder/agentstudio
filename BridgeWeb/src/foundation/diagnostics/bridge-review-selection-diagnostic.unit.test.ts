@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
+	observeBridgePaneCommWorkerSessionDiagnosticSnapshots,
 	readBridgeReviewSelectionDiagnostic,
+	recordBridgePaneCommWorkerSessionDiagnosticSnapshot,
 	recordBridgeFileModeSendAttempt,
 	recordBridgeFileModeSendSynchronousFailure,
 	recordBridgePageReadyState,
@@ -123,6 +125,29 @@ describe('Bridge Review selection diagnostic', () => {
 		}
 		recordBridgePageReadyState('failed');
 		expect(readBridgeReviewSelectionDiagnostic()).toMatchObject({ pageReadyState: 'failed' });
+	});
+
+	test('publishes bounded comm-worker session snapshots to observers', () => {
+		ensureTestWindow();
+		const snapshots: unknown[] = [];
+		const unsubscribe = observeBridgePaneCommWorkerSessionDiagnosticSnapshots((snapshot): void => {
+			snapshots.push(snapshot);
+		});
+		const snapshot = {
+			latestFileModeDispatchDisposition: 'posted',
+			latestFileSelectDispatchDisposition: 'queued_not_ready',
+			latestReviewSelectDispatchDisposition: null,
+			nativeBootstrapInstallCount: 1,
+			queuedCommandCount: 2,
+			replacementRequestCount: 1,
+			state: 'replacement_requested',
+		} as const;
+
+		recordBridgePaneCommWorkerSessionDiagnosticSnapshot(snapshot);
+		unsubscribe();
+		recordBridgePaneCommWorkerSessionDiagnosticSnapshot({ ...snapshot, state: 'bootstrapping' });
+
+		expect(snapshots).toEqual([snapshot]);
 	});
 });
 

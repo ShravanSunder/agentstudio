@@ -118,11 +118,13 @@ describe('Bridge product Review metadata contracts', () => {
 			},
 			itemMetadata: [
 				{
+					additions: 2,
 					basePath: 'src/file.ts',
 					changeKind: 'modified',
 					contentDescriptorIdsByRole: { head: 'review-descriptor-1' },
 					contentHashesByRole: { head: 'a'.repeat(64) },
 					contentRoles: ['head'],
+					deletions: 1,
 					extension: 'ts',
 					fileClass: 'source',
 					headPath: 'src/file.ts',

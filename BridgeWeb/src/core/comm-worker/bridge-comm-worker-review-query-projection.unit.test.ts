@@ -223,6 +223,8 @@ function reviewDisplayItem(props: {
 		contentFacts: [],
 		extentFacts: [],
 		metadata: {
+			additions: 1,
+			deletions: 1,
 			basePath: props.path,
 			changeKind: props.changeKind,
 			contentDescriptorIdsByRole: {},

@@ -794,6 +794,8 @@ function reviewDisplayItem(
 			{ contentRole: 'head', itemId: file.itemId, lineCount: file.lineCount },
 		],
 		metadata: {
+			additions: file.lineCount,
+			deletions: file.lineCount,
 			basePath: file.path,
 			changeKind: file.changeKind ?? 'modified',
 			contentDescriptorIdsByRole: {},

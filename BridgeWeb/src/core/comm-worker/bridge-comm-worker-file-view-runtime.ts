@@ -55,6 +55,9 @@ export type BridgeWorkerFileViewContentReadyFetchResult =
 	  }
 	| {
 			readonly status: 'stale';
+	  }
+	| {
+			readonly status: 'pending';
 	  };
 
 type BridgeWorkerTerminalContentAvailabilityState = Extract<
@@ -87,7 +90,7 @@ export async function fetchSelectedBridgeWorkerFileViewContentReadyResource(
 		props.contentRequests?.find((candidate) => candidate.itemId === props.itemId) ??
 		null;
 	if (contentRequest === null) {
-		return { reason: 'descriptor_missing', status: 'terminal', state: 'unavailable' };
+		return { status: 'pending' };
 	}
 	let resource: BridgeWorkerFetchedFileViewContentResource;
 	try {
@@ -116,7 +119,7 @@ export function publishSelectedBridgeWorkerFileViewContentReadyFetchResult(
 		readonly fetchResult: BridgeWorkerFileViewContentReadyFetchResult;
 	},
 ): void {
-	if (props.fetchResult.status === 'stale') {
+	if (props.fetchResult.status === 'pending' || props.fetchResult.status === 'stale') {
 		return;
 	}
 	if (props.fetchResult.status === 'terminal') {

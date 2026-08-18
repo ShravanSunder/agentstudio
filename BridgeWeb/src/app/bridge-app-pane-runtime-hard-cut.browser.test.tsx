@@ -33,6 +33,7 @@ import {
 	requireHTMLElement,
 	reviewSearchInputWithin,
 } from './bridge-app-pane-runtime-control-test-support.js';
+import { runBridgeAppFileCornerSwitchJourney } from './bridge-app-pane-runtime-file-corner-test-support.js';
 import {
 	advanceAnimationFrame,
 	assertSurfacePositionRetained,
@@ -572,7 +573,7 @@ describe('BridgeApp pane runtime hard cut', () => {
 		const handshake = installBridgeReadyHandshake();
 		await actWait(async (): Promise<void> => {
 			await render(
-				<div style={{ height: '860px', overflow: 'hidden', width: '1,440px' }}>
+				<div style={{ height: '860px', overflow: 'hidden', width: '1440px' }}>
 					<BridgeAppProtocolRouter
 						codeViewWorkerPoolEnabled={false}
 						fileViewerProps={{ autoOpenInitialFile: true }}
@@ -701,6 +702,21 @@ describe('BridgeApp pane runtime hard cut', () => {
 		expect(paneRuntimeObservation.createCount).toBe(1);
 		expect(paneRuntimeObservation.disposeCount).toBe(0);
 		handshake.dispose();
+	});
+
+	test('opens a Review file-corner command in Files without remounting either surface', async () => {
+		await runBridgeAppFileCornerSwitchJourney({
+			activeViewerModeUpdateForNativeRequest,
+			installPositionFixtures: (): void => {
+				installBridgePanePositionFixtures({
+					fileRenderStore: requireRenderStore('fileView'),
+					reviewRenderStore: requireRenderStore('review'),
+				});
+			},
+			publishNativeSurfaceSelectionRequest,
+			runtimeCreateCount: (): number => paneRuntimeObservation.createCount,
+			runtimeDisposeCount: (): number => paneRuntimeObservation.disposeCount,
+		});
 	});
 
 	test('routes strict native page controls into the active Review and File owners', async () => {

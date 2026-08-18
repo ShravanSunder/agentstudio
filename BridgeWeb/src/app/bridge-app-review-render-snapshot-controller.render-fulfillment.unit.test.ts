@@ -388,11 +388,13 @@ function makeReviewDisplayPatchEvent(props: {
 						contentFacts: [],
 						extentFacts: [],
 						metadata: {
+							additions: 0,
 							basePath: `${itemId}.ts`,
 							changeKind: 'modified',
 							contentDescriptorIdsByRole: {},
 							contentHashesByRole: {},
 							contentRoles: [],
+							deletions: 0,
 							extension: 'ts',
 							fileClass: 'source',
 							headPath: `${itemId}.ts`,

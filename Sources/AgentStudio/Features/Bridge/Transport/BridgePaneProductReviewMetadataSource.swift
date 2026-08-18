@@ -663,6 +663,7 @@ private func productItem(
 ) throws -> BridgeProductReviewItemMetadataValue {
     let roles = item.contentRoles
     return try .init(
+        additions: item.additions,
         basePath: item.basePath,
         changeKind: item.changeKind,
         contentDescriptorIdsByRole: .init(
@@ -678,6 +679,7 @@ private func productItem(
             head: roles.head?.contentHash
         ),
         contentRoles: roles.allHandles.map(\.role),
+        deletions: item.deletions,
         fileExtension: item.extension,
         fileClass: item.fileClass,
         headPath: item.headPath,

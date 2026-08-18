@@ -424,6 +424,8 @@ function telemetryReviewSnapshotEvent(
 		},
 		itemMetadata: [
 			{
+				additions: 1,
+				deletions: 1,
 				basePath: 'Sources/App/item-1.swift',
 				changeKind: 'modified',
 				contentDescriptorIdsByRole: {
@@ -447,6 +449,8 @@ function telemetryReviewSnapshotEvent(
 				reviewState: 'unreviewed',
 			},
 			{
+				additions: 1,
+				deletions: 1,
 				basePath: 'Sources/App/item-2.swift',
 				changeKind: 'modified',
 				contentDescriptorIdsByRole: {},
@@ -509,11 +513,11 @@ function telemetryReviewSnapshotEvent(
 		reviewComparison: null,
 		sourceIdentity: baseDescriptor.sourceIdentity,
 		summary: {
-			additions: 1,
-			deletions: 1,
-			filesChanged: 1,
+			additions: 2,
+			deletions: 2,
+			filesChanged: 2,
 			hiddenFileCount: 0,
-			visibleFileCount: 1,
+			visibleFileCount: 2,
 		},
 		treeRows: [
 			{
