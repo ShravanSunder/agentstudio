@@ -44,10 +44,10 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         let subscription: BridgeProductSubscriptionSnapshot
     }
 
-    private struct MissingPathInvalidationRequest: Sendable {
+    private struct DescriptorUnavailablePathInvalidationRequest: Sendable {
         let emit: BridgePaneProductFileMetadataEventSink
         let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-        let missingPaths: Set<String>
+        let paths: Set<String>
         let productAdmission: BridgeProductAdmissionContext
         let productSource: BridgeProductFileSourceIdentity
         let subscription: BridgeProductSubscriptionSnapshot
@@ -141,6 +141,28 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         _ observer: @escaping BridgePaneProductFileSourceAcceptedObserver
     ) {
         sourceAcceptedObserver = observer
+    }
+
+    func currentWorktreeAnnotationFingerprint(
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> WorktreeAnnotationSourceFingerprint {
+        try await worktreeAnnotationFingerprintImplementation(productAdmission: productAdmission)
+    }
+
+    func currentWorktreeAnnotationSourceGeneration(
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> Int {
+        try await worktreeAnnotationSourceGenerationImplementation(productAdmission: productAdmission)
+    }
+
+    func currentWorktreeAnnotationRefresh(
+        requirements: [WorktreeAnnotationSourceRefreshRequirement],
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> WorktreeAnnotationSourceRefreshCapture {
+        try await worktreeAnnotationRefreshImplementation(
+            requirements: requirements,
+            productAdmission: productAdmission
+        )
     }
 
     func open(
@@ -376,6 +398,10 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             (productAdmission.withValidAdmission { true }) == true
         else { return }
         let refreshed = await treeRowRefresher(authority.worktree.path, manifestPaths, false)
+        let refreshedFilePaths = Set(
+            refreshed.rows.lazy.filter { !$0.isDirectory }.map(\.path)
+        )
+        let descriptorUnavailablePaths = manifestPaths.subtracting(refreshedFilePaths)
         try Task.checkCancellation()
         guard
             isCurrent(
@@ -437,11 +463,11 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                 subscription: subscription
             )
         )
-        _ = try await emitMissingPathInvalidations(
+        _ = try await emitDescriptorUnavailablePathInvalidations(
             .init(
                 emit: emit,
                 foregroundWorkAdmission: foregroundWorkAdmission,
-                missingPaths: refreshed.missingPaths,
+                paths: descriptorUnavailablePaths,
                 productAdmission: productAdmission,
                 productSource: productSource,
                 subscription: subscription
@@ -480,10 +506,10 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         return true
     }
 
-    private func emitMissingPathInvalidations(
-        _ request: MissingPathInvalidationRequest
+    private func emitDescriptorUnavailablePathInvalidations(
+        _ request: DescriptorUnavailablePathInvalidationRequest
     ) async throws -> Bool {
-        for missingPath in request.missingPaths {
+        for path in request.paths.sorted() {
             try Task.checkCancellation()
             var acceptedContext: SubscriptionContext?
             let didAcceptContext =
@@ -506,8 +532,8 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             try await request.emit(
                 .invalidated(
                     try .init(
-                        fileId: currentContext.descriptorByPath[missingPath]?.fileId,
-                        path: missingPath,
+                        fileId: currentContext.descriptorByPath[path]?.fileId,
+                        path: path,
                         reason: .filesystemEvent,
                         replacementDescriptor: nil,
                         source: request.productSource
