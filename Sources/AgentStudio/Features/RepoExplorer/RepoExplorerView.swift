@@ -48,10 +48,11 @@ struct RepoExplorerRowBodyEvaluationMeasurement<Content> {
 }
 package typealias BridgeAttendanceSnapshot =
     @MainActor (UUID) -> UInt64?
+package typealias LatestPaneMessageSnapshot =
+    @MainActor (UUID) -> String?
 
 private enum RepoSidebarToolbarTooltipTarget: Hashable {
     case sort
-    case grouping
 }
 
 /// Sidebar content grouped by repository identity (worktree family / remote).
@@ -63,6 +64,7 @@ package struct RepoExplorerView: View {
     let octiconLoader: OcticonLoader
     let repoExplorerPrefs: RepoExplorerSidebarPrefsAtom
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
+    let latestPaneMessageSnapshot: LatestPaneMessageSnapshot
     let commandDispatcher: any AppCommandDispatching
     let commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
     let onSetSortOrder: (RepoExplorerSortOrder) -> Void
@@ -90,6 +92,7 @@ package struct RepoExplorerView: View {
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
         onShowNotificationsForWorktree: @escaping (Worktree) -> Void,
         unreadCount: @escaping (Worktree) -> Int,
+        latestPaneMessageSnapshot: @escaping LatestPaneMessageSnapshot = { _ in nil },
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         initialProjectionTrigger: String = AppPolicies.SidebarProjection.Trigger.startupDiagnostic.rawValue,
         initialProjectionSequence: Int = 0,
@@ -106,6 +109,7 @@ package struct RepoExplorerView: View {
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
         self.onShowNotificationsForWorktree = onShowNotificationsForWorktree
         self.unreadCount = unreadCount
+        self.latestPaneMessageSnapshot = latestPaneMessageSnapshot
         self.performanceTraceRecorder = performanceTraceRecorder
         _projectionAdapter = State(
             initialValue: RepoExplorerProjectionAdapter(
@@ -137,7 +141,6 @@ package struct RepoExplorerView: View {
 
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
-    @State private var groupingMenuOpen = false
     @State private var hasReportedInitialProjection = false
     @State private var hoveredTooltipTarget: RepoSidebarToolbarTooltipTarget?
     @State private var tooltipFrames: [RepoSidebarToolbarTooltipTarget: CGRect] = [:]
@@ -149,6 +152,11 @@ package struct RepoExplorerView: View {
     @State private var cachedProjectionRequest: RepoExplorerProjectionRequest?
     @State private var projectionObservationID: UUID?
     @State private var scrollInstrumentationState = RepoExplorerScrollInstrumentationState()
+    @State private var paneRecencyDisplayReferenceDate = Date()
+    // F6: memoizes paneSecondaryText's URL/shell-path derivation per pane so capture
+    // (paneRowFactsByPaneId) is a plain keyed read on the common unchanged-inputs path. Not
+    // `private`: read from the ProjectionHelpers extension file.
+    @State var paneDisplayTitleCache = RepoExplorerPaneDisplayTitleCache()
     private static let filterDebounceMilliseconds = 25
 
     private var sidebarRepos: [RepoPresentationItem] {
@@ -199,14 +207,19 @@ package struct RepoExplorerView: View {
             pullRequestFactsSnapshot: Self.pullRequestFactsSnapshot(
                 for: worktreeEnrichmentSnapshot,
                 repoCache: repoCache
-            )
+            ),
+            paneRowFactsByPaneId: paneRowFactsByPaneId(now: paneRecencyDisplayReferenceDate),
+            tabGroupFactsByTabId: tabGroupFactsByTabId(),
+            unavailablePullRequestRepoIds: repoCache.unavailablePullRequestRepoIds
         )
     }
 
     /// Reads only the keyed observation slots that can change the projection.
     /// The comparatively expensive immutable request is assembled after an
-    /// observed slot has admitted a rebuild.
-    private var projectionInputRevision: Int {
+    /// observed slot has admitted a rebuild. Not `private`: N2a regression tests assert this
+    /// fingerprint actually changes across a focus-only transition (see
+    /// RepoExplorerViewProjectionHelperTests).
+    var projectionInputRevision: Int {
         let repositoryIDs = store.repositoryTopologyAtom.repositoryIdsInOrder
         var observedSlotCount = Self.observeRepoEnrichmentInputs(
             repositoryIDs: repositoryIDs,
@@ -228,6 +241,27 @@ package struct RepoExplorerView: View {
         _ = repoExplorerPrefs.groupingMode
         _ = repoExplorerPrefs.sortOrder
         _ = sidebarCache.collapsedGroups
+        _ = atom(\.workspaceEntityRecency).recentEntities
+        // A repo can resolve to terminal pull-request unavailability with zero change to its
+        // (empty) enrichment/facts slots read above, so this must be observed explicitly —
+        // otherwise that transition never admits a rebuild and the row keeps its stale pending
+        // glyph forever.
+        _ = repoCache.unavailablePullRequestRepoIds
+        // N2a (re-audit): paneRowFactsByPaneId's isActive composition reads the exact same
+        // KeyboardRoutingContext + attendedPane facts computed here, so a focus-only transition
+        // (sidebar gains/loses focus, the window resigns key, a command bar or transient surface
+        // opens/closes) must admit a rebuild even when nothing else about the projection changed —
+        // otherwise a previously published '● active' row would stay stale until an unrelated
+        // input woke it. Calling the identical composition here (discarding the result) keeps this
+        // gate's dependency set from drifting out of sync with the real computation.
+        _ = KeyboardRoutingContext.current(
+            windowLifecycle: atom(\.windowLifecycle),
+            managementLayer: atom(\.managementLayer),
+            uiState: atom(\.workspaceSidebarState),
+            commandBarSurface: atom(\.commandBarSurface),
+            transientKeyboardSurface: atom(\.transientKeyboardSurface)
+        )
+        _ = atom(\.attendedPane).attendedPaneId
 
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
@@ -238,7 +272,9 @@ package struct RepoExplorerView: View {
             _ = store.tabLayoutAtom.tab(tab.id)
             for paneID in tab.allPaneIds {
                 _ = paneGraph.paneStructuralFacts(paneID)
+                _ = store.paneAtom.pane(paneID)
                 _ = bridgeAttendanceSnapshot(paneID)
+                _ = latestPaneMessageSnapshot(paneID)
                 observedSlotCount += 1
             }
         }
@@ -290,6 +326,20 @@ package struct RepoExplorerView: View {
             filterText = uiState.filterText
             debouncedQuery = uiState.filterText
             startProjectionObservation()
+            while !Task.isCancelled {
+                try? await Task.sleep(
+                    nanoseconds: AppPolicies.SidebarProjection.paneRecencyDisplayCadence.nanosecondsForTaskSleep
+                )
+                guard !Task.isCancelled else { return }
+                paneRecencyDisplayReferenceDate = Date()
+                let clock = ContinuousClock()
+                let requestBuildStart = clock.now
+                let request = projectionRequest
+                refreshProjection(
+                    request: request,
+                    requestBuildDuration: requestBuildStart.duration(to: clock.now)
+                )
+            }
         }
         .onDisappear {
             debounceTask?.cancel()
@@ -403,7 +453,7 @@ package struct RepoExplorerView: View {
     }
 
     private var activeTooltipTarget: RepoSidebarToolbarTooltipTarget? {
-        groupingMenuOpen ? nil : hoveredTooltipTarget
+        hoveredTooltipTarget
     }
 
     private func updateTooltipTarget(_ target: RepoSidebarToolbarTooltipTarget, isHovered: Bool) {
@@ -418,11 +468,6 @@ package struct RepoExplorerView: View {
             let sortAction = AppCommand.setRepoSidebarSortOrder.definition
             return sortAction.controlTooltipRenderValue(
                 textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
-            )
-        case .grouping:
-            return LocalActionSpec.groupRepoExplorerWorktrees.actionSpec.controlTooltipRenderValue(
-                provenance: .localAction(rawValue: "groupRepoExplorerWorktrees"),
-                textOverride: "Group"
             )
         }
     }
@@ -637,7 +682,11 @@ package struct RepoExplorerView: View {
                             rowId: rowId
                         ) {
                             RepoExplorerPaneRow(
-                                label: panePresentation(for: resolvedPaneContext.destination).label,
+                                row: resolvedPaneContext.row,
+                                pullRequestCount: cachedProjectionResult.branchStatusByWorktreeId[
+                                    resolvedPaneContext.destination.worktreeId
+                                ]?.prCount,
+                                octiconLoader: octiconLoader,
                                 onFocus: { focusPane(resolvedPaneContext.destination.paneId) }
                             )
                             .listRowInsets(
@@ -651,7 +700,7 @@ package struct RepoExplorerView: View {
                         }
 
                     case .unassociatedPaneRow(let destination):
-                        RepoExplorerPaneRow(
+                        RepoExplorerUnassociatedPaneRow(
                             label: destination.label(
                                 paneDisplayLabel: atom(\.paneDisplay).displayLabel(for: destination.paneId)
                             ),
@@ -850,14 +899,9 @@ package struct RepoExplorerView: View {
             let scopedChange = request.scopedChange(from: previousRequest)
         {
             projectionGeneration += 1
-            let generatedRequest = RepoExplorerProjectionRequest(
+            let generatedRequest = request.generated(
                 generation: projectionGeneration,
-                snapshot: request.snapshot,
-                collapsedGroupIds: request.collapsedGroupIds,
-                isFiltering: request.isFiltering,
-                trigger: .dataRefresh,
-                worktreeEnrichmentSnapshot: request.worktreeEnrichmentSnapshot,
-                pullRequestFactsSnapshot: request.pullRequestFactsSnapshot
+                trigger: .dataRefresh
             )
             if let scopedResult = RepoExplorerProjectionWorker.applyScopedChange(
                 scopedChange,
@@ -906,14 +950,9 @@ package struct RepoExplorerView: View {
                 next: request,
                 initialProjectionTrigger: initialProjectionTrigger
             )
-        let generatedRequest = RepoExplorerProjectionRequest(
+        let generatedRequest = request.generated(
             generation: projectionGeneration,
-            snapshot: request.snapshot,
-            collapsedGroupIds: request.collapsedGroupIds,
-            isFiltering: request.isFiltering,
-            trigger: projectionTrigger,
-            worktreeEnrichmentSnapshot: request.worktreeEnrichmentSnapshot,
-            pullRequestFactsSnapshot: request.pullRequestFactsSnapshot
+            trigger: projectionTrigger
         )
         performanceTraceRecorder?.recordDuration(
             .sidebarProjection,
@@ -967,7 +1006,11 @@ package struct RepoExplorerView: View {
             outcome: "published"
         )
         if AtomPerformanceTelemetry.shared.isRepoExplorerKeyedWakeContextActive {
-            let referenceProjection = RepoExplorerProjection.project(result.snapshot)
+            let referenceProjection = RepoExplorerProjection.project(
+                result.snapshot,
+                paneRowFactsByPaneId: result.paneRowFactsByPaneId,
+                tabGroupFactsByTabId: result.tabGroupFactsByTabId
+            )
             AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
                 stage: "final_projection",
                 outcome: referenceProjection == result.projection ? "reference_equal" : "reference_different"
@@ -1101,7 +1144,6 @@ extension RepoExplorerView {
             nextSortOrder: nextSortOrder,
             snapshot: commandPresentationSnapshot
         )
-        let groupingAction = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
         let presentedGroupingModes = RepoExplorerGroupingMode.allCases.filter { groupingMode in
             commandPresentation.command(groupingCommand(for: groupingMode)) != nil
         }
@@ -1132,61 +1174,48 @@ extension RepoExplorerView {
                         onSetSortOrder(nextSortOrder)
                     }
                 )
+                .id("repoSidebarSortButton.stable")
                 .disabled(!sortCommand.isEnabled)
             }
 
             if !presentedGroupingModes.isEmpty {
                 SidebarToolbarDivider()
 
-                SidebarToolbarGroupingButton(
-                    label: groupingAction.label,
-                    selectionLabel: repoExplorerPrefs.groupingMode.title,
-                    accessibilityIdentifier: "repoSidebarGroupingButton",
-                    tooltipValue: groupingAction.controlTooltipRenderValue(
-                        provenance: .localAction(rawValue: "groupRepoExplorerWorktrees"),
-                        textOverride: "Group"
-                    ),
-                    isOpen: groupingMenuOpen,
-                    tooltipTarget: RepoSidebarToolbarTooltipTarget.grouping,
-                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
-                    frameAccessibilityIdentifier: "repoSidebarGroupingButtonFrame",
-                    onHover: { updateTooltipTarget(.grouping, isHovered: $0) },
-                    action: {
-                        groupingMenuOpen.toggle()
+                SidebarToolbarSegmentedControl(
+                    segments: presentedGroupingModes.map { groupingMode in
+                        let command = presentedGroupingCommand(
+                            for: groupingMode,
+                            in: commandPresentation
+                        )
+                        return SidebarToolbarSegment(
+                            value: groupingMode,
+                            label: groupingMode.title,
+                            accessibilityIdentifier: "repoSidebarGroupingSegment.\(groupingMode.rawValue)",
+                            tooltipValue: command.commandSpec.controlTooltipRenderValue(
+                                textOverride: groupingMode.title
+                            ),
+                            isEnabled: command.isEnabled
+                        )
                     },
-                )
-                .disabled(
-                    !presentedGroupingModes.contains { groupingMode in
-                        commandPresentation.command(groupingCommand(for: groupingMode))?.isEnabled == true
+                    selection: repoExplorerPrefs.groupingMode,
+                    icon: { groupingMode in
+                        // The accent must be injected into the icon construction: AppEntityIcon bakes
+                        // its own foreground style at the leaf, so an outer foregroundStyle never wins.
+                        groupingModeIcon(for: groupingMode).swiftUIImage(
+                            loader: octiconLoader,
+                            size: AppStyles.General.Icon.compact,
+                            foregroundOverride: groupingMode == repoExplorerPrefs.groupingMode
+                                ? AppStyles.General.Accent.primaryColor
+                                : nil
+                        )
+                    },
+                    onSelect: { groupingMode in
+                        let command = groupingCommand(for: groupingMode)
+                        guard commandPresentation.command(command)?.isEnabled == true else { return }
+                        commandDispatcher.dispatch(command)
                     }
                 )
-                .popover(isPresented: $groupingMenuOpen) {
-                    SidebarGroupingPopover(
-                        items: presentedGroupingModes,
-                        selectedItem: repoExplorerPrefs.groupingMode,
-                        icon: { groupingMode in
-                            presentedGroupingCommand(
-                                for: groupingMode,
-                                in: commandPresentation
-                            ).commandSpec.icon.swiftUIImage(
-                                loader: octiconLoader,
-                                size: AppStyles.General.Icon.compact
-                            )
-                        },
-                        label: { groupingMode in
-                            groupingMode.title
-                        },
-                        onSelect: { candidate in
-                            let command = groupingCommand(for: candidate)
-                            guard commandPresentation.command(command)?.isEnabled == true else {
-                                return
-                            }
-                            commandDispatcher.dispatch(command)
-                            groupingMenuOpen = false
-                        },
-                        onDismiss: { groupingMenuOpen = false }
-                    )
-                }
+                .accessibilityIdentifier("repoSidebarGroupingControl")
             }
         }
         .background(

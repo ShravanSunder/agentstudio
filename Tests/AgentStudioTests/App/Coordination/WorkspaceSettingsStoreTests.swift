@@ -50,7 +50,7 @@ struct WorkspaceSettingsStoreTests {
         ).restoreAsync(for: workspaceId)
 
         #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
-        #expect(restoredRepoExplorerPreferences.groupingMode == .tab)
+        #expect(restoredRepoExplorerPreferences.groupingMode == .repo)
         #expect(restoredRepoExplorerPreferences.sortOrder == .descending)
         #expect(restoredInboxPreferences.grouping == .byRepo)
         #expect(restoredInboxPreferences.sort == .oldestFirst)
@@ -95,6 +95,7 @@ struct WorkspaceSettingsStoreTests {
             repoExplorerPreferences: repoExplorerPreferences,
             inboxPreferences: inboxPreferences
         )
+        #expect(repoExplorerPreferences.groupingMode == .pane)
     }
 
     @Test(
@@ -117,7 +118,6 @@ struct WorkspaceSettingsStoreTests {
         try repository.replaceRepoExplorerPreferences(
             try #require(
                 WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
-                    groupingMode: SQLiteLocalUXStorage.repoExplorerGroupingPane,
                     sortOrder: SQLiteLocalUXStorage.repoExplorerSortDescending,
                     visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
                 )
@@ -157,7 +157,7 @@ struct WorkspaceSettingsStoreTests {
         ).restoreAsync(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == (unavailableLane == .editor ? nil : "cursor"))
-        #expect(repoExplorerPreferences.groupingMode == (unavailableLane == .repoExplorer ? .repo : .pane))
+        #expect(repoExplorerPreferences.groupingMode == .repo)
         #expect(
             inboxPreferences.grouping
                 == (unavailableLane == .inboxNotification ? .byTab : .byRepo)
@@ -183,10 +183,10 @@ struct WorkspaceSettingsStoreTests {
             try database.execute(
                 sql: """
                     INSERT INTO local_repo_explorer_preferences(
-                        workspace_id, grouping_mode, sort_order, visibility_mode, updated_at
-                    ) VALUES (?, ?, ?, ?, ?)
+                        workspace_id, sort_order, visibility_mode, updated_at
+                    ) VALUES (?, ?, ?, ?)
                     """,
-                arguments: [workspaceId.uuidString, "unsupported", "descending", "favoritesOnly", 1]
+                arguments: [workspaceId.uuidString, "unsupported", "favoritesOnly", 1]
             )
             try database.execute(
                 sql: """
@@ -224,11 +224,6 @@ struct WorkspaceSettingsStoreTests {
         #expect(inboxPreferences.paneInboxContentMode == .all)
         #expect(inboxPreferences.paneInboxRowStateFilter == .unreadOnly)
 
-        let groupingAfterHydration = try await repoExplorerGrouping(
-            workspaceId: workspaceId,
-            databaseQueue: fixture.localDatabaseQueue
-        )
-        #expect(groupingAfterHydration == "unsupported")
         let repository = WorkspaceLocalRepository(
             workspaceId: workspaceId,
             databaseWriter: fixture.localDatabaseQueue
@@ -241,11 +236,6 @@ struct WorkspaceSettingsStoreTests {
         editorPreference.setBookmarkedEditor("zed")
         try await store.flush(for: workspaceId)
 
-        let groupingAfterSave = try await repoExplorerGrouping(
-            workspaceId: workspaceId,
-            databaseQueue: fixture.localDatabaseQueue
-        )
-        #expect(groupingAfterSave == "repo")
         #expect(try repository.fetchEditorPreferences().bookmarkedEditorId == "zed")
         #expect(
             try repository.fetchRepoExplorerPreferences().visibilityMode
@@ -282,6 +272,7 @@ struct WorkspaceSettingsStoreTests {
             repoExplorerPreferences: repoExplorerPreferences,
             inboxPreferences: inboxPreferences
         )
+        #expect(repoExplorerPreferences.groupingMode == .pane)
         #expect(
             recoveryEvents.contains(
                 .init(store: .workspaceSettings, workspaceId: workspaceId, recovery: .resetToDefaults)
@@ -322,7 +313,6 @@ struct WorkspaceSettingsStoreTests {
             databaseWriter: fixture.localDatabaseQueue
         )
         #expect(try repository.fetchEditorPreferences().bookmarkedEditorId == "cursor")
-        #expect(try repository.fetchRepoExplorerPreferences().groupingMode == "pane")
         #expect(try repository.fetchRepoExplorerPreferences().sortOrder == "descending")
         #expect(try repository.fetchInboxNotificationPreferences().grouping == "byRepo")
         #expect(try repository.fetchInboxNotificationPreferences().bellEnabled)
@@ -442,7 +432,6 @@ struct WorkspaceSettingsStoreTests {
         inboxPreferences: InboxNotificationPrefsAtom
     ) {
         #expect(editorPreference.bookmarkedEditorId == nil)
-        #expect(repoExplorerPreferences.groupingMode == .repo)
         #expect(repoExplorerPreferences.sortOrder == .ascending)
         #expect(inboxPreferences.grouping == .byTab)
         #expect(inboxPreferences.sort == .newestFirst)
@@ -473,22 +462,5 @@ enum SettingsPreferenceLane: CaseIterable {
         case .inboxNotification:
             "local_inbox_notification_preferences"
         }
-    }
-}
-
-private func repoExplorerGrouping(
-    workspaceId: UUID,
-    databaseQueue: DatabaseQueue
-) async throws -> String? {
-    try await databaseQueue.read { database in
-        try String.fetchOne(
-            database,
-            sql: """
-                SELECT grouping_mode
-                FROM local_repo_explorer_preferences
-                WHERE workspace_id = ?
-                """,
-            arguments: [workspaceId.uuidString]
-        )
     }
 }

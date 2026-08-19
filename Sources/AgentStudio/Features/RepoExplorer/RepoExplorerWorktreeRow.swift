@@ -20,12 +20,6 @@ struct RepoExplorerFavoriteControlVisibility: Equatable {
 }
 
 struct RepoExplorerWorktreeRowContent: View {
-    struct PullRequestChipPresentation: Equatable {
-        let icon: SidebarChip.Icon
-        let text: String?
-        let usesAccent: Bool
-    }
-
     let octiconLoader: OcticonLoader
     let checkoutTitle: String
     let branchName: String
@@ -70,10 +64,6 @@ struct RepoExplorerWorktreeRowContent: View {
         }
     }
 
-    private var lineDiffCounts: (added: Int, deleted: Int) {
-        (branchStatus.linesAdded, branchStatus.linesDeleted)
-    }
-
     static func shouldShowUnreadPill(unreadCount: Int) -> Bool {
         unreadCount > 0
     }
@@ -90,24 +80,52 @@ struct RepoExplorerWorktreeRowContent: View {
         (isFavorite ? AppCommand.removeRepoFavorite : AppCommand.addRepoFavorite).definition
     }
 
-    static func pullRequestChipPresentation(prCount: Int?) -> PullRequestChipPresentation {
-        guard let prCount else {
-            return PullRequestChipPresentation(
-                icon: .system(.arrowClockwise),
-                text: nil,
-                usesAccent: false
-            )
-        }
-        return PullRequestChipPresentation(
-            icon: .octicon("octicon-git-pull-request"),
-            text: "\(prCount)",
-            usesAccent: prCount > 0
+    static func diffChipDetail(branchStatus: GitBranchStatus) -> SidebarDiffChip.WorkingTreeDetail? {
+        SidebarDiffChip.workingTreeDetail(
+            isDirty: branchStatus.isDirty,
+            linesAdded: branchStatus.linesAdded,
+            linesDeleted: branchStatus.linesDeleted,
+            untrackedFileCount: branchStatus.untrackedFileCount
         )
     }
 
+    static func shouldShowDiffChip(branchStatus: GitBranchStatus) -> Bool {
+        diffChipDetail(branchStatus: branchStatus) != nil
+    }
+
+    static func shouldShowSyncChip(branchStatus: GitBranchStatus) -> Bool {
+        switch branchStatus.syncState {
+        case .ahead(let count):
+            return count > 0
+        case .behind(let count):
+            return count > 0
+        case .diverged(let ahead, let behind):
+            return ahead > 0 || behind > 0
+        case .synced, .noUpstream, .unknown:
+            return false
+        }
+    }
+
+    static func shouldShowPullRequestChip(branchStatus: GitBranchStatus) -> Bool {
+        branchStatus.prCount != 0 && !branchStatus.pullRequestDataUnavailable
+    }
+
+    private var hasStatusMetadata: Bool {
+        Self.shouldShowDiffChip(branchStatus: branchStatus)
+            || Self.shouldShowSyncChip(branchStatus: branchStatus)
+            || Self.shouldShowPullRequestChip(branchStatus: branchStatus)
+            || Self.shouldShowUnreadPill(unreadCount: unreadCount)
+    }
+
+    /// True when neither the diff nor sync chip renders, so the stale pull-request glyph (when present)
+    /// is the chips line's leading element rather than following an already-padded pill.
+    private var isFirstChipsLineItem: Bool {
+        !Self.shouldShowDiffChip(branchStatus: branchStatus) && !Self.shouldShowSyncChip(branchStatus: branchStatus)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
-            HStack(spacing: AppStyles.General.Spacing.tight) {
+        VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+            HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                 checkoutTypeIcon
                     .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
 
@@ -146,83 +164,85 @@ struct RepoExplorerWorktreeRowContent: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .sidebarIconLineTextColumnGuide()
 
-            HStack(spacing: AppStyles.General.Spacing.tight) {
-                OcticonImage(
-                    name: "octicon-git-branch",
-                    size: AppStyles.Shell.Sidebar.branchIconSize,
-                    loader: octiconLoader
-                )
-                .foregroundStyle(.secondary)
-                .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
-
-                Text(branchName)
-                    .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            SidebarMetadataLine(
+                icon: .octicon(name: "octicon-git-branch", loader: octiconLoader),
+                text: branchName
+            )
 
             if !placementText.isEmpty {
-                HStack(spacing: AppStyles.General.Spacing.tight) {
-                    Image(systemName: "square.split.2x1")
-                        .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
-
-                    Text(placementText)
-                        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .layoutPriority(1)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                SidebarMetadataLine(
+                    icon: .systemName("square.split.2x1"),
+                    text: placementText
+                )
             }
 
-            HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
-                SidebarDiffChip(
-                    octiconLoader: octiconLoader,
-                    linesAdded: lineDiffCounts.added,
-                    linesDeleted: lineDiffCounts.deleted,
-                    showsDirtyIndicator: branchStatus.isDirty,
-                    isMuted: lineDiffCounts.added == 0 && lineDiffCounts.deleted == 0
-                )
+            if hasStatusMetadata {
+                HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+                    if let diffChipDetail = Self.diffChipDetail(branchStatus: branchStatus) {
+                        SidebarDiffChip(octiconLoader: octiconLoader, detail: diffChipDetail)
+                    }
 
-                SidebarStatusSyncChip(
-                    octiconLoader: octiconLoader,
-                    aheadText: syncCounts.ahead,
-                    behindText: syncCounts.behind,
-                    hasSyncSignal: hasSyncSignal
-                )
-
-                let pullRequestChip = Self.pullRequestChipPresentation(prCount: branchStatus.prCount)
-                SidebarChip(
-                    icon: pullRequestChip.icon,
-                    octiconLoader: octiconLoader,
-                    text: pullRequestChip.text,
-                    style: pullRequestChip.usesAccent ? .accent(iconColor) : .neutral
-                )
-
-                if Self.shouldShowUnreadPill(unreadCount: unreadCount) {
-                    Button(action: onUnreadPillTap) {
-                        SidebarChip(
-                            icon: .octicon("octicon-bell"),
+                    if Self.shouldShowSyncChip(branchStatus: branchStatus) {
+                        SidebarStatusSyncChip(
                             octiconLoader: octiconLoader,
-                            text: "\(unreadCount)",
-                            style: .accent(iconColor)
+                            aheadText: syncCounts.ahead,
+                            behindText: syncCounts.behind,
+                            hasSyncSignal: hasSyncSignal
                         )
                     }
-                    .buttonStyle(.plain)
+
+                    if branchStatus.prCount == nil && !branchStatus.pullRequestDataUnavailable {
+                        stalePullRequestGlyph
+                            // The bare glyph carries no pill padding of its own. When it renders as the
+                            // line's leading item (no diff/sync chip precedes it), it needs the same
+                            // compensating inset the row-level guide already assumes every leading chip
+                            // pill provides, so its glyph content still lands on the text column.
+                            .padding(
+                                .leading,
+                                isFirstChipsLineItem
+                                    ? AppStyles.Shell.Sidebar.chipHorizontalPadding : 0
+                            )
+                    } else if let prCount = branchStatus.prCount,
+                        prCount > 0,
+                        !branchStatus.pullRequestDataUnavailable
+                    {
+                        SidebarPullRequestChipSpec.chip(count: prCount, octiconLoader: octiconLoader)
+                    }
+
+                    if Self.shouldShowUnreadPill(unreadCount: unreadCount) {
+                        Button(action: onUnreadPillTap) {
+                            SidebarChip(
+                                icon: .octicon("octicon-bell"),
+                                octiconLoader: octiconLoader,
+                                text: "\(unreadCount)",
+                                style: .accent(iconColor)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .sidebarChipRowTextColumnGuide()
             }
-            .padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// A `nil` PR count means facts have not been fetched for this branch. The render-server symbol
+    /// effect communicates pending metadata without turning it into a value-bearing chip or scheduling
+    /// per-frame application work.
+    private var stalePullRequestGlyph: some View {
+        Image(systemName: SystemSymbol.circleDotted.rawValue)
+            .font(.system(size: AppStyles.Shell.Sidebar.chipIconSize, weight: .medium))
+            .foregroundStyle(.secondary)
+            .symbolEffect(
+                .variableColor.iterative,
+                options: .repeating.speed(AppStyles.Shell.Sidebar.pendingFactsSymbolEffectSpeed)
+            )
+            .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
+            .fixedSize(horizontal: true, vertical: true)
+            .accessibilityLabel("Pull request facts not fetched")
     }
 
     @ViewBuilder

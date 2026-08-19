@@ -31,6 +31,9 @@ package final class TerminalActivityRouter {
     private let surfaceIDForPaneID: @MainActor (UUID) -> UUID?
     private let isPaneCurrentlyAttended: @MainActor (UUID) -> Bool
     private let isPaneAgentClassified: @MainActor (UUID, PaneContentType) -> Bool
+    private let lastOutputLineReader: @MainActor (UUID) -> String?
+    private let recordSettledActivityStatus: @MainActor (UUID, String?) -> Void
+    private let clearPaneActivityStatus: @MainActor (UUID) -> Void
 
     private var busTask: Task<Void, Never>?
     private var derivedActivityPostTask: Task<Void, Never>?
@@ -49,6 +52,9 @@ package final class TerminalActivityRouter {
         surfaceIDForPaneID: (@MainActor (UUID) -> UUID?)? = nil,
         isPaneCurrentlyAttended: (@MainActor (UUID) -> Bool)? = nil,
         isPaneAgentClassified: (@MainActor (UUID, PaneContentType) -> Bool)? = nil,
+        lastOutputLineReader: (@MainActor (UUID) -> String?)? = nil,
+        recordSettledActivityStatus: (@MainActor (UUID, String?) -> Void)? = nil,
+        clearPaneActivityStatus: (@MainActor (UUID) -> Void)? = nil,
         unseenActivityDebounceDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
         agentSettledQuietDuration: Duration = AppPolicies.InboxNotification.agentSettledQuietDuration,
         unseenActivityClock: (any Clock<Duration> & Sendable)? = nil,
@@ -75,6 +81,10 @@ package final class TerminalActivityRouter {
                 attendedPane?.attendedPaneId == paneID
             }
         self.isPaneAgentClassified = isPaneAgentClassified ?? { _, paneKind in paneKind == .agent }
+        self.lastOutputLineReader =
+            lastOutputLineReader ?? { SurfaceManager.shared.readViewportTrailingText(forSurfaceID: $0) }
+        self.recordSettledActivityStatus = recordSettledActivityStatus ?? { _, _ in }
+        self.clearPaneActivityStatus = clearPaneActivityStatus ?? { _ in }
     }
 
     deinit {
@@ -86,9 +96,14 @@ package final class TerminalActivityRouter {
     package func start() async {
         guard busTask == nil else { return }
 
-        await projector.configure { [weak self] outcomes in
-            self?.consumeProjectionOutcomes(outcomes)
-        }
+        await projector.configure(
+            lastOutputLineReader: { [weak self] surfaceID in
+                self?.lastOutputLineReader(surfaceID)
+            },
+            outcomeSink: { [weak self] outcomes in
+                self?.consumeProjectionOutcomes(outcomes)
+            }
+        )
         Ghostty.ActionRouter.bindTerminalActivityInput(
             id: projectorBindingID,
             context: { [weak self] paneID in
@@ -221,16 +236,25 @@ package final class TerminalActivityRouter {
                     paneID: paneID
                 ))
         case .unseenActivitySettled(_, let paneID, let activity):
+            // Written unconditionally, ahead of and independent of InboxNotificationRouter's
+            // consumption of the derived envelope below, so a pane's own sidebar row always learns
+            // its latest real output line even when InboxPromoter suppresses the notification for
+            // small observed/attended bursts.
+            recordSettledActivityStatus(paneID, activity.lastOutputLine)
             derivedEnvelopes.append(
                 derivedActivityEnvelope(.unseenActivitySettled(activity), paneID: paneID))
         case .agentSettledActivityPromoted(_, let paneID, let activity):
+            recordSettledActivityStatus(paneID, activity.lastOutputLine)
             derivedEnvelopes.append(
                 derivedActivityEnvelope(.agentSettledActivityPromoted(activity), paneID: paneID))
         case .agentSettledActivityRevoked(_, let paneID):
             derivedEnvelopes.append(
                 derivedActivityEnvelope(.agentSettledActivityRevoked, paneID: paneID))
         case .surfaceClosed(_, let paneID):
-            if let paneID { activityAtom.clear(paneId: paneID) }
+            if let paneID {
+                activityAtom.clear(paneId: paneID)
+                clearPaneActivityStatus(paneID)
+            }
         }
     }
 
@@ -292,6 +316,13 @@ package final class TerminalActivityRouter {
                 paneID: paneEnvelope.paneId.uuid,
                 control: .semanticSignal
             )
+            if case .commandFinished = event {
+                // RC2: commandFinished is a contracted semantic settle boundary, admitted as a
+                // second settle-evidence source alongside scrollbar-derived activity (Contract 7).
+                // It fires regardless of attention state, covering the case scrollbar/unseen-window
+                // tracking structurally excludes: typing into your own focused pane.
+                await projector.commandFinished(surfaceID: surfaceID, paneID: paneEnvelope.paneId.uuid)
+            }
         }
         await traceTerminalActivity(paneEnvelope)
     }

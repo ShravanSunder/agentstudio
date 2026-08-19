@@ -10,6 +10,25 @@ import Testing
 @MainActor
 @Suite("Repo Explorer command presentation batch", .serialized)
 struct RepoExplorerCommandPresentationBatchTests {
+    @Test("toolbar capability requests keep both sort destinations mounted")
+    func toolbarCapabilityRequestsKeepBothSortDestinationsMounted() {
+        let requestsBeforeToggle = RepoExplorerToolbarCommandPresentation.requests(
+            nextSortOrder: .descending
+        )
+        let requestsAfterToggle = RepoExplorerToolbarCommandPresentation.requests(
+            nextSortOrder: .ascending
+        )
+        let requestedSortOrders = Set(
+            requestsBeforeToggle.compactMap { request -> RepoExplorerSortOrder? in
+                guard case .repoSidebarSortOrder(let order) = request.arguments else { return nil }
+                return order
+            }
+        )
+
+        #expect(requestsBeforeToggle == requestsAfterToggle)
+        #expect(requestedSortOrders == Set(RepoExplorerSortOrder.allCases))
+    }
+
     @Test("mixed capability and visible-set wake re-resolves surviving requests")
     func mixedCapabilityAndVisibleSetWakeReresolvesSurvivingRequests() async throws {
         let handler = RepoExplorerCommandPresentationRecordingHandler()

@@ -9,9 +9,42 @@ struct RepoExplorerProjectionRequestKey: Equatable {
     let isFiltering: Bool
     let worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment]
     let pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts]
+    let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
+    let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
+    /// Must be compared explicitly: a repo can resolve to terminal pull-request unavailability with
+    /// zero change to its (empty) facts snapshot, so omitting this field would let that transition
+    /// compare equal and silently skip re-projection.
+    let unavailablePullRequestRepoIds: Set<UUID>
 }
 
 extension RepoExplorerView {
+    static func paneSecondaryText(
+        liveTitle: String,
+        cwd: URL?,
+        shellExecutablePath: String?
+    ) -> String {
+        let normalizedTitle = liveTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cwdPath = cwd?.standardizedFileURL.path
+        let titleIsPathShaped =
+            normalizedTitle.hasPrefix("/")
+            || normalizedTitle.hasPrefix("~")
+            || normalizedTitle.hasPrefix("…/")
+            || normalizedTitle.hasPrefix(".../")
+        let titleMatchesCWD =
+            cwdPath.map { cwdPath in
+                normalizedTitle == cwdPath || normalizedTitle.hasPrefix("\(cwdPath)/")
+            } ?? false
+        guard normalizedTitle.isEmpty || titleIsPathShaped || titleMatchesCWD else {
+            return normalizedTitle
+        }
+
+        let shellName = shellExecutablePath.flatMap { shellExecutablePath -> String? in
+            let lastPathComponent = URL(fileURLWithPath: shellExecutablePath).lastPathComponent
+            return lastPathComponent.isEmpty ? nil : lastPathComponent
+        }
+        return shellName ?? "zsh"
+    }
+
     static func measureRowBodyEvaluationProxy<Content>(
         rowKind: RepoExplorerRowKind,
         nowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
@@ -102,7 +135,10 @@ extension RepoExplorerView {
             collapsedGroupIds: request.collapsedGroupIds,
             isFiltering: request.isFiltering,
             worktreeEnrichmentSnapshot: request.worktreeEnrichmentSnapshot,
-            pullRequestFactsSnapshot: request.pullRequestFactsSnapshot
+            pullRequestFactsSnapshot: request.pullRequestFactsSnapshot,
+            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId,
+            unavailablePullRequestRepoIds: request.unavailablePullRequestRepoIds
         )
     }
 
@@ -231,6 +267,98 @@ extension RepoExplorerView {
         }
 
         return candidatesByWorktreeId
+    }
+
+    func paneRowFactsByPaneId(now: Date = Date()) -> [UUID: RepoExplorerPaneRowFacts] {
+        typealias PaneRowFactsEntry = (UUID, RepoExplorerPaneRowFacts)
+        let workspaceTab = WorkspaceTabLayoutDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        let lastInteractionByPaneId: [UUID: Date] = Dictionary(
+            uniqueKeysWithValues: atom(\.workspaceEntityRecency).recentEntities.compactMap { recency -> (UUID, Date)? in
+                guard case .pane(let paneId) = recency.entity else { return nil }
+                return (paneId, recency.lastInteractedAt)
+            }
+        )
+        // F5/N2b: "active" means this pane currently holds real user attention, not merely that
+        // it is the selected pane within its tab's arrangement. A pane stays selected while the
+        // sidebar has keyboard focus, another window is key, the app itself is inactive, or a
+        // transient surface (command bar, arrangement panel, rename field, etc.) owns keyboard
+        // input, none of which should keep rendering the '● active' chip. attendedPane already
+        // gates on the workspace window being key and the management layer being inactive.
+        // KeyboardRoutingContext is the richer canonical fact (used by CommandBarState and
+        // AppDelegate+CommandBar for real keyboard routing): only its `.stable(.mainWindowChain)`
+        // surface means the main pane chain genuinely owns the keyboard right now -- `.commandBar`
+        // and `.transient` cases must drop the active dot even though the underlying window/
+        // management-layer/sidebar-focus facts alone would otherwise resolve to mainWindowChain.
+        let focusedPaneId: UUID? = {
+            let routingContext = KeyboardRoutingContext.current(
+                windowLifecycle: atom(\.windowLifecycle),
+                managementLayer: atom(\.managementLayer),
+                uiState: atom(\.workspaceSidebarState),
+                commandBarSurface: atom(\.commandBarSurface),
+                transientKeyboardSurface: atom(\.transientKeyboardSurface)
+            )
+            guard routingContext.isStableMainWindowChain else { return nil }
+            return atom(\.attendedPane).attendedPaneId
+        }()
+        let allPaneIds = workspaceTab.tabs.flatMap(\.allPaneIds)
+        let paneRowFactsByPaneId = Dictionary(
+            uniqueKeysWithValues: allPaneIds.compactMap { paneId -> PaneRowFactsEntry? in
+                guard let pane = store.paneAtom.pane(paneId) else { return nil }
+                // F6: capture reads the memoized, already-normalized title; URL/shell-path
+                // derivation itself lives only in RepoExplorerPaneDisplayTitleCache.resolve, which
+                // re-derives only when this pane's title/cwd/shell inputs actually changed.
+                let terminalTitle = paneDisplayTitleCache.resolve(
+                    paneId: paneId,
+                    liveTitle: pane.title,
+                    cwd: pane.metadata.facets.cwd,
+                    shellExecutablePath: pane.metadata.contentType == .terminal
+                        ? SessionConfiguration.defaultShell()
+                        : nil
+                )
+                let lastInteractedAt = lastInteractionByPaneId[paneId]
+                let recencyReferenceDate = lastInteractedAt ?? pane.metadata.createdAt
+                return (
+                    paneId,
+                    RepoExplorerPaneRowFacts(
+                        terminalTitle: terminalTitle,
+                        latestMessageText: latestPaneMessageSnapshot(paneId),
+                        recencyReferenceDate: recencyReferenceDate,
+                        recencyText: RepoExplorerPaneRecencyText.display(
+                            lastInteractedAt: recencyReferenceDate,
+                            now: now
+                        ),
+                        isActive: paneId == focusedPaneId
+                    )
+                )
+            }
+        )
+        paneDisplayTitleCache.retainOnly(paneIds: Set(allPaneIds))
+        return paneRowFactsByPaneId
+    }
+
+    func tabGroupFactsByTabId() -> [UUID: RepoExplorerTabGroupFacts] {
+        let workspaceTab = WorkspaceTabLayoutDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        return Dictionary(
+            uniqueKeysWithValues: workspaceTab.tabs.map { tab in
+                (
+                    tab.id,
+                    RepoExplorerTabGroupFacts(
+                        displayTitle: atom(\.tabDisplay).displayTitle(
+                            for: tab,
+                            workspacePane: store.paneAtom,
+                            workspaceRepositoryTopology: store.repositoryTopologyAtom,
+                            repoCache: atom(\.repoCache)
+                        )
+                    )
+                )
+            }
+        )
     }
 
     static func checkoutColorHex(
@@ -378,7 +506,7 @@ extension RepoExplorerView {
 
         let projectedPaneRowsFingerprint = projection.paneRowsByGroupId.keys.sorted().map { groupId in
             let rows = projection.paneRowsByGroupId[groupId, default: []].map { row in
-                "\(row.groupId):\(row.rowId):\(paneDestinationFingerprint(row.destination))"
+                "\(row.groupId):\(row.rowId):\(row.primaryText):\(row.secondaryText):\(row.recencyText):\(row.isActive):\(paneDestinationFingerprint(row.destination))"
             }.joined(separator: ",")
             return "\(groupId):\(rows)"
         }.joined(separator: "|")
@@ -416,7 +544,7 @@ extension RepoExplorerView {
     }
 
     private static func paneDestinationFingerprint(_ destination: RepoExplorerPaneDestination) -> String {
-        "\(destination.paneId.uuidString):\(destination.repoId.uuidString):\(destination.worktreeId.uuidString):\(destination.worktreeLabel):\(destination.tabId.uuidString):\(destination.tabIndex):\(destination.paneIndexInTab):\(destination.isActiveInTab)"
+        "\(destination.paneId.uuidString):\(destination.repoId.uuidString):\(destination.worktreeId.uuidString):\(destination.worktreeLabel):\(destination.paneDisplayLabel):\(destination.tabId.uuidString):\(destination.tabIndex):\(destination.paneIndexInTab):\(destination.isActiveInTab)"
     }
 
     static func shouldReportInitialProjection(hasReportedInitialProjection: Bool) -> Bool {
@@ -468,9 +596,7 @@ extension RepoExplorerView {
     func panePresentation(for destination: RepoExplorerPaneDestination) -> RepoExplorerPanePresentation {
         RepoExplorerPanePresentation(
             destination: destination,
-            label: destination.label(
-                paneDisplayLabel: atom(\.paneDisplay).displayLabel(for: destination.paneId)
-            )
+            label: destination.label
         )
     }
 
@@ -486,11 +612,13 @@ extension RepoExplorerView {
 
     static func mergeBranchStatuses(
         worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
-        pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts]
+        pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts],
+        unavailablePullRequestRepoIds: Set<UUID> = []
     ) -> [UUID: GitBranchStatus] {
         GitBranchStatus.merge(
             worktreeEnrichmentsByWorktreeId: worktreeEnrichmentsByWorktreeId,
-            pullRequestFactsByBranch: pullRequestFactsByBranch
+            pullRequestFactsByBranch: pullRequestFactsByBranch,
+            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds
         )
     }
 

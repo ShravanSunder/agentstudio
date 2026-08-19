@@ -17,7 +17,7 @@ package struct SidebarSectionHeaderRow<Content: View, TrailingContent: View>: Vi
     }
 
     package var body: some View {
-        HStack(spacing: AppStyles.Shell.Sidebar.sectionHeaderChevronLabelSpacing) {
+        HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
             Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                 .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
                 .foregroundStyle(.secondary)

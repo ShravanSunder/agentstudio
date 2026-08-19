@@ -17,7 +17,7 @@ struct InboxRow: View {
         prominence: SidebarMetadataProminence = .secondary
     ) -> SidebarMetadataLine {
         SidebarMetadataLine(
-            iconSystemName: iconSystemName,
+            icon: iconSystemName.map(SidebarMetadataLine.IconSource.systemName),
             reservesIconColumn: false,
             text: text,
             prominence: prominence

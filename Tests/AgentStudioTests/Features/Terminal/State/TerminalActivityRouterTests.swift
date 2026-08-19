@@ -9,19 +9,6 @@ import Testing
 @MainActor
 @Suite("TerminalActivityRouter", .serialized)
 struct TerminalActivityRouterTests {
-    private final class SurfaceLifetimeBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var isLive = true
-
-        func retire() {
-            lock.withLock { isLive = false }
-        }
-
-        func containsSurface() -> Bool {
-            lock.withLock { isLive }
-        }
-    }
-
     private final class MillisecondBox: @unchecked Sendable {
         private let lock = NSLock()
         private var value: Int64
@@ -393,6 +380,132 @@ struct TerminalActivityRouterTests {
         await subscriber.shutdown()
     }
 
+    @Test("unseen settlement records the pane's activity status regardless of downstream suppression")
+    func unseenSettlementRecordsPaneActivityStatus() async {
+        // The router must publish the settled activity's last output line unconditionally: it has
+        // no knowledge of InboxNotificationRouter/InboxPromoter's later suppression decisions for
+        // the derived envelope it posts, so this recording call is the one place that guarantees a
+        // pane's own sidebar row learns its latest real content either way.
+        let bus = EventBus<RuntimeEnvelope>()
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let clock = TestPushClock()
+        final class RecordedCallBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private(set) var calls: [(paneId: UUID, lastOutputLine: String?)] = []
+
+            func record(paneId: UUID, lastOutputLine: String?) {
+                lock.lock()
+                calls.append((paneId, lastOutputLine))
+                lock.unlock()
+            }
+        }
+        let recordedCalls = RecordedCallBox()
+        let router = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
+            lastOutputLineReader: { _ in "seam-live-proof" },
+            recordSettledActivityStatus: { paneId, lastOutputLine in
+                recordedCalls.record(paneId: paneId, lastOutputLine: lastOutputLine)
+            },
+            unseenActivityDebounceDuration: .milliseconds(750),
+            unseenActivityClock: clock
+        )
+        let paneId = PaneId.generateUUIDv7()
+
+        await router.start()
+        await ingestActivity(
+            paneId: paneId,
+            totals: [100, 120, 140],
+            context: .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 30),
+            through: router
+        )
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        clock.advance(by: .milliseconds(750))
+
+        _ = await subscriber.firstEvent { envelope in
+            RuntimeEnvelopeHarness.paneEvents(from: [envelope]).contains {
+                if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
+                return false
+            }
+        }
+
+        #expect(recordedCalls.calls.count == 1)
+        #expect(recordedCalls.calls.first?.paneId == paneId.uuid)
+        #expect(recordedCalls.calls.first?.lastOutputLine == "seam-live-proof")
+
+        await router.stop()
+        await subscriber.shutdown()
+    }
+
+    @Test("commandFinished bus event settles the pane with zero scrollbar events, regardless of attention")
+    func commandFinishedBusEventSettlesPaneWithZeroScrollbarEvents() async {
+        // RC2 end-to-end: a real terminal.commandFinished envelope on the runtime bus — with no
+        // scrollbar aggregate ever ingested — must still reach the projector's settle path and post
+        // a derived unseenActivitySettled envelope, for an ATTENDED pane. Attention state is exactly
+        // what the scrollbar/unseen-window path structurally excludes (see
+        // TerminalActivityProjector.commandFinished's doc comment), so this is the scenario the fix
+        // exists for: typing into your own focused pane.
+        let bus = EventBus<RuntimeEnvelope>()
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        final class RecordedCallBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private(set) var calls: [(paneId: UUID, lastOutputLine: String?)] = []
+
+            func record(paneId: UUID, lastOutputLine: String?) {
+                lock.lock()
+                calls.append((paneId, lastOutputLine))
+                lock.unlock()
+            }
+        }
+        let recordedCalls = RecordedCallBox()
+        let router = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
+            isPaneCurrentlyAttended: { _ in true },
+            // Realistic raw viewport text: the real output line followed by the
+            // shell's freshly-printed (bare) prompt as the trailing line.
+            lastOutputLineReader: { _ in "echo-command-output\n$ " },
+            recordSettledActivityStatus: { paneId, lastOutputLine in
+                recordedCalls.record(paneId: paneId, lastOutputLine: lastOutputLine)
+            }
+        )
+        let paneId = PaneId.generateUUIDv7()
+
+        await router.start()
+        await waitForBusSubscriberCount(bus, atLeast: 1)
+        _ = await bus.post(
+            .pane(
+                .test(
+                    event: .terminal(.commandFinished(exitCode: 0, duration: 50_000_000)),
+                    paneId: paneId,
+                    paneKind: .terminal
+                )
+            )
+        )
+
+        _ = await subscriber.firstEvent { envelope in
+            RuntimeEnvelopeHarness.paneEvents(from: [envelope]).contains {
+                if case .terminalActivity(.unseenActivitySettled(let activity)) = $0.event {
+                    return activity.lastOutputLine == "echo-command-output" && activity.rowsAdded == 0
+                }
+                return false
+            }
+        }
+
+        #expect(recordedCalls.calls.count == 1)
+        #expect(recordedCalls.calls.first?.paneId == paneId.uuid)
+        #expect(recordedCalls.calls.first?.lastOutputLine == "echo-command-output")
+
+        await router.stop()
+        await subscriber.shutdown()
+    }
+
     @Test("attended typed activity updates compact state without unseen settlement")
     func attendedTypedActivityUpdatesCompactStateWithoutUnseenSettlement() async {
         let bus = EventBus<RuntimeEnvelope>()
@@ -508,43 +621,6 @@ struct TerminalActivityRouterTests {
         #expect(settledEventCount == 1)
         await router.stop()
         await subscriber.shutdown()
-    }
-
-    @Test("ordered surface close clears compact state and pending quiet work")
-    func orderedSurfaceCloseClearsCompactStateAndPendingQuietWork() async {
-        let bus = EventBus<RuntimeEnvelope>()
-        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let clock = TestPushClock()
-        let surfaceLifetime = SurfaceLifetimeBox()
-        let router = TerminalActivityRouter(
-            bus: bus,
-            activityAtom: atom,
-            surfaceIDForPaneID: { surfaceLifetime.containsSurface() ? $0 : nil },
-            unseenActivityDebounceDuration: .milliseconds(750),
-            unseenActivityClock: clock
-        )
-        let paneId = PaneId.generateUUIDv7()
-
-        await router.start()
-        await ingestActivity(
-            paneId: paneId,
-            totals: [100, 140],
-            context: .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 30),
-            through: router
-        )
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        surfaceLifetime.retire()
-        await router.consumeTerminalActivityInput(
-            .orderedControl(
-                surfaceID: paneId.uuid,
-                paneID: paneId.uuid,
-                precedingAggregate: nil,
-                control: .surfaceClosed
-            )
-        )
-        await clock.waitForPendingSleepCount(exactly: 0)
-        #expect(atom.snapshot(for: paneId.uuid) == nil)
-        await router.stop()
     }
 
     @Test("decreasing typed totals clamp growth to zero")

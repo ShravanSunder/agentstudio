@@ -54,7 +54,8 @@ package final class UIStateStore {
                     filterText: state.filterText,
                     isFilterVisible: state.isFilterVisible,
                     sidebarCollapsed: state.sidebarCollapsed,
-                    sidebarSurface: state.sidebarSurface
+                    sidebarSurface: state.sidebarSurface,
+                    repoGroupingMode: state.repoGroupingMode
                 )
             } else {
                 atom.clear()
@@ -89,6 +90,7 @@ package final class UIStateStore {
             _ = atom.isFilterVisible
             _ = atom.sidebarCollapsed
             _ = atom.sidebarSurface
+            _ = atom.repoGroupingMode
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 // WorkspaceSidebarState is @MainActor; this traps if that ownership changes.
@@ -142,7 +144,8 @@ package final class UIStateStore {
             filterText: atom.filterText,
             isFilterVisible: atom.isFilterVisible,
             sidebarCollapsed: atom.sidebarCollapsed,
-            sidebarSurface: atom.sidebarSurface
+            sidebarSurface: atom.sidebarSurface,
+            repoGroupingMode: atom.repoGroupingMode
         )
     }
 

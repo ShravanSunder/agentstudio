@@ -7,7 +7,7 @@ import Testing
 
 @testable import AgentStudioRepoExplorer
 
-private final class RepoProjectionInvalidationRecorder: @unchecked Sendable {
+final class RepoProjectionInvalidationRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var storedCount = 0
 
@@ -98,7 +98,8 @@ private func repoExplorerProjectionRequestKey(
             pullRequestFactsSnapshot: RepoExplorerView.pullRequestFactsSnapshot(
                 for: worktreeEnrichmentSnapshot,
                 repoCache: repoCache
-            )
+            ),
+            unavailablePullRequestRepoIds: repoCache.unavailablePullRequestRepoIds
         )
     )
 }
@@ -106,6 +107,99 @@ private func repoExplorerProjectionRequestKey(
 @MainActor
 @Suite("RepoExplorerViewProjectionHelperTests")
 struct RepoExplorerViewProjectionHelperTests {
+    @Test("pane title keeps activity titles and falls back to the shell for path-shaped titles")
+    func paneSecondaryTextUsesShortFallbackVocabulary() {
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "  tests running  ",
+                cwd: URL(filePath: "/tmp/agent-studio/Sources"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "tests running"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "",
+                cwd: URL(filePath: "/tmp/agent-studio/Sources"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "zsh"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "",
+                cwd: URL(filePath: "/tmp/agent-studio/Sources"),
+                shellExecutablePath: nil
+            ) == "zsh"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "",
+                cwd: nil,
+                shellExecutablePath: "/bin/zsh"
+            ) == "zsh"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "/tmp/agent-studio/Sources",
+                cwd: URL(filePath: "/tmp/agent-studio/Sources"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "zsh"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "~/Documents/dev/agent-studio",
+                cwd: URL(filePath: "/Users/test/Documents/dev/agent-studio"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "zsh"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "…/dev/project-dev/agent-studio",
+                cwd: URL(filePath: "/Users/test/Documents/dev/project-dev/agent-studio"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "zsh"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: ".../dev/project-dev/agent-studio",
+                cwd: URL(filePath: "/Users/test/Documents/dev/project-dev/agent-studio"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "zsh"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "tests running",
+                cwd: URL(filePath: "/tmp/agent-studio/Sources"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "tests running"
+        )
+    }
+
+    @Test("F6c: pane row capture never derives URL/path/shell facts directly, only through the memoizing cache")
+    func paneRowCaptureNeverDerivesPathFactsDirectly() throws {
+        // Source-string guard against regressing F6b: paneRowFactsByPaneId must read the
+        // already-normalized title from RepoExplorerPaneDisplayTitleCache, never re-derive it
+        // inline by calling paneSecondaryText (or doing ad hoc path parsing) on every capture.
+        let helperSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+ProjectionHelpers.swift",
+            encoding: .utf8
+        )
+        guard
+            let captureRange = helperSource.range(of: "func paneRowFactsByPaneId("),
+            let captureBodyEnd = helperSource.range(
+                of: "\n    func tabGroupFactsByTabId()",
+                range: captureRange.upperBound..<helperSource.endIndex
+            )
+        else {
+            Issue.record("Could not isolate paneRowFactsByPaneId's body for the source guard")
+            return
+        }
+        let captureBody = helperSource[captureRange.upperBound..<captureBodyEnd.lowerBound]
+
+        #expect(!captureBody.contains("paneSecondaryText"))
+        #expect(!captureBody.contains(".lastPathComponent"))
+        #expect(captureBody.contains("paneDisplayTitleCache.resolve("))
+    }
+
     @Test("timeout-only repo enrichment wakes capture and changes scanning projection")
     func timeoutOnlyRepoEnrichmentWakesAndChangesProjection() {
         let repoCache = RepoCacheAtom()
@@ -321,6 +415,37 @@ struct RepoExplorerViewProjectionHelperTests {
         )
         #expect(counter.count == 1)
         #expect(requestKeyAfterRelevantChange != initialRequestKey)
+    }
+
+    @Test("a repo resolving to unavailable pull request data wakes capture and changes the admitted request key")
+    func repoResolvingPullRequestUnavailableWakesAndChangesRequestKey() {
+        let cache = RepoCacheAtom()
+        let worktreeId = UUIDv7.generate()
+        let repoId = UUIDv7.generate()
+        let counter = RepoExplorerProjectionInputInvalidationCounter()
+        cache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
+        )
+
+        let initialRequestKey = withObservationTracking {
+            repoExplorerProjectionRequestKey(
+                worktreeIds: [worktreeId],
+                repoCache: cache
+            )
+        } onChange: {
+            counter.record()
+        }
+
+        // No pull request facts ever arrive for this repo (zero-fact
+        // transition) — only the resolved-unavailable signal changes.
+        cache.markPullRequestsUnavailable(forRepository: repoId)
+        let changedRequestKey = repoExplorerProjectionRequestKey(
+            worktreeIds: [worktreeId],
+            repoCache: cache
+        )
+
+        #expect(counter.count == 1)
+        #expect(changedRequestKey != initialRequestKey)
     }
 
     @Test("pane navigation dispatches exact focusPane target")
@@ -545,7 +670,7 @@ struct RepoExplorerViewProjectionHelperTests {
         }
     }
 
-    @Test("source group icon uses repo semantics for By Pane and tab semantics for By Tab")
+    @Test("source group icon uses repo semantics for All Panes and tab semantics for By Tab")
     func sourceGroupIconUsesPerspectiveHeaderSemantics() {
         let group = RepoPresentationGroup(
             id: "pane:active",

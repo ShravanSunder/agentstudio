@@ -1,15 +1,22 @@
+import AgentStudioCore
 import Observation
 
 @MainActor
 @Observable
 package final class RepoExplorerSidebarPrefsAtom {
-    package private(set) var groupingMode: RepoExplorerGroupingMode = .repo
+    private let sidebarState: WorkspaceSidebarState
     package private(set) var sortOrder: RepoExplorerSortOrder = .default
 
-    package init() {}
+    package var groupingMode: RepoExplorerGroupingMode {
+        sidebarState.repoGroupingMode
+    }
+
+    package init(sidebarState: WorkspaceSidebarState = .init()) {
+        self.sidebarState = sidebarState
+    }
 
     package func setGroupingMode(_ groupingMode: RepoExplorerGroupingMode) {
-        self.groupingMode = groupingMode
+        sidebarState.setRepoGroupingMode(groupingMode)
     }
 
     package func toggleSortOrder() {
@@ -21,15 +28,12 @@ package final class RepoExplorerSidebarPrefsAtom {
     }
 
     package func hydrate(
-        groupingMode: RepoExplorerGroupingMode,
         sortOrder: RepoExplorerSortOrder
     ) {
-        self.groupingMode = groupingMode
         self.sortOrder = sortOrder
     }
 
     package func reset() {
-        groupingMode = .repo
         sortOrder = .default
     }
 }

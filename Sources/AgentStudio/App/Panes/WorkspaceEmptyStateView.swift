@@ -530,7 +530,8 @@ private struct WorkspaceRecentRowView: View {
                         syncState: .unknown,
                         prCount: nil,
                         linesAdded: 0,
-                        linesDeleted: 0
+                        linesDeleted: 0,
+                        untrackedFileCount: 0
                     ),
                     notificationCount: 0
                 ),

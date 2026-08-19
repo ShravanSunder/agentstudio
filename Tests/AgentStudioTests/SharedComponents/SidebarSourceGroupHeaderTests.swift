@@ -35,11 +35,71 @@ struct SidebarSourceGroupHeaderTests {
         #expect(AppEntityIcon.tabGroup.symbol == .system(.squareStackFill))
     }
 
-    @Test("pane and tab group icons use monochrome semantic color")
-    func paneAndTabGroupIconsUseMonochromeSemanticColor() {
+    @Test("pane and tab group icons use their group semantic colors")
+    func paneAndTabGroupIconsUseTheirGroupSemanticColors() {
         #expect(AppEntityIcon.paneGroup != .pane)
         #expect(AppEntityIcon.tabGroup != .tab)
         #expect(AppEntityIcon.paneGroup.foregroundStyle == Color.secondary)
-        #expect(AppEntityIcon.tabGroup.foregroundStyle == Color.secondary)
+        #expect(
+            AppEntityIcon.tabGroup.foregroundStyle
+                == AppStyles.Shell.Sidebar.tabGroupIconColor
+        )
+        // Anchor rule (SIDEBAR-VISUAL-CONTRACT.md): By Repo's second-line text renders through
+        // SidebarMetadataProminence.secondary, i.e. plain Color.secondary. The tab-group header
+        // icon must match that exact shade, not a distinct accent-derived color.
+        #expect(AppStyles.Shell.Sidebar.tabGroupIconColor == Color.secondary)
+    }
+
+    @Test("group headers and row lines share one icon-to-text spacing token")
+    func groupHeadersAndRowsShareIconTextSpacing() throws {
+        let groupHeaderSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarSourceGroupHeader.swift",
+            encoding: .utf8
+        )
+        let groupRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarGroupRow.swift",
+            encoding: .utf8
+        )
+        let worktreeRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+        let paneRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
+            encoding: .utf8
+        )
+        let sectionHeaderSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarSectionHeader.swift",
+            encoding: .utf8
+        )
+        let metadataLineSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarMetadataLine.swift",
+            encoding: .utf8
+        )
+        let statusRowsSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerStatusRows.swift",
+            encoding: .utf8
+        )
+        let appStylesSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Infrastructure/AppStyles.swift",
+            encoding: .utf8
+        )
+
+        #expect(
+            appStylesSource.contains(
+                "groupIconTitleSpacing: CGFloat = AppStyles.General.Spacing.tight"
+            )
+        )
+        for source in [
+            groupHeaderSource,
+            groupRowSource,
+            sectionHeaderSource,
+            metadataLineSource,
+            worktreeRowSource,
+            paneRowSource,
+            statusRowsSource,
+        ] {
+            #expect(source.contains("AppStyles.Shell.Sidebar.groupIconTitleSpacing"))
+        }
     }
 }

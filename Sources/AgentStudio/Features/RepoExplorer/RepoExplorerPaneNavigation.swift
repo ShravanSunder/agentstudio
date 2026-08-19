@@ -11,6 +11,87 @@ package struct RepoExplorerPanePresentation: Identifiable {
 }
 
 struct RepoExplorerPaneRow: View {
+    let row: RepoExplorerProjectedPaneRow
+    let pullRequestCount: Int?
+    let octiconLoader: OcticonLoader
+    let onFocus: () -> Void
+
+    @State private var isHovering = false
+
+    static func normalizedPullRequestCount(_ pullRequestCount: Int?) -> Int? {
+        guard let pullRequestCount, pullRequestCount > 0 else { return nil }
+        return pullRequestCount
+    }
+
+    var body: some View {
+        Button(action: onFocus) {
+            SidebarRowShell(isHovering: isHovering) {
+                VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+                    HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
+                        Image(systemName: "square.split.2x1")
+                            .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
+                            .frame(
+                                width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
+                                alignment: .leading
+                            )
+                        Text(row.primaryText)
+                            .font(.system(size: AppStyles.General.Typography.textBase, weight: .semibold))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .layoutPriority(1)
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .sidebarIconLineTextColumnGuide()
+                    SidebarMetadataLine(text: row.secondaryText)
+                    chipRow
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .accessibilityLabel(
+            [
+                row.primaryText,
+                row.secondaryText,
+                Self.normalizedPullRequestCount(pullRequestCount).map { "\($0) pull requests" },
+                row.recencyText,
+                row.isActive ? "Active" : nil,
+            ]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+        )
+    }
+
+    @ViewBuilder
+    private var chipRow: some View {
+        let normalizedPullRequestCount = Self.normalizedPullRequestCount(pullRequestCount)
+        HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+            if let normalizedPullRequestCount {
+                SidebarPullRequestChipSpec.chip(count: normalizedPullRequestCount, octiconLoader: octiconLoader)
+            }
+            SidebarChip(
+                icon: .system(.clock),
+                octiconLoader: octiconLoader,
+                text: row.recencyText,
+                style: .neutral
+            )
+            if row.isActive {
+                SidebarChip(
+                    icon: .system(.circleFill),
+                    octiconLoader: octiconLoader,
+                    text: "active",
+                    style: .accent(.accentColor)
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .sidebarChipRowTextColumnGuide()
+    }
+}
+
+struct RepoExplorerUnassociatedPaneRow: View {
     let label: String
     let onFocus: () -> Void
 
@@ -20,7 +101,7 @@ struct RepoExplorerPaneRow: View {
         Button(action: onFocus) {
             SidebarRowShell(isHovering: isHovering) {
                 SidebarMetadataLine(
-                    iconSystemName: "square.split.2x1",
+                    icon: .systemName("square.split.2x1"),
                     text: label
                 )
             }

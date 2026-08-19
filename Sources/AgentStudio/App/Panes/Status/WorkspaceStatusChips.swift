@@ -39,13 +39,14 @@ struct WorkspaceStatusChipRow: View {
 
     var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
-            SidebarDiffChip(
-                octiconLoader: octiconLoader,
+            if let diffChipDetail = SidebarDiffChip.workingTreeDetail(
+                isDirty: model.branchStatus.isDirty,
                 linesAdded: model.branchStatus.linesAdded,
                 linesDeleted: model.branchStatus.linesDeleted,
-                showsDirtyIndicator: model.branchStatus.isDirty,
-                isMuted: model.branchStatus.linesAdded == 0 && model.branchStatus.linesDeleted == 0
-            )
+                untrackedFileCount: model.branchStatus.untrackedFileCount
+            ) {
+                SidebarDiffChip(octiconLoader: octiconLoader, detail: diffChipDetail)
+            }
 
             SidebarStatusSyncChip(
                 octiconLoader: octiconLoader,
@@ -56,7 +57,7 @@ struct WorkspaceStatusChipRow: View {
 
             SidebarChip(
                 icon: model.branchStatus.prCount == nil
-                    ? .system(.arrowClockwise)
+                    ? .system(.circle)
                     : .octicon("octicon-git-pull-request"),
                 octiconLoader: octiconLoader,
                 text: model.branchStatus.prCount.map(String.init),

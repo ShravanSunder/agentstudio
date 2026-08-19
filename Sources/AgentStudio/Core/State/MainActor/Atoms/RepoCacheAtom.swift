@@ -28,6 +28,14 @@ package final class RepoEnrichmentCacheAtom {
     @ObservationIgnored private let repoEnrichmentRevisionAtom = AtomRevision()
     @ObservationIgnored private let worktreeEnrichmentRevisionAtom = AtomRevision()
     @ObservationIgnored private let pullRequestFactsRevisionAtom = AtomRevision()
+    /// Repositories whose pull request data is terminally unresolved (no
+    /// GitHub remote, or provider queries have failed past the forge honesty
+    /// threshold). Gated on its own revision atom, independent from
+    /// `pullRequestFactsRevisionAtom`, so a fact write for one repository
+    /// does not coarsely wake every reader of this set — only a change to
+    /// the unavailable membership itself does.
+    @ObservationIgnored private var pullRequestUnavailableRepoIds: Set<UUID> = []
+    @ObservationIgnored private let pullRequestUnavailabilityRevisionAtom = AtomRevision()
     private(set) var sourceRevision: UInt64 = 0
     private(set) var lastRebuiltAt: Date?
 
@@ -58,6 +66,11 @@ package final class RepoEnrichmentCacheAtom {
         return pullRequestFactsSnapshot()
     }
 
+    package var unavailablePullRequestRepoIds: Set<UUID> {
+        _ = pullRequestUnavailabilityRevisionAtom.value
+        return pullRequestUnavailableRepoIds
+    }
+
     var repoEnrichmentStorageSlotCount: Int {
         repoEnrichmentMap.storageSlotCount
     }
@@ -80,6 +93,11 @@ package final class RepoEnrichmentCacheAtom {
 
     package func pullRequestFacts(for key: RepoBranchKey) -> PullRequestFacts? {
         pullRequestFactsMap.value(for: key)
+    }
+
+    package func isPullRequestDataUnavailable(forRepository repoId: UUID) -> Bool {
+        _ = pullRequestUnavailabilityRevisionAtom.value
+        return pullRequestUnavailableRepoIds.contains(repoId)
     }
 
     func repoEnrichmentSnapshot() -> [UUID: RepoEnrichment] {
@@ -131,6 +149,11 @@ package final class RepoEnrichmentCacheAtom {
                 pullRequestFactsRevisionAtom.bump()
             }
         }
+        // Real facts arrived, so this repository is demonstrably resolvable;
+        // an earlier terminal-unavailable marker no longer applies.
+        for repoId in Set(factsByKey.keys.map(\.repoId)) {
+            clearPullRequestsUnavailable(forRepository: repoId)
+        }
     }
 
     package func removePullRequestFacts(keys: Set<RepoBranchKey>) {
@@ -140,6 +163,42 @@ package final class RepoEnrichmentCacheAtom {
     package func removePullRequestFacts(forRepository repoId: UUID) {
         let keys = pullRequestFactsMap.snapshot().keys.filter { $0.repoId == repoId }
         removePullRequestFactKeys(keys)
+        clearPullRequestsUnavailable(forRepository: repoId)
+    }
+
+    /// Marks a repository's pull request data as terminally unresolved (no
+    /// GitHub remote, or provider queries have failed past the forge honesty
+    /// threshold) and discards any stale facts, so the sidebar renders
+    /// neither a pending glyph nor a chip for this repository until a fresh
+    /// origin or a successful query clears the marker.
+    package func markPullRequestsUnavailable(forRepository repoId: UUID) {
+        mutate { mutation in
+            let staleFactKeys = pullRequestFactsMap.snapshot().keys.filter { $0.repoId == repoId }
+            for key in staleFactKeys {
+                pullRequestFactsMap.removeValue(for: key, mutation: mutation)
+            }
+            let didInsert = pullRequestUnavailableRepoIds.insert(repoId).inserted
+            if didInsert || !staleFactKeys.isEmpty {
+                mutation.recordAcceptedChange()
+            }
+            if !staleFactKeys.isEmpty {
+                pullRequestFactsRevisionAtom.bump()
+            }
+            if didInsert {
+                pullRequestUnavailabilityRevisionAtom.bump()
+            }
+        }
+    }
+
+    /// Clears a terminal-unavailable marker, returning the repository to the
+    /// pending state so the next successful forge query can resolve real
+    /// facts.
+    package func clearPullRequestsUnavailable(forRepository repoId: UUID) {
+        guard pullRequestUnavailableRepoIds.remove(repoId) != nil else { return }
+        mutate { mutation in
+            mutation.recordAcceptedChange()
+            pullRequestUnavailabilityRevisionAtom.bump()
+        }
     }
 
     func removeWorktree(_ worktreeId: UUID) {
@@ -212,12 +271,17 @@ package final class RepoEnrichmentCacheAtom {
             let hadRepoEnrichment = !repoEnrichmentMap.snapshot().isEmpty
             let hadWorktreeEnrichment = !worktreeEnrichmentMap.snapshot().isEmpty
             let hadPullRequestFacts = !pullRequestFactsMap.snapshot().isEmpty
+            let hadUnavailablePullRequestRepoIds = !pullRequestUnavailableRepoIds.isEmpty
             repoEnrichmentMap.removeAll(mutation: mutation)
             worktreeEnrichmentMap.removeAll(mutation: mutation)
             pullRequestFactsMap.removeAll(mutation: mutation)
+            pullRequestUnavailableRepoIds.removeAll(keepingCapacity: false)
             if sourceRevision != 0 || lastRebuiltAt != nil {
                 sourceRevision = 0
                 lastRebuiltAt = nil
+                mutation.recordAcceptedChange()
+            }
+            if hadUnavailablePullRequestRepoIds {
                 mutation.recordAcceptedChange()
             }
             if hadRepoEnrichment {
@@ -228,6 +292,9 @@ package final class RepoEnrichmentCacheAtom {
             }
             if hadPullRequestFacts {
                 pullRequestFactsRevisionAtom.bump()
+            }
+            if hadUnavailablePullRequestRepoIds {
+                pullRequestUnavailabilityRevisionAtom.bump()
             }
         }
     }
@@ -301,6 +368,10 @@ package final class RepoCacheAtom {
         enrichmentCacheAtom.pullRequestFactsByBranch
     }
 
+    package var unavailablePullRequestRepoIds: Set<UUID> {
+        enrichmentCacheAtom.unavailablePullRequestRepoIds
+    }
+
     var sourceRevision: UInt64 {
         enrichmentCacheAtom.sourceRevision
     }
@@ -333,6 +404,10 @@ package final class RepoCacheAtom {
         enrichmentCacheAtom.pullRequestFacts(for: key)
     }
 
+    package func isPullRequestDataUnavailable(forRepository repoId: UUID) -> Bool {
+        enrichmentCacheAtom.isPullRequestDataUnavailable(forRepository: repoId)
+    }
+
     package func repoEnrichmentSnapshot() -> [UUID: RepoEnrichment] {
         enrichmentCacheAtom.repoEnrichmentSnapshot()
     }
@@ -363,6 +438,14 @@ package final class RepoCacheAtom {
 
     package func removePullRequestFacts(forRepository repoId: UUID) {
         enrichmentCacheAtom.removePullRequestFacts(forRepository: repoId)
+    }
+
+    package func markPullRequestsUnavailable(forRepository repoId: UUID) {
+        enrichmentCacheAtom.markPullRequestsUnavailable(forRepository: repoId)
+    }
+
+    package func clearPullRequestsUnavailable(forRepository repoId: UUID) {
+        enrichmentCacheAtom.clearPullRequestsUnavailable(forRepository: repoId)
     }
 
     package func removeWorktree(_ worktreeId: UUID) {

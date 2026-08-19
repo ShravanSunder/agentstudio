@@ -28,21 +28,51 @@ struct RepoExplorerViewTests {
         #expect(measurement.outcome == .success)
     }
 
-    @Test("pull request chip distinguishes not-fetched, confirmed zero, and positive facts")
-    func pullRequestChipPresentationDistinguishesFactStates() {
-        let unknown = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: nil)
-        let confirmedZero = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 0)
-        let positive = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 2)
+    @Test("By Repo and pane rows render the PR chip through the one shared spec")
+    func prChipRenderSitesUseTheSharedSpec() throws {
+        // Owner-reported defect: pane rows built their PR chip with `.accent(.accentColor)` (system
+        // accent) while By Repo used a different color/icon path, so the two surfaces could drift.
+        // Both render call sites must go through SidebarPullRequestChipSpec so the glyph and color
+        // can never diverge again.
+        let worktreeRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+        let paneRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
+            encoding: .utf8
+        )
 
-        #expect(unknown.icon == .system(.arrowClockwise))
-        #expect(unknown.text == nil)
-        #expect(unknown.usesAccent == false)
-        #expect(confirmedZero.icon == .octicon("octicon-git-pull-request"))
-        #expect(confirmedZero.text == "0")
-        #expect(confirmedZero.usesAccent == false)
-        #expect(positive.icon == .octicon("octicon-git-pull-request"))
-        #expect(positive.text == "2")
-        #expect(positive.usesAccent)
+        for source in [worktreeRowSource, paneRowSource] {
+            #expect(source.contains("SidebarPullRequestChipSpec.chip(count:"))
+            // Neither row constructs its own inline PR chip anymore; the octicon string only
+            // appears inside the shared spec itself (SidebarChips.swift), never at a row call site.
+            #expect(!source.contains("octicon-git-pull-request"))
+        }
+    }
+
+    @Test("selected grouping segment icon call site passes the accent foregroundOverride")
+    func selectedGroupingSegmentIconUsesAccentOverride() throws {
+        // AppEntityIcon.swiftUIImage bakes its own `.foregroundStyle(.secondary)` directly onto the
+        // image; SwiftUI resolves that innermost style regardless of what an outer wrapper applies, so
+        // a foregroundStyle chained only from the call site never reaches the leaf (confirmed by live
+        // pixel measurement: the selected icon rendered grey (164,164,164), not accent). The override
+        // must be threaded into swiftUIImage's own foregroundOverride parameter instead; see
+        // AppEntityIconTests for the pixel-level proof that the parameter itself paints correctly. This
+        // test only verifies the call site wires the parameter to the real selection state.
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift",
+            encoding: .utf8
+        )
+        let iconClosureStart = try #require(source.range(of: "icon: { groupingMode in"))
+        let iconClosureEnd = try #require(
+            source.range(of: "},", range: iconClosureStart.upperBound..<source.endIndex))
+        let iconClosureSource = String(source[iconClosureStart.lowerBound..<iconClosureEnd.lowerBound])
+
+        #expect(iconClosureSource.contains("groupingMode == repoExplorerPrefs.groupingMode"))
+        #expect(iconClosureSource.contains("foregroundOverride:"))
+        #expect(iconClosureSource.contains("AppStyles.General.Accent.primaryColor"))
+        #expect(!iconClosureSource.contains(".foregroundStyle("))
     }
 
     @Test("flat list entries expand a resolved group into header and child rows")

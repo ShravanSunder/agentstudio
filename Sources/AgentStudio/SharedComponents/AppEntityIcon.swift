@@ -57,16 +57,23 @@ package enum AppEntityIcon: Equatable {
         }
     }
 
+    /// `foregroundOverride` wins over the icon's own baked style. SwiftUI resolves the innermost
+    /// `foregroundStyle`, so callers that need a selection color (e.g. the grouping segmented
+    /// control) cannot override from outside this view; the override must be applied here.
     @ViewBuilder
-    package func swiftUIImage(loader: OcticonLoader, size: CGFloat) -> some View {
+    package func swiftUIImage(
+        loader: OcticonLoader,
+        size: CGFloat,
+        foregroundOverride: Color? = nil
+    ) -> some View {
         switch self {
         case .pane, .paneGroup, .tab, .tabGroup, .workspace, .otherSources:
             Image(systemName: symbolName)
                 .font(.system(size: size, weight: .medium))
-                .foregroundStyle(foregroundStyle)
+                .foregroundStyle(foregroundOverride ?? foregroundStyle)
         case .repo, .coloredRepo, .checkout:
             OcticonImage(name: symbolName, size: size, loader: loader)
-                .foregroundStyle(foregroundStyle)
+                .foregroundStyle(foregroundOverride ?? foregroundStyle)
                 .rotationEffect(.degrees(rotationDegrees))
         }
     }
@@ -75,7 +82,9 @@ package enum AppEntityIcon: Equatable {
         switch self {
         case .coloredRepo(let colorHex), .checkout(let colorHex, _):
             return Color(nsColor: NSColor(hex: colorHex) ?? AppStyles.General.Accent.primaryNSColor)
-        case .repo, .pane, .paneGroup, .tab, .tabGroup, .workspace, .otherSources:
+        case .tabGroup:
+            return AppStyles.Shell.Sidebar.tabGroupIconColor
+        case .repo, .pane, .paneGroup, .tab, .workspace, .otherSources:
             return .secondary
         }
     }
