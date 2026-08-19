@@ -1,7 +1,0 @@
-Owner validation of your round found two more gaps beyond item 9 (which you are already fixing). Fix both, same standards, same evidence discipline:
-
-ITEM 5 — L2 last-message line: every screenshot shows only the generic "output activity" fallback. Demonstrate the POSITIVE case: a pane whose L2 shows a real content-bearing inbox notification body. Drive the live app to produce one (run a command in a pane that emits a contentful notification through the inbox pipeline), screenshot it in All Panes AND By Tab. If the pipeline never delivers a content-bearing body to the row, that is a product defect — diagnose and fix it, red test first.
-
-ITEM 13 — empty state: your evidence (08, 13-empty-*) shows the search-filter "No results" state. The contract requires the TRUE empty state: no panes/tabs (pane modes) and no repos (By Repo). If the UI has no designed true-empty state, implement one per mode (simple centered message consistent with the existing "No results" styling). Capture it per mode: easiest path is a fresh debug identity/workspace with no repos registered, then with a repo but no panes is not possible (a workspace always has a pane?) — if a mode's true-empty state is structurally unreachable in the product, document WHY in tmp-RESULT.md and the contract file instead of faking it.
-
-Then update the validation table (items 5, 9, 13) with new evidence, commit, push (#296). Final output: the three updated table rows only.
