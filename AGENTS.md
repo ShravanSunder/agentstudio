@@ -3,9 +3,15 @@
 macOS terminal application embedding Ghostty terminal emulator with
 project/worktree management.
 
-This file is the everyday operating contract. Match the question, open the one
+This file is the everyday operating contract. Match the question, open the
 linked doc, then verify in current code and tests. Do not treat this file as the
-architecture, atom catalog, or observability launch runbook.
+architecture, atom catalog, or observability launch runbook. When you need to
+know how the app is organized — folders, modules, or commands — always load
+both
+[Directory Structure — Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure)
+and
+[Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners).
+Do not infer organization from this file.
 
 ## Daily Commands
 
@@ -61,14 +67,16 @@ Do not substitute `UUID()` merely to avoid importing
 
 ## Open The Right Doc
 
-Start from the smallest source of truth that owns the question.
+Start from the smallest source of truth that owns the question. For
+organization, always load command specs and directory structure together.
 
 | When | Load | What you get wrong if you skip |
 | --- | --- | --- |
+| How the app is organized | Always load [Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure) and [Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners) | You put a type in the wrong slice, invent a parallel command path, or guess owners from this file. |
 | Any architecture question | [Architecture Overview — How To Read](docs/architecture/README.md#how-to-read-this-index) | You search the tree instead of the owning doc. That index is the one architecture catalog. |
 | File or new type placement | [Directory Structure — Decision Process](docs/architecture/directory_structure.md#decision-process-where-does-this-file-go) | A Feature type lands in `Core/Models/`. Named component → slice lookup is [Component Architecture §7](docs/architecture/component_architecture.md#7-key-files). Repo tree and SwiftPM DAG: [Repository Root](docs/architecture/directory_structure.md#repository-root), [Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure), [SwiftPM Module Graph](docs/architecture/directory_structure.md#swiftpm-module-graph). |
 | File or module test placement | [Directory Structure — Test Target Ownership](docs/architecture/directory_structure.md#test-target-ownership) | A module test parks on the executable target, or you infer ownership from `swift test --filter`. |
-| Do I need an atom, derived node, eager projection, or just SQL? | [Need An Atom?](docs/architecture/atom_persistence_boundaries.md#need-an-atom) | You wrap CRUD in an atom, or reach for `EagerDerivedAtomFamily` as a default. |
+| Do I need an atom, derived node, eager projection, or a repository? | [Need An Atom?](docs/architecture/atom_persistence_boundaries.md#need-an-atom) | You wrap CRUD in an atom, assume every atom is a SQL table, or reach for `EagerDerivedAtomFamily` as a default. |
 | Write-owner vs derived vs SQLite row | [Atom Persistence Boundaries — Roles](docs/architecture/atom_persistence_boundaries.md#roles) | A `Codable` convenience type becomes both live state and the storage contract. Survey does not mean persist. |
 | Command, shortcut, tooltip, or IPC | [Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners) | You invent a parallel `.help`, shortcut, or IPC path the dispatcher never sees. Dense tooltips: [Tooltips, help text, and compact control copy](docs/architecture/commands_and_shortcuts.md#tooltips-help-text-and-compact-control-copy). |
 | Native chrome / shared UI | [Style Guide — Shared Shell Controls](docs/guides/style_guide.md#shared-shell-controls) and [App Architecture — Core Hosting Patterns](docs/architecture/appkit_swiftui_architecture.md#core-hosting-patterns) | You copy styling into a feature or put a behavior constant in `AppStyles`. |
@@ -91,7 +99,8 @@ Infrastructure. Cross-target declarations use the narrowest necessary `package`
 visibility; do not broadly promote product APIs to `public`. Exact placement
 tests live in [Directory Structure — Import Rule](docs/architecture/directory_structure.md#import-rule-hard-boundary).
 
-**Folder arcs.** Everyday placement. Trees and the compiled DAG live in
+**Folder arcs.** Everyday placement. Always load Directory Structure when
+placing, renaming, or asking where a type lives. Trees and the compiled DAG live in
 [Repository Root](docs/architecture/directory_structure.md#repository-root),
 [Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure),
 and [SwiftPM Module Graph](docs/architecture/directory_structure.md#swiftpm-module-graph).
@@ -122,8 +131,9 @@ Do not rebuild the full app for Bridge UI iteration. Native git prep uses
 dev-server or test fixture utilities. Worktrunk is retired: no `wt`/Git CLI
 data plane.
 
-**Commands.** Before adding or changing a command, read
-[Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners).
+**Commands.** Always load
+[Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners)
+before adding, changing, routing, or asking who owns a command.
 Command-bar scopes live in
 [Command Bar Scope Ownership](docs/architecture/commands_and_shortcuts.md#command-bar-scope-ownership):
 `>` owns verbs; `$` owns existing pane/tab navigation; `#`
@@ -133,22 +143,41 @@ rows to `$`, do not add arbitrary verbs to `#`, and do not duplicate
 presentation. `shouldPresent` controls presence only; validators control
 enablement.
 
-**Atoms.** Use an atom only when UI or another subscriber must observe shared
-state (Jotai-style). CRUD/query without Observation belongs in a SQLite
-repository, not an atom. Pick the primitive in
+**Atoms.** Inspired by Jotai: a piece of **shared UI state** that subscribers
+observe. Read our implementation:
 [Need An Atom?](docs/architecture/atom_persistence_boundaries.md#need-an-atom),
-then classify the type in
-[Roles](docs/architecture/atom_persistence_boundaries.md#roles).
-Atom methods may only assign, equal-write suppress, and keep observation
-indexes — no SQL, I/O, or business rules. Always ask before adding an atom.
-Path: `<owner>/State/MainActor/Atoms/`. Core reads `atom(\.foo)`; Feature atoms
-are injected. Worktrees stay structure-only; enrichment is observed cache
-state.
+[AtomLib Observation Primitives](docs/architecture/atom_persistence_boundaries.md#atomlib-observation-primitives),
+and `Sources/AgentStudio/Infrastructure/AtomLib/`.
 
-**Stores.** One store per persistence boundary. Stores own I/O, debounced
-saves, and schema versioning. Stores never contain domain logic. Path:
-`<owner>/State/MainActor/Persistence/`. Tiers live in
-[Three Persistence Tiers](docs/architecture/workspace_data_architecture.md#three-persistence-tiers).
+- Use an atom only when SwiftUI, a command surface, or a derived projection
+  must observe the value and wake on change.
+- Product atoms are `@MainActor @Observable` owners that hold values. Jotai
+  atoms are config; a Provider/Store holds values.
+- Derived reads use declared `AtomRevision` inputs, not Jotai `get()`
+  tracking. Equal writes are comparator-suppressed.
+- An atom is not a SQL table and does not have to be backed by SQLite.
+- CRUD, query, coalesce, or retention with no subscriber belongs in a
+  repository, not an atom.
+- Pick the primitive in
+  [Which primitive](docs/architecture/atom_persistence_boundaries.md#which-primitive).
+  Choose local UI vs atom vs SQLite in
+  [Shared UI, local view state, or SQLite only](docs/architecture/atom_persistence_boundaries.md#shared-ui-local-view-state-or-sqlite-only).
+  Then classify the type in
+  [Roles](docs/architecture/atom_persistence_boundaries.md#roles).
+- Atom methods may only assign, equal-write suppress, and keep observation
+  indexes — no SQL, I/O, or business rules.
+- Path: `<owner>/State/MainActor/Atoms/`. Core reads `atom(\.foo)`; Feature
+  atoms are injected.
+- Worktrees stay structure-only; enrichment is observed cache state.
+
+**Stores.** Persistence wrappers, not UI observation.
+
+- One store per persistence boundary.
+- Stores own I/O, debounced saves, and schema versioning. They never contain
+  domain logic.
+- Path: `<owner>/State/MainActor/Persistence/`. Tiers live in
+  [Three Persistence Tiers](docs/architecture/workspace_data_architecture.md#three-persistence-tiers).
+
 **Always ask the user** before adding an atom or store, adding unrelated
 properties to an existing atom, or adding new event types or coordinator
 responsibilities. Adding an atom starts at
@@ -179,9 +208,9 @@ boundary:
 | AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` |
 | UI-only local state | Local `@Observable` state |
 
-**Architecture at a glance.** AppKit-main hosting SwiftUI. UI-observed
-canonical state is *published* from `@MainActor @Observable` atoms; that mark
-is the publication owner, not a license to derive, admit, or own SQL there.
+**Architecture at a glance.** AppKit-main hosting SwiftUI. Shared UI state is
+*published* from `@MainActor @Observable` atoms; that mark is the publication
+owner, not a license to derive, admit, or own SQL there.
 Shared Core state is actor-bound in `CoreAtoms` through the one ambient
 `CoreAtomScope`. Feature-owned mutable state is never ambient. Two coordinators
 handle cross-slice sequencing. `AtomRegistry` is App-only composition, never an

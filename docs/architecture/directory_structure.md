@@ -308,15 +308,16 @@ Features/<slice>/
 │
 ├── State/
 │   └── MainActor/
-│       ├── Atoms/                @MainActor @Observable canonical
-│       │                         state, private(set) reads,
-│       │                         mutation via methods. One atom
-│       │                         per domain, one reason to change.
+│       ├── Atoms/                Shared UI-observed state only
+│       │                         (@MainActor @Observable, private(set),
+│       │                         mutation via methods). One atom per
+│       │                         observed domain after Need An Atom.
+│       │                         Not a SQL table; not required for CRUD.
 │       │
-│       └── Persistence/          Store wrappers over the atoms.
-│                                 One store per persistence boundary;
-│                                 may wrap one or many atoms that
-│                                 persist together.
+│       └── Persistence/          Store wrappers for durable snapshots
+│                                 and repositories. One store per
+│                                 persistence boundary. Not every atom
+│                                 has a store.
 │
 └── Views/                        Composable screens — top-level
                                   views the feature presents.
@@ -342,7 +343,11 @@ There are two kinds of state. They live in different places:
 
 - **Composition state** — app-wide UI shell state generic enough that multiple features consume it. Persisted sidebar memory (filter, collapsed state, active surface) lives on `WorkspaceSidebarMemoryAtom`; runtime-only sidebar focus lives on `SidebarFocusRuntimeAtom`; UI surfaces read the composed `WorkspaceSidebarState`. Generic tags only — this layer does not reference feature-specific types.
 
-- **Feature state** — domain data owned by one feature. Examples: notification log, inbox view prefs, repo-explorer expanded groups. Lives in feature atoms inside the feature slice. Never leaks into Core.
+- **Feature state** — domain data owned by one feature. Observed shared UI
+  facts live in feature atoms inside the feature slice. CRUD, query, coalesce,
+  and retention with no subscriber live in a feature repository, not an atom.
+  Example: the inbox log is a repository; `InboxNotificationAtom` exists because
+  the sidebar observes the list. Never leak feature types into Core.
 
 Feature ownership does not require one persistence file per atom. Until those
 stores split, `WorkspaceSettingsStore` co-persists editor, repo-explorer, and
@@ -542,20 +547,25 @@ Q5: Is it a domain model, store, or service
 
 Parallel test for atoms specifically:
 
-  Is the state I'm storing:
+  Must SwiftUI, a command surface, or a derived projection observe this
+  shared UI state and wake on change?
+    NO  → SQLite repository or local view state. Do not add an atom.
+    YES → then place the atom:
+
     • composition state (app-wide UI shell — surface, focus, collapsed)?
         → WorkspaceSidebarMemoryAtom for persisted shell memory
         → SidebarFocusRuntimeAtom for runtime focus
         → WorkspaceSidebarState for composed UI reads
 
-    • feature domain state (specific to one feature)?
+    • feature-owned shared UI state (specific to one feature)?
         → new atom in Features/<slice>/State/MainActor/Atoms/
 
-    • cross-cutting primitive needed by multiple features AND App?
+    • cross-cutting shared UI state needed by multiple features AND App?
         → new atom in Core/State/MainActor/Atoms/
 
   Never add a feature-specific property to a Core atom.
   Never add a feature type to Core/Models/ "because an atom references it."
+  An atom does not have to be backed by SQLite.
 ```
 
 ---
