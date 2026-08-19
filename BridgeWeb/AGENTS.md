@@ -1,7 +1,9 @@
 # BridgeWeb Agent Rules
 
 BridgeWeb is the React app embedded by Agent Studio Bridge. Follow the root
-`AGENTS.md` first, then these BridgeWeb-specific rules.
+`AGENTS.md` first for import, proof, and Performance Lane hops, then these
+BridgeWeb-specific rules. The Vite command loop lives in
+[Agent Resources](../docs/guides/agent_resources.md), not in root `AGENTS.md`.
 
 ## Architecture Sources
 

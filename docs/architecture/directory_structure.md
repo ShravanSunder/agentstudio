@@ -596,3 +596,5 @@ that unrelated same-package test products avoid compilation.
 | [Session Lifecycle](session_lifecycle.md) | Session creation, close, undo, restore |
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface ownership and lifecycle |
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers |
+
+Named component → slice lookup lives in [Component Architecture §7 Key Files](component_architecture.md#7-key-files). Do not duplicate that catalog here. Root `AGENTS.md` folder arcs are the everyday placement rule; this document owns the four-test decision process.

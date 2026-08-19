@@ -49,6 +49,23 @@ derived read model
 Classifying a field does not mean persisting it. Only durable core, local UX,
 settings, and cache lanes have storage.
 
+## Local recovery
+
+`core.sqlite` is authoritative. Boot prepares core and the one app-root
+`local.sqlite` before hydration, then retains one writable owner for each
+accepted database. A committed core transaction is complete independently of
+local state.
+
+Local recovery is exactly: quarantine the present database/WAL/SHM set, then
+create and migrate a fresh `local.sqlite`. Recovery is attempted only for
+classified corruption (`SQLITE_CORRUPT` / `SQLITE_NOTADB`) or an orphan sidecar
+set. Non-corruption open failures must not move database sidecars. Quarantine or
+fresh-creation failure leaves local unavailable for the launch with no
+same-process retry. Preparation results and source-scrubbed diagnostics are
+emitted once and cached.
+
+Boot-sequence ordering lives in [Workspace Data Architecture — App Boot](workspace_data_architecture.md#app-boot-implemented). Do not reconstruct that list here.
+
 ## Writer-Owned Atoms
 
 Atoms are writer-owned lifecycle groups, not SQL table models. A write-owner

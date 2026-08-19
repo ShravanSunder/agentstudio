@@ -246,6 +246,208 @@ beta app launched, rendered, and accepted a UI interaction, but it does not
 replace marker-scoped VictoriaLogs/VictoriaMetrics proof for telemetry or
 focused tests for source-side projection and safety rules.
 
+## Local proof launch
+
+App repos target the shared Compose services `ai-tools-otel-collector`,
+`ai-tools-victoria-metrics`, `ai-tools-victoria-logs`, and
+`ai-tools-victoria-traces` through loopback. Do not create or query per-app
+stacks. The stack source of truth is
+`~/dev/ai-tools/observability/observability-stack`.
+
+```bash
+mise run observability:up
+mise run observability:status
+mise run observability:smoke
+mise run observability:down
+```
+
+The standard debug proof loop is in [Proof Model](#proof-model). Ordinary
+manual debug development and UI proof use that detached launch with no IPC
+automation selector.
+
+### Debug app identity
+
+The debug launcher wraps the debug binary in a signed per-worktree app bundle
+named `Agent Studio Debug <code>`, where `<code>` is a deterministic
+four-character base36 hash of the canonical worktree path. The short code is
+intentional: zmx session names and Unix-domain socket paths are
+length-sensitive. That launch uses an isolated data root at
+`~/.agentstudio-db/<code>` and zmx directory at `~/.agentstudio-db/<code>/z`,
+so a debug run from one worktree cannot share zmx state with stable, beta, or
+another debug worktree. Debug observability bundles also remove URL-handler
+registration so they cannot claim production `agentstudio://` callbacks or
+deep links. Do not copy production or beta state into this root unless a test
+plan explicitly calls for it. The generated debug bundle, logs, traces, and
+zmx root live under `~/.agentstudio-db/<code>` rather than repo `tmp/` so
+autonomous debug runs do not need to read their runnable app from
+`~/Documents`.
+
+To inspect the deterministic identity without launching:
+
+```bash
+scripts/run-debug-observability.sh --print-identity
+```
+
+The state file `tmp/debug-observability/latest-observability.env` is
+marker/verifier handoff, not proof. See [Proof Model](#proof-model).
+Verification must still query VictoriaLogs and validate the live process
+identity. Manual identity/PID matching, feel-as-query, stress baselines, and
+`AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE=1` are in
+[Manual and stress verification](#manual-and-stress-verification).
+
+The launcher refuses to start a second `Agent Studio Debug <code>` instance
+while one is already running; quit the reported PID before collecting a new
+debug observability proof for the same worktree. On refusal it overwrites
+`tmp/debug-observability/latest-observability.env` with
+`AGENTSTUDIO_OBSERVABILITY_STATUS=already_running` so stale markers cannot
+pass verification.
+
+Use this path instead of raw `swift build` plus hand-written environment
+variables. The runner allocates a shared Swift build slot, creates the debug
+app identity, launches with the Victoria/OTLP environment, and records the
+marker that the verifier queries in VictoriaLogs. Performance workload proof
+builds on this same runner; it must not create a separate app identity, data
+root, zmx root, build directory, trace marker, or process-discovery scheme.
+
+### IPC escrow and startup diagnostics
+
+Agent-driven write-capable debug automation must opt in explicitly:
+
+```bash
+AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
+mise run run-debug-observability -- --detach
+```
+
+The worktree-isolated debug app then issues one owner-only, one-time
+authenticated automation token. That principal can use the DEBUG semantic
+control allowlist plus the App command execution, read-back, and
+workspace-bounded sidebar scopes used by proof harnesses. The selector is not
+required to launch, develop, or test the app manually. Stable, beta, and
+release apps must never enable it. Do not add
+`AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1` merely to obtain write access; use unsafe
+no-auth only when an established diagnostic explicitly requires it.
+
+To exercise a startup diagnostic during debug proof, pass
+`AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=<action>` to the launcher. The launcher
+records the selected action into the state file as
+`AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION`; that state key is
+verifier handoff, not the app input environment variable. Example:
+
+```bash
+AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
+AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=ipc-terminal-smoke \
+mise run run-debug-observability -- --detach
+mise run verify-debug-observability
+```
+
+### Performance workload
+
+```bash
+mise run observability:up
+mise run verify-git-refresh-performance-workload
+```
+
+This script creates disposable fixture repos/worktrees, calls
+`scripts/run-debug-observability.sh --print-identity`, preflights the standard
+debug app is idle, launches through `scripts/run-debug-observability.sh
+--detach`, and then verifies marker-scoped performance telemetry through
+VictoriaMetrics. Standard performance proof must use VictoriaMetrics when the
+shared collection exists. JSONL is only a local artifact/debug aid and must
+not be an automatic fallback; set `AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF=1` only
+when a test plan explicitly asks for JSONL proof.
+
+Tag selection for that workload (narrow
+`performance,app.startup,terminal.startup`, atoms opt-in) is in
+[Tag Semantics](#tag-semantics).
+
+### Local beta diagnostic path
+
+```bash
+mise run observability:up
+mise run create-beta-app-bundle
+mise run run-beta-observability -- --latest-local
+```
+
+This local beta helper is diagnostic only. The release workflow is the source
+of truth for beta promotion: it builds, signs, notarizes, staples, and
+publishes the real `AgentStudio Beta.app` artifact from a beta tag. Use the
+local debug runner for PR-branch proof, then use the GitHub-produced beta
+artifact for promotion proof.
+
+`run-beta-observability` stays attached to LaunchServices with `open -W` so
+task runners do not clean it up early. Leave it running, then verify from
+another shell:
+
+```bash
+AGENTSTUDIO_EXPECTED_BETA_APP="$DOWNLOADED_WORKFLOW_BETA_APP" mise run verify-beta-observability
+```
+
+`run-beta-observability` does not install over `/Applications/AgentStudio
+Beta.app`. With `--latest-local`, it prefers the newest local bundle under
+`~/.agentstudio-db/beta-observability/`, falling back to legacy repo-local
+bundles under `tmp/beta-observability/` only if present. Release-promotion
+proof must pass `--app "$DOWNLOADED_WORKFLOW_BETA_APP"` and bind
+`verify-beta-observability` with `AGENTSTUDIO_EXPECTED_BETA_APP`, so a stale
+installed beta or local diagnostic bundle cannot satisfy the gate. Generated
+beta apps, logs, and traces live outside `~/Documents` so local proof runs do
+not trigger Documents-folder TCC prompts merely because this worktree is under
+Documents.
+
+### Launcher environment
+
+Debug and beta observability launchers require the shared collector health
+endpoint to be reachable; run `mise run observability:up` first. They run
+from a minimal clean environment and pass only the candidate app's
+trace/data variables (`open --env` for LaunchServices, equivalent direct
+environment for debug fallback), so inherited production app identity,
+Ghostty resource variables, `ZMX_DIR`, `ZMX_SESSION`, and
+`ZMX_SESSION_PREFIX` cannot leak into the candidate process. The launchers
+write per-run markers to `tmp/debug-observability/latest-observability.env`
+or `tmp/beta-observability/latest-observability.env`; verification queries
+those markers so stale logs cannot satisfy the gate.
+
+The beta launcher likewise refuses to launch while any beta-channel
+AgentStudio process is already running, even from another bundle path. Beta
+promotion proof should start from one known beta process. Its refusal path
+also writes `AGENTSTUDIO_OBSERVABILITY_STATUS=already_running` to the beta
+state file. Repo-local observability helpers run under `/bin/bash` rather
+than Homebrew bash because the Homebrew bash process has previously wedged
+release/verification scripts on this machine. Detached debug and beta
+launchers try LaunchServices `open` first. Debug may fall back to direct
+`Contents/MacOS/AgentStudio` execution when a local generated bundle is
+rejected by LaunchServices/Gatekeeper; the state file then records
+`AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable`. This is valid
+for Victoria/OTLP debug proof and keeps the same isolated data/zmx root, but
+it is not full GUI proof. Beta does not use this fallback: if LaunchServices
+returns a launch error, beta writes
+`AGENTSTUDIO_OBSERVABILITY_STATUS=launch_failed` and exits non-zero. Local
+ad-hoc beta bundles may be rejected by AMFI/LaunchServices; Developer ID
+signing alone can still be rejected as unnotarized. Beta promotion proof
+requires the accepted/notarized artifact produced by the GitHub release
+workflow, or another explicitly notarized local artifact. Developer ID
+signing is opt-in for local diagnostic bundles: set `SIGNING_IDENTITY` when
+running `mise run create-beta-app-bundle`.
+
+Debug and beta builds use a safe baseline when `AGENTSTUDIO_TRACE_TAGS` is
+unset: JSONL plus OTLP logs/metrics to `http://127.0.0.1:4318`. Stable builds
+stay disabled unless trace tags are explicit, and explicit stable tracing
+defaults to JSONL. `AGENTSTUDIO_TRACE_TAGS=off` disables the debug/beta
+baseline. Instrumentation selection remains `AGENTSTUDIO_TRACE_TAGS`; see
+[Control Plane](#control-plane) and [Tag Semantics](#tag-semantics).
+
+`AGENTSTUDIO_TRACE_BACKEND=jsonl|otlp|both` selects the sink.
+`OTEL_EXPORTER_OTLP_ENDPOINT` is accepted only for loopback HTTP endpoints
+and is treated as a collector base URL; AgentStudio sends logs to `/v1/logs`
+and metrics to `/v1/metrics`. Collector absence or exporter failure must be
+fail-open for normal app startup and must not prevent JSONL writes.
+AgentStudio currently exports OTLP logs and performance metrics. The shared
+stack also runs VictoriaTraces for other local producers, and its smoke gate
+exercises all three ingestion lanes. Allowed OTLP resource identity is limited
+to safe runtime labels plus deterministic repo/worktree hashes and branch, for
+example `dev.repo.hash`, `dev.worktree.hash`, `dev.branch.name`,
+`dev.runtime.flavor`, and `dev.release.channel`. Field-level atom allowlists
+and forensic JSONL-only rules are in [OTLP Projection](#otlp-projection).
+
 ## Progressive Disclosure For Debugging
 
 When explaining or debugging AgentStudio observability, start by separating the

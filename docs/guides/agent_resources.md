@@ -71,6 +71,90 @@ mise run doctor-mac
 mise run test
 ```
 
+### Task catalog
+
+This guide owns bootstrap, the BridgeWeb Vite loop, zig/Xcode, Swift build-slot
+recovery, and the rest of the mise task catalog. The everyday daily-command
+subset (`setup`, `build`, `test`, `test:swift`, `format`, `lint`) stays in the
+root [AGENTS.md](../../AGENTS.md) operating contract. Discover other tasks with
+`mise tasks ls`. For one-task details, run `mise tasks info <name>`.
+
+## BridgeWeb Fast UI Loop
+
+This section owns the BridgeWeb Vite command loop. Root [AGENTS.md](../../AGENTS.md)
+hops here for the commands; [BridgeWeb/AGENTS.md](../../BridgeWeb/AGENTS.md) owns
+React UI rules.
+
+Always use the existing Swift development backend plus Vite as the primary
+iteration loop for Bridge development instead of repeatedly rebuilding the full
+app. From the repository root, start the backend with an isolated data root:
+
+```bash
+mise run build-bridge-development-server
+bridge_dev_root="$(mktemp -d "${TMPDIR:-/tmp}/agentstudio-bridge-dev.XXXXXX")"
+.build-bridge-development-server/agentstudio-bridge-dev-server \
+  --data-root "$bridge_dev_root" \
+  --pane-id 00000000-0000-7000-8000-000000000001 \
+  --seed-worktree "$PWD" \
+  --seed-target HEAD \
+  --port 43871
+```
+
+In a second terminal, run `pnpm --dir BridgeWeb run dev`, then open
+`http://127.0.0.1:5173/?fixture=worktree&viewer=review&workers=on&scenario=current-worktree`.
+Vite provides React HMR while the Swift backend uses the production Core,
+Bridge, `agentstudio-git`, and isolated `core.sqlite`/`local.sqlite` owners.
+Use the actual app for final validation of packaged WKWebView, native chrome,
+App lifecycle, and other boundaries the development server cannot prove.
+
+> **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround for a primary or explicitly authorized local-vendor worktree: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If vendor-producing setup surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Shared linked worktrees do not build the vendors. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
+
+## Running Swift Commands
+
+**Always use `mise run` for build and test.** Mise tasks handle the WebKit serialized test split, benchmark mode, and build path isolation.
+
+Paired SwiftPM test targets own their module tests.
+`AgentStudioTestSupport` depends only on Core; Infrastructure and
+SharedComponents tests do not consume it. The executable `AgentStudioTests`
+target owns App, cross-Feature, resource, WebKit, zmx, and packaged integration.
+Keep the existing fast/large/WebKit/E2E/zmx lane selectors intact:
+`swift test --filter` selects execution after the package test products are
+built; it does not change target ownership or imply isolated compilation.
+
+**For filtered test runs:** prefer mise (it allocates a slot for you):
+
+```bash
+mise run test:swift -- --filter "CommandBarState"
+```
+
+If you must invoke `swift test` directly, source the slot helper first so you don't collide with another agent's build dir:
+
+```bash
+source scripts/swift-build-slot.sh
+swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState"
+```
+
+| Env Var | Default | Purpose |
+|---------|---------|---------|
+| `SWIFT_BUILD_DIR` | auto-allocated `.build-agent-1` or `.build-agent-2` via `scripts/swift-build-slot.sh` | Helper claims the first slot whose `.slot-claim` dir doesn't exist (atomic `mkdir`). Local overrides are not supported. |
+| `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel workers |
+
+**Bounded 2-slot pool.** Every swift-running mise task sources `scripts/swift-build-slot.sh`. Debug builds, release builds, and tests all share `.build-agent-1` and `.build-agent-2`. The helper uses an atomic `mkdir <dir>/.slot-claim` to claim a slot; an EXIT trap on the calling shell removes the claim on normal exit. SwiftPM's own kernel-level flock handles serialization within a slot. Main agents and subagents share the pool; the helper handles allocation.
+
+**Concurrent agents land on different slots.** Atomic `mkdir` guarantees that two callers racing simultaneously claim distinct slots. A third caller fails instead of creating another build directory.
+
+**If both slots are busy** the helper aborts with `swift-build-slot: all 2 slots are busy`.
+
+**SIGKILL leaks.** If a calling shell is `kill -9`'d, the EXIT trap doesn't fire and `.slot-claim` is left behind. Run `mise run clean-agent-builds` to reap stale claims (it removes `.slot-claim` from any slot whose `lsof +D` shows no open file descriptors, so it's safe to run while other agents are working).
+
+**Timeouts are mandatory.** `60000` (60s) for test, `30000` (30s) for build. Tests complete in ~15s, builds in ~5s. Anything longer means lock contention.
+
+**Lock recovery:** Do not blanket-kill SwiftPM or `swift-build`; another agent
+may own that process. First run `mise run clean-agent-builds` for leaked
+`.slot-claim` directories. If SwiftPM still reports an active lock, inspect the
+specific owning PID/slot and wait for it or terminate only that confirmed stale
+process.
+
 ## DeepWiki Knowledge Base
 Use DeepWiki to gather grounded context on core dependencies and libraries.
 
