@@ -34,36 +34,6 @@ struct RepoExplorerWorktreeRowContent: View {
     var onToggleFavorite: () -> Void = {}
     var onUnreadPillTap: () -> Void = {}
 
-    private var syncCounts: (ahead: String, behind: String) {
-        switch branchStatus.syncState {
-        case .synced:
-            return ("0", "0")
-        case .ahead(let count):
-            return ("\(count)", "0")
-        case .behind(let count):
-            return ("0", "\(count)")
-        case .diverged(let ahead, let behind):
-            return ("\(ahead)", "\(behind)")
-        case .noUpstream:
-            return ("-", "-")
-        case .unknown:
-            return ("?", "?")
-        }
-    }
-
-    private var hasSyncSignal: Bool {
-        switch branchStatus.syncState {
-        case .ahead(let count):
-            return count > 0
-        case .behind(let count):
-            return count > 0
-        case .diverged(let ahead, let behind):
-            return ahead > 0 || behind > 0
-        case .synced, .noUpstream, .unknown:
-            return false
-        }
-    }
-
     static func shouldShowUnreadPill(unreadCount: Int) -> Bool {
         unreadCount > 0
     }
@@ -81,12 +51,7 @@ struct RepoExplorerWorktreeRowContent: View {
     }
 
     static func diffChipDetail(branchStatus: GitBranchStatus) -> SidebarDiffChip.WorkingTreeDetail? {
-        SidebarDiffChip.workingTreeDetail(
-            isDirty: branchStatus.isDirty,
-            linesAdded: branchStatus.linesAdded,
-            linesDeleted: branchStatus.linesDeleted,
-            untrackedFileCount: branchStatus.untrackedFileCount
-        )
+        SidebarGitStatusChips.diffDetail(branchStatus: branchStatus)
     }
 
     static func shouldShowDiffChip(branchStatus: GitBranchStatus) -> Bool {
@@ -94,20 +59,12 @@ struct RepoExplorerWorktreeRowContent: View {
     }
 
     static func shouldShowSyncChip(branchStatus: GitBranchStatus) -> Bool {
-        switch branchStatus.syncState {
-        case .ahead(let count):
-            return count > 0
-        case .behind(let count):
-            return count > 0
-        case .diverged(let ahead, let behind):
-            return ahead > 0 || behind > 0
-        case .synced, .noUpstream, .unknown:
-            return false
-        }
+        SidebarGitStatusChips.showsSync(branchStatus: branchStatus)
     }
 
     static func shouldShowPullRequestChip(branchStatus: GitBranchStatus) -> Bool {
-        branchStatus.prCount != 0 && !branchStatus.pullRequestDataUnavailable
+        SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: branchStatus)
+            || (branchStatus.prCount ?? 0) > 0 && !branchStatus.pullRequestDataUnavailable
     }
 
     private var hasStatusMetadata: Bool {
@@ -117,17 +74,11 @@ struct RepoExplorerWorktreeRowContent: View {
             || Self.shouldShowUnreadPill(unreadCount: unreadCount)
     }
 
-    /// True when neither the diff nor sync chip renders, so the stale pull-request glyph (when present)
-    /// is the chips line's leading element rather than following an already-padded pill.
-    private var isFirstChipsLineItem: Bool {
-        !Self.shouldShowDiffChip(branchStatus: branchStatus) && !Self.shouldShowSyncChip(branchStatus: branchStatus)
-    }
-
     var body: some View {
         VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                 checkoutTypeIcon
-                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
+                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .trailing)
 
                 Text(checkoutTitle)
                     .font(
@@ -180,35 +131,8 @@ struct RepoExplorerWorktreeRowContent: View {
 
             if hasStatusMetadata {
                 HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
-                    if let diffChipDetail = Self.diffChipDetail(branchStatus: branchStatus) {
-                        SidebarDiffChip(octiconLoader: octiconLoader, detail: diffChipDetail)
-                    }
-
-                    if Self.shouldShowSyncChip(branchStatus: branchStatus) {
-                        SidebarStatusSyncChip(
-                            octiconLoader: octiconLoader,
-                            aheadText: syncCounts.ahead,
-                            behindText: syncCounts.behind,
-                            hasSyncSignal: hasSyncSignal
-                        )
-                    }
-
-                    if branchStatus.prCount == nil && !branchStatus.pullRequestDataUnavailable {
-                        stalePullRequestGlyph
-                            // The bare glyph carries no pill padding of its own. When it renders as the
-                            // line's leading item (no diff/sync chip precedes it), it needs the same
-                            // compensating inset the row-level guide already assumes every leading chip
-                            // pill provides, so its glyph content still lands on the text column.
-                            .padding(
-                                .leading,
-                                isFirstChipsLineItem
-                                    ? AppStyles.Shell.Sidebar.chipHorizontalPadding : 0
-                            )
-                    } else if let prCount = branchStatus.prCount,
-                        prCount > 0,
-                        !branchStatus.pullRequestDataUnavailable
-                    {
-                        SidebarPullRequestChipSpec.chip(count: prCount, octiconLoader: octiconLoader)
+                    if SidebarGitStatusChips.hasContent(branchStatus: branchStatus) {
+                        SidebarGitStatusChips(branchStatus: branchStatus, octiconLoader: octiconLoader)
                     }
 
                     if Self.shouldShowUnreadPill(unreadCount: unreadCount) {
@@ -225,29 +149,18 @@ struct RepoExplorerWorktreeRowContent: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .sidebarChipRowTextColumnGuide()
+                .sidebarPendingPullRequestIndicator(
+                    isVisible: SidebarGitStatusChips.showsPendingPullRequestFacts(
+                        branchStatus: branchStatus
+                    )
+                )
             }
         }
     }
 
-    /// A `nil` PR count means facts have not been fetched for this branch. The render-server symbol
-    /// effect communicates pending metadata without turning it into a value-bearing chip or scheduling
-    /// per-frame application work.
-    private var stalePullRequestGlyph: some View {
-        Image(systemName: SystemSymbol.circleDotted.rawValue)
-            .font(.system(size: AppStyles.Shell.Sidebar.chipIconSize, weight: .medium))
-            .foregroundStyle(.secondary)
-            .symbolEffect(
-                .variableColor.iterative,
-                options: .repeating.speed(AppStyles.Shell.Sidebar.pendingFactsSymbolEffectSpeed)
-            )
-            .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
-            .fixedSize(horizontal: true, vertical: true)
-            .accessibilityLabel("Pull request facts not fetched")
-    }
-
     @ViewBuilder
     private var checkoutTypeIcon: some View {
-        let checkoutTypeSize = AppStyles.General.Typography.textBase
+        let checkoutTypeSize = AppStyles.Shell.Sidebar.worktreeIconSize
         switch checkoutIconKind {
         case .mainCheckout:
             OcticonImage(name: "octicon-star-fill", size: checkoutTypeSize, loader: octiconLoader)

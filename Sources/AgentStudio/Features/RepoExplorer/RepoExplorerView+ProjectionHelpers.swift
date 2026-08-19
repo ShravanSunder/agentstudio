@@ -15,6 +15,7 @@ struct RepoExplorerProjectionRequestKey: Equatable {
     /// zero change to its (empty) facts snapshot, so omitting this field would let that transition
     /// compare equal and silently skip re-projection.
     let unavailablePullRequestRepoIds: Set<UUID>
+    let loadingPullRequestRepoIds: Set<UUID>
 }
 
 extension RepoExplorerView {
@@ -138,7 +139,8 @@ extension RepoExplorerView {
             pullRequestFactsSnapshot: request.pullRequestFactsSnapshot,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
-            unavailablePullRequestRepoIds: request.unavailablePullRequestRepoIds
+            unavailablePullRequestRepoIds: request.unavailablePullRequestRepoIds,
+            loadingPullRequestRepoIds: request.loadingPullRequestRepoIds
         )
     }
 
@@ -324,13 +326,19 @@ extension RepoExplorerView {
                     paneId,
                     RepoExplorerPaneRowFacts(
                         terminalTitle: terminalTitle,
+                        noteText: pane.metadata.note,
                         latestMessageText: latestPaneMessageSnapshot(paneId),
                         recencyReferenceDate: recencyReferenceDate,
                         recencyText: RepoExplorerPaneRecencyText.display(
                             lastInteractedAt: recencyReferenceDate,
                             now: now
                         ),
-                        isActive: paneId == focusedPaneId
+                        recencyTier: RepoExplorerPaneRecencyTier.classify(
+                            referenceDate: recencyReferenceDate,
+                            now: now
+                        ),
+                        isActive: paneId == focusedPaneId,
+                        isDrawerPane: store.paneAtom.graphAtom.paneState(paneId)?.isDrawerChild == true
                     )
                 )
             }
@@ -372,28 +380,15 @@ extension RepoExplorerView {
     }
 
     static func sourceGroupIcon(
-        for group: RepoPresentationGroup,
+        for _: RepoPresentationGroup,
         groupingMode: RepoExplorerGroupingMode = .repo
     ) -> AppEntityIcon {
         switch groupingMode {
-        case .pane:
-            break
+        case .pane, .repo:
+            return .repo
         case .tab:
             return .tabGroup
-        case .repo:
-            break
         }
-
-        guard
-            let colorHex = RepoPresentationColoring.sourceGroupColorHex(
-                for: group
-            )
-        else {
-            return .repo
-        }
-        return .coloredRepo(
-            colorHex: colorHex
-        )
     }
 
     static func groupIcon(
@@ -506,7 +501,14 @@ extension RepoExplorerView {
 
         let projectedPaneRowsFingerprint = projection.paneRowsByGroupId.keys.sorted().map { groupId in
             let rows = projection.paneRowsByGroupId[groupId, default: []].map { row in
-                "\(row.groupId):\(row.rowId):\(row.primaryText):\(row.secondaryText):\(row.recencyText):\(row.isActive):\(paneDestinationFingerprint(row.destination))"
+                let secondaryLineFingerprint =
+                    switch row.secondaryLine {
+                    case .note(let text): "note:\(text)"
+                    case .terminalOutput(let text): "terminal:\(text)"
+                    case nil: "none"
+                    }
+                return
+                    "\(row.groupId):\(row.rowId):\(row.primaryText):\(secondaryLineFingerprint):\(row.recencyText):\(row.isActive):\(paneDestinationFingerprint(row.destination))"
             }.joined(separator: ",")
             return "\(groupId):\(rows)"
         }.joined(separator: "|")

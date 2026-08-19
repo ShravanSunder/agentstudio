@@ -4,10 +4,36 @@ import Foundation
 import Testing
 
 @testable import AgentStudioRepoExplorer
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("RepoExplorer pane presentation")
 struct RepoExplorerPanePresentationTests {
+    @Test("associated and Ungrouped panes share one row-content renderer")
+    func associatedAndUngroupedPanesShareRowContentRenderer() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let paneNavigationSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift"
+            ),
+            encoding: .utf8
+        )
+        let repoExplorerViewSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"
+            ),
+            encoding: .utf8
+        )
+        let combinedSource = paneNavigationSource + repoExplorerViewSource
+
+        #expect(combinedSource.components(separatedBy: "RepoExplorerPaneRowContent(").count - 1 == 2)
+        #expect(
+            !paneNavigationSource.contains(
+                "SidebarMetadataLine(\n                    icon: .systemName(\"square.split.2x1\")"
+            )
+        )
+    }
+
     @Test("projection fingerprint includes projected pane destination placement")
     func projectionFingerprintIncludesProjectedPaneDestinationPlacement() {
         let repoId = UUIDv7.generate()

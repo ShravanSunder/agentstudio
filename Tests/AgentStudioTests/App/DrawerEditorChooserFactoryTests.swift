@@ -124,6 +124,7 @@ struct DrawerEditorChooserFactoryTests {
         DrawerToolbarCommandPresentation(
             toggleDrawer: nil,
             addDrawerPane: nil,
+            editPaneNote: makeCommandAction(.editPaneNote),
             openEditorMenu: makeCommandAction(.openPaneLocationInEditorMenu),
             openFinder: makeCommandAction(.openPaneLocationInFinder),
             copyPath: makeCommandAction(.copyCurrentPanePath),

@@ -33,6 +33,7 @@ struct FlatTabStripContainer: View {
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleAtom
     let paneInboxPresentation: PaneInboxPresentation?
+    let paneNotePresentation: PaneNotePresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
@@ -97,6 +98,7 @@ struct FlatTabStripContainer: View {
         viewRegistry: ViewRegistry,
         appLifecycleStore: AppLifecycleAtom,
         paneInboxPresentation: PaneInboxPresentation? = nil,
+        paneNotePresentation: PaneNotePresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         workspaceWindowId: UUID? = nil,
@@ -119,6 +121,7 @@ struct FlatTabStripContainer: View {
         self.viewRegistry = viewRegistry
         self.appLifecycleStore = appLifecycleStore
         self.paneInboxPresentation = paneInboxPresentation
+        self.paneNotePresentation = paneNotePresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
@@ -317,6 +320,7 @@ struct FlatTabStripContainer: View {
                 useDrawerFramePreference: false,
                 isInactivePersistentTab: state.isInactivePersistentTab,
                 paneInboxPresentation: paneInboxPresentation,
+                paneNotePresentation: paneNotePresentation,
                 onOpenPaneGitHub: onOpenPaneGitHub,
                 notificationCountForWorktree: notificationCountForWorktree,
                 workspaceWindowId: workspaceWindowId,

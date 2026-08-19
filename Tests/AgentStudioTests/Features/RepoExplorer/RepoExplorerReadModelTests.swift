@@ -504,12 +504,20 @@ extension RepoExplorerReadModelTests {
 }
 
 extension RepoExplorerReadModelTests {
-    @Test("repo mode groups by repo id instead of source-family metadata")
-    func repoModeGroupsByRepoIdInsteadOfSourceFamilyMetadata() {
+    @Test("repo mode combines distinct local checkouts with the same canonical remote identity")
+    func repoModeGroupsByCanonicalRemoteIdentity() throws {
         let firstRepoId = UUID()
         let secondRepoId = UUID()
-        let firstRepo = repo(id: firstRepoId, name: "agent-studio-a", worktrees: [worktree(repoId: firstRepoId)])
-        let secondRepo = repo(id: secondRepoId, name: "agent-studio-b", worktrees: [worktree(repoId: secondRepoId)])
+        let firstRepo = repo(
+            id: firstRepoId,
+            name: "agent-studio-a",
+            worktrees: [worktree(repoId: firstRepoId, name: "agent-studio-a")]
+        )
+        let secondRepo = repo(
+            id: secondRepoId,
+            name: "agent-studio-b",
+            worktrees: [worktree(repoId: secondRepoId, name: "agent-studio-b")]
+        )
 
         let projection = RepoExplorerProjection.project(
             RepoExplorerSnapshot(
@@ -523,13 +531,9 @@ extension RepoExplorerReadModelTests {
             )
         )
 
-        #expect(
-            projection.resolvedGroups.map(\.id).sorted()
-                == [
-                    "repo:\(firstRepoId.uuidString)",
-                    "repo:\(secondRepoId.uuidString)",
-                ].sorted())
-        #expect(projection.resolvedGroups.allSatisfy { $0.repos.count == 1 })
+        let group = try #require(projection.resolvedGroups.first)
+        #expect(projection.resolvedGroups.count == 1)
+        #expect(Set(group.repos.map(\.id)) == Set([firstRepoId, secondRepoId]))
     }
 
     @Test("pane mode groups exact pane leaves by repo and omits inactive worktrees")
@@ -925,7 +929,9 @@ extension RepoExplorerReadModelTests {
         )
         let tabRow = try #require(tabProjection.paneRowsByGroupId["tab:\(tabId.uuidString)"]?.first)
         let repoRow = try #require(
-            repoProjection.worktreeRowsByGroupId["repo:\(secondRepoId.uuidString)"]?.first
+            repoProjection.worktreeRowsByGroupId.values
+                .flatMap { $0 }
+                .first { $0.repo.id == secondRepoId }
         )
         #expect(repoRow.checkoutColorHex == expectedSecondRepoColor)
         #expect(paneRow.repoId == secondRepoId)

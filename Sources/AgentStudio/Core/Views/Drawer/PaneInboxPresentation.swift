@@ -90,9 +90,13 @@ package struct PaneInboxPresentation {
         inboxPopoverPresented: Binding<Bool>
     ) -> DrawerOverlay.TrailingActions {
         DrawerOverlay.TrailingActions(
+            editPaneNoteAction: baseTrailingActions.editPaneNoteAction,
+            notePopoverPresented: baseTrailingActions.notePopoverPresented,
+            notePopoverContent: baseTrailingActions.notePopoverContent,
             openEditorMenuAction: baseTrailingActions.openEditorMenuAction,
             openFinderAction: baseTrailingActions.openFinderAction,
             copyPathAction: baseTrailingActions.copyPathAction,
+            gitStatusPresentation: baseTrailingActions.gitStatusPresentation,
             pullRequestBlockerIndicator: baseTrailingActions.pullRequestBlockerIndicator,
             openPullRequestAction: baseTrailingActions.openPullRequestAction,
             showPaneInboxAction: showPaneInboxAction,

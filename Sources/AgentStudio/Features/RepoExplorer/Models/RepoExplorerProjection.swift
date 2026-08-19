@@ -21,10 +21,10 @@ enum RepoExplorerSidebarSectionKind: String, Equatable, Sendable {
     var title: String {
         switch self {
         case .favorites: "Favorites"
-        case .panes: "Panes"
+        case .panes: "Active Repositories"
         case .repositories: "Repositories"
         case .tabs: "Tabs"
-        case .ungrouped: "Ungrouped"
+        case .ungrouped: "No Repositories"
         }
     }
 }
@@ -216,37 +216,6 @@ struct RepoExplorerUnassociatedPaneDestination: Equatable, Sendable, Identifiabl
     }
 }
 
-struct RepoExplorerProjectedPaneRow: Equatable, Sendable {
-    let groupId: String
-    let repoId: UUID
-    let destination: RepoExplorerPaneDestination
-    let rowId: String
-    let primaryText: String
-    let secondaryText: String
-    let recencyText: String
-    let isActive: Bool
-
-    init(
-        groupId: String,
-        repoId: UUID,
-        destination: RepoExplorerPaneDestination,
-        rowId: String,
-        primaryText: String = "",
-        secondaryText: String = "",
-        recencyText: String = "Now",
-        isActive: Bool = false
-    ) {
-        self.groupId = groupId
-        self.repoId = repoId
-        self.destination = destination
-        self.rowId = rowId
-        self.primaryText = primaryText
-        self.secondaryText = secondaryText
-        self.recencyText = recencyText
-        self.isActive = isActive
-    }
-}
-
 enum RepoExplorerSidebarProjection: Equatable, Sendable {
     case ready(RepoExplorerSidebarContent)
     case degraded(RepoExplorerTopologyFault)
@@ -366,12 +335,16 @@ enum RepoExplorerProjection {
     static func project(
         _ snapshot: RepoExplorerSnapshot,
         paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts] = [:],
-        tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts] = [:]
+        tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts] = [:],
+        branchNameByWorktreeId: [UUID: String] = [:],
+        branchStatusByWorktreeId: [UUID: GitBranchStatus] = [:]
     ) -> RepoExplorerSidebarProjection {
         projectCancellable(
             snapshot,
             paneRowFactsByPaneId: paneRowFactsByPaneId,
             tabGroupFactsByTabId: tabGroupFactsByTabId,
+            branchNameByWorktreeId: branchNameByWorktreeId,
+            branchStatusByWorktreeId: branchStatusByWorktreeId,
             cancellationCheck: {}
         )
     }
@@ -380,15 +353,13 @@ enum RepoExplorerProjection {
         _ snapshot: RepoExplorerSnapshot,
         paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts] = [:],
         tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts] = [:],
+        branchNameByWorktreeId: [UUID: String] = [:],
+        branchStatusByWorktreeId: [UUID: GitBranchStatus] = [:],
         cancellationCheck: () throws -> Void
     ) rethrows -> RepoExplorerSidebarProjection {
         try cancellationCheck()
-        var topologyFaultDetector = RepoExplorerTopologyFaultDetector()
-        for repo in snapshot.repos {
-            topologyFaultDetector.observe(repo)
-        }
-        if let topologyFault = topologyFaultDetector.fault {
-            return .degraded(topologyFault)
+        if let degradedProjection = degradedProjectionIfTopologyFault(in: snapshot.repos) {
+            return degradedProjection
         }
         let resolvedRepos = resolvedRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId)
         let filteredResolvedRepos = RepoExplorerFilter.filter(repos: resolvedRepos, query: snapshot.query)
@@ -421,7 +392,7 @@ enum RepoExplorerProjection {
         let projectedPaneRowsByGroupId: [String: [RepoExplorerProjectedPaneRow]]
         switch snapshot.groupingMode {
         case .repo:
-            resolvedGroups = repoIdentityGroups(
+            resolvedGroups = remoteIdentityGroups(
                 repos: filteredResolvedRepos,
                 metadataByRepoId: repoMetadataById,
                 sortOrder: snapshot.sortOrder
@@ -437,7 +408,11 @@ enum RepoExplorerProjection {
                 metadataByRepoId: repoMetadataById,
                 sortOrder: snapshot.sortOrder,
                 destinationsByWorktreeId: paneDestinationsByWorktreeId,
-                paneRowFactsByPaneId: paneRowFactsByPaneId
+                paneRowFactsByPaneId: paneRowFactsByPaneId,
+                branchFacts: RepoExplorerPaneBranchProjectionFacts(
+                    namesByWorktreeId: branchNameByWorktreeId,
+                    statusesByWorktreeId: branchStatusByWorktreeId
+                )
             )
             resolvedGroups = paneProjection.groups
             projectedRowsByGroupId = [:]
@@ -447,7 +422,9 @@ enum RepoExplorerProjection {
                 repos: filteredResolvedRepos,
                 destinationsByWorktreeId: paneDestinationsByWorktreeId,
                 paneRowFactsByPaneId: paneRowFactsByPaneId,
-                tabGroupFactsByTabId: tabGroupFactsByTabId
+                tabGroupFactsByTabId: tabGroupFactsByTabId,
+                branchNameByWorktreeId: branchNameByWorktreeId,
+                branchStatusByWorktreeId: branchStatusByWorktreeId
             )
             resolvedGroups = tabProjection.groups
             projectedRowsByGroupId = [:]
@@ -670,7 +647,7 @@ enum RepoExplorerProjection {
         return sortedRepos(filteredRepos, sortOrder: sortOrder)
     }
 
-    private static func repoIdentityGroups(
+    static func repoIdentityGroups(
         repos: [RepoPresentationItem],
         metadataByRepoId: [UUID: RepoIdentityMetadata],
         sortOrder: RepoExplorerSortOrder
@@ -692,6 +669,27 @@ enum RepoExplorerProjection {
         }
     }
 
+    private static func remoteIdentityGroups(
+        repos: [RepoPresentationItem],
+        metadataByRepoId: [UUID: RepoIdentityMetadata],
+        sortOrder: RepoExplorerSortOrder
+    ) -> [RepoPresentationGroup] {
+        RepoPresentationGrouping.buildGroups(repos: repos, metadataByRepoId: metadataByRepoId)
+            .map { group in
+                RepoPresentationGroup(
+                    id: group.id,
+                    repoTitle: group.repoTitle,
+                    organizationName: group.organizationName,
+                    repos: group.repos.map { repo in
+                        var projectedRepo = repo
+                        projectedRepo.worktrees = sortedWorktrees(repo.worktrees, sortOrder: sortOrder)
+                        return projectedRepo
+                    }
+                )
+            }
+            .sorted { repoGroupPrecedes($0, $1, sortOrder: sortOrder) }
+    }
+
     static func repoGroupPrecedes(
         _ lhs: RepoPresentationGroup,
         _ rhs: RepoPresentationGroup,
@@ -700,60 +698,6 @@ enum RepoExplorerProjection {
         let leftTitle = lhs.organizationName.map { "\(lhs.repoTitle)\($0)" } ?? lhs.repoTitle
         let rightTitle = rhs.organizationName.map { "\(rhs.repoTitle)\($0)" } ?? rhs.repoTitle
         return compare(leftTitle, rightTitle, sortOrder: sortOrder)
-    }
-
-    private static func paneRepoGroups(
-        repos: [RepoPresentationItem],
-        metadataByRepoId: [UUID: RepoIdentityMetadata],
-        sortOrder: RepoExplorerSortOrder,
-        destinationsByWorktreeId: [UUID: [RepoExplorerPaneDestination]],
-        paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
-    ) -> (groups: [RepoPresentationGroup], paneRowsByGroupId: [String: [RepoExplorerProjectedPaneRow]]) {
-        let repoGroups = repoIdentityGroups(
-            repos: repos,
-            metadataByRepoId: metadataByRepoId,
-            sortOrder: sortOrder
-        )
-        var paneRowsByGroupId: [String: [RepoExplorerProjectedPaneRow]] = [:]
-        let groups = repoGroups.compactMap { repoGroup -> RepoPresentationGroup? in
-            guard let repo = repoGroup.repos.first else { return nil }
-            let destinations = repo.worktrees
-                .flatMap { destinationsByWorktreeId[$0.id, default: []] }
-                .sorted { lhs, rhs in
-                    paneRowPrecedes(
-                        lhs,
-                        rhs,
-                        paneRowFactsByPaneId: paneRowFactsByPaneId,
-                        usesRecency: true
-                    )
-                }
-            guard !destinations.isEmpty else { return nil }
-
-            let groupId = "pane-repo:\(repo.id.uuidString)"
-            paneRowsByGroupId[groupId] = destinations.map { destination in
-                RepoExplorerProjectedPaneRow(
-                    groupId: groupId,
-                    repoId: repo.id,
-                    destination: destination,
-                    rowId: "pane-row:\(groupId):\(destination.paneId.uuidString)",
-                    primaryText: panePrimaryText(
-                        destination,
-                        terminalTitle: paneRowFactsByPaneId[destination.paneId]?.terminalTitle
-                    ),
-                    secondaryText: paneRowFactsByPaneId[destination.paneId]?.latestMessageText
-                        ?? "No activity yet",
-                    recencyText: paneRowFactsByPaneId[destination.paneId]?.recencyText ?? "Now",
-                    isActive: paneRowFactsByPaneId[destination.paneId]?.isActive ?? false
-                )
-            }
-            return RepoPresentationGroup(
-                id: groupId,
-                repoTitle: repoGroup.repoTitle,
-                organizationName: repoGroup.organizationName,
-                repos: repoGroup.repos
-            )
-        }
-        return (groups, paneRowsByGroupId)
     }
 
     private static func paneDestinationsByWorktreeId(
@@ -817,7 +761,7 @@ enum RepoExplorerProjection {
         return lhs.paneId.uuidString < rhs.paneId.uuidString
     }
 
-    private static func paneRowPrecedes(
+    static func paneRowPrecedes(
         _ lhs: RepoExplorerPaneDestination,
         _ rhs: RepoExplorerPaneDestination,
         paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts],
@@ -833,7 +777,7 @@ enum RepoExplorerProjection {
         return paneDestinationPrecedes(lhs, rhs)
     }
 
-    private static func panePrimaryText(
+    static func panePrimaryText(
         _ destination: RepoExplorerPaneDestination,
         terminalTitle: String?
     ) -> String {
@@ -843,11 +787,20 @@ enum RepoExplorerProjection {
         return "\(paneText) · \(effectiveTitle)"
     }
 
+    static func normalizedBranchName(_ branchName: String?) -> String? {
+        let normalizedName = branchName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let normalizedName, !normalizedName.isEmpty else { return nil }
+        guard normalizedName != "Unknown branch", normalizedName != "detached HEAD" else { return nil }
+        return normalizedName
+    }
+
     private static func tabPaneGroups(
         repos: [RepoPresentationItem],
         destinationsByWorktreeId: [UUID: [RepoExplorerPaneDestination]],
         paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts],
-        tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
+        tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts],
+        branchNameByWorktreeId: [UUID: String],
+        branchStatusByWorktreeId: [UUID: GitBranchStatus]
     ) -> (groups: [RepoPresentationGroup], paneRowsByGroupId: [String: [RepoExplorerProjectedPaneRow]]) {
         var reposById: [UUID: RepoPresentationItem] = [:]
         var destinationsByTabId: [UUID: [RepoExplorerPaneDestination]] = [:]
@@ -880,12 +833,20 @@ enum RepoExplorerProjection {
                     rowId: "pane-row:\(groupId):\(destination.paneId.uuidString)",
                     primaryText: panePrimaryText(
                         destination,
-                        terminalTitle: paneRowFactsByPaneId[destination.paneId]?.terminalTitle
+                        terminalTitle: paneRowFactsByPaneId[destination.paneId]?.sidebarTerminalTitle
                     ),
-                    secondaryText: paneRowFactsByPaneId[destination.paneId]?.latestMessageText
-                        ?? "No activity yet",
+                    secondaryLine: paneRowFactsByPaneId[destination.paneId]?.secondaryLine,
+                    branchContextText: normalizedBranchName(
+                        branchNameByWorktreeId[destination.worktreeId]
+                    ).map { branchName in
+                        let repoName = reposById[destination.repoId]?.name ?? "Repository"
+                        return "\(repoName) · \(branchName)"
+                    },
+                    branchStatus: branchStatusByWorktreeId[destination.worktreeId],
                     recencyText: paneRowFactsByPaneId[destination.paneId]?.recencyText ?? "Now",
-                    isActive: paneRowFactsByPaneId[destination.paneId]?.isActive ?? false
+                    recencyTier: paneRowFactsByPaneId[destination.paneId]?.recencyTier ?? .strongBlue,
+                    isActive: paneRowFactsByPaneId[destination.paneId]?.isActive ?? false,
+                    isDrawerPane: paneRowFactsByPaneId[destination.paneId]?.isDrawerPane ?? false
                 )
             }
             let groupRepos = destinations.reduce(into: [RepoPresentationItem]()) { result, destination in

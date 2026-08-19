@@ -639,6 +639,8 @@ final class WorkspaceCacheCoordinator {
 
     private func handleForgeEnrichment(_ forgeEvent: ForgeEvent) {
         switch forgeEvent {
+        case .pullRequestRefreshStateChanged(let repoId, let isLoading):
+            repoCache.setPullRequestLoading(isLoading, forRepository: repoId)
         case .pullRequestsChanged(let repoId, let factsByBranch):
             repoCache.applyPullRequestFacts(
                 Self.validPullRequestFactsByKey(repoId: repoId, factsByBranch: factsByBranch)
@@ -648,8 +650,10 @@ final class WorkspaceCacheCoordinator {
                 keys: Self.validPullRequestBranchKeys(repoId: repoId, branches: branches)
             )
         case .pullRequestRepositoryInvalidated(let repoId):
+            repoCache.setPullRequestLoading(false, forRepository: repoId)
             repoCache.removePullRequestFacts(forRepository: repoId)
         case .pullRequestsUnavailable(let repoId):
+            repoCache.setPullRequestLoading(false, forRepository: repoId)
             repoCache.markPullRequestsUnavailable(forRepository: repoId)
         case .refreshFailed(let repoId, let error):
             Self.logger.error(

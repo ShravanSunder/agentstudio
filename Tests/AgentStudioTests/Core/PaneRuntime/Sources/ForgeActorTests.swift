@@ -575,6 +575,7 @@ struct ForgeActorTests {
         await fixture.actor.shutdown()
         await fixture.stopObserving()
     }
+
 }
 
 struct ForgeActorFixture {
@@ -691,8 +692,7 @@ actor GatedForgeStatusProvider: ForgeStatusProvider {
 }
 
 actor ObservedForgeEvents {
-    // Internal (not private) so other Forge test files in this target can
-    // add scoped read helpers via extension without growing this file.
+    // Internal so focused Forge test files can add scoped read helpers.
     var recordedEvents: [ForgeEvent] = []
 
     func record(_ envelope: RuntimeEnvelope) {
@@ -844,7 +844,6 @@ actor ObservedForgeEvents {
         return false
     }
 }
-
 private actor SuspendedForgeStatusProvider: ForgeStatusProvider {
     private struct PendingCall {
         let continuation: CheckedContinuation<ForgePullRequestQueryOutcome, Never>

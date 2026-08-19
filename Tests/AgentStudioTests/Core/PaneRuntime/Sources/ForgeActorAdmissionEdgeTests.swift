@@ -8,6 +8,51 @@ import Testing
 @MainActor
 @Suite("ForgeActor admission edges")
 struct ForgeActorAdmissionEdgeTests {
+    @Test("provider request publishes bounded loading edges around a successful query")
+    func providerRequestPublishesLoadingEdgesAroundSuccess() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/loading")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+
+        #expect(await fixture.provider.waitForCallCount(1))
+        #expect(await fixture.events.waitForLoadingStates(repoId: repoId, expected: [true]))
+
+        await fixture.provider.resolve(callAt: 0, with: .complete([]))
+
+        #expect(await fixture.events.waitForLoadingStates(repoId: repoId, expected: [true, false]))
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/loading",
+                expected: PullRequestFacts(openCount: 0, exactOpenURL: nil)
+            )
+        )
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
+    @Test("failed provider request clears loading before entering backoff")
+    func failedProviderRequestClearsLoadingBeforeBackoff() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/failure")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+
+        #expect(await fixture.provider.waitForCallCount(1))
+        #expect(await fixture.events.waitForLoadingStates(repoId: repoId, expected: [true]))
+        await fixture.provider.resolve(callAt: 0, with: .failed(message: "offline"))
+
+        #expect(await fixture.events.waitForLoadingStates(repoId: repoId, expected: [true, false]))
+        #expect(await fixture.events.waitForRefreshFailure(repoId: repoId))
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
     @Test("truncated repository result preserves facts and waits for the minimum retry deadline")
     func truncatedResultPreservesFactsAndBacksOff() async {
         let fixture = await ForgeActorFixture.make()
@@ -595,6 +640,28 @@ struct ForgeActorAdmissionEdgeTests {
 }
 
 extension ObservedForgeEvents {
+    func loadingStates(for repoId: UUID) -> [Bool] {
+        recordedEvents.compactMap { event in
+            guard case .pullRequestRefreshStateChanged(let eventRepoId, let isLoading) = event,
+                eventRepoId == repoId
+            else { return nil }
+            return isLoading
+        }
+    }
+
+    func waitForLoadingStates(
+        repoId: UUID,
+        expected: [Bool],
+        maxTurns: Int = 500
+    ) async -> Bool {
+        for _ in 0..<maxTurns {
+            if loadingStates(for: repoId) == expected { return true }
+            await Task.yield()
+        }
+        Issue.record("Expected Forge loading states \(expected), received \(loadingStates(for: repoId))")
+        return false
+    }
+
     func pullRequestsUnavailableCount(for repoId: UUID) -> Int {
         recordedEvents.count { event in
             guard case .pullRequestsUnavailable(let eventRepoId) = event else { return false }
