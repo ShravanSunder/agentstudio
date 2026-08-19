@@ -18,12 +18,14 @@ struct HTTPDevelopmentProductRuntime {
 @MainActor
 struct HTTPAnnotationAuthoringContext {
     let descriptor: BridgeProductFileContentDescriptor
+    let fileSourceGeneration: Int
     let metadataStream: HTTPMetadataStreamHandle
 }
 
 @MainActor
 struct HTTPAnnotationLocatedRestoreContext {
     let connection: HTTPProductConnection
+    let fileSourceGeneration: Int
     let metadataStream: HTTPMetadataStreamHandle
 }
 
@@ -98,16 +100,17 @@ func prepareHTTPAnnotationAuthoring(
         recorder: metadataStream.recorder,
         subscriptionID: "file-metadata-annotation-authoring"
     )
-    let _: BridgeProductFileSourceIdentity = try await waitForAcknowledgedMetadataFrame(
-        client: client,
-        connection: connection,
-        recorder: metadataStream.recorder
-    ) { frame in
-        guard case .subscriptionData(let dataFrame) = frame,
-            case .fileMetadata(.sourceAccepted(let event)) = dataFrame.data
-        else { return nil }
-        return event.source
-    }
+    let acceptedFileSource: BridgeProductFileSourceIdentity =
+        try await waitForAcknowledgedMetadataFrame(
+            client: client,
+            connection: connection,
+            recorder: metadataStream.recorder
+        ) { frame in
+            guard case .subscriptionData(let dataFrame) = frame,
+                case .fileMetadata(.sourceAccepted(let event)) = dataFrame.data
+            else { return nil }
+            return event.source
+        }
     try await demandHTTPFileMetadataPath(
         "tracked.txt",
         client: client,
@@ -141,25 +144,23 @@ func prepareHTTPAnnotationAuthoring(
         recorder: metadataStream.recorder,
         subscriptionID: "file-annotations-authoring"
     )
-    try await executeHTTPAnnotationCommand(
-        client: client,
-        connection: connection,
-        operation: ["kind": "session.discover"],
-        requestID: "annotation-discover-authoring",
-        requestSequence: 6
-    )
-    _ = try await waitForAcknowledgedMetadataFrame(
-        client: client,
-        connection: connection,
-        recorder: metadataStream.recorder
-    ) { frame -> BridgeProductWorktreeAnnotationProjectionState? in
-        guard case .subscriptionData(let dataFrame) = frame,
-            case .fileAnnotations(.projectionState(let state)) = dataFrame.data
-        else { return nil }
-        return state
+    let annotationEvent: BridgeProductWorktreeAnnotationEvent =
+        try await waitForAcknowledgedMetadataFrame(
+            client: client,
+            connection: connection,
+            recorder: metadataStream.recorder
+        ) { frame in
+            guard case .subscriptionData(let dataFrame) = frame,
+                case .fileAnnotations(let event) = dataFrame.data
+            else { return nil }
+            return event
+        }
+    guard try httpAnnotationInvalidationIsCompact(annotationEvent) else {
+        throw HTTPAnnotationIntegrationError.invalidAnnotationInvalidation
     }
     return .init(
         descriptor: descriptor,
+        fileSourceGeneration: acceptedFileSource.subscriptionGeneration,
         metadataStream: metadataStream
     )
 }
@@ -225,10 +226,7 @@ func capturedErrorDescription(
 @MainActor
 func prepareHTTPAnnotationLocatedRestore(
     client: some TestClientProtocol,
-    runtime: HTTPDevelopmentProductRuntime,
-    sessionID: UUID,
-    threadID: UUID,
-    messageID: UUID
+    runtime: HTTPDevelopmentProductRuntime
 ) async throws -> HTTPAnnotationLocatedRestoreContext {
     let connection = try await openHTTPProductConnection(client: client)
     let metadataStream = try await startHTTPMetadataStream(
@@ -265,16 +263,17 @@ func prepareHTTPAnnotationLocatedRestore(
         recorder: metadataStream.recorder,
         subscriptionID: "file-metadata-located-restore"
     )
-    let _: BridgeProductFileSourceIdentity = try await waitForAcknowledgedMetadataFrame(
-        client: client,
-        connection: connection,
-        recorder: metadataStream.recorder
-    ) { frame in
-        guard case .subscriptionData(let dataFrame) = frame,
-            case .fileMetadata(.sourceAccepted(let event)) = dataFrame.data
-        else { return nil }
-        return event.source
-    }
+    let acceptedFileSource: BridgeProductFileSourceIdentity =
+        try await waitForAcknowledgedMetadataFrame(
+            client: client,
+            connection: connection,
+            recorder: metadataStream.recorder
+        ) { frame in
+            guard case .subscriptionData(let dataFrame) = frame,
+                case .fileMetadata(.sourceAccepted(let event)) = dataFrame.data
+            else { return nil }
+            return event.source
+        }
     _ = try await openHTTPSubscription(
         client: client,
         connection: connection,
@@ -288,42 +287,25 @@ func prepareHTTPAnnotationLocatedRestore(
         recorder: metadataStream.recorder,
         subscriptionID: "file-annotations-located-restore"
     )
-    try await executeHTTPAnnotationCommand(
-        client: client,
-        connection: connection,
-        operation: ["kind": "session.discover"],
-        requestID: "annotation-discover-located-after-restart",
-        requestSequence: 5
-    )
-    _ = try await waitForAcknowledgedMetadataFrame(
-        client: client,
-        connection: connection,
-        recorder: metadataStream.recorder
-    ) { frame -> BridgeProductWorktreeAnnotationSessionSummary? in
-        guard case .subscriptionData(let dataFrame) = frame,
-            case .fileAnnotations(.projectionState(let state)) = dataFrame.data
-        else { return nil }
-        return state.sessions.first(where: { $0.sessionId == sessionID })
+    let annotationEvent: BridgeProductWorktreeAnnotationEvent =
+        try await waitForAcknowledgedMetadataFrame(
+            client: client,
+            connection: connection,
+            recorder: metadataStream.recorder
+        ) { frame in
+            guard case .subscriptionData(let dataFrame) = frame,
+                case .fileAnnotations(let event) = dataFrame.data
+            else { return nil }
+            return event
+        }
+    guard try httpAnnotationInvalidationIsCompact(annotationEvent) else {
+        throw HTTPAnnotationIntegrationError.invalidAnnotationInvalidation
     }
-    try await executeHTTPAnnotationCommand(
-        client: client,
+    return .init(
         connection: connection,
-        operation: [
-            "kind": "demand.acquire",
-            "sessionId": sessionID.uuidString.lowercased(),
-        ],
-        requestID: "annotation-demand-located-after-restart",
-        requestSequence: 6
+        fileSourceGeneration: acceptedFileSource.subscriptionGeneration,
+        metadataStream: metadataStream
     )
-    _ = try await waitForHTTPAnnotationMessageBatch(
-        client: client,
-        connection: connection,
-        recorder: metadataStream.recorder
-    ) { batch in
-        batch.context.threadId == threadID
-            && batch.messages.contains(where: { $0.messageId == messageID })
-    }
-    return .init(connection: connection, metadataStream: metadataStream)
 }
 
 struct HTTPProductConnection: Sendable {
@@ -338,8 +320,10 @@ struct HTTPMetadataStreamHandle {
 
 enum HTTPAnnotationIntegrationError: Error {
     case annotationCommandFailed
+    case invalidAnnotationInvalidation
     case invalidJSONObject
     case metadataStreamEnded
+    case unexpectedAnnotationCommandResponse(String)
     case unexpectedControlResponse
     case unexpectedHTTPResponse
 }
@@ -382,24 +366,6 @@ func startHTTPMetadataStream(
         try await responseBody.write(recorder)
     }
     return .init(recorder: recorder, drain: drain)
-}
-
-func waitForHTTPAnnotationCommandOutcome(
-    client: some TestClientProtocol,
-    connection: HTTPProductConnection,
-    recorder: HTTPMetadataFrameRecorder,
-    requestID: String
-) async throws -> BridgeProductWorktreeAnnotationCommandOutcomeDTO {
-    try await waitForAcknowledgedMetadataFrame(
-        client: client,
-        connection: connection,
-        recorder: recorder
-    ) { frame in
-        guard case .subscriptionData(let dataFrame) = frame,
-            case .fileAnnotations(.projectionState(let state)) = dataFrame.data
-        else { return nil }
-        return state.commandOutcomes.first(where: { $0.requestId == requestID })
-    }
 }
 
 @MainActor
@@ -510,32 +476,13 @@ func openHTTPSubscription(
     return accepted
 }
 
-func waitForHTTPAnnotationMessageBatch(
-    client: some TestClientProtocol,
-    connection: HTTPProductConnection,
-    recorder: HTTPMetadataFrameRecorder,
-    match: @escaping @Sendable (BridgeProductWorktreeAnnotationMessageBatch) -> Bool
-) async throws -> BridgeProductWorktreeAnnotationMessageBatch {
-    try await waitForAcknowledgedMetadataFrame(
-        client: client,
-        connection: connection,
-        recorder: recorder
-    ) { frame -> BridgeProductWorktreeAnnotationMessageBatch? in
-        guard case .subscriptionData(let dataFrame) = frame,
-            case .fileAnnotations(.messageBatch(let batch)) = dataFrame.data,
-            match(batch)
-        else { return nil }
-        return batch
-    }
-}
-
 func executeHTTPAnnotationCommand(
     client: some TestClientProtocol,
     connection: HTTPProductConnection,
     operation: [String: Any],
     requestID: String,
     requestSequence: Int
-) async throws {
+) async throws -> BridgeProductWorktreeAnnotationCommandOutcomeDTO {
     let response = try await executeHTTPControl(
         client: client,
         connection: connection,
@@ -552,10 +499,13 @@ func executeHTTPAnnotationCommand(
         ]) { _, newValue in newValue }
     )
     guard case .callCompleted(let completed) = response,
-        case .fileAnnotationsCommand(.accepted) = completed.call
+        case .fileAnnotationsCommand(.completed(let outcome)) = completed.call
     else {
-        throw HTTPAnnotationIntegrationError.unexpectedControlResponse
+        throw HTTPAnnotationIntegrationError.unexpectedAnnotationCommandResponse(
+            String(reflecting: response)
+        )
     }
+    return outcome
 }
 
 private func executeHTTPControl(
@@ -646,25 +596,29 @@ func waitForAcknowledgedSubscription(
     }
 }
 
-func waitForAcknowledgedDraft(
+func waitForHTTPAnnotationInvalidation(
     client: some TestClientProtocol,
     connection: HTTPProductConnection,
-    recorder: HTTPMetadataFrameRecorder,
-    body: String,
-    sessionID: UUID
-) async throws -> BridgeProductWorktreeAnnotationMessageEntry {
+    recorder: HTTPMetadataFrameRecorder
+) async throws -> BridgeProductWorktreeAnnotationEvent {
     try await waitForAcknowledgedMetadataFrame(
         client: client,
         connection: connection,
         recorder: recorder
-    ) { frame -> BridgeProductWorktreeAnnotationMessageEntry? in
+    ) { frame in
         guard case .subscriptionData(let dataFrame) = frame,
-            case .fileAnnotations(.messageBatch(let batch)) = dataFrame.data
+            case .fileAnnotations(let event) = dataFrame.data
         else { return nil }
-        return batch.messages.first(where: {
-            $0.sessionId == sessionID && $0.draft?.body == body
-        })
+        return event
     }
+}
+
+func httpAnnotationInvalidationIsCompact(
+    _ event: BridgeProductWorktreeAnnotationEvent
+) throws -> Bool {
+    let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(event))
+    guard let dictionary = object as? [String: Any] else { return false }
+    return Set(dictionary.keys) == ["eventKind", "sourceGeneration", "worktreeId"]
 }
 
 func waitForAcknowledgedMetadataFrame<MatchedValue: Sendable>(

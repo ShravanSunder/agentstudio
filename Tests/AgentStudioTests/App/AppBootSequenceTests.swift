@@ -125,7 +125,7 @@ struct AppBootSequenceTests {
             .split(whereSeparator: \Character.isWhitespace)
             .joined(separator: " ")
         let expectedDatastoreConstruction = [
-            "WorkspaceSQLiteDatastore(",
+            "WorkspaceSQLiteDatastoreActor(",
             "configuration: configuration,",
             "traceRuntime: traceRuntime,",
             "localDatabaseReplacementObserver: localDatabaseReplacementObserver",
@@ -189,7 +189,7 @@ struct AppBootSequenceTests {
             encoding: .utf8
         )
 
-        #expect(appDelegateSource.contains("var workspaceSQLiteDatastore: WorkspaceSQLiteDatastore?"))
+        #expect(appDelegateSource.contains("var workspaceSQLiteDatastore: WorkspaceSQLiteDatastoreActor?"))
         #expect(!appDelegateSource.contains("var workspaceLocalSQLiteStoreBackend"))
         #expect(!appDelegateSource.contains("var workspaceSQLiteStoreBackend"))
         #expect(inboxBootSource.contains("InboxNotificationSQLiteDatastoreAdapter("))

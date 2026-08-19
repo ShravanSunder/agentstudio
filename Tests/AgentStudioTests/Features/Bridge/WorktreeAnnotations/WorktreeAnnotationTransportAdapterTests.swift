@@ -8,8 +8,8 @@ import Testing
 @MainActor
 @Suite("Worktree annotation transport adapter")
 struct WorktreeAnnotationTransportAdapterTests {
-    @Test("committed root command publishes durable detail and a correlated outcome")
-    func committedRootCommandPublishesDetailAndOutcome() async throws {
+    @Test("committed root command returns its exact outcome and persists durable detail")
+    func committedRootCommandReturnsOutcomeAndPersistsDetail() async throws {
         // Arrange
         let harness = try await makeTransportAdapterHarness()
         defer { try? FileManager.default.removeItem(at: harness.root) }
@@ -37,7 +37,9 @@ struct WorktreeAnnotationTransportAdapterTests {
         let correlation = try makeAnnotationCorrelation(requestID: "annotation-create-1")
 
         // Act
-        await harness.adapter.apply(
+        let observer = await harness.store.registerChangeObserver(worktreeID: "worktree-1")
+        var changes = observer.stream.makeAsyncIterator()
+        let outcome = await harness.adapter.apply(
             request,
             surface: .file,
             correlation: correlation,
@@ -45,10 +47,22 @@ struct WorktreeAnnotationTransportAdapterTests {
         )
 
         // Assert
-        let outcome = try #require(harness.projection.commandOutcome(requestID: correlation.requestId))
-        let sessionID = try #require(outcome.sessionID)
-        let detail = try #require(harness.projection.detail(sessionID: sessionID))
+        let sessionID = WorktreeAnnotationSessionID(rawValue: try #require(outcome.sessionId))
+        let detail = try await persistedDetail(sessionID: sessionID, harness: harness)
+        let createdThread = try #require(detail.threads.last)
+        let createdMessage = try #require(createdThread.messages.first)
+        let receipt = try #require(outcome.receipt)
         #expect(outcome.status == .committed)
+        #expect(outcome.requestId == correlation.requestId)
+        #expect(outcome.surface == .file)
+        #expect(receipt.messageId == createdMessage.id.rawValue)
+        #expect(receipt.threadId == createdThread.thread.id.rawValue)
+        #expect(receipt.sessionRevision == detail.session.semanticRevision)
+        #expect(receipt.messageRevision == createdMessage.semanticRevision)
+        #expect(receipt.draftRevision == createdMessage.draft?.draftRevision)
+        #expect(receipt.savedRevision == createdMessage.savedRevision)
+        #expect(await changes.next() == .snapshotRequired(worktreeID: "worktree-1"))
+        await harness.store.removeChangeObserver(token: observer.token)
         #expect(detail.threads.first?.messages.first?.draft?.body == "Durable draft")
         #expect(
             detail.threads.first?.thread.origin
@@ -68,13 +82,85 @@ struct WorktreeAnnotationTransportAdapterTests {
         )
     }
 
-    @Test("failed Store mutation preserves detail and publishes a typed correlated failure")
-    func failedMutationPreservesDetailAndPublishesFailure() async throws {
+    @Test("committed Save returns the exact saved message receipt")
+    func committedSaveReturnsExactMessageReceipt() async throws {
+        // Arrange
+        let harness = try await makeTransportAdapterHarness()
+        defer { try? FileManager.default.removeItem(at: harness.root) }
+        let createOutcome = await harness.adapter.apply(
+            try decodeAnnotationCommand(
+                """
+                {
+                  "operation": {
+                    "admission": { "kind": "implicitOrSingle" },
+                    "body": "Durable draft",
+                    "editToken": "editor-save",
+                    "kind": "root.create",
+                    "origin": {
+                      "diffSide": null,
+                      "endLine": 3,
+                      "kind": "located",
+                      "path": "Sources/Example.swift",
+                      "sourceIdentity": "file-source-1",
+                      "sourceRole": "file",
+                      "startLine": 2
+                    }
+                  }
+                }
+                """
+            ),
+            surface: .file,
+            correlation: try makeAnnotationCorrelation(requestID: "annotation-save-create"),
+            productAdmission: harness.productAdmission
+        )
+        let createReceipt = try #require(createOutcome.receipt)
+        let createDraftRevision = try #require(createReceipt.draftRevision)
+        let sessionID = try #require(createOutcome.sessionId)
+
+        // Act
+        let saveOutcome = await harness.adapter.apply(
+            try decodeAnnotationCommand(
+                """
+                {
+                  "operation": {
+                    "editToken": "editor-save",
+                    "expectedDraftRevision": \(createDraftRevision),
+                    "expectedSessionRevision": \(createReceipt.sessionRevision),
+                    "kind": "draft.save",
+                    "messageId": "\(createReceipt.messageId.uuidString.lowercased())",
+                    "sessionId": "\(sessionID.uuidString.lowercased())"
+                  }
+                }
+                """
+            ),
+            surface: .file,
+            correlation: try makeAnnotationCorrelation(requestID: "annotation-save-commit"),
+            productAdmission: harness.productAdmission
+        )
+
+        // Assert
+        let savedDetail = try await persistedDetail(
+            sessionID: WorktreeAnnotationSessionID(rawValue: sessionID),
+            harness: harness
+        )
+        let savedMessage = try #require(savedDetail.threads.first?.messages.first)
+        let saveReceipt = try #require(saveOutcome.receipt)
+        #expect(saveOutcome.status == .committed)
+        #expect(saveReceipt.messageId == savedMessage.id.rawValue)
+        #expect(saveReceipt.threadId == savedDetail.threads.first?.thread.id.rawValue)
+        #expect(saveReceipt.sessionRevision == savedDetail.session.semanticRevision)
+        #expect(saveReceipt.messageRevision == savedMessage.semanticRevision)
+        #expect(saveReceipt.draftRevision == nil)
+        #expect(saveReceipt.savedRevision == savedMessage.savedRevision)
+    }
+
+    @Test("failed service mutation preserves repository detail and returns a typed correlated failure")
+    func failedMutationPreservesDetailAndReturnsFailure() async throws {
         // Arrange
         let harness = try await makeTransportAdapterHarness()
         defer { try? FileManager.default.removeItem(at: harness.root) }
         let createCorrelation = try makeAnnotationCorrelation(requestID: "annotation-create-2")
-        await harness.adapter.apply(
+        let createOutcome = await harness.adapter.apply(
             try decodeAnnotationCommand(
                 """
                 {
@@ -100,11 +186,8 @@ struct WorktreeAnnotationTransportAdapterTests {
             correlation: createCorrelation,
             productAdmission: harness.productAdmission
         )
-        let createOutcome = try #require(
-            harness.projection.commandOutcome(requestID: createCorrelation.requestId)
-        )
-        let sessionID = try #require(createOutcome.sessionID)
-        let initialDetail = try #require(harness.projection.detail(sessionID: sessionID))
+        let sessionID = WorktreeAnnotationSessionID(rawValue: try #require(createOutcome.sessionId))
+        let initialDetail = try await persistedDetail(sessionID: sessionID, harness: harness)
         let message = try #require(initialDetail.threads.first?.messages.first)
         let failingCorrelation = try makeAnnotationCorrelation(requestID: "annotation-flush-conflict")
         let flushRequest = try decodeAnnotationCommand(
@@ -124,7 +207,7 @@ struct WorktreeAnnotationTransportAdapterTests {
         )
 
         // Act
-        await harness.adapter.apply(
+        let failureOutcome = await harness.adapter.apply(
             flushRequest,
             surface: .file,
             correlation: failingCorrelation,
@@ -132,19 +215,17 @@ struct WorktreeAnnotationTransportAdapterTests {
         )
 
         // Assert
-        #expect(
-            harness.projection.commandOutcome(requestID: failingCorrelation.requestId)?.status
-                == .failed(.conflict)
-        )
-        #expect(harness.projection.detail(sessionID: sessionID) == initialDetail)
+        #expect(failureOutcome.requestId == failingCorrelation.requestId)
+        #expect(failureOutcome.status == .failed(.conflict))
+        #expect(try await persistedDetail(sessionID: sessionID, harness: harness) == initialDetail)
     }
 
-    @Test("replacement demand admits a restarted source epoch without leaking detail demand")
+    @Test("replacement demand admits a restarted source epoch while durable detail remains repository-owned")
     func replacementDemandAdmitsRestartedSourceEpoch() async throws {
         let harness = try await makeTransportAdapterHarness()
         defer { try? FileManager.default.removeItem(at: harness.root) }
         let createCorrelation = try makeAnnotationCorrelation(requestID: "annotation-generation-create")
-        await harness.adapter.apply(
+        let createOutcome = await harness.adapter.apply(
             try decodeAnnotationCommand(
                 """
                 {
@@ -170,9 +251,7 @@ struct WorktreeAnnotationTransportAdapterTests {
             correlation: createCorrelation,
             productAdmission: harness.productAdmission
         )
-        let sessionID = try #require(
-            harness.projection.commandOutcome(requestID: createCorrelation.requestId)?.sessionID
-        )
+        let sessionID = WorktreeAnnotationSessionID(rawValue: try #require(createOutcome.sessionId))
 
         for (requestID, sourceEpoch) in [
             ("annotation-generation-acquire-1", nil),
@@ -198,17 +277,18 @@ struct WorktreeAnnotationTransportAdapterTests {
                     """
                 }
             let correlation = try makeAnnotationCorrelation(requestID: requestID)
-            await harness.adapter.apply(
+            let outcome = await harness.adapter.apply(
                 try decodeAnnotationCommand("{ \"operation\": \(operationJSON) }"),
                 surface: .file,
                 correlation: correlation,
                 productAdmission: harness.productAdmission
             )
-            #expect(harness.projection.commandOutcome(requestID: requestID)?.status == .committed)
+            #expect(outcome.requestId == requestID)
+            #expect(outcome.status == .committed)
         }
 
         let releaseCorrelation = try makeAnnotationCorrelation(requestID: "annotation-generation-release")
-        await harness.adapter.apply(
+        let releaseOutcome = await harness.adapter.apply(
             try decodeAnnotationCommand(
                 """
                 {
@@ -224,12 +304,12 @@ struct WorktreeAnnotationTransportAdapterTests {
             productAdmission: harness.productAdmission
         )
 
-        #expect(harness.projection.commandOutcome(requestID: releaseCorrelation.requestId)?.status == .committed)
-        #expect(harness.projection.detail(sessionID: sessionID) == nil)
+        #expect(releaseOutcome.status == .committed)
+        #expect(try await persistedDetail(sessionID: sessionID, harness: harness).session.id == sessionID)
     }
 
-    @Test("output history command publishes bounded durable summaries")
-    func outputHistoryCommandPublishesBoundedSummaries() async throws {
+    @Test("output history command returns exactly after reading bounded durable summaries")
+    func outputHistoryCommandReturnsAfterReadingDurableSummaries() async throws {
         // Arrange
         let harness = try await makeTransportAdapterHarness()
         defer { try? FileManager.default.removeItem(at: harness.root) }
@@ -237,7 +317,7 @@ struct WorktreeAnnotationTransportAdapterTests {
         let historyCorrelation = try makeAnnotationCorrelation(requestID: "annotation-history-load")
 
         // Act
-        await harness.adapter.apply(
+        let outcome = await harness.adapter.apply(
             try decodeAnnotationCommand(
                 """
                 { "operation": {
@@ -252,14 +332,12 @@ struct WorktreeAnnotationTransportAdapterTests {
         )
 
         // Assert
-        #expect(
-            harness.projection.commandOutcome(requestID: historyCorrelation.requestId)?.status
-                == .committed
-        )
-        #expect(
-            harness.projection.outputHistoryBySessionID[savedOutput.sessionID]?.map(\.attemptID)
-                == [savedOutput.attemptID]
-        )
+        #expect(outcome.requestId == historyCorrelation.requestId)
+        guard case .history(let summaries) = outcome.status else {
+            Issue.record("Expected exact output history, got \(outcome.status)")
+            return
+        }
+        #expect(summaries.map(\.attemptId) == [savedOutput.attemptID.rawValue])
     }
 
     @Test("prepare output executes the durable coordinator and publishes its typed result")
@@ -268,53 +346,14 @@ struct WorktreeAnnotationTransportAdapterTests {
         let outputEffect = TransportTestOutputEffect(outcome: .succeeded)
         let harness = try await makeTransportAdapterHarness(outputEffect: outputEffect)
         defer { try? FileManager.default.removeItem(at: harness.root) }
-        let createCorrelation = try makeAnnotationCorrelation(requestID: "annotation-output-create")
-        await harness.adapter.apply(
-            try decodeAnnotationCommand(
-                """
-                {
-                  "operation": {
-                    "admission": { "kind": "implicitOrSingle" },
-                    "body": "## Preserve this behavior",
-                    "editToken": "editor-output",
-                    "kind": "root.create",
-                    "origin": {
-                      "diffSide": null,
-                      "endLine": 3,
-                      "kind": "located",
-                      "path": "Sources/Example.swift",
-                      "sourceIdentity": "file-source-1",
-                      "sourceRole": "file",
-                      "startLine": 2
-                    }
-                  }
-                }
-                """
-            ),
-            surface: .file,
-            correlation: createCorrelation,
-            productAdmission: harness.productAdmission
-        )
-        let sessionID = try #require(
-            harness.projection.commandOutcome(requestID: createCorrelation.requestId)?.sessionID
-        )
-        let draftDetail = try #require(harness.projection.detail(sessionID: sessionID))
-        let draftMessage = try #require(draftDetail.threads.first?.messages.first)
-        let savedDetail = try await harness.store.saveDraft(
-            .init(
-                sessionID: sessionID,
-                messageID: draftMessage.id,
-                editToken: "editor-output",
-                expectedSessionRevision: draftDetail.session.semanticRevision,
-                expectedDraftRevision: try #require(draftMessage.draft?.draftRevision),
-                now: Date(timeIntervalSince1970: 101)
-            )
-        )
-        let savedMessage = try #require(savedDetail.threads.first?.messages.first)
+        let savedFixture = try await prepareSavedOutputCommandFixture(harness: harness)
+        let sessionID = savedFixture.sessionID
+        let savedMessage = savedFixture.message
         let outputCorrelation = try makeAnnotationCorrelation(requestID: "annotation-output-prepare")
 
         // Act
         let transferID = "annotation-output-transfer-1"
+        var exactOutcome: BridgeProductWorktreeAnnotationCommandOutcomeDTO?
         for (requestID, operation) in [
             (
                 "annotation-output-begin",
@@ -341,7 +380,7 @@ struct WorktreeAnnotationTransportAdapterTests {
                 """
             ),
         ] {
-            await harness.adapter.apply(
+            exactOutcome = await harness.adapter.apply(
                 try decodeAnnotationCommand("{ \"operation\": \(operation) }"),
                 surface: .file,
                 correlation: try makeAnnotationCorrelation(requestID: requestID),
@@ -350,20 +389,25 @@ struct WorktreeAnnotationTransportAdapterTests {
         }
 
         // Assert
-        let outcome = try #require(
-            harness.projection.commandOutcome(requestID: outputCorrelation.requestId)
-        )
+        let outcome = try #require(exactOutcome)
         guard case .output(.succeeded(let summary)) = outcome.status else {
             Issue.record("Expected typed successful output outcome, got \(outcome.status)")
             return
         }
-        #expect(summary.sessionID == sessionID)
+        #expect(outcome.requestId == outputCorrelation.requestId)
+        #expect(summary.sessionId == sessionID.rawValue)
         #expect(summary.outputKind == .clipboardMarkdown)
         #expect(summary.messageCount == 1)
         let effectRequest = try #require(await outputEffect.lastRequest)
         let effectText = try #require(String(bytes: effectRequest.exactBytes, encoding: .utf8))
         #expect(effectText.contains("## Preserve this behavior"))
-        #expect(effectRequest.attemptID == summary.attemptID.rawValue)
+        #expect(effectRequest.attemptID == summary.attemptId)
+        let persistedOutput = try await harness.store.inspectOutputAttempt(
+            attemptID: .init(rawValue: summary.attemptId)
+        )
+        #expect(persistedOutput.attempt.exactBytes == effectRequest.exactBytes)
+        #expect(effectText.contains("Sources/Example.swift"))
+        #expect(effectText.contains("Location: lines 2–3"))
     }
 
     @Test("130 eligible messages preserve the middle 65 through explicit and complementary all-eligible transfers")
@@ -429,6 +473,53 @@ struct WorktreeAnnotationTransportAdapterTests {
 }
 
 @MainActor
+private func prepareSavedOutputCommandFixture(
+    harness: WorktreeAnnotationTransportAdapterHarness
+) async throws -> (sessionID: WorktreeAnnotationSessionID, message: WorktreeAnnotationMessage) {
+    let createCorrelation = try makeAnnotationCorrelation(requestID: "annotation-output-create")
+    let createOutcome = await harness.adapter.apply(
+        try decodeAnnotationCommand(
+            """
+            {
+              "operation": {
+                "admission": { "kind": "implicitOrSingle" },
+                "body": "## Preserve this behavior",
+                "editToken": "editor-output",
+                "kind": "root.create",
+                "origin": {
+                  "diffSide": null,
+                  "endLine": 3,
+                  "kind": "located",
+                  "path": "Sources/Example.swift",
+                  "sourceIdentity": "file-source-1",
+                  "sourceRole": "file",
+                  "startLine": 2
+                }
+              }
+            }
+            """
+        ),
+        surface: .file,
+        correlation: createCorrelation,
+        productAdmission: harness.productAdmission
+    )
+    let sessionID = WorktreeAnnotationSessionID(rawValue: try #require(createOutcome.sessionId))
+    let draftDetail = try await persistedDetail(sessionID: sessionID, harness: harness)
+    let draftMessage = try #require(draftDetail.threads.first?.messages.first)
+    let savedDetail = try await harness.store.saveDraft(
+        .init(
+            sessionID: sessionID,
+            messageID: draftMessage.id,
+            editToken: "editor-output",
+            expectedSessionRevision: draftDetail.session.semanticRevision,
+            expectedDraftRevision: try #require(draftMessage.draft?.draftRevision),
+            now: Date(timeIntervalSince1970: 101)
+        )
+    )
+    return (sessionID, try #require(savedDetail.threads.first?.messages.first))
+}
+
+@MainActor
 private func executeOutputTransfer(
     harness: WorktreeAnnotationTransportAdapterHarness,
     messageIDs: [WorktreeAnnotationMessageID],
@@ -462,7 +553,7 @@ private func executeOutputTransfer(
             """
         ]
     for (index, operation) in operations.enumerated() {
-        await harness.adapter.apply(
+        _ = await harness.adapter.apply(
             try decodeAnnotationCommand("{ \"operation\": \(operation) }"),
             surface: .file,
             correlation: try makeAnnotationCorrelation(requestID: "\(transferID)-\(index)"),
@@ -542,7 +633,7 @@ private func createSavedTransportMessage(
     harness: WorktreeAnnotationTransportAdapterHarness
 ) async throws -> SavedTransportMessage {
     let createCorrelation = try makeAnnotationCorrelation(requestID: "annotation-history-create")
-    await harness.adapter.apply(
+    let createOutcome = await harness.adapter.apply(
         try decodeAnnotationCommand(
             """
             {
@@ -568,10 +659,8 @@ private func createSavedTransportMessage(
         correlation: createCorrelation,
         productAdmission: harness.productAdmission
     )
-    let sessionID = try #require(
-        harness.projection.commandOutcome(requestID: createCorrelation.requestId)?.sessionID
-    )
-    let draftDetail = try #require(harness.projection.detail(sessionID: sessionID))
+    let sessionID = WorktreeAnnotationSessionID(rawValue: try #require(createOutcome.sessionId))
+    let draftDetail = try await persistedDetail(sessionID: sessionID, harness: harness)
     let draftMessage = try #require(draftDetail.threads.first?.messages.first)
     let savedDetail = try await harness.store.saveDraft(
         .init(
@@ -595,9 +684,20 @@ private func createSavedTransportMessage(
 private struct WorktreeAnnotationTransportAdapterHarness {
     let adapter: WorktreeAnnotationTransportAdapter
     let productAdmission: BridgeProductAdmissionContext
-    let projection: WorktreeAnnotationProjectionAtom
     let root: URL
-    let store: WorktreeAnnotationStore
+    let store: WorktreeAnnotationServiceActor
+}
+
+@MainActor
+private func persistedDetail(
+    sessionID: WorktreeAnnotationSessionID,
+    harness: WorktreeAnnotationTransportAdapterHarness
+) async throws -> WorktreeAnnotationSessionDetail {
+    let capture = try await harness.store.captureProjection(
+        worktreeID: "worktree-1",
+        demandedSessionIDs: [sessionID]
+    )
+    return try #require(capture.repositorySnapshot.details.first)
 }
 
 @MainActor
@@ -613,11 +713,9 @@ private func makeTransportAdapterHarness(
         localDatabaseURL: root.appending(path: "local.sqlite")
     ).makeDatastore()
     guard case .prepared = await datastore.prepareDatabasesForBoot() else {
-        throw WorktreeAnnotationStoreError.unavailable
+        throw WorktreeAnnotationServiceError.unavailable
     }
-    let projection = WorktreeAnnotationProjectionAtom()
-    let store = WorktreeAnnotationStore(
-        projection: projection,
+    let store = WorktreeAnnotationServiceActor(
         sqliteAdapter: .init(workspaceID: UUIDv7.generate(), datastore: datastore)
     )
     let fingerprint = WorktreeAnnotationSourceFingerprint(
@@ -647,11 +745,21 @@ private func makeTransportAdapterHarness(
         },
         currentFingerprint: { _, _ in fingerprint },
         refresh: { _, _, _ in
-            .init(fingerprint: fingerprint, material: .available([]))
+            .init(
+                fingerprint: fingerprint,
+                material: .available([
+                    .init(
+                        path: "Sources/Example.swift",
+                        sourceRole: .file,
+                        sourceIdentity: "file-source-1",
+                        body: "1 │ func example() {\n2 │ let value = 1\n3 │ return value\n4 │ }"
+                    )
+                ])
+            )
         }
     )
     let outputCoordinator = outputEffect.map {
-        WorktreeAnnotationOutputCoordinator(
+        WorktreeAnnotationOutputCoordinatorActor(
             store: store,
             effect: $0,
             now: { Date(timeIntervalSince1970: 102) }
@@ -674,7 +782,6 @@ private func makeTransportAdapterHarness(
             )
         ),
         productAdmission: BridgeProductAdmissionTestContext.make().context,
-        projection: projection,
         root: root,
         store: store
     )

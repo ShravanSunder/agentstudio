@@ -28,6 +28,14 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
                     surface: surface,
                     requestID: correlation.requestId
                 )
+                return BridgeProductWorktreeAnnotationCommandOutcomeDTO(
+                    .init(
+                        requestID: correlation.requestId,
+                        surface: surface,
+                        sessionID: nil,
+                        status: .committed
+                    )
+                )
             },
             refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
@@ -50,7 +58,7 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
             presentedCapability: capabilityHeader
         )
-        _ = try await dispatcher.dispatch(
+        let commandDispatch = try await dispatcher.dispatch(
             exactRequestBytes: callBody,
             presentedCapability: capabilityHeader
         )
@@ -60,6 +68,17 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
         )
 
         // Assert
+        guard case .response(let responseBytes) = commandDispatch,
+            case .callCompleted(let completedResponse) = try BridgeProductStrictJSON.decode(
+                BridgeProductControlResponse.self,
+                from: responseBytes
+            ),
+            case .fileAnnotationsCommand(.completed(let outcome)) = completedResponse.call
+        else {
+            Issue.record("Expected exact annotation command completion")
+            return
+        }
+        #expect(outcome.status == .committed)
         #expect(callsBeforeCommit.isEmpty)
         #expect(await recorder.annotationCalls.count == 1)
         #expect(await recorder.annotationCalls.first?.surface == .file)
@@ -665,7 +684,8 @@ private actor BridgeProductCompletionEffectsRecordingProvider: BridgeProductSche
     }
 
     func response(
-        for request: BridgeProductControlRequest
+        for request: BridgeProductControlRequest,
+        productAdmission _: BridgeProductAdmissionContext?
     ) async -> BridgeProductControlResponse {
         do {
             switch request {

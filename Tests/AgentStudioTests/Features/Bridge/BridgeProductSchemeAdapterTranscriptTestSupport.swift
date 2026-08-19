@@ -192,7 +192,10 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
         self.fileSourceData = fileSourceData
     }
 
-    func response(for request: BridgeProductControlRequest) async -> BridgeProductControlResponse {
+    func response(
+        for request: BridgeProductControlRequest,
+        productAdmission _: BridgeProductAdmissionContext?
+    ) async -> BridgeProductControlResponse {
         controlRequestKinds.append(request.kind)
         do {
             switch request {

@@ -13,7 +13,7 @@ final class WorkspaceStoreTests {
 
     private var store: WorkspaceStore!
     private var tempDir: URL!
-    private var sqliteDatastore: WorkspaceSQLiteDatastore!
+    private var sqliteDatastore: WorkspaceSQLiteDatastoreActor!
 
     init() {
         // Use a temp directory to avoid polluting real workspace data
@@ -1893,7 +1893,7 @@ private actor WorkspaceSQLiteSaveProbe {
         failedSaveEvents
     }
 
-    func record(_ event: WorkspaceSQLiteDatastore.ProbeEvent) {
+    func record(_ event: WorkspaceSQLiteDatastoreActor.ProbeEvent) {
         switch event {
         case .saveWorkspaceSnapshot:
             saveEvents += 1

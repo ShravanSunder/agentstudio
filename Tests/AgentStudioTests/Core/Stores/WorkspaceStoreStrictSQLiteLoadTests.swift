@@ -487,7 +487,7 @@ private struct PersistedAuthoritativeTopologyFixture {
 private struct StrictSQLiteCompositionLoadHarness {
     let rootDirectory: URL
     let coreDatabaseURL: URL
-    let datastore: WorkspaceSQLiteDatastore
+    let datastore: WorkspaceSQLiteDatastoreActor
 
     static func make(testName: String) throws -> Self {
         let rootDirectory = FileManager.default.temporaryDirectory.appending(
@@ -510,15 +510,15 @@ private struct StrictSQLiteCompositionLoadHarness {
         rootDirectory.appending(path: "local.sqlite")
     }
 
-    func makeFreshDatastore() -> WorkspaceSQLiteDatastore {
+    func makeFreshDatastore() -> WorkspaceSQLiteDatastoreActor {
         makeDatastore()
     }
 
     func makeDatastore(
-        probe: (@Sendable (WorkspaceSQLiteDatastore.ProbeEvent) async -> Void)? = nil
-    ) -> WorkspaceSQLiteDatastore {
+        probe: (@Sendable (WorkspaceSQLiteDatastoreActor.ProbeEvent) async -> Void)? = nil
+    ) -> WorkspaceSQLiteDatastoreActor {
         let rootDirectory = rootDirectory
-        return WorkspaceSQLiteDatastore(
+        return WorkspaceSQLiteDatastoreActor(
             configuration: WorkspaceSQLiteDatastoreConfiguration(
                 coreDatabaseURL: coreDatabaseURL,
                 localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
@@ -530,7 +530,7 @@ private struct StrictSQLiteCompositionLoadHarness {
     func makeStore(
         identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
         repositoryTopologyAtom: RepositoryTopologyAtom = RepositoryTopologyAtom(),
-        datastore: WorkspaceSQLiteDatastore? = nil
+        datastore: WorkspaceSQLiteDatastoreActor? = nil
     ) -> WorkspaceStore {
         WorkspaceStore(
             identityAtom: identityAtom,
@@ -545,7 +545,7 @@ private struct StrictSQLiteCompositionLoadHarness {
 }
 
 private actor StrictStartupProbeRecorder {
-    private var events: [WorkspaceSQLiteDatastore.ProbeEvent] = []
+    private var events: [WorkspaceSQLiteDatastoreActor.ProbeEvent] = []
     private let onFirstSuccessfulSave: (@Sendable () async -> Void)?
     private var didRunSuccessfulSaveAction = false
 
@@ -553,14 +553,14 @@ private actor StrictStartupProbeRecorder {
         self.onFirstSuccessfulSave = onFirstSuccessfulSave
     }
 
-    func record(_ event: WorkspaceSQLiteDatastore.ProbeEvent) async {
+    func record(_ event: WorkspaceSQLiteDatastoreActor.ProbeEvent) async {
         events.append(event)
         guard event == .saveWorkspaceSnapshotSucceeded, !didRunSuccessfulSaveAction else { return }
         didRunSuccessfulSaveAction = true
         await onFirstSuccessfulSave?()
     }
 
-    func count(of event: WorkspaceSQLiteDatastore.ProbeEvent) -> Int {
+    func count(of event: WorkspaceSQLiteDatastoreActor.ProbeEvent) -> Int {
         events.count { $0 == event }
     }
 }

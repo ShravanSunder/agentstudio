@@ -212,7 +212,7 @@ private func classifyLiveEffectOutcome(
 }
 
 private struct OutputCoordinatorFixture {
-    let coordinator: WorktreeAnnotationOutputCoordinator
+    let coordinator: WorktreeAnnotationOutputCoordinatorActor
     let store: TestOutputStore
     let effect: TestOutputEffect
     let recorder: OutputSequenceRecorder
@@ -276,7 +276,7 @@ private func makeCoordinatorFixture(
     )
     let attemptIDs = OutputAttemptIDSequence(startingAt: 10)
     return OutputCoordinatorFixture(
-        coordinator: WorktreeAnnotationOutputCoordinator(
+        coordinator: WorktreeAnnotationOutputCoordinatorActor(
             store: store,
             effect: effect,
             now: { Date(timeIntervalSince1970: 10) },
@@ -412,7 +412,7 @@ private enum TestOutputFailure: Error {
     case forcedFailure
 }
 
-private actor TestOutputStore: WorktreeAnnotationOutputStoreAccess {
+private actor TestOutputStore: WorktreeAnnotationOutputServiceAccess {
     private let recorder: OutputSequenceRecorder
     private var outputsByAttemptID:
         [WorktreeAnnotationOutputAttemptID: WorktreeAnnotationSQLiteRepository.PreparedOutput] = [:]

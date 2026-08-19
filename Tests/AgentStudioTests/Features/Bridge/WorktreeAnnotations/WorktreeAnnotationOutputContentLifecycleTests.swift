@@ -327,7 +327,7 @@ private func makeRestartedOutputFixture() async throws -> RestartedOutputFixture
         localDatabaseURL: localURL
     ).makeDatastore()
     guard case .prepared = await firstDatastore.prepareDatabasesForBoot() else {
-        throw WorktreeAnnotationStoreError.unavailable
+        throw WorktreeAnnotationServiceError.unavailable
     }
     let workspaceStore = WorkspaceStore(
         identityAtom: WorkspaceIdentityAtom(workspaceId: workspaceID),
@@ -335,10 +335,9 @@ private func makeRestartedOutputFixture() async throws -> RestartedOutputFixture
         startsObserving: false
     )
     guard case .initializedDefaultWorkspace = await workspaceStore.loadCanonicalComposition() else {
-        throw WorktreeAnnotationStoreError.unavailable
+        throw WorktreeAnnotationServiceError.unavailable
     }
-    let firstStore = WorktreeAnnotationStore(
-        projection: WorktreeAnnotationProjectionAtom(),
+    let firstStore = WorktreeAnnotationServiceActor(
         sqliteAdapter: .init(workspaceID: workspaceID, datastore: firstDatastore)
     )
     let preparedOutput = try await prepareSavedOutput(
@@ -351,10 +350,9 @@ private func makeRestartedOutputFixture() async throws -> RestartedOutputFixture
         localDatabaseURL: localURL
     ).makeDatastore()
     guard case .prepared = await restartedDatastore.prepareDatabasesForBoot() else {
-        throw WorktreeAnnotationStoreError.unavailable
+        throw WorktreeAnnotationServiceError.unavailable
     }
-    let restartedStore = WorktreeAnnotationStore(
-        projection: WorktreeAnnotationProjectionAtom(),
+    let restartedStore = WorktreeAnnotationServiceActor(
         sqliteAdapter: .init(workspaceID: workspaceID, datastore: restartedDatastore)
     )
     return .init(
@@ -372,7 +370,7 @@ private struct PreparedSavedOutput {
 
 @MainActor
 private func prepareSavedOutput(
-    firstStore: WorktreeAnnotationStore,
+    firstStore: WorktreeAnnotationServiceActor,
     workspaceID: UUID
 ) async throws -> PreparedSavedOutput {
     let savedFixture = try await createSavedLocatedMessage(
@@ -432,7 +430,7 @@ private struct SavedLocatedMessageFixture {
 
 @MainActor
 private func createSavedLocatedMessage(
-    store: WorktreeAnnotationStore,
+    store: WorktreeAnnotationServiceActor,
     workspaceID: UUID
 ) async throws -> SavedLocatedMessageFixture {
     let draftDetail = try await store.createRootDraft(

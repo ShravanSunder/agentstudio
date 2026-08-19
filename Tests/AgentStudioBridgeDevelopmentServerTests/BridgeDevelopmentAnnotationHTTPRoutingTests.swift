@@ -43,7 +43,7 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
             paneID: paneID,
             worktreeRoot: repositoryURL
         )
-        let restoredDraft = try await restoreHTTPAnnotationDraftAfterRestart(
+        let restoredProjection = try await restoreHTTPAnnotationDraftAfterRestart(
             runtime: secondRuntime,
             draftBody: draftBody,
             sessionID: firstObservation.sessionID
@@ -51,7 +51,10 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
         try await secondRuntime.composition.shutdown()
 
         #expect(firstObservation.connection.bootstrap.paneSessionId == paneID.uuidString)
+        let restoredDraft = try #require(restoredProjection.messages.first?.message)
+        #expect(restoredProjection.header.sessions.map(\.sessionId) == [firstObservation.sessionID])
         #expect(restoredDraft.draft?.body == draftBody)
+        #expect(restoredDraft.savedBody == nil)
         #expect(restoredDraft.sessionId == firstObservation.sessionID)
     }
 
@@ -94,44 +97,48 @@ private func createHTTPAnnotationDraftBeforeRestart(
             runtime: runtime,
             connection: connection
         )
-        try await executeHTTPAnnotationCommand(
+        let createOperation: [String: Any] = [
+            "admission": ["kind": "implicitOrSingle"],
+            "body": draftBody,
+            "editToken": "restart-editor-1",
+            "kind": "root.create",
+            "origin": [
+                "diffSide": NSNull(),
+                "endLine": 2,
+                "kind": "located",
+                "path": "tracked.txt",
+                "sourceIdentity": preparation.descriptor.descriptorId,
+                "sourceRole": "file",
+                "startLine": 2,
+            ],
+        ]
+        let createOutcome = try await executeHTTPAnnotationCommand(
             client: client,
             connection: connection,
-            operation: [
-                "admission": ["kind": "implicitOrSingle"],
-                "body": draftBody,
-                "editToken": "restart-editor-1",
-                "kind": "root.create",
-                "origin": [
-                    "diffSide": NSNull(),
-                    "endLine": 2,
-                    "kind": "located",
-                    "path": "tracked.txt",
-                    "sourceIdentity": preparation.descriptor.descriptorId,
-                    "sourceRole": "file",
-                    "startLine": 2,
-                ],
-            ],
+            operation: createOperation,
             requestID: "annotation-create-before-restart",
-            requestSequence: 7
+            requestSequence: 6
         )
-        let createOutcome: BridgeProductWorktreeAnnotationCommandOutcomeDTO =
-            try await waitForHTTPAnnotationCommandOutcome(
-                client: client,
-                connection: connection,
-                recorder: preparation.metadataStream.recorder,
-                requestID: "annotation-create-before-restart"
-            )
         guard case .committed = createOutcome.status,
             let sessionID = createOutcome.sessionId
         else { throw HTTPAnnotationIntegrationError.annotationCommandFailed }
-        _ = try await waitForAcknowledgedDraft(
+        let invalidation = try await waitForHTTPAnnotationInvalidation(
             client: client,
             connection: connection,
-            recorder: preparation.metadataStream.recorder,
-            body: draftBody,
-            sessionID: sessionID
+            recorder: preparation.metadataStream.recorder
         )
+        #expect(try httpAnnotationInvalidationIsCompact(invalidation))
+        let projection = try await fetchHTTPFileAnnotationProjection(
+            client: client,
+            host: runtime.host,
+            connection: connection,
+            demandedSessionIDs: [sessionID],
+            sourceGeneration: preparation.fileSourceGeneration,
+            requestSequence: 7
+        )
+        let createdMessage = try #require(projection.messages.first?.message)
+        #expect(createdMessage.draft?.body == draftBody)
+        #expect(createdMessage.savedBody == nil)
         try await shutdownHTTPHostAndDrainMetadataStream(
             host: runtime.host,
             drain: preparation.metadataStream.drain
@@ -145,7 +152,7 @@ private func restoreHTTPAnnotationDraftAfterRestart(
     runtime: HTTPDevelopmentProductRuntime,
     draftBody: String,
     sessionID: UUID
-) async throws -> BridgeProductWorktreeAnnotationMessageEntry {
+) async throws -> HTTPAnnotationProjectionSnapshot {
     let application = BridgeDevelopmentHTTPApplication.make(host: runtime.host)
     return try await application.test(.router) { client in
         let connection = try await openHTTPProductConnection(client: client)
@@ -162,10 +169,42 @@ private func restoreHTTPAnnotationDraftAfterRestart(
             guard case .metadataStreamAccepted(let accepted) = frame else { return nil }
             return accepted
         }
-        _ = try await openHTTPSubscription(
+        let fileSource = try await queryHTTPFileSource(
             client: client,
             connection: connection,
             requestSequence: 2,
+        )
+        _ = try await openHTTPSubscription(
+            client: client,
+            connection: connection,
+            requestSequence: 3,
+            subscription: [
+                "source": try jsonObject(fileSource),
+                "subscriptionKind": "file.metadata",
+            ],
+            subscriptionID: "file-metadata-annotation-second"
+        )
+        _ = try await waitForAcknowledgedSubscription(
+            client: client,
+            connection: connection,
+            recorder: metadataStream.recorder,
+            subscriptionID: "file-metadata-annotation-second"
+        )
+        let acceptedFileSource: BridgeProductFileSourceIdentity =
+            try await waitForAcknowledgedMetadataFrame(
+                client: client,
+                connection: connection,
+                recorder: metadataStream.recorder
+            ) { frame in
+                guard case .subscriptionData(let dataFrame) = frame,
+                    case .fileMetadata(.sourceAccepted(let event)) = dataFrame.data
+                else { return nil }
+                return event.source
+            }
+        _ = try await openHTTPSubscription(
+            client: client,
+            connection: connection,
+            requestSequence: 4,
             subscription: ["subscriptionKind": "file.annotations"],
             subscriptionID: "file-annotations-second"
         )
@@ -175,44 +214,25 @@ private func restoreHTTPAnnotationDraftAfterRestart(
             recorder: metadataStream.recorder,
             subscriptionID: "file-annotations-second"
         )
-        try await executeHTTPAnnotationCommand(
-            client: client,
-            connection: connection,
-            operation: ["kind": "session.discover"],
-            requestID: "annotation-discover-after-restart",
-            requestSequence: 3
-        )
-        let _: BridgeProductWorktreeAnnotationSessionSummary = try await waitForAcknowledgedMetadataFrame(
+        let initialInvalidation = try await waitForHTTPAnnotationInvalidation(
             client: client,
             connection: connection,
             recorder: metadataStream.recorder
-        ) { frame -> BridgeProductWorktreeAnnotationSessionSummary? in
-            guard case .subscriptionData(let dataFrame) = frame,
-                case .fileAnnotations(.projectionState(let state)) = dataFrame.data
-            else { return nil }
-            return state.sessions.first(where: { $0.sessionId == sessionID })
-        }
-        try await executeHTTPAnnotationCommand(
-            client: client,
-            connection: connection,
-            operation: [
-                "kind": "demand.acquire",
-                "sessionId": sessionID.uuidString.lowercased(),
-            ],
-            requestID: "annotation-demand-after-restart",
-            requestSequence: 4
         )
-        let restoredDraft = try await waitForAcknowledgedDraft(
+        #expect(try httpAnnotationInvalidationIsCompact(initialInvalidation))
+        let restoredProjection = try await fetchHTTPFileAnnotationProjection(
             client: client,
+            host: runtime.host,
             connection: connection,
-            recorder: metadataStream.recorder,
-            body: draftBody,
-            sessionID: sessionID
+            demandedSessionIDs: [sessionID],
+            sourceGeneration: acceptedFileSource.subscriptionGeneration,
+            requestSequence: 5
         )
+        #expect(restoredProjection.messages.first?.message.draft?.body == draftBody)
         try await shutdownHTTPHostAndDrainMetadataStream(
             host: runtime.host,
             drain: metadataStream.drain
         )
-        return restoredDraft
+        return restoredProjection
     }
 }

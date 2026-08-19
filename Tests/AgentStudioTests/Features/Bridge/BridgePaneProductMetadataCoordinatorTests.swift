@@ -883,6 +883,70 @@ struct BridgePanePresentationCoordinatorTests {
         #expect(event.hasActiveStream == true)
         await coordinator.uninstall(lease: lease)
     }
+
+    @Test("pane presentation overflow emits a retryable resync terminal")
+    func panePresentationOverflowEmitsRetryableResyncTerminal() async throws {
+        let queueLimits = try BridgeProductProducerQueueLimits(
+            maximumQueuedFrameCount: 3,
+            maximumQueuedByteCount: BridgeProductWireContract.maximumQueuedStreamBytes,
+            maximumEncodedFrameByteCount:
+                BridgeProductProducerQueueLimits.maximumProductEncodedFrameByteCount,
+            terminalFrameReserve: BridgeProductWireContract.terminalFrameReserve
+        )
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        let harness = try await BridgeProductSessionLifecycleHarness.opened(
+            producerQueueLimits: queueLimits
+        )
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        let coordinator = BridgePaneProductMetadataCoordinator(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
+        )
+        await coordinator.install(
+            request: try coordinatorMetadataStreamRequest(),
+            lease: lease,
+            productAdmission: harness.productAdmission.context,
+            session: harness.session
+        )
+
+        await coordinator.publishPanePresentation(
+            coordinatorPanePresentation(
+                presentationRevision: 20,
+                attempt: .settled(reviewGeneration: 5)
+            )
+        )
+        await coordinator.publishPanePresentation(
+            coordinatorPanePresentation(
+                presentationRevision: 21,
+                attempt: .settled(reviewGeneration: 6)
+            )
+        )
+        await coordinator.publishPanePresentation(
+            coordinatorPanePresentation(
+                presentationRevision: 22,
+                attempt: .settled(reviewGeneration: 7)
+            )
+        )
+
+        let terminal = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        let decoder = try BridgeProductMetadataFrameDecoder()
+        let decodedFrames = try decoder.append(terminal.data)
+        guard case .metadataStreamError(let error) = try #require(decodedFrames.first)
+        else {
+            Issue.record("Expected pane presentation overflow to emit metadata.streamError")
+            return
+        }
+        #expect(error.code == .resyncRequired)
+        #expect(error.retryable)
+        await coordinator.uninstall(lease: lease)
+    }
 }
 
 private actor CoordinatorPanePresentationTraceRecorder:
@@ -913,41 +977,5 @@ private func coordinatorPanePresentation(
             displayedSnapshot: .absent,
             repositoryDefaultTarget: nil
         )
-    )
-}
-
-private func coordinatorReviewUpdateRequest(
-    emptyInterestSha256: String,
-    updateId: String
-) throws -> BridgeProductControlRequest {
-    try bridgeProductLifecycleControlRequest(
-        [
-            "baseInterestRevision": 0,
-            "baseInterestSha256": emptyInterestSha256,
-            "batchCount": 1,
-            "batchIndex": 0,
-            "delta": [
-                "add": [
-                    ["itemId": "review-item-1", "lane": "foreground"],
-                    ["itemId": "review-item-2", "lane": "visible"],
-                ],
-                "removeItemIds": [],
-                "subscriptionKind": "review.metadata",
-            ],
-            "kind": "subscription.updateBatch",
-            "paneSessionId": "pane-session-1",
-            "requestId": "request-review-update-3",
-            "requestSequence": 3,
-            "subscriptionId": "review-subscription-1",
-            "subscriptionKind": "review.metadata",
-            "targetInterestRevision": 1,
-            "targetInterestSha256":
-                "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
-            "totalDeltaItemCount": 2,
-            "updateId": updateId,
-            "wireVersion": BridgeProductWireContract.version,
-            "workerDerivationEpoch": 1,
-            "workerInstanceId": "worker-instance-1",
-        ]
     )
 }

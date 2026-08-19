@@ -771,7 +771,8 @@ actor BridgePaneProductSessionProviderGate: BridgeProductSchemeProvider {
     }
 
     func response(
-        for request: BridgeProductControlRequest
+        for request: BridgeProductControlRequest,
+        productAdmission _: BridgeProductAdmissionContext?
     ) async -> BridgeProductControlResponse {
         do {
             switch request {

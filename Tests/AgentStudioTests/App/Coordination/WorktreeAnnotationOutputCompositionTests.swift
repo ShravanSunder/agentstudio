@@ -12,7 +12,7 @@ struct WorktreeAnnotationOutputCompositionTests {
         let sourceFiles = try sourceFilesUnder(sourcesRoot)
         let coordinatorConstructionCount = try sourceFiles.reduce(into: 0) { count, sourceURL in
             let source = try String(contentsOf: sourceURL, encoding: .utf8)
-            count += source.components(separatedBy: "WorktreeAnnotationOutputCoordinator(").count - 1
+            count += source.components(separatedBy: "WorktreeAnnotationOutputCoordinatorActor(").count - 1
         }
         #expect(coordinatorConstructionCount == 1)
 
@@ -43,24 +43,26 @@ struct WorktreeAnnotationOutputCompositionTests {
 
         #expect(
             appDelegate.contains(
-                "var worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator!"
+                "var worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor!"
             )
         )
         #expect(
             workspaceBoot.contains(
-                "worktreeAnnotationOutputCoordinator = WorktreeAnnotationOutputCoordinator("
+                "worktreeAnnotationOutputCoordinator = WorktreeAnnotationOutputCoordinatorActor("
             )
         )
         #expect(workspaceBoot.contains("effect: WorktreeAnnotationOutputEffects()"))
         #expect(workspaceBoot.contains("worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator"))
         #expect(
             surfaceCoordinator.contains(
-                "let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator?"
+                "let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor?"
             )
         )
         #expect(bridgeLifecycle.contains("worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator"))
         #expect(
-            bridgeController.contains("worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator? = nil")
+            bridgeController.contains(
+                "worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil"
+            )
         )
         #expect(bridgeBootstrap.contains("outputCoordinator: input.worktreeAnnotationOutputCoordinator"))
         #expect(

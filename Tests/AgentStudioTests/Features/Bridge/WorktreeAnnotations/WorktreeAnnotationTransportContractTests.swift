@@ -26,8 +26,13 @@ struct WorktreeAnnotationTransportContractTests {
                 object: [
                     "method": method,
                     "result": [
-                        "kind": "accepted",
-                        "requestId": "annotation-product-call-1",
+                        "kind": "completed",
+                        "outcome": [
+                            "requestId": "annotation-product-call-1",
+                            "sessionId": NSNull(),
+                            "status": ["kind": "committed"],
+                            "surface": expectedSurface == .file ? "file" : "review",
+                        ],
                     ],
                 ]
             )
@@ -40,7 +45,7 @@ struct WorktreeAnnotationTransportContractTests {
                 BridgeProductCallResult.self,
                 object: [
                     "method": "file.annotations.command",
-                    "result": ["kind": "accepted"],
+                    "result": ["kind": "completed"],
                 ]
             )
         }
@@ -324,8 +329,8 @@ struct WorktreeAnnotationTransportContractTests {
 
         let projectRoot = try #require(String(#filePath).components(separatedBy: "/Tests/").first)
         for relativePath in [
-            "Sources/AgentStudio/Features/Bridge/State/MainActor/Atoms/WorktreeAnnotationProjectionAtom.swift",
-            "Sources/AgentStudio/Features/Bridge/Models/Transport/BridgeProductWorktreeAnnotationProjectionContracts.swift",
+            "Sources/AgentStudio/Features/Bridge/Models/Transport/BridgeProductWorktreeAnnotationProjectionCapture.swift",
+            "Sources/AgentStudio/Features/Bridge/Models/Transport/BridgeProductWorktreeAnnotationProjectionRecordCursor.swift",
         ] {
             let source = try String(
                 contentsOf: URL(fileURLWithPath: projectRoot).appending(path: relativePath),

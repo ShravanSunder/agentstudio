@@ -11,12 +11,10 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
     @Test("reacquired demand accepts a restarted viewer source epoch")
     func reacquiredDemandAcceptsRestartedViewerSourceEpoch() async throws {
         let repository = try makeAnnotationRepository()
-        let store = WorktreeAnnotationStore(
-            projection: WorktreeAnnotationProjectionAtom(),
+        let store = WorktreeAnnotationServiceActor(
             repositoryAccess: RepositoryBackedWorktreeAnnotationAccess(repository: repository)
         )
         let detail = try await store.createRootDraft(makeLocatedRootDraftProps())
-        let threadID = try #require(detail.threads.first?.thread.id)
 
         let initialDemandGeneration = try await store.acquireDemand(
             worktreeID: detail.session.worktreeID,
@@ -46,7 +44,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
                 now: Date(timeIntervalSince1970: 3)
             )
         )
-        store.releaseDemand(
+        await store.releaseDemand(
             worktreeID: detail.session.worktreeID,
             contextID: "pane-a",
             surface: .file,
@@ -59,7 +57,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
             surface: .file,
             sessionID: detail.session.id
         )
-        _ = try await store.refreshSource(
+        let restartedRefreshDetail = try await store.refreshSource(
             .init(
                 contextID: "pane-a",
                 demandGeneration: restartedDemandGeneration,
@@ -82,13 +80,10 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
             )
         )
 
+        #expect(restartedRefreshDetail.session.acceptedSourceFingerprint.fileSourceIdentity == "source-a")
         #expect(
-            store.projection.placement(
-                contextID: "pane-a",
-                surface: .file,
-                sessionID: detail.session.id,
-                threadID: threadID
-            )?.placement == .exact
+            try repository.fetchSessionDetail(sessionID: detail.session.id)
+                .session.acceptedSourceFingerprint.fileSourceIdentity == "source-a"
         )
     }
 
@@ -102,10 +97,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
                 fingerprint: makeSourceFingerprint(identity: "source-stale")
             )
         )
-        let projection = WorktreeAnnotationProjectionAtom()
-        projection.publish(detail: initialDetail)
-        let store = WorktreeAnnotationStore(projection: projection, repositoryAccess: access)
-        let threadID = try #require(initialDetail.threads.first?.thread.id)
+        let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
         let earlierDemandGeneration = try await store.acquireDemand(
             worktreeID: initialDetail.session.worktreeID,
             contextID: "pane-a",
@@ -148,19 +140,11 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         )
         await access.completeSourceCommit()
 
-        await #expect(throws: WorktreeAnnotationStoreError.staleSourceEpoch) {
+        await #expect(throws: WorktreeAnnotationServiceError.staleSourceEpoch) {
             _ = try await delayedRefresh.value
         }
-        #expect(
-            projection.placement(
-                contextID: "pane-a",
-                surface: .file,
-                sessionID: initialDetail.session.id,
-                threadID: threadID
-            ) == nil
-        )
 
-        _ = try await store.refreshSource(
+        let currentDetail = try await store.refreshSource(
             .init(
                 contextID: "pane-a",
                 demandGeneration: currentDemandGeneration,
@@ -182,30 +166,20 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
                 now: Date(timeIntervalSince1970: 4)
             )
         )
-        #expect(
-            projection.placement(
-                contextID: "pane-a",
-                surface: .file,
-                sessionID: initialDetail.session.id,
-                threadID: threadID
-            )?.placement == .exact
-        )
-        store.releaseDemand(
+        #expect(currentDetail == initialDetail)
+        await store.releaseDemand(
             worktreeID: initialDetail.session.worktreeID,
             contextID: "pane-a",
             surface: .file,
             sessionID: initialDetail.session.id
         )
-        #expect(projection.detail(sessionID: initialDetail.session.id) == nil)
     }
 
     @Test("superseded refresh cannot enter a durable source commit after its detail read")
     func supersededRefreshCannotEnterDurableSourceCommitAfterDetailRead() async throws {
         let detail = try makeLocatedCommittedDetail()
         let access = ControllableSourceRefreshDetailLoadAccess(detail: detail)
-        let projection = WorktreeAnnotationProjectionAtom()
-        projection.publish(detail: detail)
-        let store = WorktreeAnnotationStore(projection: projection, repositoryAccess: access)
+        let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
         let earlierDemandGeneration = try await store.acquireDemand(
             worktreeID: detail.session.worktreeID,
             contextID: "pane-a",
@@ -246,7 +220,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         )
         await access.completeDetailLoad()
 
-        await #expect(throws: WorktreeAnnotationStoreError.staleSourceEpoch) {
+        await #expect(throws: WorktreeAnnotationServiceError.staleSourceEpoch) {
             _ = try await delayedRefresh.value
         }
         #expect(await access.sourceCommitCount == 0)
@@ -256,8 +230,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
     func replacementDemandCompletesDetailHydrationWhileEarlierLoadIsDelayed() async throws {
         let detail = try makeLocatedCommittedDetail()
         let access = ControllableDemandDetailLoadAccess(detail: detail)
-        let projection = WorktreeAnnotationProjectionAtom()
-        let store = WorktreeAnnotationStore(projection: projection, repositoryAccess: access)
+        let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
 
         let delayedAcquire = Task {
             try await store.acquireDemand(
@@ -276,28 +249,25 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
             sessionID: detail.session.id
         )
 
-        #expect(projection.detail(sessionID: detail.session.id) == detail)
         #expect(await access.detailLoadCount == 2)
 
         await access.completeFirstDetailLoad()
-        await #expect(throws: WorktreeAnnotationStoreError.staleSourceEpoch) {
+        await #expect(throws: WorktreeAnnotationServiceError.staleSourceEpoch) {
             _ = try await delayedAcquire.value
         }
-        store.releaseDemand(
+        await store.releaseDemand(
             worktreeID: detail.session.worktreeID,
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
         )
-        #expect(projection.detail(sessionID: detail.session.id) == nil)
     }
 
     @Test("surviving context hydrates detail when the initiating context releases")
     func survivingContextHydratesDetailWhenInitiatingContextReleases() async throws {
         let detail = try makeLocatedCommittedDetail()
         let access = ControllableDemandDetailLoadAccess(detail: detail)
-        let projection = WorktreeAnnotationProjectionAtom()
-        let store = WorktreeAnnotationStore(projection: projection, repositoryAccess: access)
+        let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
 
         let initiatingAcquire = Task {
             try await store.acquireDemand(
@@ -315,7 +285,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
             surface: .file,
             sessionID: detail.session.id
         )
-        store.releaseDemand(
+        await store.releaseDemand(
             worktreeID: detail.session.worktreeID,
             contextID: "pane-a",
             surface: .file,
@@ -323,22 +293,20 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         )
         await access.completeFirstDetailLoad()
 
-        await #expect(throws: WorktreeAnnotationStoreError.staleSourceEpoch) {
+        await #expect(throws: WorktreeAnnotationServiceError.staleSourceEpoch) {
             _ = try await initiatingAcquire.value
         }
-        #expect(projection.detail(sessionID: detail.session.id) == detail)
         #expect(await access.detailLoadCount == 2)
-        store.releaseDemand(
+        await store.releaseDemand(
             worktreeID: detail.session.worktreeID,
             contextID: "pane-b",
             surface: .file,
             sessionID: detail.session.id
         )
-        #expect(projection.detail(sessionID: detail.session.id) == nil)
     }
 
-    @Test("durable source continuity commits before placement publication")
-    func durableSourceContinuityCommitsBeforePlacementPublication() async throws {
+    @Test("durable source continuity returns only after repository commit")
+    func durableSourceContinuityReturnsOnlyAfterRepositoryCommit() async throws {
         let initialDetail = try makeLocatedCommittedDetail()
         let committedDetail = makeSourceUpdatedDetail(
             from: initialDetail,
@@ -348,10 +316,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
             initialDetail: initialDetail,
             committedDetail: committedDetail
         )
-        let projection = WorktreeAnnotationProjectionAtom()
-        projection.publish(detail: initialDetail)
-        let store = WorktreeAnnotationStore(projection: projection, repositoryAccess: access)
-        let threadID = try #require(initialDetail.threads.first?.thread.id)
+        let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
         let demandGeneration = try await store.acquireDemand(
             worktreeID: initialDetail.session.worktreeID,
             contextID: "pane-a",
@@ -386,24 +351,11 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         }
         await access.waitForSourceCommit()
 
-        #expect(
-            projection.placement(
-                contextID: "pane-a",
-                surface: .file,
-                sessionID: initialDetail.session.id,
-                threadID: threadID
-            ) == nil
-        )
+        #expect(await access.sourceCommitCount == 0)
         await access.completeSourceCommit()
-        _ = try await refresh.value
-        #expect(
-            projection.placement(
-                contextID: "pane-a",
-                surface: .file,
-                sessionID: initialDetail.session.id,
-                threadID: threadID
-            )?.placement == .exact
-        )
+        let returnedDetail = try await refresh.value
+        #expect(returnedDetail == committedDetail)
+        #expect(await access.sourceCommitCount == 1)
     }
 }
 
@@ -414,6 +366,7 @@ private enum WorktreeAnnotationSourceRefreshTestError: Error {
 private actor ControllableSourceRefreshAnnotationAccess: WorktreeAnnotationRepositoryAccess {
     let initialDetail: WorktreeAnnotationSessionDetail
     let committedDetail: WorktreeAnnotationSessionDetail
+    private(set) var sourceCommitCount = 0
     private var commitContinuation: CheckedContinuation<Void, Never>?
     private var commitStartedContinuation: CheckedContinuation<Void, Never>?
     private var didStartCommit = false
@@ -461,6 +414,7 @@ private actor ControllableSourceRefreshAnnotationAccess: WorktreeAnnotationRepos
         commitStartedContinuation?.resume()
         commitStartedContinuation = nil
         await withCheckedContinuation { commitContinuation = $0 }
+        sourceCommitCount += 1
         return committedDetail
     }
 
@@ -558,7 +512,7 @@ private actor ControllableSourceRefreshDetailLoadAccess: WorktreeAnnotationRepos
         -> WorktreeAnnotationSessionDetail
     {
         detailLoadCount += 1
-        guard detailLoadCount > 1 else { return detail }
+        guard detailLoadCount == 3 else { return detail }
         didStartDetailLoad = true
         detailLoadStartedContinuation?.resume()
         detailLoadStartedContinuation = nil

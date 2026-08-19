@@ -9,12 +9,33 @@ import Testing
 @MainActor
 @Suite("Worktree annotation Store")
 struct WorktreeAnnotationStoreTests {
-    @Test("located root admission publishes its exact inline placement immediately")
-    func locatedRootAdmissionPublishesExactPlacement() async throws {
+    @Test("committed mutation broadcasts one coalescible invalidation to every observer")
+    func committedMutationBroadcastsToEveryObserver() async throws {
         let repository = try makeAnnotationRepository()
-        let projection = WorktreeAnnotationProjectionAtom()
-        let store = WorktreeAnnotationStore(
-            projection: projection,
+        let service = WorktreeAnnotationServiceActor(
+            repositoryAccess: RepositoryBackedWorktreeAnnotationAccess(repository: repository)
+        )
+        let observerA = await service.registerChangeObserver(worktreeID: "worktree-1")
+        let observerB = await service.registerChangeObserver(worktreeID: "worktree-1")
+        var iteratorA = observerA.stream.makeAsyncIterator()
+        var iteratorB = observerB.stream.makeAsyncIterator()
+
+        _ = try await service.createRootDraft(
+            makeCreateRootDraftProps(),
+            ownerGeneration: "worker-a"
+        )
+
+        #expect(await iteratorA.next() == .snapshotRequired(worktreeID: "worktree-1"))
+        #expect(await iteratorB.next() == .snapshotRequired(worktreeID: "worktree-1"))
+        await service.removeChangeObserver(token: observerA.token)
+        await service.removeChangeObserver(token: observerB.token)
+        #expect(await service.changeObserverCount() == 0)
+    }
+
+    @Test("located root admission returns and durably stores its exact source origin")
+    func locatedRootAdmissionReturnsDurableSourceOrigin() async throws {
+        let repository = try makeAnnotationRepository()
+        let store = WorktreeAnnotationServiceActor(
             repositoryAccess: RepositoryBackedWorktreeAnnotationAccess(repository: repository)
         )
 
@@ -23,28 +44,21 @@ struct WorktreeAnnotationStoreTests {
             ownerGeneration: "worker-a",
             placementContext: .init(contextID: "pane-a", surface: .file)
         )
-        let thread = try #require(detail.threads.first?.thread)
-        let placement = try #require(
-            projection.placement(
-                contextID: "pane-a",
-                surface: .file,
-                sessionID: detail.session.id,
-                threadID: thread.id
-            )
-        )
-
-        #expect(placement.placement == .exact)
-        #expect(placement.currentPath == "Sources/Feature.swift")
-        #expect(placement.currentStartLine == 2)
-        #expect(placement.currentEndLine == 2)
-        #expect(placement.currentSourceIdentity == "source-original")
+        let durableDetail = try repository.fetchSessionDetail(sessionID: detail.session.id)
+        guard case .located(let origin) = durableDetail.threads.first?.thread.origin else {
+            Issue.record("Expected a durable located source origin")
+            return
+        }
+        #expect(origin.repositoryRelativePath == "Sources/Feature.swift")
+        #expect(origin.startLine == 2)
+        #expect(origin.endLine == 2)
+        #expect(origin.sourceIdentity == "source-original")
     }
 
     @Test("Store binds edit ownership to product generation and disconnect enables fenced reclaim")
     func productGenerationEditOwnershipAndReclaim() async throws {
         let repository = try makeAnnotationRepository()
-        let store = WorktreeAnnotationStore(
-            projection: WorktreeAnnotationProjectionAtom(),
+        let store = WorktreeAnnotationServiceActor(
             repositoryAccess: RepositoryBackedWorktreeAnnotationAccess(repository: repository)
         )
         var detail = try await store.createRootDraft(
@@ -66,7 +80,7 @@ struct WorktreeAnnotationStoreTests {
             try await store.acquireEditToken(acquireProps, ownerGeneration: "worker-b")
         }
 
-        store.invalidateEditOwnerGeneration("worker-a")
+        await store.invalidateEditOwnerGeneration("worker-a")
         detail = try await store.acquireEditToken(acquireProps, ownerGeneration: "worker-b")
         let reclaimedDraft = try #require(detail.threads.first?.messages.first?.draft)
         #expect(reclaimedDraft.body == originalDraft.body)
@@ -101,33 +115,36 @@ struct WorktreeAnnotationStoreTests {
         #expect(detail.threads.first?.messages.first?.draft?.activeEditToken == nil)
     }
 
-    @Test("committed repository detail publishes only after mutation returns")
-    func committedDetailPublishesAfterMutationReturns() async throws {
+    @Test("committed repository detail and invalidation appear only after mutation returns")
+    func committedDetailAndInvalidationAppearAfterMutationReturns() async throws {
         let access = ControllableWorktreeAnnotationAccess()
-        let projection = WorktreeAnnotationProjectionAtom()
-        let store = WorktreeAnnotationStore(projection: projection, repositoryAccess: access)
+        let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
         let props = makeCreateRootDraftProps()
+        let retiredObserver = await store.registerChangeObserver(worktreeID: "worktree-1")
+        var retiredIterator = retiredObserver.stream.makeAsyncIterator()
+        let committedObserver = await store.registerChangeObserver(worktreeID: "worktree-1")
+        var committedIterator = committedObserver.stream.makeAsyncIterator()
 
         let mutation = Task { try await store.createRootDraft(props) }
         await access.waitForCreateRootDraft()
-
-        #expect(projection.detail(sessionID: nil) == nil)
+        await store.removeChangeObserver(token: retiredObserver.token)
+        #expect(await retiredIterator.next() == nil)
 
         let committedDetail = try makeCommittedDetail()
         await access.completeCreateRootDraft(with: .success(committedDetail))
         let returnedDetail = try await mutation.value
 
         #expect(returnedDetail == committedDetail)
-        #expect(projection.detail(sessionID: committedDetail.session.id)?.session == committedDetail.session)
+        #expect(await committedIterator.next() == .snapshotRequired(worktreeID: "worktree-1"))
+        await store.removeChangeObserver(token: committedObserver.token)
     }
 
-    @Test("failed repository mutation leaves projection unchanged")
-    func failedMutationLeavesProjectionUnchanged() async throws {
-        let existingDetail = try makeCommittedDetail()
+    @Test("failed repository mutation emits no invalidation")
+    func failedMutationEmitsNoInvalidation() async throws {
         let access = ControllableWorktreeAnnotationAccess()
-        let projection = WorktreeAnnotationProjectionAtom()
-        projection.publish(detail: existingDetail)
-        let store = WorktreeAnnotationStore(projection: projection, repositoryAccess: access)
+        let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
+        let observer = await store.registerChangeObserver(worktreeID: "worktree-1")
+        var iterator = observer.stream.makeAsyncIterator()
 
         let mutation = Task { try await store.createRootDraft(makeCreateRootDraftProps()) }
         await access.waitForCreateRootDraft()
@@ -136,15 +153,15 @@ struct WorktreeAnnotationStoreTests {
         await #expect(throws: TestAnnotationAccessError.writeFailed) {
             try await mutation.value
         }
-        #expect(projection.detail(sessionID: existingDetail.session.id)?.session == existingDetail.session)
+        await store.removeChangeObserver(token: observer.token)
+        #expect(await iterator.next() == nil)
     }
 
-    @Test("multiple demands share one detail load and zero demand evicts without persistence")
-    func demandReferenceCountingEvictsWithoutPersistence() async throws {
+    @Test("each demand validates durable detail and release performs no persistence")
+    func eachDemandValidatesDurableDetailWithoutPersistence() async throws {
         let detail = try makeCommittedDetail()
         let access = ImmediateWorktreeAnnotationAccess(detail: detail)
-        let projection = WorktreeAnnotationProjectionAtom()
-        let store = WorktreeAnnotationStore(projection: projection, repositoryAccess: access)
+        let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
 
         _ = try await store.acquireDemand(
             worktreeID: "worktree-1",
@@ -159,24 +176,21 @@ struct WorktreeAnnotationStoreTests {
             sessionID: detail.session.id
         )
 
-        #expect(await access.detailLoadCount == 1)
-        #expect(projection.detail(sessionID: detail.session.id) != nil)
+        #expect(await access.detailLoadCount == 2)
 
-        store.releaseDemand(
+        await store.releaseDemand(
             worktreeID: "worktree-1",
             contextID: "pane-b",
             surface: .file,
             sessionID: detail.session.id
         )
-        #expect(projection.detail(sessionID: detail.session.id) != nil)
-        store.releaseDemand(
+        await store.releaseDemand(
             worktreeID: "worktree-1",
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
         )
 
-        #expect(projection.detail(sessionID: detail.session.id) == nil)
         #expect(await access.mutationCount == 0)
 
         _ = try await store.acquireDemand(
@@ -185,7 +199,7 @@ struct WorktreeAnnotationStoreTests {
             surface: .file,
             sessionID: detail.session.id
         )
-        #expect(await access.detailLoadCount == 2)
+        #expect(await access.detailLoadCount == 3)
     }
 
     @Test("unacknowledged recovery witness blocks mutation until durable acknowledgement")
@@ -198,20 +212,23 @@ struct WorktreeAnnotationStoreTests {
             acknowledgedAt: nil
         )
         let access = ImmediateWorktreeAnnotationAccess(detail: try makeCommittedDetail(), witness: witness)
-        let projection = WorktreeAnnotationProjectionAtom()
-        let store = WorktreeAnnotationStore(projection: projection, repositoryAccess: access)
+        let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
+        let observer = await store.registerChangeObserver(worktreeID: "worktree-1")
+        var iterator = observer.stream.makeAsyncIterator()
 
         await store.restoreRecoveryState()
 
-        #expect(projection.recoveryState == .recoveredDegraded(witness))
-        await #expect(throws: WorktreeAnnotationStoreError.recoveryAcknowledgementRequired) {
+        #expect(await iterator.next() == .snapshotRequired(worktreeID: "worktree-1"))
+        await #expect(throws: WorktreeAnnotationServiceError.recoveryAcknowledgementRequired) {
             try await store.createRootDraft(makeCreateRootDraftProps())
         }
 
         try await store.acknowledgeRecovery(at: Date(timeIntervalSince1970: 11))
-        #expect(projection.recoveryState == .available)
+        #expect(await iterator.next() == .snapshotRequired(worktreeID: "worktree-1"))
         _ = try await store.createRootDraft(makeCreateRootDraftProps())
+        #expect(await iterator.next() == .snapshotRequired(worktreeID: "worktree-1"))
         #expect(await access.mutationCount == 1)
+        await store.removeChangeObserver(token: observer.token)
     }
 
     @Test("local quarantine writes a durable annotation witness before availability")
@@ -307,9 +324,7 @@ struct WorktreeAnnotationStoreTests {
             Issue.record("Expected first datastore to persist its default workspace")
             return
         }
-        let firstProjection = WorktreeAnnotationProjectionAtom()
-        let firstStore = WorktreeAnnotationStore(
-            projection: firstProjection,
+        let firstStore = WorktreeAnnotationServiceActor(
             sqliteAdapter: .init(workspaceID: workspaceID, datastore: firstDatastore)
         )
         let committed = try await firstStore.createRootDraft(makeCreateRootDraftProps())
@@ -323,31 +338,21 @@ struct WorktreeAnnotationStoreTests {
             Issue.record("Expected restarted datastore preparation, received \(restartedPreparation)")
             return
         }
-        let restartedProjection = WorktreeAnnotationProjectionAtom()
-        let restartedStore = WorktreeAnnotationStore(
-            projection: restartedProjection,
+        let restartedStore = WorktreeAnnotationServiceActor(
             sqliteAdapter: .init(workspaceID: workspaceID, datastore: restartedDatastore)
         )
 
-        #expect(restartedProjection.detail(sessionID: committed.session.id) == nil)
-        _ = try await restartedStore.acquireDemand(
-            worktreeID: committed.session.worktreeID,
-            contextID: "pane-a",
-            surface: .file,
-            sessionID: committed.session.id
-        )
+        let restoredDetail = try await restartedStore.outputSessionDetail(sessionID: committed.session.id)
         #expect(
-            restartedProjection.detail(sessionID: committed.session.id)?
-                .threads.first?.messages.first?.draft?.body == "Draft"
+            restoredDetail.threads.first?.messages.first?.draft?.body == "Draft"
         )
     }
 
-    @Test("semantic mutations commit before projection and output bytes stay repository-owned")
-    func semanticMutationsCommitBeforeProjectionWithoutPublishingOutputBytes() async throws {
+    @Test("semantic mutations return durable detail and output bytes stay repository-owned")
+    func semanticMutationsReturnDurableDetailAndKeepOutputBytesRepositoryOwned() async throws {
         let repository = try makeAnnotationRepository()
         let access = RepositoryBackedWorktreeAnnotationAccess(repository: repository)
-        let projection = WorktreeAnnotationProjectionAtom()
-        let store = WorktreeAnnotationStore(projection: projection, repositoryAccess: access)
+        let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
         var detail = try await store.createRootDraft(makeLocatedRootDraftProps())
         let rootMessage = try #require(detail.threads.first?.messages.first)
 
@@ -415,15 +420,14 @@ struct WorktreeAnnotationStoreTests {
         )
 
         #expect(prepared.attempt.exactBytes == exactBytes)
-        #expect(projection.detail(sessionID: detail.session.id)?.threads.first?.messages.first?.status == .editable)
-        #expect(Mirror(reflecting: projection).children.allSatisfy { !($0.value is Data) })
+        let durableDetail = try repository.fetchSessionDetail(sessionID: detail.session.id)
+        #expect(durableDetail.threads.first?.messages.first?.status == .editable)
+        #expect(try repository.inspectOutputAttempt(attemptID: attemptID).attempt.exactBytes == exactBytes)
     }
 
-    @Test("detail hydration failure makes annotation projection unavailable")
-    func detailHydrationFailurePublishesUnavailable() async throws {
-        let projection = WorktreeAnnotationProjectionAtom()
-        let store = WorktreeAnnotationStore(
-            projection: projection,
+    @Test("detail hydration failure returns the repository error without poisoning later reads")
+    func detailHydrationFailureDoesNotPoisonServiceAvailability() async throws {
+        let store = WorktreeAnnotationServiceActor(
             repositoryAccess: FailingHydrationWorktreeAnnotationAccess()
         )
 
@@ -435,18 +439,16 @@ struct WorktreeAnnotationStoreTests {
                 sessionID: WorktreeAnnotationSessionID.generate()
             )
         }
-        #expect(projection.recoveryState == .unavailable)
+        #expect(try await store.discoverSessions(worktreeID: "worktree-1").isEmpty)
     }
 
-    @Test("source placement is context scoped and stale epochs cannot overwrite current placement")
-    func sourcePlacementIsContextScopedAndRejectsStaleEpochs() async throws {
+    @Test("source refresh fences are context scoped and stale epochs cannot overwrite durable state")
+    func sourceRefreshFencesAreContextScopedAndRejectStaleEpochs() async throws {
         let repository = try makeAnnotationRepository()
-        let store = WorktreeAnnotationStore(
-            projection: WorktreeAnnotationProjectionAtom(),
+        let store = WorktreeAnnotationServiceActor(
             repositoryAccess: RepositoryBackedWorktreeAnnotationAccess(repository: repository)
         )
         let detail = try await store.createRootDraft(makeLocatedRootDraftProps())
-        let threadID = try #require(detail.threads.first?.thread.id)
         let paneADemandGeneration = try await store.acquireDemand(
             worktreeID: detail.session.worktreeID,
             contextID: "pane-a",
@@ -500,23 +502,9 @@ struct WorktreeAnnotationStoreTests {
             )
         )
 
-        #expect(
-            store.projection.placement(
-                contextID: "pane-a",
-                surface: .file,
-                sessionID: detail.session.id,
-                threadID: threadID
-            )?.placement == .exact
-        )
-        #expect(
-            store.projection.placement(
-                contextID: "pane-b",
-                surface: .file,
-                sessionID: detail.session.id,
-                threadID: threadID
-            )?.placement == .relocated
-        )
-        await #expect(throws: WorktreeAnnotationStoreError.staleSourceEpoch) {
+        let afterSecondRefresh = try repository.fetchSessionDetail(sessionID: detail.session.id)
+        #expect(afterSecondRefresh.session.acceptedSourceFingerprint.fileSourceIdentity == "source-b")
+        await #expect(throws: WorktreeAnnotationServiceError.staleSourceEpoch) {
             let staleEpochSnapshot = try await store.sourceRefreshSnapshot(
                 sessionID: detail.session.id
             )
@@ -534,23 +522,14 @@ struct WorktreeAnnotationStoreTests {
                 )
             )
         }
-        #expect(
-            store.projection.placement(
-                contextID: "pane-a",
-                surface: .file,
-                sessionID: detail.session.id,
-                threadID: threadID
-            )?.placement == .exact
-        )
+        #expect(try repository.fetchSessionDetail(sessionID: detail.session.id) == afterSecondRefresh)
     }
 
     @Test("source refresh rejects material captured from stale durable origins")
     func sourceRefreshRejectsStaleDurableOriginSnapshot() async throws {
         // Arrange
         let repository = try makeAnnotationRepository()
-        let projection = WorktreeAnnotationProjectionAtom()
-        let store = WorktreeAnnotationStore(
-            projection: projection,
+        let store = WorktreeAnnotationServiceActor(
             repositoryAccess: RepositoryBackedWorktreeAnnotationAccess(repository: repository)
         )
         let initialDetail = try await store.createRootDraft(makeLocatedRootDraftProps())
@@ -574,7 +553,7 @@ struct WorktreeAnnotationStoreTests {
         )
 
         // Act / Assert
-        await #expect(throws: WorktreeAnnotationStoreError.staleSourceEpoch) {
+        await #expect(throws: WorktreeAnnotationServiceError.staleSourceEpoch) {
             _ = try await store.refreshSource(
                 .init(
                     contextID: "pane-a",
@@ -599,14 +578,6 @@ struct WorktreeAnnotationStoreTests {
         #expect(
             try repository.fetchSessionDetail(sessionID: initialDetail.session.id)
                 .session.acceptedSourceFingerprint == changedDetail.session.acceptedSourceFingerprint
-        )
-        #expect(
-            projection.placement(
-                contextID: "pane-a",
-                surface: .file,
-                sessionID: initialDetail.session.id,
-                threadID: try #require(initialDetail.threads.first?.thread.id)
-            ) == nil
         )
     }
 

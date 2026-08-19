@@ -126,7 +126,8 @@ actor BridgePaneProductSessionProviderGate: BridgeProductSchemeProvider {
     private(set) var lifecycleAcknowledgementsWereReleased = false
 
     func response(
-        for request: BridgeProductControlRequest
+        for request: BridgeProductControlRequest,
+        productAdmission _: BridgeProductAdmissionContext?
     ) async -> BridgeProductControlResponse {
         do {
             switch request {

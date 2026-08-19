@@ -198,6 +198,41 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         #expect(selected.threads.count == 2)
     }
 
+    @Test("projection snapshot reads discovery and demanded details from one worktree")
+    func projectionSnapshotIsWorktreeBound() throws {
+        let repository = try makeRepository()
+        let first = try makeRootDraft(repository: repository)
+        let second = try repository.createRootDraft(
+            .init(
+                admission: .newSession,
+                repositoryID: "repo-1",
+                worktreeID: "worktree-1",
+                originatingWorkspaceID: nil,
+                sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
+                origin: .session,
+                body: "Second session",
+                editToken: "editor-second",
+                now: Date(timeIntervalSince1970: 2)
+            )
+        )
+
+        let snapshot = try repository.fetchProjectionSnapshot(
+            worktreeID: "worktree-1",
+            demandedSessionIDs: [second.session.id]
+        )
+
+        #expect(snapshot.sessions.map(\.id) == [first.session.id, second.session.id])
+        #expect(snapshot.details.map(\.session.id) == [second.session.id])
+        #expect(snapshot.details.first?.threads.first?.messages.first?.draft?.body == "Second session")
+
+        #expect(throws: WorktreeAnnotationRepositoryError.notFound) {
+            try repository.fetchProjectionSnapshot(
+                worktreeID: "another-worktree",
+                demandedSessionIDs: [first.session.id]
+            )
+        }
+    }
+
     @Test("opposite-surface root admission preserves both source provenance axes")
     func oppositeSurfaceRootAdmissionMergesSourceFingerprint() throws {
         let repository = try makeRepository()
