@@ -507,8 +507,9 @@ extension RepoExplorerView {
                     case .terminalOutput(let text): "terminal:\(text)"
                     case nil: "none"
                     }
+                let branchStatusFingerprint = paneBranchStatusFingerprint(row.branchStatus)
                 return
-                    "\(row.groupId):\(row.rowId):\(row.primaryText):\(secondaryLineFingerprint):\(row.recencyText):\(row.isActive):\(paneDestinationFingerprint(row.destination))"
+                    "\(row.groupId):\(row.rowId):\(row.primaryText):\(secondaryLineFingerprint):\(row.branchContextText ?? ""):\(branchStatusFingerprint):\(row.recencyText):\(paneRecencyTierFingerprint(row.recencyTier)):\(row.isActive):\(row.isDrawerPane):\(paneDestinationFingerprint(row.destination))"
             }.joined(separator: ",")
             return "\(groupId):\(rows)"
         }.joined(separator: "|")
@@ -547,6 +548,31 @@ extension RepoExplorerView {
 
     private static func paneDestinationFingerprint(_ destination: RepoExplorerPaneDestination) -> String {
         "\(destination.paneId.uuidString):\(destination.repoId.uuidString):\(destination.worktreeId.uuidString):\(destination.worktreeLabel):\(destination.paneDisplayLabel):\(destination.tabId.uuidString):\(destination.tabIndex):\(destination.paneIndexInTab):\(destination.isActiveInTab)"
+    }
+
+    private static func paneBranchStatusFingerprint(_ status: GitBranchStatus?) -> String {
+        guard let status else { return "none" }
+        let syncFingerprint =
+            switch status.syncState {
+            case .synced: "synced"
+            case .ahead(let count): "ahead:\(count)"
+            case .behind(let count): "behind:\(count)"
+            case .diverged(let ahead, let behind): "diverged:\(ahead):\(behind)"
+            case .noUpstream: "no-upstream"
+            case .unknown: "unknown"
+            }
+        return
+            "\(status.isDirty):\(syncFingerprint):\(status.prCount.map(String.init) ?? "nil"):\(status.pullRequestIsLoading):\(status.pullRequestDataUnavailable):\(status.linesAdded):\(status.linesDeleted):\(status.untrackedFileCount)"
+    }
+
+    private static func paneRecencyTierFingerprint(_ tier: RepoExplorerPaneRecencyTier) -> String {
+        switch tier {
+        case .strongBlue: "strong-blue"
+        case .mediumBlue: "medium-blue"
+        case .mutedBlue: "muted-blue"
+        case .faintBlue: "faint-blue"
+        case .grey: "grey"
+        }
     }
 
     static func shouldReportInitialProjection(hasReportedInitialProjection: Bool) -> Bool {

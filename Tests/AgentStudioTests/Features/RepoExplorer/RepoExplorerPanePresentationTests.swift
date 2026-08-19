@@ -66,6 +66,67 @@ struct RepoExplorerPanePresentationTests {
         )
     }
 
+    @Test("projection fingerprint includes every rendered pane-row semantic fact")
+    func projectionFingerprintIncludesEveryRenderedPaneRowSemanticFact() {
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let paneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
+        let groupId = "pane-repo:\(repoId.uuidString)"
+        let destination = makeDestination(
+            paneId: paneId,
+            repoId: repoId,
+            worktreeId: worktreeId,
+            tabId: tabId,
+            tabIndex: 0
+        )
+        let baseProjection = makeProjection(
+            groupId: groupId,
+            repoId: repoId,
+            destination: destination
+        )
+        let loadingStatus = GitBranchStatus(
+            isDirty: false,
+            syncState: .unknown,
+            prCount: 2,
+            pullRequestIsLoading: true,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+        let changedProjections = [
+            makeProjection(
+                groupId: groupId,
+                repoId: repoId,
+                destination: destination,
+                branchContextText: "main"
+            ),
+            makeProjection(
+                groupId: groupId,
+                repoId: repoId,
+                destination: destination,
+                branchStatus: loadingStatus
+            ),
+            makeProjection(
+                groupId: groupId,
+                repoId: repoId,
+                destination: destination,
+                recencyTier: .grey
+            ),
+            makeProjection(
+                groupId: groupId,
+                repoId: repoId,
+                destination: destination,
+                isDrawerPane: true
+            ),
+        ]
+        let baseFingerprint = RepoExplorerView.projectionFingerprint(for: baseProjection)
+
+        for changedProjection in changedProjections {
+            #expect(baseFingerprint != RepoExplorerView.projectionFingerprint(for: changedProjection))
+        }
+    }
+
     @Test("semantic repo headers exist only for repo and pane perspectives")
     func semanticRepoHeadersExcludeTabPerspective() {
         let repo = RepoPresentationItem(
@@ -109,7 +170,11 @@ struct RepoExplorerPanePresentationTests {
     private func makeProjection(
         groupId: String,
         repoId: UUID,
-        destination: RepoExplorerPaneDestination
+        destination: RepoExplorerPaneDestination,
+        branchContextText: String? = nil,
+        branchStatus: GitBranchStatus? = nil,
+        recencyTier: RepoExplorerPaneRecencyTier = .strongBlue,
+        isDrawerPane: Bool = false
     ) -> RepoExplorerSidebarProjection {
         let worktree = Worktree(
             id: destination.worktreeId,
@@ -146,7 +211,11 @@ struct RepoExplorerPanePresentationTests {
                             groupId: groupId,
                             repoId: repoId,
                             destination: destination,
-                            rowId: "pane-row"
+                            rowId: "pane-row",
+                            branchContextText: branchContextText,
+                            branchStatus: branchStatus,
+                            recencyTier: recencyTier,
+                            isDrawerPane: isDrawerPane
                         )
                     ]
                 ],
