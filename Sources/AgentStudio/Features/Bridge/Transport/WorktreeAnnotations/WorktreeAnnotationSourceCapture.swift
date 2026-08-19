@@ -410,20 +410,6 @@ enum WorktreeAnnotationSourceCapture {
 }
 
 extension BridgePaneProductFileMetadataSource {
-    func worktreeAnnotationAdmissionDiagnostic(
-        to productAdmission: BridgeProductAdmissionContext
-    ) -> BridgeWorktreeAnnotationAdmissionDiagnostic {
-        let relations = contextBySubscriptionId.values.map {
-            $0.productAdmission.diagnosticRelation(to: productAdmission)
-        }
-        return BridgeWorktreeAnnotationAdmissionDiagnostic(
-            relations: relations,
-            selectedGeneration: try? currentAnnotationContext(
-                productAdmission: productAdmission
-            ).productSource.subscriptionGeneration
-        )
-    }
-
     func worktreeAnnotationRepositoryPath() -> URL {
         authority.worktree.path
     }
@@ -592,11 +578,6 @@ extension BridgePaneProductFileMetadataSource {
         }
         return data
     }
-}
-
-struct BridgeWorktreeAnnotationAdmissionDiagnostic: Equatable, Sendable {
-    let relations: [BridgeProductAdmissionDiagnosticRelation]
-    let selectedGeneration: Int?
 }
 
 extension BridgeProductWorktreeAnnotationSourceRole {
