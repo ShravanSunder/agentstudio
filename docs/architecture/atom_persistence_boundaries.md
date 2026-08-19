@@ -9,7 +9,7 @@ projections in distinct ownership roles.
 ## Need An Atom?
 
 Atoms are inspired by Jotai: **shared UI state** that subscribers observe and
-wake on. Read `Sources/AgentStudio/Infrastructure/AtomLib/` and
+wake on. Read [`Sources/AgentStudio/Infrastructure/AtomLib/`](../../Sources/AgentStudio/Infrastructure/AtomLib) and
 [AtomLib Observation Primitives](#atomlib-observation-primitives).
 
 Product atoms are `@MainActor @Observable` owners that hold values (Jotai
@@ -41,7 +41,7 @@ Ask the user before adding an atom or store. Survey does not mean persist.
 
 ### Shared UI, local view state, or SQLite only
 
-Choose in this order. Ground the choice in `Infrastructure/AtomLib/` and a live
+Choose in this order. Ground the choice in [`Infrastructure/AtomLib/`](../../Sources/AgentStudio/Infrastructure/AtomLib) and a live
 owner, not in Jotai's Provider/Store.
 
 1. **Local view or session UI** when only one control or one host owns the
@@ -169,12 +169,12 @@ in repositories; keep atom writes cohesive by lifecycle.
 
 ## AtomLib Observation Primitives
 
-`Infrastructure/AtomLib` owns generic observation primitives only. Product
+[`Infrastructure/AtomLib`](../../Sources/AgentStudio/Infrastructure/AtomLib) owns generic observation primitives only. Product
 state, registry fields, cache semantics, and feature-specific derived readers
 stay in Core or Features.
 
 Lint rule `agentstudio_atomlib_is_generic` enforces this boundary for
-`Infrastructure/AtomLib`. Product atoms, feature imports, and concrete
+[`Infrastructure/AtomLib`](../../Sources/AgentStudio/Infrastructure/AtomLib). Product atoms, feature imports, and concrete
 `AtomRegistry`, `CoreAtoms`, and `CoreAtomScope` references stay out of the
 generic primitive library. Core owns its concrete graph and typed ambient
 access; App owns the internal registry and explicit Feature roots.

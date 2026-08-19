@@ -8,7 +8,7 @@ Architecture lint now has two layers:
 
 - stock SwiftLint from `.swiftlint.yml`, including regex `custom_rules`
 - AgentStudio's repo-local SwiftPM/SwiftSyntax tool at
-  `Tools/AgentStudioArchitectureLint`
+  [`Tools/AgentStudioArchitectureLint`](../../Tools/AgentStudioArchitectureLint)
 
 The local architecture tool is not a SwiftLint plugin. It runs alongside stock
 SwiftLint through `mise run lint` and CI. Do not restore an external
@@ -26,26 +26,26 @@ under R19 is a review-visible severity change recorded in this inventory.
 
 | Contract | Rule ID | Severity | Source |
 | --- | --- | --- | --- |
-| Source layers follow the documented import direction. | `agentstudio_import_direction` | error | `docs/architecture/directory_structure.md` |
-| Product atom state follows the Core, Feature, and App composition boundaries; removed compatibility, resolver, registration, and secondary-scope APIs stay absent. | `agentstudio_product_atom_boundary` | error | `docs/architecture/directory_structure.md` |
+| Source layers follow the documented import direction. | `agentstudio_import_direction` | error | [`docs/architecture/directory_structure.md`](directory_structure.md) |
+| Product atom state follows the Core, Feature, and App composition boundaries; removed compatibility, resolver, registration, and secondary-scope APIs stay absent. | `agentstudio_product_atom_boundary` | error | [`docs/architecture/directory_structure.md`](directory_structure.md) |
 | Canonical atom-owner classes expose mutable stored state only as `private` or `private(set)` and reject writable bindings. | `agentstudio_canonical_atom_mutation` | error | `AGENTS.md#hard-rules` |
-| `SharedComponents/` render from explicit inputs and do not access atoms or global stores. | `agentstudio_shared_components_are_stateless` | error | `docs/architecture/directory_structure.md` |
-| `Infrastructure/AtomLib` stays generic and does not reference product atoms or feature state. | `agentstudio_atomlib_is_generic` | error | `docs/architecture/atom_persistence_boundaries.md` |
-| `DerivedAtom` compute closures use declared inputs and do not hide atom reads through direct or same-file helper/wrapper calls. | `agentstudio_derived_atom_declared_inputs` | error | `docs/architecture/atom_persistence_boundaries.md` |
-| Hot production reads use keyed repo-cache readers instead of raw observable dictionaries. | `agentstudio_repo_cache_keyed_reads` | error | `docs/architecture/atom_persistence_boundaries.md` |
-| `WorktreeEnrichment` atom comparators do not use raw equality. | `agentstudio_worktree_enrichment_comparator` | error | `docs/architecture/atom_persistence_boundaries.md` |
-| New state files use the `State/MainActor/{Atoms,Persistence}` path convention. | `agentstudio_state_actor_path` | warning | `docs/architecture/directory_structure.md` |
-| Programmatic-control contracts stay transport/app/UI independent. | `agentstudio_ipc_programmatic_control_boundary` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
-| `AgentStudioAppIPC` exposes ports instead of concrete app/runtime owners. | `agentstudio_appipc_port_boundary` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
-| Concrete AppIPC port implementations and method contributions live under `Sources/AgentStudio/App/IPCComposition`. | `agentstudio_ipc_composition_location` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
-| Feature slices do not import the app IPC service target directly; feature IPC methods are app-composed contributions. | `agentstudio_features_do_not_import_appipc` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
-| Public IPC surfaces expose scrubbed DTOs, not zmx namespaces or raw runtime payloads. | `agentstudio_ipc_public_surface_sanitization` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
-| AppIPC services and adapters route through ports and owners instead of direct atom access. | `agentstudio_ipc_no_direct_atom_access` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
-| Sentinel fixture proves the local architecture rule registry is active. | `agentstudio_no_forbidden_architecture_marker` | error | `Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/Fixtures/Bad/Sources/AgentStudio/App/BadForbiddenArchitectureMarker.swift` |
+| `SharedComponents/` render from explicit inputs and do not access atoms or global stores. | `agentstudio_shared_components_are_stateless` | error | [`docs/architecture/directory_structure.md`](directory_structure.md) |
+| [`Infrastructure/AtomLib`](../../Sources/AgentStudio/Infrastructure/AtomLib) stays generic and does not reference product atoms or feature state. | `agentstudio_atomlib_is_generic` | error | [`docs/architecture/atom_persistence_boundaries.md`](atom_persistence_boundaries.md) |
+| `DerivedAtom` compute closures use declared inputs and do not hide atom reads through direct or same-file helper/wrapper calls. | `agentstudio_derived_atom_declared_inputs` | error | [`docs/architecture/atom_persistence_boundaries.md`](atom_persistence_boundaries.md) |
+| Hot production reads use keyed repo-cache readers instead of raw observable dictionaries. | `agentstudio_repo_cache_keyed_reads` | error | [`docs/architecture/atom_persistence_boundaries.md`](atom_persistence_boundaries.md) |
+| `WorktreeEnrichment` atom comparators do not use raw equality. | `agentstudio_worktree_enrichment_comparator` | error | [`docs/architecture/atom_persistence_boundaries.md`](atom_persistence_boundaries.md) |
+| New state files use the `State/MainActor/{Atoms,Persistence}` path convention. | `agentstudio_state_actor_path` | warning | [`docs/architecture/directory_structure.md`](directory_structure.md) |
+| Programmatic-control contracts stay transport/app/UI independent. | `agentstudio_ipc_programmatic_control_boundary` | error | [`docs/architecture/agentstudio_ipc_architecture.md`](agentstudio_ipc_architecture.md) |
+| `AgentStudioAppIPC` exposes ports instead of concrete app/runtime owners. | `agentstudio_appipc_port_boundary` | error | [`docs/architecture/agentstudio_ipc_architecture.md`](agentstudio_ipc_architecture.md) |
+| Concrete AppIPC port implementations and method contributions live under [`Sources/AgentStudio/App/IPCComposition`](../../Sources/AgentStudio/App/IPCComposition). | `agentstudio_ipc_composition_location` | error | [`docs/architecture/agentstudio_ipc_architecture.md`](agentstudio_ipc_architecture.md) |
+| Feature slices do not import the app IPC service target directly; feature IPC methods are app-composed contributions. | `agentstudio_features_do_not_import_appipc` | error | [`docs/architecture/agentstudio_ipc_architecture.md`](agentstudio_ipc_architecture.md) |
+| Public IPC surfaces expose scrubbed DTOs, not zmx namespaces or raw runtime payloads. | `agentstudio_ipc_public_surface_sanitization` | error | [`docs/architecture/agentstudio_ipc_architecture.md`](agentstudio_ipc_architecture.md) |
+| AppIPC services and adapters route through ports and owners instead of direct atom access. | `agentstudio_ipc_no_direct_atom_access` | error | [`docs/architecture/agentstudio_ipc_architecture.md`](agentstudio_ipc_architecture.md) |
+| Sentinel fixture proves the local architecture rule registry is active. | `agentstudio_no_forbidden_architecture_marker` | error | [`Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/Fixtures/Bad/Sources/AgentStudio/App/BadForbiddenArchitectureMarker.swift`](../../Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/Fixtures/Bad/Sources/AgentStudio/App/BadForbiddenArchitectureMarker.swift) |
 | Production async delays avoid generic clock sleep overloads. | `agentstudio_no_generic_clock_sleep` | error | `AGENTS.md#no-wall-clock-tests` |
 | Tests avoid direct wall-clock `Task.sleep(...)` calls and wait for events, state, or injected fake clocks. | `agentstudio_no_task_sleep_in_tests` | error | `AGENTS.md#no-wall-clock-tests` |
 | Dense action controls use typed tooltip sources instead of raw `.help("...")`, AppKit `toolTip = "..."`, or custom hover strings. Shared components consume resolved render values only. | `agentstudio_toolbar_tooltip_source` | error | `docs/architecture/commands_and_shortcuts.md#tooltips-help-text-and-compact-control-copy` |
-| Production EventBus subscriptions and wait helpers name an explicit semantic subscriber policy; wrappers cannot hide a default or zero-argument policy. | `agentstudio_eventbus_subscriber_policy_required` | error | `Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventBus.swift` |
+| Production EventBus subscriptions and wait helpers name an explicit semantic subscriber policy; wrappers cannot hide a default or zero-argument policy. | `agentstudio_eventbus_subscriber_policy_required` | error | [`Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventBus.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventBus.swift) |
 | Terminal-local `GhosttyActionDisposition` branches contract locally and cannot reach the shared exact semantic publication edge. | `agentstudio_terminal_local_disposition_publication` | error | [Pane Runtime Contract 7](pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction) |
 | Observation-capture closures use keyed reads instead of named whole-snapshot calls. | `agentstudio_observation_capture_keyed_reads` | report | `docs/specs/2026-08-10-performance-program/program-design.md#report-only-lint-severity-channel-r4` |
 | `@MainActor` types do not perform named collection-wide sort, reduce, grouping, or hash calls without an allowlisted owner. | `agentstudio_mainactor_unbounded_collection_work` | report | `docs/specs/2026-08-10-performance-program/program-design.md#report-only-lint-severity-channel-r4` |

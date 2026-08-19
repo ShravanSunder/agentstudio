@@ -67,7 +67,7 @@ default; enrichment rebuilds and recency starts empty while core remains usable.
 
 ### Tier A: Canonical Models
 
-> **Files:** `Core/Models/CanonicalRepo.swift`, `Core/Models/CanonicalWorktree.swift`
+> **Files:** [`Core/Models/CanonicalRepo.swift`](../../Sources/AgentStudio/Core/Models/CanonicalRepo.swift), [`Core/Models/CanonicalWorktree.swift`](../../Sources/AgentStudio/Core/Models/CanonicalWorktree.swift)
 
 ```swift
 struct CanonicalRepo: Codable, Identifiable, Hashable {
@@ -466,7 +466,7 @@ After classification, linked worktrees are grouped under their parent clone into
 
 Used by `FilesystemActor` as the blocking filesystem walk behind watched-folder refresh. The grouped results enable the coordinator to create correct worktree families from the first topology event.
 
-> **Files:** `Infrastructure/RepoScanner.swift`, `Infrastructure/WorktreeReconciler.swift`
+> **Files:** [`Infrastructure/RepoScanner.swift`](../../Sources/AgentStudio/Infrastructure/RepoScanner.swift), [`Core/State/MainActor/Coordination/RepositoryWorktreeReconciliation.swift`](../../Sources/AgentStudio/Core/State/MainActor/Coordination/RepositoryWorktreeReconciliation.swift)
 
 ### Event Namespaces
 
@@ -547,7 +547,7 @@ Branch display: `WorktreeEnrichment.branch` from cache, falling back to `"detach
 
 ### App Boot (implemented)
 
-Boot is driven by `WorkspaceBootSequence` (`App/Boot/WorkspaceBootSequence.swift`), which defines ordered steps executed synchronously on the main actor:
+Boot is driven by `WorkspaceBootSequence` ([`App/Boot/WorkspaceBootSequence.swift`](../../Sources/AgentStudio/App/Boot/WorkspaceBootSequence.swift)), which defines ordered steps executed synchronously on the main actor:
 
 ```
 WorkspaceBootStep (in order):
@@ -638,7 +638,7 @@ When a repo directory moves on disk, the plan is:
 
 ### Deferred Launch Restore
 
-> **Files:** `App/Boot/AppDelegate+LaunchRestore.swift`, `App/Lifecycle/WindowRestoreBridge.swift`, `App/Boot/AppDelegateLaunchRestoreObservationState.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift`, `Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift`, `Features/Terminal/Restore/TerminalRestoreScheduler.swift`
+> **Files:** [`App/Boot/AppDelegate+LaunchRestore.swift`](../../Sources/AgentStudio/App/Boot/AppDelegate+LaunchRestore.swift), [`App/Lifecycle/WindowRestoreBridge.swift`](../../Sources/AgentStudio/App/Lifecycle/WindowRestoreBridge.swift), [`App/Boot/AppDelegateLaunchRestoreObservationState.swift`](../../Sources/AgentStudio/App/Boot/AppDelegateLaunchRestoreObservationState.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift), [`Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift`](../../Sources/AgentStudio/Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift), [`Features/Terminal/Restore/TerminalRestoreScheduler.swift`](../../Sources/AgentStudio/Features/Terminal/Restore/TerminalRestoreScheduler.swift)
 
 zmx terminal panes require a trusted `initialFrame` before Ghostty surface creation. During app boot, `terminalContainerBounds` may be zero because the window has not settled layout yet. The deferred launch restore flow handles this geometry gate.
 

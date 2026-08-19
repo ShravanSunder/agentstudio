@@ -26,7 +26,7 @@ contracts use `package` access rather than broad `public` exposure.
 ### 1.1 Architecture Principles
 
 1. **Pane identity is primary** — `Pane` is the primary entity in the window system. `PaneId` (UUID v7) is the single identity used across every layer: `WorkspacePaneGraphAtom`, `WorkspacePaneAtom`, `Layout`, `ViewRegistry`, `SurfaceManager`, `SessionRuntime`, and zmx. A pane exists independently of layout position, tab, or surface and can move between tabs and layout positions while keeping identity.
-2. **Atomic stores (inspired by Jotai)** — Atoms publish **shared UI state**. Read [Need An Atom?](atom_persistence_boundaries.md#need-an-atom) and `Sources/AgentStudio/Infrastructure/AtomLib/`. Use one only when SwiftUI, a command surface, or a derived projection must observe the value. Each justified atom has one observed domain and one reason to change. An atom is not a SQL table and is not created because a domain exists. `RepositoryTopologyAtom` owns application-global repos/worktrees/watched paths, `RepoEnrichmentCacheAtom` owns their rebuildable enrichment, and `ApplicationEntityRecencyAtom` owns application-global recency. Workspace identity, pane/tab/drawer graphs and cursors, and pane recency remain explicitly workspace-owned. Window/sidebar presentation memory is window-keyed. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, and `WorkspaceTabLayoutAtom` remain compatibility mutation/read facades over split owners while callers migrate to derived readers. `SurfaceManager` owns Ghostty surfaces. `SessionRuntime` owns backends. No god-store.
+2. **Atomic stores (inspired by Jotai)** — Atoms publish **shared UI state**. Read [Need An Atom?](atom_persistence_boundaries.md#need-an-atom) and [`Sources/AgentStudio/Infrastructure/AtomLib/`](../../Sources/AgentStudio/Infrastructure/AtomLib). Use one only when SwiftUI, a command surface, or a derived projection must observe the value. Each justified atom has one observed domain and one reason to change. An atom is not a SQL table and is not created because a domain exists. `RepositoryTopologyAtom` owns application-global repos/worktrees/watched paths, `RepoEnrichmentCacheAtom` owns their rebuildable enrichment, and `ApplicationEntityRecencyAtom` owns application-global recency. Workspace identity, pane/tab/drawer graphs and cursors, and pane recency remain explicitly workspace-owned. Window/sidebar presentation memory is window-keyed. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, and `WorkspaceTabLayoutAtom` remain compatibility mutation/read facades over split owners while callers migrate to derived readers. `SurfaceManager` owns Ghostty surfaces. `SessionRuntime` owns backends. No god-store.
 3. **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers — the compiler enforces the boundary.
 4. **Coordinator for cross-store sequencing** — A coordinator sequences operations across multiple stores for a single user action. Owns no state, contains no domain logic. If a coordinator method contains an `if` that decides what to do with domain data, that logic belongs in a store.
 5. **Explicit layout model** — `Layout` is a flat pane-strip value type with ordered `PaneEntry` items. Leaves reference panes by ID. No `NSView` references, no opaque blobs.
@@ -148,9 +148,9 @@ Models are split across two stores. See [Workspace Data Architecture](workspace_
 | `isMainWorktree` | `Bool` | Whether this is the main checkout |
 | `stableKey` | `String` | SHA-256 of path, derived |
 
-All enrichment (branch, git status, origin, PR counts) lives in `RepoEnrichmentCacheAtom`, populated by the event bus and exposed through the composed `RepoCacheAtom` read surface. Hot consumers read `repoEnrichment(for:)`, `worktreeEnrichment(for:)`, `pullRequestCount(for:)`, or `worktreeFacts(for:)` when they genuinely need both branch state and PR count; dictionary snapshots are persistence/cold batch bridges. See the "Three Persistence Tiers" section in workspace_data_architecture.md.
+All enrichment (branch, git status, origin, PR counts) lives in `RepoEnrichmentCacheAtom`, populated by the event bus and exposed through the composed `RepoCacheAtom` read surface. Hot consumers read `repoEnrichment(for:)`, `worktreeEnrichment(for:)`, `pullRequestCount(for:)`, or `worktreeFacts(for:)` when they genuinely need both branch state and PR count; dictionary snapshots are persistence/cold batch bridges. See [Workspace Data Architecture — Three Persistence Tiers](workspace_data_architecture.md#three-persistence-tiers).
 
-> **Files:** `Core/Models/Repo.swift`, `Core/Models/Worktree.swift`
+> **Files:** [`Core/Models/Repo.swift`](../../Sources/AgentStudio/Core/Models/Repo.swift), [`Core/Models/Worktree.swift`](../../Sources/AgentStudio/Core/Models/Worktree.swift)
 
 ### 2.3 Pane
 
@@ -222,7 +222,7 @@ editing is exposed only for main layout panes.
 | `isExpanded` | `Bool` | Whether the drawer panel is visible or collapsed |
 | `minimizedPaneIds` | `Set<UUID>` | Transient — not persisted |
 
-> **Files:** `Core/Models/Pane.swift`, `Core/Models/PaneContent.swift`, `Core/RuntimeEventSystem/Contracts/PaneMetadata.swift`, `Core/RuntimeEventSystem/Contracts/PaneId.swift`, `Core/Models/Drawer.swift`, `Core/Models/SessionLifetime.swift`, `Core/Models/SessionResidency.swift`
+> **Files:** [`Core/Models/Pane.swift`](../../Sources/AgentStudio/Core/Models/Pane.swift), [`Core/Models/PaneContent.swift`](../../Sources/AgentStudio/Core/Models/PaneContent.swift), [`Core/RuntimeEventSystem/Contracts/PaneMetadata.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneMetadata.swift), [`Core/RuntimeEventSystem/Contracts/PaneId.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneId.swift), [`Core/Models/Drawer.swift`](../../Sources/AgentStudio/Core/Models/Drawer.swift), [`Core/Models/SessionLifetime.swift`](../../Sources/AgentStudio/Core/Models/SessionLifetime.swift), [`Core/Models/SessionResidency.swift`](../../Sources/AgentStudio/Core/Models/SessionResidency.swift)
 
 ### 2.4 DynamicView
 
@@ -244,7 +244,7 @@ Dynamic views are projections of workspace state into virtual tab groups, used b
 - `viewType: DynamicViewType` — The grouping facet used
 - `groups: [DynamicViewGroup]` — Generated groups sorted alphabetically
 
-> **File:** `Core/Models/DynamicView.swift`
+> **File:** [`Core/Models/DynamicView.swift`](../../Sources/AgentStudio/Core/Models/DynamicView.swift)
 
 ### 2.5 Tab
 
@@ -279,7 +279,7 @@ A tab in the workspace. Contains panes organized into arrangements. Order is imp
 | `visiblePaneIds` | `Set<UUID>` | Subset of tab's panes visible in this arrangement |
 | `minimizedPaneIds` | `Set<UUID>` | Visible panes collapsed to narrow bars in this arrangement. Persisted. |
 
-> **Files:** `Core/Models/Tab.swift`, `Core/Models/PaneArrangement.swift`
+> **Files:** [`Core/Models/Tab.swift`](../../Sources/AgentStudio/Core/Models/Tab.swift), [`Core/Models/PaneArrangement.swift`](../../Sources/AgentStudio/Core/Models/PaneArrangement.swift)
 
 ### 2.6 Layout (Pure Value Type)
 
@@ -313,7 +313,7 @@ Layout
 | `previous(before:)` | Previous pane in left-to-right order (wraps) |
 | `resizeTarget(for:direction:)` | Find the divider and direction for resizing a pane |
 
-> **File:** `Core/Models/Layout.swift`
+> **File:** [`Core/Models/Layout.swift`](../../Sources/AgentStudio/Core/Models/Layout.swift)
 
 ### 2.7 Templates
 
@@ -332,7 +332,7 @@ Templates define the initial pane layout when opening a worktree. Not yet wired 
 - `.onActivate` — When the worktree view is activated
 - `.manual` — Only on explicit user action
 
-> **File:** `Core/Models/Templates.swift`
+> **File:** [`Core/Models/Templates.swift`](../../Sources/AgentStudio/Core/Models/Templates.swift)
 
 ---
 
@@ -437,7 +437,7 @@ Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **
 - `observePersistedState()` — Uses `withObservationTracking` on persisted fields across all atoms; triggers debounced save on change
 - `prePersistHook` — Called before each persist (used by `WorkspaceSurfaceCoordinator` to sync webview states)
 
-> **File:** `Core/State/MainActor/Persistence/WorkspaceStore.swift`
+> **File:** [`Core/State/MainActor/Persistence/WorkspaceStore.swift`](../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift)
 
 ### 3.3 SessionRuntime
 
@@ -453,13 +453,13 @@ Manages live session state. Does **not** own sessions — reads the session list
 - `startHealthChecks()` / `runHealthCheck()` — Periodic backend liveness checks
 - `startSession()` / `restoreSession()` / `terminateSession()` — Backend lifecycle
 
-> **Note:** A full `SessionStatus` state machine (7 states: unknown, verifying, alive, dead, missing, recovering, failed) exists in `Core/Models/SessionStatus.swift` for future zmx health integration but is not yet wired into `SessionRuntime`. See [Session Lifecycle](session_lifecycle.md) for details.
+> **Note:** A full `SessionStatus` state machine (7 states: unknown, verifying, alive, dead, missing, recovering, failed) exists in [`Core/Models/SessionStatus.swift`](../../Sources/AgentStudio/Core/Models/SessionStatus.swift) for future zmx health integration but is not yet wired into `SessionRuntime`. See [Session Lifecycle](session_lifecycle.md) for details.
 >
-> `ZmxBackend` conforms to a separate `SessionBackend` protocol (defined in `ZmxBackend.swift`) with its own method signatures. A future phase will wire `SessionRuntime` → `ZmxBackend` and consolidate the two protocols.
+> `ZmxBackend` conforms to a separate `SessionBackend` protocol (defined in [`ZmxBackend.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/ZmxBackend.swift)) with its own method signatures. A future phase will wire `SessionRuntime` → `ZmxBackend` and consolidate the two protocols.
 >
 > **Isolation audit:** `ZmxBackend.isAlive()` shells out to the `zmx` CLI — this is 10-100ms of blocking I/O. Since `SessionRuntime` is `@MainActor`, `isAlive()` must not run synchronously on the main thread. The current implementation dispatches via `ProcessExecutor` (which uses `DispatchQueue.global()`). When the backend protocol is consolidated, `isAlive()` should be `@concurrent nonisolated` (Swift 6.2) to explicitly run on the cooperative pool. Plain `nonisolated async` would inherit MainActor isolation if called from `SessionRuntime` — see [EventBus Design — Swift 6.2 Gotchas](pane_runtime_eventbus_design.md#swift-62-gotchas-quick-reference).
 
-> **File:** `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift`
+> **File:** [`Core/RuntimeEventSystem/Runtime/SessionRuntime.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/SessionRuntime.swift)
 
 ### 3.4 ViewRegistry
 
@@ -476,13 +476,13 @@ Maps pane IDs to live `PaneHostView` instances via per-pane `@Observable` `PaneV
 - Typed mount accessors: `terminalView(for:)`, `terminalStatusPlaceholderView(for:)`, `webviewView(for:)`, `allWebviewViews`, `allTerminalViews`
 - `registeredPaneIds` — All pane IDs with non-nil hosts
 
-> **File:** `App/Panes/ViewRegistry.swift`
+> **File:** [`App/Panes/ViewRegistry.swift`](../../Sources/AgentStudio/App/Panes/ViewRegistry.swift)
 
 ### 3.5 Dynamic View Resolution
 
 Dynamic and worktree view selection is implemented in the pane composition flow.
 There is no standalone `ViewResolver` type in code; this behavior is owned by the
-`App/Panes` layer.
+[`App/Panes`](../../Sources/AgentStudio/App/Panes) layer.
 
 - `PaneTabViewController` observes app state and renders the active view arrangement.
 - `ViewRegistry` provides pane-to-view mapping used by split rendering.
@@ -492,7 +492,7 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
   - `PaneDropTargetOverlay` (single target visualization layer)
   - `PaneLeafContainer` (App-owned concrete Feature UI composition)
 
-> **Files:** `App/Panes/ViewRegistry.swift`, `App/Panes/Hosting/PaneLeafContainer.swift`, `Core/Views/Panes/SplitContainerDropCaptureOverlay.swift`
+> **Files:** [`App/Panes/ViewRegistry.swift`](../../Sources/AgentStudio/App/Panes/ViewRegistry.swift), [`App/Panes/Hosting/PaneLeafContainer.swift`](../../Sources/AgentStudio/App/Panes/Hosting/PaneLeafContainer.swift), [`Core/Views/Panes/SplitContainerDropCaptureOverlay.swift`](../../Sources/AgentStudio/Core/Views/Panes/SplitContainerDropCaptureOverlay.swift)
 
 ### 3.6 WorkspaceSurfaceCoordinator
 
@@ -508,16 +508,16 @@ The `WorkspaceSurfaceCoordinator` is the canonical orchestration boundary for ac
 
 | Extension | File | Role |
 |-----------|------|------|
-| `+ActionExecution` | `WorkspaceSurfaceCoordinator+ActionExecution.swift` | `execute(WorkspaceActionCommand)`, view creation helpers, undo close/restore, terminal tab creation |
-| `+ViewLifecycle` | `WorkspaceSurfaceCoordinator+ViewLifecycle.swift` | `createViewForContent`, `createView(for:worktree:repo:)`, `teardownView`, `restoreAllViews`, `restoreViewsForActiveTabIfNeeded` |
-| `+TerminalPlaceholders` | `WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift` | Deferred view creation using current geometry, placeholder registration for zmx panes awaiting bounds |
-| `+RuntimeDispatch` | `WorkspaceSurfaceCoordinator+RuntimeDispatch.swift` | `dispatchRuntimeCommand` to `RuntimeRegistry` with target resolution |
-| `+FilesystemSource` | `WorkspaceSurfaceCoordinator+FilesystemSource.swift` | Filesystem root sync, worktree activity tracking, `FilesystemGitPipeline` registration |
-| `+Undo` | `WorkspaceSurfaceCoordinator+Undo.swift` | `undoCloseTab()`, undo stack management, pane/tab close snapshot restore |
+| `+ActionExecution` | [`WorkspaceSurfaceCoordinator+ActionExecution.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift) | `execute(WorkspaceActionCommand)`, view creation helpers, undo close/restore, terminal tab creation |
+| `+ViewLifecycle` | [`WorkspaceSurfaceCoordinator+ViewLifecycle.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift) | `createViewForContent`, `createView(for:worktree:repo:)`, `teardownView`, `restoreAllViews`, `restoreViewsForActiveTabIfNeeded` |
+| `+TerminalPlaceholders` | [`WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift) | Deferred view creation using current geometry, placeholder registration for zmx panes awaiting bounds |
+| `+RuntimeDispatch` | [`WorkspaceSurfaceCoordinator+RuntimeDispatch.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift) | `dispatchRuntimeCommand` to `RuntimeRegistry` with target resolution |
+| `+FilesystemSource` | [`WorkspaceSurfaceCoordinator+FilesystemSource.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift) | Filesystem root sync, worktree activity tracking, `FilesystemGitPipeline` registration |
+| `+Undo` | [`WorkspaceSurfaceCoordinator+Undo.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift) | `undoCloseTab()`, undo stack management, pane/tab close snapshot restore |
 
 **Two action layers flow through the coordinator:**
-- **Workspace actions** (`WorkspaceActionCommand` from `Core/Actions/`): workspace structure mutations (selectTab, closePane, insertPane, etc.) → resolved by `WorkspaceCommandResolver`, validated by `WorkspaceCommandValidator`, executed against `WorkspaceStore`.
-- **Runtime commands** (`PaneRuntimeCommand` from `Core/RuntimeEventSystem/Contracts/`): commands to individual runtimes (sendInput, navigate, requestAgentReview, etc.) → dispatched via `RuntimeRegistry.runtime(for:).handleCommand(envelope)`.
+- **Workspace actions** (`WorkspaceActionCommand` from [`Core/Actions/`](../../Sources/AgentStudio/Core/Actions)): workspace structure mutations (selectTab, closePane, insertPane, etc.) → resolved by `WorkspaceCommandResolver`, validated by `WorkspaceCommandValidator`, executed against `WorkspaceStore`.
+- **Runtime commands** (`PaneRuntimeCommand` from [`Core/RuntimeEventSystem/Contracts/`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts)): commands to individual runtimes (sendInput, navigate, requestAgentReview, etc.) → dispatched via `RuntimeRegistry.runtime(for:).handleCommand(envelope)`.
 
 **Key operations:**
 - `execute(_ action: WorkspaceActionCommand)` — dispatch workspace actions (selectTab, closeTab, closePane, insertPane, extractPaneToTab, resizePane, equalizePanes, mergeTab, breakUpTab, focusPane, arrangements, drawers, repair)
@@ -542,13 +542,13 @@ The `WorkspaceSurfaceCoordinator` is the canonical orchestration boundary for ac
 
 **Reentrant-safety invariant:** The coordinator has both synchronous mutation methods (e.g., `execute(_ action: WorkspaceActionCommand)`) and an async `for await` event loop consuming from the EventBus. Since both are `@MainActor`, synchronous methods can interleave between event loop iterations — the `for await` yields at each iteration, and synchronous calls execute during the yield. This is correct and expected (same model as Python asyncio). The multiplexing rule guarantees safety: `@Observable` mutation happens synchronously on MainActor **before** `bus.post()`, so by the time the coordinator's event loop picks up an envelope, all store state is already consistent. The coordinator never sees an envelope whose corresponding `@Observable` state hasn't been applied yet. Frame-level interleaving between synchronous UI mutations and async event processing is expected and safe — UI sees updates immediately (synchronous `@Observable`), coordination consumers see complete envelopes within one frame (~16ms). This is not a race; it's the intended scheduling model.
 
-> **Files:** `App/Coordination/WorkspaceSurfaceCoordinator.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift`
+> **Files:** [`App/Coordination/WorkspaceSurfaceCoordinator.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift)
 
 ### 3.7 TabBarAdapter
 
 Derived state bridge between `WorkspaceStore` and the tab bar SwiftUI view. Bridges `@Observable` store state via `withObservationTracking` and transforms it into tab bar display items.
 
-> **File:** `App/Panes/TabBar/TabBarAdapter.swift`
+> **File:** [`App/Panes/TabBar/TabBarAdapter.swift`](../../Sources/AgentStudio/App/Panes/TabBar/TabBarAdapter.swift)
 
 ### 3.9 Persistence Domain Segregation
 
@@ -624,7 +624,7 @@ each row is scoped by its actual owner rather than by a per-workspace file.
 
 Coordinator owns sequencing, not domain decisions:
 
-- `WorkspaceBootSequence` (`App/Boot/WorkspaceBootSequence.swift`) — Defines the ordered boot steps. `AppDelegate.executeBootStep()` performs each step.
+- `WorkspaceBootSequence` ([`App/Boot/WorkspaceBootSequence.swift`](../../Sources/AgentStudio/App/Boot/WorkspaceBootSequence.swift)) — Defines the ordered boot steps. `AppDelegate.executeBootStep()` performs each step.
 
 #### Write Semantics
 
@@ -652,7 +652,7 @@ Key points relevant here:
 - Three collections: `activeSurfaces`, `hiddenSurfaces`, `undoStack`
 - `attach()` / `detach(reason:)` / `undoClose()` / `destroy()`
 
-> **File:** `Features/Terminal/Ghostty/SurfaceManager.swift`
+> **File:** [`Features/Terminal/Ghostty/SurfaceManager.swift`](../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift)
 
 ### 3.11 Command Bar System
 
@@ -689,7 +689,7 @@ Keyboard-driven search/command palette (⌘P) providing unified access to tabs, 
 - `.custom(() -> Void)` — Arbitrary action
 - `.worktreeAction(presence: WorktreePresence)` — Resolve at selection time based on presence and modifier keys
 
-**`FuzzySearch`** (`Infrastructure/Search/CommandBarSearch.swift`) — Shared fuzzy matching. Returns scores (0.0 = best) and character match ranges for highlighting. Weighted scoring: title (1.0), subtitle (0.8), keywords (0.6). Recency boost for recently used items.
+**`FuzzySearch`** ([`Infrastructure/Search/CommandBarSearch.swift`](../../Sources/AgentStudio/Infrastructure/Search/CommandBarSearch.swift)) — Shared fuzzy matching. Returns scores (0.0 = best) and character match ranges for highlighting. Weighted scoring: title (1.0), subtitle (0.8), keywords (0.6). Recency boost for recently used items.
 
 **`CommandBarPanel`** — `NSPanel` subclass with `NSVisualEffectView` (`.sidebar` material) and `NSHostingView` for SwiftUI content. Child window of the main window.
 
@@ -699,7 +699,7 @@ Keyboard-driven search/command palette (⌘P) providing unified access to tabs, 
 - Actions route through `AppCommandDispatcher` → full validation pipeline — the command bar never mutates `WorkspaceStore` directly
 - Worktree presence awareness: items show open pane count, tab location, and adapt their enter behavior (go-to vs. drill-in) based on whether the worktree already has panes open
 
-> **Files:** `Features/CommandBar/CommandBarPanelController.swift`, `Features/CommandBar/CommandBarState.swift`, `Features/CommandBar/CommandBarDataSource.swift`, `Features/CommandBar/CommandBarDataSource+WorktreeRows.swift`, `Infrastructure/Search/CommandBarSearch.swift`, `Features/CommandBar/CommandBarPanel.swift`, `Features/CommandBar/CommandBarItem.swift`, `Features/CommandBar/WorktreePresence.swift`, `Features/CommandBar/CommandBarWorktreeActionResolver.swift`, `Features/CommandBar/Views/*.swift`
+> **Files:** [`Features/CommandBar/CommandBarPanelController.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarPanelController.swift), [`Features/CommandBar/CommandBarState.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarState.swift), [`Features/CommandBar/CommandBarDataSource.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift), [`Features/CommandBar/CommandBarDataSource+WorktreeRows.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarDataSource+WorktreeRows.swift), [`Infrastructure/Search/CommandBarSearch.swift`](../../Sources/AgentStudio/Infrastructure/Search/CommandBarSearch.swift), [`Features/CommandBar/CommandBarPanel.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarPanel.swift), [`Features/CommandBar/CommandBarItem.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarItem.swift), [`Features/CommandBar/WorktreePresence.swift`](../../Sources/AgentStudio/Features/CommandBar/WorktreePresence.swift), [`Features/CommandBar/CommandBarWorktreeActionResolver.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarWorktreeActionResolver.swift), [`Features/CommandBar/Views/*.swift`](../../Sources/AgentStudio/Features/CommandBar/Views)
 
 ### 3.8 Command Metadata & UI Action Presentation
 
@@ -779,7 +779,7 @@ rows, and drawer buttons on the same resolver path.
 Keyboard routing stays separate: `ActiveKeyboardSurface` and
 `AppShortcutDispatchPolicy` own shortcut precedence and transient-surface
 suppression. IPC likewise does not request an interactive surface.
-`AppCommand+IPCProjection.swift` owns exhaustive discriminated IPC contracts,
+[`AppCommand+IPCProjection.swift`](../../Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift) owns exhaustive discriminated IPC contracts,
 and the adapter owns durable-target authorization and execution validation.
 Existing public target-kind, privilege, argument-schema arrays and JSON encoding
 appear only when those internal contracts project to `IPCCommandListEntry`.
@@ -787,7 +787,7 @@ appear only when those internal contracts project to `IPCCommandListEntry`.
 For UI actions that are *not* `AppCommand`s — for example drawer hover
 tooltips, sidebar editor menus, settings buttons, and command-bar mode entries
 — the app uses `ActionSpec` and `LocalActionSpec` in
-`Core/Actions/UIActionPresentation.swift`. This keeps labels, help text, and
+[`Core/Actions/UIActionPresentation.swift`](../../Sources/AgentStudio/Core/Actions/UIActionPresentation.swift). This keeps labels, help text, and
 icons centralized even when an action is not dispatcher-backed.
 
 **Why two metadata layers?**
@@ -993,113 +993,113 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | File | Purpose |
 |------|---------|
 | **Core/Models** | |
-| `Core/Models/Pane.swift` | `Pane` — primary entity: id, content, metadata, residency, kind |
-| `Core/Models/PaneContent.swift` | `PaneContent`, `TerminalState`, terminal provider/lifetime, and stored zmx session anchors |
-| `Core/Models/SessionLifetime.swift` | `.persistent` / `.temporary` |
-| `Core/Models/SessionResidency.swift` | `.active` / `.pendingUndo` / `.backgrounded` / `.orphaned` |
-| `Core/Models/Layout.swift` | Pure value-type flat pane strip, `FocusDirection` |
-| `Core/Models/Tab.swift` | Tab with arrangements, layout, and active pane |
-| `Core/Models/DynamicView.swift` | `DynamicViewType`, `DynamicViewGroup`, `DynamicViewProjection` |
-| `Core/Models/Repo.swift` | `Repo` entity |
-| `Core/Models/Worktree.swift` | `Worktree` (structure-only: id, repoId, name, path, isMainWorktree) |
-| `Core/Models/Templates.swift` | `WorktreeTemplate`, `TerminalTemplate`, `CreatePolicy` |
-| `Core/Models/StableKey.swift` | SHA-256 path hashing for deterministic IDs |
-| `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
-| `Core/Models/SessionStatus.swift` | 7-state session lifecycle machine (future zmx health) |
+| [`Core/Models/Pane.swift`](../../Sources/AgentStudio/Core/Models/Pane.swift) | `Pane` — primary entity: id, content, metadata, residency, kind |
+| [`Core/Models/PaneContent.swift`](../../Sources/AgentStudio/Core/Models/PaneContent.swift) | `PaneContent`, `TerminalState`, terminal provider/lifetime, and stored zmx session anchors |
+| [`Core/Models/SessionLifetime.swift`](../../Sources/AgentStudio/Core/Models/SessionLifetime.swift) | `.persistent` / `.temporary` |
+| [`Core/Models/SessionResidency.swift`](../../Sources/AgentStudio/Core/Models/SessionResidency.swift) | `.active` / `.pendingUndo` / `.backgrounded` / `.orphaned` |
+| [`Core/Models/Layout.swift`](../../Sources/AgentStudio/Core/Models/Layout.swift) | Pure value-type flat pane strip, `FocusDirection` |
+| [`Core/Models/Tab.swift`](../../Sources/AgentStudio/Core/Models/Tab.swift) | Tab with arrangements, layout, and active pane |
+| [`Core/Models/DynamicView.swift`](../../Sources/AgentStudio/Core/Models/DynamicView.swift) | `DynamicViewType`, `DynamicViewGroup`, `DynamicViewProjection` |
+| [`Core/Models/Repo.swift`](../../Sources/AgentStudio/Core/Models/Repo.swift) | `Repo` entity |
+| [`Core/Models/Worktree.swift`](../../Sources/AgentStudio/Core/Models/Worktree.swift) | `Worktree` (structure-only: id, repoId, name, path, isMainWorktree) |
+| [`Core/Models/Templates.swift`](../../Sources/AgentStudio/Core/Models/Templates.swift) | `WorktreeTemplate`, `TerminalTemplate`, `CreatePolicy` |
+| [`Core/Models/StableKey.swift`](../../Sources/AgentStudio/Core/Models/StableKey.swift) | SHA-256 path hashing for deterministic IDs |
+| [`Infrastructure/StateMachine/StateMachine.swift`](../../Sources/AgentStudio/Infrastructure/StateMachine/StateMachine.swift) | Generic state machine with effect handling |
+| [`Core/Models/SessionStatus.swift`](../../Sources/AgentStudio/Core/Models/SessionStatus.swift) | 7-state session lifecycle machine (future zmx health) |
 | **Core/State/MainActor** | |
-| `Core/State/MainActor/Atoms/ActiveWorkspaceSelectionAtom.swift` | Global active workspace id selection |
-| `Core/State/MainActor/Atoms/WorkspaceIdentityAtom.swift` | Workspace id, name, and creation timestamp |
-| `Core/State/MainActor/Atoms/WorkspaceWindowMemoryAtom.swift` | Local sidebar width and window frame |
-| `Core/State/MainActor/Atoms/RepositoryTopologyAtom.swift` | Application-global repos, worktrees, watched paths, availability, and stable-key indexes |
-| `Core/State/MainActor/Atoms/EntityRecencyAtoms.swift` | Application-global repository/worktree recency and workspace-keyed pane recency |
-| `Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift` | Core pane graph: identity, content, residency, durable metadata, drawer membership |
-| `Core/State/MainActor/Atoms/WorkspaceDrawerCursorAtom.swift` | Local drawer expansion cursor |
-| `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` | Compatibility mutation facade over pane graph + drawer cursor |
-| `Core/State/MainActor/Atoms/WorkspacePaneDerived.swift` | Rich pane read model composed from graph, cursor, topology, and cache facts |
-| `Core/State/MainActor/Atoms/WorkspaceTabShellAtom.swift` | Tab identity and ordering |
-| `Core/State/MainActor/Atoms/WorkspaceTabCursorAtom.swift` | Active tab cursor |
-| `Core/State/MainActor/Atoms/WorkspaceTabGraphAtom.swift` | Tab membership and arrangement/layout graph |
-| `Core/State/MainActor/Atoms/WorkspaceArrangementCursorAtom.swift` | Active arrangement, active pane, and drawer child cursors |
-| `Core/State/MainActor/Atoms/WorkspacePanePresentationAtom.swift` | Runtime-only pane presentation such as zoom |
-| `Core/State/MainActor/Atoms/WorkspaceTabArrangementAtom.swift` | Compatibility mutation facade over tab graph, arrangement cursor, and presentation |
-| `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` | Compatibility read facade over tab shell and arrangement facades |
-| `Core/State/MainActor/Persistence/EntityRecencyStore.swift` | Independent application and workspace recency hydration/flush lifecycles |
-| `Core/State/MainActor/Atoms/WorkspaceTabLayoutDerived.swift` | Rich tab read model composed from shell, cursor, graph, arrangement cursor, and presentation |
-| `Core/State/MainActor/Coordination/WorkspaceMutationCoordinator.swift` | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
-| `Core/State/MainActor/Coordination/RepositoryWorktreeReconciliation.swift` | Identity-preserving worktree merge; returns `WorktreeTopologyDelta` |
-| `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` | Sole mutable requested-focus owner for main-pane, empty-drawer, and drawer-pane focus |
-| `Core/State/MainActor/Atoms/WorkspaceFocusedPane.swift` | Immutable normalized focus identity/content used by focus presentation and command-context projection |
-| `Core/State/MainActor/Atoms/WorkspaceFocusedPaneResolver.swift` | Stateless normalization of requested focus against active tab, pane, and drawer state |
-| `Core/State/MainActor/Atoms/CommandContext.swift` | Immutable command-policy projection and `CommandRequirement` vocabulary |
-| `Core/State/MainActor/Atoms/CommandContextDerived.swift` | Stateless projection from focused-pane plus workspace/presentation facts into `CommandContext` |
-| `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
-| `Core/State/SQLite/WorkspaceSQLiteDatastore.swift` | Explicit core/local preparation, retained database ownership, strict hydration, local-slice I/O, and commit sequencing |
-| `Core/State/SQLite/WorkspaceSQLiteDatastoreFactory.swift` | App composition helper that supplies production database URLs and tracing |
-| `Core/State/SQLite/WorkspaceSQLiteRecoveryClassifier.swift` | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths; no repository or atom ownership |
-| `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` | `core.sqlite` migration identifiers and durable workspace schema DDL |
-| `Core/State/MainActor/Persistence/WorkspaceLocalMigrations.swift` | application-root `local.sqlite` migration identifiers and local UX/cache schema DDL |
-| `Core/State/MainActor/Persistence/SQLitePaneContentTypeStorage.swift` | Storage tokens that map live `PaneContentType` values to `pane.content_type` |
-| `Core/State/MainActor/Persistence/SQLiteLocalUXStorage.swift` | Storage tokens for local sidebar and feature preference vocabularies |
-| `Core/State/MainActor/Persistence/SQLiteInboxNotificationClaimStorage.swift` | Storage tokens that map live inbox notification claim lanes to local notification claim predicates |
-| `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationSQLiteRepository.swift` | Feature-owned local SQLite repository for notification inbox rows, collapsed inbox groups, claim coalescence, retention, and empty-lane marking |
-| `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift` | Main-actor persistence wrapper for inbox notification history and collapsed inbox groups; unavailable local rows default without blocking core startup |
-| `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime status tracking and health checks |
-| `App/Panes/ViewRegistry.swift` | paneId → PaneViewSlot mapping (runtime-only) |
-| `Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
+| [`Core/State/MainActor/Atoms/ActiveWorkspaceSelectionAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/ActiveWorkspaceSelectionAtom.swift) | Global active workspace id selection |
+| [`Core/State/MainActor/Atoms/WorkspaceIdentityAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceIdentityAtom.swift) | Workspace id, name, and creation timestamp |
+| [`Core/State/MainActor/Atoms/WorkspaceWindowMemoryAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceWindowMemoryAtom.swift) | Local sidebar width and window frame |
+| [`Core/State/MainActor/Atoms/RepositoryTopologyAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/RepositoryTopologyAtom.swift) | Application-global repos, worktrees, watched paths, availability, and stable-key indexes |
+| [`Core/State/MainActor/Atoms/EntityRecencyAtoms.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/EntityRecencyAtoms.swift) | Application-global repository/worktree recency and workspace-keyed pane recency |
+| [`Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift) | Core pane graph: identity, content, residency, durable metadata, drawer membership |
+| [`Core/State/MainActor/Atoms/WorkspaceDrawerCursorAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceDrawerCursorAtom.swift) | Local drawer expansion cursor |
+| [`Core/State/MainActor/Atoms/WorkspacePaneAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneAtom.swift) | Compatibility mutation facade over pane graph + drawer cursor |
+| [`Core/State/MainActor/Atoms/WorkspacePaneDerived.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneDerived.swift) | Rich pane read model composed from graph, cursor, topology, and cache facts |
+| [`Core/State/MainActor/Atoms/WorkspaceTabShellAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabShellAtom.swift) | Tab identity and ordering |
+| [`Core/State/MainActor/Atoms/WorkspaceTabCursorAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabCursorAtom.swift) | Active tab cursor |
+| [`Core/State/MainActor/Atoms/WorkspaceTabGraphAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabGraphAtom.swift) | Tab membership and arrangement/layout graph |
+| [`Core/State/MainActor/Atoms/WorkspaceArrangementCursorAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceArrangementCursorAtom.swift) | Active arrangement, active pane, and drawer child cursors |
+| [`Core/State/MainActor/Atoms/WorkspacePanePresentationAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePanePresentationAtom.swift) | Runtime-only pane presentation such as zoom |
+| [`Core/State/MainActor/Atoms/WorkspaceTabArrangementAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabArrangementAtom.swift) | Compatibility mutation facade over tab graph, arrangement cursor, and presentation |
+| [`Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift) | Compatibility read facade over tab shell and arrangement facades |
+| [`Core/State/MainActor/Persistence/EntityRecencyStore.swift`](../../Sources/AgentStudio/Core/State/MainActor/Persistence/EntityRecencyStore.swift) | Independent application and workspace recency hydration/flush lifecycles |
+| [`Core/State/MainActor/Atoms/WorkspaceTabLayoutDerived.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabLayoutDerived.swift) | Rich tab read model composed from shell, cursor, graph, arrangement cursor, and presentation |
+| [`Core/State/MainActor/Coordination/WorkspaceMutationCoordinator.swift`](../../Sources/AgentStudio/Core/State/MainActor/Coordination/WorkspaceMutationCoordinator.swift) | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
+| [`Core/State/MainActor/Coordination/RepositoryWorktreeReconciliation.swift`](../../Sources/AgentStudio/Core/State/MainActor/Coordination/RepositoryWorktreeReconciliation.swift) | Identity-preserving worktree merge; returns `WorktreeTopologyDelta` |
+| [`Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift) | Sole mutable requested-focus owner for main-pane, empty-drawer, and drawer-pane focus |
+| [`Core/State/MainActor/Atoms/WorkspaceFocusedPane.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusedPane.swift) | Immutable normalized focus identity/content used by focus presentation and command-context projection |
+| [`Core/State/MainActor/Atoms/WorkspaceFocusedPaneResolver.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusedPaneResolver.swift) | Stateless normalization of requested focus against active tab, pane, and drawer state |
+| [`Core/State/MainActor/Atoms/CommandContext.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/CommandContext.swift) | Immutable command-policy projection and `CommandRequirement` vocabulary |
+| [`Core/State/MainActor/Atoms/CommandContextDerived.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/CommandContextDerived.swift) | Stateless projection from focused-pane plus workspace/presentation facts into `CommandContext` |
+| [`Core/State/MainActor/Persistence/WorkspaceStore.swift`](../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift) | Main-actor persistence wrapper around the canonical workspace atoms |
+| [`Core/State/SQLite/WorkspaceSQLiteDatastore.swift`](../../Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore.swift) | Explicit core/local preparation, retained database ownership, strict hydration, local-slice I/O, and commit sequencing |
+| [`Core/State/SQLite/WorkspaceSQLiteDatastoreFactory.swift`](../../Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastoreFactory.swift) | App composition helper that supplies production database URLs and tracing |
+| [`Core/State/SQLite/WorkspaceSQLiteRecoveryClassifier.swift`](../../Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteRecoveryClassifier.swift) | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths; no repository or atom ownership |
+| [`Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift`](../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift) | `core.sqlite` migration identifiers and durable workspace schema DDL |
+| [`Core/State/MainActor/Persistence/WorkspaceLocalMigrations.swift`](../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceLocalMigrations.swift) | application-root `local.sqlite` migration identifiers and local UX/cache schema DDL |
+| [`Core/State/MainActor/Persistence/SQLitePaneContentTypeStorage.swift`](../../Sources/AgentStudio/Core/State/MainActor/Persistence/SQLitePaneContentTypeStorage.swift) | Storage tokens that map live `PaneContentType` values to `pane.content_type` |
+| [`Core/State/MainActor/Persistence/SQLiteLocalUXStorage.swift`](../../Sources/AgentStudio/Core/State/MainActor/Persistence/SQLiteLocalUXStorage.swift) | Storage tokens for local sidebar and feature preference vocabularies |
+| [`Core/State/MainActor/Persistence/SQLiteInboxNotificationClaimStorage.swift`](../../Sources/AgentStudio/Core/State/MainActor/Persistence/SQLiteInboxNotificationClaimStorage.swift) | Storage tokens that map live inbox notification claim lanes to local notification claim predicates |
+| [`Features/InboxNotification/State/MainActor/Persistence/InboxNotificationSQLiteRepository.swift`](../../Sources/AgentStudio/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationSQLiteRepository.swift) | Feature-owned local SQLite repository for notification inbox rows, collapsed inbox groups, claim coalescence, retention, and empty-lane marking |
+| [`Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift`](../../Sources/AgentStudio/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift) | Main-actor persistence wrapper for inbox notification history and collapsed inbox groups; unavailable local rows default without blocking core startup |
+| [`Core/RuntimeEventSystem/Runtime/SessionRuntime.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/SessionRuntime.swift) | Runtime status tracking and health checks |
+| [`App/Panes/ViewRegistry.swift`](../../Sources/AgentStudio/App/Panes/ViewRegistry.swift) | paneId → PaneViewSlot mapping (runtime-only) |
+| [`Core/RuntimeEventSystem/Runtime/ZmxBackend.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/ZmxBackend.swift) | zmx CLI wrapper — session create/destroy/health |
 | **Infrastructure** | |
-| `Infrastructure/SQLite/SQLiteDatabaseFactory.swift` | Generic GRDB connection setup, pragmas, WAL, and capability-test construction |
-| `Infrastructure/SQLite/SQLiteSidecarQuarantine.swift` | Generic SQLite database/WAL/SHM quarantine helper with no product schema knowledge |
-| `Infrastructure/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
+| [`Infrastructure/SQLite/SQLiteDatabaseFactory.swift`](../../Sources/AgentStudio/Infrastructure/SQLite/SQLiteDatabaseFactory.swift) | Generic GRDB connection setup, pragmas, WAL, and capability-test construction |
+| [`Infrastructure/SQLite/SQLiteSidecarQuarantine.swift`](../../Sources/AgentStudio/Infrastructure/SQLite/SQLiteSidecarQuarantine.swift) | Generic SQLite database/WAL/SHM quarantine helper with no product schema knowledge |
+| [`Infrastructure/ProcessExecutor.swift`](../../Sources/AgentStudio/Infrastructure/ProcessExecutor.swift) | Protocol + default impl for CLI execution |
 | **App** | |
-| `App/Coordination/WorkspaceSurfaceCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
-| `App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift` | Action command execution flow |
-| `App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift` | Filesystem root sync for pane runtimes |
-| `App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift` | Runtime command dispatch to pane runtimes |
-| `App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift` | Terminal placeholder creation and management |
-| `App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift` | Pane close undo support |
-| `App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift` | NSView lifecycle orchestration for panes |
-| `App/Coordination/WorkspaceCacheCoordinator.swift` | Event bus consumer; updates enrichment/cache stores |
-| `App/Commands/AppCommand+IPCProjection.swift` | Independent exhaustive IPC companion contracts and public command-list DTO projection |
-| `App/Windows/MainWindowController.swift` | Primary window management |
-| `App/Windows/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
-| `App/Panes/PaneTabViewController.swift` | Tab controller, observes store via @Observable |
+| [`App/Coordination/WorkspaceSurfaceCoordinator.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift) | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
+| [`App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift) | Action command execution flow |
+| [`App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift) | Filesystem root sync for pane runtimes |
+| [`App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift) | Runtime command dispatch to pane runtimes |
+| [`App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift) | Terminal placeholder creation and management |
+| [`App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift) | Pane close undo support |
+| [`App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift) | NSView lifecycle orchestration for panes |
+| [`App/Coordination/WorkspaceCacheCoordinator.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceCacheCoordinator.swift) | Event bus consumer; updates enrichment/cache stores |
+| [`App/Commands/AppCommand+IPCProjection.swift`](../../Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift) | Independent exhaustive IPC companion contracts and public command-list DTO projection |
+| [`App/Windows/MainWindowController.swift`](../../Sources/AgentStudio/App/Windows/MainWindowController.swift) | Primary window management |
+| [`App/Windows/MainSplitViewController.swift`](../../Sources/AgentStudio/App/Windows/MainSplitViewController.swift) | Split view: sidebar + terminal panes |
+| [`App/Panes/PaneTabViewController.swift`](../../Sources/AgentStudio/App/Panes/PaneTabViewController.swift) | Tab controller, observes store via @Observable |
 | **Features/Bridge** | |
-| `Features/Bridge/Runtime/BridgePaneController.swift` | WKWebView lifecycle for React panes |
-| `Features/Bridge/Transport/BridgeProductSchemeControlDispatcher.swift` | Product-scheme control dispatch (successor to the retired `RPCRouter` JSON-RPC entry) |
+| [`Features/Bridge/Runtime/BridgePaneController.swift`](../../Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController.swift) | WKWebView lifecycle for React panes |
+| [`Features/Bridge/Transport/BridgeProductSchemeControlDispatcher.swift`](../../Sources/AgentStudio/Features/Bridge/Transport/BridgeProductSchemeControlDispatcher.swift) | Product-scheme control dispatch (successor to the retired `RPCRouter` JSON-RPC entry) |
 | **Features/Terminal** | |
-| `Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift` | Placeholder shown for zmx panes awaiting geometry (`.preparing`) or failed starts |
-| `Features/Terminal/Restore/TerminalRestoreScheduler.swift` | Orders panes by `VisibilityTier` for staged restore (visible first) |
+| [`Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift`](../../Sources/AgentStudio/Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift) | Placeholder shown for zmx panes awaiting geometry (`.preparing`) or failed starts |
+| [`Features/Terminal/Restore/TerminalRestoreScheduler.swift`](../../Sources/AgentStudio/Features/Terminal/Restore/TerminalRestoreScheduler.swift) | Orders panes by `VisibilityTier` for staged restore (visible first) |
 | **Core/Actions** (workspace mutations) | |
-| `Core/Actions/Commands/AppCommand.swift` | Exhaustive command identity plus interactive spec shape and dispatch protocol |
-| `Core/Actions/Commands/AppCommand+Catalog.swift` | Exhaustive interactive presentation catalog keyed by `AppCommand` |
-| `Core/Actions/WorkspaceActionCommand.swift` | Workspace-level action enum (selectTab, closePane, insertPane, etc.) |
-| `Core/Actions/ActionResolver.swift` | `WorkspaceCommandResolver` resolves user input → WorkspaceActionCommand |
-| `Core/Actions/ActionValidator.swift` | `WorkspaceCommandValidator` validates actions before execution |
-| `Core/Actions/ActionStateSnapshot.swift` | Captures state for validation |
+| [`Core/Actions/Commands/AppCommand.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommand.swift) | Exhaustive command identity plus interactive spec shape and dispatch protocol |
+| [`Core/Actions/Commands/AppCommand+Catalog.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+Catalog.swift) | Exhaustive interactive presentation catalog keyed by `AppCommand` |
+| [`Core/Actions/WorkspaceActionCommand.swift`](../../Sources/AgentStudio/Core/Actions/WorkspaceActionCommand.swift) | Workspace-level action enum (selectTab, closePane, insertPane, etc.) |
+| [`Core/Actions/ActionResolver.swift`](../../Sources/AgentStudio/Core/Actions/ActionResolver.swift) | `WorkspaceCommandResolver` resolves user input → WorkspaceActionCommand |
+| [`Core/Actions/ActionValidator.swift`](../../Sources/AgentStudio/Core/Actions/ActionValidator.swift) | `WorkspaceCommandValidator` validates actions before execution |
+| [`Core/Actions/ActionStateSnapshot.swift`](../../Sources/AgentStudio/Core/Actions/ActionStateSnapshot.swift) | Captures state for validation |
 | **Core/RuntimeEventSystem/** | |
-| `Core/RuntimeEventSystem/Contracts/PaneRuntime.swift` | Per-pane runtime protocol |
-| `Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift` | Typed event discriminated union + per-kind enums |
-| `Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift` | 3-tier event envelope (SystemEnvelope, WorktreeEnvelope, PaneEnvelope) |
-| `Core/RuntimeEventSystem/Contracts/PaneRuntimeCommand.swift` | Runtime-level command enum + per-kind command enums |
-| `Core/RuntimeEventSystem/Contracts/PaneMetadata.swift` | Rich pane identity (contentType, launch directory, live facets, execution backend) |
-| `Core/RuntimeEventSystem/Contracts/WorkspaceActivityEvent.swift` | Workspace-level activity events |
-| `Core/RuntimeEventSystem/Runtime/PaneRuntimeEventChannel.swift` | Per-pane event channel for runtime communication |
-| `Core/RuntimeEventSystem/Runtime/SwiftPaneRuntime.swift` | Swift-side pane runtime implementation |
-| `Core/RuntimeEventSystem/Registry/RuntimeRegistry.swift` | paneId → runtime lookup (owned by WorkspaceSurfaceCoordinator) |
-| `Core/RuntimeEventSystem/Reduction/NotificationReducer.swift` | Priority-aware event delivery (critical + lossy queues) |
-| `Core/RuntimeEventSystem/Reduction/VisibilityTier.swift` | p0/p1 — two tiers: visible and hidden |
-| `Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift` | Bounded ring buffer for late-joining consumers |
+| [`Core/RuntimeEventSystem/Contracts/PaneRuntime.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntime.swift) | Per-pane runtime protocol |
+| [`Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift) | Typed event discriminated union + per-kind enums |
+| [`Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift) | 3-tier event envelope (SystemEnvelope, WorktreeEnvelope, PaneEnvelope) |
+| [`Core/RuntimeEventSystem/Contracts/PaneRuntimeCommand.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeCommand.swift) | Runtime-level command enum + per-kind command enums |
+| [`Core/RuntimeEventSystem/Contracts/PaneMetadata.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneMetadata.swift) | Rich pane identity (contentType, launch directory, live facets, execution backend) |
+| [`Core/RuntimeEventSystem/Contracts/WorkspaceActivityEvent.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/WorkspaceActivityEvent.swift) | Workspace-level activity events |
+| [`Core/RuntimeEventSystem/Runtime/PaneRuntimeEventChannel.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/PaneRuntimeEventChannel.swift) | Per-pane event channel for runtime communication |
+| [`Core/RuntimeEventSystem/Runtime/SwiftPaneRuntime.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/SwiftPaneRuntime.swift) | Swift-side pane runtime implementation |
+| [`Core/RuntimeEventSystem/Registry/RuntimeRegistry.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Registry/RuntimeRegistry.swift) | paneId → runtime lookup (owned by WorkspaceSurfaceCoordinator) |
+| [`Core/RuntimeEventSystem/Reduction/NotificationReducer.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Reduction/NotificationReducer.swift) | Priority-aware event delivery (critical + lossy queues) |
+| [`Core/RuntimeEventSystem/Reduction/VisibilityTier.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Reduction/VisibilityTier.swift) | p0/p1 — two tiers: visible and hidden |
+| [`Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift) | Bounded ring buffer for late-joining consumers |
 | **Features/CommandBar** | |
-| `Features/CommandBar/CommandBarPanelController.swift` | Panel lifecycle: show/dismiss/toggle, backdrop, animation |
-| `Features/CommandBar/CommandBarState.swift` | Observable state: prefix parsing, navigation, selection, recents |
-| `Features/CommandBar/CommandBarDataSource.swift` | Builds items from `WorkspaceStore` + `AppCommandDispatcher`, scope-filtered |
-| `Infrastructure/Search/CommandBarSearch.swift` | Shared `FuzzySearch` matching with score + character match ranges |
-| `Features/CommandBar/CommandBarPanel.swift` | `NSPanel` subclass with `NSVisualEffectView` + `NSHostingView` |
-| `Features/CommandBar/CommandBarItem.swift` | Data models: `CommandBarItem`, `CommandBarLevel`, `CommandBarAction`, `ShortcutKey` |
-| `Features/CommandBar/Views/CommandBarView.swift` | Root SwiftUI view — composes search, results, scope pill, footer |
-| `Features/CommandBar/Views/CommandBarTextField.swift` | `NSViewRepresentable` wrapping `NSTextField` for keyboard interception |
-| `Features/CommandBar/Views/CommandBarResultsList.swift` | Grouped scrollable list with flattened index tracking |
-| `Features/CommandBar/Views/CommandBarResultRow.swift` | Result row with fuzzy match highlighting and dimming |
+| [`Features/CommandBar/CommandBarPanelController.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarPanelController.swift) | Panel lifecycle: show/dismiss/toggle, backdrop, animation |
+| [`Features/CommandBar/CommandBarState.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarState.swift) | Observable state: prefix parsing, navigation, selection, recents |
+| [`Features/CommandBar/CommandBarDataSource.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift) | Builds items from `WorkspaceStore` + `AppCommandDispatcher`, scope-filtered |
+| [`Infrastructure/Search/CommandBarSearch.swift`](../../Sources/AgentStudio/Infrastructure/Search/CommandBarSearch.swift) | Shared `FuzzySearch` matching with score + character match ranges |
+| [`Features/CommandBar/CommandBarPanel.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarPanel.swift) | `NSPanel` subclass with `NSVisualEffectView` + `NSHostingView` |
+| [`Features/CommandBar/CommandBarItem.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarItem.swift) | Data models: `CommandBarItem`, `CommandBarLevel`, `CommandBarAction`, `ShortcutKey` |
+| [`Features/CommandBar/Views/CommandBarView.swift`](../../Sources/AgentStudio/Features/CommandBar/Views/CommandBarView.swift) | Root SwiftUI view — composes search, results, scope pill, footer |
+| [`Features/CommandBar/Views/CommandBarTextField.swift`](../../Sources/AgentStudio/Features/CommandBar/Views/CommandBarTextField.swift) | `NSViewRepresentable` wrapping `NSTextField` for keyboard interception |
+| [`Features/CommandBar/Views/CommandBarResultsList.swift`](../../Sources/AgentStudio/Features/CommandBar/Views/CommandBarResultsList.swift) | Grouped scrollable list with flattened index tracking |
+| [`Features/CommandBar/Views/CommandBarResultRow.swift`](../../Sources/AgentStudio/Features/CommandBar/Views/CommandBarResultRow.swift) | Result row with fuzzy match highlighting and dimming |
 
 ---
 

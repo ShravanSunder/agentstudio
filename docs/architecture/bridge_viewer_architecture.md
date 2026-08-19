@@ -220,11 +220,11 @@ Is A Pipeline](bridge_web_runtime_architecture.md#demand-is-a-pipeline).
 
 | Concern | Primary source |
 | --- | --- |
-| Pane hosting and lifecycle | `Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController*.swift` |
-| Shared construction | `Sources/AgentStudio/Features/Bridge/Runtime/Construction/` |
-| Git provider and scheduling | `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/AgentStudioGitBridgeReviewDataClient*.swift`, `Runtime/Git/` |
-| Pane product transport | `Sources/AgentStudio/Features/Bridge/Transport/` |
-| One-pane-worker topology | `BridgeWeb/src/core/comm-worker/bridge-pane-runtime.ts` and `bridge-pane-comm-worker-session.ts` |
-| File and Review UI owners | `BridgeWeb/src/app/bridge-app-file-viewer-mode.tsx`, `bridge-app-review-viewer-mode.tsx` |
-| Demand policy | `BridgeWeb/src/core/demand/bridge-content-demand-policy.ts` |
-| Pierre/Shiki preparation and fulfillment | `BridgeWeb/src/core/comm-worker/bridge-worker-*`, `bridge-main-render-*` |
+| Pane hosting and lifecycle | [`Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController*.swift`](../../Sources/AgentStudio/Features/Bridge/Runtime) |
+| Shared construction | [`Sources/AgentStudio/Features/Bridge/Runtime/Construction/`](../../Sources/AgentStudio/Features/Bridge/Runtime/Construction) |
+| Git provider and scheduling | [`AgentStudioGitBridgeReviewDataClient+Contribution.swift`](../../Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/AgentStudioGitBridgeReviewDataClient+Contribution.swift), [`AgentStudioGitBridgeReviewDataClient+Fallbacks.swift`](../../Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/AgentStudioGitBridgeReviewDataClient+Fallbacks.swift), [`AgentStudioGitBridgeReviewDataClient+GitIO.swift`](../../Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/AgentStudioGitBridgeReviewDataClient+GitIO.swift), [`AgentStudioGitBridgeReviewDataClient+SharedContent.swift`](../../Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/AgentStudioGitBridgeReviewDataClient+SharedContent.swift), [`AgentStudioGitBridgeReviewDataClient.swift`](../../Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/AgentStudioGitBridgeReviewDataClient.swift), [`Runtime/Git/`](../../Sources/AgentStudio/Features/Bridge/Runtime/Git) |
+| Pane product transport | [`Sources/AgentStudio/Features/Bridge/Transport/`](../../Sources/AgentStudio/Features/Bridge/Transport) |
+| One-pane-worker topology | [`BridgeWeb/src/core/comm-worker/bridge-pane-runtime.ts`](../../BridgeWeb/src/core/comm-worker/bridge-pane-runtime.ts) and [`bridge-pane-comm-worker-session.ts`](../../BridgeWeb/src/core/comm-worker/bridge-pane-comm-worker-session.ts) |
+| File and Review UI owners | [`BridgeWeb/src/app/bridge-app-file-viewer-mode.tsx`](../../BridgeWeb/src/app/bridge-app-file-viewer-mode.tsx), [`bridge-app-review-viewer-mode.tsx`](../../BridgeWeb/src/app/bridge-app-review-viewer-mode.tsx) |
+| Demand policy | [`BridgeWeb/src/core/demand/bridge-content-demand-policy.ts`](../../BridgeWeb/src/core/demand/bridge-content-demand-policy.ts) |
+| Pierre/Shiki preparation and fulfillment | [`BridgeWeb/src/core/comm-worker/`](../../BridgeWeb/src/core/comm-worker), [`bridge-main-render-fulfillment-coordinator.ts`](../../BridgeWeb/src/core/comm-worker/bridge-main-render-fulfillment-coordinator.ts), [`bridge-main-render-snapshot-store.ts`](../../BridgeWeb/src/core/comm-worker/bridge-main-render-snapshot-store.ts) |

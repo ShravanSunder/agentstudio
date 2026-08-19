@@ -13,14 +13,14 @@ do not broadly promote declarations to `public`.
 
 ## Why Hybrid
 
-Pure layer-based organization (`Models/`, `Stores/`, `Views/`, `Actions/`) spreads a single feature across many directories. Adding a terminal behavior means touching models, stores, views, and actions — four directories for one concept. Pure feature-based loses the "shared infrastructure" story — where does `WorkspaceStore` live if three features need it?
+Pure layer-based organization (`Models/`, `Stores/`, `Views/`, [`Actions/`](../../Sources/AgentStudio/Core/Actions)) spreads a single feature across many directories. Adding a terminal behavior means touching models, stores, views, and actions — four directories for one concept. Pure feature-based loses the "shared infrastructure" story — where does `WorkspaceStore` live if three features need it?
 
 The hybrid approach (inspired by Ghostty's own codebase structure) keeps infrastructure layers for shared concerns and groups feature-specific code by capability.
 
-Paths are the human map. `Package.swift` is the compiler DAG. Use
+Paths are the human map. [`Package.swift`](../../Package.swift) is the compiler DAG. Use
 [Repository Root](#repository-root) for repo-level folders,
 [Source And Target Structure](#source-and-target-structure) for
-`Sources/AgentStudio/`, and [SwiftPM Module Graph](#swiftpm-module-graph) for
+[`Sources/AgentStudio/`](../../Sources/AgentStudio), and [SwiftPM Module Graph](#swiftpm-module-graph) for
 compiled targets and import direction.
 
 ---
@@ -248,7 +248,7 @@ Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift
   Sources/AgentStudioAppIPC/.
 ```
 
-This target split keeps `App/IPCComposition/` from becoming a god box. IPC
+This target split keeps [`App/IPCComposition/`](../../Sources/AgentStudio/App/IPCComposition) from becoming a god box. IPC
 services own transport-adjacent policy and protocol contracts; app behavior
 still belongs to the existing app/runtime owners behind narrow ports.
 
@@ -330,9 +330,9 @@ Features/<slice>/
 
 `State/MainActor/{Atoms,Persistence}/` is the path for atoms and stores **everywhere**:
 
-- Core atoms live at `Core/State/MainActor/Atoms/`
+- Core atoms live at [`Core/State/MainActor/Atoms/`](../../Sources/AgentStudio/Core/State/MainActor/Atoms)
 - Feature atoms live at `Features/<slice>/State/MainActor/Atoms/`
-- Core stores live at `Core/State/MainActor/Persistence/`
+- Core stores live at [`Core/State/MainActor/Persistence/`](../../Sources/AgentStudio/Core/State/MainActor/Persistence)
 - Feature stores live at `Features/<slice>/State/MainActor/Persistence/`
 
 The `MainActor/` segment makes actor isolation visible in the filesystem and leaves room for future actor-scoped paths if other isolation domains ever earn their own atom homes.
@@ -355,9 +355,9 @@ inbox preferences in the workspace settings payload. It imports recognized
 repo-explorer preferences from the legacy sidebar-cache sidecar once, then the
 workspace settings payload is canonical.
 
-If you are tempted to add a feature-specific property to the sidebar composition atoms, that property belongs in a feature atom instead. If you are tempted to add a feature type to `Core/Models/`, test it: does *multiple features* and *cross-cutting composition* consume it? If only one feature uses it, it belongs in that feature.
+If you are tempted to add a feature-specific property to the sidebar composition atoms, that property belongs in a feature atom instead. If you are tempted to add a feature type to [`Core/Models/`](../../Sources/AgentStudio/Core/Models), test it: does *multiple features* and *cross-cutting composition* consume it? If only one feature uses it, it belongs in that feature.
 
-Current exception to watch: `PaneContent.bridgePanel(BridgePaneState)` stores bridge-pane payload in `Core/Models/PaneContent.swift`. This exists because the persisted pane union is currently defined in Core while pane content variants are decoded from workspace state. Treat it as a transitional persistence boundary, not a precedent for adding more feature-owned types to Core. New bridge domain state still belongs in `Features/Bridge/State/...`; any future cleanup should move toward a Core-owned content descriptor connected by App instead of widening Core's knowledge of Bridge internals.
+Current exception to watch: `PaneContent.bridgePanel(BridgePaneState)` stores bridge-pane payload in [`Core/Models/PaneContent.swift`](../../Sources/AgentStudio/Core/Models/PaneContent.swift). This exists because the persisted pane union is currently defined in Core while pane content variants are decoded from workspace state. Treat it as a transitional persistence boundary, not a precedent for adding more feature-owned types to Core. New bridge domain state still belongs in `Features/Bridge/State/...`; any future cleanup should move toward a Core-owned content descriptor connected by App instead of widening Core's knowledge of Bridge internals.
 
 #### The Core-imports-nothing-from-Features rule
 
@@ -370,7 +370,7 @@ composition owner.
 
 ### SharedComponents — the design-system layer
 
-`Sources/AgentStudio/SharedComponents/` is a single top-level directory holding shared UI primitives used across the app. Buttons, pills, typography tokens, icon wrappers, small custom controls, layout primitives — the design system.
+[`Sources/AgentStudio/SharedComponents/`](../../Sources/AgentStudio/SharedComponents) is a single top-level directory holding shared UI primitives used across the app. Buttons, pills, typography tokens, icon wrappers, small custom controls, layout primitives — the design system.
 
 #### Rules
 
@@ -413,7 +413,7 @@ Do not move `SelectAllTextField` out of Webview until a second feature needs tha
 - Search fields and shell controls reused by sidebar surfaces, such as `SidebarSearchField`
 - Typography / color tokens
 - Layout primitives with design intent (e.g., `DividerBar`, `SectionStack`)
-- Icon wrappers (`OcticonImage` could reasonably live here; today it's in `Infrastructure/Icons/` — existing placement is grandfathered until a dedicated refactor)
+- Icon wrappers (`OcticonImage` could reasonably live here; today it's in [`Infrastructure/Icons/`](../../Sources/AgentStudio/Infrastructure/Icons) — existing placement is grandfathered until a dedicated refactor)
 - Custom controls not tied to any feature's domain
 
 #### What does NOT belong here
@@ -456,8 +456,8 @@ Host-shell plus feature-content split:
 - Keep host-owned shell assembly in `App/` when placement, anchoring, divider rules, or pane/window wiring are specific to a host surface.
 - Put reusable UI content in `SharedComponents/` when the content may be reused by multiple hosts, even if the first host lives in `App/`.
 - Example:
-  - `App/Panes/DrawerEditorChooser/` owns the drawer button, placement, anchoring, divider, and pane wiring
-  - `SharedComponents/EditorChooser/` owns numbered rows, bookmark UI, and the chooser menu content
+  - [`App/Panes/DrawerEditorChooser/`](../../Sources/AgentStudio/App/Panes/DrawerEditorChooser) owns the drawer button, placement, anchoring, divider, and pane wiring
+  - [`SharedComponents/EditorChooser/`](../../Sources/AgentStudio/SharedComponents/EditorChooser) owns numbered rows, bookmark UI, and the chooser menu content
 
 ### Paths And Modules Are Both Boundaries
 
@@ -488,7 +488,7 @@ What does this file need to import (from within the project)?
 
 ### 2. The Deletion Test
 
-Could you delete `Features/Bridge/` entirely and this file still compiles?
+Could you delete [`Features/Bridge/`](../../Sources/AgentStudio/Features/Bridge) entirely and this file still compiles?
 
 - **Yes** for all features → probably `Core/` or `Infrastructure/`
 - **No**, deleting one specific feature breaks it → lives in that feature (or needs a protocol in `Core/`)
@@ -500,11 +500,11 @@ What causes this file to change?
 | Change driver | Lives in |
 |---|---|
 | New pane type added | `Core/` (pane system is type-agnostic) |
-| New terminal behavior (scrollbar, action, clipboard) | `Features/Terminal/` |
-| New bridge protocol method or push slice | `Features/Bridge/` |
+| New terminal behavior (scrollbar, action, clipboard) | [`Features/Terminal/`](../../Sources/AgentStudio/Features/Terminal) |
+| New bridge protocol method or push slice | [`Features/Bridge/`](../../Sources/AgentStudio/Features/Bridge) |
 | App lifecycle / window management | `App/` |
 | New sidebar surface added | New `Features/<surface>/` slice + composition wiring in `App/` |
-| New sidebar shell / composition state | `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, or `WorkspaceSidebarState` in `Core/State/MainActor/Atoms/` depending on lifecycle (UI shell state is composition, not feature state) |
+| New sidebar shell / composition state | `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, or `WorkspaceSidebarState` in [`Core/State/MainActor/Atoms/`](../../Sources/AgentStudio/Core/State/MainActor/Atoms) depending on lifecycle (UI shell state is composition, not feature state) |
 | New design-system primitive (button, pill, token) | `SharedComponents/` |
 | New reusable view within a single feature | `Features/X/Components/` |
 | New utility used by multiple features | `Infrastructure/` |
@@ -574,27 +574,27 @@ Parallel test for atoms specifically:
 
 These are the resolved placements for components that could reasonably go multiple places:
 
-### WorkspaceSurfaceCoordinator → `App/Coordination/`
+### WorkspaceSurfaceCoordinator → [`App/Coordination/`](../../Sources/AgentStudio/App/Coordination)
 
 Today's cross-feature coordinator is `WorkspaceSurfaceCoordinator`. It sequences operations across `SurfaceManager` (Terminal feature), `WorkspaceStore` (Core), `SessionRuntime` (Core), and `BridgePaneController` (Bridge feature).
 
-**Import test:** imports from multiple features → can't be `Core/`. Lives under `App/Coordination/` in the composition root — this is where Ghostty puts its coordination too (`AppDelegate` delegates to feature controllers).
+**Import test:** imports from multiple features → can't be `Core/`. Lives under [`App/Coordination/`](../../Sources/AgentStudio/App/Coordination) in the composition root — this is where Ghostty puts its coordination too (`AppDelegate` delegates to feature controllers).
 
 **Alternative considered:** Protocol-based `Core/` — define `PaneLifecycleHandler` protocol in Core, features implement it, coordinator dispatches through protocols without importing features. Cleaner dependency graph but more abstraction upfront. We chose `App/` for now (simpler, matches Ghostty's pattern). Can revisit when a third pane type arrives.
 
-### ViewRegistry → `App/Panes/`
+### ViewRegistry → [`App/Panes/`](../../Sources/AgentStudio/App/Panes)
 
 Stores stable pane hosts by pane ID. `ViewRegistry` stores `PaneHostView` and resolves mounted content only for callers that need pane-kind-specific behavior. Adding a new pane kind does not change the split tree's host contract.
 
 **Deletion test:** passes for any single feature. **Change driver:** only changes if the pane registration mechanism itself changes, not when new pane types arrive.
 
-### PaneTabViewController → `App/Panes/`
+### PaneTabViewController → [`App/Panes/`](../../Sources/AgentStudio/App/Panes)
 
 Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switching. The container doesn't care what's inside — renamed from `TerminalTabViewController` during LUNA-334 restructure.
 
 **Deletion test:** passes for any single feature. **Change driver:** tab management behavior changes, not new pane types.
 
-### Pane Hosting → `App/Panes/Hosting/`; reusable interaction helpers → Core
+### Pane Hosting → [`App/Panes/Hosting/`](../../Sources/AgentStudio/App/Panes/Hosting); reusable interaction helpers → Core
 
 `PaneLeafContainer`, `FlatPaneStripContent`, `FlatTabStripContainer`,
 `SingleTabContent`, `ActiveTabContent`, `DrawerPanel`, and
@@ -606,7 +606,7 @@ drop/resize behavior, and Feature-neutral interaction policies such as
 `PaneDragCoordinator`, `SplitContainerDropCaptureOverlay`, and
 `PaneDropTargetOverlay`.
 
-### MainSplitViewController → `App/Windows/`
+### MainSplitViewController → [`App/Windows/`](../../Sources/AgentStudio/App/Windows)
 
 Manages the top-level split between sidebar and content area. Feature-agnostic but app-lifecycle-coupled.
 
@@ -627,7 +627,7 @@ AgentStudioTests                   ──► AgentStudio executable + product mo
 ```
 
 `AgentStudioTestSupport` depends only on `AgentStudioCore`. Its sources live at
-`Tests/AgentStudioTests/TestSupport` (a nested path under the executable test
+[`Tests/AgentStudioTests/TestSupport`](../../Tests/AgentStudioTests/TestSupport) (a nested path under the executable test
 folder, a separate SwiftPM target). It provides Core-level fixtures and helpers
 without becoming an App or Feature registry. Infrastructure and SharedComponents
 tests do not depend on it. Each paired test target owns unit and module-boundary
@@ -662,4 +662,4 @@ that unrelated same-package test products avoid compilation.
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface ownership and lifecycle |
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers |
 
-Named component → slice lookup lives in [Component Architecture §7 Key Files](component_architecture.md#7-key-files). Do not duplicate that catalog here. Root `AGENTS.md` folder arcs are the everyday placement rule. This document owns the repo-root tree, `Sources/AgentStudio/` tree, SwiftPM target DAG, import rule, and four-test decision process.
+Named component → slice lookup lives in [Component Architecture §7 Key Files](component_architecture.md#7-key-files). Do not duplicate that catalog here. Root `AGENTS.md` folder arcs are the everyday placement rule. This document owns the repo-root tree, [`Sources/AgentStudio/`](../../Sources/AgentStudio) tree, SwiftPM target DAG, import rule, and four-test decision process.

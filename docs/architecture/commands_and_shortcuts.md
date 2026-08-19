@@ -2,70 +2,94 @@
 
 ## TL;DR
 
-These files own the command + shortcut system. Each has one job. Use this
-doc as the decision tree before adding a new command, keystroke, UI hint, or
-dense-control tooltip — it's how you avoid creating parallel constants that
-drift.
+The command system is the only place a user action gets an identity **and**
+a display. One `AppCommand` is presented, shortcut, dispatched, and exposed
+over IPC. Labels, icons, help, and dense tooltips are projections of
+`AppCommandSpec` or `LocalActionSpec` — not strings or SF Symbols on the
+control. That is how keyboard, menu, toolbar, command bar, tooltips, and
+RPC stay one verb.
+
+**When:** any new user-visible verb, keystroke, chrome control, command-bar
+row, dense tooltip, or programmatic method. UI with no `AppCommand` still
+uses `LocalActionSpec` / `ActionSpec` for the same display pipeline.
+
+Load [Command Specs And Execution Owners](#command-specs-and-execution-owners)
+then the [file table](#files-to-load). Code against
+[Adding a new command — decision tree](#adding-a-new-command-decision-tree)
+and
+[Exhaustive interactive and IPC projections](#exhaustive-interactive-and-ipc-projections).
+Display:
+[Tooltips, help text, and compact control copy](#tooltips-help-text-and-compact-control-copy).
+
+## Files to load
+
+These source files own the system. Architecture claims should link here so
+paths stay in sync with the tree. Each file has one job.
 
 | File | Owns |
 |------|------|
-| `Sources/AgentStudio/Core/Actions/Commands/AppCommand.swift` | Package-visible command **identities**, spec shape, and dispatch protocol. |
-| `Sources/AgentStudio/Core/Actions/Commands/AppShortcut.swift` | Package-visible keyboard **bindings** + contexts where they fire. |
-| `Sources/AgentStudio/Core/Actions/Commands/AppCommand+Catalog.swift` | Exhaustive interactive `AppCommandSpec` catalog — copy, shortcut, surfaces, targeting, context requirements, and command-bar grouping. |
-| `Sources/AgentStudio/Core/Actions/Commands/AppCommandPresentationPolicy.swift` | Typed interactive surfaces, targeting modes, presentation subjects, and the pure `shouldPresent` query. |
-| `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusedPane.swift` | Immutable normalized focus identity and content. |
-| `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusedPaneResolver.swift` | Pure requested-focus normalization against live workspace state. |
-| `Sources/AgentStudio/Core/State/MainActor/Atoms/CommandContext.swift` | Immutable command-policy facts and requirements. |
-| `Sources/AgentStudio/Core/State/MainActor/Atoms/CommandContextDerived.swift` | Pure projection from focused-pane and workspace/presentation facts. |
-| `Sources/AgentStudio/Core/Actions/Commands/AppCommand+DisplayDescriptor.swift` | Package-visible projection from `AppCommandSpec` into app-free display descriptors and tooltip render values. |
-| `Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift` | Independent exhaustive `AppCommand.ipcSpec` companion projection for IPC exposure, durable targets, privileges, and arguments, plus public command-list DTO projection. |
-| `Sources/AgentStudio/Core/Actions/UIActionPresentation.swift` | `LocalActionSpec` and app-free action presentation helpers for tooltips, button labels, menu items. |
-| `Sources/AgentStudio/Core/Actions/ControlTooltipSource.swift` | App-free tooltip source, provenance, copy style, and resolver. |
-| `Sources/AgentStudio/Infrastructure/ControlTooltipRenderValue.swift` | Render-only tooltip value that UI primitives and shared components may consume. |
+| [`AppCommand.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommand.swift) | Command **identities**, `AppCommandSpec` shape (label, `CommandIcon`, `helpText`, surfaces, targeting), and dispatch protocol. |
+| [`AppShortcut.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppShortcut.swift) | Keyboard **bindings** and the contexts where they fire. |
+| [`AppCommand+Catalog.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+Catalog.swift) | Exhaustive interactive `AppCommandSpec` catalog — the only place to add command copy, icon, shortcut, surfaces, targeting, context requirements, and command-bar grouping. |
+| [`CommandIcon.swift`](../../Sources/AgentStudio/Core/Actions/CommandIcon.swift) | `CommandIcon` / `SystemSymbol` / octicon tokens used by specs. Do not invent SF Symbol names on controls. |
+| [`AppCommandPresentationPolicy.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommandPresentationPolicy.swift) | Typed interactive surfaces, targeting modes, presentation subjects, and the pure `shouldPresent` query. |
+| [`AppCommandDispatcher.swift`](../../Sources/AgentStudio/App/Commands/AppCommandDispatcher.swift) | The only execution entry. Hosts dispatch; they do not call owners directly. |
+| [`WorkspaceFocusedPane.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusedPane.swift) | Immutable normalized focus identity and content. |
+| [`WorkspaceFocusedPaneResolver.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusedPaneResolver.swift) | Pure requested-focus normalization against live workspace state. |
+| [`CommandContext.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/CommandContext.swift) | Immutable command-policy facts and requirements. |
+| [`CommandContextDerived.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/CommandContextDerived.swift) | Pure projection from focused-pane and workspace/presentation facts. |
+| [`AppCommand+DisplayDescriptor.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+DisplayDescriptor.swift) | Projection from `AppCommandSpec` into app-free display descriptors and tooltip render values. |
+| [`AppCommand+IPCProjection.swift`](../../Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift) | Independent exhaustive `ipcSpec`: exposure, durable targets, privileges, arguments, plus public command-list DTO. |
+| [`UIActionPresentation.swift`](../../Sources/AgentStudio/Core/Actions/UIActionPresentation.swift) | `LocalActionSpec` / `ActionSpec` for UI with no `AppCommand` — labels, icons, help, compact tooltips. |
+| [`ControlTooltipSource.swift`](../../Sources/AgentStudio/Core/Actions/ControlTooltipSource.swift) | Tooltip source, provenance, copy style, and resolver. |
+| [`ControlTooltipRenderValue.swift`](../../Sources/AgentStudio/Infrastructure/ControlTooltipRenderValue.swift) | Render-only tooltip value that UI primitives and SharedComponents may consume. |
 
 ## Command Specs And Execution Owners
 
-Before adding or changing a command, use this landing pad, then the sections it
-names. `AppCommand` is identity. `AppShortcut` is bindings.
-`AppCommandSpec` is interactive presentation, typed surfaces, targeting,
-command-context requirements, and command-bar grouping.
-`AppCommand+IPCProjection.swift` independently owns exhaustive IPC exposure,
-durable-target, privilege, and argument contracts plus the public DTO
-projection. Detail: [The four layers](#the-four-layers) and
-[Exhaustive interactive and IPC projections](#exhaustive-interactive-and-ipc-projections).
+**Importance.** Without this catalog, every host invents its own verb. The
+menu says one thing, the toolbar icon another, the shortcut a third, IPC a
+fourth. Specs exist so adding a command is one identity plus two exhaustive
+projections: interactive (`AppCommandSpec`) and IPC (`ipcSpec`). Display is
+part of the spec, not a view concern.
 
-Every interactive host requests its exact `AppCommandSurface`. Pane toolbars and
-terminal-Zoom toolbars are distinct surfaces. `shouldPresent` controls presence
-only. Contextual or targeted `canDispatch` plus the execution owner's
-validators control enablement and execution authority. The dispatcher rejects
-undeclared invocation modes or target kinds before routing. Detail:
-[Focus, presentation, and execution](#focus-presentation-and-execution).
+**How to use it.** Add or reuse `AppCommand`, fill `AppCommandSpec` in the
+catalog, classify `ipcSpec` in the same change, then bind a host. For UI
+with no command identity, add or reuse `LocalActionSpec` and project
+`actionSpec`. Never add a control, label, icon, tooltip, or RPC method that
+the catalog cannot see.
 
-Keyboard routing remains under `ActiveKeyboardSurface` /
-`AppShortcutDispatchPolicy`. IPC remains UI-independent with its metadata,
-authorization, privilege, argument, and runtime validation gates. Use
-`LocalActionSpec` only for UI actions without an `AppCommand` identity. Dense
-toolbar, titlebar, and drawer tooltips must use the typed tooltip source
-contract and
-[Style Guide — Shared Shell Controls](../guides/style_guide.md#shared-shell-controls),
-not parallel `.help`, AppKit `toolTip`, or custom hover strings. Detail:
-[Tooltips, help text, and compact control copy](#tooltips-help-text-and-compact-control-copy)
-and [Keyboard Surface Contract](#keyboard-surface-contract).
+**Display.** Hosts project; they do not copy:
 
-App, window, and sidebar shell commands may route through `AppDelegate`. Pane,
-drawer, focus, layout, and workspace commands route through
-`PaneTabViewController`. Detail:
-[Choosing the execution owner](#choosing-the-execution-owner).
+```text
+AppCommandSpec
+  -> CommandDisplayDescriptor
+  -> ControlTooltipSource
+  -> ControlTooltipRenderValue
+```
 
-Command-bar scopes have separate ownership. `>` owns verbs. `$` owns existing
-pane and tab navigation. `#` owns repo and worktree locations and opening. Do
-not add repo/worktree management rows to `$`, do not add arbitrary verbs to
-`#`, and do not duplicate `LocalActionSpec` labels or icons when a
-sidebar/local action already defines the presentation. Detail:
+`AppCommandSpec.actionSpec` supplies label, `helpText`, and `CommandIcon`.
+UI-only controls use `LocalActionSpec.actionSpec` into the same descriptor
+shape. SharedComponents render resolved values only — they must not take
+`AppCommandSpec`, `ActionSpec`, or `ControlTooltipSource`. Detail:
+[Tooltips, help text, and compact control copy](#tooltips-help-text-and-compact-control-copy).
+
+**Load.** [Files to load](#files-to-load) is the path table. Then:
+
+- Layers and focus: [The four layers](#the-four-layers),
+  [Focus, presentation, and execution](#focus-presentation-and-execution)
+- Presence vs enablement: hosts ask `shouldPresent`; `canDispatch` plus
+  validators are authority
+- IPC: [Exhaustive interactive and IPC projections](#exhaustive-interactive-and-ipc-projections)
+- Keyboard: [Keyboard Surface Contract](#keyboard-surface-contract);
+  display keys with `displayKeyBinding(in:)`
+- Owners: [Choosing the execution owner](#choosing-the-execution-owner)
+  (`AppDelegate` for app/window/sidebar shell; `PaneTabViewController` for
+  pane, drawer, focus, layout, workspace)
+- Add/change: [Adding a new command — decision tree](#adding-a-new-command-decision-tree)
+
+Command-bar `>` `$` `#` rows consume this catalog; they are not how you
+define a command. Detail:
 [Command Bar Scope Ownership](#command-bar-scope-ownership).
-
-To add a command, follow
-[Adding a new command — decision tree](#adding-a-new-command-decision-tree).
 
 ## The four layers
 
@@ -248,6 +272,15 @@ silently present UI.
 <a id="adding-a-new-command-decision-tree"></a>
 ## Adding a new command — decision tree
 
+If the user can click it, type a shortcut for it, or find it in the command
+bar, start here. Do not add a SwiftUI `Button`, AppKit menu/toolbar item, or
+command-bar row that calls a coordinator, atom, or closure with a hardcoded
+label. Toolbars resolve `AppCommand` through hosts such as
+`PaneSurfaceToolbarHost`. Command-bar `>` rows come from `AppCommandSpec` via
+`CommandBarDataSource`.
+
+0. **Already an `AppCommand` or `LocalActionSpec`?** Reuse it. Bind the host
+   to `AppCommandDispatcher` / the existing spec. Stop.
 1. **New command identity?** Add a case to `AppCommand`.
 2. **Keyboard binding?** Add a case to `AppShortcut` with its trigger and
    contexts.
@@ -256,16 +289,18 @@ silently present UI.
    command requirements, shortcut, and command-bar grouping.
 4. **IPC classification?** Classify the same identity in the exhaustive
    exposure, durable-target, privilege, and argument switches in
-   `AppCommand+IPCProjection.swift`.
+   [`AppCommand+IPCProjection.swift`](../../Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift).
 5. **Interactive host?** Have the host request its exact
    `AppCommandPresentationQuery`, keep placement/order local, and use the
    matching `canDispatch` overload for enabled state.
 6. **UI-only action with no command identity?** Add a `LocalActionSpec` case
-   for label, help text, icon, and tooltip projection.
+   for label, help text, icon, and tooltip projection. Do not invent a
+   second label string at the call site.
 
 You almost never want to skip a layer. If you find yourself hardcoding
-a key character in a view OR a label string in a controller, you're
-about to create a parallel system — back up to step 1.
+a key character in a view, a label string in a controller, or a `Button`
+action that bypasses `AppCommandDispatcher`, you're about to create a
+parallel system — back up to step 0.
 
 ## Choosing the execution owner
 
@@ -600,9 +635,12 @@ helper returns `nil` — handle that case explicitly.
 
 ## Tooltips, help text, and compact control copy
 
-`ActionSpec.helpText` is descriptive command help. It is appropriate for command
-palette rows, menus, accessibility descriptions, and other places where the
-user is reading an action description.
+Labels, icons, help, and dense tooltips come from the spec, not the control.
+[`ActionSpec.helpText`](../../Sources/AgentStudio/Core/Actions/UIActionPresentation.swift)
+is descriptive command help for command-palette rows, menus, accessibility
+descriptions, and other places where the user is reading an action
+description. Icons are [`CommandIcon`](../../Sources/AgentStudio/Core/Actions/CommandIcon.swift)
+on the spec.
 
 Icon buttons and dense toolbars need compact control text instead. Use the
 typed tooltip source contract rather than hand-written `.help("...")`,
@@ -616,11 +654,16 @@ AppCommandSpec
   -> ControlTooltipRenderValue
 ```
 
-For command-backed controls, `App/Commands` owns projection from
-`AppCommandSpec` into the display descriptor. For UI-only controls,
-`LocalActionSpec.actionSpec` projects into the same descriptor shape. For
-feature-local shortcuts, the feature's keyboard router and tooltip display must
-share one local descriptor before producing `ShortcutDisplayText`.
+Owned by
+[`AppCommand+DisplayDescriptor.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+DisplayDescriptor.swift),
+[`ControlTooltipSource.swift`](../../Sources/AgentStudio/Core/Actions/ControlTooltipSource.swift),
+and
+[`ControlTooltipRenderValue.swift`](../../Sources/AgentStudio/Infrastructure/ControlTooltipRenderValue.swift).
+For command-backed controls, App projects `AppCommandSpec` into the display
+descriptor. For UI-only controls, `LocalActionSpec.actionSpec` projects into
+the same descriptor shape. For feature-local shortcuts, the feature's
+keyboard router and tooltip display must share one local descriptor before
+producing `ShortcutDisplayText`.
 
 `ControlTooltipRenderValue` and primitive shortcut display text may live at the
 Infrastructure/render boundary so `SharedComponents` can consume them.
@@ -656,10 +699,12 @@ two call sites will fork and diverge.
 
 | Goes here | When the value… | Examples |
 |-----------|-----------------|----------|
-| `AppShortcut` | Is a keyboard binding (key + modifiers + contexts) | `cmd-shift-D` for `addDrawerPane`, raw `P` for empty-drawer alt |
-| `AppPolicies.DragAndDrop` (or other AppPolicies subdomain) | Is a runtime behavioral rule that gates filtering, hit testing, ordering, what's accepted vs rejected | `drawerMaxRows = 2`, `paneRowSideZoneFloor = 24`, `paneRowSideZoneFraction = 0.25` |
-| `AppStyles.General.Layout` (or other AppStyles subdomain) | Only changes how something LOOKS (paint width, font size, opacity) | `dropTargetMarkerWidth = 8`, `paneGap = 1` |
-| `LocalActionSpec` (`actionSpec.label`, `actionSpec.helpText`, `actionSpec.controlToolTip`) | Is UI text shown in buttons, menus, command rows, or compact tooltips | "Add Drawer Pane", "Add a drawer pane to the active pane", "Clear notifications" |
+| [`AppCommandSpec`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+Catalog.swift) | Is command identity display: label, `CommandIcon`, `helpText`, shortcut, surfaces | Catalog entry for `addDrawerPane` |
+| [`AppShortcut`](../../Sources/AgentStudio/Core/Actions/Commands/AppShortcut.swift) | Is a keyboard binding (key + modifiers + contexts) | `cmd-shift-D` for `addDrawerPane`, raw `P` for empty-drawer alt |
+| [`CommandIcon`](../../Sources/AgentStudio/Core/Actions/CommandIcon.swift) | Is the SF Symbol or octicon token on a spec | `.system(.plus)`, `.octicon(.gitPullRequest)` |
+| [`AppPolicies`](../../Sources/AgentStudio/Infrastructure/AppPolicies.swift) (for example `AppPolicies.DragAndDrop`) | Is a runtime behavioral rule that gates filtering, hit testing, ordering, what's accepted vs rejected | `drawerMaxRows = 2`, `paneRowSideZoneFloor = 24`, `paneRowSideZoneFraction = 0.25` |
+| [`AppStyles`](../../Sources/AgentStudio/Infrastructure/AppStyles.swift) (for example `AppStyles.General.Layout`) | Only changes how something LOOKS (paint width, font size, opacity) | `dropTargetMarkerWidth = 8`, `paneGap = 1` |
+| [`LocalActionSpec`](../../Sources/AgentStudio/Core/Actions/UIActionPresentation.swift) (`actionSpec.label`, `actionSpec.helpText`, `actionSpec.controlToolTip`) | Is UI text shown in buttons, menus, command rows, or compact tooltips when there is no `AppCommand` | "Add Drawer Pane", "Add a drawer pane to the active pane", "Clear notifications" |
 
 If a value SOMETIMES gates behavior and SOMETIMES is purely visual
 (rare), prefer `AppPolicies` and have the visual layer read from it.
@@ -696,10 +741,14 @@ Steps:
 
 ## Common mistakes
 
+  ▸ **Adding an ad-hoc button, menu item, toolbar control, or command-bar
+    row — including its label, icon, or tooltip.** The dispatcher, shortcut,
+    IPC projection, and command bar never see it. Add or reuse `AppCommand`
+    / `LocalActionSpec` and bind the host; project display from the spec.
   ▸ **Hardcoding the key character in a view's text label.** Drifts
     from the AppShortcut binding. Use `displayKeyBinding(in:)`.
-  ▸ **Hardcoding the action description string.** Drifts from
-    `LocalActionSpec`. Use `LocalActionSpec.foo.actionSpec.helpText`.
+  ▸ **Hardcoding the action description string or SF Symbol.** Drifts from
+    `AppCommandSpec` / `LocalActionSpec`. Use `actionSpec` and `CommandIcon`.
   ▸ **Creating a parallel constant for "this raw key fires this
     action".** Add an alternate trigger to the existing `AppShortcut`
     case. Parallel constants always drift — the AppShortcut system

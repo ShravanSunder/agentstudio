@@ -72,13 +72,13 @@ organization, always load command specs and directory structure together.
 
 | When | Load | What you get wrong if you skip |
 | --- | --- | --- |
-| How the app is organized | Always load [Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure) and [Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners) | You put a type in the wrong slice, invent a parallel command path, or guess owners from this file. |
+| How the app is organized | Always load [Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure) and [Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners) (then [Files to load](docs/architecture/commands_and_shortcuts.md#files-to-load)) | You put a type in the wrong slice, invent a parallel command path, or guess owners from this file. |
 | Any architecture question | [Architecture Overview — How To Read](docs/architecture/README.md#how-to-read-this-index) | You search the tree instead of the owning doc. That index is the one architecture catalog. |
 | File or new type placement | [Directory Structure — Decision Process](docs/architecture/directory_structure.md#decision-process-where-does-this-file-go) | A Feature type lands in `Core/Models/`. Named component → slice lookup is [Component Architecture §7](docs/architecture/component_architecture.md#7-key-files). Repo tree and SwiftPM DAG: [Repository Root](docs/architecture/directory_structure.md#repository-root), [Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure), [SwiftPM Module Graph](docs/architecture/directory_structure.md#swiftpm-module-graph). |
 | File or module test placement | [Directory Structure — Test Target Ownership](docs/architecture/directory_structure.md#test-target-ownership) | A module test parks on the executable target, or you infer ownership from `swift test --filter`. |
 | Do I need an atom, derived node, eager projection, or a repository? | [Need An Atom?](docs/architecture/atom_persistence_boundaries.md#need-an-atom) | You wrap CRUD in an atom, assume every atom is a SQL table, or reach for `EagerDerivedAtomFamily` as a default. |
 | Write-owner vs derived vs SQLite row | [Atom Persistence Boundaries — Roles](docs/architecture/atom_persistence_boundaries.md#roles) | A `Codable` convenience type becomes both live state and the storage contract. Survey does not mean persist. |
-| Command, shortcut, tooltip, or IPC | [Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners) | You invent a parallel `.help`, shortcut, or IPC path the dispatcher never sees. Dense tooltips: [Tooltips, help text, and compact control copy](docs/architecture/commands_and_shortcuts.md#tooltips-help-text-and-compact-control-copy). |
+| Command, shortcut, tooltip, or IPC | [Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners), then [Files to load](docs/architecture/commands_and_shortcuts.md#files-to-load), [Adding a new command — decision tree](docs/architecture/commands_and_shortcuts.md#adding-a-new-command-decision-tree), and [Exhaustive interactive and IPC projections](docs/architecture/commands_and_shortcuts.md#exhaustive-interactive-and-ipc-projections) | You invent a button, label, icon, tooltip, shortcut, or IPC method off the spec catalog. Display hops: [Tooltips, help text, and compact control copy](docs/architecture/commands_and_shortcuts.md#tooltips-help-text-and-compact-control-copy). |
 | Native chrome / shared UI | [Style Guide — Shared Shell Controls](docs/guides/style_guide.md#shared-shell-controls) and [App Architecture — Core Hosting Patterns](docs/architecture/appkit_swiftui_architecture.md#core-hosting-patterns) | You copy styling into a feature or put a behavior constant in `AppStyles`. |
 | BridgeWeb React UI | This file, then [BridgeWeb AGENTS.md — UI Components](BridgeWeb/AGENTS.md#ui-components) | You hand-roll route-local controls instead of owned primitives. Token recipes live in [BridgeWeb Design-Token Architecture — Layer and ownership rules](docs/architecture/bridgeweb_design_token_architecture.md#layer-and-ownership-rules). The Vite loop lives in [BridgeWeb Fast UI Loop](docs/guides/agent_resources.md#bridgeweb-fast-ui-loop). |
 | Bootstrap, Vite loop, zig/Xcode, build slots | [First-Time Setup](docs/guides/agent_resources.md#first-time-setup), [BridgeWeb Fast UI Loop](docs/guides/agent_resources.md#bridgeweb-fast-ui-loop), [Xcode And Zig](docs/guides/agent_resources.md#xcode-and-zig-vendor-builds), [Swift Build-Slot Recovery](docs/guides/agent_resources.md#swift-build-slot-recovery) | You hydrate vendors by hand, rebuild the full app for Bridge UI, or collide on `.build`. |
@@ -131,17 +131,43 @@ Do not rebuild the full app for Bridge UI iteration. Native git prep uses
 dev-server or test fixture utilities. Worktrunk is retired: no `wt`/Git CLI
 data plane.
 
-**Commands.** Always load
-[Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners)
-before adding, changing, routing, or asking who owns a command.
-Command-bar scopes live in
-[Command Bar Scope Ownership](docs/architecture/commands_and_shortcuts.md#command-bar-scope-ownership):
-`>` owns verbs; `$` owns existing pane/tab navigation; `#`
-owns repo/worktree locations and opening. Do not add repo/worktree management
-rows to `$`, do not add arbitrary verbs to `#`, and do not duplicate
-`LocalActionSpec` labels when a sidebar/local action already defines
-presentation. `shouldPresent` controls presence only; validators control
-enablement.
+**Commands.** Only add commands **and command displays** through the spec
+system. That means label, icon, help, tooltip, shortcut glyph, toolbar/menu
+presence, command-bar row, and IPC method. Do not put those on a view.
+**Why:** one `AppCommand` identity so keyboard, menu, toolbar, command bar,
+tooltips, and IPC cannot drift. Hosts consume the catalog; they do not define
+verbs or copy. **When:** any new user-visible verb, keystroke, chrome control,
+or programmatic method. UI with no `AppCommand` still uses `LocalActionSpec` /
+`ActionSpec` for the same display pipeline.
+
+Load [Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners)
+then the [file table](docs/architecture/commands_and_shortcuts.md#files-to-load).
+Code against
+[Adding a new command — decision tree](docs/architecture/commands_and_shortcuts.md#adding-a-new-command-decision-tree)
+and
+[Exhaustive interactive and IPC projections](docs/architecture/commands_and_shortcuts.md#exhaustive-interactive-and-ipc-projections).
+Display:
+[Tooltips, help text, and compact control copy](docs/architecture/commands_and_shortcuts.md#tooltips-help-text-and-compact-control-copy).
+
+- `AppCommand` is identity. Add the case first.
+- `AppCommandSpec` is the interactive catalog: label, `CommandIcon`,
+  `helpText`, shortcut, `surfacePolicy`, targeting, `visibleWhen`. Hosts
+  project the spec; they do not copy those strings or icons.
+  `shouldPresent` is presence only. `canDispatch` plus validators are
+  enablement and authority.
+- Icons, labels, help, and dense tooltips come from the spec projection:
+  `AppCommandSpec` → `CommandDisplayDescriptor` → `ControlTooltipSource` →
+  `ControlTooltipRenderValue`. UI-only controls use
+  `LocalActionSpec.actionSpec` into the same shape. No `.help`, AppKit
+  `toolTip`, or ad-hoc SF Symbol on the control.
+- `AppShortcut` is bindings. Display keys with `displayKeyBinding(in:)`.
+- Execute only through `AppCommandDispatcher`. Shell vs pane owners:
+  [Choosing the execution owner](docs/architecture/commands_and_shortcuts.md#choosing-the-execution-owner).
+- IPC is a separate exhaustive `ipcSpec` (exposure, durable target,
+  privilege, arguments). Adding an `AppCommand` must classify IPC in the
+  same change. Do not add an IPC method that is not an `AppCommand`.
+- `LocalActionSpec` / `ActionSpec` is presentation-only when there is no
+  `AppCommand`. Reuse it; do not invent a second label.
 
 **Atoms.** Inspired by Jotai: a piece of **shared UI state** that subscribers
 observe. Read our implementation:

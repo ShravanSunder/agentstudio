@@ -48,7 +48,7 @@ The phase-1 foundation currently owns:
 - Pane-agent bootstrap primitive that delivers a single-use subject token
   through a close-on-exec file descriptor while environment variables carry
   only socket/runtime routing metadata.
-- App-owned pane-agent launch owner under `App/PaneAgents` that remaps exactly
+- App-owned pane-agent launch owner under [`App/PaneAgents`](../../Sources/AgentStudio/App/PaneAgents) that remaps exactly
   one bootstrap fd into `agentstudio-pane-agent` with
   `POSIX_SPAWN_CLOEXEC_DEFAULT`.
 - `agentstudio-pane-agent` helper executable that reads the bootstrap fd once,
@@ -457,7 +457,7 @@ IPC methods are not command-bus messages. The app IPC layer validates method
 identity, principal authority, target scope, and grants before calling the
 smallest app-owned protocol port that can satisfy the operation.
 
-The live app listener is composed by `AppDelegate+IPC.swift` after workspace
+The live app listener is composed by [`AppDelegate+IPC.swift`](../../Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift) after workspace
 boot wires lifecycle consumers. It writes runtime metadata under
 `AppDataPaths.rootDirectory()/ipc`, refuses to steal an existing live socket,
 unlinks only stale dead sockets, and stops before termination persistence drains

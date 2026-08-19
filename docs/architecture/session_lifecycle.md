@@ -124,7 +124,7 @@ This makes session name length a hard runtime constraint, not just formatting.
 ### Debug App Identity Budget
 
 Debug observability launches first try an app-bundle launch.
-`scripts/run-debug-observability.sh` computes a deterministic four-character
+[`scripts/run-debug-observability.sh`](../../scripts/run-debug-observability.sh) computes a deterministic four-character
 base36 code from the canonical worktree path and uses it for debug app
 identity:
 
@@ -487,7 +487,7 @@ change the UUIDv7 generation rule for new sessions.
 
 ## SessionStatus State Machine (Dormant)
 
-A full 7-state machine exists in `Core/Models/SessionStatus.swift` for future integration with zmx backend health monitoring. It is **not yet wired** into `SessionRuntime` (which uses the simpler `SessionRuntimeStatus` enum above).
+A full 7-state machine exists in [`Core/Models/SessionStatus.swift`](../../Sources/AgentStudio/Core/Models/SessionStatus.swift) for future integration with zmx backend health monitoring. It is **not yet wired** into `SessionRuntime` (which uses the simpler `SessionRuntimeStatus` enum above).
 
 ```mermaid
 stateDiagram-v2
@@ -519,21 +519,21 @@ stateDiagram-v2
 
 | File | Role |
 |------|------|
-| `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper over the canonical workspace atoms |
-| `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime health monitoring and status tracking |
-| `App/Coordination/WorkspaceSurfaceCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
-| `Core/Models/Pane.swift` | Pane identity and content metadata |
-| `Core/Models/SessionLifetime.swift` | `.persistent` / `.temporary` enum |
-| `Core/Models/SessionResidency.swift` | `.active` / `.pendingUndo` / `.backgrounded` enum |
-| `Core/Models/Layout.swift` | Value-type split layout tree (Codable for persistence) |
-| `Core/Models/Tab.swift` | Tab with layout and active pane |
-| `Core/Models/SessionConfiguration.swift` | Config detection from env vars |
-| `Core/Models/SessionStatus.swift` | 7-state machine definition for future zmx health |
-| `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
-| `Infrastructure/ProcessExecutor.swift` | Protocol + `DefaultProcessExecutor` for CLI execution |
-| `Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` | zmx CLI wrapper — session ID gen, create/destroy/healthCheck |
-| `Features/Terminal/Hosting/TerminalPaneMountView.swift` | Terminal mounted content (displays surfaces, does not own them) |
-| `App/Boot/AppDelegate.swift` | Launch flow — restore workspace, create window |
+| [`Core/State/MainActor/Persistence/WorkspaceStore.swift`](../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift) | Main-actor persistence wrapper over the canonical workspace atoms |
+| [`Core/RuntimeEventSystem/Runtime/SessionRuntime.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/SessionRuntime.swift) | Runtime health monitoring and status tracking |
+| [`App/Coordination/WorkspaceSurfaceCoordinator.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift) | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
+| [`Core/Models/Pane.swift`](../../Sources/AgentStudio/Core/Models/Pane.swift) | Pane identity and content metadata |
+| [`Core/Models/SessionLifetime.swift`](../../Sources/AgentStudio/Core/Models/SessionLifetime.swift) | `.persistent` / `.temporary` enum |
+| [`Core/Models/SessionResidency.swift`](../../Sources/AgentStudio/Core/Models/SessionResidency.swift) | `.active` / `.pendingUndo` / `.backgrounded` enum |
+| [`Core/Models/Layout.swift`](../../Sources/AgentStudio/Core/Models/Layout.swift) | Value-type split layout tree (Codable for persistence) |
+| [`Core/Models/Tab.swift`](../../Sources/AgentStudio/Core/Models/Tab.swift) | Tab with layout and active pane |
+| [`Core/Models/SessionConfiguration.swift`](../../Sources/AgentStudio/Core/Models/SessionConfiguration.swift) | Config detection from env vars |
+| [`Core/Models/SessionStatus.swift`](../../Sources/AgentStudio/Core/Models/SessionStatus.swift) | 7-state machine definition for future zmx health |
+| [`Infrastructure/StateMachine/StateMachine.swift`](../../Sources/AgentStudio/Infrastructure/StateMachine/StateMachine.swift) | Generic state machine with effect handling |
+| [`Infrastructure/ProcessExecutor.swift`](../../Sources/AgentStudio/Infrastructure/ProcessExecutor.swift) | Protocol + `DefaultProcessExecutor` for CLI execution |
+| [`Core/RuntimeEventSystem/Runtime/ZmxBackend.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/ZmxBackend.swift) | zmx CLI wrapper — session ID gen, create/destroy/healthCheck |
+| [`Features/Terminal/Hosting/TerminalPaneMountView.swift`](../../Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneMountView.swift) | Terminal mounted content (displays surfaces, does not own them) |
+| [`App/Boot/AppDelegate.swift`](../../Sources/AgentStudio/App/Boot/AppDelegate.swift) | Launch flow — restore workspace, create window |
 
 ## Related Documentation
 

@@ -1,8 +1,8 @@
 # BridgeWeb Design-Token Architecture
 
 BridgeWeb and native Agent Studio have separate styling authorities. The native source of
-truth is `Sources/AgentStudio/Infrastructure/AppStyles.swift`; the web source of truth is
-`BridgeWeb/src/app/bridge-app.css`. They are correlated by convention, not generation or a
+truth is [`Sources/AgentStudio/Infrastructure/AppStyles.swift`](../../Sources/AgentStudio/Infrastructure/AppStyles.swift); the web source of truth is
+[`BridgeWeb/src/app/bridge-app.css`](../../BridgeWeb/src/app/bridge-app.css). They are correlated by convention, not generation or a
 runtime dependency. An editor changing an exact correlation must update both authorities in
 their owning slices; approximate correlations preserve intent rather than identical storage.
 
@@ -71,8 +71,10 @@ their own visual-delta review. The S1 foundation changes only the input stroke f
 
 ## Enforcement
 
-`BridgeWeb/scripts/check-bridgeweb-design-tokens.ts` runs after the BridgeWeb architecture
-checker in `pnpm run check` and fails closed with file, line, and rule ID. It enforces:
+[`BridgeWeb/scripts/check-bridgeweb-architecture.ts`](../../BridgeWeb/scripts/check-bridgeweb-architecture.ts)
+runs in `pnpm run check` and fails closed with file, line, and rule ID. Design-token
+enforcement in this doc is the intended contract; the live checker is the architecture
+script, not a separate `check-bridgeweb-design-tokens.ts`. It enforces:
 
 1. `no-raw-color-literal`: no hex, rgb, hsl, or oklch literal outside primitive and test homes;
    the two S4 theme files have a count-bounded transitional baseline.
@@ -93,7 +95,7 @@ choose a per-surface appearance that matches its own background.
 
 1. Confirm no existing semantic role already states the meaning.
 2. Add a literal primitive inside the marker block only when the value itself is new, and add
-   the identical entry to `bridge-design-palette.ts`.
+   the identical entry to [`bridge-design-palette.ts`](../../BridgeWeb/src/design-tokens/bridge-design-palette.ts).
 3. Define the semantic role in `:root` from a primitive, add a one-line meaning comment, and
    register it in `@theme inline` when Tailwind utilities consume it.
 4. Define product-specific contexts from roles or primitives; do not expose primitives to
@@ -102,7 +104,7 @@ choose a per-surface appearance that matches its own background.
 
 ## Adding a shadcn component
 
-Check `BridgeWeb/src/components/ui/` first. If the primitive is missing, add its owned shadcn
+Check [`BridgeWeb/src/components/ui/`](../../BridgeWeb/src/components/ui) first. If the primitive is missing, add its owned shadcn
 source there, replace upstream values with Agent Studio roles and compact geometry, and fold
 any upstream light/dark split into the single approved dark branch. Compose it through a
 feature-neutral BridgeViewer wrapper when FileViewer and ReviewViewer share the interaction.

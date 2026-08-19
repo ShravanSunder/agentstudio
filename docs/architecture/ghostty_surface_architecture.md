@@ -230,7 +230,7 @@ UI consumers (search by CWD, breadcrumbs, grouping)
 ### Key Design Points
 
 - **1 pane = 1 surface = 1 CWD**. Layout splits create separate panes, so each pane tracks its own CWD independently.
-- **`CWDNormalizer`** (`Infrastructure/CWDNormalizer.swift`): Pure function — `nil → nil`, `"" → nil`, non-absolute → nil, valid path → `URL.standardizedFileURL`. Defense-in-depth on top of Ghostty's own OSC 7 URI validation.
+- **`CWDNormalizer`** ([`Infrastructure/CWDNormalizer.swift`](../../Sources/AgentStudio/Infrastructure/CWDNormalizer.swift)): Pure function — `nil → nil`, `"" → nil`, non-absolute → nil, valid path → `URL.standardizedFileURL`. Defense-in-depth on top of Ghostty's own OSC 7 URI validation.
 - **Dual storage**: `SurfaceMetadata.workingDirectory` (surface-level truth) + `PaneMetadata.cwd` (model-level, persisted). Both update synchronously on main thread.
 - **Thread safety**: The C callback may fire off-main; the callback router captures stable identity synchronously, then uses `Task { @MainActor ... }` before touching `SurfaceView` or runtime state.
 - **Dedup**: Both `SurfaceView.pwd` (didSet guard) and `WorkspaceStore.updatePaneCWD` (equality check) skip redundant updates.
@@ -364,17 +364,17 @@ All three initializers require `paneId:`. The view never creates its own surface
 
 | File | Purpose |
 |------|---------|
-| `Ghostty/SurfaceManager.swift` | Singleton owner, lifecycle, health monitoring, CWD propagation |
-| `Ghostty/SurfaceTypes.swift` | SurfaceState, ManagedSurface, SurfaceMetadata, protocols |
-| `Infrastructure/CWDNormalizer.swift` | Pure normalizer: raw pwd string → validated file URL |
-| `Ghostty/GhosttySurfaceView.swift` | Surface view with `pwd` property (OSC 7 CWD tracking) |
-| `Ghostty/Ghostty.swift` | Thin composition root for the embedded Ghostty host |
-| `Ghostty/GhosttyAppHandle.swift` | Owns `ghostty_app_t` and config lifetime |
-| `Ghostty/GhosttyCallbackRouter.swift` | Owns the C callback table and userdata reconstruction |
-| `Ghostty/GhosttyActionRouter.swift` | Owns Ghostty action routing and runtime lookup |
-| `Ghostty/GhosttyAppFocusSynchronizer.swift` | Mirrors app lifecycle focus into `ghostty_app_set_focus` |
-| `Hosting/TerminalPaneMountView.swift` | Terminal mount container, implements `SurfaceHealthDelegate` |
-| `Views/SurfaceErrorOverlay.swift` | Error state UI with restart/close |
+| [`Ghostty/SurfaceManager.swift`](../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift) | Singleton owner, lifecycle, health monitoring, CWD propagation |
+| [`Ghostty/SurfaceTypes.swift`](../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceTypes.swift) | SurfaceState, ManagedSurface, SurfaceMetadata, protocols |
+| [`Infrastructure/CWDNormalizer.swift`](../../Sources/AgentStudio/Infrastructure/CWDNormalizer.swift) | Pure normalizer: raw pwd string → validated file URL |
+| [`Ghostty/GhosttySurfaceView.swift`](../../Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift) | Surface view with `pwd` property (OSC 7 CWD tracking) |
+| [`Ghostty/Ghostty.swift`](../../Sources/AgentStudio/Features/Terminal/Ghostty/Ghostty.swift) | Thin composition root for the embedded Ghostty host |
+| [`Ghostty/GhosttyAppHandle.swift`](../../Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyAppHandle.swift) | Owns `ghostty_app_t` and config lifetime |
+| [`Ghostty/GhosttyCallbackRouter.swift`](../../Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyCallbackRouter.swift) | Owns the C callback table and userdata reconstruction |
+| [`Ghostty/GhosttyActionRouter.swift`](../../Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyActionRouter.swift) | Owns Ghostty action routing and runtime lookup |
+| [`Ghostty/GhosttyAppFocusSynchronizer.swift`](../../Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyAppFocusSynchronizer.swift) | Mirrors app lifecycle focus into `ghostty_app_set_focus` |
+| [`Hosting/TerminalPaneMountView.swift`](../../Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneMountView.swift) | Terminal mount container, implements `SurfaceHealthDelegate` |
+| [`Views/SurfaceErrorOverlay.swift`](../../Sources/AgentStudio/Features/Terminal/Views/SurfaceErrorOverlay.swift) | Error state UI with restart/close |
 
 ---
 

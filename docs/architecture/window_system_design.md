@@ -570,7 +570,7 @@ Multiple UI surfaces that trigger operations through the same `WorkspaceActionCo
 
 A window-level toggle that enables pane manipulation controls. When off, panes show clean content with no distractions. When on, hover reveals controls for rearranging, splitting, minimizing, and closing panes.
 
-- Stored in `ManagementLayerAtom` (`Core/State/MainActor/Atoms/ManagementLayerAtom.swift`) — `@Observable @MainActor` with `private(set) var isActive: Bool`. `ManagementLayerMonitor` (`App/Lifecycle/`) is a side-effect observer, not the canonical owner. See [appkit_swiftui_architecture.md](appkit_swiftui_architecture.md) for the three-component split.
+- Stored in `ManagementLayerAtom` ([`Core/State/MainActor/Atoms/ManagementLayerAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/ManagementLayerAtom.swift)) — `@Observable @MainActor` with `private(set) var isActive: Bool`. `ManagementLayerMonitor` ([`App/Lifecycle/`](../../Sources/AgentStudio/App/Lifecycle)) is a side-effect observer, not the canonical owner. See [appkit_swiftui_architecture.md](appkit_swiftui_architecture.md) for the three-component split.
 - Toggled via toolbar button (separate button group, left of "Add Repo") or keyboard shortcut
 - Icon: `slider.horizontal.3`, highlighted when active
 
@@ -770,7 +770,7 @@ The current layout is a horizontal flat pane strip — vertical splits are not s
 | `right` | `right` | unchanged |
 | `previous` / `next` | `focusPrevPane` / `focusNextPane` | focus only |
 
-This mapping lives in `mapSplitDirection`, `mapResizeSplitDirection`, and `mapGotoSplitDirection` in `App/Coordination/WorkspaceSurfaceCoordinator.swift`.
+This mapping lives in `mapSplitDirection`, `mapResizeSplitDirection`, and `mapGotoSplitDirection` in [`App/Coordination/WorkspaceSurfaceCoordinator.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift).
 
 ### Drawer Pane Tab Resolution
 

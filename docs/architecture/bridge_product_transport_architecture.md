@@ -196,11 +196,11 @@ and its Program Design.
 
 | Concern | Source |
 | --- | --- |
-| Route names and limits | `Sources/AgentStudio/Features/Bridge/Models/Transport/BridgeProductSessionContract.swift` |
-| Native scheme routing | `Sources/AgentStudio/Features/Bridge/Transport/BridgeSchemeHandler.swift` |
-| Typed native calls/content | `BridgeProductCallContracts.swift`, `BridgeProductContentContracts.swift` |
-| Worker transport API | `BridgeWeb/src/core/comm-worker/bridge-product-transport.ts` |
-| Packaged route mapping | `bridge-product-agent-studio-request-executor.ts` |
-| Vite route mapping | `bridge-product-http-request-executor.ts` |
-| File metadata protocol | `bridge-product-subscription-contracts.ts` |
-| Review metadata protocol | `bridge-product-review-metadata-contracts.ts` |
+| Route names and limits | [`Sources/AgentStudio/Features/Bridge/Models/Transport/BridgeProductSessionContract.swift`](../../Sources/AgentStudio/Features/Bridge/Models/Transport/BridgeProductSessionContract.swift) |
+| Native scheme routing | [`Sources/AgentStudio/Features/Bridge/Transport/BridgeSchemeHandler.swift`](../../Sources/AgentStudio/Features/Bridge/Transport/BridgeSchemeHandler.swift) |
+| Typed native calls/content | [`BridgeProductCallContracts.swift`](../../Sources/AgentStudio/Features/Bridge/Models/Transport/BridgeProductCallContracts.swift), [`BridgeProductContentContracts.swift`](../../Sources/AgentStudio/Features/Bridge/Models/Transport/BridgeProductContentContracts.swift) |
+| Worker transport API | [`BridgeWeb/src/core/comm-worker/bridge-product-transport.ts`](../../BridgeWeb/src/core/comm-worker/bridge-product-transport.ts) |
+| Packaged route mapping | [`bridge-product-agent-studio-request-executor.ts`](../../BridgeWeb/src/core/comm-worker/bridge-product-agent-studio-request-executor.ts) |
+| Vite route mapping | [`bridge-product-http-request-executor.ts`](../../BridgeWeb/src/core/comm-worker/bridge-product-http-request-executor.ts) |
+| File metadata protocol | [`bridge-product-subscription-contracts.ts`](../../BridgeWeb/src/core/comm-worker/bridge-product-subscription-contracts.ts) |
+| Review metadata protocol | [`bridge-product-review-metadata-contracts.ts`](../../BridgeWeb/src/core/comm-worker/bridge-product-review-metadata-contracts.ts) |

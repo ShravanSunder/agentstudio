@@ -136,7 +136,7 @@ The feature-level inbox promoter is not Contract 12. C12 remains the runtime-pla
 
 All topology events (`.repoDiscovered`, `.repoRemoved`) and enrichment events (`.snapshotChanged`, `.branchChanged`) flow through `PaneRuntimeEventBus`. The coordinator's bus subscription is the single intake. AppDelegate posts `.repoDiscovered` on the bus for boot replay; `FilesystemActor` posts `.repoDiscovered` and `.repoRemoved` on the bus when diffing watched-folder refreshes.
 
-> **Files:** `Core/RuntimeEventSystem/Events/EventChannels.swift` defines `PaneRuntimeEventBus`. `App/Events/` defines `AppEvent` and `AppEventBus`.
+> **Files:** [`Core/RuntimeEventSystem/Events/EventChannels.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventChannels.swift) defines `PaneRuntimeEventBus`. [`AppEvent.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Events/AppEvent.swift) and [`AppEventBus.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Events/AppEventBus.swift) define `AppEvent` and `AppEventBus`.
 
 ## Direct Commands Use Capability Protocols
 
@@ -1305,7 +1305,7 @@ struct PluginContext: Sendable {
 
 ## Implementation Migration Inventory
 
-Current codebase patterns that need migration to align with this design. Audited from `Sources/AgentStudio/`.
+Current codebase patterns that need migration to align with this design. Audited from [`Sources/AgentStudio/`](../../Sources/AgentStudio).
 
 ### What's already clean
 
@@ -1322,15 +1322,15 @@ Current codebase patterns that need migration to align with this design. Audited
 
 | Historical File | Historical Pattern | Historical Events | Severity |
 |------|---------|--------|----------|
-| `App/Panes/PaneTabViewController.swift` | 8 `for await` consumers, 3 `.post()` producers | selectTabById, extractPane, repairSurface, processTerminated, undoClose, refocusTerminal, webviewOpen, addRepo, filterSidebar, signIn | HIGH |
-| `App/Windows/MainSplitViewController.swift` | 6 `for await` consumers, 1 `addObserver` | openWorktree, tabClose, selectTab, sidebarToggle, newTerminal, sidebarFilter, willTerminate | HIGH |
-| `Features/CommandBar/CommandBarDataSource.swift` | 5 `.post()` producers | selectTabById, openWorktreeRequested | HIGH |
-| `Features/Terminal/Ghostty/GhosttySurfaceView.swift` | 2 `.post()` producers | didUpdateWorkingDirectory, didUpdateRendererHealth | MEDIUM |
-| `Features/Terminal/Ghostty/Ghostty.swift` | 2 `for await` consumers, 2 `.post()` | ghosttyNewWindow, ghosttyCloseSurface, didBecomeActive, didResignActive | MEDIUM |
-| `Features/Terminal/Hosting/TerminalPaneMountView.swift` | 2 `addObserver`, 2 `.post()` | surfaceClose, repairSurfaceRequested, terminalProcessTerminated | MEDIUM |
-| `App/Windows/MainWindowController.swift` | 2 `.post()` | filterSidebarRequested, addRepoRequested | LOW |
-| `App/Boot/AppDelegate.swift` | 1 `addObserver` | signIn OAuth callback | LOW |
-| `Features/Terminal/Ghostty/SurfaceManager.swift` | 1 `addObserver`, 1 `removeObserver` | Health notifications | LOW |
+| [`App/Panes/PaneTabViewController.swift`](../../Sources/AgentStudio/App/Panes/PaneTabViewController.swift) | 8 `for await` consumers, 3 `.post()` producers | selectTabById, extractPane, repairSurface, processTerminated, undoClose, refocusTerminal, webviewOpen, addRepo, filterSidebar, signIn | HIGH |
+| [`App/Windows/MainSplitViewController.swift`](../../Sources/AgentStudio/App/Windows/MainSplitViewController.swift) | 6 `for await` consumers, 1 `addObserver` | openWorktree, tabClose, selectTab, sidebarToggle, newTerminal, sidebarFilter, willTerminate | HIGH |
+| [`Features/CommandBar/CommandBarDataSource.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift) | 5 `.post()` producers | selectTabById, openWorktreeRequested | HIGH |
+| [`Features/Terminal/Ghostty/GhosttySurfaceView.swift`](../../Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift) | 2 `.post()` producers | didUpdateWorkingDirectory, didUpdateRendererHealth | MEDIUM |
+| [`Features/Terminal/Ghostty/Ghostty.swift`](../../Sources/AgentStudio/Features/Terminal/Ghostty/Ghostty.swift) | 2 `for await` consumers, 2 `.post()` | ghosttyNewWindow, ghosttyCloseSurface, didBecomeActive, didResignActive | MEDIUM |
+| [`Features/Terminal/Hosting/TerminalPaneMountView.swift`](../../Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneMountView.swift) | 2 `addObserver`, 2 `.post()` | surfaceClose, repairSurfaceRequested, terminalProcessTerminated | MEDIUM |
+| [`App/Windows/MainWindowController.swift`](../../Sources/AgentStudio/App/Windows/MainWindowController.swift) | 2 `.post()` | filterSidebarRequested, addRepoRequested | LOW |
+| [`App/Boot/AppDelegate.swift`](../../Sources/AgentStudio/App/Boot/AppDelegate.swift) | 1 `addObserver` | signIn OAuth callback | LOW |
+| [`Features/Terminal/Ghostty/SurfaceManager.swift`](../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift) | 1 `addObserver`, 1 `removeObserver` | Health notifications | LOW |
 
 This table is a historical inventory from the pre-hardening state. The current codebase has already removed the Ghostty mixed bus and the command-shaped `repairSurfaceRequested` app event path.
 
@@ -1345,7 +1345,7 @@ await bus.post(PaneEventEnvelope(source: .system(.builtin(.coordinator)), event:
 
 ### Phase 1: Core — JSON encoding off MainActor
 
-**RPCRouter** (`Features/Bridge/Transport/RPCRouter.swift`) does JSON decode/encode on MainActor — performance-sensitive path for bridge RPC dispatch.
+**RPCRouter** is retired. Product-scheme control dispatch lives in [`BridgeProductSchemeControlDispatcher.swift`](../../Sources/AgentStudio/Features/Bridge/Transport/BridgeProductSchemeControlDispatcher.swift). Do not add a new `RPCRouter.swift`.
 
 | Method | Line | Work | Target |
 |--------|------|------|--------|
@@ -1357,11 +1357,11 @@ These methods don't need MainActor isolation — they take immutable input and r
 
 ### Phase 2: UI — Combine bridge patterns
 
-3 `.onReceive(NotificationCenter.default.publisher(...))` in `App/Windows/MainSplitViewController.swift` (lines 395-404). These bridge NotificationCenter to SwiftUI. They can migrate to EventBus subscriptions or direct store method calls when Phase 1 completes.
+3 `.onReceive(NotificationCenter.default.publisher(...))` in [`App/Windows/MainSplitViewController.swift`](../../Sources/AgentStudio/App/Windows/MainSplitViewController.swift) (lines 395-404). These bridge NotificationCenter to SwiftUI. They can migrate to EventBus subscriptions or direct store method calls when Phase 1 completes.
 
 ### Phase 3: Polish — URLHistoryService JSON I/O
 
-4 `JSONEncoder`/`JSONDecoder` calls in `URLHistoryService.swift` (lines 167-192). Low frequency, not on critical path. Can offload to `nonisolated` or `@concurrent nonisolated` for consistency.
+4 `JSONEncoder`/`JSONDecoder` calls in [`URLHistoryService.swift`](../../Sources/AgentStudio/Features/Webview/URLHistoryService.swift) (lines 167-192). Low frequency, not on critical path. Can offload to `nonisolated` or `@concurrent nonisolated` for consistency.
 
 ### Not requiring migration
 

@@ -339,15 +339,15 @@ bug, not a valid idle state.
 
 | Concern | Source |
 | --- | --- |
-| Pane runtime and surface clients | `BridgeWeb/src/core/comm-worker/bridge-pane-runtime.ts` |
-| One worker session | `bridge-pane-comm-worker-session.ts` |
-| Worker entry and runtime protocol | `bridge-comm-worker-entry.ts`, `bridge-comm-worker-runtime-protocol.ts` |
-| File/Review worker state | `bridge-comm-worker-store.ts`, `bridge-comm-worker-file-view-runtime.ts`, `bridge-comm-worker-review-runtime.ts` |
-| File selected-content retry | `bridge-comm-worker-selection-demand.ts`, `bridge-comm-worker-file-view-runtime-source.ts` |
-| File open-state presentation | `BridgeWeb/src/file-viewer/bridge-file-viewer-display-model.ts`, `bridge-file-viewer-code-panel.tsx` |
-| Review demand scheduling | `bridge-comm-worker-review-demand-scheduling.ts` |
-| Demand policy | `BridgeWeb/src/core/demand/bridge-content-demand-policy.ts` |
-| Content preparation pump | `bridge-worker-content-preparation-pump.ts` |
-| Pierre/Shiki jobs | `bridge-worker-pierre-render-job.ts`, `bridge-worker-pierre-courier.ts` |
-| Main-thread snapshots and fulfillment | `bridge-main-render-snapshot-store.ts`, `bridge-main-render-fulfillment-coordinator.ts` |
-| React mode ownership | `BridgeWeb/src/app/bridge-app.tsx`, `bridge-app-file-viewer-mode.tsx`, `bridge-app-review-viewer-mode.tsx` |
+| Pane runtime and surface clients | [`BridgeWeb/src/core/comm-worker/bridge-pane-runtime.ts`](../../BridgeWeb/src/core/comm-worker/bridge-pane-runtime.ts) |
+| One worker session | [`bridge-pane-comm-worker-session.ts`](../../BridgeWeb/src/core/comm-worker/bridge-pane-comm-worker-session.ts) |
+| Worker entry and runtime protocol | [`bridge-comm-worker-entry.ts`](../../BridgeWeb/src/core/comm-worker/bridge-comm-worker-entry.ts), [`bridge-comm-worker-runtime-protocol.ts`](../../BridgeWeb/src/core/comm-worker/bridge-comm-worker-runtime-protocol.ts) |
+| File/Review worker state | [`bridge-comm-worker-store.ts`](../../BridgeWeb/src/core/comm-worker/bridge-comm-worker-store.ts), [`bridge-comm-worker-file-view-runtime.ts`](../../BridgeWeb/src/core/comm-worker/bridge-comm-worker-file-view-runtime.ts), [`bridge-comm-worker-review-runtime.ts`](../../BridgeWeb/src/core/comm-worker/bridge-comm-worker-review-runtime.ts) |
+| File selected-content retry | [`bridge-comm-worker-selection-demand.ts`](../../BridgeWeb/src/core/comm-worker/bridge-comm-worker-selection-demand.ts), [`bridge-comm-worker-file-view-runtime-source.ts`](../../BridgeWeb/src/core/comm-worker/bridge-comm-worker-file-view-runtime-source.ts) |
+| File open-state presentation | [`BridgeWeb/src/file-viewer/bridge-file-viewer-display-model.ts`](../../BridgeWeb/src/file-viewer/bridge-file-viewer-display-model.ts), [`bridge-file-viewer-code-panel.tsx`](../../BridgeWeb/src/file-viewer/bridge-file-viewer-code-panel.tsx) |
+| Review demand scheduling | [`bridge-comm-worker-review-demand-scheduling.ts`](../../BridgeWeb/src/core/comm-worker/bridge-comm-worker-review-demand-scheduling.ts) |
+| Demand policy | [`BridgeWeb/src/core/demand/bridge-content-demand-policy.ts`](../../BridgeWeb/src/core/demand/bridge-content-demand-policy.ts) |
+| Content preparation pump | [`bridge-worker-content-preparation-pump.ts`](../../BridgeWeb/src/core/comm-worker/bridge-worker-content-preparation-pump.ts) |
+| Pierre/Shiki jobs | [`bridge-worker-pierre-render-job.ts`](../../BridgeWeb/src/core/comm-worker/bridge-worker-pierre-render-job.ts), [`bridge-worker-pierre-courier.ts`](../../BridgeWeb/src/core/comm-worker/bridge-worker-pierre-courier.ts) |
+| Main-thread snapshots and fulfillment | [`bridge-main-render-snapshot-store.ts`](../../BridgeWeb/src/core/comm-worker/bridge-main-render-snapshot-store.ts), [`bridge-main-render-fulfillment-coordinator.ts`](../../BridgeWeb/src/core/comm-worker/bridge-main-render-fulfillment-coordinator.ts) |
+| React mode ownership | [`BridgeWeb/src/app/bridge-app.tsx`](../../BridgeWeb/src/app/bridge-app.tsx), [`bridge-app-file-viewer-mode.tsx`](../../BridgeWeb/src/app/bridge-app-file-viewer-mode.tsx), [`bridge-app-review-viewer-mode.tsx`](../../BridgeWeb/src/app/bridge-app-review-viewer-mode.tsx) |

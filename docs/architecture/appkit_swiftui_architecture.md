@@ -31,8 +31,8 @@ Agent Studio follows an **AppKit-main** architecture. This decision was made to 
 Host surfaces such as pane toolbars, drawer chrome, window chrome, and tab shells remain App-owned assembly points. When those surfaces embed capability-specific UI, keep the shell and placement logic in `App/` while the reusable capability content lives in its owning `Features/<Capability>/` slice.
 
 Example:
-- `App/Panes/DrawerEditorChooser/` owns the drawer toolbar button, anchoring, divider, and pane wiring
-- `SharedComponents/EditorChooser/` owns the numbered editor chooser menu rows and bookmark UI
+- [`App/Panes/DrawerEditorChooser/`](../../Sources/AgentStudio/App/Panes/DrawerEditorChooser) owns the drawer toolbar button, anchoring, divider, and pane wiring
+- [`SharedComponents/EditorChooser/`](../../Sources/AgentStudio/SharedComponents/EditorChooser) owns the numbered editor chooser menu rows and bookmark UI
 
 ### NSHostingController
 Use for full-screen components, sidebars, or major view controller containment.
@@ -501,7 +501,7 @@ consumes the event only after `TabContextMenuPresenter` accepts presentation.
 
 ### Reference Implementation
 
-See `DraggableTabBarHostingView.swift` for the gesture recognizer pattern applied to tab bar drag-to-reorder.
+See [`DraggableTabBarHostingView.swift`](../../Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift) for the gesture recognizer pattern applied to tab bar drag-to-reorder.
 
 ---
 
@@ -601,7 +601,7 @@ the authoritative command ID, `AppCommandSpec` carries the authoritative metadat
 commands, and `atom(\.workspaceFocus).currentFocus(...)` provides the shared app-wide focus context.
 The command bar consumes those shared models; it does not define commands itself.
 
-> **Files:** `CommandBar/CommandBarPanelController.swift`, `CommandBar/CommandBarState.swift`, `CommandBar/CommandBarPanel.swift`, `CommandBar/CommandBarDataSource.swift`, `CommandBar/CommandBarWorktreeActionResolver.swift`, `CommandBar/CommandBarSearch.swift`, `CommandBar/CommandBarItem.swift`, `CommandBar/Views/*.swift`
+> **Files:** [`Features/CommandBar/CommandBarPanelController.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarPanelController.swift), [`Features/CommandBar/CommandBarState.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarState.swift), [`Features/CommandBar/CommandBarDataSource.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift), [`Infrastructure/Search/CommandBarSearch.swift`](../../Sources/AgentStudio/Infrastructure/Search/CommandBarSearch.swift), [`Features/CommandBar/CommandBarPanel.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarPanel.swift), [`Features/CommandBar/CommandBarItem.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarItem.swift), [`Features/CommandBar/CommandBarWorktreeActionResolver.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarWorktreeActionResolver.swift), [`Features/CommandBar/Views/`](../../Sources/AgentStudio/Features/CommandBar/Views)
 
 ---
 
@@ -611,9 +611,9 @@ Management layer enables split insertion and pane rearrangement. Three component
 
 | Component | Location | Role |
 |-----------|----------|------|
-| `ManagementLayerAtom` | `Core/State/MainActor/Atoms/ManagementLayerAtom.swift` | Canonical active/inactive state |
-| `ManagementLayerMonitor` | `App/Lifecycle/ManagementLayerMonitor.swift` | Observes atom state changes, drives side effects |
-| `ManagementLayerToolbarButton` | `App/Lifecycle/ManagementLayerToolbarButton.swift` | Toolbar integration for toggling management layer |
+| `ManagementLayerAtom` | [`Core/State/MainActor/Atoms/ManagementLayerAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/ManagementLayerAtom.swift) | Canonical active/inactive state |
+| `ManagementLayerMonitor` | [`App/Lifecycle/ManagementLayerMonitor.swift`](../../Sources/AgentStudio/App/Lifecycle/ManagementLayerMonitor.swift) | Observes atom state changes, drives side effects |
+| `TabBarManagementLayerButton` | [`App/Panes/TabBar/ShellTabBarControls.swift`](../../Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift) | Toolbar integration for toggling management layer |
 
 Toggled via the command pipeline or the toolbar button. The command bar's `CommandBarStatusStrip` also reflects the current mode.
 

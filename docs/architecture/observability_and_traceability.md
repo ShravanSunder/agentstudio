@@ -113,12 +113,12 @@ probe sequence. The snapshot compares the current on-disk app executable
 identity to the startup baseline and exports only controlled classifications
 such as same/different/missing disk identity plus reachability. Raw executable
 paths remain JSONL-only.
-Use `scripts/report-tcc-upgrade-probe-observability.sh` after a marker-scoped
+Use [`scripts/report-tcc-upgrade-probe-observability.sh`](../../scripts/report-tcc-upgrade-probe-observability.sh) after a marker-scoped
 debug or beta launch to summarize the identity/access rows. The report helper
 is read-only and can require identity discontinuity or access denial, which is
 the proof gate for a Homebrew-style replacement reproduction.
 For the generated-debug reproduction only, use
-`scripts/replace-running-debug-app-for-tcc-probe.sh` to dry-run and, with
+[`scripts/replace-running-debug-app-for-tcc-probe.sh`](../../scripts/replace-running-debug-app-for-tcc-probe.sh) to dry-run and, with
 explicit acknowledgement, replace the executable inside the generated
 per-worktree debug app while the monitor is active. The helper refuses beta,
 stable, `/Applications`, and non-generated debug paths; it is not a release or
@@ -280,7 +280,7 @@ another debug worktree. Debug observability bundles also remove URL-handler
 registration so they cannot claim production `agentstudio://` callbacks or
 deep links. Do not copy production or beta state into this root unless a test
 plan explicitly calls for it. The generated debug bundle, logs, traces, and
-zmx root live under `~/.agentstudio-db/<code>` rather than repo `tmp/` so
+zmx root live under `~/.agentstudio-db/<code>` rather than repo [`tmp/`](../../tmp) so
 autonomous debug runs do not need to read their runnable app from
 `~/Documents`.
 

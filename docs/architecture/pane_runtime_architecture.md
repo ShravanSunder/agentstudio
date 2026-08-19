@@ -536,7 +536,7 @@ Serves ALL React-based pane types. The content-specific behavior lives in the Re
 
 - **Adapter:** `RPCRouter` (per-pane, owned by `BridgePaneController`). Routes incoming JSON-RPC messages to registered method handlers. Outgoing events are pushed via `PushTransport` to the React app.
 - **Controller:** `BridgePaneController` (per-pane). Owns the `WebPage` instance, RPC router configuration, push plan pipeline, bridge handshake state, and dedup cache. The controller handles the WebKit lifecycle — loading the React app, managing `bridge.ready` handshake, and push plan activation.
-- **Current implementation:** `BridgeRuntime` is a concrete `BusPostingPaneRuntime` in `Features/Bridge/Runtime/BridgeRuntime.swift`. It owns the lifecycle state machine, `PaneRuntimeEventChannel`, replay support, and capability gating. `BridgePaneController` remains the per-pane WebKit/controller owner and acts as the runtime's command/event bridge.
+- **Current implementation:** `BridgeRuntime` is a concrete `BusPostingPaneRuntime` in [`Features/Bridge/Runtime/BridgeRuntime.swift`](../../Sources/AgentStudio/Features/Bridge/Runtime/BridgeRuntime.swift). It owns the lifecycle state machine, `PaneRuntimeEventChannel`, replay support, and capability gating. `BridgePaneController` remains the per-pane WebKit/controller owner and acts as the runtime's command/event bridge.
 - **Event production:** Bridge events arrive as JSON-RPC messages from the React app. The RPC router dispatches them, and `BridgePaneController` forwards typed events into `BridgeRuntime.ingestBridgeEvent(...)`, which emits `PaneRuntimeEvent.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, or `.plugin(...)` envelopes with proper seq/source metadata.
 - **Content type dispatch:** `BridgeRuntime` uses `metadata.contentType` to determine:
   - Which React route to load (e.g., `/diff`, `/editor`, `/review`)
@@ -550,7 +550,7 @@ Serves plain browser panes. Simpler than BridgeRuntime — no JSON-RPC bridge, n
 
 - **Adapter:** WebKit navigation delegate (per-pane, owned by `WebviewPaneController`). Translates `WKNavigationDelegate` callbacks to typed `BrowserEvent` cases.
 - **Controller:** `WebviewPaneController` (per-pane). Owns the `WebPage` instance, navigation state (URL, title, loading, back/forward lists), and navigation methods (`goBack`, `goForward`, `reload`, `navigate`).
-- **Current implementation:** `WebviewRuntime` is a concrete `BusPostingPaneRuntime` in `Features/Webview/Runtime/WebviewRuntime.swift`. It owns lifecycle, replay, and `.navigation` command handling while delegating browser actions to `WebviewPaneController` through `WebviewRuntimeCommandHandling`.
+- **Current implementation:** `WebviewRuntime` is a concrete `BusPostingPaneRuntime` in [`Features/Webview/Runtime/WebviewRuntime.swift`](../../Sources/AgentStudio/Features/Webview/Runtime/WebviewRuntime.swift). It owns lifecycle, replay, and `.navigation` command handling while delegating browser actions to `WebviewPaneController` through `WebviewRuntimeCommandHandling`.
 - **Event production:** `WebviewPaneController` forwards navigation facts into `WebviewRuntime.ingestBrowserEvent(...)`, which emits `PaneRuntimeEvent.browser(...)` envelopes.
 - **@Observable state:** `url`, `title`, `isLoading`, `canGoBack`, `canGoForward` — bound directly by `WebviewNavigationBar`.
 
@@ -559,8 +559,8 @@ Serves plain browser panes. Simpler than BridgeRuntime — no JSON-RPC bridge, n
 Serves native AppKit/SwiftUI panes that have no WebView. The simplest runtime — no adapter, no controller, direct Swift calls.
 
 - **Adapter:** None. Swift panes produce events directly — no FFI boundary, no message translation.
-- **Controller:** None required for the runtime itself. Native views such as `Features/CodeViewer/Views/CodeViewerPaneMountView.swift` render directly and can pair with `SwiftPaneRuntime` when they need pane-runtime semantics.
-- **Current implementation:** `SwiftPaneRuntime` lives in `Core/RuntimeEventSystem/Runtime/SwiftPaneRuntime.swift`. It is a lightweight native-pane runtime that owns lifecycle, replay, and editor-command handling for `.codeViewer` panes without introducing a WebKit or Ghostty-specific controller layer.
+- **Controller:** None required for the runtime itself. Native views such as [`Features/CodeViewer/Views/CodeViewerPaneMountView.swift`](../../Sources/AgentStudio/Features/CodeViewer/Views/CodeViewerPaneMountView.swift) render directly and can pair with `SwiftPaneRuntime` when they need pane-runtime semantics.
+- **Current implementation:** `SwiftPaneRuntime` lives in [`Core/RuntimeEventSystem/Runtime/SwiftPaneRuntime.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/SwiftPaneRuntime.swift). It is a lightweight native-pane runtime that owns lifecycle, replay, and editor-command handling for `.codeViewer` panes without introducing a WebKit or Ghostty-specific controller layer.
 - **Event production:** Direct `continuation.yield()` calls from the Swift view layer. No translation step.
 - **Use cases:** `.codeViewer` panes showing syntax-highlighted file content, future native editor panes, settings/configuration panels that need runtime lifecycle tracking.
 - **Implementation:** Minimal — lifecycle state machine + event stream + command dispatch. Most of the implementation is the `PaneRuntime` protocol surface itself. Content-specific behavior lives in the SwiftUI views.
@@ -1171,7 +1171,7 @@ enum RuntimeErrorEvent: Error, Sendable {
 
 > **Role:** Structural (envelope shape). Carried by all sources, projections, and sinks.
 
-> **File:** `Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift`
+> **File:** [`Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift)
 
 > **Extensibility:** `SystemSource` uses a three-tier hierarchy: `BuiltinSource` (closed, core-only), `ServiceSource` (discriminated union — new categories need a core code change with typed event protocol, new providers are a String), and `.plugin(String)` (fully open, schema-free). Per-source isolation guarantees (A4: independent `seq`, A10: independent replay buffer) mean new sources at any tier cannot break ordering or replay for existing sources. No shared state to corrupt.
 
@@ -3149,32 +3149,32 @@ You **accept** the discipline of classifying every event kind (critical vs lossy
 
 ## Directory Placement
 
-Contract types are shared pane-system domain infrastructure — used by all features, not owned by any single feature. They live in `Core/RuntimeEventSystem/`. Feature-specific implementations (adapters, concrete runtimes) live in each `Features/X/` directory. The coordinator stays in `App/` as the composition root.
+Contract types are shared pane-system domain infrastructure — used by all features, not owned by any single feature. They live in [`Core/RuntimeEventSystem/`](../../Sources/AgentStudio/Core/RuntimeEventSystem). Feature-specific implementations (adapters, concrete runtimes) live in each `Features/X/` directory. The coordinator stays in `App/` as the composition root.
 
 See [Directory Structure](directory_structure.md) for the full decision process and import rules.
 
 | Type | Directory | Rationale |
 |------|-----------|-----------|
-| **Contracts** (PaneRuntime protocol, PaneRuntimeEvent, PaneRuntimeTypes, PaneRuntimeCommand, RuntimeEnvelope, RuntimeEnvelopeCore, RuntimeEnvelopeFactories, RuntimeEnvelopeMetadata, RuntimeEnvelopeSources, PaneKindEvent, PaneMetadata, PaneContextFacets, PaneId, WorkspaceActivityEvent, per-kind event/command enums) | `Core/RuntimeEventSystem/Contracts/` | Imported by all features and App; change driver is pane system contract, not any specific feature |
-| **RuntimeRegistry** | `Core/RuntimeEventSystem/Registry/` | Feature-agnostic lookup; consumed by WorkspaceSurfaceCoordinator in App/ |
-| **NotificationReducer**, VisibilityTier types | `Core/RuntimeEventSystem/Reduction/` | Feature-agnostic event processing; consumed by WorkspaceSurfaceCoordinator |
-| **EventReplayBuffer** | `Core/RuntimeEventSystem/Replay/` | Feature-agnostic buffering; consumed by WorkspaceSurfaceCoordinator |
-| **GhosttyAdapter** | `Features/Terminal/Ghostty/` | FFI-specific; translates C callbacks into Core event types |
-| **TerminalRuntime** | `Features/Terminal/Runtime/` | Terminal-specific `PaneRuntime` conformance |
-| **BridgeRuntime** | `Features/Bridge/Runtime/` | Bridge-specific `PaneRuntime` conformance (serves .diff, .editor, .review, .agent, .plugin) |
-| **BridgePaneController** | `Features/Bridge/Runtime/` | Per-pane WebKit page, RPC router, push plans (transport/view-side lifecycle) |
-| **WebviewRuntime** | `Features/Webview/Runtime/` | Webview-specific `PaneRuntime` conformance (serves .browser) |
-| **WebviewPaneController** | `Features/Webview/` | Per-pane WebKit page, navigation state (transport/view-side lifecycle) |
-| **SwiftPaneRuntime** | `Core/RuntimeEventSystem/Runtime/` | Native-pane `PaneRuntime` shared by direct AppKit/SwiftUI panes such as `.codeViewer`; kept in Core because it has no feature-specific transport/controller dependency |
-| **PaneRuntimeEventChannel** | `Core/RuntimeEventSystem/Runtime/` | Per-pane event channel with local subscribers and replay; bridges to global `EventBus` for cross-pane fanout |
-| **FilesystemProjectionIndex** | `App/Coordination/` | C16 off-main indexing, canonicalization, and per-pane CWD-subtree filtering; returns typed intents to `WorkspaceSurfaceCoordinator` for sequencing and publication |
-| **EventChannels** (`PaneRuntimeEventBus`) | `Core/RuntimeEventSystem/Events/` | Singleton `EventBus<RuntimeEnvelope>` factory with replay configuration |
-| **DarwinFSEventStreamClient + FilesystemActor** | `Core/RuntimeEventSystem/Filesystem/` | Implemented system-level FSEvents ingress and actor-owned filtering, bounded batching, coarse overflow debt, and `FilesystemEvent` publication |
-| **WorkspaceSurfaceCoordinator** | `App/Coordination/` | Imports from multiple features; composition root |
+| **Contracts** (PaneRuntime protocol, PaneRuntimeEvent, PaneRuntimeTypes, PaneRuntimeCommand, RuntimeEnvelope, RuntimeEnvelopeCore, RuntimeEnvelopeFactories, RuntimeEnvelopeMetadata, RuntimeEnvelopeSources, PaneKindEvent, PaneMetadata, PaneContextFacets, PaneId, WorkspaceActivityEvent, per-kind event/command enums) | [`Core/RuntimeEventSystem/Contracts/`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts) | Imported by all features and App; change driver is pane system contract, not any specific feature |
+| **RuntimeRegistry** | [`Core/RuntimeEventSystem/Registry/`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Registry) | Feature-agnostic lookup; consumed by WorkspaceSurfaceCoordinator in App/ |
+| **NotificationReducer**, VisibilityTier types | [`Core/RuntimeEventSystem/Reduction/`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Reduction) | Feature-agnostic event processing; consumed by WorkspaceSurfaceCoordinator |
+| **EventReplayBuffer** | [`Core/RuntimeEventSystem/Replay/`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Replay) | Feature-agnostic buffering; consumed by WorkspaceSurfaceCoordinator |
+| **GhosttyAdapter** | [`Features/Terminal/Ghostty/`](../../Sources/AgentStudio/Features/Terminal/Ghostty) | FFI-specific; translates C callbacks into Core event types |
+| **TerminalRuntime** | [`Features/Terminal/Runtime/`](../../Sources/AgentStudio/Features/Terminal/Runtime) | Terminal-specific `PaneRuntime` conformance |
+| **BridgeRuntime** | [`Features/Bridge/Runtime/`](../../Sources/AgentStudio/Features/Bridge/Runtime) | Bridge-specific `PaneRuntime` conformance (serves .diff, .editor, .review, .agent, .plugin) |
+| **BridgePaneController** | [`Features/Bridge/Runtime/`](../../Sources/AgentStudio/Features/Bridge/Runtime) | Per-pane WebKit page, RPC router, push plans (transport/view-side lifecycle) |
+| **WebviewRuntime** | [`Features/Webview/Runtime/`](../../Sources/AgentStudio/Features/Webview/Runtime) | Webview-specific `PaneRuntime` conformance (serves .browser) |
+| **WebviewPaneController** | [`Features/Webview/`](../../Sources/AgentStudio/Features/Webview) | Per-pane WebKit page, navigation state (transport/view-side lifecycle) |
+| **SwiftPaneRuntime** | [`Core/RuntimeEventSystem/Runtime/`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime) | Native-pane `PaneRuntime` shared by direct AppKit/SwiftUI panes such as `.codeViewer`; kept in Core because it has no feature-specific transport/controller dependency |
+| **PaneRuntimeEventChannel** | [`Core/RuntimeEventSystem/Runtime/`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime) | Per-pane event channel with local subscribers and replay; bridges to global `EventBus` for cross-pane fanout |
+| **FilesystemProjectionIndex** | [`App/Coordination/`](../../Sources/AgentStudio/App/Coordination) | C16 off-main indexing, canonicalization, and per-pane CWD-subtree filtering; returns typed intents to `WorkspaceSurfaceCoordinator` for sequencing and publication |
+| **EventChannels** (`PaneRuntimeEventBus`) | [`Core/RuntimeEventSystem/Events/`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Events) | Singleton `EventBus<RuntimeEnvelope>` factory with replay configuration |
+| **DarwinFSEventStreamClient + FilesystemActor** | [`Core/RuntimeEventSystem/Filesystem/`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem) | Implemented system-level FSEvents ingress and actor-owned filtering, bounded batching, coarse overflow debt, and `FilesystemEvent` publication |
+| **WorkspaceSurfaceCoordinator** | [`App/Coordination/`](../../Sources/AgentStudio/App/Coordination) | Imports from multiple features; composition root |
 
 ### Why per-kind event enums live in Core
 
-`GhosttyEvent`, `BrowserEvent`, `DiffEvent`, `EditorEvent` are cases in the `PaneRuntimeEvent` discriminated union (Contract 2). Since `PaneRuntimeEvent` is in `Core/RuntimeEventSystem/Contracts/` and Core cannot import Features, all per-kind event enums must also be in Core. These enums define the **domain event vocabulary** — what the system says about terminal/browser/diff/editor events. The adapters that *produce* these events from platform APIs live in Features.
+`GhosttyEvent`, `BrowserEvent`, `DiffEvent`, `EditorEvent` are cases in the `PaneRuntimeEvent` discriminated union (Contract 2). Since `PaneRuntimeEvent` is in [`Core/RuntimeEventSystem/Contracts/`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts) and Core cannot import Features, all per-kind event enums must also be in Core. These enums define the **domain event vocabulary** — what the system says about terminal/browser/diff/editor events. The adapters that *produce* these events from platform APIs live in Features.
 
 ### Naming: PaneRuntimeCommand vs WorkspaceActionCommand
 
@@ -3182,8 +3182,8 @@ Two distinct action layers exist with different scopes:
 
 | Layer | Type | Location | Purpose |
 |-------|------|----------|---------|
-| **Workspace** | `WorkspaceActionCommand` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
-| **Runtime** | `PaneRuntimeCommand` | `Core/RuntimeEventSystem/Contracts/` | Commands to individual runtimes — sendInput, navigate, requestAgentReview |
+| **Workspace** | `WorkspaceActionCommand` | [`Core/Actions/`](../../Sources/AgentStudio/Core/Actions) | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
+| **Runtime** | `PaneRuntimeCommand` | [`Core/RuntimeEventSystem/Contracts/`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts) | Commands to individual runtimes — sendInput, navigate, requestAgentReview |
 
 `WorkspaceActionCommand` flows: User → WorkspaceCommandResolver → WorkspaceCommandValidator → WorkspaceSurfaceCoordinator → WorkspaceStore.
 `PaneRuntimeCommand` flows: WorkspaceSurfaceCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.
