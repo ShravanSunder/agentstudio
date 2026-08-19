@@ -49,7 +49,6 @@ import {
 	type BridgeCommWorkerStore,
 } from './bridge-comm-worker-store.js';
 import {
-	isBridgeWorkerFileViewContentMetadata,
 	type BridgeWorkerFileDisplayResyncCommand,
 	type BridgeWorkerFileQueryUpdateCommand,
 	type BridgeWorkerMainToServerMessage,
@@ -764,6 +763,20 @@ function scheduleSelectedContentReadyPreparationForSelection(
 ): void {
 	const selectedItemId = props.message.selectedItemId;
 	if (selectedItemId === null) return;
+	if (props.message.surface === 'fileView') {
+		const selectedState = props.store.getState();
+		if (
+			selectedState.selectedId === selectedItemId &&
+			selectedState.selectedEpoch === props.message.epoch
+		) {
+			props.scheduleSelectedFileViewContentReadyPreparation({
+				epoch: props.message.epoch,
+				itemId: selectedItemId,
+				store: props.store,
+			});
+		}
+		return;
+	}
 	if (
 		!isSelectedContentReadyPreparationCurrent({
 			epoch: props.message.epoch,
@@ -774,14 +787,6 @@ function scheduleSelectedContentReadyPreparationForSelection(
 		return;
 	}
 	const metadata = props.store.getState().contentMetadataByItemId.get(selectedItemId) ?? null;
-	if (props.message.surface === 'fileView' && isBridgeWorkerFileViewContentMetadata(metadata)) {
-		props.scheduleSelectedFileViewContentReadyPreparation({
-			epoch: props.message.epoch,
-			itemId: selectedItemId,
-			store: props.store,
-		});
-		return;
-	}
 	if (props.message.surface === 'review' && isBridgeWorkerReviewContentMetadata(metadata)) {
 		props.scheduleSelectedReviewContentReadyPreparation({
 			epoch: props.message.epoch,

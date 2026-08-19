@@ -25,6 +25,19 @@ import type {
 	BridgeWorkerDemandRank,
 	BridgeWorkerPierreRenderBudget,
 } from './bridge-worker-pierre-render-job.js';
+import type { BeginBridgeWorkerRenderPublicationResult } from './bridge-worker-render-fulfillment-registry.js';
+
+export type BridgeWorkerFileViewContentPreparationOutcome =
+	| {
+			readonly kind: 'paintedResidency';
+	  }
+	| {
+			readonly kind: 'renderPublication';
+			readonly publication: BeginBridgeWorkerRenderPublicationResult;
+	  }
+	| {
+			readonly kind: 'terminal';
+	  };
 
 export interface DispatchSelectedBridgeWorkerFileViewContentReadyProps {
 	readonly bridgeDemandRank: BridgeWorkerDemandRank;
@@ -34,6 +47,7 @@ export interface DispatchSelectedBridgeWorkerFileViewContentReadyProps {
 	readonly epoch: number;
 	readonly itemId: string;
 	readonly isPreparationCurrent?: () => boolean;
+	readonly onPreparationOutcome?: (outcome: BridgeWorkerFileViewContentPreparationOutcome) => void;
 	readonly openContent: BridgeWorkerFileViewContentOpen;
 	readonly port: BridgeCommWorkerPort;
 	readonly sequence: number;
@@ -128,6 +142,7 @@ export function publishSelectedBridgeWorkerFileViewContentReadyFetchResult(
 			reason: props.fetchResult.reason,
 			state: props.fetchResult.state,
 		});
+		props.onPreparationOutcome?.({ kind: 'terminal' });
 		return;
 	}
 	if (!isSelectedFileViewContentReadyPreparationCurrent(props)) {
@@ -145,6 +160,7 @@ export function publishSelectedBridgeWorkerFileViewContentReadyFetchResult(
 			reason: 'descriptor_rejected',
 			state: 'unavailable',
 		});
+		props.onPreparationOutcome?.({ kind: 'terminal' });
 		return;
 	}
 	if (!isSelectedFileViewContentReadyPreparationCurrent(props)) {
@@ -155,7 +171,15 @@ export function publishSelectedBridgeWorkerFileViewContentReadyFetchResult(
 		publicationSequence: props.sequence,
 		workerDerivationEpoch: props.workerDerivationEpoch,
 	});
+	props.onPreparationOutcome?.({ kind: 'renderPublication', publication });
 	if (!publication.shouldPublish) {
+		if (publication.state.stage === 'painted') {
+			postSelectedFileViewContentPaintedResidency({
+				...props,
+				contentCacheKey: job.contentCacheKey,
+			});
+			props.onPreparationOutcome?.({ kind: 'paintedResidency' });
+		}
 		return;
 	}
 	const preparedJobEvent = prepareBridgeWorkerFileViewContentRenderJobEventFromJob({
@@ -171,6 +195,30 @@ export function publishSelectedBridgeWorkerFileViewContentReadyFetchResult(
 		workerDerivationEpoch: props.workerDerivationEpoch,
 	});
 	postPreparedBridgeCommWorkerMessage(props.port, contentReadyCommit.preparedMessage);
+}
+
+function postSelectedFileViewContentPaintedResidency(
+	props: DispatchSelectedBridgeWorkerFileViewContentReadyProps & {
+		readonly contentCacheKey: string;
+	},
+): void {
+	if (!isSelectedFileViewContentReadyPreparationCurrent(props)) return;
+	props.store.actions.applyContentReady({
+		contentCacheKey: props.contentCacheKey,
+		itemId: props.itemId,
+	});
+	const slicePatchEvent = props.store.actions.takePendingSlicePatchEvent({
+		epoch: props.workerDerivationEpoch,
+		sequence: props.sequence,
+	});
+	postPreparedBridgeCommWorkerMessage(
+		props.port,
+		prepareBridgeWorkerFileRenderPatchEvent({
+			patches: bridgeWorkerFileRenderPatchesFromSlicePatchEvent(slicePatchEvent),
+			publicationSequence: props.sequence,
+			workerDerivationEpoch: props.workerDerivationEpoch,
+		}),
+	);
 }
 
 export function isSelectedFileViewContentReadyPreparationCurrent(

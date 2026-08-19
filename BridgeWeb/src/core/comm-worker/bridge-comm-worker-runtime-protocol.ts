@@ -69,6 +69,11 @@ import {
 	sendBridgeCommWorkerActionWithTimeout,
 } from './bridge-comm-worker-runtime-support.js';
 import {
+	BridgeCommWorkerSelectedFileContentOperationController,
+	settleAcceptedSelectedFileRenderDisposition,
+} from './bridge-comm-worker-selected-file-content-operation.js';
+import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
+import {
 	bridgeCommWorkerComparisonTelemetryFacts,
 	recordBridgeCommWorkerPanePresentationTelemetry,
 	recordBridgeCommWorkerTaskTelemetry,
@@ -76,9 +81,10 @@ import {
 import { publishBridgeCommWorkerUpdatingChrome } from './bridge-comm-worker-updating-chrome.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import {
+	isBridgeWorkerFileViewContentMetadata,
 	bridgeWorkerMainToServerMessageSchema,
-	type BridgeWorkerReviewDisplayPatch,
 	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
+	type BridgeWorkerReviewDisplayPatch,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerFileViewContentOpen } from './bridge-worker-file-view-content-fetch.js';
 import type { BridgeWorkerReviewContentOpen } from './bridge-worker-review-content-fetch.js';
@@ -155,6 +161,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const fileContentPreparationGenerationByItemId = new Map<string, number>();
 	let latestSelectedFilePreparationRequest: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest | null =
 		null;
+	const selectedFileContentOperationController =
+		new BridgeCommWorkerSelectedFileContentOperationController();
+	let selectedFileContentOperationStore: BridgeCommWorkerStore | null = null;
 	const retriedSelectedFilePreparationRequests =
 		new WeakSet<BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest>();
 	const abortFileContentPreparation = (itemId: string): void => {
@@ -332,10 +341,36 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const scheduleSelectedFileViewContentReadyPreparation = (
 		request: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 	): void => {
+		const selectedState = request.store.getState();
+		if (selectedState.selectedId !== request.itemId) return;
+		const previousOperation = selectedFileContentOperationController.current;
+		const selectedOperation = selectedFileContentOperationController.admitSelection({
+			itemId: request.itemId,
+			selectionEpoch: selectedState.selectedEpoch,
+		});
+		if (previousOperation?.generation !== selectedOperation.generation) {
+			abortAllFileContentPreparations();
+			selectedFileContentOperationStore = request.store;
+		}
 		latestSelectedFilePreparationRequest = request;
 		if (!panePresentationAuthority.admitsWork || activeViewerMode !== 'file') return;
 		const workerDerivationEpoch = activeFileWorkerDerivationEpoch;
 		if (workerDerivationEpoch === null) return;
+		const sourceBoundOperation = selectedFileContentOperationController.bindSource({
+			generation: selectedOperation.generation,
+			workerDerivationEpoch,
+		});
+		if (sourceBoundOperation === null) return;
+		if (sourceBoundOperation.generation !== selectedOperation.generation) {
+			abortAllFileContentPreparations();
+		}
+		const metadata = selectedState.contentMetadataByItemId.get(request.itemId) ?? null;
+		const contentRequest = fileViewRuntimeSource.contentRequestsByItemId?.get(request.itemId);
+		if (!isBridgeWorkerFileViewContentMetadata(metadata) || contentRequest === undefined) return;
+		selectedFileContentOperationController.advance(
+			sourceBoundOperation.generation,
+			'preparingContent',
+		);
 		abortAllFileContentPreparations();
 		const abortController = new AbortController();
 		fileContentAbortControllersByItemId.set(request.itemId, abortController);
@@ -351,6 +386,18 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			isPreparationCurrent: () =>
 				panePresentationAuthority.admitsWork &&
 				fileContentPreparationGenerationByItemId.get(request.itemId) === preparationGeneration,
+			onPreparationOutcome: (outcome): void => {
+				if (outcome.kind === 'renderPublication') {
+					selectedFileContentOperationController.bindRenderReceipt({
+						generation: sourceBoundOperation.generation,
+						receiptIdentity: outcome.publication.receiptIdentity,
+					});
+					return;
+				}
+				if (selectedFileContentOperationController.settle(sourceBoundOperation.generation)) {
+					selectedFileContentOperationStore = null;
+				}
+			},
 			openContent: openFileViewContent,
 			port,
 			pump,
@@ -503,6 +550,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				comparisonTargetsQueryRunner.abort();
 				activeComparisonTargetsProductControlRequestId = null;
 				abortAllFileContentPreparations();
+				latestSelectedFilePreparationRequest = null;
+				selectedFileContentOperationController.cancel();
+				selectedFileContentOperationStore = null;
 				reviewDemandScheduling.suspend();
 			}
 			if (application.enteredForeground) {
@@ -698,6 +748,33 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			handlerStartedAtMilliseconds -
 			(parsedMessage.data.issuedAtMilliseconds ?? handlerStartedAtMilliseconds);
 		const messages = handler.handleMessage(parsedMessage.data);
+		if (
+			parsedMessage.data.command === 'renderDisposition' &&
+			parsedMessage.data.receipt.surface === 'file' &&
+			bridgeWorkerRuntimeMessagesContainReadyRequest({
+				messages,
+				requestId: parsedMessage.data.requestId,
+			})
+		) {
+			const settlement = settleAcceptedSelectedFileRenderDisposition({
+				controller: selectedFileContentOperationController,
+				createSequence,
+				receipt: parsedMessage.data.receipt,
+				store: selectedFileContentOperationStore,
+			});
+			if (settlement.terminalPatch !== null) port.postMessage(settlement.terminalPatch);
+			if (settlement.settled) selectedFileContentOperationStore = null;
+		}
+		if (
+			parsedMessage.data.command === 'select' &&
+			parsedMessage.data.surface === 'fileView' &&
+			parsedMessage.data.selectedItemId === null
+		) {
+			abortAllFileContentPreparations();
+			latestSelectedFilePreparationRequest = null;
+			selectedFileContentOperationController.cancel();
+			selectedFileContentOperationStore = null;
+		}
 		if (parsedMessage.data.command === 'reviewComparisonTargetsQueryCancel') {
 			if (activeComparisonTargetsProductControlRequestId === parsedMessage.data.queryRequestId) {
 				comparisonTargetsQueryRunner.abort();
@@ -735,6 +812,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					resumeLatestSelectedFileViewContentReadyPreparation();
 				} else {
 					abortAllFileContentPreparations();
+					latestSelectedFilePreparationRequest = null;
+					selectedFileContentOperationController.cancel();
+					selectedFileContentOperationStore = null;
 					reviewDemandScheduling.resume();
 				}
 				publishUpdatingChrome();
