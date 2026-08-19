@@ -8,8 +8,8 @@ struct BridgeDevelopmentProductProviderPreparationInput {
     let reviewInitialization: BridgeDevelopmentProductReviewInitialization
     let reviewProvider: any BridgeReviewSourceProvider
     let source: BridgeDevelopmentProductSource
-    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator?
-    let worktreeAnnotationStore: WorktreeAnnotationStore?
+    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
+    let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
 }
 
 struct BridgeDevelopmentProductProviderPreparation {
@@ -28,18 +28,20 @@ struct BridgeDevelopmentProductProviderPreparation {
 
 private struct BridgeDevelopmentProductProviderDependencies {
     let annotationOutputSource: BridgePaneProductWorktreeAnnotationOutputSource
-    let annotationSource: BridgePaneProductWorktreeAnnotationSource
+    let annotationProjectionSource: BridgeAnnotationProjectionSource
+    let annotationSource: BridgePaneAnnotationNotificationSource
     let applyWorktreeAnnotationCommand:
         @MainActor @Sendable (
             BridgeProductWorktreeAnnotationCommandRequest,
             BridgeProductSurface,
             BridgeProductControlCorrelation,
             BridgeProductAdmissionContext
-        ) async -> Void
+        ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO
     let queryWorktreeAnnotationOutputCandidates:
         @MainActor @Sendable (
             BridgeProductAnnotationCandidateQuery,
-            BridgeProductSurface
+            BridgeProductSurface,
+            [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
         ) async throws -> WorktreeAnnotationOutputCandidatePage
     let applyReviewComparisonUpdate:
         @MainActor @Sendable (
@@ -106,9 +108,11 @@ extension BridgeDevelopmentProductHost {
                 annotationOutputSource: BridgePaneProductWorktreeAnnotationOutputSource(
                     store: input.worktreeAnnotationStore
                 ),
-                annotationSource: BridgePaneProductWorktreeAnnotationSource(
-                    projection: input.worktreeAnnotationStore?.projection,
-                    contextID: input.source.paneID.uuidString.lowercased(),
+                annotationProjectionSource: makeWorktreeAnnotationProjectionSource(
+                    annotationHandlerDependencies
+                ),
+                annotationSource: BridgePaneAnnotationNotificationSource(
+                    service: input.worktreeAnnotationStore,
                     worktreeID: input.source.worktreeID.uuidString.lowercased()
                 ),
                 applyWorktreeAnnotationCommand: annotationCommandHandler,
@@ -222,6 +226,7 @@ extension BridgeDevelopmentProductHost {
         return BridgePaneProductSchemeProvider(
             annotationSource: dependencies.annotationSource,
             annotationOutputSource: dependencies.annotationOutputSource,
+            annotationProjectionSource: dependencies.annotationProjectionSource,
             fileMetadataSource: dependencies.fileMetadataSource,
             reviewMetadataSource: dependencies.reviewMetadataSource,
             reviewContentSource: reviewContentSource,

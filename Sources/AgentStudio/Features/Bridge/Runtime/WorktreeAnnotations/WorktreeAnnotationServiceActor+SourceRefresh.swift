@@ -1,4 +1,4 @@
-extension WorktreeAnnotationStore {
+extension WorktreeAnnotationServiceActor {
     static func sourceRefreshSnapshot(
         from detail: WorktreeAnnotationSessionDetail
     ) -> WorktreeAnnotationSourceRefreshSnapshot {

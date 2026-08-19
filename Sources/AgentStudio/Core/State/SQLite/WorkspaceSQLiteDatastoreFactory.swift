@@ -20,8 +20,8 @@ package struct WorkspaceSQLiteDatastoreFactory {
         self.localDatabaseReplacementObserver = localDatabaseReplacementObserver
     }
 
-    package func makeDatastore() -> WorkspaceSQLiteDatastore {
-        WorkspaceSQLiteDatastore(
+    package func makeDatastore() -> WorkspaceSQLiteDatastoreActor {
+        WorkspaceSQLiteDatastoreActor(
             configuration: configuration,
             traceRuntime: traceRuntime,
             localDatabaseReplacementObserver: localDatabaseReplacementObserver

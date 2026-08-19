@@ -42,8 +42,8 @@ package actor BridgeDevelopmentProductHost {
 
     package init(
         source: BridgeDevelopmentProductSource,
-        worktreeAnnotationStore: WorktreeAnnotationStore? = nil,
-        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator? = nil,
+        worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
         originatingWorkspaceID: String? = nil,
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
@@ -66,8 +66,8 @@ package actor BridgeDevelopmentProductHost {
 
     package init(
         source: BridgeDevelopmentProductSource,
-        worktreeAnnotationStore: WorktreeAnnotationStore? = nil,
-        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator? = nil,
+        worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
         originatingWorkspaceID: String? = nil,
         reviewSharedContentRootURL: URL,
         contributionTargetCommit:
@@ -92,8 +92,8 @@ package actor BridgeDevelopmentProductHost {
 
     package init(
         source: BridgeDevelopmentProductSource,
-        worktreeAnnotationStore: WorktreeAnnotationStore? = nil,
-        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator? = nil,
+        worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
         originatingWorkspaceID: String? = nil,
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->

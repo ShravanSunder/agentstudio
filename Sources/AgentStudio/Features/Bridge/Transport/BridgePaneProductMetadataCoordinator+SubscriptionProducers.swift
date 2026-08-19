@@ -114,8 +114,7 @@ extension BridgePaneProductMetadataCoordinator {
         _ request: BridgeWorktreeAnnotationSubscriptionOpenRequest
     ) async throws {
         try await annotationSource.open(
-            subscription: request.subscription,
-            surface: request.subscription.subscriptionKind.surface
+            subscription: request.subscription
         ) { event in
             guard request.foregroundWorkAdmission.withValidAdmission({ true }) == true else {
                 throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated

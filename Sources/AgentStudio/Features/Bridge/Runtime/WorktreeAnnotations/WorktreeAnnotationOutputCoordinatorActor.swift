@@ -1,6 +1,6 @@
 import Foundation
 
-protocol WorktreeAnnotationOutputStoreAccess: Sendable {
+protocol WorktreeAnnotationOutputServiceAccess: Sendable {
     func prepareOutput(
         _ props: WorktreeAnnotationSQLiteRepository.PrepareOutputProps
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput
@@ -184,7 +184,7 @@ enum WorktreeAnnotationOutputCoordinatorError: Error, Equatable, Sendable {
     case invalidDestination
 }
 
-package actor WorktreeAnnotationOutputCoordinator {
+package actor WorktreeAnnotationOutputCoordinatorActor {
     typealias NowProvider = @Sendable () -> Date
     typealias AttemptIDProvider = @Sendable () async -> WorktreeAnnotationOutputAttemptID
 
@@ -199,14 +199,14 @@ package actor WorktreeAnnotationOutputCoordinator {
         let markdownPresentation: WorktreeAnnotationMarkdownPresentationContext?
     }
 
-    private let store: any WorktreeAnnotationOutputStoreAccess
+    private let store: any WorktreeAnnotationOutputServiceAccess
     private let effect: any WorktreeAnnotationOutputEffect
     private let now: NowProvider
     private let generateAttemptID: AttemptIDProvider
     private var cancellationProofByAttemptID: [WorktreeAnnotationOutputAttemptID: CancellationProof] = [:]
 
     init(
-        store: any WorktreeAnnotationOutputStoreAccess,
+        store: any WorktreeAnnotationOutputServiceAccess,
         effect: any WorktreeAnnotationOutputEffect,
         now: @escaping NowProvider = Date.init,
         generateAttemptID: @escaping AttemptIDProvider = {
@@ -220,7 +220,7 @@ package actor WorktreeAnnotationOutputCoordinator {
     }
 
     package init(
-        store: WorktreeAnnotationStore,
+        store: WorktreeAnnotationServiceActor,
         effect: any WorktreeAnnotationOutputEffect
     ) {
         self.store = store

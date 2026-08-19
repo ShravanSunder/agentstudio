@@ -3,23 +3,38 @@ import Foundation
 extension WorktreeAnnotationTransportAdapter {
     func executeOutputPreparation(
         _ assembled: WorktreeAnnotationAssembledOutputSelection,
-        surface: BridgeProductSurface
+        surface: BridgeProductSurface,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationOutputCommandOutcome {
         guard let outputCoordinator, let outputLabels else {
             throw WorktreeAnnotationTransportAdapterError.outputUnavailable
         }
         let sessionID = WorktreeAnnotationSessionID(rawValue: assembled.sessionID)
-        let context = try await store.outputSnapshotContext(
-            sessionID: sessionID,
-            contextID: contextID,
-            surface: surface
+        let sessionDetail = try await store.outputSessionDetail(sessionID: sessionID)
+        let sourceSnapshot = WorktreeAnnotationServiceActor.sourceRefreshSnapshot(
+            from: sessionDetail
+        )
+        let sourceCapture = try await sourceResolver.refresh(
+            surface,
+            productAdmission,
+            sourceSnapshot.requirements
+        )
+        let sourceEvaluation = try WorktreeAnnotationSourceEvaluator.evaluate(
+            .init(
+                session: sessionDetail.session,
+                threads: sessionDetail.threads.map(\.thread),
+                surface: surface,
+                sourceEpoch: contextID,
+                currentFingerprint: sourceCapture.fingerprint,
+                material: sourceCapture.material
+            )
         )
         let outputKind: WorktreeAnnotationOutputKind =
             switch assembled.outputKind {
             case .clipboardMarkdown: .clipboardMarkdown
             case .jsonFile: .jsonFile
             }
-        let eligibleMessages = context.sessionDetail.threads.flatMap(\.messages).filter {
+        let eligibleMessages = sessionDetail.threads.flatMap(\.messages).filter {
             $0.savedBody != nil && $0.savedRevision != nil && $0.draft == nil && $0.status == .editable
         }
         let selectedMessages: [WorktreeAnnotationMessage]
@@ -32,7 +47,7 @@ extension WorktreeAnnotationTransportAdapter {
             }
         case .allEligible(let excludedMessageIds):
             let excludedIDs = Set(excludedMessageIds.map(WorktreeAnnotationMessageID.init(rawValue:)))
-            let knownIDs = Set(context.sessionDetail.threads.flatMap(\.messages).map(\.id))
+            let knownIDs = Set(sessionDetail.threads.flatMap(\.messages).map(\.id))
             guard excludedIDs.isSubset(of: knownIDs) else {
                 throw WorktreeAnnotationRepositoryError.notFound
             }
@@ -42,46 +57,25 @@ extension WorktreeAnnotationTransportAdapter {
         let comparisonLabel =
             try outputLabels.comparisonLabel
             ?? WorktreeAnnotationComparisonLabelProjector.project(
-                context.sessionDetail.session.acceptedSourceFingerprint.reviewComparisonOrigin
+                sessionDetail.session.acceptedSourceFingerprint.reviewComparisonOrigin
             )
         let result = try await outputCoordinator.executeNew(
             .init(
                 outputKind: outputKind,
-                sessionDetail: context.sessionDetail,
+                sessionDetail: sessionDetail,
                 selectedMessages: try selectedMessages.map { message in
                     guard let savedRevision = message.savedRevision else {
                         throw WorktreeAnnotationRepositoryError.invalidState
                     }
                     return .init(messageID: message.id, expectedSavedRevision: savedRevision)
                 },
-                placementsByThreadID: context.placementsByThreadID,
+                placementsByThreadID: sourceEvaluation.placements,
                 sessionLabel: outputLabels.sessionLabel,
                 worktreeLabel: outputLabels.worktreeLabel,
                 comparisonLabel: comparisonLabel
             )
         )
         return result.commandOutcome
-    }
-
-    func queryOutputCandidates(
-        _ body: BridgeProductAnnotationCandidateQuery,
-        surface: BridgeProductSurface
-    ) async throws -> WorktreeAnnotationOutputCandidatePage {
-        let cursor: WorktreeAnnotationOutputCandidateCursor? =
-            switch body.cursor {
-            case .start:
-                nil
-            case .after(let flatOrdinal, let messageID):
-                .init(flatOrdinal: flatOrdinal, messageID: .init(rawValue: messageID))
-            }
-        return try await store.fetchOutputCandidates(
-            sessionID: .init(rawValue: body.sessionId),
-            expectedSessionRevision: body.expectedSessionRevision,
-            cursor: cursor,
-            limit: body.limit,
-            contextID: contextID,
-            surface: surface
-        )
     }
 
     func executeOutputRepeat(

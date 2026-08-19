@@ -1,4 +1,49 @@
+import AgentStudioCore
+import AgentStudioGit
+import Foundation
+
 extension BridgePaneProductSchemeProvider {
+    func publishFileStatus(
+        _ status: GitWorkingTreeStatus,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) async -> BridgePaneProductFileRefreshPublicationDisposition {
+        await metadataCoordinator.publish(
+            status: status,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
+        )
+    }
+
+    func publishFileChangeset(
+        _ changeset: FileChangeset,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) async -> BridgePaneProductFileRefreshPublicationDisposition {
+        await metadataCoordinator.publish(
+            changeset: changeset,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
+        )
+    }
+
+    func resetCurrentReviewSubscriptionsForUnavailableSource(
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) async {
+        await metadataCoordinator.resetCurrentReviewSubscriptionsForUnavailableSource(
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
+        )
+    }
+
+    func acknowledgeLifecycle(
+        _ acknowledgement: BridgeProductProducerLifecycleAcknowledgement
+    ) async -> Bool {
+        _ = acknowledgement
+        return true
+    }
+
     func applyCommittedControlEffect(
         _ effect: BridgeProductSessionCompletionEffect,
         for request: BridgeProductControlRequest,
@@ -10,22 +55,11 @@ extension BridgePaneProductSchemeProvider {
         {
             guard (productAdmission.withValidAdmission { true }) == true else { return }
             switch committedProductCall {
-            case .fileAnnotationsCommand(let annotationRequest):
-                await applyWorktreeAnnotationCommand(
-                    annotationRequest,
-                    .file,
-                    request.correlation,
-                    productAdmission
-                )
-            case .reviewAnnotationsCommand(let annotationRequest):
-                await applyWorktreeAnnotationCommand(
-                    annotationRequest,
-                    .review,
-                    request.correlation,
-                    productAdmission
-                )
+            case .fileAnnotationsCommand, .reviewAnnotationsCommand:
+                break
             case .fileAnnotationsOutputInspect, .reviewAnnotationsOutputInspect,
-                .fileAnnotationsOutputCandidatesQuery, .reviewAnnotationsOutputCandidatesQuery:
+                .fileAnnotationsOutputCandidatesQuery, .reviewAnnotationsOutputCandidatesQuery,
+                .fileAnnotationsProjectionQuery, .reviewAnnotationsProjectionQuery:
                 break
             case .fileSourceCurrent:
                 break
@@ -78,7 +112,7 @@ extension BridgePaneProductSchemeProvider {
         let comparisonTargetReservation = claimComparisonTargetReservation(for: request)
         let contentWorkAdmission: BridgePaneRefreshWorkAdmission?
         switch request {
-        case .annotationOutput:
+        case .annotationOutput, .annotationProjection:
             contentWorkAdmission = refreshWorkAdmissionSource.acquire()
         case .fileContent:
             contentWorkAdmission = refreshWorkAdmissionSource.acquire()
@@ -103,7 +137,7 @@ extension BridgePaneProductSchemeProvider {
         session: BridgeProductSession
     ) -> BridgeProductProducerRegistry.ProducerOperation {
         switch request {
-        case .annotationOutput:
+        case .annotationOutput, .annotationProjection:
             return { lease in
                 await self.runContentProducer(
                     request: request,

@@ -54,8 +54,8 @@ final class WorkspaceSurfaceCoordinator {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let bridgeGitReadScheduler: BridgeGitReadScheduler
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator
-    let worktreeAnnotationStore: WorktreeAnnotationStore?
-    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator?
+    let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
+    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
     let filesystemSource: any WorkspaceFilesystemSourceManaging
     let filesystemProjectionIndex: any WorkspaceFilesystemProjectionIndexing
     let windowLifecycleStore: WindowLifecycleAtom
@@ -136,8 +136,8 @@ final class WorkspaceSurfaceCoordinator {
         windowLifecycleStore: WindowLifecycleAtom,
         appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
         bridgePaneAttendance: BridgePaneAttendanceAtom,
-        worktreeAnnotationStore: WorktreeAnnotationStore? = nil,
-        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator? = nil
+        worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil
     ) {
         self.init(
             store: store,
@@ -173,8 +173,8 @@ final class WorkspaceSurfaceCoordinator {
         windowLifecycleStore: WindowLifecycleAtom,
         appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
         bridgePaneAttendance: BridgePaneAttendanceAtom,
-        worktreeAnnotationStore: WorktreeAnnotationStore? = nil,
-        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator? = nil,
+        worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil

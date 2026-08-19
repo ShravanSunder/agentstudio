@@ -55,7 +55,7 @@ actor BridgePaneProductContentDemandAuthority {
     ) async -> BridgeContentDemandInterest {
         let highestLane: BridgeProductDemandLane?
         switch request {
-        case .annotationOutput:
+        case .annotationOutput, .annotationProjection:
             return .selected
         case .fileContent(let fileRequest):
             guard

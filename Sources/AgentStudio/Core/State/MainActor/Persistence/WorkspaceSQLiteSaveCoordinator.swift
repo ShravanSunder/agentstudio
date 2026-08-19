@@ -114,14 +114,14 @@ package final class WorkspaceSQLiteSaveCoordinator {
     private let windowMemoryAtom: WorkspaceWindowMemoryAtom
     private let workspacePaneAtom: WorkspacePaneAtom
     private let workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
-    private let sqliteDatastore: WorkspaceSQLiteDatastore
+    private let sqliteDatastore: WorkspaceSQLiteDatastoreActor
 
     package init(
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
-        sqliteDatastore: WorkspaceSQLiteDatastore
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor
     ) {
         self.identityAtom = identityAtom
         self.windowMemoryAtom = windowMemoryAtom

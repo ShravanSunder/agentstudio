@@ -105,15 +105,26 @@ struct WorktreeAnnotationSQLiteRepository {
 
     func discoverSessions(worktreeID: String) throws -> [WorktreeAnnotationSession] {
         try databaseWriter.read { database in
-            try Row.fetchAll(
-                database,
-                sql: """
-                    SELECT * FROM annotation_session
-                    WHERE worktree_id = ?
-                    ORDER BY created_at ASC, id ASC
-                    """,
-                arguments: [worktreeID]
-            ).map(decodeSession)
+            try loadSessions(database, worktreeID: worktreeID)
+        }
+    }
+
+    func fetchProjectionSnapshot(
+        worktreeID: String,
+        demandedSessionIDs: [WorktreeAnnotationSessionID]
+    ) throws -> WorktreeAnnotationRepositoryProjectionSnapshot {
+        try databaseWriter.read { database in
+            let sessions = try loadSessions(database, worktreeID: worktreeID)
+            let sessionIDs = Set(sessions.map(\.id))
+            guard demandedSessionIDs.allSatisfy(sessionIDs.contains) else {
+                throw WorktreeAnnotationRepositoryError.notFound
+            }
+            return WorktreeAnnotationRepositoryProjectionSnapshot(
+                details: try demandedSessionIDs.map {
+                    try loadSessionDetail(database, sessionID: $0)
+                },
+                sessions: sessions
+            )
         }
     }
 
@@ -121,6 +132,21 @@ struct WorktreeAnnotationSQLiteRepository {
         try databaseWriter.read { database in
             try loadSessionDetail(database, sessionID: sessionID)
         }
+    }
+
+    private func loadSessions(
+        _ database: Database,
+        worktreeID: String
+    ) throws -> [WorktreeAnnotationSession] {
+        try Row.fetchAll(
+            database,
+            sql: """
+                SELECT * FROM annotation_session
+                WHERE worktree_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+            arguments: [worktreeID]
+        ).map(decodeSession)
     }
 
     func createRootDraft(_ props: CreateRootDraftProps) throws -> WorktreeAnnotationSessionDetail {

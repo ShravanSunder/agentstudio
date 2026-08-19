@@ -106,11 +106,12 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
             reason: WorktreeAnnotationAdmissionChoiceReason,
             candidateSessionIds: [UUID]
         )
+        case history([BridgeProductAnnotationOutputHistoryDTO])
         case output(BridgeProductAnnotationOutputOutcomeDTO)
         case failed(WorktreeAnnotationCommandFailureCode)
 
         private enum CodingKeys: String, CodingKey, CaseIterable {
-            case candidateSessionIds, code, kind, outcome, reason
+            case candidateSessionIds, code, kind, outcome, reason, summaries
         }
 
         init(from decoder: Decoder) throws {
@@ -125,6 +126,7 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
                         CodingKeys.kind.rawValue,
                         CodingKeys.reason.rawValue,
                     ]
+                case "history": [CodingKeys.kind.rawValue, CodingKeys.summaries.rawValue]
                 case "output": [CodingKeys.kind.rawValue, CodingKeys.outcome.rawValue]
                 case "failed": [CodingKeys.code.rawValue, CodingKeys.kind.rawValue]
                 default: []
@@ -161,6 +163,13 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
                         forKey: .outcome
                     )
                 )
+            case "history":
+                self = .history(
+                    try container.decode(
+                        [BridgeProductAnnotationOutputHistoryDTO].self,
+                        forKey: .summaries
+                    )
+                )
             case "failed":
                 self = .failed(
                     try container.decode(WorktreeAnnotationCommandFailureCode.self, forKey: .code)
@@ -185,6 +194,9 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
             case .output(let outcome):
                 try container.encode("output", forKey: .kind)
                 try container.encode(outcome, forKey: .outcome)
+            case .history(let summaries):
+                try container.encode("history", forKey: .kind)
+                try container.encode(summaries, forKey: .summaries)
             case .failed(let code):
                 try container.encode(code, forKey: .code)
                 try container.encode("failed", forKey: .kind)
@@ -216,6 +228,8 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
                 candidateSessionIds: choice.candidateSessionIDs.map(\.rawValue)
             )
         case .output(let output): status = .output(.init(output))
+        case .history(let summaries):
+            status = .history(summaries.map(BridgeProductAnnotationOutputHistoryDTO.init))
         case .failed(let code): status = .failed(code)
         }
     }
@@ -575,133 +589,6 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
     }
 }
 
-struct BridgeProductWorktreeAnnotationProjectionState: Codable, Equatable, Sendable {
-    private enum CodingKeys: String, CodingKey, CaseIterable {
-        case commandOutcomes
-        case expectedThreadCount
-        case outputHistory
-        case recoveryStatus
-        case revision
-        case sessions
-        case worktreeId
-    }
-
-    let commandOutcomes: [BridgeProductWorktreeAnnotationCommandOutcomeDTO]
-    let expectedThreadCount: Int
-    let outputHistory: [BridgeProductAnnotationOutputHistoryDTO]
-    let recoveryStatus: String
-    let revision: Int
-    let sessions: [BridgeProductWorktreeAnnotationSessionSummary]
-    let worktreeId: String
-
-    init(_ snapshot: WorktreeAnnotationProjectionSnapshot, expectedThreadCount: Int) {
-        commandOutcomes = snapshot.commandOutcomes.map(
-            BridgeProductWorktreeAnnotationCommandOutcomeDTO.init
-        )
-        self.expectedThreadCount = expectedThreadCount
-        outputHistory = snapshot.outputHistory.map(
-            BridgeProductAnnotationOutputHistoryDTO.init
-        )
-        revision = snapshot.revision
-        sessions = snapshot.sessions.map { session in
-            let detail = snapshot.details.first { $0.session.id == session.id }
-            let eligibleMessagesByThread =
-                detail?.threads.map { thread in
-                    (
-                        thread.thread.id,
-                        thread.messages.filter {
-                            $0.status == .editable
-                                && $0.savedBody != nil
-                                && $0.savedRevision != nil
-                                && $0.draft == nil
-                        }.count
-                    )
-                } ?? []
-            let eligibleMessageCount = eligibleMessagesByThread.reduce(0) { $0 + $1.1 }
-            let eligibleWithoutInlinePlacementCount = eligibleMessagesByThread.reduce(0) { count, entry in
-                let placement = snapshot.placementsByThreadID[entry.0]?.placement
-                return count + ((placement == .exact || placement == .relocated) ? 0 : entry.1)
-            }
-            return BridgeProductWorktreeAnnotationSessionSummary(
-                session,
-                eligibleMessageCount: eligibleMessageCount,
-                eligibleWithoutInlinePlacementCount: eligibleWithoutInlinePlacementCount
-            )
-        }
-        worktreeId = snapshot.worktreeID
-        switch snapshot.recoveryState {
-        case .available: recoveryStatus = "available"
-        case .recoveredDegraded: recoveryStatus = "recovered_degraded"
-        case .unavailable: recoveryStatus = "unavailable"
-        }
-    }
-
-    init(from decoder: Decoder) throws {
-        try rejectAnnotationProjectionUnknownKeys(decoder, keys: CodingKeys.allCases)
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        commandOutcomes = try container.decode(
-            [BridgeProductWorktreeAnnotationCommandOutcomeDTO].self,
-            forKey: .commandOutcomes
-        )
-        expectedThreadCount = try container.decode(Int.self, forKey: .expectedThreadCount)
-        guard expectedThreadCount >= 0 else {
-            throw BridgeProductContractDecoding.invalidValue(
-                "Annotation expected thread count must be nonnegative",
-                codingPath: decoder.codingPath + [CodingKeys.expectedThreadCount]
-            )
-        }
-        outputHistory = try container.decode(
-            [BridgeProductAnnotationOutputHistoryDTO].self,
-            forKey: .outputHistory
-        )
-        recoveryStatus = try container.decode(String.self, forKey: .recoveryStatus)
-        revision = try container.decode(Int.self, forKey: .revision)
-        sessions = try container.decode(
-            [BridgeProductWorktreeAnnotationSessionSummary].self,
-            forKey: .sessions
-        )
-        worktreeId = try container.decode(String.self, forKey: .worktreeId)
-    }
-}
-
-struct BridgeProductWorktreeAnnotationMessageBatch: Codable, Equatable, Sendable {
-    private enum CodingKeys: String, CodingKey, CaseIterable {
-        case context
-        case isLastBatchForThread
-        case messages
-        case revision
-    }
-
-    let context: BridgeProductWorktreeAnnotationThreadContext
-    let isLastBatchForThread: Bool
-    let messages: [BridgeProductWorktreeAnnotationMessageEntry]
-    let revision: Int
-
-    init(
-        context: BridgeProductWorktreeAnnotationThreadContext,
-        isLastBatchForThread: Bool,
-        messages: [BridgeProductWorktreeAnnotationMessageEntry],
-        revision: Int
-    ) {
-        self.context = context
-        self.isLastBatchForThread = isLastBatchForThread
-        self.messages = messages
-        self.revision = revision
-    }
-
-    init(from decoder: Decoder) throws {
-        try rejectAnnotationProjectionUnknownKeys(decoder, keys: CodingKeys.allCases)
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        context = try container.decode(BridgeProductWorktreeAnnotationThreadContext.self, forKey: .context)
-        isLastBatchForThread = try container.decode(Bool.self, forKey: .isLastBatchForThread)
-        messages = try container.decode(
-            [BridgeProductWorktreeAnnotationMessageEntry].self,
-            forKey: .messages
-        )
-        revision = try container.decode(Int.self, forKey: .revision)
-    }
-}
-
 private func rejectAnnotationProjectionUnknownKeys<TCodingKey: CodingKey & RawRepresentable>(
     _ decoder: Decoder,
     keys: [TCodingKey]
@@ -713,195 +600,58 @@ private func rejectAnnotationProjectionUnknownKeys<TCodingKey: CodingKey & RawRe
     )
 }
 
-enum BridgeProductWorktreeAnnotationEvent: Codable, Equatable, Sendable {
-    case messageBatch(BridgeProductWorktreeAnnotationMessageBatch)
-    case projectionState(BridgeProductWorktreeAnnotationProjectionState)
+struct BridgeProductWorktreeAnnotationEvent: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case eventKind
+        case sourceGeneration
+        case worktreeId
+    }
 
-    private enum CodingKeys: String, CodingKey, CaseIterable { case eventKind, payload }
+    let sourceGeneration: Int
+    let worktreeID: String
 
-    var sourceGeneration: Int {
-        switch self {
-        case .messageBatch(let batch): batch.revision
-        case .projectionState(let state): state.revision
-        }
+    init(sourceGeneration: Int, worktreeID: String) throws {
+        self.sourceGeneration = sourceGeneration
+        self.worktreeID = worktreeID
+        try validate(codingPath: [])
     }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
             allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
-            contract: "worktree annotation event"
+            contract: "worktree annotation invalidation"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(String.self, forKey: .eventKind) {
-        case "message.batch":
-            self = .messageBatch(
-                try container.decode(BridgeProductWorktreeAnnotationMessageBatch.self, forKey: .payload)
-            )
-        case "projection.state":
-            self = .projectionState(
-                try container.decode(BridgeProductWorktreeAnnotationProjectionState.self, forKey: .payload)
-            )
-        default:
+        guard try container.decode(String.self, forKey: .eventKind) == "snapshot.required" else {
             throw BridgeProductContractDecoding.invalidValue(
-                "Invalid worktree annotation event kind",
+                "Invalid worktree annotation invalidation kind",
                 codingPath: decoder.codingPath
             )
         }
+        sourceGeneration = try container.decode(Int.self, forKey: .sourceGeneration)
+        worktreeID = try container.decode(String.self, forKey: .worktreeId)
+        try validate(codingPath: decoder.codingPath)
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .messageBatch(let batch):
-            try container.encode("message.batch", forKey: .eventKind)
-            try container.encode(batch, forKey: .payload)
-        case .projectionState(let state):
-            try container.encode("projection.state", forKey: .eventKind)
-            try container.encode(state, forKey: .payload)
-        }
+        try container.encode("snapshot.required", forKey: .eventKind)
+        try container.encode(sourceGeneration, forKey: .sourceGeneration)
+        try container.encode(worktreeID, forKey: .worktreeId)
     }
-}
 
-enum BridgeProductWorktreeAnnotationProjectionPacker {
-    static func events(
-        snapshot: WorktreeAnnotationProjectionSnapshot,
-        surface: BridgeProductSurface
-    ) throws -> [BridgeProductWorktreeAnnotationEvent] {
-        let expectedThreadIDs = Set(
-            snapshot.details.flatMap { detail in
-                detail.threads.compactMap { threadDetail in
-                    threadDetail.messages.isEmpty ? nil : threadDetail.thread.id
-                }
-            }
+    private func validate(codingPath: [any CodingKey]) throws {
+        try BridgeProductContractDecoding.validateNonnegative(
+            sourceGeneration,
+            name: "sourceGeneration",
+            codingPath: codingPath
         )
-        var events: [BridgeProductWorktreeAnnotationEvent] = [
-            .projectionState(
-                .init(snapshot, expectedThreadCount: expectedThreadIDs.count)
+        guard !worktreeID.isEmpty else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Annotation invalidation worktree identity must be nonempty",
+                codingPath: codingPath
             )
-        ]
-        for detail in snapshot.details {
-            for threadDetail in detail.threads {
-                let context = try BridgeProductWorktreeAnnotationThreadContext(
-                    threadDetail.thread,
-                    placement: snapshot.placementsByThreadID[threadDetail.thread.id]
-                )
-                let entries = try threadDetail.messages.map {
-                    try BridgeProductWorktreeAnnotationMessageEntry(
-                        message: $0,
-                        session: detail.session,
-                        thread: threadDetail.thread
-                    )
-                }
-                events.append(
-                    contentsOf: try packedMessageEvents(
-                        context: context,
-                        entries: entries,
-                        revision: snapshot.revision,
-                        surface: surface
-                    )
-                )
-            }
-        }
-        return events
-    }
-
-    private static func packedMessageEvents(
-        context: BridgeProductWorktreeAnnotationThreadContext,
-        entries: [BridgeProductWorktreeAnnotationMessageEntry],
-        revision: Int,
-        surface: BridgeProductSurface
-    ) throws -> [BridgeProductWorktreeAnnotationEvent] {
-        guard !entries.isEmpty else { return [] }
-        var batches: [[BridgeProductWorktreeAnnotationMessageEntry]] = []
-        var current: [BridgeProductWorktreeAnnotationMessageEntry] = []
-        for entry in entries {
-            let candidate = current + [entry]
-            if try fitsMaximumEnvelope(
-                context: context,
-                entries: candidate,
-                revision: revision,
-                surface: surface
-            ) {
-                current = candidate
-            } else {
-                guard !current.isEmpty else {
-                    throw BridgeProductWorktreeAnnotationProjectionError.singletonFrameExceedsMaximum
-                }
-                batches.append(current)
-                current = [entry]
-                guard
-                    try fitsMaximumEnvelope(
-                        context: context,
-                        entries: current,
-                        revision: revision,
-                        surface: surface
-                    )
-                else {
-                    throw BridgeProductWorktreeAnnotationProjectionError.singletonFrameExceedsMaximum
-                }
-            }
-        }
-        batches.append(current)
-        return batches.enumerated().map { index, messages in
-            .messageBatch(
-                .init(
-                    context: context,
-                    isLastBatchForThread: index == batches.count - 1,
-                    messages: messages,
-                    revision: revision
-                )
-            )
-        }
-    }
-
-    private static func fitsMaximumEnvelope(
-        context: BridgeProductWorktreeAnnotationThreadContext,
-        entries: [BridgeProductWorktreeAnnotationMessageEntry],
-        revision: Int,
-        surface: BridgeProductSurface
-    ) throws -> Bool {
-        let event = BridgeProductWorktreeAnnotationEvent.messageBatch(
-            .init(context: context, isLastBatchForThread: true, messages: entries, revision: revision)
-        )
-        let repeatedIdentifier = String(
-            repeating: "a",
-            count: BridgeProductWireContract.maximumIdentifierByteLength
-        )
-        let stream = BridgeProductMetadataStreamCorrelation(
-            metadataStreamId: repeatedIdentifier,
-            paneSessionId: repeatedIdentifier,
-            wireVersion: BridgeProductWireContract.version,
-            workerInstanceId: repeatedIdentifier
-        )
-        let subscription = try BridgeProductSubscriptionFrameCorrelation(
-            cursor: String(
-                repeating: "a",
-                count: BridgeProductWireContract.maximumOpaqueReferenceByteLength
-            ),
-            interestRevision: BridgeProductWireContract.maximumSafeInteger,
-            interestSha256: String(repeating: "a", count: 64),
-            sourceGeneration: max(0, revision),
-            subscriptionId: repeatedIdentifier,
-            subscriptionKind: surface == .file ? .fileAnnotations : .reviewAnnotations,
-            workerDerivationEpoch: BridgeProductWireContract.maximumSafeInteger
-        )
-        let data: BridgeProductSubscriptionData =
-            surface == .file
-            ? .fileAnnotations(event)
-            : .reviewAnnotations(event)
-        let frame = try BridgeProductMetadataFrame.subscriptionData(
-            stream: stream,
-            streamSequence: BridgeProductWireContract.maximumSafeInteger,
-            subscription: subscription,
-            subscriptionSequence: BridgeProductWireContract.maximumSafeInteger,
-            data: data
-        )
-        do {
-            return try BridgeProductMetadataFrameCodec.encode(frame).count - 4
-                <= BridgeProductWireContract.maximumMetadataFrameBytes
-        } catch BridgeProductFrameCodecError.invalidFrame {
-            return false
         }
     }
 }

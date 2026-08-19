@@ -1,13 +1,12 @@
 import Foundation
 
-extension WorktreeAnnotationStore {
+extension WorktreeAnnotationServiceActor {
     func fetchOutputCandidates(
         sessionID: WorktreeAnnotationSessionID,
         expectedSessionRevision: Int,
         cursor: WorktreeAnnotationOutputCandidateCursor?,
         limit: Int,
-        contextID: String,
-        surface: BridgeProductSurface
+        placementsByThreadID: [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
     ) async throws -> WorktreeAnnotationOutputCandidatePage {
         try requireAvailableForReads()
         let repositoryPage = try await repositoryAccess.fetchOutputCandidates(
@@ -22,21 +21,16 @@ extension WorktreeAnnotationStore {
                 currentRevision: detail.session.semanticRevision
             )
         }
-        let placements = projection.placements(
-            contextID: contextID,
-            surface: surface,
-            sessionID: sessionID
-        )
         let eligibleWithoutInlinePlacementCount = detail.threads.reduce(into: 0) { count, thread in
             let eligibleCount = thread.messages.filter(Self.isOutputEligible).count
             guard eligibleCount > 0 else { return }
-            let placement = placements[thread.thread.id]
+            let placement = placementsByThreadID[thread.thread.id]
             if placement?.placement != .exact && placement?.placement != .relocated {
                 count += eligibleCount
             }
         }
         let candidates = repositoryPage.candidates.map { candidate in
-            let currentPlacement = placements[candidate.threadID]
+            let currentPlacement = placementsByThreadID[candidate.threadID]
             let hasCurrentLocation =
                 (currentPlacement?.placement == .exact || currentPlacement?.placement == .relocated)
                 && currentPlacement?.currentPath != nil

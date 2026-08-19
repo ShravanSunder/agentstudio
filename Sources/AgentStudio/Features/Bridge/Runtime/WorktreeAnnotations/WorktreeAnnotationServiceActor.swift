@@ -2,15 +2,10 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import Foundation
 
-enum WorktreeAnnotationStoreError: Error, Equatable, Sendable {
+enum WorktreeAnnotationServiceError: Error, Equatable, Sendable {
     case recoveryAcknowledgementRequired
     case staleSourceEpoch
     case unavailable
-}
-
-private struct WorktreeAnnotationDemandKey: Hashable {
-    let worktreeID: String
-    let sessionID: WorktreeAnnotationSessionID
 }
 
 struct WorktreeAnnotationDemandGeneration: Equatable, Sendable {
@@ -50,40 +45,76 @@ struct WorktreeAnnotationRootPlacementContext: Sendable {
     let surface: BridgeProductSurface
 }
 
-struct WorktreeAnnotationOutputSnapshotContext: Sendable {
-    let sessionDetail: WorktreeAnnotationSessionDetail
-    let placementsByThreadID: [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
+enum WorktreeAnnotationChange: Equatable, Sendable {
+    case snapshotRequired(worktreeID: String)
 }
 
-/// Application-scoped coordinator for annotation commands, queries, and demand.
+struct WorktreeAnnotationChangeObserver: Sendable {
+    let stream: AsyncStream<WorktreeAnnotationChange>
+    let token: UUID
+}
+
+struct WorktreeAnnotationServiceProjectionCapture: Sendable {
+    let recoveryState: WorktreeAnnotationRecoveryState
+    let repositorySnapshot: WorktreeAnnotationRepositoryProjectionSnapshot
+    let revision: Int
+}
+
+private struct WorktreeAnnotationChangeObserverState {
+    let continuation: AsyncStream<WorktreeAnnotationChange>.Continuation
+    let worktreeID: String
+}
+
+/// Application-scoped actor for annotation commands, queries, and demand.
 ///
-/// Semantic mutations always await the repository transaction and only then
-/// publish its committed detail into the projection Atom.
-@MainActor
-package final class WorktreeAnnotationStore {
-    package let projection: WorktreeAnnotationProjectionAtom
+/// Semantic mutations await the repository transaction before broadcasting a
+/// compact invalidation. SQLite remains the only annotation authority.
+package actor WorktreeAnnotationServiceActor {
     let repositoryAccess: any WorktreeAnnotationRepositoryAccess
-    private var demandCountByKey: [WorktreeAnnotationDemandKey: Int] = [:]
     private var activeDemandGenerationByContextKey:
         [WorktreeAnnotationPlacementContextKey: WorktreeAnnotationDemandGeneration] = [:]
     private var latestSourceRefreshFenceByContextKey:
         [WorktreeAnnotationPlacementContextKey: WorktreeAnnotationSourceRefreshFence] = [:]
+    private var changeObserverByToken: [UUID: WorktreeAnnotationChangeObserverState] = [:]
+    private var projectionRevision = 0
     let editOwnership = WorktreeAnnotationEditOwnershipRegistry()
+    private var recoveryState: WorktreeAnnotationRecoveryState = .available
     private var unacknowledgedRecoveryWitness: WorktreeAnnotationRecoveryProvenance?
 
     init(
-        projection: WorktreeAnnotationProjectionAtom,
         repositoryAccess: any WorktreeAnnotationRepositoryAccess
     ) {
-        self.projection = projection
         self.repositoryAccess = repositoryAccess
     }
 
-    package convenience init(
-        projection: WorktreeAnnotationProjectionAtom,
+    package init(
         sqliteAdapter: WorktreeAnnotationSQLiteDatastoreAdapter
     ) {
-        self.init(projection: projection, repositoryAccess: sqliteAdapter)
+        repositoryAccess = sqliteAdapter
+    }
+
+    func registerChangeObserver(worktreeID: String) -> WorktreeAnnotationChangeObserver {
+        let token = UUIDv7.generate()
+        let stream = AsyncStream<WorktreeAnnotationChange>(
+            bufferingPolicy: .bufferingNewest(1)
+        ) { continuation in
+            changeObserverByToken[token] = WorktreeAnnotationChangeObserverState(
+                continuation: continuation,
+                worktreeID: worktreeID
+            )
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeChangeObserver(token: token) }
+            }
+        }
+        return WorktreeAnnotationChangeObserver(stream: stream, token: token)
+    }
+
+    func removeChangeObserver(token: UUID) {
+        changeObserverByToken.removeValue(forKey: token)?.continuation.finish()
+    }
+
+    func changeObserverCount() -> Int {
+        changeObserverByToken.count
     }
 
     @discardableResult
@@ -91,8 +122,8 @@ package final class WorktreeAnnotationStore {
         do {
             let witness = try await repositoryAccess.fetchUnacknowledgedRecoveryProvenance()
             unacknowledgedRecoveryWitness = witness
-            projection.publishRecoveryState(
-                witness.map(WorktreeAnnotationRecoveryState.recoveredDegraded) ?? .available)
+            recoveryState = witness.map(WorktreeAnnotationRecoveryState.recoveredDegraded) ?? .available
+            publishSnapshotRequiredForEveryObservedWorktree()
             return witness.map {
                 PersistenceRecoveryEvent(
                     store: .worktreeAnnotations,
@@ -103,7 +134,8 @@ package final class WorktreeAnnotationStore {
             }
         } catch {
             unacknowledgedRecoveryWitness = nil
-            projection.publishRecoveryState(.unavailable)
+            recoveryState = .unavailable
+            publishSnapshotRequiredForEveryObservedWorktree()
             return PersistenceRecoveryEvent(
                 store: .worktreeAnnotations,
                 workspaceId: nil,
@@ -114,9 +146,30 @@ package final class WorktreeAnnotationStore {
 
     func discoverSessions(worktreeID: String) async throws -> [WorktreeAnnotationSession] {
         try requireAvailableForReads()
-        let sessions = try await repositoryAccess.discoverSessions(worktreeID: worktreeID)
-        projection.publishDiscovery(sessions, worktreeID: worktreeID)
-        return sessions
+        return try await repositoryAccess.discoverSessions(worktreeID: worktreeID)
+    }
+
+    func captureProjection(
+        worktreeID: String,
+        demandedSessionIDs: [WorktreeAnnotationSessionID]
+    ) async throws -> WorktreeAnnotationServiceProjectionCapture {
+        try requireAvailableForReads()
+        let capturedRevision = projectionRevision
+        let capturedRecoveryState = recoveryState
+        let repositorySnapshot = try await repositoryAccess.fetchProjectionSnapshot(
+            worktreeID: worktreeID,
+            demandedSessionIDs: demandedSessionIDs
+        )
+        guard projectionRevision == capturedRevision,
+            recoveryState == capturedRecoveryState
+        else {
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
+        }
+        return WorktreeAnnotationServiceProjectionCapture(
+            recoveryState: capturedRecoveryState,
+            repositorySnapshot: repositorySnapshot,
+            revision: capturedRevision
+        )
     }
 
     func acquireDemand(
@@ -126,7 +179,7 @@ package final class WorktreeAnnotationStore {
         sessionID: WorktreeAnnotationSessionID
     ) async throws -> WorktreeAnnotationDemandGeneration {
         try requireAvailableForReads()
-        guard !contextID.isEmpty else { throw WorktreeAnnotationStoreError.staleSourceEpoch }
+        guard !contextID.isEmpty else { throw WorktreeAnnotationServiceError.staleSourceEpoch }
 
         let contextKey = WorktreeAnnotationPlacementContextKey(
             contextID: contextID,
@@ -134,49 +187,30 @@ package final class WorktreeAnnotationStore {
             sessionID: sessionID
         )
         let demandGeneration = WorktreeAnnotationDemandGeneration(id: UUIDv7.generate())
-        let replacedDemandGeneration = activeDemandGenerationByContextKey.updateValue(
+        activeDemandGenerationByContextKey.updateValue(
             demandGeneration,
             forKey: contextKey
         )
-        let key = WorktreeAnnotationDemandKey(worktreeID: worktreeID, sessionID: sessionID)
-        if replacedDemandGeneration == nil {
-            demandCountByKey[key] = (demandCountByKey[key] ?? 0) + 1
-        }
-        if let publishedDetail = projection.detail(sessionID: sessionID) {
-            guard publishedDetail.session.worktreeID == worktreeID else {
-                rollbackDemandRegistration(
-                    key: key,
-                    contextKey: contextKey,
-                    demandGeneration: demandGeneration
-                )
-                throw WorktreeAnnotationRepositoryError.notFound
-            }
-            return demandGeneration
-        }
         let detail: WorktreeAnnotationSessionDetail
         do {
             detail = try await repositoryAccess.fetchSessionDetail(sessionID: sessionID)
         } catch {
             rollbackDemandRegistration(
-                key: key,
                 contextKey: contextKey,
                 demandGeneration: demandGeneration
             )
-            projection.publishRecoveryState(.unavailable)
             throw error
         }
         guard activeDemandGenerationByContextKey[contextKey] == demandGeneration else {
-            throw WorktreeAnnotationStoreError.staleSourceEpoch
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
         guard detail.session.worktreeID == worktreeID else {
             rollbackDemandRegistration(
-                key: key,
                 contextKey: contextKey,
                 demandGeneration: demandGeneration
             )
             throw WorktreeAnnotationRepositoryError.notFound
         }
-        projection.publish(detail: detail)
         return demandGeneration
     }
 
@@ -185,24 +219,13 @@ package final class WorktreeAnnotationStore {
         contextID: String,
         surface: BridgeProductSurface,
         sessionID: WorktreeAnnotationSessionID
-    ) {
+    ) async {
         let contextKey = WorktreeAnnotationPlacementContextKey(
             contextID: contextID,
             surface: surface,
             sessionID: sessionID
         )
-        guard activeDemandGenerationByContextKey.removeValue(forKey: contextKey) != nil else {
-            return
-        }
-
-        let key = WorktreeAnnotationDemandKey(worktreeID: worktreeID, sessionID: sessionID)
-        guard let currentCount = demandCountByKey[key] else { return }
-        if currentCount > 1 {
-            demandCountByKey[key] = currentCount - 1
-            return
-        }
-        demandCountByKey.removeValue(forKey: key)
-        projection.evictDetail(sessionID: sessionID)
+        activeDemandGenerationByContextKey.removeValue(forKey: contextKey)
     }
 
     func sourceRefreshSnapshot(
@@ -219,7 +242,7 @@ package final class WorktreeAnnotationStore {
     ) async throws -> WorktreeAnnotationSessionDetail {
         try requireMutationAllowed()
         let committedDetail = try await repositoryAccess.createRootDraft(props)
-        projection.publish(detail: committedDetail)
+        publishSnapshotRequired(worktreeID: committedDetail.session.worktreeID)
         return committedDetail
     }
 
@@ -230,20 +253,8 @@ package final class WorktreeAnnotationStore {
     ) async throws -> WorktreeAnnotationSessionDetail {
         try requireMutationAllowed()
         let committedDetail = try await repositoryAccess.createRootDraft(props)
-        guard
-            let createdThreadID = committedDetail.threads
-                .filter({ $0.thread.origin == props.origin })
-                .max(by: { $0.thread.createdOrdinal < $1.thread.createdOrdinal })?
-                .thread.id
-        else {
-            throw WorktreeAnnotationRepositoryError.invalidState
-        }
-        projection.publish(
-            detail: committedDetail,
-            exactPlacementFor: createdThreadID,
-            contextID: placementContext.contextID,
-            surface: placementContext.surface
-        )
+        _ = placementContext
+        publishSnapshotRequired(worktreeID: committedDetail.session.worktreeID)
         return committedDetail
     }
 
@@ -302,7 +313,7 @@ package final class WorktreeAnnotationStore {
     ) async throws -> WorktreeAnnotationSessionDetail {
         try requireAvailableForReads()
         guard !props.contextID.isEmpty, props.sourceEpoch >= 0 else {
-            throw WorktreeAnnotationStoreError.staleSourceEpoch
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
         let contextKey = WorktreeAnnotationPlacementContextKey(
             contextID: props.contextID,
@@ -310,7 +321,7 @@ package final class WorktreeAnnotationStore {
             sessionID: props.sessionID
         )
         guard activeDemandGenerationByContextKey[contextKey] == props.demandGeneration else {
-            throw WorktreeAnnotationStoreError.staleSourceEpoch
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
         let refreshFence = WorktreeAnnotationSourceRefreshFence(
             demandGeneration: props.demandGeneration,
@@ -321,7 +332,7 @@ package final class WorktreeAnnotationStore {
                 refreshFence.demandGeneration != latestFence.demandGeneration
                     || refreshFence.sourceEpoch > latestFence.sourceEpoch
             else {
-                throw WorktreeAnnotationStoreError.staleSourceEpoch
+                throw WorktreeAnnotationServiceError.staleSourceEpoch
             }
         }
         latestSourceRefreshFenceByContextKey[contextKey] = refreshFence
@@ -330,10 +341,10 @@ package final class WorktreeAnnotationStore {
         guard activeDemandGenerationByContextKey[contextKey] == props.demandGeneration,
             latestSourceRefreshFenceByContextKey[contextKey] == refreshFence
         else {
-            throw WorktreeAnnotationStoreError.staleSourceEpoch
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
         guard Self.sourceRefreshSnapshot(from: loadedDetail) == props.expectedSnapshot else {
-            throw WorktreeAnnotationStoreError.staleSourceEpoch
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
         let evaluation = try WorktreeAnnotationSourceEvaluator.evaluate(
             .init(
@@ -366,15 +377,9 @@ package final class WorktreeAnnotationStore {
         guard activeDemandGenerationByContextKey[contextKey] == props.demandGeneration,
             latestSourceRefreshFenceByContextKey[contextKey] == refreshFence
         else {
-            throw WorktreeAnnotationStoreError.staleSourceEpoch
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
-        projection.publish(
-            detail: committedDetail,
-            sourceEvaluation: evaluation,
-            contextID: props.contextID,
-            surface: props.surface,
-            sourceEpoch: props.sourceEpoch
-        )
+        publishSnapshotRequired(worktreeID: committedDetail.session.worktreeID)
         return committedDetail
     }
 
@@ -384,7 +389,7 @@ package final class WorktreeAnnotationStore {
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput {
         try requireMutationAllowed()
         let committed = try await repositoryAccess.prepareOutput(props)
-        projection.publish(detail: committed.sessionDetail)
+        publishSnapshotRequired(worktreeID: committed.sessionDetail.session.worktreeID)
         return committed.preparedOutput
     }
 
@@ -395,21 +400,11 @@ package final class WorktreeAnnotationStore {
         return try await repositoryAccess.inspectOutputAttempt(attemptID: attemptID)
     }
 
-    func outputSnapshotContext(
-        sessionID: WorktreeAnnotationSessionID,
-        contextID: String,
-        surface: BridgeProductSurface
-    ) async throws -> WorktreeAnnotationOutputSnapshotContext {
+    func outputSessionDetail(
+        sessionID: WorktreeAnnotationSessionID
+    ) async throws -> WorktreeAnnotationSessionDetail {
         try requireAvailableForReads()
-        let detail = try await repositoryAccess.fetchSessionDetail(sessionID: sessionID)
-        return WorktreeAnnotationOutputSnapshotContext(
-            sessionDetail: detail,
-            placementsByThreadID: projection.placements(
-                contextID: contextID,
-                surface: surface,
-                sessionID: sessionID
-            )
-        )
+        return try await repositoryAccess.fetchSessionDetail(sessionID: sessionID)
     }
 
     @discardableResult
@@ -426,7 +421,7 @@ package final class WorktreeAnnotationStore {
             destinationPath: destinationPath,
             now: now
         )
-        projection.publish(detail: committed.sessionDetail)
+        publishSnapshotRequired(worktreeID: committed.sessionDetail.session.worktreeID)
         return committed.preparedOutput
     }
 
@@ -440,7 +435,7 @@ package final class WorktreeAnnotationStore {
             attemptID: attemptID,
             now: now
         )
-        projection.publish(detail: committed.sessionDetail)
+        publishSnapshotRequired(worktreeID: committed.sessionDetail.session.worktreeID)
         return committed.preparedOutput
     }
 
@@ -456,7 +451,7 @@ package final class WorktreeAnnotationStore {
             effectError: effectError,
             now: now
         )
-        projection.publish(detail: committed.sessionDetail)
+        publishSnapshotRequired(worktreeID: committed.sessionDetail.session.worktreeID)
         return committed.preparedOutput
     }
 
@@ -472,7 +467,7 @@ package final class WorktreeAnnotationStore {
             eventKind: eventKind,
             now: now
         )
-        projection.publish(detail: committed.sessionDetail)
+        publishSnapshotRequired(worktreeID: committed.sessionDetail.session.worktreeID)
         return committed.preparedOutput
     }
 
@@ -488,7 +483,7 @@ package final class WorktreeAnnotationStore {
             cleanupError: cleanupError,
             now: now
         )
-        projection.publish(detail: committed.sessionDetail)
+        publishSnapshotRequired(worktreeID: committed.sessionDetail.session.worktreeID)
         return committed.preparedOutput
     }
 
@@ -498,12 +493,10 @@ package final class WorktreeAnnotationStore {
     ) async throws -> [WorktreeAnnotationOutputHistorySummary] {
         try requireAvailableForReads()
         guard limit > 0 else { throw WorktreeAnnotationRepositoryError.invalidState }
-        let history = try await repositoryAccess.fetchOutputHistory(
+        return try await repositoryAccess.fetchOutputHistory(
             sessionID: sessionID,
             limit: min(limit, AppPolicies.Bridge.worktreeAnnotationMaximumOutputHistorySummaries)
         )
-        projection.publish(outputHistory: history, sessionID: sessionID)
-        return history
     }
 
     func markPreparedOutputAttemptsUnknown(now: Date) async throws -> Int {
@@ -511,13 +504,8 @@ package final class WorktreeAnnotationStore {
         let changedCount: Int
         do {
             changedCount = try await repositoryAccess.markPreparedOutputAttemptsUnknown(now: now)
-        } catch {
-            projection.publishRecoveryState(.unavailable)
-            throw error
-        }
+        } catch { throw error }
         if changedCount > 0 {
-            projection.evictAllDetails()
-            demandCountByKey.removeAll()
             activeDemandGenerationByContextKey.removeAll()
         }
         return changedCount
@@ -525,8 +513,8 @@ package final class WorktreeAnnotationStore {
 
     package func acknowledgeRecovery(at acknowledgedAt: Date) async throws {
         guard let witness = unacknowledgedRecoveryWitness else {
-            if projection.recoveryState == .unavailable {
-                throw WorktreeAnnotationStoreError.unavailable
+            if recoveryState == .unavailable {
+                throw WorktreeAnnotationServiceError.unavailable
             }
             return
         }
@@ -535,19 +523,20 @@ package final class WorktreeAnnotationStore {
             acknowledgedAt: acknowledgedAt
         )
         unacknowledgedRecoveryWitness = nil
-        projection.publishRecoveryState(.available)
+        recoveryState = .available
+        publishSnapshotRequiredForEveryObservedWorktree()
     }
 
     func requireAvailableForReads() throws {
-        if projection.recoveryState == .unavailable {
-            throw WorktreeAnnotationStoreError.unavailable
+        if recoveryState == .unavailable {
+            throw WorktreeAnnotationServiceError.unavailable
         }
     }
 
     func requireMutationAllowed() throws {
         try requireAvailableForReads()
         guard unacknowledgedRecoveryWitness == nil else {
-            throw WorktreeAnnotationStoreError.recoveryAcknowledgementRequired
+            throw WorktreeAnnotationServiceError.recoveryAcknowledgementRequired
         }
     }
 
@@ -556,26 +545,33 @@ package final class WorktreeAnnotationStore {
     ) async throws -> WorktreeAnnotationSessionDetail {
         try requireMutationAllowed()
         let committedDetail = try await mutation()
-        projection.publish(detail: committedDetail)
+        publishSnapshotRequired(worktreeID: committedDetail.session.worktreeID)
         return committedDetail
     }
 
     private func rollbackDemandRegistration(
-        key: WorktreeAnnotationDemandKey,
         contextKey: WorktreeAnnotationPlacementContextKey,
         demandGeneration: WorktreeAnnotationDemandGeneration
     ) {
         guard activeDemandGenerationByContextKey[contextKey] == demandGeneration else { return }
         activeDemandGenerationByContextKey.removeValue(forKey: contextKey)
-        if let currentCount = demandCountByKey[key] {
-            if currentCount > 1 {
-                demandCountByKey[key] = currentCount - 1
-            } else {
-                demandCountByKey.removeValue(forKey: key)
-            }
+    }
+
+    func publishSnapshotRequired(worktreeID: String) {
+        projectionRevision += 1
+        let change = WorktreeAnnotationChange.snapshotRequired(worktreeID: worktreeID)
+        for observer in changeObserverByToken.values where observer.worktreeID == worktreeID {
+            observer.continuation.yield(change)
+        }
+    }
+
+    private func publishSnapshotRequiredForEveryObservedWorktree() {
+        projectionRevision += 1
+        for observer in changeObserverByToken.values {
+            observer.continuation.yield(.snapshotRequired(worktreeID: observer.worktreeID))
         }
     }
 
 }
 
-extension WorktreeAnnotationStore: WorktreeAnnotationOutputStoreAccess {}
+extension WorktreeAnnotationServiceActor: WorktreeAnnotationOutputServiceAccess {}

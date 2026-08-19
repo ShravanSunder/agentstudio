@@ -245,7 +245,7 @@ extension AppDelegate {
         await finishCanonicalStoreBoot(sqliteDatastore: sqliteDatastore)
     }
 
-    private func finishCanonicalStoreBoot(sqliteDatastore: WorkspaceSQLiteDatastore) async {
+    private func finishCanonicalStoreBoot(sqliteDatastore: WorkspaceSQLiteDatastoreActor) async {
         await bootWorktreeAnnotations(sqliteDatastore: sqliteDatastore)
         configureInteractionPerformanceProbeOwners()
         appLifecycleStore = AppLifecycleAtom()
@@ -261,15 +261,14 @@ extension AppDelegate {
         )
     }
 
-    private func bootWorktreeAnnotations(sqliteDatastore: WorkspaceSQLiteDatastore) async {
-        worktreeAnnotationStore = WorktreeAnnotationStore(
-            projection: atomStore.worktreeAnnotationProjection,
+    private func bootWorktreeAnnotations(sqliteDatastore: WorkspaceSQLiteDatastoreActor) async {
+        worktreeAnnotationStore = WorktreeAnnotationServiceActor(
             sqliteAdapter: WorktreeAnnotationSQLiteDatastoreAdapter(
                 workspaceID: store.identityAtom.workspaceId,
                 datastore: sqliteDatastore
             )
         )
-        worktreeAnnotationOutputCoordinator = WorktreeAnnotationOutputCoordinator(
+        worktreeAnnotationOutputCoordinator = WorktreeAnnotationOutputCoordinatorActor(
             store: worktreeAnnotationStore,
             effect: WorktreeAnnotationOutputEffects()
         )
@@ -299,7 +298,7 @@ extension AppDelegate {
         }
     }
 
-    private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastore {
+    private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastoreActor {
         WorkspaceSQLiteDatastoreFactory(
             traceRuntime: traceRuntime,
             localDatabaseReplacementObserver: WorktreeAnnotationRecoveryWitnessWriter.write
@@ -307,7 +306,7 @@ extension AppDelegate {
     }
 
     func makeWorkspaceSettingsStore(
-        sqliteDatastore: WorkspaceSQLiteDatastore
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor
     ) -> WorkspaceSettingsStore {
         WorkspaceSettingsStore(
             editorPreferenceAtom: atomStore.editorPreference,

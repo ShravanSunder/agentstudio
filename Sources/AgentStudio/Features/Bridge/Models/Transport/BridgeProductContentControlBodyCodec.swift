@@ -137,6 +137,13 @@ struct BridgeProductContentAcceptedControlBody: Codable {
                     codingPath: codingPath
                 )
             }
+        case .annotationProjection:
+            guard declaredByteLength == nil, expectedSha256 == nil else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Bridge product accepted annotation projection exact facts must remain unknown",
+                    codingPath: codingPath
+                )
+            }
         case .fileContent:
             guard declaredByteLength == maximumBytes else {
                 throw BridgeProductContractDecoding.invalidValue(

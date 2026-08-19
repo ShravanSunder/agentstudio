@@ -2,7 +2,7 @@ import AgentStudioInfrastructure
 import Foundation
 import GRDB
 
-package actor WorkspaceSQLiteDatastore {
+package actor WorkspaceSQLiteDatastoreActor {
     private static let applicationLocalRepositoryScopeId = UUID(
         uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     )
@@ -688,7 +688,7 @@ package actor WorkspaceSQLiteDatastore {
     }
 }
 
-extension WorkspaceSQLiteDatastore {
+extension WorkspaceSQLiteDatastoreActor {
     private func prepareCoreDatabaseForBoot() throws -> PreparedCoreDatabase {
         guard let configuration else {
             throw WorkspaceSQLiteDatastoreError.missingConfiguration

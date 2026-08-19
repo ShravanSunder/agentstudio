@@ -127,12 +127,6 @@ enum BridgeProductProducerEnqueueResult: Equatable, Sendable {
     case rejected(BridgeProductProducerEnqueueRejection)
 }
 
-enum BridgeProductProducerNonterminalAdmissionResult: Equatable, Sendable {
-    case enqueued(BridgeProductQueuedProducerFrame)
-    case capacityUnavailable
-    case rejected(BridgeProductProducerEnqueueRejection)
-}
-
 struct BridgeProductProducerLifecycleAcknowledgement: Hashable, Sendable {
     let producerLease: BridgeProductProducerLease
     let nonce: UUID
@@ -146,7 +140,6 @@ struct BridgeProductProducerRegistrySnapshot: Equatable, Sendable {
     let queuedFrameCount: Int
     let queuedByteCount: Int
     let pendingFrameWaiterCount: Int
-    let pendingMetadataAdmissionCount: Int
     let pendingProducerObservationPacingWaiterCount: Int
     let inFlightFrameReceiptCount: Int
     let pendingLifecycleAcknowledgementCount: Int
@@ -162,7 +155,6 @@ struct BridgeProductProducerRegistrySnapshot: Equatable, Sendable {
             && queuedFrameCount == 0
             && queuedByteCount == 0
             && pendingFrameWaiterCount == 0
-            && pendingMetadataAdmissionCount == 0
             && pendingProducerObservationPacingWaiterCount == 0
             && inFlightFrameReceiptCount == 0
             && pendingLifecycleAcknowledgementCount == 0
@@ -172,7 +164,6 @@ struct BridgeProductProducerRegistrySnapshot: Equatable, Sendable {
 
     func includingSessionAdmissionResidue(
         contentAdmissionCount: Int,
-        pendingMetadataAdmissionCount: Int,
         productAdmissionCount: Int
     ) -> Self {
         Self(
@@ -183,7 +174,6 @@ struct BridgeProductProducerRegistrySnapshot: Equatable, Sendable {
             queuedFrameCount: queuedFrameCount,
             queuedByteCount: queuedByteCount,
             pendingFrameWaiterCount: pendingFrameWaiterCount,
-            pendingMetadataAdmissionCount: pendingMetadataAdmissionCount,
             pendingProducerObservationPacingWaiterCount: pendingProducerObservationPacingWaiterCount,
             inFlightFrameReceiptCount: inFlightFrameReceiptCount,
             pendingLifecycleAcknowledgementCount: pendingLifecycleAcknowledgementCount,

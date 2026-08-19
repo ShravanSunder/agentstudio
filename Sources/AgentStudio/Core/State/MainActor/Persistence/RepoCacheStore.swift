@@ -99,7 +99,7 @@ enum RepoCacheSavePreparer {
 @MainActor
 package final class RepoCacheStore {
     private let cacheAtom: RepoEnrichmentCacheAtom
-    private let sqliteDatastore: WorkspaceSQLiteDatastore
+    private let sqliteDatastore: WorkspaceSQLiteDatastoreActor
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
     private let recoveryReporter: PersistenceRecoveryReporter?
@@ -114,7 +114,7 @@ package final class RepoCacheStore {
 
     package init(
         cacheAtom: RepoEnrichmentCacheAtom,
-        sqliteDatastore: WorkspaceSQLiteDatastore,
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
@@ -128,7 +128,7 @@ package final class RepoCacheStore {
 
     convenience init(
         atom: RepoCacheAtom,
-        sqliteDatastore: WorkspaceSQLiteDatastore,
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil

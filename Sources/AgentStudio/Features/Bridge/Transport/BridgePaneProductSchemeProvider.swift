@@ -26,13 +26,15 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             BridgeProductSurface,
             BridgeProductControlCorrelation,
             BridgeProductAdmissionContext
-        ) async -> Void
+        ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO
     let queryWorktreeAnnotationOutputCandidates:
         @MainActor @Sendable (
             BridgeProductAnnotationCandidateQuery,
-            BridgeProductSurface
+            BridgeProductSurface,
+            [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
         ) async throws -> WorktreeAnnotationOutputCandidatePage
     private let annotationOutputSource: BridgePaneProductWorktreeAnnotationOutputSource
+    let annotationProjectionSource: BridgeAnnotationProjectionSource
     private let authorizeReviewComparisonTargets:
         @Sendable () async -> BridgeProductReviewComparisonTargetsAuthorization?
     private let contentDemandAdmission: BridgeContentDemandAdmission
@@ -50,8 +52,9 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     package var pendingComparisonTargetReservation: BridgeProductReviewComparisonTargetsReservation?
 
     init(
-        annotationSource: BridgePaneProductWorktreeAnnotationSource = .unavailable,
+        annotationSource: BridgePaneAnnotationNotificationSource = .unavailable,
         annotationOutputSource: BridgePaneProductWorktreeAnnotationOutputSource = .unavailable,
+        annotationProjectionSource: BridgeAnnotationProjectionSource = .unavailable,
         fileMetadataSource: any BridgePaneProductFileMetadataProducing,
         reviewMetadataSource: any BridgePaneProductReviewMetadataProducing,
         reviewContentSource: any BridgePaneProductReviewContentProducing,
@@ -85,13 +88,23 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 BridgeProductSurface,
                 BridgeProductControlCorrelation,
                 BridgeProductAdmissionContext
-            ) async -> Void = { _, _, _, _ in },
+            ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO = { _, surface, correlation, _ in
+                BridgeProductWorktreeAnnotationCommandOutcomeDTO(
+                    .init(
+                        requestID: correlation.requestId,
+                        surface: surface,
+                        sessionID: nil,
+                        status: .failed(.unavailable)
+                    )
+                )
+            },
         queryWorktreeAnnotationOutputCandidates:
             @escaping @MainActor @Sendable (
                 BridgeProductAnnotationCandidateQuery,
-                BridgeProductSurface
-            ) async throws -> WorktreeAnnotationOutputCandidatePage = { _, _ in
-                throw WorktreeAnnotationStoreError.unavailable
+                BridgeProductSurface,
+                [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
+            ) async throws -> WorktreeAnnotationOutputCandidatePage = { _, _, _ in
+                throw WorktreeAnnotationServiceError.unavailable
             },
         authorizeReviewComparisonTargets:
             @escaping @Sendable () async ->
@@ -110,6 +123,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     ) {
         self.contentDemandAdmission = contentDemandAdmission
         self.annotationOutputSource = annotationOutputSource
+        self.annotationProjectionSource = annotationProjectionSource
         self.fileContentReaderFactory = fileContentReaderFactory
         self.fileMetadataSource = fileMetadataSource
         self.handleReviewIntakeReady = handleReviewIntakeReady
@@ -138,14 +152,19 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     }
 
     func response(
-        for request: BridgeProductControlRequest
+        for request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext? = nil
     ) async -> BridgeProductControlResponse {
         do {
             switch request {
             case .workerSessionOpen:
                 return try .workerSessionAccepted(correlating: request)
             case .productCall(let callRequest):
-                return try await productCallResponse(callRequest, request: request)
+                return try await productCallResponse(
+                    callRequest,
+                    request: request,
+                    productAdmission: productAdmission
+                )
             case .subscriptionOpen(let openRequest):
                 guard await metadataCoordinator.hasActiveStream else {
                     return try metadataStreamRequiredError(for: request)
@@ -192,13 +211,33 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
 
     private func productCallResponse(
         _ callRequest: BridgeProductCallControlRequest,
-        request: BridgeProductControlRequest
+        request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext?
     ) async throws -> BridgeProductControlResponse {
         switch callRequest.call {
-        case .fileAnnotationsCommand:
+        case .fileAnnotationsProjectionQuery(let queryRequest),
+            .reviewAnnotationsProjectionQuery(let queryRequest):
+            guard let productAdmission else {
+                return try annotationOutputUnavailableError(for: request)
+            }
+            return try await annotationProjectionQueryResponse(
+                queryRequest: queryRequest,
+                request: request,
+                productAdmission: productAdmission
+            )
+        case .fileAnnotationsCommand(let annotationRequest):
+            guard let productAdmission else {
+                return try annotationOutputUnavailableError(for: request)
+            }
+            let outcome = await applyWorktreeAnnotationCommand(
+                annotationRequest,
+                .file,
+                request.correlation,
+                productAdmission
+            )
             return try .callCompleted(
                 correlating: request,
-                result: .fileAnnotationsCommand(.accepted(requestID: request.correlation.requestId))
+                result: .fileAnnotationsCommand(.completed(outcome))
             )
         case .fileAnnotationsOutputInspect(let inspectionRequest),
             .reviewAnnotationsOutputInspect(let inspectionRequest):
@@ -208,16 +247,24 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 request: request
             )
         case .fileAnnotationsOutputCandidatesQuery(let queryRequest):
+            guard let productAdmission else {
+                return try annotationOutputUnavailableError(for: request)
+            }
             return try await annotationOutputCandidateQueryResponse(
                 queryRequest: queryRequest,
                 surface: .file,
-                request: request
+                request: request,
+                productAdmission: productAdmission
             )
         case .reviewAnnotationsOutputCandidatesQuery(let queryRequest):
+            guard let productAdmission else {
+                return try annotationOutputUnavailableError(for: request)
+            }
             return try await annotationOutputCandidateQueryResponse(
                 queryRequest: queryRequest,
                 surface: .review,
-                request: request
+                request: request,
+                productAdmission: productAdmission
             )
         case .fileSourceCurrent:
             return try .callCompleted(
@@ -238,10 +285,19 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             return try .callCompleted(correlating: request, result: .reviewIntakeReady)
         case .reviewPublicationApplied:
             return try .callCompleted(correlating: request, result: .reviewPublicationApplied)
-        case .reviewAnnotationsCommand:
+        case .reviewAnnotationsCommand(let annotationRequest):
+            guard let productAdmission else {
+                return try annotationOutputUnavailableError(for: request)
+            }
+            let outcome = await applyWorktreeAnnotationCommand(
+                annotationRequest,
+                .review,
+                request.correlation,
+                productAdmission
+            )
             return try .callCompleted(
                 correlating: request,
-                result: .reviewAnnotationsCommand(.accepted(requestID: request.correlation.requestId))
+                result: .reviewAnnotationsCommand(.completed(outcome))
             )
         }
     }
@@ -338,11 +394,21 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     private func annotationOutputCandidateQueryResponse(
         queryRequest: BridgeProductAnnotationCandidateQuery,
         surface: BridgeProductSurface,
-        request: BridgeProductControlRequest
+        request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgeProductControlResponse {
         let page: WorktreeAnnotationOutputCandidatePage
         do {
-            page = try await queryWorktreeAnnotationOutputCandidates(queryRequest, surface)
+            let placements = try await annotationProjectionSource.placementsForOutput(
+                sessionID: .init(rawValue: queryRequest.sessionId),
+                surface: surface,
+                productAdmission: productAdmission
+            )
+            page = try await queryWorktreeAnnotationOutputCandidates(
+                queryRequest,
+                surface,
+                placements
+            )
         } catch {
             return try annotationOutputUnavailableError(for: request)
         }
@@ -582,6 +648,14 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             )
         else { return }
         switch request {
+        case .annotationProjection(let projectionRequest):
+            try await runAnnotationProjectionContentProducer(
+                request: projectionRequest,
+                lease: lease,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                session: session
+            )
         case .annotationOutput(let outputRequest):
             try await runAnnotationOutputContentProducer(
                 request: outputRequest,
@@ -599,29 +673,8 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 session: session
             )
         case .reviewContent(let reviewRequest):
-            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
-            guard
-                let body = try? await reviewContentSource.contentBody(
-                    for: reviewRequest,
-                    productAdmission: productAdmission
-                )
-            else {
-                guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
-                try await enqueueUnavailableContentTerminal(
-                    for: lease,
-                    productAdmission: productAdmission,
-                    foregroundWorkAdmission: foregroundWorkAdmission,
-                    session: session
-                )
-                return
-            }
-            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
-            _ = try await runBufferedContentProducer(
-                BufferedContentBody(
-                    data: body.data,
-                    endOfSource: body.isFinalRange,
-                    sha256: body.sha256
-                ),
+            try await runReviewContentProducer(
+                request: reviewRequest,
                 lease: lease,
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission,
@@ -637,6 +690,44 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             )
         }
     }
+
+    private func runReviewContentProducer(
+        request: BridgeProductReviewContentRequest,
+        lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        session: BridgeProductSession
+    ) async throws {
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
+        guard
+            let body = try? await reviewContentSource.contentBody(
+                for: request,
+                productAdmission: productAdmission
+            )
+        else {
+            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
+            try await enqueueUnavailableContentTerminal(
+                for: lease,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                session: session
+            )
+            return
+        }
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
+        _ = try await runBufferedContentProducer(
+            BufferedContentBody(
+                data: body.data,
+                endOfSource: body.isFinalRange,
+                sha256: body.sha256
+            ),
+            lease: lease,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission,
+            session: session
+        )
+    }
+
     private func runAnnotationOutputContentProducer(
         request: BridgeProductAnnotationOutputContentRequest,
         lease: BridgeProductProducerLease,
@@ -653,7 +744,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             )
             return
         }
-        try await runBufferedContentProducer(
+        _ = try await runBufferedContentProducer(
             BufferedContentBody(data: body.data, endOfSource: true, sha256: body.sha256),
             lease: lease,
             productAdmission: productAdmission,
@@ -883,76 +974,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         )
     }
 
-    func publishFileStatus(
-        _ status: GitWorkingTreeStatus,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-    ) async -> BridgePaneProductFileRefreshPublicationDisposition {
-        await metadataCoordinator.publish(
-            status: status,
-            productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission
-        )
-    }
-
-    func publishFileChangeset(
-        _ changeset: FileChangeset,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-    ) async -> BridgePaneProductFileRefreshPublicationDisposition {
-        await metadataCoordinator.publish(
-            changeset: changeset,
-            productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission
-        )
-    }
-
-    func resetCurrentReviewSubscriptionsForUnavailableSource(
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-    ) async {
-        await metadataCoordinator.resetCurrentReviewSubscriptionsForUnavailableSource(
-            productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission
-        )
-    }
-
-    func acknowledgeLifecycle(
-        _ acknowledgement: BridgeProductProducerLifecycleAcknowledgement
-    ) async -> Bool {
-        _ = acknowledgement
-        return true
-    }
-
     func closeAndDrain() async {
         pendingComparisonTargetReservation = nil
+        await annotationProjectionSource.close()
         await metadataCoordinator.closeAndDrain()
         await contentDemandAdmission.closeAndDrain()
     }
 
-    private func metadataStreamRequiredError(
-        for request: BridgeProductControlRequest
-    ) throws -> BridgeProductControlResponse {
-        try .requestError(
-            correlating: request,
-            code: .resyncRequired,
-            nextExpectedRequestSequence: request.requestSequence + 1,
-            retryAfterMilliseconds: nil,
-            retryable: true,
-            safeMessage: "Metadata stream is not installed"
-        )
-    }
-
-    private func annotationOutputUnavailableError(
-        for request: BridgeProductControlRequest
-    ) throws -> BridgeProductControlResponse {
-        try .requestError(
-            correlating: request,
-            code: .internal,
-            nextExpectedRequestSequence: request.requestSequence + 1,
-            retryAfterMilliseconds: nil,
-            retryable: false,
-            safeMessage: "Annotation output is unavailable"
-        )
-    }
 }

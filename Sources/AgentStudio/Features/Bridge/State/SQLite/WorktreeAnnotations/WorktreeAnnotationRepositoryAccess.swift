@@ -3,6 +3,10 @@ import Foundation
 
 protocol WorktreeAnnotationRepositoryAccess: Sendable {
     func discoverSessions(worktreeID: String) async throws -> [WorktreeAnnotationSession]
+    func fetchProjectionSnapshot(
+        worktreeID: String,
+        demandedSessionIDs: [WorktreeAnnotationSessionID]
+    ) async throws -> WorktreeAnnotationRepositoryProjectionSnapshot
     func fetchSessionDetail(sessionID: WorktreeAnnotationSessionID) async throws
         -> WorktreeAnnotationSessionDetail
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
@@ -72,6 +76,14 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
 }
 
 extension WorktreeAnnotationRepositoryAccess {
+    func fetchProjectionSnapshot(
+        worktreeID: String,
+        demandedSessionIDs: [WorktreeAnnotationSessionID]
+    ) async throws -> WorktreeAnnotationRepositoryProjectionSnapshot {
+        _ = (worktreeID, demandedSessionIDs)
+        throw WorktreeAnnotationRepositoryError.invalidState
+    }
+
     func acquireEditToken(_ props: WorktreeAnnotationSQLiteRepository.AcquireEditTokenProps) async throws
         -> WorktreeAnnotationSessionDetail
     {
@@ -133,6 +145,11 @@ extension WorktreeAnnotationRepositoryAccess {
     }
 }
 
+struct WorktreeAnnotationRepositoryProjectionSnapshot: Equatable, Sendable {
+    let details: [WorktreeAnnotationSessionDetail]
+    let sessions: [WorktreeAnnotationSession]
+}
+
 struct WorktreeAnnotationOutputMutationResult: Equatable, Sendable {
     let preparedOutput: WorktreeAnnotationSQLiteRepository.PreparedOutput
     let sessionDetail: WorktreeAnnotationSessionDetail
@@ -140,15 +157,27 @@ struct WorktreeAnnotationOutputMutationResult: Equatable, Sendable {
 
 package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepositoryAccess {
     package let workspaceID: UUID
-    package let datastore: WorkspaceSQLiteDatastore
+    package let datastore: WorkspaceSQLiteDatastoreActor
 
-    package init(workspaceID: UUID, datastore: WorkspaceSQLiteDatastore) {
+    package init(workspaceID: UUID, datastore: WorkspaceSQLiteDatastoreActor) {
         self.workspaceID = workspaceID
         self.datastore = datastore
     }
 
     func discoverSessions(worktreeID: String) async throws -> [WorktreeAnnotationSession] {
         try await restore { try $0.discoverSessions(worktreeID: worktreeID) }
+    }
+
+    func fetchProjectionSnapshot(
+        worktreeID: String,
+        demandedSessionIDs: [WorktreeAnnotationSessionID]
+    ) async throws -> WorktreeAnnotationRepositoryProjectionSnapshot {
+        try await restore {
+            try $0.fetchProjectionSnapshot(
+                worktreeID: worktreeID,
+                demandedSessionIDs: demandedSessionIDs
+            )
+        }
     }
 
     func fetchSessionDetail(sessionID: WorktreeAnnotationSessionID) async throws

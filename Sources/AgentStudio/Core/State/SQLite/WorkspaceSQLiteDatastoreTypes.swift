@@ -45,7 +45,7 @@ package struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {
     }
 }
 
-extension WorkspaceSQLiteDatastore {
+extension WorkspaceSQLiteDatastoreActor {
     enum LocalDatabaseRecoveryReason: Equatable, Sendable {
         case corruptDatabase
         case incompleteFileSet

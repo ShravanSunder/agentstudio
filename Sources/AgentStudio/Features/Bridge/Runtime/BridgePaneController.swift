@@ -57,7 +57,7 @@ package final class BridgePaneController {
     let reviewSourceProvider: any BridgeReviewSourceProvider
     let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
     let reviewComparisonTargetProjection: BridgeReviewComparisonTargetProjection
-    let worktreeAnnotationStore: WorktreeAnnotationStore?
+    let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
     let reviewChangeIndex = BridgeChangeIndex()
     package var bridgePaneState: BridgePaneState
     let initialContributionTargetCommit:
@@ -118,8 +118,8 @@ package final class BridgePaneController {
         reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil,
         gitReadContext: BridgeGitReadContext? = nil,
         worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator? = nil,
-        worktreeAnnotationStore: WorktreeAnnotationStore? = nil,
-        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator? = nil,
+        worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
         originatingWorkspaceID: String? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy = .live,
@@ -531,7 +531,7 @@ package final class BridgePaneController {
             let retiringWorkerInstanceID = await productSessionOwner.activeInstallation?.bootstrap.workerInstanceId
             let productSessionRetired = await productSessionOwner.retire(reason: .paneDisposal) == .retired
             if productSessionRetired, let retiringWorkerInstanceID {
-                worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
+                await worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
             }
             await teardownCleanupTask.value
             if !productSessionRetired {

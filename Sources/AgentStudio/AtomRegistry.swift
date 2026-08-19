@@ -20,7 +20,6 @@ final class AtomRegistry {
     let inboxSidebarState: InboxSidebarState
     let paneInboxPresentationState: PaneInboxPresentationAtom
     let bridgePaneAttendance: BridgePaneAttendanceAtom
-    let worktreeAnnotationProjection: WorktreeAnnotationProjectionAtom
 
     init(
         core: CoreAtoms = .init(),
@@ -33,8 +32,7 @@ final class AtomRegistry {
         inboxSidebarMemory: InboxSidebarMemoryAtom = .init(),
         inboxSidebarRuntime: InboxSidebarRuntimeAtom = .init(),
         paneInboxPresentationState: PaneInboxPresentationAtom = .init(),
-        bridgePaneAttendance: BridgePaneAttendanceAtom = .init(),
-        worktreeAnnotationProjection: WorktreeAnnotationProjectionAtom = .init()
+        bridgePaneAttendance: BridgePaneAttendanceAtom = .init()
     ) {
         self.core = core
         self.repoExplorerSidebarPrefs = repoExplorerSidebarPrefs
@@ -55,6 +53,5 @@ final class AtomRegistry {
         )
         self.paneInboxPresentationState = paneInboxPresentationState
         self.bridgePaneAttendance = bridgePaneAttendance
-        self.worktreeAnnotationProjection = worktreeAnnotationProjection
     }
 }

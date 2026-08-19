@@ -9,7 +9,6 @@ struct WorktreeAnnotationEditTokenCommandProps: Sendable {
     let now: Date
 }
 
-@MainActor
 final class WorktreeAnnotationEditOwnershipRegistry {
     private var ownerGenerationByToken: [String: String] = [:]
 
@@ -41,7 +40,7 @@ final class WorktreeAnnotationEditOwnershipRegistry {
     }
 }
 
-extension WorktreeAnnotationStore {
+extension WorktreeAnnotationServiceActor {
     func createRootDraft(
         _ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps,
         ownerGeneration: String
@@ -143,7 +142,7 @@ extension WorktreeAnnotationStore {
             )
         )
         try editOwnership.register(token: props.editToken, ownerGeneration: ownerGeneration)
-        projection.publish(detail: committed)
+        publishSnapshotRequired(worktreeID: committed.session.worktreeID)
         return committed
     }
 

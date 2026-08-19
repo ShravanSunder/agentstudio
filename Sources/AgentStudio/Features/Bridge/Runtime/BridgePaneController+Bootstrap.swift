@@ -26,26 +26,14 @@ package typealias BridgeTelemetrySessionBootstrapSink =
         _ contentWorld: WKContentWorld
     ) async throws -> Void
 
-struct BridgeBootstrapScriptInput {
-    let reviewPaneId: String
-    let reviewStreamId: String
-    let panelKind: BridgePanelKind
-    let telemetryConfig: BridgeTelemetryBootstrapConfig?
-    let bridgeWorld: WKContentWorld
-}
-
-struct BridgeBootstrapArtifacts {
-    let script: WKUserScript
-}
-
 struct BridgeProductSessionDependencyInput {
     let paneSessionId: String
     let runtime: BridgeRuntime
     let state: BridgePaneState
     let gitReadContext: BridgeGitReadContext?
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator?
-    let worktreeAnnotationStore: WorktreeAnnotationStore?
-    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator?
+    let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
+    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
     let originatingWorkspaceID: String?
     let reviewContentLoaderCache: BridgeReviewContentLoaderCache
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
@@ -106,9 +94,10 @@ final class BridgePaneProductCommittedCallTarget {
         let update: BridgeProductActiveViewerModeUpdateRequest
         switch call {
         case .fileAnnotationsCommand, .fileAnnotationsOutputInspect,
-            .fileAnnotationsOutputCandidatesQuery,
+            .fileAnnotationsOutputCandidatesQuery, .fileAnnotationsProjectionQuery,
             .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
-            .reviewAnnotationsOutputCandidatesQuery, .fileSourceCurrent:
+            .reviewAnnotationsOutputCandidatesQuery, .reviewAnnotationsProjectionQuery,
+            .fileSourceCurrent:
             return
         case .fileActiveViewerModeUpdate(let request):
             mode = .file
@@ -375,7 +364,7 @@ extension BridgePaneController {
                     await Task.yield()
                 }
                 if let retiringWorkerInstanceID {
-                    worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
+                    await worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
                 }
                 guard
                     await productSessionOwner.activatePreparedCandidate(
@@ -444,7 +433,7 @@ extension BridgePaneController {
                 await Task.yield()
             }
             if let retiringWorkerInstanceID {
-                worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
+                await worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
             }
             setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
         }
@@ -514,11 +503,16 @@ extension BridgePaneController {
         let fileMetadataSource = makeFileMetadataSource(input)
         let reviewContentSource = makeReviewContentSource(input)
         let annotationSource = makeWorktreeAnnotationSource(input)
+        let annotationProjectionSource = makeWorktreeAnnotationProjectionSource(
+            input,
+            fileMetadataSource: fileMetadataSource
+        )
         let provider = BridgePaneProductSchemeProvider(
             annotationSource: annotationSource,
             annotationOutputSource: BridgePaneProductWorktreeAnnotationOutputSource(
                 store: input.worktreeAnnotationStore
             ),
+            annotationProjectionSource: annotationProjectionSource,
             fileMetadataSource: fileMetadataSource,
             reviewMetadataSource: BridgePaneProductReviewMetadataSource(),
             reviewContentSource: reviewContentSource,
@@ -645,14 +639,45 @@ extension BridgePaneController {
 
     private static func makeWorktreeAnnotationSource(
         _ input: BridgeProductSessionDependencyInput
-    ) -> BridgePaneProductWorktreeAnnotationSource {
-        guard let projection = input.worktreeAnnotationStore?.projection,
+    ) -> BridgePaneAnnotationNotificationSource {
+        guard let service = input.worktreeAnnotationStore,
             let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
         else { return .unavailable }
-        return BridgePaneProductWorktreeAnnotationSource(
-            projection: projection,
-            contextID: input.paneSessionId,
-            worktreeID: worktreeID
+        return BridgePaneAnnotationNotificationSource(service: service, worktreeID: worktreeID)
+    }
+
+    private static func makeWorktreeAnnotationProjectionSource(
+        _ input: BridgeProductSessionDependencyInput,
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing
+    ) -> BridgeAnnotationProjectionSource {
+        guard let service = input.worktreeAnnotationStore,
+            let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
+        else { return .unavailable }
+        let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
+            fileMetadataSource: fileMetadataSource,
+            reviewPublicationCoordinator: input.reviewPublicationCoordinator,
+            reviewContentLoaderCache: input.reviewContentLoaderCache
+        )
+        return BridgeAnnotationProjectionSource(
+            service: service,
+            sourceResolver: sourceResolver,
+            worktreeID: worktreeID,
+            currentSourceGeneration: { surface, productAdmission in
+                switch surface {
+                case .file:
+                    return try await fileMetadataSource.currentWorktreeAnnotationSourceGeneration(
+                        productAdmission: productAdmission
+                    )
+                case .review:
+                    guard
+                        let publication = await input.reviewPublicationCoordinator
+                            .committedPublicationForReplay(productAdmission: productAdmission)
+                    else {
+                        throw WorktreeAnnotationSourceResolutionError.unavailable
+                    }
+                    return publication.package.reviewGeneration.rawValue
+                }
+            }
         )
     }
 
@@ -665,16 +690,15 @@ extension BridgePaneController {
             BridgeProductSurface,
             BridgeProductControlCorrelation,
             BridgeProductAdmissionContext
-        ) async -> Void
+        ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO
     {
         guard let store = input.worktreeAnnotationStore,
             let repositoryID = input.runtime.metadata.repoId?.uuidString.lowercased(),
             let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
         else {
-            let unavailableStore = input.worktreeAnnotationStore
             return { _, surface, correlation, _ in
-                unavailableStore?.projection.publish(
-                    commandOutcome: .init(
+                BridgeProductWorktreeAnnotationCommandOutcomeDTO(
+                    .init(
                         requestID: correlation.requestId,
                         surface: surface,
                         sessionID: nil,
@@ -717,13 +741,14 @@ extension BridgePaneController {
     )
         -> @MainActor @Sendable (
             BridgeProductAnnotationCandidateQuery,
-            BridgeProductSurface
+            BridgeProductSurface,
+            [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
         ) async throws -> WorktreeAnnotationOutputCandidatePage
     {
         guard let store = input.worktreeAnnotationStore else {
-            return { _, _ in throw WorktreeAnnotationStoreError.unavailable }
+            return { _, _, _ in throw WorktreeAnnotationServiceError.unavailable }
         }
-        return { request, surface in
+        return { request, _, placements in
             let cursor: WorktreeAnnotationOutputCandidateCursor? =
                 switch request.cursor {
                 case .start:
@@ -739,8 +764,7 @@ extension BridgePaneController {
                 expectedSessionRevision: request.expectedSessionRevision,
                 cursor: cursor,
                 limit: request.limit,
-                contextID: input.paneSessionId,
-                surface: surface
+                placementsByThreadID: placements
             )
         }
     }

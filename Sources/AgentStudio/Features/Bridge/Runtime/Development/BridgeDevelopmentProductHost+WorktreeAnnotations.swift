@@ -2,13 +2,46 @@ import Foundation
 
 extension BridgeDevelopmentProductHost {
     struct WorktreeAnnotationCommandHandlerDependencies {
-        let store: WorktreeAnnotationStore?
-        let outputCoordinator: WorktreeAnnotationOutputCoordinator?
+        let store: WorktreeAnnotationServiceActor?
+        let outputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
         let originatingWorkspaceID: String?
         let source: BridgeDevelopmentProductSource
         let fileMetadataSource: BridgePaneProductFileMetadataSource
         let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
         let reviewContentLoaderCache: BridgeReviewContentLoaderCache
+    }
+
+    static func makeWorktreeAnnotationProjectionSource(
+        _ dependencies: WorktreeAnnotationCommandHandlerDependencies
+    ) -> BridgeAnnotationProjectionSource {
+        guard let service = dependencies.store else { return .unavailable }
+        let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
+            fileMetadataSource: dependencies.fileMetadataSource,
+            reviewPublicationCoordinator: dependencies.reviewPublicationCoordinator,
+            reviewContentLoaderCache: dependencies.reviewContentLoaderCache
+        )
+        return BridgeAnnotationProjectionSource(
+            service: service,
+            sourceResolver: sourceResolver,
+            worktreeID: dependencies.source.worktreeID.uuidString.lowercased(),
+            currentSourceGeneration: { surface, productAdmission in
+                switch surface {
+                case .file:
+                    return try await dependencies.fileMetadataSource
+                        .currentWorktreeAnnotationSourceGeneration(
+                            productAdmission: productAdmission
+                        )
+                case .review:
+                    guard
+                        let publication = await dependencies.reviewPublicationCoordinator
+                            .committedPublicationForReplay(productAdmission: productAdmission)
+                    else {
+                        throw WorktreeAnnotationSourceResolutionError.unavailable
+                    }
+                    return publication.package.reviewGeneration.rawValue
+                }
+            }
+        )
     }
 
     @MainActor
@@ -20,9 +53,20 @@ extension BridgeDevelopmentProductHost {
             BridgeProductSurface,
             BridgeProductControlCorrelation,
             BridgeProductAdmissionContext
-        ) async -> Void
+        ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO
     {
-        guard let store = dependencies.store else { return { _, _, _, _ in } }
+        guard let store = dependencies.store else {
+            return { _, surface, correlation, _ in
+                BridgeProductWorktreeAnnotationCommandOutcomeDTO(
+                    .init(
+                        requestID: correlation.requestId,
+                        surface: surface,
+                        sessionID: nil,
+                        status: .failed(.unavailable)
+                    )
+                )
+            }
+        }
         let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
             fileMetadataSource: dependencies.fileMetadataSource,
             reviewPublicationCoordinator: dependencies.reviewPublicationCoordinator,
@@ -58,14 +102,14 @@ extension BridgeDevelopmentProductHost {
     )
         -> @MainActor @Sendable (
             BridgeProductAnnotationCandidateQuery,
-            BridgeProductSurface
+            BridgeProductSurface,
+            [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
         ) async throws -> WorktreeAnnotationOutputCandidatePage
     {
         guard let store = dependencies.store else {
-            return { _, _ in throw WorktreeAnnotationStoreError.unavailable }
+            return { _, _, _ in throw WorktreeAnnotationServiceError.unavailable }
         }
-        let contextID = dependencies.source.paneID.uuidString.lowercased()
-        return { request, surface in
+        return { request, _, placements in
             let cursor: WorktreeAnnotationOutputCandidateCursor? =
                 switch request.cursor {
                 case .start:
@@ -78,8 +122,7 @@ extension BridgeDevelopmentProductHost {
                 expectedSessionRevision: request.expectedSessionRevision,
                 cursor: cursor,
                 limit: request.limit,
-                contextID: contextID,
-                surface: surface
+                placementsByThreadID: placements
             )
         }
     }

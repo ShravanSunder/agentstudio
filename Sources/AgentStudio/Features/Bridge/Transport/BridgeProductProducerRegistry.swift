@@ -132,66 +132,6 @@ struct BridgeProductProducerRegistry {
         build: FrameBuilder,
         overflowReset: FrameBuilder
     ) throws -> BridgeProductProducerEnqueueResult {
-        switch try attemptNonterminalFrameAdmission(for: lease, build: build) {
-        case .enqueued(let frame):
-            return .enqueued(frame)
-        case .rejected(let rejection):
-            return .rejected(rejection)
-        case .capacityUnavailable:
-            break
-        }
-
-        guard var state = producersByLeaseId[lease.id] else {
-            return .rejected(.unknownLease)
-        }
-        guard state.lifecycle == .running else {
-            return .rejected(.lifecycleClosed)
-        }
-        guard state.openingFrameState != .required else {
-            return .rejected(.openingFrameRequired)
-        }
-        guard !state.terminalFrameAdmitted else {
-            return .rejected(.terminalAlreadyAdmitted)
-        }
-
-        let candidateSequence = nextSequence(for: state)
-        guard candidateSequence < state.key.maximumAdmittedSequence else {
-            return .rejected(.sequenceExhausted)
-        }
-        guard state.openingFrameState == .delivered else {
-            return .rejected(.closeRequired)
-        }
-        guard state.inFlightFrameReceipt == nil else {
-            return .rejected(.closeRequired)
-        }
-
-        let replacementSequence = state.queuedFrames.first?.sequence ?? candidateSequence
-        let resetData: Data
-        do {
-            resetData = try BridgeProductProducerFrameValidator.encode(
-                for: state.key,
-                sequence: replacementSequence,
-                intent: .terminal,
-                build: overflowReset
-            )
-        } catch let validationError as BridgeProductProducerFrameValidationError {
-            return .rejected(validationError.rejection)
-        }
-        if let rejection = frameSizeRejection(for: resetData) {
-            return .rejected(rejection)
-        }
-        return replaceQueueWithTerminal(
-            data: resetData,
-            sequence: replacementSequence,
-            lease: lease,
-            state: &state
-        )
-    }
-
-    mutating func attemptNonterminalFrameAdmission(
-        for lease: BridgeProductProducerLease,
-        build: FrameBuilder
-    ) throws -> BridgeProductProducerNonterminalAdmissionResult {
         guard var state = producersByLeaseId[lease.id] else {
             return .rejected(.unknownLease)
         }
@@ -224,22 +164,45 @@ struct BridgeProductProducerRegistry {
             return .rejected(rejection)
         }
         let nonterminalFrameLimit = limits.maximumQueuedFrameCount - limits.terminalFrameReserve
-        guard state.queuedFrames.count < nonterminalFrameLimit,
+        if state.queuedFrames.count < nonterminalFrameLimit,
             state.queuedByteCount + candidateData.count <= limits.maximumQueuedByteCount
-        else {
-            return .capacityUnavailable
+        {
+            return appendFrame(
+                data: candidateData,
+                sequence: candidateSequence,
+                terminal: false,
+                lease: lease,
+                state: &state
+            )
         }
-        let result = appendFrame(
-            data: candidateData,
-            sequence: candidateSequence,
-            terminal: false,
+        guard state.openingFrameState == .delivered else {
+            return .rejected(.closeRequired)
+        }
+        guard state.inFlightFrameReceipt == nil else {
+            return .rejected(.closeRequired)
+        }
+
+        let replacementSequence = state.queuedFrames.first?.sequence ?? candidateSequence
+        let resetData: Data
+        do {
+            resetData = try BridgeProductProducerFrameValidator.encode(
+                for: state.key,
+                sequence: replacementSequence,
+                intent: .terminal,
+                build: overflowReset
+            )
+        } catch let validationError as BridgeProductProducerFrameValidationError {
+            return .rejected(validationError.rejection)
+        }
+        if let rejection = frameSizeRejection(for: resetData) {
+            return .rejected(rejection)
+        }
+        return replaceQueueWithTerminal(
+            data: resetData,
+            sequence: replacementSequence,
             lease: lease,
             state: &state
         )
-        guard case .enqueued(let frame) = result else {
-            preconditionFailure("Nonterminal capacity admission must append exactly one frame")
-        }
-        return .enqueued(frame)
     }
 
     mutating func enqueueTerminalFrame(
@@ -433,7 +396,6 @@ struct BridgeProductProducerRegistry {
                 if state.frameWaiterToken != nil { count += 1 }
                 if state.producerObservationPacingWaiterToken != nil { count += 1 }
             },
-            pendingMetadataAdmissionCount: 0,
             pendingProducerObservationPacingWaiterCount: states.reduce(into: 0) { count, state in
                 if state.producerObservationPacingWaiterToken != nil { count += 1 }
             },

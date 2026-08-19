@@ -27,15 +27,15 @@ struct BridgeProductWorktreeAnnotationCommandRequest: Codable, Equatable, Sendab
 }
 
 enum BridgeProductWorktreeAnnotationCommandResult: Codable, Equatable, Sendable {
-    case accepted(requestID: String)
+    case completed(BridgeProductWorktreeAnnotationCommandOutcomeDTO)
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case kind
-        case requestId
+        case outcome
     }
 
     private enum Kind: String, Codable {
-        case accepted
+        case completed
     }
 
     init(from decoder: Decoder) throws {
@@ -46,22 +46,22 @@ enum BridgeProductWorktreeAnnotationCommandResult: Codable, Equatable, Sendable 
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(Kind.self, forKey: .kind) {
-        case .accepted:
-            let requestID = try container.decode(String.self, forKey: .requestId)
-            try BridgeProductContractDecoding.validateIdentifier(
-                requestID,
-                codingPath: decoder.codingPath + [CodingKeys.requestId]
+        case .completed:
+            self = .completed(
+                try container.decode(
+                    BridgeProductWorktreeAnnotationCommandOutcomeDTO.self,
+                    forKey: .outcome
+                )
             )
-            self = .accepted(requestID: requestID)
         }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .accepted(let requestID):
-            try container.encode(Kind.accepted, forKey: .kind)
-            try container.encode(requestID, forKey: .requestId)
+        case .completed(let outcome):
+            try container.encode(Kind.completed, forKey: .kind)
+            try container.encode(outcome, forKey: .outcome)
         }
     }
 }

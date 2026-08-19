@@ -3,6 +3,7 @@ import Foundation
 
 enum BridgeProductContentKind: String, Codable, Equatable, Sendable {
     case annotationOutput = "annotation.output"
+    case annotationProjection = "annotation.projection"
     case fileContent = "file.content"
     case reviewContent = "review.content"
     case reviewComparisonTargets = "review.comparisonTargets"
@@ -384,6 +385,7 @@ struct BridgeProductFileContentIdentity: Codable, Equatable, Sendable {
 
 enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
     case annotationOutput(BridgeProductAnnotationOutputContentIdentity)
+    case annotationProjection(BridgeProductAnnotationProjectionContentIdentity)
     case fileContent(BridgeProductFileContentIdentity)
     case reviewContent(BridgeProductReviewContentIdentity)
     case reviewComparisonTargets(BridgeProductReviewComparisonTargetsContentIdentity)
@@ -395,6 +397,7 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
     var contentKind: BridgeProductContentKind {
         switch self {
         case .annotationOutput: .annotationOutput
+        case .annotationProjection: .annotationProjection
         case .fileContent: .fileContent
         case .reviewContent: .reviewContent
         case .reviewComparisonTargets: .reviewComparisonTargets
@@ -404,6 +407,7 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
     var surface: BridgeProductSurface {
         switch self {
         case .annotationOutput(let identity): identity.surface
+        case .annotationProjection(let identity): identity.surface
         case .fileContent: .file
         case .reviewContent, .reviewComparisonTargets: .review
         }
@@ -412,6 +416,7 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
     var descriptorId: String {
         switch self {
         case .annotationOutput(let identity): identity.descriptorID
+        case .annotationProjection(let identity): identity.descriptorID
         case .fileContent(let identity): identity.descriptorId
         case .reviewContent(let identity): identity.descriptorId
         case .reviewComparisonTargets(let identity): identity.descriptorId
@@ -421,6 +426,7 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
     var maximumBytes: Int {
         switch self {
         case .annotationOutput(let identity): identity.maximumBytes
+        case .annotationProjection(let identity): identity.maximumBytes
         case .fileContent(let identity): identity.window.maximumBytes
         case .reviewContent(let identity): identity.window.maximumBytes
         case .reviewComparisonTargets(let identity): identity.maximumBytes
@@ -433,6 +439,10 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
         case .annotationOutput:
             self = .annotationOutput(
                 try BridgeProductAnnotationOutputContentIdentity(from: decoder)
+            )
+        case .annotationProjection:
+            self = .annotationProjection(
+                try BridgeProductAnnotationProjectionContentIdentity(from: decoder)
             )
         case .fileContent:
             self = .fileContent(try BridgeProductFileContentIdentity(from: decoder))
@@ -448,6 +458,8 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         switch self {
         case .annotationOutput(let identity):
+            try identity.encode(to: encoder)
+        case .annotationProjection(let identity):
             try identity.encode(to: encoder)
         case .fileContent(let identity):
             try identity.encode(to: encoder)
@@ -567,6 +579,7 @@ struct BridgeProductFileContentRequest: Codable, Equatable, Sendable {
 
 enum BridgeProductContentRequest: Codable, Equatable, Sendable {
     case annotationOutput(BridgeProductAnnotationOutputContentRequest)
+    case annotationProjection(BridgeProductAnnotationProjectionContentRequest)
     case fileContent(BridgeProductFileContentRequest)
     case reviewContent(BridgeProductReviewContentRequest)
     case reviewComparisonTargets(BridgeProductReviewComparisonTargetsContentRequest)
@@ -580,6 +593,7 @@ enum BridgeProductContentRequest: Codable, Equatable, Sendable {
     var surface: BridgeProductSurface {
         switch self {
         case .annotationOutput(let request): request.descriptor.surface
+        case .annotationProjection(let request): request.descriptor.surface
         case .fileContent: .file
         case .reviewContent: .review
         case .reviewComparisonTargets: .review
@@ -589,6 +603,7 @@ enum BridgeProductContentRequest: Codable, Equatable, Sendable {
     var admission: BridgeProductContentAdmission {
         switch self {
         case .annotationOutput(let request): request.admission
+        case .annotationProjection(let request): request.admission
         case .fileContent(let request): request.admission
         case .reviewContent(let request): request.admission
         case .reviewComparisonTargets(let request): request.admission
@@ -601,6 +616,10 @@ enum BridgeProductContentRequest: Codable, Equatable, Sendable {
         case .annotationOutput:
             self = .annotationOutput(
                 try BridgeProductAnnotationOutputContentRequest(from: decoder)
+            )
+        case .annotationProjection:
+            self = .annotationProjection(
+                try BridgeProductAnnotationProjectionContentRequest(from: decoder)
             )
         case .fileContent:
             self = .fileContent(try BridgeProductFileContentRequest(from: decoder))
@@ -616,6 +635,8 @@ enum BridgeProductContentRequest: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         switch self {
         case .annotationOutput(let request):
+            try request.encode(to: encoder)
+        case .annotationProjection(let request):
             try request.encode(to: encoder)
         case .fileContent(let request):
             try request.encode(to: encoder)

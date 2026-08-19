@@ -67,31 +67,29 @@ final class WorktreeAnnotationTransportAdapter {
     let now: @Sendable () -> Date
     let contextID: String
     private let originatingWorkspaceID: String?
-    let outputCoordinator: WorktreeAnnotationOutputCoordinator?
+    let outputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
     let outputLabels: WorktreeAnnotationOutputLabels?
-    private let projection: WorktreeAnnotationProjectionAtom
     private let repositoryID: String
-    private let sourceResolver: WorktreeAnnotationSourceResolver
-    let store: WorktreeAnnotationStore
+    let sourceResolver: WorktreeAnnotationSourceResolver
+    let store: WorktreeAnnotationServiceActor
     private let worktreeID: String
     private let outputSelectionAssembler = WorktreeAnnotationOutputSelectionAssembler()
     private var activeProductSessionID: String?
     private var demandGenerationByKey: [WorktreeAnnotationTransportDemandKey: WorktreeAnnotationDemandGeneration] = [:]
 
     init(
-        store: WorktreeAnnotationStore,
+        store: WorktreeAnnotationServiceActor,
         contextID: String,
         repositoryID: String,
         worktreeID: String,
         originatingWorkspaceID: String?,
         sourceResolver: WorktreeAnnotationSourceResolver,
         now: @escaping @Sendable () -> Date = Date.init,
-        outputCoordinator: WorktreeAnnotationOutputCoordinator? = nil,
+        outputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
         outputLabels: WorktreeAnnotationOutputLabels? = nil
     ) {
         self.store = store
         self.contextID = contextID
-        self.projection = store.projection
         self.repositoryID = repositoryID
         self.worktreeID = worktreeID
         self.originatingWorkspaceID = originatingWorkspaceID
@@ -106,7 +104,7 @@ final class WorktreeAnnotationTransportAdapter {
         surface: BridgeProductSurface,
         correlation: BridgeProductControlCorrelation,
         productAdmission: BridgeProductAdmissionContext
-    ) async {
+    ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO {
         if let activeProductSessionID,
             activeProductSessionID != correlation.workerInstanceId
         {
@@ -117,12 +115,24 @@ final class WorktreeAnnotationTransportAdapter {
             let sessionID: WorktreeAnnotationSessionID?
             let status: WorktreeAnnotationCommandOutcomeStatus
             switch request.operation {
+            case .outputHistory(let rawSessionID):
+                let historySessionID = WorktreeAnnotationSessionID(rawValue: rawSessionID)
+                let history = try await store.fetchOutputHistory(
+                    sessionID: historySessionID,
+                    limit: AppPolicies.Bridge.worktreeAnnotationMaximumOutputHistorySummaries
+                )
+                sessionID = historySessionID
+                status = .history(history)
             case .outputSelectionCommit(let body):
                 let selection = try outputSelectionAssembler.commit(
                     body,
                     productSessionID: correlation.workerInstanceId
                 )
-                let output = try await executeOutputPreparation(selection, surface: surface)
+                let output = try await executeOutputPreparation(
+                    selection,
+                    surface: surface,
+                    productAdmission: productAdmission
+                )
                 sessionID = output.summary?.sessionID
                 status = .output(output)
             case .repeatOutput(let attemptID):
@@ -140,14 +150,13 @@ final class WorktreeAnnotationTransportAdapter {
                 )
                 status = .committed
             }
-            projection.publish(
-                commandOutcome: .init(
-                    requestID: correlation.requestId,
-                    surface: surface,
-                    sessionID: sessionID,
-                    status: status
-                )
+            let outcome = WorktreeAnnotationCommandOutcome(
+                requestID: correlation.requestId,
+                surface: surface,
+                sessionID: sessionID,
+                status: status
             )
+            return BridgeProductWorktreeAnnotationCommandOutcomeDTO(outcome)
         } catch {
             let status: WorktreeAnnotationCommandOutcomeStatus
             if case WorktreeAnnotationRepositoryError.sessionSelectionRequired(let choice) = error {
@@ -155,14 +164,13 @@ final class WorktreeAnnotationTransportAdapter {
             } else {
                 status = .failed(Self.failureCode(for: error))
             }
-            projection.publish(
-                commandOutcome: .init(
-                    requestID: correlation.requestId,
-                    surface: surface,
-                    sessionID: Self.sessionID(in: request.operation),
-                    status: status
-                )
+            let outcome = WorktreeAnnotationCommandOutcome(
+                requestID: correlation.requestId,
+                surface: surface,
+                sessionID: Self.sessionID(in: request.operation),
+                status: status
             )
+            return BridgeProductWorktreeAnnotationCommandOutcomeDTO(outcome)
         }
     }
 
@@ -194,7 +202,7 @@ final class WorktreeAnnotationTransportAdapter {
                 sessionID: typedSessionID,
                 surface: surface
             )
-            store.releaseDemand(
+            await store.releaseDemand(
                 worktreeID: worktreeID,
                 contextID: contextID,
                 surface: surface,
@@ -429,11 +437,11 @@ final class WorktreeAnnotationTransportAdapter {
         let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
         let demandKey = WorktreeAnnotationTransportDemandKey(sessionID: sessionID, surface: surface)
         guard let demandGeneration = demandGenerationByKey[demandKey] else {
-            throw WorktreeAnnotationStoreError.staleSourceEpoch
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
         let refreshSnapshot = try await store.sourceRefreshSnapshot(sessionID: sessionID)
         guard demandGenerationByKey[demandKey] == demandGeneration else {
-            throw WorktreeAnnotationStoreError.staleSourceEpoch
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
         let capture = try await sourceResolver.refresh(
             surface,
@@ -441,7 +449,7 @@ final class WorktreeAnnotationTransportAdapter {
             refreshSnapshot.requirements
         )
         guard demandGenerationByKey[demandKey] == demandGeneration else {
-            throw WorktreeAnnotationStoreError.staleSourceEpoch
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
         try validateFingerprint(capture.fingerprint)
         _ = try await store.refreshSource(
@@ -527,7 +535,7 @@ final class WorktreeAnnotationTransportAdapter {
             case .invalidState, .duplicateSelection, .emptySelection:
                 .unexpected
             }
-        } else if let storeError = error as? WorktreeAnnotationStoreError {
+        } else if let storeError = error as? WorktreeAnnotationServiceError {
             switch storeError {
             case .recoveryAcknowledgementRequired: .recoveryAcknowledgementRequired
             case .staleSourceEpoch: .conflict

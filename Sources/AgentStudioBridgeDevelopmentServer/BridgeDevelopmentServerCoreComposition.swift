@@ -18,8 +18,8 @@ enum BridgeDevelopmentServerCoreCompositionError: Error, Equatable {
 @MainActor
 final class BridgeDevelopmentServerCoreComposition {
     let productSource: BridgeDevelopmentProductSource
-    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator
-    let worktreeAnnotationStore: WorktreeAnnotationStore
+    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor
+    let worktreeAnnotationStore: WorktreeAnnotationServiceActor
     let originatingWorkspaceID: String
 
     private let atoms: CoreAtoms
@@ -32,8 +32,8 @@ final class BridgeDevelopmentServerCoreComposition {
         productSource: BridgeDevelopmentProductSource,
         repositoryTopologyStore: RepositoryTopologyStore,
         workspaceStore: WorkspaceStore,
-        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator,
-        worktreeAnnotationStore: WorktreeAnnotationStore
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor,
+        worktreeAnnotationStore: WorktreeAnnotationServiceActor
     ) {
         self.atoms = atoms
         self.productSource = productSource
@@ -152,17 +152,16 @@ final class BridgeDevelopmentServerCoreComposition {
 
     private static func makeAnnotationOwners(
         workspaceStore: WorkspaceStore,
-        datastore: WorkspaceSQLiteDatastore,
+        datastore: WorkspaceSQLiteDatastoreActor,
         dataRoot: URL
-    ) async -> (store: WorktreeAnnotationStore, outputCoordinator: WorktreeAnnotationOutputCoordinator) {
-        let store = WorktreeAnnotationStore(
-            projection: WorktreeAnnotationProjectionAtom(),
+    ) async -> (store: WorktreeAnnotationServiceActor, outputCoordinator: WorktreeAnnotationOutputCoordinatorActor) {
+        let store = WorktreeAnnotationServiceActor(
             sqliteAdapter: WorktreeAnnotationSQLiteDatastoreAdapter(
                 workspaceID: workspaceStore.identityAtom.workspaceId,
                 datastore: datastore
             )
         )
-        let outputCoordinator = WorktreeAnnotationOutputCoordinator(
+        let outputCoordinator = WorktreeAnnotationOutputCoordinatorActor(
             store: store,
             effect: BridgeDevelopmentWorktreeAnnotationOutputEffect(dataRoot: dataRoot)
         )

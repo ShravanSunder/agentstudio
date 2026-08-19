@@ -354,6 +354,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
     case fileAnnotationsCommand(BridgeProductWorktreeAnnotationCommandRequest)
     case fileAnnotationsOutputInspect(BridgeProductAnnotationOutputInspectRequest)
     case fileAnnotationsOutputCandidatesQuery(BridgeProductAnnotationCandidateQuery)
+    case fileAnnotationsProjectionQuery(BridgeProductAnnotationProjectionQueryRequest)
     case fileSourceCurrent(BridgeProductFileSourceCurrentRequest)
     case fileActiveViewerModeUpdate(BridgeProductActiveViewerModeUpdateRequest)
     case reviewActiveViewerModeUpdate(BridgeProductActiveViewerModeUpdateRequest)
@@ -365,6 +366,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
     case reviewAnnotationsCommand(BridgeProductWorktreeAnnotationCommandRequest)
     case reviewAnnotationsOutputInspect(BridgeProductAnnotationOutputInspectRequest)
     case reviewAnnotationsOutputCandidatesQuery(BridgeProductAnnotationCandidateQuery)
+    case reviewAnnotationsProjectionQuery(BridgeProductAnnotationProjectionQueryRequest)
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case method
@@ -376,6 +378,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         case .fileAnnotationsCommand: "file.annotations.command"
         case .fileAnnotationsOutputInspect: "file.annotations.output.inspect"
         case .fileAnnotationsOutputCandidatesQuery: "file.annotations.output.candidates.query"
+        case .fileAnnotationsProjectionQuery: "file.annotations.projection.query"
         case .fileSourceCurrent: "file.source.current"
         case .fileActiveViewerModeUpdate: "file.activeViewerMode.update"
         case .reviewActiveViewerModeUpdate: "review.activeViewerMode.update"
@@ -387,19 +390,21 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         case .reviewAnnotationsCommand: "review.annotations.command"
         case .reviewAnnotationsOutputInspect: "review.annotations.output.inspect"
         case .reviewAnnotationsOutputCandidatesQuery: "review.annotations.output.candidates.query"
+        case .reviewAnnotationsProjectionQuery: "review.annotations.projection.query"
         }
     }
 
     var surface: BridgeProductSurface {
         switch self {
         case .fileAnnotationsCommand, .fileAnnotationsOutputInspect, .fileAnnotationsOutputCandidatesQuery,
+            .fileAnnotationsProjectionQuery,
             .fileSourceCurrent,
             .fileActiveViewerModeUpdate:
             .file
         case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewComparisonTargetsQuery, .reviewIntakeReady,
             .reviewMarkFileViewed,
             .reviewPublicationApplied, .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
-            .reviewAnnotationsOutputCandidatesQuery:
+            .reviewAnnotationsOutputCandidatesQuery, .reviewAnnotationsProjectionQuery:
             .review
         }
     }
@@ -411,64 +416,102 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
             contract: "Bridge product call request"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(String.self, forKey: .method) {
+        let method = try container.decode(String.self, forKey: .method)
+        if method.hasPrefix("file.") {
+            self = try Self.decodeFileRequest(method: method, from: container, decoder: decoder)
+        } else if method.hasPrefix("review.") {
+            self = try Self.decodeReviewRequest(method: method, from: container, decoder: decoder)
+        } else {
+            throw Self.unknownMethodError(forKey: .method, in: container)
+        }
+    }
+
+    private static func decodeFileRequest(
+        method: String,
+        from container: KeyedDecodingContainer<CodingKeys>,
+        decoder: Decoder
+    ) throws -> Self {
+        switch method {
         case "file.annotations.command":
             let request = try container.decode(
                 BridgeProductWorktreeAnnotationCommandRequest.self,
                 forKey: .request
             )
             try request.validateSource(surface: .file, codingPath: decoder.codingPath)
-            self = .fileAnnotationsCommand(request)
+            return .fileAnnotationsCommand(request)
         case "file.annotations.output.inspect":
-            self = .fileAnnotationsOutputInspect(
+            return .fileAnnotationsOutputInspect(
                 try container.decode(
                     BridgeProductAnnotationOutputInspectRequest.self,
                     forKey: .request
                 )
             )
         case "file.annotations.output.candidates.query":
-            self = .fileAnnotationsOutputCandidatesQuery(
+            return .fileAnnotationsOutputCandidatesQuery(
                 try container.decode(
                     BridgeProductAnnotationCandidateQuery.self,
                     forKey: .request
                 )
             )
+        case "file.annotations.projection.query":
+            let request = try container.decode(
+                BridgeProductAnnotationProjectionQueryRequest.self,
+                forKey: .request
+            )
+            guard request.surface == .file else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "File annotation projection queries must remain File-surface bound",
+                    codingPath: decoder.codingPath
+                )
+            }
+            return .fileAnnotationsProjectionQuery(request)
         case "file.source.current":
-            self = .fileSourceCurrent(
+            return .fileSourceCurrent(
                 try container.decode(BridgeProductFileSourceCurrentRequest.self, forKey: .request)
             )
         case "file.activeViewerMode.update":
-            self = .fileActiveViewerModeUpdate(
+            return .fileActiveViewerModeUpdate(
                 try container.decode(BridgeProductActiveViewerModeUpdateRequest.self, forKey: .request)
             )
+        default:
+            throw unknownMethodError(forKey: .method, in: container)
+        }
+    }
+
+    private static func decodeReviewRequest(
+        method: String,
+        from container: KeyedDecodingContainer<CodingKeys>,
+        decoder: Decoder
+    ) throws -> Self {
+        switch method {
         case "review.activeViewerMode.update":
-            self = .reviewActiveViewerModeUpdate(
+            return .reviewActiveViewerModeUpdate(
                 try container.decode(BridgeProductActiveViewerModeUpdateRequest.self, forKey: .request)
             )
         case "review.comparison.update":
-            self = .reviewComparisonUpdate(
+            return .reviewComparisonUpdate(
                 try container.decode(
                     BridgeProductReviewComparisonUpdateRequest.self,
                     forKey: .request
                 )
             )
         case "review.comparisonTargets.query":
-            self = .reviewComparisonTargetsQuery(
+            return .reviewComparisonTargetsQuery(
                 try container.decode(
                     BridgeProductReviewComparisonTargetsQueryRequest.self,
                     forKey: .request
                 )
             )
         case "review.markFileViewed":
-            self = .reviewMarkFileViewed(
+            return .reviewMarkFileViewed(
                 try container.decode(BridgeProductReviewMarkFileViewedRequest.self, forKey: .request)
             )
         case "review.intake.ready":
-            self = .reviewIntakeReady(
+            return .reviewIntakeReady(
                 try container.decode(BridgeProductReviewIntakeReadyRequest.self, forKey: .request)
             )
         case "review.publication.applied":
-            self = .reviewPublicationApplied(
+            return .reviewPublicationApplied(
                 try container.decode(
                     BridgeProductReviewPublicationAppliedRequest.self,
                     forKey: .request
@@ -480,28 +523,47 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
                 forKey: .request
             )
             try request.validateSource(surface: .review, codingPath: decoder.codingPath)
-            self = .reviewAnnotationsCommand(request)
+            return .reviewAnnotationsCommand(request)
         case "review.annotations.output.inspect":
-            self = .reviewAnnotationsOutputInspect(
+            return .reviewAnnotationsOutputInspect(
                 try container.decode(
                     BridgeProductAnnotationOutputInspectRequest.self,
                     forKey: .request
                 )
             )
         case "review.annotations.output.candidates.query":
-            self = .reviewAnnotationsOutputCandidatesQuery(
+            return .reviewAnnotationsOutputCandidatesQuery(
                 try container.decode(
                     BridgeProductAnnotationCandidateQuery.self,
                     forKey: .request
                 )
             )
-        default:
-            throw DecodingError.dataCorruptedError(
-                forKey: .method,
-                in: container,
-                debugDescription: "Unknown Bridge product call method"
+        case "review.annotations.projection.query":
+            let request = try container.decode(
+                BridgeProductAnnotationProjectionQueryRequest.self,
+                forKey: .request
             )
+            guard request.surface == .review else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Review annotation projection queries must remain Review-surface bound",
+                    codingPath: decoder.codingPath
+                )
+            }
+            return .reviewAnnotationsProjectionQuery(request)
+        default:
+            throw unknownMethodError(forKey: .method, in: container)
         }
+    }
+
+    private static func unknownMethodError(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) -> DecodingError {
+        DecodingError.dataCorruptedError(
+            forKey: key,
+            in: container,
+            debugDescription: "Unknown Bridge product call method"
+        )
     }
 
     func encode(to encoder: Encoder) throws {
@@ -515,6 +577,9 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
             try container.encode(request, forKey: .request)
         case .fileAnnotationsOutputCandidatesQuery(let request),
             .reviewAnnotationsOutputCandidatesQuery(let request):
+            try container.encode(request, forKey: .request)
+        case .fileAnnotationsProjectionQuery(let request),
+            .reviewAnnotationsProjectionQuery(let request):
             try container.encode(request, forKey: .request)
         case .fileSourceCurrent(let request):
             try container.encode(request, forKey: .request)
@@ -539,6 +604,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
     case fileAnnotationsCommand(BridgeProductWorktreeAnnotationCommandResult)
     case fileAnnotationsOutputInspect(BridgeProductWorktreeAnnotationOutputInspectResult)
     case fileAnnotationsOutputCandidatesQuery(BridgeProductAnnotationCandidatePageDTO)
+    case fileAnnotationsProjectionQuery(BridgeProductAnnotationProjectionQueryResult)
     case fileSourceCurrent(BridgeProductFileSourceCurrentResult)
     case fileActiveViewerModeUpdate
     case reviewActiveViewerModeUpdate
@@ -550,6 +616,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
     case reviewAnnotationsCommand(BridgeProductWorktreeAnnotationCommandResult)
     case reviewAnnotationsOutputInspect(BridgeProductWorktreeAnnotationOutputInspectResult)
     case reviewAnnotationsOutputCandidatesQuery(BridgeProductAnnotationCandidatePageDTO)
+    case reviewAnnotationsProjectionQuery(BridgeProductAnnotationProjectionQueryResult)
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case method
@@ -561,6 +628,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         case .fileAnnotationsCommand: "file.annotations.command"
         case .fileAnnotationsOutputInspect: "file.annotations.output.inspect"
         case .fileAnnotationsOutputCandidatesQuery: "file.annotations.output.candidates.query"
+        case .fileAnnotationsProjectionQuery: "file.annotations.projection.query"
         case .fileSourceCurrent: "file.source.current"
         case .fileActiveViewerModeUpdate: "file.activeViewerMode.update"
         case .reviewActiveViewerModeUpdate: "review.activeViewerMode.update"
@@ -572,19 +640,21 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         case .reviewAnnotationsCommand: "review.annotations.command"
         case .reviewAnnotationsOutputInspect: "review.annotations.output.inspect"
         case .reviewAnnotationsOutputCandidatesQuery: "review.annotations.output.candidates.query"
+        case .reviewAnnotationsProjectionQuery: "review.annotations.projection.query"
         }
     }
 
     var surface: BridgeProductSurface {
         switch self {
         case .fileAnnotationsCommand, .fileAnnotationsOutputInspect, .fileAnnotationsOutputCandidatesQuery,
+            .fileAnnotationsProjectionQuery,
             .fileSourceCurrent,
             .fileActiveViewerModeUpdate:
             .file
         case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewComparisonTargetsQuery, .reviewIntakeReady,
             .reviewMarkFileViewed,
             .reviewPublicationApplied, .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
-            .reviewAnnotationsOutputCandidatesQuery:
+            .reviewAnnotationsOutputCandidatesQuery, .reviewAnnotationsProjectionQuery:
             .review
         }
     }
@@ -596,24 +666,43 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
             contract: "Bridge product call result"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(String.self, forKey: .method) {
+        let method = try container.decode(String.self, forKey: .method)
+        if method.hasPrefix("file.") {
+            self = try Self.decodeFileResult(method: method, from: container, decoder: decoder)
+        } else if method.hasPrefix("review.") {
+            self = try Self.decodeReviewResult(method: method, from: container, decoder: decoder)
+        } else {
+            throw Self.unknownResultMethodError(forKey: .method, in: container)
+        }
+    }
+
+    private static func decodeFileResult(
+        method: String,
+        from container: KeyedDecodingContainer<CodingKeys>,
+        decoder: Decoder
+    ) throws -> Self {
+        switch method {
         case "file.annotations.command":
-            self = .fileAnnotationsCommand(
+            return .fileAnnotationsCommand(
                 try container.decode(BridgeProductWorktreeAnnotationCommandResult.self, forKey: .result)
             )
         case "file.annotations.output.inspect":
-            self = .fileAnnotationsOutputInspect(
+            return .fileAnnotationsOutputInspect(
                 try Self.decodeOutputInspection(from: container, surface: .file, decoder: decoder)
             )
         case "file.annotations.output.candidates.query":
-            self = .fileAnnotationsOutputCandidatesQuery(
+            return .fileAnnotationsOutputCandidatesQuery(
                 try container.decode(
                     BridgeProductAnnotationCandidatePageDTO.self,
                     forKey: .result
                 )
             )
+        case "file.annotations.projection.query":
+            return .fileAnnotationsProjectionQuery(
+                try Self.decodeProjectionQuery(from: container, surface: .file, decoder: decoder)
+            )
         case "file.source.current":
-            self = .fileSourceCurrent(
+            return .fileSourceCurrent(
                 try container.decode(BridgeProductFileSourceCurrentResult.self, forKey: .result)
             )
         case "file.activeViewerMode.update":
@@ -622,23 +711,34 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
                 from: container,
                 codingPath: decoder.codingPath
             )
-            self = .fileActiveViewerModeUpdate
+            return .fileActiveViewerModeUpdate
+        default:
+            throw unknownResultMethodError(forKey: .method, in: container)
+        }
+    }
+
+    private static func decodeReviewResult(
+        method: String,
+        from container: KeyedDecodingContainer<CodingKeys>,
+        decoder: Decoder
+    ) throws -> Self {
+        switch method {
         case "review.activeViewerMode.update":
             try BridgeProductContractDecoding.decodeRequiredNull(
                 forKey: .result,
                 from: container,
                 codingPath: decoder.codingPath
             )
-            self = .reviewActiveViewerModeUpdate
+            return .reviewActiveViewerModeUpdate
         case "review.comparison.update":
             try BridgeProductContractDecoding.decodeRequiredNull(
                 forKey: .result,
                 from: container,
                 codingPath: decoder.codingPath
             )
-            self = .reviewComparisonUpdate
+            return .reviewComparisonUpdate
         case "review.comparisonTargets.query":
-            self = .reviewComparisonTargetsQuery(
+            return .reviewComparisonTargetsQuery(
                 try container.decode(
                     BridgeProductReviewComparisonTargetsQueryResult.self,
                     forKey: .result
@@ -650,43 +750,54 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
                 from: container,
                 codingPath: decoder.codingPath
             )
-            self = .reviewMarkFileViewed
+            return .reviewMarkFileViewed
         case "review.intake.ready":
             try BridgeProductContractDecoding.decodeRequiredNull(
                 forKey: .result,
                 from: container,
                 codingPath: decoder.codingPath
             )
-            self = .reviewIntakeReady
+            return .reviewIntakeReady
         case "review.publication.applied":
             try BridgeProductContractDecoding.decodeRequiredNull(
                 forKey: .result,
                 from: container,
                 codingPath: decoder.codingPath
             )
-            self = .reviewPublicationApplied
+            return .reviewPublicationApplied
         case "review.annotations.command":
-            self = .reviewAnnotationsCommand(
+            return .reviewAnnotationsCommand(
                 try container.decode(BridgeProductWorktreeAnnotationCommandResult.self, forKey: .result)
             )
         case "review.annotations.output.inspect":
-            self = .reviewAnnotationsOutputInspect(
+            return .reviewAnnotationsOutputInspect(
                 try Self.decodeOutputInspection(from: container, surface: .review, decoder: decoder)
             )
         case "review.annotations.output.candidates.query":
-            self = .reviewAnnotationsOutputCandidatesQuery(
+            return .reviewAnnotationsOutputCandidatesQuery(
                 try container.decode(
                     BridgeProductAnnotationCandidatePageDTO.self,
                     forKey: .result
                 )
             )
-        default:
-            throw DecodingError.dataCorruptedError(
-                forKey: .method,
-                in: container,
-                debugDescription: "Unknown Bridge product call result method"
+        case "review.annotations.projection.query":
+            return .reviewAnnotationsProjectionQuery(
+                try Self.decodeProjectionQuery(from: container, surface: .review, decoder: decoder)
             )
+        default:
+            throw unknownResultMethodError(forKey: .method, in: container)
         }
+    }
+
+    private static func unknownResultMethodError(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) -> DecodingError {
+        DecodingError.dataCorruptedError(
+            forKey: key,
+            in: container,
+            debugDescription: "Unknown Bridge product call result method"
+        )
     }
 
     private static func decodeOutputInspection(
@@ -708,6 +819,24 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         return result
     }
 
+    private static func decodeProjectionQuery(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        surface: BridgeProductSurface,
+        decoder: Decoder
+    ) throws -> BridgeProductAnnotationProjectionQueryResult {
+        let result = try container.decode(
+            BridgeProductAnnotationProjectionQueryResult.self,
+            forKey: .result
+        )
+        guard result.descriptor.surface == surface else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Annotation projection descriptor surface does not match its call method",
+                codingPath: decoder.codingPath
+            )
+        }
+        return result
+    }
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(method, forKey: .method)
@@ -719,6 +848,9 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
             try container.encode(result, forKey: .result)
         case .fileAnnotationsOutputCandidatesQuery(let result),
             .reviewAnnotationsOutputCandidatesQuery(let result):
+            try container.encode(result, forKey: .result)
+        case .fileAnnotationsProjectionQuery(let result),
+            .reviewAnnotationsProjectionQuery(let result):
             try container.encode(result, forKey: .result)
         case .fileSourceCurrent(let result):
             try container.encode(result, forKey: .result)

@@ -16,7 +16,7 @@ actor BridgePaneProductMetadataCoordinator {
     }
 
     private let contentDemandAuthority: BridgePaneProductContentDemandAuthority
-    let annotationSource: BridgePaneProductWorktreeAnnotationSource
+    let annotationSource: BridgePaneAnnotationNotificationSource
     let fileMetadataSource: any BridgePaneProductFileMetadataProducing
     let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
     private let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
@@ -37,7 +37,7 @@ actor BridgePaneProductMetadataCoordinator {
     var openedSourceSubscriptionIds: Set<String> = []
 
     init(
-        annotationSource: BridgePaneProductWorktreeAnnotationSource = .unavailable,
+        annotationSource: BridgePaneAnnotationNotificationSource = .unavailable,
         fileMetadataSource: any BridgePaneProductFileMetadataProducing,
         reviewMetadataSource: any BridgePaneProductReviewMetadataProducing,
         reviewContentSource: any BridgePaneProductReviewContentProducing =
@@ -478,7 +478,7 @@ actor BridgePaneProductMetadataCoordinator {
             return
         }
         do {
-            let enqueueResult = try await activeStream.session.enqueueOrdinaryMetadataFrame(
+            let enqueueResult = try await activeStream.session.enqueueProducerFrame(
                 for: activeStream.lease,
                 productAdmission: activeStream.productAdmission,
                 build: { streamSequence in
@@ -487,6 +487,17 @@ actor BridgePaneProductMetadataCoordinator {
                             stream: activeStream.correlation,
                             streamSequence: streamSequence,
                             snapshot: snapshot
+                        )
+                    )
+                },
+                overflowReset: { streamSequence in
+                    try .metadata(
+                        .metadataStreamError(
+                            stream: activeStream.correlation,
+                            streamSequence: streamSequence,
+                            code: .resyncRequired,
+                            retryable: true,
+                            safeMessage: nil
                         )
                     )
                 }
@@ -567,7 +578,7 @@ actor BridgePaneProductMetadataCoordinator {
         _ request: BridgePaneSurfaceSelectionRequest,
         activeStream: ActiveStream
     ) async throws -> BridgeProductProducerEnqueueResult {
-        try await activeStream.session.enqueueOrdinaryMetadataFrame(
+        try await activeStream.session.enqueueProducerFrame(
             for: activeStream.lease,
             productAdmission: activeStream.productAdmission,
             build: { streamSequence in
@@ -576,6 +587,17 @@ actor BridgePaneProductMetadataCoordinator {
                         stream: activeStream.correlation,
                         streamSequence: streamSequence,
                         request: request
+                    )
+                )
+            },
+            overflowReset: { streamSequence in
+                try .metadata(
+                    .metadataStreamError(
+                        stream: activeStream.correlation,
+                        streamSequence: streamSequence,
+                        code: .resyncRequired,
+                        retryable: true,
+                        safeMessage: nil
                     )
                 )
             }
@@ -723,7 +745,7 @@ extension BridgePaneProductMetadataCoordinator {
     ) async {
         switch subscriptionKind {
         case .fileAnnotations, .reviewAnnotations:
-            await annotationSource.cancel(subscriptionId: subscriptionId)
+            await annotationSource.cancel(subscriptionID: subscriptionId)
         case .fileMetadata:
             await fileMetadataSource.cancel(subscriptionId: subscriptionId)
         case .reviewMetadata:

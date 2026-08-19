@@ -14,15 +14,15 @@ struct BridgePaneProductWorktreeAnnotationOutputBody: Equatable, Sendable {
 
 /// Re-reads immutable output attempts from SQLite for every descriptor and body
 /// request. Exact output bytes stay on the content-stream path and are never
-/// retained by the projection Atom.
+/// retained by the browser projection path.
 actor BridgePaneProductWorktreeAnnotationOutputSource {
     static let unavailable = BridgePaneProductWorktreeAnnotationOutputSource(store: nil)
 
-    private let store: WorktreeAnnotationStore?
+    private let store: WorktreeAnnotationServiceActor?
     private var issuedDescriptorIDs: [String] = []
     private var issuedDescriptorsByID: [String: BridgeProductAnnotationOutputContentDescriptor] = [:]
 
-    init(store: WorktreeAnnotationStore?) {
+    init(store: WorktreeAnnotationServiceActor?) {
         self.store = store
     }
 
