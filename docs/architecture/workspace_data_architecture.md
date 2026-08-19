@@ -1001,4 +1001,4 @@ Key testing principles:
 - **Component overview:** [Component Architecture](component_architecture.md) — data model, store boundaries, coordinator role
 - **Pane identity and restore:** [Session Lifecycle](session_lifecycle.md) — pane identity contract, restore sequencing, undo/residency states
 - **Surface lifecycle:** [Surface Architecture](ghostty_surface_architecture.md) — Ghostty surface ownership, health monitoring
-- **Planned: persistent folder watching:** `docs/plans/2026-03-02-persistent-watched-path-folder-watching.md` — `WatchedPath` model, periodic rescan
+- **Planned: persistent folder watching:** `WatchedPath` model, periodic rescan

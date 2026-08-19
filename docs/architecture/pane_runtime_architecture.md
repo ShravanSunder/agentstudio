@@ -8,7 +8,7 @@ The current system translates Ghostty callbacks into a typed, exhaustive source-
 
 This document defines the pane runtime communication architecture: how panes of all types produce events, receive commands, and coordinate through the workspace.
 
-> **Implementation status note:** This document includes both shipped contracts and forward-defined target contracts. For ticket-by-ticket implementation state, use the mapping ledger in `docs/plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md`. For the EventBus coordination design (actor fan-out, boundary actors, data flow per contract), see [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md).
+> **Implementation status note:** This document includes both shipped contracts and forward-defined target contracts. For the EventBus coordination design (actor fan-out, boundary actors, data flow per contract), see [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md).
 
 ### Jobs This Architecture Solves
 
@@ -2562,10 +2562,7 @@ func submit(_ envelope: PaneEventEnvelope) {
 
 ### Contract 13: Workflow Engine (deferred)
 
-> Deferred workflow planning now lives in
-> [Pane Runtime Ticket Mapping (Minimal)](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#deferred-workflow-engine).
->
-> Tracks temporal workflows spanning multiple panes and events ("agent finishes → create diff → user completes review → signal next agent"). Owned by WorkspaceSurfaceCoordinator. Implementation deferred until multi-agent orchestration (JTBD 6) moves to automated cross-agent handoffs.
+> Deferred. Tracks temporal workflows spanning multiple panes and events ("agent finishes → create diff → user completes review → signal next agent"). Owned by WorkspaceSurfaceCoordinator. Implementation deferred until multi-agent orchestration (JTBD 6) moves to automated cross-agent handoffs.
 >
 > Key types: `WorkflowTracker`, `WorkflowStep`, `StepPredicate`, `WorkflowAdvance`. Integration points: `PaneEventEnvelope.correlationId`, `PaneKindEvent.eventName` for step matching, `EventReplayBuffer` for restart recovery.
 
@@ -2995,7 +2992,7 @@ The historical codebase used `NotificationCenter` and `DispatchQueue.main.async`
 ### Migration Order
 
 1. **LUNA-327 (done):** `@Observable` migration, `private(set)` stores, `WorkspaceSurfaceCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
-2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration. `.swiftLanguageMode(.v6)` enforced, all `isolated deinit` migrations complete, `MainActor.assumeIsolated` removed from Sources, C callback trampolines partially migrated (`wakeup_cb` done), existential Sendable constraints added. SwiftLint concurrency rules added (44 violations marking LUNA-325 scope). See [migration plan](../plans/2026-02-22-swift6-language-mode-migration.md) and [mapping doc](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#luna-342-implementation-record) for details.
+2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration. `.swiftLanguageMode(.v6)` enforced, all `isolated deinit` migrations complete, `MainActor.assumeIsolated` removed from Sources, C callback trampolines partially migrated (`wakeup_cb` done), existential Sendable constraints added. SwiftLint concurrency rules added (44 violations marking LUNA-325 scope).
 3. **LUNA-325 (in progress):** `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`, and runtime command dispatch scaffolding are landed. Migrated split/tab action families are now routed through typed runtime events (no dual-path NotificationCenter posts for migrated actions). Remaining full-contract parity is tracked through the LUNA-325/LUNA-345 closure gate.
 4. **LUNA-295 (attach orchestration):** Build attach readiness policies and visibility-tier scheduling. Consumes the event stream infrastructure from LUNA-325.
 5. **LUNA-324 (restart reconcile):** Build startup anchor reconciliation, non-destructive runtime-only classification, and post-restore health monitoring (Contract 5b).
