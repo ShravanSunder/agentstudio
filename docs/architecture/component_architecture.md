@@ -689,7 +689,7 @@ Keyboard-driven search/command palette (⌘P) providing unified access to tabs, 
 - `.custom(() -> Void)` — Arbitrary action
 - `.worktreeAction(presence: WorktreePresence)` — Resolve at selection time based on presence and modifier keys
 
-**`CommandBarSearch`** — Custom fuzzy matching engine. Returns scores (0.0 = best) and character match ranges for highlighting. Weighted scoring: title (1.0), subtitle (0.8), keywords (0.6). Recency boost for recently used items.
+**`FuzzySearch`** (`Infrastructure/Search/CommandBarSearch.swift`) — Shared fuzzy matching. Returns scores (0.0 = best) and character match ranges for highlighting. Weighted scoring: title (1.0), subtitle (0.8), keywords (0.6). Recency boost for recently used items.
 
 **`CommandBarPanel`** — `NSPanel` subclass with `NSVisualEffectView` (`.sidebar` material) and `NSHostingView` for SwiftUI content. Child window of the main window.
 
@@ -699,7 +699,7 @@ Keyboard-driven search/command palette (⌘P) providing unified access to tabs, 
 - Actions route through `AppCommandDispatcher` → full validation pipeline — the command bar never mutates `WorkspaceStore` directly
 - Worktree presence awareness: items show open pane count, tab location, and adapt their enter behavior (go-to vs. drill-in) based on whether the worktree already has panes open
 
-> **Files:** `Features/CommandBar/CommandBarPanelController.swift`, `Features/CommandBar/CommandBarState.swift`, `Features/CommandBar/CommandBarDataSource.swift`, `Features/CommandBar/CommandBarDataSource+WorktreeRows.swift`, `Features/CommandBar/CommandBarSearch.swift`, `Features/CommandBar/CommandBarPanel.swift`, `Features/CommandBar/CommandBarItem.swift`, `Features/CommandBar/WorktreePresence.swift`, `Features/CommandBar/CommandBarWorktreeActionResolver.swift`, `Features/CommandBar/Views/*.swift`
+> **Files:** `Features/CommandBar/CommandBarPanelController.swift`, `Features/CommandBar/CommandBarState.swift`, `Features/CommandBar/CommandBarDataSource.swift`, `Features/CommandBar/CommandBarDataSource+WorktreeRows.swift`, `Infrastructure/Search/CommandBarSearch.swift`, `Features/CommandBar/CommandBarPanel.swift`, `Features/CommandBar/CommandBarItem.swift`, `Features/CommandBar/WorktreePresence.swift`, `Features/CommandBar/CommandBarWorktreeActionResolver.swift`, `Features/CommandBar/Views/*.swift`
 
 ### 3.8 Command Metadata & UI Action Presentation
 
@@ -1025,7 +1025,8 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` | Compatibility read facade over tab shell and arrangement facades |
 | `Core/State/MainActor/Persistence/EntityRecencyStore.swift` | Independent application and workspace recency hydration/flush lifecycles |
 | `Core/State/MainActor/Atoms/WorkspaceTabLayoutDerived.swift` | Rich tab read model composed from shell, cursor, graph, arrangement cursor, and presentation |
-| `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
+| `Core/State/MainActor/Coordination/WorkspaceMutationCoordinator.swift` | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
+| `Core/State/MainActor/Coordination/RepositoryWorktreeReconciliation.swift` | Identity-preserving worktree merge; returns `WorktreeTopologyDelta` |
 | `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` | Sole mutable requested-focus owner for main-pane, empty-drawer, and drawer-pane focus |
 | `Core/State/MainActor/Atoms/WorkspaceFocusedPane.swift` | Immutable normalized focus identity/content used by focus presentation and command-context projection |
 | `Core/State/MainActor/Atoms/WorkspaceFocusedPaneResolver.swift` | Stateless normalization of requested focus against active tab, pane, and drawer state |
@@ -1046,16 +1047,25 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `App/Panes/ViewRegistry.swift` | paneId → PaneViewSlot mapping (runtime-only) |
 | `Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
 | **Infrastructure** | |
-| `Infrastructure/WorktreeReconciler.swift` | Pure function: matches existing vs discovered worktrees, preserves UUIDs, returns merged list + `WorktreeTopologyDelta` |
 | `Infrastructure/SQLite/SQLiteDatabaseFactory.swift` | Generic GRDB connection setup, pragmas, WAL, and capability-test construction |
 | `Infrastructure/SQLite/SQLiteSidecarQuarantine.swift` | Generic SQLite database/WAL/SHM quarantine helper with no product schema knowledge |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
 | **App** | |
 | `App/Coordination/WorkspaceSurfaceCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
+| `App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift` | Action command execution flow |
+| `App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift` | Filesystem root sync for pane runtimes |
+| `App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift` | Runtime command dispatch to pane runtimes |
+| `App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift` | Terminal placeholder creation and management |
+| `App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift` | Pane close undo support |
+| `App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift` | NSView lifecycle orchestration for panes |
+| `App/Coordination/WorkspaceCacheCoordinator.swift` | Event bus consumer; updates enrichment/cache stores |
 | `App/Commands/AppCommand+IPCProjection.swift` | Independent exhaustive IPC companion contracts and public command-list DTO projection |
 | `App/Windows/MainWindowController.swift` | Primary window management |
 | `App/Windows/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
 | `App/Panes/PaneTabViewController.swift` | Tab controller, observes store via @Observable |
+| **Features/Bridge** | |
+| `Features/Bridge/Runtime/BridgePaneController.swift` | WKWebView lifecycle for React panes |
+| `Features/Bridge/Transport/BridgeProductSchemeControlDispatcher.swift` | Product-scheme control dispatch (successor to the retired `RPCRouter` JSON-RPC entry) |
 | **Features/Terminal** | |
 | `Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift` | Placeholder shown for zmx panes awaiting geometry (`.preparing`) or failed starts |
 | `Features/Terminal/Restore/TerminalRestoreScheduler.swift` | Orders panes by `VisibilityTier` for staged restore (visible first) |
@@ -1083,7 +1093,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Features/CommandBar/CommandBarPanelController.swift` | Panel lifecycle: show/dismiss/toggle, backdrop, animation |
 | `Features/CommandBar/CommandBarState.swift` | Observable state: prefix parsing, navigation, selection, recents |
 | `Features/CommandBar/CommandBarDataSource.swift` | Builds items from `WorkspaceStore` + `AppCommandDispatcher`, scope-filtered |
-| `Features/CommandBar/CommandBarSearch.swift` | Custom fuzzy matching with score + character match ranges |
+| `Infrastructure/Search/CommandBarSearch.swift` | Shared `FuzzySearch` matching with score + character match ranges |
 | `Features/CommandBar/CommandBarPanel.swift` | `NSPanel` subclass with `NSVisualEffectView` + `NSHostingView` |
 | `Features/CommandBar/CommandBarItem.swift` | Data models: `CommandBarItem`, `CommandBarLevel`, `CommandBarAction`, `ShortcutKey` |
 | `Features/CommandBar/Views/CommandBarView.swift` | Root SwiftUI view — composes search, results, scope pill, footer |

@@ -11,7 +11,10 @@ Architecture lint now has two layers:
   `Tools/AgentStudioArchitectureLint`
 
 The local architecture tool is not a SwiftLint plugin. It runs alongside stock
-SwiftLint through `mise run lint` and CI.
+SwiftLint through `mise run lint` and CI. Do not restore an external
+custom-SwiftLint toolchain. Do not reintroduce repo-local shell/`rg`
+architecture-lint scripts for rules that SwiftSyntax can express, and do not
+add SwiftSyntax dependencies to the app package.
 
 Architecture diagnostics have three severity channels. `error` and `warning`
 findings print and make the architecture-lint command exit non-zero. `report`

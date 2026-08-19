@@ -17,6 +17,36 @@ Pure layer-based organization (`Models/`, `Stores/`, `Views/`, `Actions/`) sprea
 
 The hybrid approach (inspired by Ghostty's own codebase structure) keeps infrastructure layers for shared concerns and groups feature-specific code by capability.
 
+Paths are the human map. `Package.swift` is the compiler DAG. Use
+[Repository Root](#repository-root) for repo-level folders,
+[Source And Target Structure](#source-and-target-structure) for
+`Sources/AgentStudio/`, and [SwiftPM Module Graph](#swiftpm-module-graph) for
+compiled targets and import direction.
+
+---
+
+## Repository Root
+
+```
+.
+├── AGENTS.md                         # Everyday agent operating contract
+├── Package.swift                     # Compiled SwiftPM target graph
+├── Sources/                          # AgentStudio executable plus IPC modules; see SwiftPM Module Graph
+├── Tests/                            # Paired SwiftPM test targets; see Test Target Ownership
+├── scripts/                          # mise helpers, debug/observability launchers
+├── BridgeWeb/                        # React Bridge UI; follow BridgeWeb/AGENTS.md after root AGENTS.md
+├── Tools/AgentStudioArchitectureLint # Repo-local SwiftSyntax architecture lint package
+├── docs/architecture/                # Authoritative design docs
+├── docs/plans/                       # Date-prefixed implementation plans
+├── docs/guides/                      # Agent resources, style guide
+├── vendor/ghostty/                   # Ghostty gitlink; normally unhydrated in linked worktrees
+└── vendor/zmx/                       # zmx gitlink; normally unhydrated in linked worktrees
+```
+
+Do not treat `vendor/` as a product module. Linked worktrees reuse prepared
+vendor inputs; they do not hydrate these gitlinks by default. See
+[Agent Resources — First-Time Setup](../guides/agent_resources.md#first-time-setup).
+
 ---
 
 ## Source And Target Structure
@@ -28,9 +58,10 @@ Sources/AgentStudio/
 │   ├── Boot/                         # Launch restore, lifecycle routing, boot sequencing
 │   ├── Commands/                     # App-owned command entry points
 │   ├── Coordination/                 # Cross-store / cross-feature sequencing
-│   ├── Events/                       # App-scoped notification bus types
+│   ├── Diagnostics/                  # App-owned diagnostic helpers
+│   ├── IPCComposition/               # App adapters from AppIPC ports into owners
 │   ├── Lifecycle/                    # ApplicationLifecycleMonitor, ManagementLayerMonitor,
-│   │                                 #   ManagementLayerToolbarButton, WindowRestoreBridge
+│   │                                 #   WindowRestoreBridge
 │   ├── PaneAgents/                   # App-owned pane-agent process launch,
 │   │                                 #   fd bootstrap remap, lifecycle cleanup
 │   ├── Panes/                        # App-owned pane hosting, tab management, empty states
@@ -44,11 +75,15 @@ Sources/AgentStudio/
 │   ├── Actions/                      # WorkspaceActionCommand, WorkspaceCommandResolver, WorkspaceCommandValidator, command/action metadata
 │   ├── Models/                       # Pane, Layout, Tab, Repo, Worktree, arrangement, FlatTabStripMetrics,
 │   │                                 #   composition-cutting enums (SidebarSurface, KeyboardOwner)
-│   ├── RuntimeEventSystem/           # Shared pane-runtime contracts, buses, projectors
+│   ├── PaneFocus/                    # Focus tracking helpers used by App composition
+│   ├── RuntimeEventSystem/           # Pane-runtime contracts, buses, projectors; AppEventBus
 │   ├── State/
+│   │   ├── SQLite/                   # Datastore actor, snapshot, recovery classifier
 │   │   └── MainActor/
 │   │       ├── Atoms/                # CoreAtoms, CoreAtomScope, atom(...), Core-owned atoms/readers
-│   │       └── Persistence/          # WorkspaceStore, RepoCacheStore, UIStateStore
+│   │       ├── Coordination/         # WorkspaceMutationCoordinator, worktree reconciliation
+│   │       └── Persistence/          # WorkspaceStore, RepoCacheStore, UIStateStore,
+│   │                                 #   EntityRecencyStore, SidebarCacheStore
 │   └── Views/                        # Shared pane/tree/drawer primitives
 │       ├── Drawer/                   # DrawerLayout, DrawerIconBar, DrawerIconBarFrameKey
 │       └── Panes/                    # FlatPaneDivider, drag payloads/coordinator,
@@ -58,15 +93,12 @@ Sources/AgentStudio/
 ├── Features/                         # Each feature is a self-contained slice (see §Feature Slice
 │   │                                 #   Self-Containment below)
 │   ├── Bridge/                       # React/WebView pane system
-│   │   ├── Components/               # Reusable views within Bridge
-│   │   ├── Models/                   # Domain types owned by Bridge
-│   │   ├── Routing/                  # Bus subscribers / focus trackers
-│   │   ├── State/
-│   │   │   └── MainActor/
-│   │   │       ├── Atoms/            # BridgeDomainState, BridgePaneState, Push/*
-│   │   │       └── Persistence/      # (if needed)
-│   │   ├── Transport/                # Feature-specific (JSON-RPC): RPCRouter, RPCMethod, ...
-│   │   └── Views/                    # Composable screens
+│   │   ├── Models/                   # Feature-owned domain types
+│   │   ├── Runtime/                  # BridgePaneController and WKWebView lifecycle
+│   │   ├── State/                    # PaneDomainState; atom: BridgePaneAttendanceAtom
+│   │   ├── Transport/                # Product-scheme session, admission, control dispatch
+│   │   ├── Views/                    # Composable screens
+│   │   └── BridgeNavigationDecider.swift
 │   │
 │   ├── CodeViewer/                   # Native code-viewer pane mount view
 │   ├── CommandBar/                   # ⌘P command palette
@@ -76,13 +108,13 @@ Sources/AgentStudio/
 │   │                                 #   explorer feature. The sidebar itself is composition
 │   │                                 #   in App/, not a feature)
 │   ├── Terminal/                     # Everything Ghostty-specific
-│   │   ├── Components/               # Reusable views within Terminal
+│   │   ├── Diagnostics/              # Terminal-owned diagnostic helpers
 │   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes
 │   │   ├── Hosting/                  # TerminalPaneMountView, GhosttyMountView, placeholder hosting
-│   │   ├── Models/                   # Feature-owned domain types
 │   │   ├── Restore/                  # Terminal restore scheduling/runtime
 │   │   ├── Routing/                  # Feature-local bus subscribers
 │   │   ├── Runtime/                  # TerminalRuntime
+│   │   ├── Semantics/                # Terminal output contraction helpers
 │   │   ├── State/MainActor/          # Atoms/ and Persistence/ when feature holds state
 │   │   └── Views/                    # SurfaceErrorOverlay, SurfaceStartupOverlay
 │   │
@@ -92,18 +124,25 @@ Sources/AgentStudio/
 │   │                                 #   Imports ONLY from Infrastructure.
 │   │                                 #   Never subscribes to atoms; state flows via values,
 │   │                                 #   bindings, callbacks, or explicit observable view models.
-│   └── EditorChooser/                # Editor chooser menu content + row item model
+│   ├── EditorChooser/                # Editor chooser menu content + row item model
+│   └── SelectablePopover/            # Shared numbered/selectable popover primitive
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
-│   ├── AtomLib/                      # Generic observation primitives only: AtomValue,
-│   │                                 #   AtomFamily, revisions/mutation, DerivedAtom.
+│   ├── AtomLib/                      # Generic observation primitives: AtomValue,
+│   │                                 #   AtomFamily, DerivedAtom, EagerDerivedAtom(Family),
+│   │                                 #   AtomMutationContext, AtomRevision,
+│   │                                 #   AtomPerformanceTelemetry
 │   ├── Diagnostics/                  # RestoreTrace
 │   ├── Extensions/                   # Foundation/AppKit extensions, UniformType, NSColor+Hex
+│   ├── ExternalApps/                 # Editor/browser discovery helpers
+│   ├── Filesystem/                   # Path/FS helpers
 │   ├── Icons/                        # OcticonImage, OcticonLoader
+│   ├── SQLite/                       # Generic GRDB factory and sidecar quarantine
+│   ├── Search/                       # Shared fuzzy search (CommandBarSearch)
 │   ├── StateMachine/                 # Generic state machine + effects
+│   ├── WebKit/                       # Shared WKWebView helpers
 │   ├── CWDNormalizer.swift           # Path normalization
-│   ├── ProcessExecutor.swift         # CLI execution protocol
-│   └── WorktreeReconciler.swift      # Pure-function worktree topology diffing
+│   └── ProcessExecutor.swift         # CLI execution protocol
 │
 ├── Resources/                        # Assets, xib, storyboard
 └── main.swift
@@ -144,10 +183,13 @@ AgentStudioInfrastructure     ──► no product module
 ```
 
 There are no sibling Feature dependencies. App is the only product target that
-may import multiple Features and perform cross-Feature composition. Keeping one
-coarse `AgentStudioCore` target is intentional for this graph: further Core
-decomposition is deferred until a separate design identifies a stable boundary
-worth its additional API and build complexity.
+may import multiple Features and perform cross-Feature composition. Compiled
+exceptions that are not sibling Feature imports: `AgentStudioBridge` also
+depends on `AgentStudioProgrammaticControl`; `AgentStudioTerminal` and the App
+executable also depend on `GhosttyKit`. Keeping one coarse `AgentStudioCore`
+target is intentional for this graph: further Core decomposition is deferred
+until a separate design identifies a stable boundary worth its additional API
+and build complexity.
 
 SwiftPM target boundaries make access control meaningful. Use `internal` for
 module-local implementation and `package` for declarations intentionally shared
@@ -206,9 +248,9 @@ Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift
   Sources/AgentStudioAppIPC/.
 ```
 
-This target split keeps `App/IPC` from becoming a god box. IPC services own
-transport-adjacent policy and protocol contracts; app behavior still belongs to
-the existing app/runtime owners behind narrow ports.
+This target split keeps `App/IPCComposition/` from becoming a god box. IPC
+services own transport-adjacent policy and protocol contracts; app behavior
+still belongs to the existing app/runtime owners behind narrow ports.
 
 See [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) for the
 request authority path, auth model, permission grants, and zmx boundary.
@@ -227,6 +269,10 @@ SharedComponents/ ──imports──►  Infrastructure/
 Infrastructure/   ──imports──►  (nothing internal)
 ```
 
+Compiled module exceptions that are not sibling Feature imports: Bridge may
+import `AgentStudioProgrammaticControl`; Terminal and App may import
+`GhosttyKit`.
+
 **Never:** `Core/ → Features/`, `Features/X → Features/Y`, `Core/ → App/`, `SharedComponents/ → Core|Features|App`, `Infrastructure/ → anything above`
 
 This boundary is enforced in lint by `agentstudio_import_direction`. Keep new
@@ -238,6 +284,8 @@ If a file needs to know about `SurfaceManager` (Terminal) **and** `BridgePaneCon
 ### Feature Slice Self-Containment
 
 Every feature slice under `Features/<slice>/` owns its own state, models, components, views, and routing. Features do not import each other; they do not leak types into Core.
+
+The folder list below is the template for a **new** slice. Existing slices omit unused folders; the Source tree above is the live map.
 
 #### What lives inside a feature slice
 
@@ -568,10 +616,17 @@ AgentStudio<Feature>Tests          ──► matching Feature + lower modules
 AgentStudioTests                   ──► AgentStudio executable + product modules
 ```
 
-`AgentStudioTestSupport` depends only on `AgentStudioCore`. It provides
-Core-level fixtures and helpers without becoming an App or Feature registry.
-Infrastructure and SharedComponents tests do not depend on it. Each paired test
-target owns unit and module-boundary tests for its product module.
+`AgentStudioTestSupport` depends only on `AgentStudioCore`. Its sources live at
+`Tests/AgentStudioTests/TestSupport` (a nested path under the executable test
+folder, a separate SwiftPM target). It provides Core-level fixtures and helpers
+without becoming an App or Feature registry. Infrastructure and SharedComponents
+tests do not depend on it. Each paired test target owns unit and module-boundary
+tests for its product module.
+
+Additional paired targets cover non-Feature modules:
+`AgentStudioBridgeDevelopmentServerTests`, `AgentStudioIPCTransportTests`,
+`AgentStudioProgrammaticControlTests`, `AgentStudioAppIPCTests`, and
+`AgentStudioIPCClientTests`.
 
 The executable-level `AgentStudioTests` target owns App composition,
 cross-Feature integration, executable resources, WebKit integration, zmx
@@ -597,4 +652,4 @@ that unrelated same-package test products avoid compilation.
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface ownership and lifecycle |
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers |
 
-Named component → slice lookup lives in [Component Architecture §7 Key Files](component_architecture.md#7-key-files). Do not duplicate that catalog here. Root `AGENTS.md` folder arcs are the everyday placement rule; this document owns the four-test decision process.
+Named component → slice lookup lives in [Component Architecture §7 Key Files](component_architecture.md#7-key-files). Do not duplicate that catalog here. Root `AGENTS.md` folder arcs are the everyday placement rule. This document owns the repo-root tree, `Sources/AgentStudio/` tree, SwiftPM target DAG, import rule, and four-test decision process.

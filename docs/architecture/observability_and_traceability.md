@@ -244,7 +244,9 @@ native UI proof       -> Peekaboo against a debug/beta app by PID
 Peekaboo is visual/native interaction evidence. It can prove that a debug or
 beta app launched, rendered, and accepted a UI interaction, but it does not
 replace marker-scoped VictoriaLogs/VictoriaMetrics proof for telemetry or
-focused tests for source-side projection and safety rules.
+focused tests for source-side projection and safety rules. The debug-binary
+launch recipe is
+[Peekaboo PID Targeting](../guides/agent_resources.md#peekaboo-pid-targeting).
 
 ## Local proof launch
 

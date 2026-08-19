@@ -1,8 +1,31 @@
 # Atom Persistence Boundaries
 
-This document defines how Agent Studio classifies atom-backed state in the live
-SQLite persistence model. It keeps Observation atoms, derived readers, and
-repository row projections in distinct ownership roles.
+This document defines when Agent Studio uses Observation atoms versus SQLite
+repositories, which AtomLib primitive to pick, and how already-justified
+atom-backed state maps onto the live SQLite persistence model. It keeps
+Observation atoms, derived readers, and repository row projections in distinct
+ownership roles.
+
+## Need An Atom?
+
+Atoms are Jotai-style shared UI facts. Use one only when SwiftUI, a command
+surface, or a derived/eager projection must observe the value and wake on
+change. If the work is CRUD, query, coalesce, or retention and nothing
+subscribes, use a SQLite repository. Do not add an atom to own SQL.
+
+Existing pane/tab graph atoms stay: they are UI-observed, and SQLite is how that
+graph survives restart. Inbox is the mixed pattern: the log is a repository;
+`InboxNotificationAtom` exists because the sidebar observes the list.
+
+| If you need… | Use | Do not use |
+| --- | --- | --- |
+| CRUD / query / retention, no subscriber that must wake | SQLite `*Repository` (and a store only if there is a load/save boundary) | Any atom |
+| Shared UI fact; multiple views or commands must observe one value | Source atom: `AtomValue` or keyed `AtomFamily` inside a product owner | A table-shaped atom, or SQL from the view |
+| Cheap composed read from already-observed atoms | `DerivedAtom` or a `*Derived` reader | `EagerDerivedAtomFamily`, or copying fields onto another atom |
+| Expensive keyed UI projection that must stay current off-main | Existing `EagerDerivedAtomFamily` seam (`TabBarAdapter`, `RepoExplorerProjectionAdapter`) | A new eager primitive, eager-as-source, or eager-for-SQL |
+| Durable copy of UI-observed state | Store snapshots the atom; SQL is the snapshot | Atom methods that talk to GRDB |
+
+Ask the user before adding an atom or store. Survey does not mean persist.
 
 ## Roles
 
@@ -68,17 +91,19 @@ Boot-sequence ordering lives in [Workspace Data Architecture — App Boot](works
 
 ## Writer-Owned Atoms
 
-Atoms are writer-owned lifecycle groups, not SQL table models. A write-owner
-atom may project to several normalized SQLite tables when one validated user
-command must update those rows coherently.
+This grouping rule applies only after [Need An Atom?](#need-an-atom) is
+satisfied. SQL lives in repositories. An atom is not a table and is not created
+to own SQL.
 
-The rejected alternative is "one atom per SQL table." That would split ordinary
-commands such as pane insertion or drawer attach across table-shaped fragments
-like `pane`, `drawer_pane`, `tab_pane`, and `arrangement_layout_pane`. The
-coordinator would then need to orchestrate many low-level atoms for one semantic
-mutation, and SwiftUI/validator readers would have more opportunities to observe
-half-updated state. Keep normalized storage in repositories; keep atom writes
-cohesive by lifecycle.
+A write-owner atom that is already UI-observed, such as the pane/tab graph, may
+project to several normalized SQLite tables when one validated user command must
+update those rows coherently. The rejected alternative is "one atom per SQL
+table." That would split ordinary commands such as pane insertion or drawer
+attach across table-shaped fragments like `pane`, `drawer_pane`, `tab_pane`, and
+`arrangement_layout_pane`. The coordinator would then need to orchestrate many
+low-level atoms for one semantic mutation, and SwiftUI/validator readers would
+have more opportunities to observe half-updated state. Keep normalized storage
+in repositories; keep atom writes cohesive by lifecycle.
 
 ## AtomLib Observation Primitives
 
@@ -94,12 +119,18 @@ access; App owns the internal registry and explicit Feature roots.
 
 Use the primitive that matches the read surface:
 
-| Primitive | Use for | Rule |
-| --- | --- | --- |
-| `AtomValue<Value>` | one scalar or one cohesive content value | writes require an explicit content comparator except for trivial scalar allowlist types |
-| `AtomFamily<Key, Value>` | keyed entity families such as repo enrichment, worktree enrichment, and PR counts | hot UI reads use `value(for:)`; dictionary snapshots are bridge surfaces |
-| `DerivedAtom<Value>` | generic memoized read models | compute from declared input revisions; do not reach back into `CoreAtomScope` or `atom(\...)` |
-| `AtomMutationContext` | grouped mutations across primitive updates inside one owner | bump the aggregate revision once after accepted changes |
+| Primitive | Pull or push | Use for | Rule |
+| --- | --- | --- | --- |
+| `AtomValue<Value>` | Source; Observation wakes on unequal write | one scalar or one cohesive UI value | writes require an explicit content comparator except for trivial scalar allowlist types |
+| `AtomFamily<Key, Value>` | Source; per-key Observation | keyed entity families such as repo enrichment, worktree enrichment, and PR counts | hot UI reads use `value(for:)`; dictionary snapshots are bridge surfaces |
+| `DerivedAtom<Value>` | Lazy derived; recompute on next read if input revisions changed | cheap memoized read models | compute from declared input revisions; do not reach back into `CoreAtomScope` or `atom(\...)` |
+| `EagerDerivedAtom` / `EagerDerivedAtomFamily` | Push: admit request, project off-main, publish current or equal | variable-cost keyed UI that cannot wait for the next pull | reuse the shipped Tab Bar and Repo Explorer seams; not a source atom and not a SQL layer |
+| `AtomMutationContext` | Mutation grouping, not a state kind | grouped mutations across primitive updates inside one owner | bump the aggregate revision once after accepted changes |
+| `AtomRevision` | Revision token, not a state kind | declared derived inputs and equality-suppressed publication | do not treat as product state |
+| `AtomPerformanceTelemetry` | Instrumentation helper, not a state kind | atom-lane probes selected by `AGENTSTUDIO_TRACE_TAGS=atoms` | not a write-owner and not a SQL layer |
+
+Pane-graph commits that fill structural `AtomFamily` slots are source-family
+population. That is not `EagerDerivedAtomFamily`.
 
 The derived-read contract is enforced by
 `agentstudio_derived_atom_declared_inputs`: a `DerivedAtom` compute closure
@@ -259,11 +290,13 @@ each call site.
 
 When a new atom, state surface, or persisted field is added:
 
+0. If nothing observes this and nothing derives from it, stop. Use a
+   repository. See [Need An Atom?](#need-an-atom).
 1. Classify the field into one lifecycle lane.
 2. Name its role: write-owner state, derived read model, or current row
    projection.
-3. Choose the observation surface: scalar value, keyed `AtomFamily`,
-   derived read model, or snapshot bridge.
+3. Choose the observation surface: scalar value, keyed `AtomFamily`, lazy
+   `DerivedAtom`, existing eager family seam, or snapshot bridge.
 4. Define the content comparator so equal data does not fire atom invalidation.
 5. If persisted, identify the owning store/repository and reset semantics.
 6. If runtime-only, document that it is never written to SQLite.

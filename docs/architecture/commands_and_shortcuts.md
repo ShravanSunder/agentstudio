@@ -23,6 +23,50 @@ drift.
 | `Sources/AgentStudio/Core/Actions/ControlTooltipSource.swift` | App-free tooltip source, provenance, copy style, and resolver. |
 | `Sources/AgentStudio/Infrastructure/ControlTooltipRenderValue.swift` | Render-only tooltip value that UI primitives and shared components may consume. |
 
+## Command Specs And Execution Owners
+
+Before adding or changing a command, use this landing pad, then the sections it
+names. `AppCommand` is identity. `AppShortcut` is bindings.
+`AppCommandSpec` is interactive presentation, typed surfaces, targeting,
+command-context requirements, and command-bar grouping.
+`AppCommand+IPCProjection.swift` independently owns exhaustive IPC exposure,
+durable-target, privilege, and argument contracts plus the public DTO
+projection. Detail: [The four layers](#the-four-layers) and
+[Exhaustive interactive and IPC projections](#exhaustive-interactive-and-ipc-projections).
+
+Every interactive host requests its exact `AppCommandSurface`. Pane toolbars and
+terminal-Zoom toolbars are distinct surfaces. `shouldPresent` controls presence
+only. Contextual or targeted `canDispatch` plus the execution owner's
+validators control enablement and execution authority. The dispatcher rejects
+undeclared invocation modes or target kinds before routing. Detail:
+[Focus, presentation, and execution](#focus-presentation-and-execution).
+
+Keyboard routing remains under `ActiveKeyboardSurface` /
+`AppShortcutDispatchPolicy`. IPC remains UI-independent with its metadata,
+authorization, privilege, argument, and runtime validation gates. Use
+`LocalActionSpec` only for UI actions without an `AppCommand` identity. Dense
+toolbar, titlebar, and drawer tooltips must use the typed tooltip source
+contract and
+[Style Guide — Shared Shell Controls](../guides/style_guide.md#shared-shell-controls),
+not parallel `.help`, AppKit `toolTip`, or custom hover strings. Detail:
+[Tooltips, help text, and compact control copy](#tooltips-help-text-and-compact-control-copy)
+and [Keyboard Surface Contract](#keyboard-surface-contract).
+
+App, window, and sidebar shell commands may route through `AppDelegate`. Pane,
+drawer, focus, layout, and workspace commands route through
+`PaneTabViewController`. Detail:
+[Choosing the execution owner](#choosing-the-execution-owner).
+
+Command-bar scopes have separate ownership. `>` owns verbs. `$` owns existing
+pane and tab navigation. `#` owns repo and worktree locations and opening. Do
+not add repo/worktree management rows to `$`, do not add arbitrary verbs to
+`#`, and do not duplicate `LocalActionSpec` labels or icons when a
+sidebar/local action already defines the presentation. Detail:
+[Command Bar Scope Ownership](#command-bar-scope-ownership).
+
+To add a command, follow
+[Adding a new command — decision tree](#adding-a-new-command-decision-tree).
+
 ## The four layers
 
 ```
@@ -201,6 +245,7 @@ Commands ask owners to do work. Runtime events report facts after work happened.
 Do not route commands through EventBus, and do not make `command.execute`
 silently present UI.
 
+<a id="adding-a-new-command-decision-tree"></a>
 ## Adding a new command — decision tree
 
 1. **New command identity?** Add a case to `AppCommand`.

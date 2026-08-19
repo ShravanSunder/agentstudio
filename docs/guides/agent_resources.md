@@ -107,6 +107,8 @@ Bridge, `agentstudio-git`, and isolated `core.sqlite`/`local.sqlite` owners.
 Use the actual app for final validation of packaged WKWebView, native chrome,
 App lifecycle, and other boundaries the development server cannot prove.
 
+### Xcode And Zig Vendor Builds
+
 > **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround for a primary or explicitly authorized local-vendor worktree: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If vendor-producing setup surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Shared linked worktrees do not build the vendors. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
 
 ## Running Swift Commands
@@ -139,6 +141,8 @@ swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState"
 | `SWIFT_BUILD_DIR` | auto-allocated `.build-agent-1` or `.build-agent-2` via `scripts/swift-build-slot.sh` | Helper claims the first slot whose `.slot-claim` dir doesn't exist (atomic `mkdir`). Local overrides are not supported. |
 | `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel workers |
 
+### Swift Build-Slot Recovery
+
 **Bounded 2-slot pool.** Every swift-running mise task sources `scripts/swift-build-slot.sh`. Debug builds, release builds, and tests all share `.build-agent-1` and `.build-agent-2`. The helper uses an atomic `mkdir <dir>/.slot-claim` to claim a slot; an EXIT trap on the calling shell removes the claim on normal exit. SwiftPM's own kernel-level flock handles serialization within a slot. Main agents and subagents share the pool; the helper handles allocation.
 
 **Concurrent agents land on different slots.** Atomic `mkdir` guarantees that two callers racing simultaneously claim distinct slots. A third caller fails instead of creating another build directory.
@@ -154,6 +158,23 @@ may own that process. First run `mise run clean-agent-builds` for leaked
 `.slot-claim` directories. If SwiftPM still reports an active lock, inspect the
 specific owning PID/slot and wait for it or terminate only that confirmed stale
 process.
+
+### Peekaboo PID Targeting
+
+When visual/native interaction proof is required, launch the debug binary from
+the claimed slot, then target Peekaboo by PID. Never target debug builds by
+name. Never `pkill AgentStudio` — it kills the user's running app.
+
+```bash
+mise run build # claims a slot, prints "[swift-build-slot] using .build-agent-N"
+BUILD_PATH=$(ls -dt .build-agent-*/debug/AgentStudio 2>/dev/null | head -1 | xargs dirname | xargs dirname)
+"$BUILD_PATH/debug/AgentStudio" &
+PID=$!
+peekaboo see --app "PID:$PID" --json
+```
+
+Treat Peekaboo output as visual/render/interaction proof, not a replacement for
+unit, integration, or marker-scoped observability proof.
 
 ## DeepWiki Knowledge Base
 Use DeepWiki to gather grounded context on core dependencies and libraries.

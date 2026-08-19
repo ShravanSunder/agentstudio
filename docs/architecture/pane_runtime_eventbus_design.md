@@ -5,6 +5,7 @@
 > **Companion:** [Pane Runtime Architecture](pane_runtime_architecture.md) remains the contract source of truth
 > **Governing model:** [Three Data Flow Planes](pane_runtime_architecture.md#three-data-flow-planes) — event plane (this doc), command plane (direct dispatch), UI plane (`@Observable`)
 
+<a id="tl-dr"></a>
 ## TL;DR
 
 One `actor EventBus<RuntimeEnvelope>` fans out admitted, low-volume facts.

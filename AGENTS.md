@@ -10,9 +10,15 @@ architecture, atom catalog, or observability launch runbook.
 ## Daily Commands
 
 Use mise. Discover other tasks with `mise tasks ls`. Read one task with
-`mise tasks info <name>`. First-time bootstrap, the BridgeWeb Vite loop, the
-Xcode/zig vendor note, and Swift build-slot recovery live in
-[Agent Resources](docs/guides/agent_resources.md). Always use `mise run` for
+`mise tasks info <name>`. First-time bootstrap lives in
+[Agent Resources — First-Time Setup](docs/guides/agent_resources.md#first-time-setup).
+The BridgeWeb Vite loop is
+[BridgeWeb Fast UI Loop](docs/guides/agent_resources.md#bridgeweb-fast-ui-loop).
+The zig/Xcode vendor note is
+[Xcode And Zig Vendor Builds](docs/guides/agent_resources.md#xcode-and-zig-vendor-builds).
+Swift build-slot recovery is
+[Swift Build-Slot Recovery](docs/guides/agent_resources.md#swift-build-slot-recovery).
+Always use `mise run` for
 build and test; do not point raw `swift build` at `.build`.
 
 ```bash
@@ -59,14 +65,16 @@ Start from the smallest source of truth that owns the question.
 
 | When | Load | What you get wrong if you skip |
 | --- | --- | --- |
-| Any architecture question | [Architecture Overview](docs/architecture/README.md) | You search the tree instead of the owning doc. That index is the one architecture catalog. |
-| File, module, or test placement | [Directory Structure](docs/architecture/directory_structure.md) | A Feature type lands in `Core/Models/`, or a module test parks on the executable target. Named component → slice lookup is [Component Architecture §7](docs/architecture/component_architecture.md#7-key-files). |
-| Write-owner vs derived vs SQLite row | [Atom Persistence Boundaries](docs/architecture/atom_persistence_boundaries.md) | A `Codable` convenience type becomes both live state and the storage contract. Survey does not mean persist. |
-| Command, shortcut, tooltip, or IPC | [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | You invent a parallel `.help`, shortcut, or IPC path the dispatcher never sees. |
-| Native chrome / shared UI | [Style Guide](docs/guides/style_guide.md) and [App Architecture](docs/architecture/appkit_swiftui_architecture.md) | You copy styling into a feature or put a behavior constant in `AppStyles`. |
-| BridgeWeb React UI | This file, then [BridgeWeb/AGENTS.md](BridgeWeb/AGENTS.md) | You hand-roll route-local controls instead of owned primitives. Token recipes live in [BridgeWeb Design-Token Architecture](docs/architecture/bridgeweb_design_token_architecture.md). The Vite loop lives in [Agent Resources](docs/guides/agent_resources.md). |
-| Bootstrap, Vite loop, zig/Xcode, build slots | [Agent Resources](docs/guides/agent_resources.md) | You hydrate vendors by hand, rebuild the full app for Bridge UI, or collide on `.build`. |
-| Debug/beta proof launch | [Observability And Traceability](docs/architecture/observability_and_traceability.md#local-proof-launch) | You inherit production identity, share zmx roots, or treat JSONL as proof. |
+| Any architecture question | [Architecture Overview — How To Read](docs/architecture/README.md#how-to-read-this-index) | You search the tree instead of the owning doc. That index is the one architecture catalog. |
+| File or new type placement | [Directory Structure — Decision Process](docs/architecture/directory_structure.md#decision-process-where-does-this-file-go) | A Feature type lands in `Core/Models/`. Named component → slice lookup is [Component Architecture §7](docs/architecture/component_architecture.md#7-key-files). Repo tree and SwiftPM DAG: [Repository Root](docs/architecture/directory_structure.md#repository-root), [Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure), [SwiftPM Module Graph](docs/architecture/directory_structure.md#swiftpm-module-graph). |
+| File or module test placement | [Directory Structure — Test Target Ownership](docs/architecture/directory_structure.md#test-target-ownership) | A module test parks on the executable target, or you infer ownership from `swift test --filter`. |
+| Do I need an atom, derived node, eager projection, or just SQL? | [Need An Atom?](docs/architecture/atom_persistence_boundaries.md#need-an-atom) | You wrap CRUD in an atom, or reach for `EagerDerivedAtomFamily` as a default. |
+| Write-owner vs derived vs SQLite row | [Atom Persistence Boundaries — Roles](docs/architecture/atom_persistence_boundaries.md#roles) | A `Codable` convenience type becomes both live state and the storage contract. Survey does not mean persist. |
+| Command, shortcut, tooltip, or IPC | [Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners) | You invent a parallel `.help`, shortcut, or IPC path the dispatcher never sees. Dense tooltips: [Tooltips, help text, and compact control copy](docs/architecture/commands_and_shortcuts.md#tooltips-help-text-and-compact-control-copy). |
+| Native chrome / shared UI | [Style Guide — Shared Shell Controls](docs/guides/style_guide.md#shared-shell-controls) and [App Architecture — Core Hosting Patterns](docs/architecture/appkit_swiftui_architecture.md#core-hosting-patterns) | You copy styling into a feature or put a behavior constant in `AppStyles`. |
+| BridgeWeb React UI | This file, then [BridgeWeb AGENTS.md — UI Components](BridgeWeb/AGENTS.md#ui-components) | You hand-roll route-local controls instead of owned primitives. Token recipes live in [BridgeWeb Design-Token Architecture — Layer and ownership rules](docs/architecture/bridgeweb_design_token_architecture.md#layer-and-ownership-rules). The Vite loop lives in [BridgeWeb Fast UI Loop](docs/guides/agent_resources.md#bridgeweb-fast-ui-loop). |
+| Bootstrap, Vite loop, zig/Xcode, build slots | [First-Time Setup](docs/guides/agent_resources.md#first-time-setup), [BridgeWeb Fast UI Loop](docs/guides/agent_resources.md#bridgeweb-fast-ui-loop), [Xcode And Zig](docs/guides/agent_resources.md#xcode-and-zig-vendor-builds), [Swift Build-Slot Recovery](docs/guides/agent_resources.md#swift-build-slot-recovery) | You hydrate vendors by hand, rebuild the full app for Bridge UI, or collide on `.build`. |
+| Debug/beta proof launch | [Observability — Local proof launch](docs/architecture/observability_and_traceability.md#local-proof-launch) | You inherit production identity, share zmx roots, or treat JSONL as proof. |
 | MainActor, debounce, Ghostty samples, sidebar rows | [Performance Lane](#performance-lane-directive) below | You infer hop shape from `@MainActor` and skip source admission. |
 
 Do not infer hop shape from `@MainActor` annotations in this file.
@@ -80,10 +88,15 @@ Features, never `Features/X` → `Features/Y`, never SharedComponents →
 Core/Features/App. Features never import sibling Features. App owns
 cross-Feature composition. SharedComponents is stateless and depends only on
 Infrastructure. Cross-target declarations use the narrowest necessary `package`
-visibility; do not broadly promote product APIs to `public`.
+visibility; do not broadly promote product APIs to `public`. Exact placement
+tests live in [Directory Structure — Import Rule](docs/architecture/directory_structure.md#import-rule-hard-boundary).
 
-**Folder arcs.** Use these first, then [Directory Structure](docs/architecture/directory_structure.md)
-for exact placement:
+**Folder arcs.** Everyday placement. Trees and the compiled DAG live in
+[Repository Root](docs/architecture/directory_structure.md#repository-root),
+[Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure),
+and [SwiftPM Module Graph](docs/architecture/directory_structure.md#swiftpm-module-graph).
+Use [Decision Process](docs/architecture/directory_structure.md#decision-process-where-does-this-file-go)
+for a new file:
 
 - `App/` — composition root, shells, pane/window controllers, lifecycle, cross-slice orchestration
 - `Core/` — shared domain state and contracts (models, atoms, persistence, actions, runtime, shared split/drawer)
@@ -102,44 +115,44 @@ policy. Sidebar search uses `SharedComponents/SidebarSearchField`. Command-bar
 search stays command-bar-owned. Webview select-all stays Webview-owned until a
 second feature needs that exact AppKit behavior.
 
-**BridgeWeb.** Follow this file first, then [BridgeWeb/AGENTS.md](BridgeWeb/AGENTS.md).
+**BridgeWeb.** Follow this file first, then
+[BridgeWeb AGENTS.md — Architecture Sources](BridgeWeb/AGENTS.md#architecture-sources).
 Do not rebuild the full app for Bridge UI iteration. Native git prep uses
 `agentstudio-git`; TypeScript may shell out to `git` only in marked Vite
 dev-server or test fixture utilities. Worktrunk is retired: no `wt`/Git CLI
 data plane.
 
 **Commands.** Before adding or changing a command, read
-[Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md).
-Command-bar scopes: `>` owns verbs; `$` owns existing pane/tab navigation; `#`
+[Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners).
+Command-bar scopes live in
+[Command Bar Scope Ownership](docs/architecture/commands_and_shortcuts.md#command-bar-scope-ownership):
+`>` owns verbs; `$` owns existing pane/tab navigation; `#`
 owns repo/worktree locations and opening. Do not add repo/worktree management
 rows to `$`, do not add arbitrary verbs to `#`, and do not duplicate
 `LocalActionSpec` labels when a sidebar/local action already defines
 presentation. `shouldPresent` controls presence only; validators control
 enablement.
 
-**Atoms.** `@Observable @MainActor`, `private(set)` reads, mutations through
-narrow methods. Atom methods may only assign values, perform simple local
-transforms, suppress equal writes, and maintain storage indexes or observation
-invariants. They must not contain business rules, command interpretation,
-validation, mutation planning, semantic effects, persistence, I/O, async work,
-or cross-atom coordination. Business rules belong in pure domain types;
-coordinators sequence them; persistence adapters capture and restore state.
-Write-owner atoms are not SQL table models; do not create one atom per table.
-Disclose whether a type is write-owner, derived read model, or SQLite row.
-Survey does not mean persist. Path: `<owner>/State/MainActor/Atoms/`. Shared
-Core reads use `atom(\.foo)` off `CoreAtoms`. Feature views receive their own
-mutable atom explicitly; sibling Feature facts arrive through consumer-owned
-read-only projections. There is no `AtomReader`, `@Atom`, Feature scope, or
-Feature registry. Worktree models are structure-only (`id`, `repoId`, `name`,
-`path`, `isMainWorktree`); enrichment lives on `RepoEnrichmentCacheAtom`.
-Never add a feature-specific property to a Core atom or a feature type to
-`Core/Models/` just because an atom references it.
+**Atoms.** Use an atom only when UI or another subscriber must observe shared
+state (Jotai-style). CRUD/query without Observation belongs in a SQLite
+repository, not an atom. Pick the primitive in
+[Need An Atom?](docs/architecture/atom_persistence_boundaries.md#need-an-atom),
+then classify the type in
+[Roles](docs/architecture/atom_persistence_boundaries.md#roles).
+Atom methods may only assign, equal-write suppress, and keep observation
+indexes — no SQL, I/O, or business rules. Always ask before adding an atom.
+Path: `<owner>/State/MainActor/Atoms/`. Core reads `atom(\.foo)`; Feature atoms
+are injected. Worktrees stay structure-only; enrichment is observed cache
+state.
 
 **Stores.** One store per persistence boundary. Stores own I/O, debounced
 saves, and schema versioning. Stores never contain domain logic. Path:
-`<owner>/State/MainActor/Persistence/`. **Always ask the user** before adding
-an atom or store, adding unrelated properties to an existing atom, or adding
-new event types or coordinator responsibilities.
+`<owner>/State/MainActor/Persistence/`. Tiers live in
+[Three Persistence Tiers](docs/architecture/workspace_data_architecture.md#three-persistence-tiers).
+**Always ask the user** before adding an atom or store, adding unrelated
+properties to an existing atom, or adding new event types or coordinator
+responsibilities. Adding an atom starts at
+[Update Rule](docs/architecture/atom_persistence_boundaries.md#update-rule).
 
 **Coordinators.** Sequence operations across stores. Own no state, contain no
 domain logic. If a coordinator `if` decides *what* to do with domain data, that
@@ -166,18 +179,23 @@ boundary:
 | AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` |
 | UI-only local state | Local `@Observable` state |
 
-**Architecture at a glance.** AppKit-main hosting SwiftUI. Canonical mutable
-state is *published* from `@MainActor @Observable` atoms; that mark is the
-publication owner, not a license to derive or admit there. Shared Core state
-is actor-bound in `CoreAtoms` through the one ambient `CoreAtomScope`.
-Feature-owned mutable state is never ambient. Two coordinators handle
-cross-slice sequencing. `AtomRegistry` is App-only composition, never an
+**Architecture at a glance.** AppKit-main hosting SwiftUI. UI-observed
+canonical state is *published* from `@MainActor @Observable` atoms; that mark
+is the publication owner, not a license to derive, admit, or own SQL there.
+Shared Core state is actor-bound in `CoreAtoms` through the one ambient
+`CoreAtomScope`. Feature-owned mutable state is never ambient. Two coordinators
+handle cross-slice sequencing. `AtomRegistry` is App-only composition, never an
 ambient lookup. `Infrastructure/AtomLib` owns only generic primitives.
 Architecture lint is stock SwiftLint plus
 `Tools/AgentStudioArchitectureLint`; do not add SwiftSyntax to the app package
 or restore repo-local `rg` architecture-lint scripts. Catalogs and diagrams:
-[Architecture Overview](docs/architecture/README.md) and
-[Component Architecture](docs/architecture/component_architecture.md).
+[Architecture Overview — How To Read](docs/architecture/README.md#how-to-read-this-index),
+[Component Architecture — Principles](docs/architecture/component_architecture.md#11-architecture-principles),
+project tree and target DAG in
+[Repository Root](docs/architecture/directory_structure.md#repository-root)
+and [SwiftPM Module Graph](docs/architecture/directory_structure.md#swiftpm-module-graph),
+component → slice in
+[Component Architecture §7](docs/architecture/component_architecture.md#7-key-files).
 
 ## Performance Lane Directive
 
@@ -188,14 +206,14 @@ events/minute, or `heavy` at 1 ms MainActor / 50 ms off-main, then load the
 owning doc before adding a hop, timer, debounce, observer, or cache.
 
 **New observer, debounce, poll, timer, or cache.** Load
-[Demand-Driven Derived-State Refresh](docs/architecture/demand_driven_derived_state_refresh.md).
+[Demand-Driven Derived-State Refresh — Selection Rule](docs/architecture/demand_driven_derived_state_refresh.md#selection-rule).
 Classify the input first (ordered fact, latest-state, burst, expensive
 refresh, or future deadline). Debounce, throttle, and queues are mechanisms,
 not classifications; the wrong one silently drops ordering, scope, or
 currentness.
 
 **What may run on MainActor vs off-main.** Load
-[EventBus Design](docs/architecture/pane_runtime_eventbus_design.md).
+[EventBus Design — Admission And Hop Shape](docs/architecture/pane_runtime_eventbus_design.md#admission-and-hop-shape).
 It owns hop shape: contract off-main, thin MainActor adapter, publish only
 changed semantic outcomes. A `@MainActor` type is not permission to derive,
 schedule, or admit there.
@@ -216,10 +234,11 @@ dictionaries or derive rows in the view.
 
 **Timing, cadence, or threshold constants.** Put them in `AppPolicies`, not
 `AppStyles`. If changing the value can change a state transition or
-command/event behavior, it is a policy. `AppStyles` is paint only.
+command/event behavior, it is a policy. `AppStyles` is paint only. See
+[Style Guide — Shared Shell Controls](docs/guides/style_guide.md#shared-shell-controls).
 
 **Proving an `often`/`heavy` lane.** Load
-[Observability And Traceability](docs/architecture/observability_and_traceability.md).
+[Observability And Traceability — Proof Model](docs/architecture/observability_and_traceability.md#proof-model).
 Measurement is part of the lane contract. Add marker-scoped probes; unit
 tests and feel are not performance proof.
 
@@ -251,8 +270,8 @@ raw UUIDs, prompts, payload text, errors, and tool output must not be exported.
 Native UI: prefer headless proof first. When visual proof is required, run a
 debug or beta app and use Peekaboo with **PID targeting**. Never target debug
 builds by name. **Never `pkill AgentStudio`** — it kills the user's running
-app. `mise run build` claims a slot under `.build-agent-*`; locate that binary.
-See [Agent Resources](docs/guides/agent_resources.md) for the launch snippet.
+app. Launch recipe:
+[Peekaboo PID Targeting](docs/guides/agent_resources.md#peekaboo-pid-targeting).
 
 **UX-first for UI changes:** talk to the user, research, align, then implement,
 then Peekaboo. A wrong UX assumption wastes Swift compile time.
@@ -287,15 +306,15 @@ Instead:
 5. Evidence provided (exit codes, counts)
 
 Use DeepWiki and official docs; never guess at APIs. Grounded setup and
-research sources: [Agent Resources](docs/guides/agent_resources.md). Core
+research sources: [Agent Resources — DeepWiki Knowledge Base](docs/guides/agent_resources.md#deepwiki-knowledge-base). Core
 repos: `ghostty-org/ghostty`, `swiftlang/swift`.
 
 ## Swift Concurrency
 
 Target: Swift 6.2 / macOS 26. `@MainActor` for store, coordinator, and UI
 mutations — not for derivation, admission, or deadline scheduling. Load
-[EventBus Design](docs/architecture/pane_runtime_eventbus_design.md) when
-choosing a hop; load its
+[EventBus Design — Admission And Hop Shape](docs/architecture/pane_runtime_eventbus_design.md#admission-and-hop-shape)
+when choosing a hop; load its
 [Swift 6.2 concurrency rules](docs/architecture/pane_runtime_eventbus_design.md#swift-62-concurrency-rules-se-0461)
 only for isolation gotchas.
 
@@ -324,4 +343,6 @@ design. Linear tickets track progress. Docs answer "how does it work and why."
 Tickets answer "what's done and what's next." Two levels only: milestones and
 tasks. A task is a concept, not an implementation step. Dependencies are
 first-class (`blockedBy` / `blocks`). Active plans live in `docs/plans/` and
-are date-prefixed (`YYYY-MM-DD-feature-name.md`).
+are date-prefixed (`YYYY-MM-DD-feature-name.md`). If a plan's date is before
+the current branch's work started, it is likely completed — verify before
+executing.
