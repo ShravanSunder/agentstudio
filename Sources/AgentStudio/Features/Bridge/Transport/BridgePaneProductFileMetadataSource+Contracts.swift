@@ -84,6 +84,9 @@ protocol BridgePaneProductFileMetadataProducing: Sendable {
     func currentWorktreeAnnotationFingerprint(
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceFingerprint
+    func currentWorktreeAnnotationSourceGeneration(
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> Int
     func currentWorktreeAnnotationRefresh(
         requirements: [WorktreeAnnotationSourceRefreshRequirement],
         productAdmission: BridgeProductAdmissionContext
@@ -107,6 +110,12 @@ extension BridgePaneProductFileMetadataProducing {
     func currentWorktreeAnnotationFingerprint(
         productAdmission _: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceFingerprint {
+        throw WorktreeAnnotationSourceResolutionError.unavailable
+    }
+
+    func currentWorktreeAnnotationSourceGeneration(
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> Int {
         throw WorktreeAnnotationSourceResolutionError.unavailable
     }
 
