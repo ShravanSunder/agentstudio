@@ -237,6 +237,7 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 		subscribe: (...arguments_): never => {
 			const [subscriptionKind] = arguments_;
 			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Generic transport fixtures close over the requested annotation subscription kind.
 				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
 			}
 			if (subscriptionKind !== 'review.metadata') {

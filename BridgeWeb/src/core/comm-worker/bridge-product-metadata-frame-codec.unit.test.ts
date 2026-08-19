@@ -100,24 +100,17 @@ describe('Bridge product metadata frame decoder', () => {
 		});
 	});
 
-	test('round-trips File and Review annotation projections through the framed metadata codec', () => {
+	test('round-trips compact File and Review annotation invalidations through the framed metadata codec', () => {
 		const frameIdentity = {
 			metadataStreamId: 'metadata-stream-annotations',
 			paneSessionId: 'pane-session-annotations',
 			wireVersion: 2,
 			workerInstanceId: 'worker-instance-annotations',
 		} as const;
-		const projection = {
-			eventKind: 'projection.state',
-			payload: {
-				commandOutcomes: [],
-				expectedThreadCount: 0,
-				outputHistory: [],
-				recoveryStatus: 'available',
-				revision: 1,
-				sessions: [],
-				worktreeId: '00000000-0000-7000-8000-000000000001',
-			},
+		const invalidation = {
+			eventKind: 'snapshot.required',
+			sourceGeneration: 1,
+			worktreeId: '00000000-0000-7000-8000-000000000001',
 		} as const;
 		const annotationInterestSha256 = 'a'.repeat(64);
 		const frames = [
@@ -125,7 +118,7 @@ describe('Bridge product metadata frame decoder', () => {
 				...frameIdentity,
 				cursor: 'file-annotations-cursor-1',
 				data: {
-					event: projection,
+					event: invalidation,
 					subscriptionKind: 'file.annotations',
 				},
 				interestRevision: 0,
@@ -142,7 +135,7 @@ describe('Bridge product metadata frame decoder', () => {
 				...frameIdentity,
 				cursor: 'review-annotations-cursor-1',
 				data: {
-					event: projection,
+					event: invalidation,
 					subscriptionKind: 'review.annotations',
 				},
 				interestRevision: 0,
@@ -167,6 +160,12 @@ describe('Bridge product metadata frame decoder', () => {
 			failureCode: null,
 			state: 'finished',
 		});
+
+		for (const frame of frames) {
+			expect(
+				bridgeProductMetadataFrameSchema.safeParse({ ...frame, sourceGeneration: 2 }).success,
+			).toBe(false);
+		}
 	});
 
 	test('rejects the hostile pane presentation corpus through the framed metadata codec', () => {

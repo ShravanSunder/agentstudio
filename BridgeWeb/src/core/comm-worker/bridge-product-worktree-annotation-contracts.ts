@@ -1,36 +1,13 @@
 import { z } from 'zod';
 
 import {
-	bridgeProductDisplayPathSchema,
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductUnicodeScalarUtf8ByteLength,
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 
-const annotationNullableDateSchema = z.number().finite().nullable();
 const annotationDateSchema = z.number().finite();
-
-const annotationSessionSummarySchema = z
-	.object({
-		completedAt: annotationNullableDateSchema,
-		createdAt: annotationDateSchema,
-		eligibleMessageCount: bridgeProductNonnegativeSequenceSchema,
-		eligibleWithoutInlinePlacementCount: bridgeProductNonnegativeSequenceSchema,
-		lifecycle: z.enum(['living', 'completed']),
-		semanticRevision: bridgeProductNonnegativeSequenceSchema,
-		sessionId: bridgeProductReviewPublicationIdSchema,
-		sourceRelationship: z.enum(['applicable', 'uncertain', 'detached']),
-		updatedAt: annotationDateSchema,
-	})
-	.strict()
-	.refine(
-		(session) => session.eligibleWithoutInlinePlacementCount <= session.eligibleMessageCount,
-		{
-			message: 'Eligible messages without inline placement cannot exceed all eligible messages.',
-			path: ['eligibleWithoutInlinePlacementCount'],
-		},
-	);
 
 const annotationOutputResultSummarySchema = z
 	.object({
@@ -80,6 +57,19 @@ const annotationOutputCommandOutcomeSchema = z.discriminatedUnion('kind', [
 		.strict(),
 ]);
 
+export const bridgeProductWorktreeAnnotationOutputHistorySummarySchema = z
+	.object({
+		attemptId: bridgeProductReviewPublicationIdSchema,
+		createdAt: annotationDateSchema,
+		messageCount: bridgeProductNonnegativeSequenceSchema.positive(),
+		outputKind: z.enum(['clipboard_markdown', 'json_file']),
+		repeatedFromAttemptId: bridgeProductReviewPublicationIdSchema.nullable(),
+		sessionId: bridgeProductReviewPublicationIdSchema,
+		state: z.enum(['prepared', 'succeeded', 'unknown', 'finalization_failed']),
+		updatedAt: annotationDateSchema,
+	})
+	.strict();
+
 const annotationCommandOutcomeStatusSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('committed') }).strict(),
 	z
@@ -99,6 +89,15 @@ const annotationCommandOutcomeStatusSchema = z.discriminatedUnion('kind', [
 		.object({
 			kind: z.literal('output'),
 			outcome: annotationOutputCommandOutcomeSchema,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('history'),
+			summaries: z
+				.array(bridgeProductWorktreeAnnotationOutputHistorySummarySchema)
+				.max(128)
+				.readonly(),
 		})
 		.strict(),
 	z
@@ -123,58 +122,29 @@ const annotationCommandOutcomeStatusSchema = z.discriminatedUnion('kind', [
 		.strict(),
 ]);
 
-const annotationCommandOutcomeSchema = z
+const annotationCommandReceiptSchema = z.discriminatedUnion('kind', [
+	z
+		.object({
+			draftRevision: bridgeProductNonnegativeSequenceSchema.nullable(),
+			kind: z.literal('message'),
+			messageId: bridgeProductReviewPublicationIdSchema,
+			messageRevision: bridgeProductNonnegativeSequenceSchema,
+			savedRevision: bridgeProductNonnegativeSequenceSchema.positive().nullable(),
+			sessionRevision: bridgeProductNonnegativeSequenceSchema,
+			threadId: bridgeProductReviewPublicationIdSchema,
+		})
+		.strict(),
+]);
+
+export const bridgeProductWorktreeAnnotationCommandOutcomeSchema = z
 	.object({
+		receipt: annotationCommandReceiptSchema.optional(),
 		requestId: bridgeProductIdentifierSchema,
 		sessionId: bridgeProductReviewPublicationIdSchema.nullable(),
 		status: annotationCommandOutcomeStatusSchema,
 		surface: z.enum(['file', 'review']),
 	})
 	.strict();
-
-const annotationOutputHistorySummarySchema = z
-	.object({
-		attemptId: bridgeProductReviewPublicationIdSchema,
-		createdAt: annotationDateSchema,
-		messageCount: bridgeProductNonnegativeSequenceSchema.positive(),
-		outputKind: z.enum(['clipboard_markdown', 'json_file']),
-		repeatedFromAttemptId: bridgeProductReviewPublicationIdSchema.nullable(),
-		sessionId: bridgeProductReviewPublicationIdSchema,
-		state: z.enum(['prepared', 'succeeded', 'unknown', 'finalization_failed']),
-		updatedAt: annotationDateSchema,
-	})
-	.strict();
-
-const annotationLocatedThreadContextBaseSchema = z
-	.object({
-		endLine: bridgeProductNonnegativeSequenceSchema.positive(),
-		path: bridgeProductDisplayPathSchema,
-		placement: z.enum(['exact', 'relocated', 'outdated', 'unavailable']),
-		resolution: z.enum(['open', 'resolved']),
-		scope: z.literal('located'),
-		sourceIdentity: bridgeProductIdentifierSchema,
-		startLine: bridgeProductNonnegativeSequenceSchema.positive(),
-		threadId: bridgeProductReviewPublicationIdSchema,
-	})
-	.strict();
-const annotationThreadContextSchema = z
-	.discriminatedUnion('sourceRole', [
-		annotationLocatedThreadContextBaseSchema.extend({
-			diffSide: z.null(),
-			sourceRole: z.literal('file'),
-		}),
-		annotationLocatedThreadContextBaseSchema.extend({
-			diffSide: z.literal('deletions'),
-			sourceRole: z.literal('review_base'),
-		}),
-		annotationLocatedThreadContextBaseSchema.extend({
-			diffSide: z.literal('additions'),
-			sourceRole: z.literal('review_head'),
-		}),
-	])
-	.refine((context) => context.endLine >= context.startLine, {
-		message: 'Annotation endLine cannot precede startLine.',
-	});
 
 const annotationMessageBodySchema = z.string().refine((body) => {
 	const byteLength = bridgeProductUnicodeScalarUtf8ByteLength(body);
@@ -236,41 +206,13 @@ export const bridgeProductWorktreeAnnotationMessageEntrySchema = z
 		}
 	});
 
-const annotationProjectionStateSchema = z
+export const bridgeProductWorktreeAnnotationEventSchema = z
 	.object({
-		commandOutcomes: z.array(annotationCommandOutcomeSchema).max(128).readonly(),
-		expectedThreadCount: bridgeProductNonnegativeSequenceSchema,
-		outputHistory: z.array(annotationOutputHistorySummarySchema).max(128).readonly(),
-		recoveryStatus: z.enum(['available', 'recovered_degraded', 'unavailable']),
-		revision: bridgeProductNonnegativeSequenceSchema,
-		sessions: z.array(annotationSessionSummarySchema).max(128).readonly(),
-		worktreeId: z.string().min(1),
+		eventKind: z.literal('snapshot.required'),
+		sourceGeneration: bridgeProductNonnegativeSequenceSchema,
+		worktreeId: bridgeProductIdentifierSchema,
 	})
 	.strict();
-
-const annotationMessageBatchSchema = z
-	.object({
-		context: annotationThreadContextSchema,
-		isLastBatchForThread: z.boolean(),
-		messages: z.array(bridgeProductWorktreeAnnotationMessageEntrySchema).min(1).readonly(),
-		revision: bridgeProductNonnegativeSequenceSchema,
-	})
-	.strict();
-
-export const bridgeProductWorktreeAnnotationEventSchema = z.discriminatedUnion('eventKind', [
-	z
-		.object({
-			eventKind: z.literal('message.batch'),
-			payload: annotationMessageBatchSchema,
-		})
-		.strict(),
-	z
-		.object({
-			eventKind: z.literal('projection.state'),
-			payload: annotationProjectionStateSchema,
-		})
-		.strict(),
-]);
 
 export type BridgeProductWorktreeAnnotationEvent = z.infer<
 	typeof bridgeProductWorktreeAnnotationEventSchema

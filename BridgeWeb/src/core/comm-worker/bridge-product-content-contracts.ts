@@ -28,6 +28,12 @@ import {
 	type BridgeProductAnnotationOutputContentDescriptor,
 	type BridgeProductAnnotationOutputContentIdentity,
 } from './bridge-product-worktree-annotation-output-contracts.js';
+import {
+	bridgeProductAnnotationProjectionContentDescriptorSchema,
+	bridgeProductAnnotationProjectionContentIdentitySchema,
+	type BridgeProductAnnotationProjectionContentDescriptor,
+	type BridgeProductAnnotationProjectionContentIdentity,
+} from './bridge-product-worktree-annotation-projection-query-contracts.js';
 
 const bridgeProductDeclaredByteLengthSchema = bridgeProductNonnegativeSequenceSchema.max(
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
@@ -201,6 +207,7 @@ export const bridgeProductFileContentDescriptorSchema = z
 
 export const bridgeProductContentDescriptorSchema = z.discriminatedUnion('contentKind', [
 	bridgeProductAnnotationOutputContentDescriptorSchema,
+	bridgeProductAnnotationProjectionContentDescriptorSchema,
 	bridgeProductFileContentDescriptorSchema,
 	bridgeProductReviewComparisonTargetsContentDescriptorSchema,
 	bridgeProductReviewContentDescriptorSchema,
@@ -254,6 +261,7 @@ export const bridgeProductReviewComparisonTargetsContentIdentitySchema = z
 
 export const bridgeProductContentIdentitySchema = z.discriminatedUnion('contentKind', [
 	bridgeProductAnnotationOutputContentIdentitySchema,
+	bridgeProductAnnotationProjectionContentIdentitySchema,
 	bridgeProductFileContentIdentitySchema,
 	bridgeProductReviewComparisonTargetsContentIdentitySchema,
 	bridgeProductReviewContentIdentitySchema,
@@ -285,6 +293,36 @@ export type {
 	BridgeProductAnnotationOutputContentDescriptor,
 	BridgeProductAnnotationOutputContentIdentity,
 } from './bridge-product-worktree-annotation-output-contracts.js';
+export type {
+	BridgeProductAnnotationProjectionContentDescriptor,
+	BridgeProductAnnotationProjectionContentIdentity,
+} from './bridge-product-worktree-annotation-projection-query-contracts.js';
+
+type BridgeProductAnnotationProjectionContentTerminal =
+	| {
+			readonly bytes: ArrayBuffer;
+			readonly contentKind: 'annotation.projection';
+			readonly descriptorId: string;
+			readonly endOfSource: boolean;
+			readonly kind: 'complete';
+			readonly observedByteLength: number;
+			readonly observedSha256: string;
+	  }
+	| {
+			readonly code: BridgeProductRequestErrorCode;
+			readonly contentKind: 'annotation.projection';
+			readonly descriptorId: string;
+			readonly kind: 'error';
+			readonly retryable: boolean;
+			readonly safeMessage: string | null;
+	  }
+	| {
+			readonly contentKind: 'annotation.projection';
+			readonly descriptorId: string;
+			readonly kind: 'reset';
+			readonly reason: BridgeProductResetReason;
+			readonly retryable: true;
+	  };
 
 type BridgeProductAnnotationOutputContentTerminal =
 	| {
@@ -396,6 +434,12 @@ export type BridgeProductContentRegistry = {
 		readonly surface: 'file' | 'review';
 		readonly terminal: BridgeProductAnnotationOutputContentTerminal;
 	};
+	readonly 'annotation.projection': {
+		readonly descriptor: BridgeProductAnnotationProjectionContentDescriptor;
+		readonly identity: BridgeProductAnnotationProjectionContentIdentity;
+		readonly surface: 'file' | 'review';
+		readonly terminal: BridgeProductAnnotationProjectionContentTerminal;
+	};
 	readonly 'file.content': {
 		readonly descriptor: BridgeProductFileContentDescriptor;
 		readonly identity: BridgeProductFileContentIdentity;
@@ -424,6 +468,7 @@ export type BridgeProductContentIdentity<TContentKind extends BridgeProductConte
 
 const bridgeProductSurfaceByContentKind = {
 	'annotation.output': null,
+	'annotation.projection': null,
 	'file.content': 'file',
 	'review.content': 'review',
 	'review.comparisonTargets': 'review',
@@ -434,16 +479,26 @@ export function bridgeProductSurfaceForContentKind<TContentKind extends BridgePr
 	identity?:
 		| BridgeProductContentDescriptor<TContentKind>
 		| BridgeProductContentIdentity<TContentKind>,
-): BridgeProductContentRegistry[TContentKind]['surface'] {
+): BridgeProductContentRegistry[TContentKind]['surface'];
+export function bridgeProductSurfaceForContentKind(
+	contentKind: BridgeProductContentKind,
+	identity?:
+		| BridgeProductContentDescriptor<BridgeProductContentKind>
+		| BridgeProductContentIdentity<BridgeProductContentKind>,
+): 'file' | 'review' {
 	if (contentKind === 'annotation.output') {
 		if (identity?.contentKind !== 'annotation.output') {
-			throw new Error('Annotation output content requires a surface-bound descriptor or identity.');
+			throw new Error('Annotation content requires a surface-bound descriptor or identity.');
 		}
-		return identity.surface as BridgeProductContentRegistry[TContentKind]['surface'];
+		return identity.surface;
 	}
-	return bridgeProductSurfaceByContentKind[
-		contentKind
-	] as BridgeProductContentRegistry[TContentKind]['surface'];
+	if (contentKind === 'annotation.projection') {
+		if (identity?.contentKind !== 'annotation.projection') {
+			throw new Error('Annotation content requires a surface-bound descriptor or identity.');
+		}
+		return identity.surface;
+	}
+	return bridgeProductSurfaceByContentKind[contentKind];
 }
 
 const bridgeProductContentRequestBaseShape = {
@@ -462,6 +517,13 @@ export const bridgeProductContentRequestSchema = z.discriminatedUnion('contentKi
 			...bridgeProductContentRequestBaseShape,
 			contentKind: z.literal('annotation.output'),
 			descriptor: bridgeProductAnnotationOutputContentDescriptorSchema,
+		})
+		.strict(),
+	z
+		.object({
+			...bridgeProductContentRequestBaseShape,
+			contentKind: z.literal('annotation.projection'),
+			descriptor: bridgeProductAnnotationProjectionContentDescriptorSchema,
 		})
 		.strict(),
 	z
@@ -522,6 +584,15 @@ function validateBridgeProductContentAcceptedExactFacts(
 		context.addIssue({
 			code: 'custom',
 			message: 'Accepted annotation output must retain exact length and digest.',
+			path: ['declaredByteLength'],
+		});
+	} else if (
+		header.identity.contentKind === 'annotation.projection' &&
+		(header.declaredByteLength !== null || header.expectedSha256 !== null)
+	) {
+		context.addIssue({
+			code: 'custom',
+			message: 'Accepted annotation projection exact facts must remain unknown.',
 			path: ['declaredByteLength'],
 		});
 	} else if (
@@ -678,6 +749,9 @@ export function bridgeProductContentIdentityFromDescriptor(
 	descriptor: BridgeProductAnnotationOutputContentDescriptor,
 ): BridgeProductAnnotationOutputContentIdentity;
 export function bridgeProductContentIdentityFromDescriptor(
+	descriptor: BridgeProductAnnotationProjectionContentDescriptor,
+): BridgeProductAnnotationProjectionContentIdentity;
+export function bridgeProductContentIdentityFromDescriptor(
 	descriptor: BridgeProductReviewComparisonTargetsContentDescriptor,
 ): BridgeProductReviewComparisonTargetsContentIdentity;
 export function bridgeProductContentIdentityFromDescriptor(
@@ -689,23 +763,27 @@ export function bridgeProductContentIdentityFromDescriptor(
 export function bridgeProductContentIdentityFromDescriptor(
 	descriptor:
 		| BridgeProductAnnotationOutputContentDescriptor
+		| BridgeProductAnnotationProjectionContentDescriptor
 		| BridgeProductFileContentDescriptor
 		| BridgeProductReviewContentDescriptor
 		| BridgeProductReviewComparisonTargetsContentDescriptor,
 ):
 	| BridgeProductFileContentIdentity
 	| BridgeProductAnnotationOutputContentIdentity
+	| BridgeProductAnnotationProjectionContentIdentity
 	| BridgeProductReviewContentIdentity
 	| BridgeProductReviewComparisonTargetsContentIdentity;
 export function bridgeProductContentIdentityFromDescriptor(
 	descriptor:
 		| BridgeProductAnnotationOutputContentDescriptor
+		| BridgeProductAnnotationProjectionContentDescriptor
 		| BridgeProductFileContentDescriptor
 		| BridgeProductReviewContentDescriptor
 		| BridgeProductReviewComparisonTargetsContentDescriptor,
 ):
 	| BridgeProductFileContentIdentity
 	| BridgeProductAnnotationOutputContentIdentity
+	| BridgeProductAnnotationProjectionContentIdentity
 	| BridgeProductReviewContentIdentity
 	| BridgeProductReviewComparisonTargetsContentIdentity {
 	switch (descriptor.contentKind) {
@@ -717,6 +795,14 @@ export function bridgeProductContentIdentityFromDescriptor(
 				formatVersion: descriptor.formatVersion,
 				maximumBytes: descriptor.maximumBytes,
 				outputKind: descriptor.outputKind,
+				surface: descriptor.surface,
+			};
+		case 'annotation.projection':
+			return {
+				contentKind: descriptor.contentKind,
+				descriptorId: descriptor.descriptorId,
+				maximumBytes: descriptor.maximumBytes,
+				page: descriptor.page,
 				surface: descriptor.surface,
 			};
 		case 'file.content':
@@ -756,6 +842,7 @@ function bridgeProductMaximumBytesForIdentity(
 	identity: BridgeProductContentIdentity<BridgeProductContentKind>,
 ): number {
 	return identity.contentKind === 'annotation.output' ||
+		identity.contentKind === 'annotation.projection' ||
 		identity.contentKind === 'review.comparisonTargets'
 		? identity.maximumBytes
 		: identity.window.maximumBytes;

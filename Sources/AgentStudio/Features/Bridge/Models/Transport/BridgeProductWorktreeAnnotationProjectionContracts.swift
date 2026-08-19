@@ -99,6 +99,88 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
     }
 }
 
+struct BridgeProductWorktreeAnnotationMessageReceiptDTO: Codable, Equatable, Sendable {
+    let draftRevision: Int?
+    let messageId: UUID
+    let messageRevision: Int
+    let savedRevision: Int?
+    let sessionRevision: Int
+    let threadId: UUID
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case draftRevision, kind, messageId, messageRevision, savedRevision, sessionRevision, threadId
+    }
+
+    init(_ receipt: WorktreeAnnotationMessageCommandReceipt) {
+        draftRevision = receipt.draftRevision
+        messageId = receipt.messageID.rawValue
+        messageRevision = receipt.messageRevision
+        savedRevision = receipt.savedRevision
+        sessionRevision = receipt.sessionRevision
+        threadId = receipt.threadID.rawValue
+    }
+
+    init(from decoder: Decoder) throws {
+        try rejectAnnotationProjectionUnknownKeys(decoder, keys: CodingKeys.allCases)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard try container.decode(String.self, forKey: .kind) == "message" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid annotation command receipt kind",
+                codingPath: decoder.codingPath + [CodingKeys.kind]
+            )
+        }
+        draftRevision = try container.decodeIfPresent(Int.self, forKey: .draftRevision)
+        messageId = try BridgeProductReviewPublicationIdContract.decode(
+            container.decode(String.self, forKey: .messageId),
+            codingPath: decoder.codingPath + [CodingKeys.messageId]
+        )
+        messageRevision = try container.decode(Int.self, forKey: .messageRevision)
+        savedRevision = try container.decodeIfPresent(Int.self, forKey: .savedRevision)
+        sessionRevision = try container.decode(Int.self, forKey: .sessionRevision)
+        threadId = try BridgeProductReviewPublicationIdContract.decode(
+            container.decode(String.self, forKey: .threadId),
+            codingPath: decoder.codingPath + [CodingKeys.threadId]
+        )
+        for (name, value) in [
+            ("draftRevision", draftRevision),
+            ("messageRevision", Optional(messageRevision)),
+            ("sessionRevision", Optional(sessionRevision)),
+        ] {
+            if let value {
+                try BridgeProductContractDecoding.validateNonnegative(
+                    value,
+                    name: name,
+                    codingPath: decoder.codingPath
+                )
+            }
+        }
+        if let savedRevision {
+            try BridgeProductContractDecoding.validatePositive(
+                savedRevision,
+                name: "savedRevision",
+                codingPath: decoder.codingPath
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(draftRevision, forKey: .draftRevision)
+        try container.encode("message", forKey: .kind)
+        try container.encode(
+            BridgeProductReviewPublicationIdContract.encode(messageId),
+            forKey: .messageId
+        )
+        try container.encode(messageRevision, forKey: .messageRevision)
+        try container.encode(savedRevision, forKey: .savedRevision)
+        try container.encode(sessionRevision, forKey: .sessionRevision)
+        try container.encode(
+            BridgeProductReviewPublicationIdContract.encode(threadId),
+            forKey: .threadId
+        )
+    }
+}
+
 struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sendable {
     enum Status: Codable, Equatable, Sendable {
         case committed
@@ -205,11 +287,13 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
     }
 
     let requestId: String
+    let receipt: BridgeProductWorktreeAnnotationMessageReceiptDTO?
     let sessionId: UUID?
     let status: Status
     let surface: BridgeProductSurface
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case receipt
         case requestId
         case sessionId
         case status
@@ -217,6 +301,7 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
     }
 
     init(_ outcome: WorktreeAnnotationCommandOutcome) {
+        receipt = outcome.receipt.map(BridgeProductWorktreeAnnotationMessageReceiptDTO.init)
         requestId = outcome.requestID
         sessionId = outcome.sessionID?.rawValue
         surface = outcome.surface
@@ -237,6 +322,10 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
     init(from decoder: Decoder) throws {
         try rejectAnnotationProjectionUnknownKeys(decoder, keys: CodingKeys.allCases)
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        receipt = try container.decodeIfPresent(
+            BridgeProductWorktreeAnnotationMessageReceiptDTO.self,
+            forKey: .receipt
+        )
         requestId = try container.decode(String.self, forKey: .requestId)
         sessionId = try BridgeProductContractDecoding.decodeRequiredNullable(
             UUID.self,
@@ -250,6 +339,7 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(receipt, forKey: .receipt)
         try container.encode(requestId, forKey: .requestId)
         try container.encode(
             sessionId.map(BridgeProductReviewPublicationIdContract.encode),

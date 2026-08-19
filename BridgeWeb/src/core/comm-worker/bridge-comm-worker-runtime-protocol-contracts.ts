@@ -1,4 +1,3 @@
-import type { ScheduleAnnotationProjectionResyncDeadline } from './bridge-comm-worker-annotation-projection-resync.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
@@ -36,7 +35,6 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 		wake: () => void,
 	) => () => void;
 	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
-	readonly scheduleAnnotationProjectionResyncDeadline?: ScheduleAnnotationProjectionResyncDeadline;
 	readonly sendProductControl?: BridgeCommWorkerProductControlSender;
 	readonly productControlTimeoutMilliseconds?: number;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;

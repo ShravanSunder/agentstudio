@@ -9,9 +9,10 @@ import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge
 import {
 	WorktreeAnnotationProjectionStore,
 	type WorktreeAnnotationCommandOutcome,
-	type WorktreeAnnotationProjectionAssemblyFailure,
 	type WorktreeAnnotationProjectionSnapshot,
 } from './worktree-annotation-projection-store.js';
+
+const noopUnsubscribe = (): void => {};
 export {
 	emptyWorktreeAnnotationProjectionSnapshot,
 	WorktreeAnnotationProjectionStore,
@@ -20,7 +21,6 @@ export type {
 	WorktreeAnnotationCommandOutcome,
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationOutputHistorySummary,
-	WorktreeAnnotationProjectionAssemblyFailureClass,
 	WorktreeAnnotationProjectionSnapshot,
 	WorktreeAnnotationSessionSummary,
 	WorktreeAnnotationThreadContext,
@@ -68,11 +68,6 @@ interface PendingAnnotationOutputCandidateQuery {
 	) => void;
 }
 
-interface PendingAnnotationProjectionResync {
-	readonly failure: WorktreeAnnotationProjectionAssemblyFailure;
-	readonly workerRequestId: string;
-}
-
 export function createWorktreeAnnotationSurfaceClient(
 	surfaceClient: BridgePaneSurfaceClient,
 ): WorktreeAnnotationSurfaceClient {
@@ -94,32 +89,13 @@ export function createWorktreeAnnotationSurfaceClient(
 	let isDisposed = false;
 	let observedSurfaceEpoch = currentSurfaceEpoch(surfaceClient);
 	let nextSourceRefreshEpoch = 0;
-	let pendingProjectionResync: PendingAnnotationProjectionResync | null = null;
-	const projectionStore = new WorktreeAnnotationProjectionStore((failure) => {
-		if (
-			isDisposed ||
-			(pendingProjectionResync !== null &&
-				failure.revision <= pendingProjectionResync.failure.revision)
-		) {
-			return 'blocked';
-		}
-		try {
-			const workerRequestId = surfaceClient.send({
-				command: 'annotationProjectionResync',
-				epoch: currentSurfaceEpoch(surfaceClient),
-				failureClass: failure.failureClass,
-				revision: failure.revision,
-				subscriptionId: failure.subscriptionId,
-				surface: surfaceClient.surface,
-			});
-			pendingProjectionResync = { failure, workerRequestId };
-			return 'requested';
-		} catch {
-			return 'blocked';
-		}
-	});
+	const projectionStore = new WorktreeAnnotationProjectionStore();
 
 	const settleProductOutcome = (outcome: WorktreeAnnotationCommandOutcome): void => {
+		projectionStore.recordCommandOutcome(outcome);
+		if (outcome.status.kind === 'history') {
+			projectionStore.replaceOutputHistory(outcome.status.summaries);
+		}
 		outcomesByProductRequestId.set(outcome.requestId, outcome);
 		const workerRequestId = pendingWorkerRequestIdByProductRequestId.get(outcome.requestId);
 		if (workerRequestId === undefined) return;
@@ -127,6 +103,7 @@ export function createWorktreeAnnotationSurfaceClient(
 		if (pendingCommand === undefined) return;
 		pendingCommandsByWorkerRequestId.delete(workerRequestId);
 		pendingWorkerRequestIdByProductRequestId.delete(outcome.requestId);
+		outcomesByProductRequestId.delete(outcome.requestId);
 		pendingCommand.resolve(outcome);
 	};
 
@@ -194,30 +171,13 @@ export function createWorktreeAnnotationSurfaceClient(
 			}
 			if (message.kind === 'annotationCommandAccepted') {
 				acceptProductRequest(message.requestId, message.productRequestId);
+				if (message.outcome !== undefined) settleProductOutcome(message.outcome);
 				return;
 			}
-			if (message.kind === 'annotationProjection') {
-				projectionStore.apply(message.event, message.subscriptionId);
-				if (projectionStore.getSnapshot().transportStatus.kind === 'available') {
-					pendingProjectionResync = null;
-				}
-				if (message.event.eventKind === 'projection.state') {
-					for (const outcome of message.event.payload.commandOutcomes) {
-						settleProductOutcome(outcome);
-					}
-				}
-				return;
-			}
-			const currentProjectionResync = pendingProjectionResync;
-			if (
-				message.kind === 'health' &&
-				currentProjectionResync !== null &&
-				message.requestId === currentProjectionResync.workerRequestId
-			) {
-				projectionStore.updateTransportRecovery(
-					currentProjectionResync.failure,
-					message.status === 'ready' ? 'awaitingReplay' : 'blocked',
-				);
+			if (message.kind === 'annotationProjectionConvergence') {
+				if (message.state.kind === 'ready') projectionStore.apply(message.state.snapshot);
+				else if (message.state.kind === 'refreshing') projectionStore.markRefreshing();
+				else projectionStore.markUnavailable(message.state.retryable);
 				return;
 			}
 			if (
@@ -237,12 +197,6 @@ export function createWorktreeAnnotationSurfaceClient(
 		operation: BridgeProductWorktreeAnnotationOperation,
 	): Promise<WorktreeAnnotationCommandOutcome> => {
 		if (isDisposed) return Promise.reject(new Error('Annotation surface client is disposed.'));
-		if (
-			projectionStore.getSnapshot().transportStatus.kind === 'unavailable' &&
-			annotationOperationRequiresCurrentProjection(operation)
-		) {
-			return Promise.reject(new Error('Annotation projection transport is unavailable.'));
-		}
 		const workerRequestId = surfaceClient.send({
 			command: 'annotationCommand',
 			epoch: currentSurfaceEpoch(surfaceClient),
@@ -311,7 +265,7 @@ export function createWorktreeAnnotationSurfaceClient(
 		const currentResult = select(projectionStore.getSnapshot());
 		if (currentResult !== null) return Promise.resolve(currentResult);
 		return new Promise<TResult>((resolve, reject): void => {
-			let unsubscribe = (): void => {};
+			let unsubscribe = noopUnsubscribe;
 			const rejectWaiter = (error: Error): void => {
 				unsubscribe();
 				rejectPendingSnapshotWaiters.delete(rejectWaiter);
@@ -367,7 +321,6 @@ export function createWorktreeAnnotationSurfaceClient(
 		dispose: (): void => {
 			if (isDisposed) return;
 			isDisposed = true;
-			pendingProjectionResync = null;
 			unsubscribeMessages();
 			unsubscribeSourceEpoch();
 			const disposalError = new Error('Annotation surface client is disposed.');
@@ -384,6 +337,9 @@ export function createWorktreeAnnotationSurfaceClient(
 			}
 			pendingOutputCandidateQueriesByWorkerRequestId.clear();
 			pendingWorkerRequestIdByProductRequestId.clear();
+			outcomesByProductRequestId.clear();
+			acceptedProductRequestIdByWorkerRequestId.clear();
+			degradedFailureByWorkerRequestId.clear();
 			for (const rejectWaiter of rejectPendingSnapshotWaiters) rejectWaiter(disposalError);
 			rejectPendingSnapshotWaiters.clear();
 			demandCountBySessionId.clear();
@@ -403,34 +359,4 @@ function currentSurfaceEpoch(surfaceClient: BridgePaneSurfaceClient): number {
 	return surfaceClient.surface === 'fileView'
 		? (renderSnapshot.fileDisplayFreshness?.epoch ?? 0)
 		: (renderSnapshot.reviewDisplayFreshness?.epoch ?? 0);
-}
-
-function annotationOperationRequiresCurrentProjection(
-	operation: BridgeProductWorktreeAnnotationOperation,
-): boolean {
-	switch (operation.kind) {
-		case 'demand.acquire':
-		case 'demand.release':
-		case 'output.history':
-		case 'session.discover':
-			return false;
-		case 'continuity.choose':
-		case 'draft.edit.acquire':
-		case 'draft.edit.release':
-		case 'draft.flush':
-		case 'draft.revert':
-		case 'draft.save':
-		case 'output.selection.begin':
-		case 'output.selection.cancel':
-		case 'output.selection.chunk':
-		case 'output.selection.commit':
-		case 'output.repeat':
-		case 'recovery.acknowledge':
-		case 'reply.create':
-		case 'root.create':
-		case 'source.refresh':
-		case 'thread.resolution.set':
-			return true;
-	}
-	throw new Error(`Unhandled annotation operation: ${JSON.stringify(operation)}`);
 }

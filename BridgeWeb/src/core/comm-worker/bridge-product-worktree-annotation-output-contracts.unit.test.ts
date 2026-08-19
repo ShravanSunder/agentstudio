@@ -5,7 +5,7 @@ import {
 	bridgeProductContentRequestSchema,
 	bridgeProductSurfaceForContentKind,
 } from './bridge-product-content-contracts.js';
-import { bridgeProductWorktreeAnnotationEventSchema } from './bridge-product-worktree-annotation-contracts.js';
+import { bridgeProductWorktreeAnnotationCommandOutcomeSchema } from './bridge-product-worktree-annotation-contracts.js';
 import {
 	bridgeProductAnnotationOutputContentDescriptorSchema,
 	bridgeProductAnnotationOutputContentIdentitySchema,
@@ -34,8 +34,10 @@ describe('Bridge product annotation output contracts', () => {
 				selectionError: 'The save panel could not choose a destination.',
 			},
 		] as const) {
-			const event = annotationProjectionEvent(outcome);
-			expect(bridgeProductWorktreeAnnotationEventSchema.parse(event)).toEqual(event);
+			const commandOutcome = annotationCommandOutcome(outcome);
+			expect(bridgeProductWorktreeAnnotationCommandOutcomeSchema.parse(commandOutcome)).toEqual(
+				commandOutcome,
+			);
 		}
 	});
 
@@ -51,8 +53,8 @@ describe('Bridge product annotation output contracts', () => {
 			},
 		] as const) {
 			expect(
-				bridgeProductWorktreeAnnotationEventSchema.safeParse(
-					annotationProjectionEvent(invalidOutcome),
+				bridgeProductWorktreeAnnotationCommandOutcomeSchema.safeParse(
+					annotationCommandOutcome(invalidOutcome),
 				).success,
 			).toBe(false);
 		}
@@ -96,24 +98,11 @@ describe('Bridge product annotation output contracts', () => {
 	});
 });
 
-function annotationProjectionEvent(outcome: unknown): Readonly<Record<string, unknown>> {
+function annotationCommandOutcome(outcome: unknown): Readonly<Record<string, unknown>> {
 	return {
-		eventKind: 'projection.state',
-		payload: {
-			commandOutcomes: [
-				{
-					requestId: 'annotation-output-request-1',
-					sessionId: null,
-					status: { kind: 'output', outcome },
-					surface: 'file',
-				},
-			],
-			expectedThreadCount: 0,
-			outputHistory: [],
-			recoveryStatus: 'available',
-			revision: 1,
-			sessions: [],
-			worktreeId: 'worktree-1',
-		},
+		requestId: 'annotation-output-request-1',
+		sessionId: null,
+		status: { kind: 'output', outcome },
+		surface: 'file',
 	};
 }

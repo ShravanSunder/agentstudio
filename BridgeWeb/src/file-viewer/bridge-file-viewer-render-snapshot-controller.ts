@@ -381,7 +381,7 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 			case 'annotationCommandAccepted':
 			case 'annotationOutputCandidatesPage':
 			case 'annotationOutputInspection':
-			case 'annotationProjection':
+			case 'annotationProjectionConvergence':
 			case 'nativeSurfaceSelectionRequest':
 			case 'subscription':
 			case 'reviewComparisonTargetsQuery':

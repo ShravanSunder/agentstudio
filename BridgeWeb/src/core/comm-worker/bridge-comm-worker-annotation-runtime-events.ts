@@ -1,26 +1,11 @@
+import type { BridgeWorkerAnnotationProjectionSnapshot } from './bridge-comm-worker-annotation-projection-decoder.js';
 import { bridgeProductWorktreeAnnotationCommandResultSchema } from './bridge-product-call-contracts.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
-import type { BridgeProductWorktreeAnnotationEvent } from './bridge-product-worktree-annotation-contracts.js';
+import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
 import type {
 	BridgeWorkerAnnotationCommandAcceptedEvent,
-	BridgeWorkerAnnotationProjectionEvent,
+	BridgeWorkerAnnotationProjectionConvergenceEvent,
 } from './bridge-worker-annotation-contracts.js';
-
-export function bridgeCommWorkerAnnotationProjectionEvent(props: {
-	readonly event: BridgeProductWorktreeAnnotationEvent;
-	readonly subscriptionId: string;
-	readonly surface: 'fileView' | 'review';
-}): BridgeWorkerAnnotationProjectionEvent {
-	return {
-		direction: 'serverWorkerToMain',
-		event: props.event,
-		kind: 'annotationProjection',
-		subscriptionId: props.subscriptionId,
-		surface: props.surface,
-		transferDescriptors: [],
-		wireVersion: 1,
-	};
-}
 
 export function bridgeCommWorkerAnnotationCommandAcceptedEvent(props: {
 	readonly actionResult: unknown;
@@ -39,9 +24,36 @@ export function bridgeCommWorkerAnnotationCommandAcceptedEvent(props: {
 	return {
 		direction: 'serverWorkerToMain',
 		kind: 'annotationCommandAccepted',
-		productRequestId: annotationResult.requestId,
+		outcome: annotationResult.outcome,
+		productRequestId: annotationResult.outcome.requestId,
 		requestId: props.requestId,
 		surface: props.command.method === 'file.annotations.command' ? 'fileView' : 'review',
+		transferDescriptors: [],
+		wireVersion: 1,
+	};
+}
+
+export function bridgeCommWorkerAnnotationProjectionConvergenceEvent(props: {
+	readonly state:
+		| { readonly kind: 'ready'; readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot }
+		| { readonly error: unknown; readonly kind: 'unavailable' }
+		| { readonly kind: 'refreshing' };
+	readonly surface: 'file' | 'review';
+}): BridgeWorkerAnnotationProjectionConvergenceEvent {
+	const state =
+		props.state.kind === 'unavailable'
+			? {
+					kind: 'unavailable' as const,
+					retryable:
+						props.state.error instanceof BridgeProductControlRequestError &&
+						props.state.error.retryable,
+				}
+			: props.state;
+	return {
+		direction: 'serverWorkerToMain',
+		kind: 'annotationProjectionConvergence',
+		state,
+		surface: props.surface === 'file' ? 'fileView' : 'review',
 		transferDescriptors: [],
 		wireVersion: 1,
 	};

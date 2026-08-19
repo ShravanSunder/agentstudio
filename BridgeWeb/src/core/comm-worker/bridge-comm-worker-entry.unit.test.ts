@@ -535,7 +535,6 @@ describe('Bridge comm worker entry', () => {
 			executeProductRequest: executeAgentStudioBridgeProductRequest,
 		});
 		globalPort.dispatch.message(makePaneWorkerInstall(productChannel.port1));
-
 		// Act
 		productChannel.port2.postMessage(makeBootstrapRequest('product-chain-bootstrap'));
 		await productPort.waitForCount(3);
@@ -546,8 +545,8 @@ describe('Bridge comm worker entry', () => {
 				requestId: 'mark-viewed-product-chain',
 			}),
 		);
-		const messages = await productPort.waitForCount(4);
-
+		await flushBridgeWorkerRuntimeContinuations();
+		const messages = await productPort.waitForCount(6);
 		// Assert
 		expect(
 			messages.find(
@@ -754,8 +753,10 @@ function makeUnavailableFileProductTransport(): BridgeProductTransportSession {
 		openContent: (): never => {
 			throw new Error('Entry harness cannot open content without a File source.');
 		},
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The entry harness supports only annotation notification subscriptions.
 		subscribe: ((subscriptionKind: string): never => {
 			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The branch closes over the requested annotation subscription kind.
 				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
 			}
 			throw new Error('Entry harness cannot subscribe without a File source.');

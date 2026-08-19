@@ -61,6 +61,13 @@ struct WorktreeAnnotationTransportAdapterTests {
         #expect(receipt.messageRevision == createdMessage.semanticRevision)
         #expect(receipt.draftRevision == createdMessage.draft?.draftRevision)
         #expect(receipt.savedRevision == createdMessage.savedRevision)
+        let encodedOutcome = try #require(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(outcome))
+                as? [String: Any]
+        )
+        let encodedReceipt = try #require(encodedOutcome["receipt"] as? [String: Any])
+        #expect(encodedReceipt["messageId"] as? String == createdMessage.id.rawValue.uuidString.lowercased())
+        #expect(encodedReceipt["threadId"] as? String == createdThread.thread.id.rawValue.uuidString.lowercased())
         #expect(await changes.next() == .snapshotRequired(worktreeID: "worktree-1"))
         await harness.store.removeChangeObserver(token: observer.token)
         #expect(detail.threads.first?.messages.first?.draft?.body == "Durable draft")

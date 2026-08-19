@@ -17,8 +17,8 @@ import { buildBridgeReviewProjection } from '../review-viewer/navigation/review-
 import {
 	annotationHeadThreadId,
 	annotationMessage,
-	annotationSessionId,
 	annotationSessionSummary,
+	annotationSessionId,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import { WorktreeAnnotationSurfaceProvider } from './worktree-annotation-surface-provider.js';
@@ -270,16 +270,41 @@ describe('worktree annotation Pierre range selection', () => {
 				(): boolean => surface.sentOperations.some((operation) => operation.kind === 'root.create'),
 				'Expected split Review Save to create a durable root draft.',
 			);
+			await expect
+				.element(rendered.getByRole('button', { name: 'Saving annotation' }))
+				.toBeDisabled();
 			const createOperation = surface.sentOperations.find(
 				(operation) => operation.kind === 'root.create',
 			);
 			if (createOperation?.kind !== 'root.create') throw new Error('Expected root.create.');
 			await act(async (): Promise<void> => {
-				surface.settleMostRecentCommitted();
+				surface.settleMostRecentCommittedWithoutProjection();
+				await settleBrowserCondition(
+					(): boolean =>
+						surface.sentOperations.some((operation) => operation.kind === 'draft.save'),
+					'Expected root.create receipt to continue directly to draft.save without projection.',
+				);
+			});
+			await expect
+				.element(rendered.getByRole('button', { name: 'Saving annotation' }))
+				.toBeDisabled();
+			await act(async (): Promise<void> => {
+				surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'draft.save');
+				await nextAnimationFrame();
+				await nextAnimationFrame();
+				const operationError = document.querySelector('[role="alert"]')?.textContent;
+				if (operationError !== undefined) throw new Error(operationError);
+			});
+			await settleBrowserCondition(
+				(): boolean =>
+					document.querySelector('[aria-label="Write an annotation in Markdown"]') === null,
+				'Expected the exact committed Save receipt to close before projection convergence.',
+			);
+			await act(async (): Promise<void> => {
 				surface.publishProjectionState({
 					expectedThreadCount: 1,
-					revision: 3,
-					sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
+					revision: 5,
+					sessions: [annotationSessionSummary({ revision: 5, sessionId: annotationSessionId })],
 				});
 				surface.publishThread({
 					context: {
@@ -297,30 +322,18 @@ describe('worktree annotation Pierre range selection', () => {
 					message: {
 						...annotationMessage({
 							messageId: '00000000-0000-7000-8000-000000000031',
-							sessionRevision: 3,
+							sessionRevision: 5,
 							threadId: annotationHeadThreadId,
 						}),
-						draft: {
-							activeEditToken: createOperation.editToken,
-							body: 'Split projection Save',
-							revision: 0,
-						},
-						savedBody: null,
-						savedRevision: null,
+						draft: null,
+						savedBody: 'Split projection Save',
+						savedRevision: 1,
 					},
 				});
 				await nextAnimationFrame();
 				await nextAnimationFrame();
 			});
-			const composerAfterDurableProjection = document.querySelector<HTMLTextAreaElement>(
-				'[aria-label="Write an annotation in Markdown"]',
-			);
-			expect(composerAfterDurableProjection).toBe(composerBeforeDurableProjection);
-			expect(document.activeElement).toBe(composerBeforeDurableProjection);
-			await settleBrowserCondition(
-				(): boolean => surface.sentOperations.some((operation) => operation.kind === 'draft.save'),
-				'Expected the original split Review Save to survive projection replacement.',
-			);
+			await expect.element(rendered.getByText('Split projection Save')).toBeVisible();
 			expect(
 				surface.sentOperations
 					.map((operation) => operation.kind)

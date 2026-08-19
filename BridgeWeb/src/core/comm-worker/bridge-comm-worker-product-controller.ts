@@ -1,8 +1,14 @@
 import {
-	BridgeCommWorkerAnnotationSubscriptionController,
-	type AnnotationProjectionResyncTask,
-} from './bridge-comm-worker-annotation-subscription-controller.js';
-import type { BridgeProductCallResult } from './bridge-product-call-contracts.js';
+	BridgeCommWorkerAnnotationProjectionQueryController,
+	bridgeCommWorkerAnnotationProjectionTransport,
+	type BridgeCommWorkerAnnotationProjectionDemand,
+	type BridgeCommWorkerAnnotationProjectionPublication,
+} from './bridge-comm-worker-annotation-projection-query-controller.js';
+import {
+	bridgeProductWorktreeAnnotationCommandResultSchema,
+	type BridgeProductCallResult,
+	type BridgeProductWorktreeAnnotationOperation,
+} from './bridge-product-call-contracts.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT,
@@ -15,7 +21,6 @@ import type { BridgeWorkerMetadataInterestRequest } from './bridge-worker-contra
 
 type FileMetadataSubscription = BridgeProductSubscription<'file.metadata'>;
 type FileMetadataEvent = BridgeProductSubscriptionEvent<'file.metadata'>;
-type FileAnnotationEvent = BridgeProductSubscriptionEvent<'file.annotations'>;
 type FileMetadataEventHandler = (event: FileMetadataEvent, workerDerivationEpoch: number) => void;
 type FileMetadataFailureHandler = (error: unknown, workerDerivationEpoch: number) => void;
 type FileMetadataDemandFailureHandler = (error: unknown, workerDerivationEpoch: number) => void;
@@ -24,7 +29,6 @@ type FileMetadataInterestLane = FileMetadataInterest['lane'];
 type FileSourceDiscoveryResult = BridgeProductCallResult<'file.source.current'>;
 type ReviewMetadataSubscription = BridgeProductSubscription<'review.metadata'>;
 type ReviewMetadataEvent = BridgeProductSubscriptionEvent<'review.metadata'>;
-type ReviewAnnotationEvent = BridgeProductSubscriptionEvent<'review.annotations'>;
 type ReviewMetadataEventHandler = (
 	event: ReviewMetadataEvent,
 	workerDerivationEpoch: number,
@@ -47,15 +51,28 @@ export interface BridgeCommWorkerFileMetadataDemand {
 }
 
 export class BridgeCommWorkerProductController {
-	readonly #annotationSubscriptions: BridgeCommWorkerAnnotationSubscriptionController;
+	readonly #annotationProjectionBySurface: Record<
+		'file' | 'review',
+		BridgeCommWorkerAnnotationProjectionQueryController
+	>;
 	readonly #onFileMetadataEvent: FileMetadataEventHandler;
-	readonly #onFileAnnotationEvent: (event: FileAnnotationEvent, subscriptionId: string) => void;
 	readonly #onFileMetadataFailure: FileMetadataFailureHandler;
 	readonly #onFileMetadataDemandFailure: FileMetadataDemandFailureHandler;
 	readonly #onReviewMetadataEvent: ReviewMetadataEventHandler;
-	readonly #onReviewAnnotationEvent: (event: ReviewAnnotationEvent, subscriptionId: string) => void;
 	readonly #onReviewMetadataFailure: ReviewMetadataFailureHandler;
 	readonly #productTransport: BridgeProductTransportSession;
+	readonly #annotationSessionIdsBySurface: Record<'file' | 'review', Set<string>> = {
+		file: new Set(),
+		review: new Set(),
+	};
+	readonly #annotationSurfaceActive: Record<'file' | 'review', boolean> = {
+		file: false,
+		review: false,
+	};
+	readonly #annotationSourceGeneration: Record<'file' | 'review', number | null> = {
+		file: null,
+		review: null,
+	};
 	readonly #callCurrentFileSource: () => Promise<FileSourceDiscoveryResult>;
 	readonly #subscribeFile: (
 		options: BridgeProductSubscriptionOptions<'file.metadata'>,
@@ -85,19 +102,13 @@ export class BridgeCommWorkerProductController {
 
 	constructor(props: {
 		readonly callCurrentFileSource?: () => Promise<FileSourceDiscoveryResult>;
-		readonly isCurrentController?: () => boolean;
-		readonly onFileAnnotationEvent?: (
-			event: BridgeProductSubscriptionEvent<'file.annotations'>,
-			subscriptionId: string,
+		readonly onAnnotationProjectionConvergence?: (
+			publication: BridgeCommWorkerAnnotationProjectionPublication,
 		) => void;
 		readonly onFileMetadataEvent: FileMetadataEventHandler;
 		readonly onFileMetadataFailure?: FileMetadataFailureHandler;
 		readonly onFileMetadataDemandFailure?: FileMetadataDemandFailureHandler;
 		readonly onReviewMetadataEvent?: ReviewMetadataEventHandler;
-		readonly onReviewAnnotationEvent?: (
-			event: BridgeProductSubscriptionEvent<'review.annotations'>,
-			subscriptionId: string,
-		) => void;
 		readonly onReviewMetadataFailure?: ReviewMetadataFailureHandler;
 		readonly productTransport: BridgeProductTransportSession;
 		readonly subscribeFile?: (
@@ -108,22 +119,29 @@ export class BridgeCommWorkerProductController {
 		) => ReviewMetadataSubscription;
 	}) {
 		this.#onFileMetadataEvent = props.onFileMetadataEvent;
-		this.#onFileAnnotationEvent = props.onFileAnnotationEvent ?? ignoreAnnotationEvent;
 		this.#onFileMetadataFailure = props.onFileMetadataFailure ?? ignoreFileMetadataFailure;
 		this.#onFileMetadataDemandFailure =
 			props.onFileMetadataDemandFailure ?? ignoreFileMetadataFailure;
 		this.#onReviewMetadataEvent = props.onReviewMetadataEvent ?? ignoreReviewMetadataEvent;
-		this.#onReviewAnnotationEvent = props.onReviewAnnotationEvent ?? ignoreAnnotationEvent;
 		this.#onReviewMetadataFailure = props.onReviewMetadataFailure ?? ignoreReviewMetadataFailure;
 		this.#productTransport = props.productTransport;
-		this.#annotationSubscriptions = new BridgeCommWorkerAnnotationSubscriptionController({
-			isCurrentController: props.isCurrentController ?? ((): boolean => true),
-			onEvent: (event, subscriptionId, surface): void => {
-				if (surface === 'file') this.#onFileAnnotationEvent(event, subscriptionId);
-				else this.#onReviewAnnotationEvent(event, subscriptionId);
-			},
-			productTransport: props.productTransport,
-		});
+		const onConvergence =
+			props.onAnnotationProjectionConvergence ?? ignoreAnnotationProjectionConvergence;
+		const annotationProjectionTransport = bridgeCommWorkerAnnotationProjectionTransport(
+			props.productTransport,
+		);
+		this.#annotationProjectionBySurface = {
+			file: new BridgeCommWorkerAnnotationProjectionQueryController({
+				onConvergence,
+				surface: 'file',
+				transport: annotationProjectionTransport,
+			}),
+			review: new BridgeCommWorkerAnnotationProjectionQueryController({
+				onConvergence,
+				surface: 'review',
+				transport: annotationProjectionTransport,
+			}),
+		};
 		this.#callCurrentFileSource =
 			props.callCurrentFileSource ??
 			((): Promise<FileSourceDiscoveryResult> =>
@@ -139,19 +157,29 @@ export class BridgeCommWorkerProductController {
 	}
 
 	ensureAnnotationSubscriptions(): void {
-		this.#annotationSubscriptions.ensureSubscriptions();
+		this.#annotationProjectionBySurface.file.ensureSubscription();
+		this.#annotationProjectionBySurface.review.ensureSubscription();
 	}
 
-	beginAnnotationProjectionResync(props: {
-		readonly requestId: string;
-		readonly subscriptionId: string;
-		readonly surface: 'file' | 'review';
-	}): AnnotationProjectionResyncTask {
-		return this.#annotationSubscriptions.beginResync(props);
+	setAnnotationProjectionSurfaceActive(
+		surface: 'file' | 'review',
+		active: boolean,
+		sourceGeneration: number | null,
+	): void {
+		this.#annotationSurfaceActive[surface] = active;
+		this.#annotationSourceGeneration[surface] = sourceGeneration;
+		this.#publishAnnotationProjectionDemand(surface);
 	}
 
-	invalidateAnnotationProjectionResync(): void {
-		this.#annotationSubscriptions.invalidateCurrentResync('concurrentReplacement');
+	retryAnnotationProjection(surface: 'file' | 'review'): void {
+		this.#annotationProjectionBySurface[surface].retry();
+	}
+
+	async disposeAnnotationProjections(): Promise<void> {
+		await Promise.all([
+			this.#annotationProjectionBySurface.file.dispose(),
+			this.#annotationProjectionBySurface.review.dispose(),
+		]);
 	}
 
 	ensureFileSource(): Promise<void> {
@@ -189,13 +217,9 @@ export class BridgeCommWorkerProductController {
 	async sendProductControl(command: BridgeProductControlCommand): Promise<unknown> {
 		switch (command.method) {
 			case 'file.annotations.command':
-				return await this.#productTransport.call('file.annotations.command', {
-					operation: command.params.operation,
-				});
+				return await this.#sendAnnotationCommand('file', command.params.operation);
 			case 'review.annotations.command':
-				return await this.#productTransport.call('review.annotations.command', {
-					operation: command.params.operation,
-				});
+				return await this.#sendAnnotationCommand('review', command.params.operation);
 			case 'review.markFileViewed':
 				return await this.#productTransport.call('review.markFileViewed', {
 					itemId: command.params.fileId,
@@ -216,6 +240,34 @@ export class BridgeCommWorkerProductController {
 			default:
 				return assertNeverBridgeProductControlCommand(command);
 		}
+	}
+
+	async #sendAnnotationCommand(
+		surface: 'file' | 'review',
+		operation: BridgeProductWorktreeAnnotationOperation,
+	): Promise<unknown> {
+		const result =
+			surface === 'file'
+				? await this.#productTransport.call('file.annotations.command', { operation })
+				: await this.#productTransport.call('review.annotations.command', { operation });
+		const parsedResult = bridgeProductWorktreeAnnotationCommandResultSchema.parse(result);
+		if (parsedResult.outcome.status.kind !== 'committed') return parsedResult;
+		if (operation.kind === 'demand.acquire') {
+			this.#annotationSessionIdsBySurface[surface].add(operation.sessionId);
+			this.#publishAnnotationProjectionDemand(surface);
+		} else if (operation.kind === 'demand.release') {
+			this.#annotationSessionIdsBySurface[surface].delete(operation.sessionId);
+			this.#publishAnnotationProjectionDemand(surface);
+		}
+		return parsedResult;
+	}
+
+	#publishAnnotationProjectionDemand(surface: 'file' | 'review'): void {
+		this.#annotationProjectionBySurface[surface].setDemand({
+			active: this.#annotationSurfaceActive[surface],
+			sessionIds: [...this.#annotationSessionIdsBySurface[surface]],
+			sourceGeneration: this.#annotationSourceGeneration[surface],
+		} satisfies BridgeCommWorkerAnnotationProjectionDemand);
 	}
 
 	async updateReviewMetadataInterests(request: BridgeWorkerMetadataInterestRequest): Promise<void> {
@@ -623,4 +675,6 @@ function ignoreReviewMetadataEvent(
 
 function ignoreReviewMetadataFailure(_error: unknown, _workerDerivationEpoch: number): void {}
 
-function ignoreAnnotationEvent(_event: FileAnnotationEvent): void {}
+function ignoreAnnotationProjectionConvergence(
+	_publication: BridgeCommWorkerAnnotationProjectionPublication,
+): void {}

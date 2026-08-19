@@ -122,8 +122,7 @@ export function WorktreeAnnotationSurfaceProvider(
 			: null;
 	const activeSession =
 		projection.sessions.find((session): boolean => session.sessionId === activeSessionId) ?? null;
-	const recoveryAllowsMutations =
-		projection.recoveryStatus === 'available' && projection.transportStatus.kind === 'available';
+	const recoveryAllowsMutations = projection.recoveryStatus === 'available';
 	const canMutateActiveSession =
 		recoveryAllowsMutations &&
 		activeSession?.lifecycle === 'living' &&

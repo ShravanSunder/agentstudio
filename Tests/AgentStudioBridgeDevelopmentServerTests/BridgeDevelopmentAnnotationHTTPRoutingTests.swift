@@ -12,6 +12,106 @@ import Testing
 @Suite("Bridge development annotation HTTP routing")
 struct BridgeDevelopmentAnnotationHTTPRoutingTests {
     @MainActor
+    @Test("annotation mutation converges through independent pane projections")
+    func annotationMutationConvergesThroughIndependentPaneProjections() async throws {
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-http-annotation-two-pane"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let paneAID = PaneId.generateUUIDv7().uuid
+        let paneBID = PaneId.generateUUIDv7().uuid
+        let dataRoot = FileManager.default.temporaryDirectory.appending(
+            path: "bridge-development-http-annotation-two-pane-\(paneAID.uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: dataRoot) }
+        let paneA = try await makeHTTPDevelopmentProductRuntime(
+            dataRoot: dataRoot,
+            paneID: paneAID,
+            worktreeRoot: repositoryURL
+        )
+        let paneB = try await makeSiblingHTTPDevelopmentProductRuntime(
+            composition: paneA.composition,
+            paneID: paneBID
+        )
+        let applicationA = BridgeDevelopmentHTTPApplication.make(host: paneA.host)
+        let applicationB = BridgeDevelopmentHTTPApplication.make(host: paneB.host)
+
+        try await applicationA.test(.router) { clientA in
+            try await applicationB.test(.router) { clientB in
+                let connectionA = try await openHTTPProductConnection(client: clientA)
+                let connectionB = try await openHTTPProductConnection(client: clientB)
+                let preparationA = try await prepareHTTPAnnotationAuthoring(
+                    client: clientA,
+                    runtime: paneA,
+                    connection: connectionA
+                )
+                let preparationB = try await prepareHTTPAnnotationAuthoring(
+                    client: clientB,
+                    runtime: paneB,
+                    connection: connectionB
+                )
+                let outcome = try await executeHTTPAnnotationCommand(
+                    client: clientA,
+                    connection: connectionA,
+                    operation: twoPaneRootCreateOperation(
+                        sourceIdentity: preparationA.descriptor.descriptorId
+                    ),
+                    requestID: "annotation-create-two-pane",
+                    requestSequence: 6
+                )
+                guard case .committed = outcome.status,
+                    let sessionID = outcome.sessionId
+                else { throw HTTPAnnotationIntegrationError.annotationCommandFailed }
+                let invalidationA = try await waitForHTTPAnnotationInvalidation(
+                    client: clientA,
+                    connection: connectionA,
+                    recorder: preparationA.metadataStream.recorder
+                )
+                let invalidationB = try await waitForHTTPAnnotationInvalidation(
+                    client: clientB,
+                    connection: connectionB,
+                    recorder: preparationB.metadataStream.recorder
+                )
+                let projectionA = try await fetchHTTPFileAnnotationProjection(
+                    client: clientA,
+                    host: paneA.host,
+                    connection: connectionA,
+                    demandedSessionIDs: [sessionID],
+                    sourceGeneration: preparationA.fileSourceGeneration,
+                    requestSequence: 7
+                )
+                let projectionB = try await fetchHTTPFileAnnotationProjection(
+                    client: clientB,
+                    host: paneB.host,
+                    connection: connectionB,
+                    demandedSessionIDs: [sessionID],
+                    sourceGeneration: preparationB.fileSourceGeneration,
+                    requestSequence: 6
+                )
+
+                #expect(try httpAnnotationInvalidationIsCompact(invalidationA))
+                #expect(try httpAnnotationInvalidationIsCompact(invalidationB))
+                #expect(projectionA.header.projectionRevision == projectionB.header.projectionRevision)
+                #expect(projectionA.header.sessions == projectionB.header.sessions)
+                #expect(projectionA.messages == projectionB.messages)
+                #expect(projectionB.messages.first?.message.draft?.body == "Visible from both panes")
+
+                try await shutdownHTTPHostAndDrainMetadataStream(
+                    host: paneA.host,
+                    drain: preparationA.metadataStream.drain
+                )
+                try await shutdownHTTPHostAndDrainMetadataStream(
+                    host: paneB.host,
+                    drain: preparationB.metadataStream.drain
+                )
+            }
+        }
+        try await paneA.composition.shutdown()
+    }
+
+    @MainActor
     @Test("annotation draft survives a development host restart through the product HTTP carrier")
     func annotationDraftSurvivesDevelopmentHostRestart() async throws {
         let repositoryURL = try FilesystemTestGitRepo.create(
@@ -76,6 +176,51 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
         #expect(writerError != nil)
         #expect(readerError == writerError)
     }
+}
+
+private func twoPaneRootCreateOperation(sourceIdentity: String) -> [String: Any] {
+    [
+        "admission": ["kind": "implicitOrSingle"],
+        "body": "Visible from both panes",
+        "editToken": "two-pane-editor",
+        "kind": "root.create",
+        "origin": [
+            "diffSide": NSNull(),
+            "endLine": 2,
+            "kind": "located",
+            "path": "tracked.txt",
+            "sourceIdentity": sourceIdentity,
+            "sourceRole": "file",
+            "startLine": 2,
+        ],
+    ]
+}
+
+@MainActor
+private func makeSiblingHTTPDevelopmentProductRuntime(
+    composition: BridgeDevelopmentServerCoreComposition,
+    paneID: UUID
+) async throws -> HTTPDevelopmentProductRuntime {
+    let source = BridgeDevelopmentProductSource(
+        paneID: paneID,
+        paneState: composition.productSource.paneState,
+        repoID: composition.productSource.repoID,
+        reviewedSubjectLabel: composition.productSource.reviewedSubjectLabel,
+        worktreeID: composition.productSource.worktreeID,
+        worktreeRoot: composition.productSource.worktreeRoot
+    )
+    return try await HTTPDevelopmentProductRuntime(
+        composition: composition,
+        host: BridgeDevelopmentProductHost(
+            source: source,
+            worktreeAnnotationStore: composition.worktreeAnnotationStore,
+            worktreeAnnotationOutputCoordinator: composition.worktreeAnnotationOutputCoordinator,
+            originatingWorkspaceID: composition.originatingWorkspaceID,
+            contributionTargetCommit: { target in
+                composition.applyContributionTarget(target)
+            }
+        )
+    )
 }
 
 @MainActor

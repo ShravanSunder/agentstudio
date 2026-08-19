@@ -30,8 +30,6 @@ describe('Bridge comm worker product controller', () => {
 		const reviewEvents = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.annotations'>
 		>(8);
-		const observedFileEvents: BridgeProductSubscriptionEvent<'file.annotations'>[] = [];
-		const observedReviewEvents: BridgeProductSubscriptionEvent<'review.annotations'>[] = [];
 		const subscribedKinds: string[] = [];
 		const calledMethods: string[] = [];
 		const fileSubscription: BridgeProductSubscription<'file.annotations'> = {
@@ -50,36 +48,33 @@ describe('Bridge comm worker product controller', () => {
 		};
 		const productTransport = {
 			...unusedProductTransport(),
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The test double intentionally implements only annotation call variants exercised below.
 			call: (async (method: string): Promise<unknown> => {
 				calledMethods.push(method);
-				return { kind: 'accepted', requestId: `${method}-request-1` };
+				return {
+					kind: 'completed',
+					outcome: {
+						requestId: `${method}-request-1`,
+						sessionId: null,
+						status: { kind: 'committed' },
+						surface: method === 'file.annotations.command' ? 'file' : 'review',
+					},
+				};
 			}) as BridgeProductTransportSession['call'],
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The test double intentionally implements only paired annotation subscriptions.
 			subscribe: ((subscriptionKind: string): unknown => {
 				subscribedKinds.push(subscriptionKind);
 				return subscriptionKind === 'file.annotations' ? fileSubscription : reviewSubscription;
 			}) as BridgeProductTransportSession['subscribe'],
 		} satisfies BridgeProductTransportSession;
 		const controller = new BridgeCommWorkerProductController({
-			onFileAnnotationEvent: (event): void => {
-				observedFileEvents.push(event);
-			},
 			onFileMetadataEvent: (): void => {},
-			onReviewAnnotationEvent: (event): void => {
-				observedReviewEvents.push(event);
-			},
 			productTransport,
 		});
 		const projectionEvent = {
-			eventKind: 'projection.state',
-			payload: {
-				commandOutcomes: [],
-				expectedThreadCount: 0,
-				outputHistory: [],
-				recoveryStatus: 'available',
-				revision: 1,
-				sessions: [],
-				worktreeId: '00000000-0000-7000-8000-000000000001',
-			},
+			eventKind: 'snapshot.required',
+			sourceGeneration: 1,
+			worktreeId: 'worktree-1',
 		} as const;
 
 		controller.ensureAnnotationSubscriptions();
@@ -95,19 +90,26 @@ describe('Bridge comm worker product controller', () => {
 			params: { operation: { kind: 'session.discover' } },
 		});
 		await Promise.resolve();
-
 		expect(subscribedKinds).toEqual(['file.annotations', 'review.annotations']);
 		expect(calledMethods).toEqual(['file.annotations.command', 'review.annotations.command']);
 		expect(fileResult).toEqual({
-			kind: 'accepted',
-			requestId: 'file.annotations.command-request-1',
+			kind: 'completed',
+			outcome: {
+				requestId: 'file.annotations.command-request-1',
+				sessionId: null,
+				status: { kind: 'committed' },
+				surface: 'file',
+			},
 		});
 		expect(reviewResult).toEqual({
-			kind: 'accepted',
-			requestId: 'review.annotations.command-request-1',
+			kind: 'completed',
+			outcome: {
+				requestId: 'review.annotations.command-request-1',
+				sessionId: null,
+				status: { kind: 'committed' },
+				surface: 'review',
+			},
 		});
-		expect(observedFileEvents).toEqual([projectionEvent]);
-		expect(observedReviewEvents).toEqual([projectionEvent]);
 	});
 
 	test('opens one Review metadata subscription and reconciles lane interests in the comm worker', async () => {

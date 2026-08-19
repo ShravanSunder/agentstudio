@@ -23,6 +23,11 @@ import {
 } from './worktree-annotation-inline-surface.js';
 import { validateWorktreeAnnotationMarkdown } from './worktree-annotation-markdown-policy.js';
 import { WorktreeAnnotationMessageBody } from './worktree-annotation-message-body.js';
+import {
+	messageCommandCursorFromOutcome,
+	messageCommandCursorFromProjection,
+	newestMessageCommandCursor,
+} from './worktree-annotation-message-command-cursor.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationProjectionSnapshot,
@@ -103,6 +108,12 @@ export function WorktreeAnnotationMessageEditor(
 	const { canEdit, isEditing, onFinishEdit } = props;
 	const annotationClient = useWorktreeAnnotationSurfaceClient();
 	const projection = useWorktreeAnnotationProjection();
+	const commandCursorRef = useRef(messageCommandCursorFromProjection(props.message));
+	commandCursorRef.current =
+		newestMessageCommandCursor(
+			commandCursorRef.current,
+			messageCommandCursorFromProjection(props.message),
+		) ?? commandCursorRef.current;
 	const initialBody = props.message.draft?.body ?? props.message.savedBody ?? '';
 	const acknowledgedBody = props.message.draft?.body ?? props.message.savedBody;
 	const editingSeedRef = useRef({
@@ -134,35 +145,30 @@ export function WorktreeAnnotationMessageEditor(
 			new WorktreeAnnotationDraftScheduler({
 				clock: browserWorktreeAnnotationDraftClock,
 				persist: async (nextBody): Promise<void> => {
-					const currentMessage = currentMessageById(
+					const projectedMessage = currentMessageById(
 						annotationClient.getSnapshot(),
 						props.message.messageId,
 					);
-					if (currentMessage === null) throw new Error('Annotation message is unavailable.');
+					const cursor = newestMessageCommandCursor(
+						commandCursorRef.current,
+						projectedMessage === null ? null : messageCommandCursorFromProjection(projectedMessage),
+					);
+					if (cursor === null) throw new Error('Annotation command cursor is unavailable.');
 					const outcome = await annotationClient.execute({
 						body: nextBody,
 						editToken,
-						expectedDraftRevision: currentMessage.draft?.revision ?? null,
-						expectedSessionRevision: currentMessage.sessionRevision,
+						expectedDraftRevision: cursor.draftRevision,
+						expectedSessionRevision: cursor.sessionRevision,
 						kind: 'draft.flush',
-						messageId: currentMessage.messageId,
-						sessionId: currentMessage.sessionId,
+						messageId: cursor.messageId,
+						sessionId: cursor.sessionId,
 					});
 					assertCommittedAnnotationOutcome(outcome);
-					await annotationClient.waitForSnapshot((snapshot) => {
-						const projectedMessage = currentMessageById(snapshot, currentMessage.messageId);
-						if (currentMessage.savedBody === null && nextBody.trim().length === 0) {
-							return projectedMessage === null ? currentMessage : null;
-						}
-						return projectedMessage?.draft?.body === nextBody ? projectedMessage : null;
-					});
+					commandCursorRef.current = messageCommandCursorFromOutcome(outcome);
 				},
 			}),
 		[annotationClient, editToken, props.message.messageId],
 	);
-	useEffect((): void => {
-		if (projection.transportStatus.kind === 'available') scheduler.retryFailedPersistence();
-	}, [projection.transportStatus.kind, scheduler]);
 	useEffect((): (() => void) | undefined => {
 		if (!props.isEditing) return undefined;
 		let effectIsActive = true;
@@ -210,28 +216,28 @@ export function WorktreeAnnotationMessageEditor(
 		try {
 			if (!validation.ok) throw new Error(annotationMarkdownValidationMessage(validation.code));
 			await scheduler.save(async (): Promise<void> => {
-				const currentMessage = currentMessageById(
+				const projectedMessage = currentMessageById(
 					annotationClient.getSnapshot(),
 					props.message.messageId,
 				);
-				if (currentMessage?.draft === null || currentMessage === null) {
+				const cursor = newestMessageCommandCursor(
+					commandCursorRef.current,
+					projectedMessage === null ? null : messageCommandCursorFromProjection(projectedMessage),
+				);
+				if (cursor === null) throw new Error('Annotation command cursor is unavailable.');
+				if (cursor.draftRevision === null) {
 					throw new Error('No durable draft is available to save.');
 				}
 				const outcome = await annotationClient.execute({
 					editToken,
-					expectedDraftRevision: currentMessage.draft.revision,
-					expectedSessionRevision: currentMessage.sessionRevision,
+					expectedDraftRevision: cursor.draftRevision,
+					expectedSessionRevision: cursor.sessionRevision,
 					kind: 'draft.save',
-					messageId: currentMessage.messageId,
-					sessionId: currentMessage.sessionId,
+					messageId: cursor.messageId,
+					sessionId: cursor.sessionId,
 				});
 				assertCommittedAnnotationOutcome(outcome);
-				await annotationClient.waitForSnapshot((snapshot) => {
-					const savedMessage = currentMessageById(snapshot, currentMessage.messageId);
-					return savedMessage?.draft === null && savedMessage.savedBody === body
-						? savedMessage
-						: null;
-				});
+				commandCursorRef.current = messageCommandCursorFromOutcome(outcome);
 			});
 			props.onFinishEdit();
 		} catch (error: unknown) {
@@ -241,23 +247,28 @@ export function WorktreeAnnotationMessageEditor(
 	const revert = async (): Promise<void> => {
 		if (!props.canEdit) return;
 		setOperationError(null);
-		const currentMessage = currentMessageById(projection, props.message.messageId);
-		if (currentMessage?.draft === null || currentMessage === null) {
-			setBody(currentMessage?.savedBody ?? '');
+		const projectedMessage = currentMessageById(projection, props.message.messageId);
+		const cursor = newestMessageCommandCursor(
+			commandCursorRef.current,
+			projectedMessage === null ? null : messageCommandCursorFromProjection(projectedMessage),
+		);
+		if (cursor === null) throw new Error('Annotation command cursor is unavailable.');
+		if (cursor.draftRevision === null) {
+			setBody(projectedMessage?.savedBody ?? props.message.savedBody ?? '');
 			props.onFinishEdit();
 			return;
 		}
 		try {
 			const outcome = await annotationClient.execute({
 				editToken,
-				expectedDraftRevision: currentMessage.draft.revision,
-				expectedSessionRevision: currentMessage.sessionRevision,
+				expectedDraftRevision: cursor.draftRevision,
+				expectedSessionRevision: cursor.sessionRevision,
 				kind: 'draft.revert',
-				messageId: currentMessage.messageId,
-				sessionId: currentMessage.sessionId,
+				messageId: cursor.messageId,
+				sessionId: cursor.sessionId,
 			});
 			assertCommittedAnnotationOutcome(outcome);
-			setBody(currentMessage.savedBody ?? '');
+			setBody(projectedMessage?.savedBody ?? props.message.savedBody ?? '');
 			props.onFinishEdit();
 		} catch (error: unknown) {
 			setOperationError(annotationErrorMessage(error));

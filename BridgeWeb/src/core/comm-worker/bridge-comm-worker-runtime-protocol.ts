@@ -1,9 +1,8 @@
 import { runBridgeCommWorkerAnnotationOutputCandidatesQuery } from './bridge-comm-worker-annotation-output-candidates-query.js';
 import { runBridgeCommWorkerAnnotationOutputInspection } from './bridge-comm-worker-annotation-output-inspection.js';
-import { runAnnotationProjectionResyncWithDeadline } from './bridge-comm-worker-annotation-projection-resync.js';
 import {
 	bridgeCommWorkerAnnotationCommandAcceptedEvent,
-	bridgeCommWorkerAnnotationProjectionEvent,
+	bridgeCommWorkerAnnotationProjectionConvergenceEvent,
 } from './bridge-comm-worker-annotation-runtime-events.js';
 import {
 	createBridgeCommWorkerCommandHandler,
@@ -79,6 +78,7 @@ import { createWorkerContentPreparationPump } from './bridge-worker-content-prep
 import {
 	bridgeWorkerMainToServerMessageSchema,
 	type BridgeWorkerReviewDisplayPatch,
+	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerFileViewContentOpen } from './bridge-worker-file-view-content-fetch.js';
 import type { BridgeWorkerReviewContentOpen } from './bridge-worker-review-content-fetch.js';
@@ -552,14 +552,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 						? {}
 						: { telemetryClient: props.telemetryClient }),
 				}),
-			isCurrentController: (): boolean => productController === installedProductController,
-			onFileAnnotationEvent: (event, subscriptionId): void => {
+			onAnnotationProjectionConvergence: ({ state, surface }): void => {
 				port.postMessage(
-					bridgeCommWorkerAnnotationProjectionEvent({
-						event,
-						subscriptionId,
-						surface: 'fileView',
-					}),
+					bridgeWorkerAnnotationProjectionConvergenceEventSchema.parse(
+						bridgeCommWorkerAnnotationProjectionConvergenceEvent({ state, surface }),
+					),
 				);
 			},
 			onFileMetadataDemandFailure: (): void => {
@@ -640,15 +637,6 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				publishUpdatingChrome();
 				return receipt;
 			},
-			onReviewAnnotationEvent: (event, subscriptionId): void => {
-				port.postMessage(
-					bridgeCommWorkerAnnotationProjectionEvent({
-						event,
-						subscriptionId,
-						surface: 'review',
-					}),
-				);
-			},
 			onReviewMetadataFailure: (_error, workerDerivationEpoch): void => {
 				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
 				reviewDemandScheduling.updateWorkerDerivationEpoch(workerDerivationEpoch);
@@ -721,22 +709,36 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			bridgeWorkerRuntimeMessagesContainReadyRequest({
 				messages,
 				requestId: parsedMessage.data.requestId,
-			}) &&
-			activeViewerMode !== parsedMessage.data.update.mode
+			})
 		) {
-			activeViewerMode = parsedMessage.data.update.mode;
-			if (activeViewerMode !== 'review') {
-				comparisonTargetsQueryRunner.abort();
-				activeComparisonTargetsProductControlRequestId = null;
-			}
-			if (activeViewerMode === 'file') {
-				reviewDemandScheduling.suspend();
-				resumeLatestSelectedFileViewContentReadyPreparation();
+			const activeSource = parsedMessage.data.update.activeSource;
+			productController?.setAnnotationProjectionSurfaceActive(
+				'file',
+				parsedMessage.data.update.mode === 'file' && activeSource?.protocol === 'worktree-file',
+				activeSource?.protocol === 'worktree-file' ? activeSource.generation : null,
+			);
+			productController?.setAnnotationProjectionSurfaceActive(
+				'review',
+				parsedMessage.data.update.mode === 'review' && activeSource?.protocol === 'review',
+				activeSource?.protocol === 'review' ? activeSource.generation : null,
+			);
+			if (activeViewerMode === parsedMessage.data.update.mode) {
+				publishUpdatingChrome();
 			} else {
-				abortAllFileContentPreparations();
-				reviewDemandScheduling.resume();
+				activeViewerMode = parsedMessage.data.update.mode;
+				if (activeViewerMode !== 'review') {
+					comparisonTargetsQueryRunner.abort();
+					activeComparisonTargetsProductControlRequestId = null;
+				}
+				if (activeViewerMode === 'file') {
+					reviewDemandScheduling.suspend();
+					resumeLatestSelectedFileViewContentReadyPreparation();
+				} else {
+					abortAllFileContentPreparations();
+					reviewDemandScheduling.resume();
+				}
+				publishUpdatingChrome();
 			}
-			publishUpdatingChrome();
 		}
 		if (
 			parsedMessage.data.command === 'renderDisposition' &&
@@ -791,33 +793,6 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				: messages;
 		for (const message of immediateMessages) {
 			port.postMessage(message);
-		}
-		if (parsedMessage.data.command === 'annotationProjectionResync' && messages.length === 0) {
-			const currentController = productController;
-			if (currentController === null) {
-				port.postMessage(
-					buildBridgeWorkerRuntimeCommandFailedHealthEvent({
-						message: 'Annotation projection resync is unavailable.',
-						requestId: parsedMessage.data.requestId,
-					}),
-				);
-			} else {
-				const task = currentController.beginAnnotationProjectionResync({
-					requestId: parsedMessage.data.requestId,
-					subscriptionId: parsedMessage.data.subscriptionId,
-					surface: parsedMessage.data.surface === 'fileView' ? 'file' : 'review',
-				});
-				runAnnotationProjectionResyncWithDeadline({
-					publish: (message): void => port.postMessage(message),
-					...(props.scheduleAnnotationProjectionResyncDeadline === undefined
-						? {}
-						: {
-								scheduleDeadline: props.scheduleAnnotationProjectionResyncDeadline,
-							}),
-					task,
-					timeoutMilliseconds: productControlTimeoutMilliseconds,
-				});
-			}
 		}
 		if (
 			productControlCommand?.command.method === 'review.comparisonTargets.query' &&

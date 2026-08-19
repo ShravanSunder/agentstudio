@@ -60,16 +60,9 @@ describe('Bridge product subscription state', () => {
 					cursor: 'review-annotations-cursor-1',
 					data: {
 						event: {
-							eventKind: 'projection.state',
-							payload: {
-								commandOutcomes: [],
-								expectedThreadCount: 0,
-								outputHistory: [],
-								recoveryStatus: 'available',
-								revision: 1,
-								sessions: [],
-								worktreeId: '00000000-0000-7000-8000-000000000001',
-							},
+							eventKind: 'snapshot.required',
+							sourceGeneration: 1,
+							worktreeId: 'worktree-1',
 						},
 						subscriptionKind: 'review.annotations',
 					},
@@ -89,7 +82,7 @@ describe('Bridge product subscription state', () => {
 		expect(open.workerDerivationEpoch).toBe(1);
 		await expect(nextEvent).resolves.toMatchObject({
 			done: false,
-			value: { eventKind: 'projection.state', payload: { revision: 1 } },
+			value: { eventKind: 'snapshot.required', sourceGeneration: 1 },
 		});
 		subscriptionState.fail(new Error('Subscription-state test cleanup.'));
 	});
@@ -177,4 +170,5 @@ function requireSubscriptionFrame(
 		case 'pane.surfaceSelectionRequested':
 			throw new Error(`Expected a subscription frame, received ${frame.kind}.`);
 	}
+	throw new Error('Unsupported Bridge product metadata frame.');
 }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+	bridgeProductWorktreeAnnotationCommandOutcomeSchema,
 	bridgeProductWorktreeAnnotationEventSchema,
 	bridgeProductWorktreeAnnotationMessageEntrySchema,
 } from './bridge-product-worktree-annotation-contracts.js';
@@ -8,43 +9,60 @@ import {
 const lowercaseSessionId = '01890abc-def0-7abc-8def-0123456789ab';
 
 describe('Bridge product worktree annotation contracts', () => {
-	test('requires a nonnegative fixed-size expected thread count', () => {
-		const projection = annotationProjectionWithSession(lowercaseSessionId);
-		const payload = projection['payload'] as Readonly<Record<string, unknown>>;
-		const { expectedThreadCount: _omitted, ...missingExpectedThreadCount } = payload;
+	test('accepts an exact committed message correlation receipt', () => {
+		const outcome = {
+			receipt: {
+				draftRevision: 0,
+				kind: 'message',
+				messageId: '01890abc-def0-7abc-8def-012345678901',
+				messageRevision: 0,
+				savedRevision: null,
+				sessionRevision: 1,
+				threadId: '01890abc-def0-7abc-8def-012345678902',
+			},
+			requestId: 'annotation-command-1',
+			sessionId: lowercaseSessionId,
+			status: { kind: 'committed' },
+			surface: 'file',
+		} as const;
 
-		expect(
-			bridgeProductWorktreeAnnotationEventSchema.safeParse({
-				...projection,
-				payload: missingExpectedThreadCount,
-			}).success,
-		).toBe(false);
-		for (const expectedThreadCount of [-1, 'unknown']) {
-			expect(
-				bridgeProductWorktreeAnnotationEventSchema.safeParse({
-					...projection,
-					payload: { ...payload, expectedThreadCount },
-				}).success,
-			).toBe(false);
-		}
+		expect(bridgeProductWorktreeAnnotationCommandOutcomeSchema.parse(outcome)).toEqual(outcome);
 	});
 
-	test('admits only lowercase UUIDv7 annotation identities in projections', () => {
-		const lowercaseProjection = annotationProjectionWithSession(lowercaseSessionId);
+	test('accepts only the compact snapshot-required invalidation', () => {
+		const event = {
+			eventKind: 'snapshot.required',
+			sourceGeneration: 7,
+			worktreeId: '00000000-0000-7000-8000-000000000001',
+		} as const;
 
-		expect(bridgeProductWorktreeAnnotationEventSchema.parse(lowercaseProjection)).toEqual(
-			lowercaseProjection,
-		);
-		expect(
-			bridgeProductWorktreeAnnotationEventSchema.safeParse(
-				annotationProjectionWithSession(lowercaseSessionId.toUpperCase()),
-			).success,
-		).toBe(false);
-		expect(
-			bridgeProductWorktreeAnnotationEventSchema.safeParse(
-				annotationProjectionWithSession('01890abc-def0-4abc-8def-0123456789ab'),
-			).success,
-		).toBe(false);
+		expect(bridgeProductWorktreeAnnotationEventSchema.parse(event)).toEqual(event);
+	});
+
+	test('rejects missing, invalid, and unknown invalidation members', () => {
+		const event = {
+			eventKind: 'snapshot.required',
+			sourceGeneration: 7,
+			worktreeId: '00000000-0000-7000-8000-000000000001',
+		} as const;
+		const { sourceGeneration: _sourceGeneration, ...missingSourceGeneration } = event;
+		const { worktreeId: _worktreeId, ...missingWorktreeId } = event;
+
+		for (const rejected of [
+			missingSourceGeneration,
+			missingWorktreeId,
+			{ ...event, eventKind: 'projection.state' },
+			{ ...event, eventKind: 'message.batch' },
+			{ ...event, sourceGeneration: -1 },
+			{ ...event, sourceGeneration: Number.MAX_SAFE_INTEGER + 1 },
+			{ ...event, sourceGeneration: 1.5 },
+			{ ...event, worktreeId: '' },
+			{ ...event, worktreeId: 'x'.repeat(129) },
+			{ ...event, worktreeId: 'worktree with spaces' },
+			{ ...event, payload: { body: 'must not enter metadata' } },
+		] as const) {
+			expect(bridgeProductWorktreeAnnotationEventSchema.safeParse(rejected).success).toBe(false);
+		}
 	});
 
 	test('models saved content, optional draft, and durable status directly', () => {
@@ -96,131 +114,4 @@ describe('Bridge product worktree annotation contracts', () => {
 			);
 		}
 	});
-
-	test('admits only complete located thread contexts', () => {
-		const locatedContext = {
-			diffSide: null,
-			endLine: 12,
-			path: 'Sources/App/View.swift',
-			placement: 'exact',
-			resolution: 'open',
-			scope: 'located',
-			sourceIdentity: 'descriptor-file-1',
-			sourceRole: 'file',
-			startLine: 10,
-			threadId: '01890abc-def0-7abc-8def-012345678902',
-		} as const;
-
-		expect(
-			bridgeProductWorktreeAnnotationEventSchema.parse(annotationMessageBatch(locatedContext)),
-		).toEqual(annotationMessageBatch(locatedContext));
-		for (const rejectedContext of [
-			{ ...locatedContext, scope: 'whole_file' },
-			{ ...locatedContext, scope: 'session' },
-			{ ...locatedContext, path: null },
-			{ ...locatedContext, sourceIdentity: null },
-			{ ...locatedContext, sourceRole: null },
-			{ ...locatedContext, startLine: null },
-			{ ...locatedContext, endLine: null },
-			{ ...locatedContext, endLine: 9 },
-		] as const) {
-			expect(
-				bridgeProductWorktreeAnnotationEventSchema.safeParse(
-					annotationMessageBatch(rejectedContext),
-				).success,
-			).toBe(false);
-		}
-	});
-
-	test('projects strict bounded admission-required outcomes for the blocked inline intent', () => {
-		const admissionOutcome = {
-			requestId: 'annotation-request-1',
-			sessionId: null,
-			status: {
-				candidateSessionIds: [lowercaseSessionId],
-				kind: 'admission_required',
-				reason: 'uncertain_continuity_choice',
-			},
-			surface: 'file',
-		} as const;
-		const admissionRequiredProjection = annotationProjectionWithSession(lowercaseSessionId, [
-			admissionOutcome,
-		]);
-
-		expect(bridgeProductWorktreeAnnotationEventSchema.parse(admissionRequiredProjection)).toEqual(
-			admissionRequiredProjection,
-		);
-		expect(
-			bridgeProductWorktreeAnnotationEventSchema.safeParse(
-				annotationProjectionWithSession(lowercaseSessionId, [
-					{
-						...admissionOutcome,
-						status: {
-							...admissionOutcome.status,
-							candidateSessionIds: [lowercaseSessionId, lowercaseSessionId],
-						},
-					},
-				]),
-			).success,
-		).toBe(false);
-	});
 });
-
-function annotationMessageBatch(
-	context: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
-	return {
-		eventKind: 'message.batch',
-		payload: {
-			context,
-			isLastBatchForThread: true,
-			messages: [
-				{
-					authorKind: 'human',
-					createdAt: 1,
-					draft: null,
-					messageId: '01890abc-def0-7abc-8def-012345678901',
-					messageRevision: 1,
-					ordinal: 0,
-					savedBody: 'Saved body',
-					savedRevision: 1,
-					sessionId: lowercaseSessionId,
-					sessionRevision: 1,
-					status: 'editable',
-					threadId: '01890abc-def0-7abc-8def-012345678902',
-				},
-			],
-			revision: 1,
-		},
-	};
-}
-
-function annotationProjectionWithSession(
-	sessionId: string,
-	commandOutcomes: readonly Readonly<Record<string, unknown>>[] = [],
-): Readonly<Record<string, unknown>> {
-	return {
-		eventKind: 'projection.state',
-		payload: {
-			commandOutcomes,
-			expectedThreadCount: 0,
-			outputHistory: [],
-			recoveryStatus: 'available',
-			revision: 1,
-			sessions: [
-				{
-					completedAt: null,
-					createdAt: 1,
-					eligibleMessageCount: 0,
-					eligibleWithoutInlinePlacementCount: 0,
-					lifecycle: 'living',
-					semanticRevision: 1,
-					sessionId,
-					sourceRelationship: 'applicable',
-					updatedAt: 1,
-				},
-			],
-			worktreeId: 'worktree-1',
-		},
-	};
-}

@@ -329,6 +329,7 @@ function emptyInterestState(
 		case 'review.metadata':
 			return { interests: [], subscriptionKind: 'review.metadata' };
 	}
+	throw new Error('Unsupported Bridge product subscription kind.');
 }
 
 function subscriptionOpenForOptions<TSubscriptionKind extends BridgeProductSubscriptionKind>(

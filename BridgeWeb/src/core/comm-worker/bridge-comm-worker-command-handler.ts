@@ -492,7 +492,6 @@ function handleBridgeWorkerCommand(
 			});
 		case 'annotationOutputInspect':
 		case 'annotationOutputCandidatesQuery':
-		case 'annotationProjectionResync':
 			return [];
 		case 'markFileViewed':
 		case 'annotationCommand':

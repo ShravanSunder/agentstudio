@@ -11,6 +11,7 @@ import {
 	reviewTreeReachablePathScrollTopMap,
 	waitForVisibleReviewTreeFilePath,
 } from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
+import { proveAnnotationSaveSettlesBeforeProjection } from './bridge-viewer-vite-annotation-save-proof.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -20,6 +21,10 @@ import {
 	type BridgeViewerViteProductFixtureOracle,
 	type BridgeViewerViteProductReviewFileOracle,
 } from './bridge-viewer-vite-product-fixture.ts';
+import {
+	bridgeViewerViteProductFileUrl,
+	bridgeViewerViteProductReviewUrl,
+} from './bridge-viewer-vite-product-url.ts';
 import {
 	observeBrowserRuntimeDiagnostics,
 	waitForSettledReviewComparison,
@@ -138,7 +143,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 		try {
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			const contentRequests = observeProductContentRequests(page);
-			await page.goto(productReviewUrl(server.origin), {
+			await page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
@@ -233,7 +238,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			page.on('worker', (worker): void => {
 				workerUrls.push(worker.url());
 			});
-			await page.goto(productFileUrl(server.origin, oracle.largeFilePath), {
+			await page.goto(bridgeViewerViteProductFileUrl(server.origin, oracle.largeFilePath), {
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
@@ -297,6 +302,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			);
 
 			const mutatedContent = await requireMutateLargeFileFixture()();
+			fixtureOracle = { ...oracle, fileContent: mutatedContent };
 			await page.reload({
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
@@ -344,6 +350,16 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 		}
 	});
 
+	test('ends Save progress on committed draft.save while annotation projection content is gated', async () => {
+		const proof = await proveAnnotationSaveSettlesBeforeProjection({
+			oracle: requireFixtureOracle(),
+			server: requireOwnedServer(),
+		});
+		expect(proof.gatedProjectionRequestCount).toBeGreaterThan(0);
+		expect(proof.composerCountAfterCommit).toBe(0);
+		expect(proof.savingControlCount).toBe(0);
+	});
+
 	test('restores a UI-committed symbolic comparison across backend restart and resolves the moved Git target', async () => {
 		// Arrange
 		const fixture = await createBridgeViewerViteProductFixture();
@@ -354,7 +370,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			serverA = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			const pageA = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			const pageADiagnostics = observeBrowserRuntimeDiagnostics(pageA);
-			await pageA.goto(productReviewUrl(serverA.origin), {
+			await pageA.goto(bridgeViewerViteProductReviewUrl(serverA.origin), {
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
@@ -406,7 +422,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			serverB = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			const pageB = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			const pageBDiagnostics = observeBrowserRuntimeDiagnostics(pageB);
-			await pageB.goto(productReviewUrl(serverB.origin), {
+			await pageB.goto(bridgeViewerViteProductReviewUrl(serverB.origin), {
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
@@ -963,22 +979,6 @@ function expectReviewBodyLinesPainted(paintedText: string, expectedBody: string)
 
 function isUnknownRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function productFileUrl(origin: string, path?: string): string {
-	const url = new URL('/', origin);
-	url.searchParams.set('fixture', 'worktree');
-	url.searchParams.set('scenario', 'current-worktree');
-	url.searchParams.set('viewer', 'file');
-	url.searchParams.set('workers', 'on');
-	if (path !== undefined) url.searchParams.set('path', path);
-	return url.toString();
-}
-
-function productReviewUrl(origin: string): string {
-	const url = new URL(productFileUrl(origin));
-	url.searchParams.set('viewer', 'review');
-	return url.toString();
 }
 
 function requireFixtureOracle(): BridgeViewerViteProductFixtureOracle {

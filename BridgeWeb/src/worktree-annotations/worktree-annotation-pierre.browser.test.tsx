@@ -121,7 +121,15 @@ describe('worktree annotation Pierre integration', () => {
 				});
 				await Promise.resolve();
 			});
-			expect(updatedItems).toHaveLength(updatesBeforeMessages);
+			await settleBrowserCondition(
+				(): boolean => (codeView.getItem('item-source')?.annotations ?? []).length === 0,
+				'Expected an incomplete projection to retain the empty annotation publication.',
+			);
+			expect(
+				updatedItems
+					.slice(updatesBeforeMessages)
+					.every((item): boolean => (item.annotations ?? []).length === 0),
+			).toBe(true);
 			expect(codeView.getItem('item-source')?.annotations ?? []).toEqual([]);
 
 			await act(async (): Promise<void> => {
@@ -422,7 +430,7 @@ describe('worktree annotation Pierre integration', () => {
 		}
 	});
 
-	test('keeps the exact File reply editor mounted across separate projection state and batches', async () => {
+	test('keeps the exact File reply editor mounted across atomic projection replacements', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rootMessage = annotationMessage({
 			messageId: headMessageId,
@@ -535,21 +543,8 @@ describe('worktree annotation Pierre integration', () => {
 
 		await act(async (): Promise<void> => {
 			surface.settleMostRecentCommitted();
-			surface.publishAnnotationEvent(
-				{
-					eventKind: 'message.batch',
-					payload: {
-						context,
-						isLastBatchForThread: true,
-						messages: [{ ...durableReply, threadId: annotationBaseThreadId }],
-						revision: 2,
-					},
-				},
-				'annotation-browser-subscription-1',
-			);
 			await Promise.resolve();
 		});
-		expect(surface.sentProjectionResyncs).toHaveLength(1);
 		expect(originalTextarea.isConnected).toBe(true);
 		expect(document.activeElement).toBe(originalTextarea);
 		expect(originalTextarea.value).toBe('h');
@@ -558,8 +553,6 @@ describe('worktree annotation Pierre integration', () => {
 			1,
 		);
 		expect(codeViewScrollOwner.scrollTop).toBe(scrollTopBeforeOverlay);
-		const resyncRequest = surface.sentProjectionResyncs[0];
-		if (resyncRequest === undefined) throw new Error('Expected projection resync request.');
 		await act(async (): Promise<void> => {
 			surface.publishProjectionState({
 				expectedThreadCount: 1,
@@ -567,7 +560,6 @@ describe('worktree annotation Pierre integration', () => {
 				sessions: [annotationSessionSummary({ revision: 2, sessionId: annotationSessionId })],
 				subscriptionId: 'annotation-browser-subscription-2',
 			});
-			surface.publishHealth(resyncRequest.workerRequestId, 'ready');
 			surface.publishThreadMessages({
 				context,
 				messages: [{ ...rootMessage, sessionRevision: 2 }, durableReply],

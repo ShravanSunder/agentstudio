@@ -1,4 +1,4 @@
-import { RotateCcw, Save } from 'lucide-react';
+import { LoaderCircle, RotateCcw, Save } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
 import { Textarea } from '@/components/ui/textarea.js';
@@ -25,6 +25,12 @@ import {
 	WorktreeAnnotationInlineSurface,
 } from './worktree-annotation-inline-surface.js';
 import { validateWorktreeAnnotationMarkdown } from './worktree-annotation-markdown-policy.js';
+import {
+	messageCommandCursorFromOutcome,
+	messageCommandCursorFromProjection,
+	newestMessageCommandCursor,
+	type WorktreeAnnotationMessageCommandCursor,
+} from './worktree-annotation-message-command-cursor.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationProjectionSnapshot,
@@ -33,6 +39,7 @@ import {
 	useWorktreeAnnotationDeferredEditRelease,
 	useWorktreeAnnotationEditSurfaceToken,
 	useWorktreeAnnotationProjection,
+	useWorktreeAnnotationSessionDemand,
 	useWorktreeAnnotationSurfaceClient,
 } from './worktree-annotation-surface-provider.js';
 
@@ -61,6 +68,8 @@ type WorktreeAnnotationAdmissionDecision =
 	| { readonly kind: 'continue'; readonly sessionId: string }
 	| { readonly kind: 'newSession' };
 
+type WorktreeAnnotationSavePhase = 'idle' | 'saving';
+
 export function WorktreeAnnotationNewMessageComposer(
 	props: WorktreeAnnotationNewMessageComposerProps,
 ): ReactElement {
@@ -75,6 +84,10 @@ export function WorktreeAnnotationNewMessageComposer(
 	const [body, setBody] = useState(initialDurableBody ?? '');
 	const [isDurable, setIsDurable] = useState(initialDurableMessage !== null);
 	const [operationError, setOperationError] = useState<string | null>(null);
+	const [savePhase, setSavePhase] = useState<WorktreeAnnotationSavePhase>('idle');
+	const [demandedSessionId, setDemandedSessionId] = useState<string | null>(
+		initialDurableMessage?.sessionId ?? null,
+	);
 	const [pendingAdmission, setPendingAdmission] = useState<{
 		readonly requirement: WorktreeAnnotationAdmissionRequirement;
 		readonly resolve: (decision: WorktreeAnnotationAdmissionDecision) => void;
@@ -82,7 +95,13 @@ export function WorktreeAnnotationNewMessageComposer(
 	const admissionAnchorRef = useRef<HTMLDivElement | null>(null);
 	const hasLocalEditSinceMountRef = useRef(false);
 	const targetMessageIdRef = useRef<string | null>(initialDurableMessage?.messageId ?? null);
+	const targetMessageCursorRef = useRef<WorktreeAnnotationMessageCommandCursor | null>(
+		initialDurableMessage === null
+			? null
+			: messageCommandCursorFromProjection(initialDurableMessage),
+	);
 	useWorktreeAnnotationEditSurfaceToken(editTokenRef.current);
+	useWorktreeAnnotationSessionDemand(demandedSessionId);
 	const releaseWhenEditInactive = useWorktreeAnnotationDeferredEditRelease();
 	const createOperationRef = useRef(props.createOperation);
 	createOperationRef.current = props.createOperation;
@@ -132,42 +151,48 @@ export function WorktreeAnnotationNewMessageComposer(
 							);
 						}
 						assertCommittedAnnotationOutcome(outcome);
-						const createdMessage = await annotationClient.waitForSnapshot((snapshot) =>
-							messageByEditToken(snapshot, editTokenRef.current),
-						);
-						targetMessageIdRef.current = createdMessage.messageId;
+						if (outcome.sessionId === null) {
+							throw new Error('Committed annotation draft did not identify its session.');
+						}
+						const cursor = messageCommandCursorFromOutcome(outcome);
+						if (cursor.draftRevision === null) {
+							throw new Error('Committed annotation draft did not identify its draft revision.');
+						}
+						setDemandedSessionId(outcome.sessionId);
+						targetMessageIdRef.current = cursor.messageId;
+						targetMessageCursorRef.current = cursor;
 						setIsDurable(true);
 						return;
 					}
-					const currentMessage = currentMessageById(
+					const projectedMessage = currentMessageById(
 						annotationClient.getSnapshot(),
 						targetMessageIdRef.current,
 					);
-					if (currentMessage === null) throw new Error('Created annotation is unavailable.');
+					const cursor = newestMessageCommandCursor(
+						targetMessageCursorRef.current,
+						projectedMessage === null ? null : messageCommandCursorFromProjection(projectedMessage),
+					);
+					if (cursor === null) throw new Error('Created annotation command cursor is unavailable.');
 					const outcome = await annotationClient.execute({
 						body: nextBody,
 						editToken: editTokenRef.current,
-						expectedDraftRevision: currentMessage.draft?.revision ?? null,
-						expectedSessionRevision: currentMessage.sessionRevision,
+						expectedDraftRevision: cursor.draftRevision,
+						expectedSessionRevision: cursor.sessionRevision,
 						kind: 'draft.flush',
-						messageId: currentMessage.messageId,
-						sessionId: currentMessage.sessionId,
+						messageId: cursor.messageId,
+						sessionId: cursor.sessionId,
 					});
 					assertCommittedAnnotationOutcome(outcome);
-					await annotationClient.waitForSnapshot((snapshot) => {
-						const projectedMessage = currentMessageById(snapshot, currentMessage.messageId);
-						if (currentMessage.savedBody === null && nextBody.trim().length === 0) {
-							return projectedMessage === null ? currentMessage : null;
-						}
-						return projectedMessage?.draft?.body === nextBody ? projectedMessage : null;
-					});
+					if (nextBody.trim().length === 0 && cursor.savedRevision === null) {
+						targetMessageCursorRef.current = null;
+						targetMessageIdRef.current = null;
+						return;
+					}
+					targetMessageCursorRef.current = messageCommandCursorFromOutcome(outcome);
 				},
 			}),
 		[annotationClient, initialDurableBody],
 	);
-	useEffect((): void => {
-		if (projection.transportStatus.kind === 'available') scheduler.retryFailedPersistence();
-	}, [projection.transportStatus.kind, scheduler]);
 	useEffect(
 		(): (() => void) => (): void => {
 			void scheduler
@@ -191,8 +216,13 @@ export function WorktreeAnnotationNewMessageComposer(
 	useEffect((): void => {
 		const projectedDraft = projectedDurableMessage?.draft ?? null;
 		if (projectedDurableMessage === null || projectedDraft === null) return;
+		targetMessageCursorRef.current = newestMessageCommandCursor(
+			targetMessageCursorRef.current,
+			messageCommandCursorFromProjection(projectedDurableMessage),
+		);
 		if (targetMessageIdRef.current === projectedDurableMessage.messageId && isDurable) return;
 		targetMessageIdRef.current = projectedDurableMessage.messageId;
+		setDemandedSessionId(projectedDurableMessage.sessionId);
 		scheduler.adoptAcknowledgedBody({
 			body: projectedDraft.body,
 			preserveCurrentBody: hasLocalEditSinceMountRef.current,
@@ -221,28 +251,37 @@ export function WorktreeAnnotationNewMessageComposer(
 		return registerExitHandler(flushAndExit);
 	}, [flushAndExit, registerExitHandler]);
 	const save = async (): Promise<void> => {
+		if (savePhase !== 'idle') return;
 		setOperationError(null);
+		setSavePhase('saving');
 		try {
 			if (!validation.ok) throw new Error(annotationMarkdownValidationMessage(validation.code));
 			await scheduler.save(async (): Promise<void> => {
 				const messageId = targetMessageIdRef.current;
-				const currentMessage =
+				const projectedMessage =
 					messageId === null ? null : currentMessageById(annotationClient.getSnapshot(), messageId);
-				if (currentMessage?.draft === null || currentMessage === null) {
+				const cursor = newestMessageCommandCursor(
+					targetMessageCursorRef.current,
+					projectedMessage === null ? null : messageCommandCursorFromProjection(projectedMessage),
+				);
+				if (cursor === null || cursor.draftRevision === null) {
 					throw new Error('No durable draft is available to save.');
 				}
 				const outcome = await annotationClient.execute({
 					editToken: editTokenRef.current,
-					expectedDraftRevision: currentMessage.draft.revision,
-					expectedSessionRevision: currentMessage.sessionRevision,
+					expectedDraftRevision: cursor.draftRevision,
+					expectedSessionRevision: cursor.sessionRevision,
 					kind: 'draft.save',
-					messageId: currentMessage.messageId,
-					sessionId: currentMessage.sessionId,
+					messageId: cursor.messageId,
+					sessionId: cursor.sessionId,
 				});
 				assertCommittedAnnotationOutcome(outcome);
+				targetMessageCursorRef.current = messageCommandCursorFromOutcome(outcome);
 			});
+			setSavePhase('idle');
 			props.onSaved();
 		} catch (error: unknown) {
+			setSavePhase('idle');
 			setOperationError(annotationErrorMessage(error));
 		}
 	};
@@ -253,19 +292,23 @@ export function WorktreeAnnotationNewMessageComposer(
 			props.onCancel();
 			return;
 		}
-		const currentMessage = currentMessageById(annotationClient.getSnapshot(), messageId);
-		if (currentMessage?.draft === null || currentMessage === null) {
+		const projectedMessage = currentMessageById(annotationClient.getSnapshot(), messageId);
+		const cursor = newestMessageCommandCursor(
+			targetMessageCursorRef.current,
+			projectedMessage === null ? null : messageCommandCursorFromProjection(projectedMessage),
+		);
+		if (cursor === null || cursor.draftRevision === null) {
 			props.onCancel();
 			return;
 		}
 		try {
 			const outcome = await annotationClient.execute({
 				editToken: editTokenRef.current,
-				expectedDraftRevision: currentMessage.draft.revision,
-				expectedSessionRevision: currentMessage.sessionRevision,
+				expectedDraftRevision: cursor.draftRevision,
+				expectedSessionRevision: cursor.sessionRevision,
 				kind: 'draft.revert',
-				messageId: currentMessage.messageId,
-				sessionId: currentMessage.sessionId,
+				messageId: cursor.messageId,
+				sessionId: cursor.sessionId,
 			});
 			assertCommittedAnnotationOutcome(outcome);
 			props.onCancel();
@@ -284,6 +327,7 @@ export function WorktreeAnnotationNewMessageComposer(
 					commands={
 						<>
 							<WorktreeAnnotationCommandButton
+								disabled={savePhase !== 'idle'}
 								label="Revert draft"
 								onClick={() => void revert()}
 								preserveEditorFocus
@@ -291,13 +335,13 @@ export function WorktreeAnnotationNewMessageComposer(
 								<RotateCcw />
 							</WorktreeAnnotationCommandButton>
 							<WorktreeAnnotationCommandButton
-								disabled={!validation.ok}
-								label="Save annotation"
+								disabled={!validation.ok || savePhase !== 'idle'}
+								label={savePhase === 'saving' ? 'Saving annotation' : 'Save annotation'}
 								onClick={() => void save()}
 								preserveEditorFocus
 								primary
 							>
-								<Save />
+								{savePhase === 'idle' ? <Save /> : <LoaderCircle className="animate-spin" />}
 							</WorktreeAnnotationCommandButton>
 						</>
 					}
@@ -306,7 +350,9 @@ export function WorktreeAnnotationNewMessageComposer(
 						<>
 							<span className="font-medium text-comment-foreground">You</span>
 							<span aria-hidden="true">·</span>
-							{isDurable ? (
+							{savePhase === 'saving' ? (
+								<span>Saving draft…</span>
+							) : isDurable ? (
 								<>
 									<span className="inline-flex items-center gap-1 font-medium text-warning">
 										<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
@@ -321,12 +367,16 @@ export function WorktreeAnnotationNewMessageComposer(
 						</>
 					}
 				>
-					<div data-testid="worktree-annotation-new-message-composer">
+					<div
+						aria-busy={savePhase === 'idle' ? undefined : true}
+						data-testid="worktree-annotation-new-message-composer"
+					>
 						<Textarea
 							autoFocus
 							aria-label={props.placeholder}
 							className="min-h-16 border-0 bg-comment-composer-bg p-0 shadow-none focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-ring/30"
 							placeholder={props.placeholder}
+							readOnly={savePhase !== 'idle'}
 							value={body}
 							onBlur={(event) => {
 								const surface = event.currentTarget.closest(
@@ -356,7 +406,11 @@ export function WorktreeAnnotationNewMessageComposer(
 								scheduler.edit(nextBody);
 							}}
 							onKeyDown={(event) => {
-								if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+								if (
+									event.key === 'Enter' &&
+									(event.metaKey || event.ctrlKey) &&
+									savePhase === 'idle'
+								) {
 									event.preventDefault();
 									void save();
 								} else if (event.key === 'Escape') {

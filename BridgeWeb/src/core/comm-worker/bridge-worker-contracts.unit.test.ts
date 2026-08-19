@@ -22,38 +22,7 @@ import {
 import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 
 describe('BridgeWorkerContracts', () => {
-	test('carries one strict internal annotation projection resync command', () => {
-		const command = {
-			command: 'annotationProjectionResync',
-			direction: 'mainToServerWorker',
-			epoch: 4,
-			failureClass: 'duplicateTerminal',
-			kind: 'command',
-			requestId: 'annotation-resync-request-1',
-			revision: 9,
-			subscriptionId: 'file-annotations-subscription-1',
-			surface: 'fileView',
-			transferDescriptors: [],
-			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-		} as const;
-
-		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
-		for (const invalidCommand of [
-			{ ...command, failureClass: 'unknown' },
-			{ ...command, revision: -1 },
-			{ ...command, subscriptionId: '' },
-			{ ...command, surface: 'pane' },
-			{ ...command, unexpected: true },
-		]) {
-			expect(bridgeWorkerMainToServerMessageSchema.safeParse(invalidCommand).success).toBe(false);
-		}
-		const { failureClass: _omitted, ...missingFailureClass } = command;
-		expect(bridgeWorkerMainToServerMessageSchema.safeParse(missingFailureClass).success).toBe(
-			false,
-		);
-	});
-
-	test('carries strict annotation commands, acceptance correlation, and projections per surface', () => {
+	test('carries strict annotation commands, acceptance correlation, and complete snapshots per surface', () => {
 		const command = {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			direction: 'mainToServerWorker',
@@ -74,37 +43,49 @@ describe('BridgeWorkerContracts', () => {
 			surface: command.surface,
 			transferDescriptors: [],
 		} as const;
-		const projection = {
+		const readyConvergence = {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			direction: 'serverWorkerToMain',
-			kind: 'annotationProjection',
-			subscriptionId: 'file-annotations-subscription-1',
+			kind: 'annotationProjectionConvergence',
 			surface: command.surface,
 			transferDescriptors: [],
-			event: {
-				eventKind: 'projection.state',
-				payload: {
-					commandOutcomes: [
-						{
-							requestId: 'annotation-product-request-1',
-							sessionId: '00000000-0000-7000-8000-000000000002',
-							status: { code: 'session_read_only', kind: 'failed' },
-							surface: 'file',
-						},
-					],
+			state: {
+				kind: 'ready',
+				snapshot: {
+					expectedMessageCount: 0,
+					expectedSessionCount: 0,
 					expectedThreadCount: 0,
-					outputHistory: [],
+					projectionRevision: 1,
 					recoveryStatus: 'available',
-					revision: 1,
 					sessions: [],
-					worktreeId: '00000000-0000-7000-8000-000000000001',
+					sourceGeneration: 1,
+					threads: [],
+					worktreeId: 'worktree-1',
 				},
 			},
+		} as const;
+		const projectionRefreshing = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			state: { kind: 'refreshing' },
+			surface: command.surface,
+			transferDescriptors: [],
+		} as const;
+		const projectionUnavailable = {
+			...projectionRefreshing,
+			state: { kind: 'unavailable', retryable: true },
 		} as const;
 
 		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
 		expect(bridgeWorkerServerToMainMessageSchema.parse(accepted)).toEqual(accepted);
-		expect(bridgeWorkerServerToMainMessageSchema.parse(projection)).toEqual(projection);
+		expect(bridgeWorkerServerToMainMessageSchema.parse(readyConvergence)).toEqual(readyConvergence);
+		expect(bridgeWorkerServerToMainMessageSchema.parse(projectionRefreshing)).toEqual(
+			projectionRefreshing,
+		);
+		expect(bridgeWorkerServerToMainMessageSchema.parse(projectionUnavailable)).toEqual(
+			projectionUnavailable,
+		);
 		expect(
 			bridgeWorkerMainToServerMessageSchema.safeParse({
 				...command,
@@ -113,7 +94,7 @@ describe('BridgeWorkerContracts', () => {
 		).toBe(false);
 		expect(
 			bridgeWorkerServerToMainMessageSchema.safeParse({
-				...projection,
+				...readyConvergence,
 				surface: 'all',
 			}).success,
 		).toBe(false);

@@ -29,7 +29,15 @@ describe('Bridge product call contracts', () => {
 			const request = { method, request: { operation: { kind: 'session.discover' } } } as const;
 			const result = {
 				method,
-				result: { kind: 'accepted', requestId: 'annotation-product-call-1' },
+				result: {
+					kind: 'completed',
+					outcome: {
+						requestId: 'annotation-product-call-1',
+						sessionId: null,
+						status: { kind: 'committed' },
+						surface: method === 'file.annotations.command' ? 'file' : 'review',
+					},
+				},
 			} as const;
 
 			expect(bridgeProductCallRequestSchema.parse(request)).toEqual(request);
@@ -37,7 +45,7 @@ describe('Bridge product call contracts', () => {
 			expect(
 				bridgeProductCallResultSchema.safeParse({
 					method,
-					result: { kind: 'accepted' },
+					result: { kind: 'completed' },
 				}).success,
 			).toBe(false);
 			expect(

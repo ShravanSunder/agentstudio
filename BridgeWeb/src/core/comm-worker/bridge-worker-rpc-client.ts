@@ -148,7 +148,6 @@ function bridgeWorkerCommandMatchesSurface(
 		case 'annotationCommand':
 		case 'annotationOutputCandidatesQuery':
 		case 'annotationOutputInspect':
-		case 'annotationProjectionResync':
 			return command.surface === surface;
 		case 'fileDisplayResync':
 		case 'fileQueryUpdate':
@@ -218,7 +217,7 @@ function bridgeWorkerMessageMatchesSurface(
 		case 'annotationCommandAccepted':
 		case 'annotationOutputCandidatesPage':
 		case 'annotationOutputInspection':
-		case 'annotationProjection':
+		case 'annotationProjectionConvergence':
 			return message.surface === surface;
 		case 'health':
 			return true;

@@ -566,7 +566,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			pendingNativeSurfaceSelection !== null &&
 			pendingNativeSurfaceSelection.request.navigationCommand.surface === currentActiveViewerMode
 		) {
-			const nativeSignalKey = `native:${pendingNativeSurfaceSelection.arrivalRevision}:${pendingNativeSurfaceSelection.request.navigationCommand.commandId}`;
+			const nativeSignalKey = `native:${pendingNativeSurfaceSelection.arrivalRevision}:${pendingNativeSurfaceSelection.request.navigationCommand.commandId}:${activeSource?.streamId ?? 'pending-source'}:${activeSource?.generation ?? -1}`;
 			if (lastSentActiveViewerModeSignalKeyRef.current === nativeSignalKey) {
 				return;
 			}

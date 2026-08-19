@@ -451,6 +451,7 @@ function createPanePresentationTestTransport(props: {
 		},
 		subscribe: ((subscriptionKind: string): never => {
 			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The generic fixture closes over the requested annotation subscription kind.
 				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
 			}
 			if (subscriptionKind !== 'file.metadata') return reviewSubscription as never;

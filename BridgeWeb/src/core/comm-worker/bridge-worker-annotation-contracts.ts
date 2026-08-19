@@ -1,8 +1,9 @@
 import { z } from 'zod';
 
+import { bridgeWorkerAnnotationProjectionSnapshotSchema } from './bridge-comm-worker-annotation-projection-decoder.js';
 import { bridgeProductWorktreeAnnotationOperationSchema } from './bridge-product-call-contracts.js';
 import { bridgeProductIdentifierSchema } from './bridge-product-contract-primitives.js';
-import { bridgeProductWorktreeAnnotationEventSchema } from './bridge-product-worktree-annotation-contracts.js';
+import { bridgeProductWorktreeAnnotationCommandOutcomeSchema } from './bridge-product-worktree-annotation-contracts.js';
 import {
 	bridgeProductAnnotationOutputContentDescriptorSchema,
 	bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
@@ -15,13 +16,6 @@ import {
 	bridgeWorkerRequestIdSchema,
 	bridgeWorkerServerToMainBaseSchema,
 } from './bridge-worker-wire-base-contracts.js';
-
-export const bridgeWorkerAnnotationProjectionFailureClassSchema = z.enum([
-	'excessThreadCount',
-	'duplicateTerminal',
-	'postTerminalBatch',
-	'messageIdentityViolation',
-]);
 
 export const bridgeWorkerAnnotationCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
@@ -48,34 +42,33 @@ export const bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema =
 		})
 		.strict();
 
-export const bridgeWorkerAnnotationProjectionResyncCommandSchema =
-	bridgeWorkerMainToServerBaseSchema
-		.extend({
-			command: z.literal('annotationProjectionResync'),
-			failureClass: bridgeWorkerAnnotationProjectionFailureClassSchema,
-			revision: z.number().int().nonnegative(),
-			subscriptionId: bridgeProductIdentifierSchema,
-			surface: bridgeWorkerInteractionSurfaceSchema,
-		})
-		.strict();
-
 export const bridgeWorkerAnnotationCommandAcceptedEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
 		kind: z.literal('annotationCommandAccepted'),
+		outcome: bridgeProductWorktreeAnnotationCommandOutcomeSchema.optional(),
 		productRequestId: bridgeProductIdentifierSchema,
 		requestId: bridgeWorkerRequestIdSchema,
 		surface: bridgeWorkerInteractionSurfaceSchema,
 	})
 	.strict();
 
-export const bridgeWorkerAnnotationProjectionEventSchema = bridgeWorkerServerToMainBaseSchema
-	.extend({
-		event: bridgeProductWorktreeAnnotationEventSchema,
-		kind: z.literal('annotationProjection'),
-		subscriptionId: bridgeProductIdentifierSchema,
-		surface: bridgeWorkerInteractionSurfaceSchema,
-	})
-	.strict();
+export const bridgeWorkerAnnotationProjectionConvergenceEventSchema =
+	bridgeWorkerServerToMainBaseSchema
+		.extend({
+			kind: z.literal('annotationProjectionConvergence'),
+			state: z.discriminatedUnion('kind', [
+				z.object({ kind: z.literal('refreshing') }).strict(),
+				z.object({ kind: z.literal('unavailable'), retryable: z.boolean() }).strict(),
+				z
+					.object({
+						kind: z.literal('ready'),
+						snapshot: bridgeWorkerAnnotationProjectionSnapshotSchema,
+					})
+					.strict(),
+			]),
+			surface: bridgeWorkerInteractionSurfaceSchema,
+		})
+		.strict();
 
 const bridgeWorkerArrayBufferSchema = z.custom<ArrayBuffer>(
 	(value): value is ArrayBuffer => value instanceof ArrayBuffer,
@@ -141,12 +134,6 @@ export type BridgeWorkerAnnotationOutputInspectCommand = z.infer<
 export type BridgeWorkerAnnotationOutputCandidatesQueryCommand = z.infer<
 	typeof bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema
 >;
-export type BridgeWorkerAnnotationProjectionFailureClass = z.infer<
-	typeof bridgeWorkerAnnotationProjectionFailureClassSchema
->;
-export type BridgeWorkerAnnotationProjectionResyncCommand = z.infer<
-	typeof bridgeWorkerAnnotationProjectionResyncCommandSchema
->;
 export type BridgeWorkerAnnotationOutputInspectionEvent = z.infer<
 	typeof bridgeWorkerAnnotationOutputInspectionEventSchema
 >;
@@ -156,6 +143,6 @@ export type BridgeWorkerAnnotationOutputCandidatesPageEvent = z.infer<
 export type BridgeWorkerAnnotationCommandAcceptedEvent = z.infer<
 	typeof bridgeWorkerAnnotationCommandAcceptedEventSchema
 >;
-export type BridgeWorkerAnnotationProjectionEvent = z.infer<
-	typeof bridgeWorkerAnnotationProjectionEventSchema
+export type BridgeWorkerAnnotationProjectionConvergenceEvent = z.infer<
+	typeof bridgeWorkerAnnotationProjectionConvergenceEventSchema
 >;

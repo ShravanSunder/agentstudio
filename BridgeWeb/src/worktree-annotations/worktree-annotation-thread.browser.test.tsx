@@ -416,7 +416,7 @@ describe('worktree annotation inline thread', () => {
 			surface.sentOperations
 				.map((operation) => operation.kind)
 				.filter((kind) => kind !== 'session.discover'),
-		).toEqual(['reply.create', 'draft.save']);
+		).toEqual(['reply.create', 'demand.acquire', 'source.refresh', 'output.history', 'draft.save']);
 	});
 
 	test('keeps an edit token active until every overlapping composer unregisters', async () => {
@@ -498,7 +498,15 @@ describe('worktree annotation inline thread', () => {
 		});
 
 		await act(async (): Promise<void> => {
-			surface.settleMostRecentCommitted();
+			surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'draft.save');
+			await Promise.resolve();
+		});
+		await settleBrowserCondition(
+			(): boolean => document.querySelector('[aria-label="Annotation Markdown"]') === null,
+			'Expected the exact committed Save receipt to close the editor before projection.',
+		);
+		await expect.element(rendered.getByTestId('worktree-annotation-thread-overlay')).toBeVisible();
+		await act(async (): Promise<void> => {
 			surface.publishThread({
 				context: locatedContext,
 				message: {
@@ -511,10 +519,6 @@ describe('worktree annotation inline thread', () => {
 			});
 			await Promise.resolve();
 		});
-		await settleBrowserCondition(
-			(): boolean => document.querySelector('[aria-label="Annotation Markdown"]') === null,
-			'Expected the committed Save to close the editor.',
-		);
 		await expect
 			.element(rendered.getByTestId('worktree-annotation-thread').getByText('Reviewed body.'))
 			.toBeVisible();

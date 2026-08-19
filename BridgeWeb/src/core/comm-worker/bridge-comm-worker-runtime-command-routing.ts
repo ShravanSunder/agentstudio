@@ -64,7 +64,6 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 		case 'reviewComparisonTargetsQueryCancel':
 		case 'annotationOutputCandidatesQuery':
 		case 'annotationOutputInspect':
-		case 'annotationProjectionResync':
 		case 'hover':
 		case 'metadataInterestUpdate':
 		case 'fileQueryUpdate':
@@ -88,7 +87,6 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 		case 'annotationCommand':
 		case 'annotationOutputCandidatesQuery':
 		case 'annotationOutputInspect':
-		case 'annotationProjectionResync':
 			return 'selected';
 		case 'select':
 			return 'selected';

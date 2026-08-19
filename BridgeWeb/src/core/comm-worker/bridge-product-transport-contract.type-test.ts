@@ -141,6 +141,7 @@ const surfaceByCallKind = {
 	'file.annotations.command': 'file',
 	'file.annotations.output.inspect': 'file',
 	'file.annotations.output.candidates.query': 'file',
+	'file.annotations.projection.query': 'file',
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'review.activeViewerMode.update': 'review',
@@ -152,6 +153,7 @@ const surfaceByCallKind = {
 	'review.annotations.command': 'review',
 	'review.annotations.output.inspect': 'review',
 	'review.annotations.output.candidates.query': 'review',
+	'review.annotations.projection.query': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
 };
@@ -165,12 +167,32 @@ const surfaceBySubscriptionKind = {
 };
 const surfaceByContentKind = {
 	'annotation.output': 'file',
+	'annotation.projection': 'review',
 	'file.content': 'file',
 	'review.content': 'review',
 	'review.comparisonTargets': 'review',
 } as const satisfies {
 	readonly [TContentKind in BridgeProductContentKind]: BridgeProductContentRegistry[TContentKind]['surface'];
 };
+
+const reviewAnnotationProjectionDescriptor = {
+	contentKind: 'annotation.projection',
+	descriptorId: 'annotation-projection-descriptor-1',
+	maximumBytes: 128 * 1024,
+	page: {
+		aggregateSha256: 'a'.repeat(64),
+		expectedMessageCount: 2,
+		expectedSessionCount: 1,
+		expectedThreadCount: 1,
+		isLastPage: true,
+		nextCursor: null,
+		pageOrdinal: 0,
+		projectionRevision: 11,
+		snapshotId: '00000000-0000-7000-8000-000000000018',
+		sourceGeneration: 7,
+	},
+	surface: 'review',
+} as const satisfies BridgeProductContentRegistry['annotation.projection']['descriptor'];
 
 const reviewCallSurface: 'review' = bridgeProductSurfaceForCallKind('review.markFileViewed');
 const reviewIntakeReadyCallSurface: 'review' =
@@ -199,6 +221,8 @@ const reviewContentSurface: 'review' = bridgeProductSurfaceForContentKind('revie
 const reviewComparisonTargetsContentSurface: 'review' = bridgeProductSurfaceForContentKind(
 	'review.comparisonTargets',
 );
+const reviewAnnotationProjectionContentSurface: 'file' | 'review' =
+	bridgeProductSurfaceForContentKind('annotation.projection', reviewAnnotationProjectionDescriptor);
 const allMappedSurfaces: readonly BridgeProductSurface[] = [
 	...Object.values(surfaceByCallKind),
 	...Object.values(surfaceBySubscriptionKind),
@@ -217,6 +241,7 @@ void fileSubscriptionSurface;
 void fileContentSurface;
 void reviewContentSurface;
 void reviewComparisonTargetsContentSurface;
+void reviewAnnotationProjectionContentSurface;
 void allMappedSurfaces;
 
 // @ts-expect-error A closed call mapper cannot infer a surface from a string prefix.
@@ -251,6 +276,15 @@ const reviewPublicationAppliedResult: Promise<null> = productTransport.call(
 	{ publicationId: '00000000-0000-7000-8000-000000000017' },
 );
 void reviewPublicationAppliedResult;
+const reviewAnnotationProjectionQueryResult: Promise<
+	BridgeProductCallResult<'review.annotations.projection.query'>
+> = productTransport.call('review.annotations.projection.query', {
+	cursor: null,
+	sessionIds: ['00000000-0000-7000-8000-000000000019'],
+	sourceGeneration: 7,
+	surface: 'review',
+});
+void reviewAnnotationProjectionQueryResult;
 
 const currentFileSourceResult = productTransport.call('file.source.current', {});
 const availableCurrentFileSourceResult: BridgeProductCallResult<'file.source.current'> = {
@@ -449,6 +483,9 @@ const reviewContent: BridgeProductContentStream<'review.content'> = productTrans
 	abortSignal,
 );
 void reviewContent;
+const reviewAnnotationProjectionContent: BridgeProductContentStream<'annotation.projection'> =
+	productTransport.openContent(reviewAnnotationProjectionDescriptor, abortSignal);
+void reviewAnnotationProjectionContent;
 // @ts-expect-error Review content streams cannot cross-wire into File content results.
 const invalidFileContent: BridgeProductContentStream<'file.content'> = reviewContent;
 void invalidFileContent;

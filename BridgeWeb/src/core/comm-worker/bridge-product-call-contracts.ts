@@ -12,12 +12,17 @@ import {
 import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-review-comparison-contracts.js';
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 import { bridgeProductFileSourceConfigurationSchema } from './bridge-product-subscription-contracts.js';
+import { bridgeProductWorktreeAnnotationCommandOutcomeSchema } from './bridge-product-worktree-annotation-contracts.js';
 import {
 	bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
 	bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema,
 	bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
 	bridgeProductWorktreeAnnotationOutputInspectResultSchema,
 } from './bridge-product-worktree-annotation-output-contracts.js';
+import {
+	bridgeProductAnnotationProjectionQueryRequestSchema,
+	bridgeProductAnnotationProjectionQueryResultSchema,
+} from './bridge-product-worktree-annotation-projection-query-contracts.js';
 
 export { bridgeProductWorktreeAnnotationOutputInspectResultSchema } from './bridge-product-worktree-annotation-output-contracts.js';
 
@@ -278,8 +283,8 @@ export const bridgeProductWorktreeAnnotationCommandRequestSchema = z
 	.strict();
 export const bridgeProductWorktreeAnnotationCommandResultSchema = z
 	.object({
-		kind: z.literal('accepted'),
-		requestId: bridgeProductIdentifierSchema,
+		kind: z.literal('completed'),
+		outcome: bridgeProductWorktreeAnnotationCommandOutcomeSchema,
 	})
 	.strict();
 
@@ -320,6 +325,11 @@ export type BridgeProductCallRegistry = {
 			typeof bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema
 		>;
 		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationOutputCandidatePageSchema>;
+		readonly surface: 'file';
+	};
+	readonly 'file.annotations.projection.query': {
+		readonly request: z.infer<typeof bridgeProductAnnotationProjectionQueryRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductAnnotationProjectionQueryResultSchema>;
 		readonly surface: 'file';
 	};
 	readonly 'file.source.current': {
@@ -379,6 +389,11 @@ export type BridgeProductCallRegistry = {
 		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationOutputCandidatePageSchema>;
 		readonly surface: 'review';
 	};
+	readonly 'review.annotations.projection.query': {
+		readonly request: z.infer<typeof bridgeProductAnnotationProjectionQueryRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductAnnotationProjectionQueryResultSchema>;
+		readonly surface: 'review';
+	};
 };
 
 export type BridgeProductCallKind = keyof BridgeProductCallRegistry;
@@ -391,6 +406,7 @@ const bridgeProductSurfaceByCallKind = {
 	'file.annotations.command': 'file',
 	'file.annotations.output.inspect': 'file',
 	'file.annotations.output.candidates.query': 'file',
+	'file.annotations.projection.query': 'file',
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'review.activeViewerMode.update': 'review',
@@ -402,6 +418,7 @@ const bridgeProductSurfaceByCallKind = {
 	'review.annotations.command': 'review',
 	'review.annotations.output.inspect': 'review',
 	'review.annotations.output.candidates.query': 'review',
+	'review.annotations.projection.query': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
 };
@@ -413,6 +430,15 @@ export function bridgeProductSurfaceForCallKind<TCallKind extends BridgeProductC
 }
 
 export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
+	z
+		.object({
+			method: z.literal('file.annotations.projection.query'),
+			request: bridgeProductAnnotationProjectionQueryRequestSchema.refine(
+				(request) => request.surface === 'file',
+				{ message: 'File annotation projection query must remain File-surface bound.' },
+			),
+		})
+		.strict(),
 	z
 		.object({
 			method: z.literal('file.annotations.output.candidates.query'),
@@ -497,9 +523,27 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 			request: bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema,
 		})
 		.strict(),
+	z
+		.object({
+			method: z.literal('review.annotations.projection.query'),
+			request: bridgeProductAnnotationProjectionQueryRequestSchema.refine(
+				(request) => request.surface === 'review',
+				{ message: 'Review annotation projection query must remain Review-surface bound.' },
+			),
+		})
+		.strict(),
 ]);
 
 export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
+	z
+		.object({
+			method: z.literal('file.annotations.projection.query'),
+			result: bridgeProductAnnotationProjectionQueryResultSchema.refine(
+				(result) => result.descriptor.surface === 'file',
+				{ message: 'File annotation projection descriptor must remain File-surface bound.' },
+			),
+		})
+		.strict(),
 	z
 		.object({
 			method: z.literal('file.annotations.output.candidates.query'),
@@ -582,6 +626,15 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.annotations.output.candidates.query'),
 			result: bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.annotations.projection.query'),
+			result: bridgeProductAnnotationProjectionQueryResultSchema.refine(
+				(result) => result.descriptor.surface === 'review',
+				{ message: 'Review annotation projection descriptor must remain Review-surface bound.' },
+			),
 		})
 		.strict(),
 ]);

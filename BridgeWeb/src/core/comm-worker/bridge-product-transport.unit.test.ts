@@ -867,6 +867,7 @@ function emptyInterestHash(kind: BridgeProductSubscriptionKind): string {
 		case 'review.metadata':
 			return interestHash({ interests: [], subscriptionKind: kind });
 	}
+	throw new Error('Unsupported Bridge product subscription kind.');
 }
 
 function interestHash(

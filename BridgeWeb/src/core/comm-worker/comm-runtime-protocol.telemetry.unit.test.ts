@@ -366,6 +366,7 @@ function makeTelemetryReviewProductTransport(props: {
 		subscribe: (...arguments_): never => {
 			const [subscriptionKind] = arguments_;
 			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The generic fixture closes over the requested annotation subscription kind.
 				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
 			}
 			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The closed subscription-kind branch selects the matching typed test subscription.

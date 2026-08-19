@@ -1,24 +1,24 @@
-import type { BridgeProductWorktreeAnnotationEvent } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
+import type { z } from 'zod';
 
-type WorktreeAnnotationProjectionStateEvent = Extract<
-	BridgeProductWorktreeAnnotationEvent,
-	{ readonly eventKind: 'projection.state' }
->;
-type WorktreeAnnotationMessageBatchEvent = Extract<
-	BridgeProductWorktreeAnnotationEvent,
-	{ readonly eventKind: 'message.batch' }
->;
+import type { BridgeWorkerAnnotationProjectionSnapshot } from '../core/comm-worker/bridge-comm-worker-annotation-projection-decoder.js';
+import {
+	bridgeProductWorktreeAnnotationCommandOutcomeSchema,
+	bridgeProductWorktreeAnnotationOutputHistorySummarySchema,
+} from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 
-export type WorktreeAnnotationCommandOutcome =
-	WorktreeAnnotationProjectionStateEvent['payload']['commandOutcomes'][number];
-export type WorktreeAnnotationOutputHistorySummary =
-	WorktreeAnnotationProjectionStateEvent['payload']['outputHistory'][number];
+export type WorktreeAnnotationCommandOutcome = z.infer<
+	typeof bridgeProductWorktreeAnnotationCommandOutcomeSchema
+>;
 export type WorktreeAnnotationSessionSummary =
-	WorktreeAnnotationProjectionStateEvent['payload']['sessions'][number];
+	BridgeWorkerAnnotationProjectionSnapshot['sessions'][number];
 export type WorktreeAnnotationMessageEntry =
-	WorktreeAnnotationMessageBatchEvent['payload']['messages'][number];
+	BridgeWorkerAnnotationProjectionSnapshot['threads'][number]['messages'][number];
 export type WorktreeAnnotationThreadContext =
-	WorktreeAnnotationMessageBatchEvent['payload']['context'];
+	BridgeWorkerAnnotationProjectionSnapshot['threads'][number]['context'];
+
+export type WorktreeAnnotationOutputHistorySummary = z.infer<
+	typeof bridgeProductWorktreeAnnotationOutputHistorySummarySchema
+>;
 
 export interface WorktreeAnnotationThreadProjection {
 	readonly context: WorktreeAnnotationThreadContext;
@@ -29,78 +29,33 @@ export interface WorktreeAnnotationProjectionSnapshot {
 	readonly commandOutcomes: readonly WorktreeAnnotationCommandOutcome[];
 	readonly outputHistory: readonly WorktreeAnnotationOutputHistorySummary[];
 	readonly presentationRevision: number;
+	readonly readStatus:
+		| { readonly kind: 'ready' }
+		| { readonly kind: 'refreshing' }
+		| { readonly kind: 'unavailable'; readonly retryable: boolean };
 	readonly recoveryStatus: 'available' | 'recovered_degraded' | 'unavailable';
 	readonly revision: number | null;
 	readonly sessions: readonly WorktreeAnnotationSessionSummary[];
 	readonly threads: readonly WorktreeAnnotationThreadProjection[];
-	readonly transportStatus:
-		| { readonly kind: 'available' }
-		| {
-				readonly failedRevision: number;
-				readonly failureClass: WorktreeAnnotationProjectionAssemblyFailureClass;
-				readonly kind: 'unavailable';
-				readonly recovery: 'awaitingReplay' | 'blocked' | 'requested';
-		  };
 	readonly worktreeId: string | null;
-}
-
-export type WorktreeAnnotationProjectionAssemblyFailureClass =
-	| 'duplicateTerminal'
-	| 'excessThreadCount'
-	| 'messageIdentityViolation'
-	| 'postTerminalBatch';
-
-export interface WorktreeAnnotationProjectionAssemblyFailure {
-	readonly failureClass: WorktreeAnnotationProjectionAssemblyFailureClass;
-	readonly revision: number;
-	readonly subscriptionId: string;
-}
-
-interface WorktreeAnnotationThreadAssembly {
-	readonly context: WorktreeAnnotationThreadContext;
-	readonly messagesById: Map<string, WorktreeAnnotationMessageEntry>;
-	readonly ordinals: Set<number>;
-	terminal: boolean;
-}
-
-interface WorktreeAnnotationProjectionAssembly {
-	readonly completedThreadIds: Set<string>;
-	readonly expectedThreadCount: number;
-	readonly messageIds: Set<string>;
-	readonly producerId: string;
-	readonly revision: number;
-	readonly state: WorktreeAnnotationProjectionStateEvent['payload'];
-	readonly threadsById: Map<string, WorktreeAnnotationThreadAssembly>;
 }
 
 export const emptyWorktreeAnnotationProjectionSnapshot: WorktreeAnnotationProjectionSnapshot = {
 	commandOutcomes: [],
 	outputHistory: [],
 	presentationRevision: 0,
+	readStatus: { kind: 'ready' },
 	recoveryStatus: 'available',
 	revision: null,
 	sessions: [],
 	threads: [],
-	transportStatus: { kind: 'available' },
 	worktreeId: null,
 };
 
 export class WorktreeAnnotationProjectionStore {
-	#barredSubscriptionId: string | null = null;
 	readonly #listeners = new Set<() => void>();
-	readonly #onAssemblyFailure: (
-		failure: WorktreeAnnotationProjectionAssemblyFailure,
-	) => 'blocked' | 'requested';
-	#assembly: WorktreeAnnotationProjectionAssembly | null = null;
 	#snapshot = emptyWorktreeAnnotationProjectionSnapshot;
-
-	constructor(
-		onAssemblyFailure: (
-			failure: WorktreeAnnotationProjectionAssemblyFailure,
-		) => 'blocked' | 'requested' = (): 'blocked' => 'blocked',
-	) {
-		this.#onAssemblyFailure = onAssemblyFailure;
-	}
+	#sourceGeneration = -1;
 
 	getSnapshot = (): WorktreeAnnotationProjectionSnapshot => this.#snapshot;
 
@@ -113,119 +68,58 @@ export class WorktreeAnnotationProjectionStore {
 		};
 	};
 
-	apply(event: BridgeProductWorktreeAnnotationEvent, producerId: string): void {
-		if (this.#barredSubscriptionId === producerId) return;
-		if (event.eventKind === 'projection.state') {
-			this.#applyProjectionState(event, producerId);
-			return;
-		}
-		this.#applyMessageBatch(event, producerId);
-	}
-
-	#applyProjectionState(event: WorktreeAnnotationProjectionStateEvent, producerId: string): void {
-		const publishedRevision = this.#snapshot.revision ?? -1;
-		const assemblingRevision = this.#assembly?.revision ?? -1;
-		const highestAcceptedRevision = Math.max(publishedRevision, assemblingRevision);
-		const isActiveRevision = event.payload.revision === assemblingRevision;
-		if (event.payload.revision < highestAcceptedRevision) return;
-		if (event.payload.revision === publishedRevision && !isActiveRevision) return;
-
-		const assembly: WorktreeAnnotationProjectionAssembly = {
-			completedThreadIds: new Set(),
-			expectedThreadCount: event.payload.expectedThreadCount,
-			messageIds: new Set(),
-			producerId,
-			revision: event.payload.revision,
-			state: event.payload,
-			threadsById: new Map(),
-		};
-		this.#assembly = assembly;
-		if (assembly.expectedThreadCount !== 0) return;
-		this.#assembly = null;
-		this.#publishCompleteAssembly(assembly, []);
-	}
-
-	#applyMessageBatch(event: WorktreeAnnotationMessageBatchEvent, producerId: string): void {
-		const assembly = this.#assembly;
+	apply(snapshot: BridgeWorkerAnnotationProjectionSnapshot): void {
+		const currentRevision = this.#snapshot.revision ?? -1;
+		if (snapshot.projectionRevision < currentRevision) return;
 		if (
-			assembly === null ||
-			assembly.producerId !== producerId ||
-			event.payload.revision !== assembly.revision
+			snapshot.projectionRevision === currentRevision &&
+			snapshot.sourceGeneration < this.#sourceGeneration
 		) {
 			return;
 		}
-		const threadId = event.payload.context.threadId;
-		let thread = assembly.threadsById.get(threadId);
-		if (thread === undefined) {
-			if (assembly.threadsById.size >= assembly.expectedThreadCount) {
-				this.#failAssembly(assembly, 'excessThreadCount');
-				return;
-			}
-			thread = {
-				context: event.payload.context,
-				messagesById: new Map(),
-				ordinals: new Set(),
-				terminal: false,
-			};
-			assembly.threadsById.set(threadId, thread);
-		} else if (thread.terminal) {
-			this.#failAssembly(
-				assembly,
-				event.payload.isLastBatchForThread ? 'duplicateTerminal' : 'postTerminalBatch',
-			);
-			return;
-		} else if (!annotationThreadContextsEqual(thread.context, event.payload.context)) {
-			this.#failAssembly(assembly, 'messageIdentityViolation');
-			return;
-		}
-
-		for (const message of event.payload.messages) {
-			if (
-				message.threadId !== threadId ||
-				assembly.messageIds.has(message.messageId) ||
-				thread.ordinals.has(message.ordinal)
-			) {
-				this.#failAssembly(assembly, 'messageIdentityViolation');
-				return;
-			}
-			assembly.messageIds.add(message.messageId);
-			thread.ordinals.add(message.ordinal);
-			thread.messagesById.set(message.messageId, message);
-		}
-		if (!event.payload.isLastBatchForThread) return;
-		thread.terminal = true;
-		assembly.completedThreadIds.add(threadId);
-		if (assembly.completedThreadIds.size !== assembly.expectedThreadCount) return;
-
-		const threads = [...assembly.threadsById.values()].map(
-			(threadAssembly): WorktreeAnnotationThreadProjection => ({
-				context: threadAssembly.context,
-				messages: [...threadAssembly.messagesById.values()].toSorted(
-					(left, right): number => left.ordinal - right.ordinal,
-				),
-			}),
-		);
-		this.#assembly = null;
-		this.#publishCompleteAssembly(assembly, threads);
+		this.#sourceGeneration = snapshot.sourceGeneration;
+		this.#publish({
+			commandOutcomes: this.#snapshot.commandOutcomes,
+			outputHistory: this.#snapshot.outputHistory,
+			readStatus: { kind: 'ready' },
+			recoveryStatus: snapshot.recoveryStatus,
+			revision: snapshot.projectionRevision,
+			sessions: snapshot.sessions,
+			threads: snapshot.threads.toSorted(compareAnnotationThreads),
+			worktreeId: snapshot.worktreeId,
+		});
 	}
 
-	updateTransportRecovery(
-		failure: WorktreeAnnotationProjectionAssemblyFailure,
-		recovery: 'awaitingReplay' | 'blocked',
-	): void {
-		const current = this.#snapshot.transportStatus;
+	markRefreshing(): void {
+		if (this.#snapshot.readStatus.kind === 'refreshing') return;
+		this.#publish({ ...this.#snapshot, readStatus: { kind: 'refreshing' } });
+	}
+
+	markUnavailable(retryable: boolean): void {
 		if (
-			current.kind !== 'unavailable' ||
-			current.failedRevision !== failure.revision ||
-			current.failureClass !== failure.failureClass ||
-			current.recovery !== 'requested'
+			this.#snapshot.readStatus.kind === 'unavailable' &&
+			this.#snapshot.readStatus.retryable === retryable
 		) {
 			return;
 		}
 		this.#publish({
 			...this.#snapshot,
-			transportStatus: { ...current, recovery },
+			readStatus: { kind: 'unavailable', retryable },
 		});
+	}
+
+	recordCommandOutcome(outcome: WorktreeAnnotationCommandOutcome): void {
+		const retainedOutcomes = this.#snapshot.commandOutcomes.filter(
+			(candidate) => candidate.requestId !== outcome.requestId,
+		);
+		this.#publish({
+			...this.#snapshot,
+			commandOutcomes: [...retainedOutcomes, outcome].slice(-128),
+		});
+	}
+
+	replaceOutputHistory(outputHistory: readonly WorktreeAnnotationOutputHistorySummary[]): void {
+		this.#publish({ ...this.#snapshot, outputHistory });
 	}
 
 	#publish(snapshot: Omit<WorktreeAnnotationProjectionSnapshot, 'presentationRevision'>): void {
@@ -235,72 +129,6 @@ export class WorktreeAnnotationProjectionStore {
 		};
 		for (const listener of this.#listeners) listener();
 	}
-
-	#publishCompleteAssembly(
-		assembly: WorktreeAnnotationProjectionAssembly,
-		threads: readonly WorktreeAnnotationThreadProjection[],
-	): void {
-		if (this.#barredSubscriptionId !== null && this.#barredSubscriptionId !== assembly.producerId) {
-			this.#barredSubscriptionId = null;
-		}
-		this.#publish(completeProjectionSnapshot(assembly, threads));
-	}
-
-	#failAssembly(
-		assembly: WorktreeAnnotationProjectionAssembly,
-		failureClass: WorktreeAnnotationProjectionAssemblyFailureClass,
-	): void {
-		this.#assembly = null;
-		this.#barredSubscriptionId = assembly.producerId;
-		const failure = {
-			failureClass,
-			revision: assembly.revision,
-			subscriptionId: assembly.producerId,
-		} satisfies WorktreeAnnotationProjectionAssemblyFailure;
-		this.#publish({
-			...this.#snapshot,
-			transportStatus: {
-				failedRevision: failure.revision,
-				failureClass,
-				kind: 'unavailable',
-				recovery: this.#onAssemblyFailure(failure),
-			},
-		});
-	}
-}
-
-function completeProjectionSnapshot(
-	assembly: WorktreeAnnotationProjectionAssembly,
-	threads: readonly WorktreeAnnotationThreadProjection[],
-): Omit<WorktreeAnnotationProjectionSnapshot, 'presentationRevision'> {
-	return {
-		commandOutcomes: assembly.state.commandOutcomes,
-		outputHistory: assembly.state.outputHistory,
-		recoveryStatus: assembly.state.recoveryStatus,
-		revision: assembly.revision,
-		sessions: assembly.state.sessions,
-		threads: threads.toSorted(compareAnnotationThreads),
-		transportStatus: { kind: 'available' },
-		worktreeId: assembly.state.worktreeId,
-	};
-}
-
-function annotationThreadContextsEqual(
-	left: WorktreeAnnotationThreadContext,
-	right: WorktreeAnnotationThreadContext,
-): boolean {
-	return (
-		left.diffSide === right.diffSide &&
-		left.endLine === right.endLine &&
-		left.path === right.path &&
-		left.placement === right.placement &&
-		left.resolution === right.resolution &&
-		left.scope === right.scope &&
-		left.sourceIdentity === right.sourceIdentity &&
-		left.sourceRole === right.sourceRole &&
-		left.startLine === right.startLine &&
-		left.threadId === right.threadId
-	);
 }
 
 function compareAnnotationThreads(
@@ -308,15 +136,15 @@ function compareAnnotationThreads(
 	right: WorktreeAnnotationThreadProjection,
 ): number {
 	const leftKey = [
-		left.context.path ?? '',
-		left.context.startLine ?? -1,
-		left.context.endLine ?? -1,
+		left.context.path,
+		left.context.startLine,
+		left.context.endLine,
 		left.context.threadId,
 	];
 	const rightKey = [
-		right.context.path ?? '',
-		right.context.startLine ?? -1,
-		right.context.endLine ?? -1,
+		right.context.path,
+		right.context.startLine,
+		right.context.endLine,
 		right.context.threadId,
 	];
 	return JSON.stringify(leftKey).localeCompare(JSON.stringify(rightKey));

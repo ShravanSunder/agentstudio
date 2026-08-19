@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { executeAgentStudioBridgeProductRequest } from './bridge-product-agent-studio-request-executor.js';
+import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
@@ -13,9 +14,13 @@ import {
 } from './bridge-product-contract-primitives.js';
 import {
 	BridgeProductControlMux,
+	BridgeProductControlRequestError,
 	BridgeProductSessionAuthorityStore,
 } from './bridge-product-session-authority.js';
-import type { BridgeProductSessionBootstrap } from './bridge-product-session-contracts.js';
+import {
+	bridgeProductControlRequestSchema,
+	type BridgeProductSessionBootstrap,
+} from './bridge-product-session-contracts.js';
 
 const workerSessionOpenRequestId = 'worker-session-open-1';
 const workerSessionOpenRequestSequence = 1;
@@ -461,9 +466,17 @@ describe('Bridge product session authority', () => {
 			executeProductRequest: executeAgentStudioBridgeProductRequest,
 		});
 
-		await expect(
-			mux.openSubscription(reviewSubscriptionOpenProps('review-subscription-after-error', 4)),
-		).rejects.toThrow('Subscription source is not installed');
+		const rejectedOpen = mux.openSubscription(
+			reviewSubscriptionOpenProps('review-subscription-after-error', 4),
+		);
+		await expect(rejectedOpen).rejects.toThrow('Subscription source is not installed');
+		await expect(rejectedOpen).rejects.toEqual(
+			expect.objectContaining<Partial<BridgeProductControlRequestError>>({
+				code: 'unsupported_subscription',
+				retryAfterMilliseconds: null,
+				retryable: false,
+			}),
+		);
 		await expect(
 			mux.cancelSubscription(reviewSubscriptionCancelProps('review-subscription-after-error', 4)),
 		).resolves.toMatchObject({ requestSequence: 3 });
@@ -528,6 +541,78 @@ describe('Bridge product session authority', () => {
 			new TextDecoder().decode(requireUint8Array(fetchSpy.mock.calls[2]?.[1]?.body)),
 		);
 		expect(cancelBody.requestSequence).toBe(3);
+	});
+
+	test('drains an admitted control response after feature abort before issuing the next sequence', async () => {
+		// Arrange
+		const requestSequences: number[] = [];
+		let productCallCount = 0;
+		const firstCallResponse = createBridgeProductDeferred<Response>();
+		const firstCallStarted = createBridgeProductDeferred<void>();
+		const executeProductRequest: ConstructorParameters<
+			typeof BridgeProductSessionAuthorityStore
+		>[0] = async (_route, requestInit): Promise<Response> => {
+			const body = bridgeProductControlRequestSchema.parse(
+				JSON.parse(new TextDecoder().decode(requireUint8Array(requestInit.body))),
+			);
+			requestSequences.push(body.requestSequence);
+			if (body['kind'] === 'workerSession.open') {
+				return responseWithJSON(workerSessionAcceptedResponse());
+			}
+			productCallCount += 1;
+			if (productCallCount === 1) {
+				firstCallStarted.resolve();
+				requestInit.signal?.addEventListener(
+					'abort',
+					(): void => firstCallResponse.reject(requestInit.signal?.reason),
+					{ once: true },
+				);
+				return await firstCallResponse.promise;
+			}
+			return responseWithJSON({
+				...productResponseIdentity('second-call', body.requestSequence),
+				call: { method: 'review.markFileViewed', result: null },
+				kind: 'call.completed',
+			});
+		};
+		const authority = new BridgeProductSessionAuthorityStore(executeProductRequest).install({
+			bootstrap: productSessionBootstrap(),
+			productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+		});
+		const requestIds = ['first-call', 'second-call'];
+		const mux = new BridgeProductControlMux({
+			authority,
+			createRequestId: (): string => requireShiftedValue(requestIds),
+			executeProductRequest,
+		});
+		const abortController = new AbortController();
+
+		// Act
+		const firstCall = mux.call({
+			method: 'review.markFileViewed',
+			request: { itemId: 'item-1' },
+			signal: abortController.signal,
+			workerDerivationEpoch: 1,
+		});
+		await firstCallStarted.promise;
+		const secondCall = mux.call({
+			method: 'review.markFileViewed',
+			request: { itemId: 'item-2' },
+			workerDerivationEpoch: 1,
+		});
+		abortController.abort();
+		firstCallResponse.resolve(
+			responseWithJSON({
+				...productResponseIdentity('first-call', 2),
+				call: { method: 'review.markFileViewed', result: null },
+				kind: 'call.completed',
+			}),
+		);
+
+		// Assert
+		await expect(firstCall).resolves.toBeNull();
+		await expect(secondCall).resolves.toBeNull();
+		expect(requestSequences).toEqual([1, 2, 3]);
 	});
 });
 

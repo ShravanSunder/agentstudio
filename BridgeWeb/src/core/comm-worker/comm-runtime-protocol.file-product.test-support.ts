@@ -64,6 +64,7 @@ export function makeFileProductTestTransport(props: {
 			if (method !== 'file.source.current') throw new Error('Unexpected product call.');
 			if (props.discoveryError !== undefined) throw props.discoveryError;
 			props.onDiscoverSource();
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The generic call fixture returns the exact File discovery branch requested above.
 			return {
 				source: currentFileSourceConfiguration,
 				status: 'available',
@@ -72,6 +73,7 @@ export function makeFileProductTestTransport(props: {
 		openContent: (descriptor): never => {
 			props.onOpenDescriptor(descriptor.descriptorId);
 			const bytes = new TextEncoder().encode('file body\n').buffer;
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The fixture returns the exact File content stream requested above.
 			return {
 				contentKind: 'file.content',
 				contentRequestId: 'content-request-1',
@@ -91,12 +93,18 @@ export function makeFileProductTestTransport(props: {
 			props.onPanePresentationSink?.(sink);
 			sink(makeFilePanePresentationFrame(1, 'foreground'));
 		},
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The fixture closes over the supported File/Review subscription variants.
 		subscribe: ((subscriptionKind: string): never => {
 			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The branch closes over the requested annotation subscription kind.
 				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
 			}
-			if (subscriptionKind === 'review.metadata') return reviewSubscription as never;
+			if (subscriptionKind === 'review.metadata') {
+				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The branch closes over Review metadata.
+				return reviewSubscription as never;
+			}
 			props.onSubscribe?.();
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The remaining admitted branch is File metadata.
 			return props.subscription as never;
 		}) as BridgeProductTransportSession['subscribe'],
 		workerDerivationEpoch: (surface): number => (surface === 'file' ? fileEpoch : reviewEpoch),

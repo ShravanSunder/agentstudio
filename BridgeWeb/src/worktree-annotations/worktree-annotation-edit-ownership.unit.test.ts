@@ -91,7 +91,7 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 				messages: [message],
 			},
 		],
-		transportStatus: { kind: 'available' },
+		readStatus: { kind: 'ready' },
 		worktreeId: 'worktree-1',
 	});
 	const client: WorktreeAnnotationSurfaceClient = {

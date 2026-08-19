@@ -1,12 +1,18 @@
 import { describe, expect, test } from 'vitest';
 
-import { encodeBridgeWorkerViewportCommand } from './bridge-comm-worker-protocol.js';
+import {
+	encodeBridgeWorkerActiveViewerModeUpdateCommand,
+	encodeBridgeWorkerViewportCommand,
+} from './bridge-comm-worker-protocol.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
 import {
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
-import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
+import {
+	BridgeProductBoundedAsyncQueue,
+	createBridgeProductDeferred,
+} from './bridge-product-async-queue.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
@@ -208,21 +214,8 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 		]);
 		expect(calledMethods).toContain('file.annotations.command');
 		expect(calledMethods).toContain('review.annotations.command');
-		expect(postedMessages.map(({ message }) => message)).toContainEqual(
-			expect.objectContaining({
-				event: expect.objectContaining({ payload: expect.objectContaining({ revision: 11 }) }),
-				kind: 'annotationProjection',
-				subscriptionId: 'file.annotations-subscription',
-				surface: 'fileView',
-			}),
-		);
-		expect(postedMessages.map(({ message }) => message)).toContainEqual(
-			expect.objectContaining({
-				event: expect.objectContaining({ payload: expect.objectContaining({ revision: 22 }) }),
-				kind: 'annotationProjection',
-				subscriptionId: 'review.annotations-subscription',
-				surface: 'review',
-			}),
+		expect(postedMessages.map(({ message }) => message.kind)).not.toContain(
+			'annotationProjectionConvergence',
 		);
 		expect(postedMessages.map(({ message }) => message)).toContainEqual(
 			expect.objectContaining({
@@ -238,6 +231,64 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 				productRequestId: 'review.annotations.command-product-request',
 				requestId: 'review-worker-request',
 				surface: 'review',
+			}),
+		);
+	});
+
+	test('combines active File source authority with annotation invalidation to start projection query', async () => {
+		// Arrange
+		const fileAnnotationEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'file.annotations'>
+		>(8);
+		const calledMethods: string[] = [];
+		const projectionQueryStarted = createBridgeProductDeferred<void>();
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			productTransport: createAnnotationProductTransport({
+				calledMethods,
+				fileAnnotationEvents,
+				onCalledMethod: (method): void => {
+					if (method === 'file.annotations.projection.query') {
+						projectionQueryStarted.resolve();
+					}
+				},
+				reviewAnnotationEvents: new BridgeProductBoundedAsyncQueue(8),
+				subscribedKinds: [],
+			}),
+		});
+
+		// Act
+		fileAnnotationEvents.push(annotationProjectionEvent(0));
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 1,
+				requestId: 'file-active-source-request',
+				update: {
+					activeSource: {
+						generation: 3,
+						protocol: 'worktree-file',
+						streamId: 'file-source-1',
+					},
+					mode: 'file',
+					nativeSelectionRequestId: null,
+					sequence: 1,
+					sessionId: 'active-viewer-session-1',
+				},
+			}),
+		);
+		await projectionQueryStarted.promise;
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		expect(calledMethods).toContain('file.activeViewerMode.update');
+		expect(calledMethods).toContain('file.annotations.projection.query');
+		expect(postedMessages.map(({ message }) => message)).toContainEqual(
+			expect.objectContaining({
+				kind: 'annotationProjectionConvergence',
+				state: { kind: 'refreshing' },
+				surface: 'fileView',
 			}),
 		);
 	});
@@ -462,20 +513,11 @@ function annotationOutputDescriptor(props: {
 	};
 }
 
-function annotationProjectionEvent(
-	revision: number,
-): Extract<BridgeProductWorktreeAnnotationEvent, { readonly eventKind: 'projection.state' }> {
+function annotationProjectionEvent(revision: number): BridgeProductWorktreeAnnotationEvent {
 	return {
-		eventKind: 'projection.state',
-		payload: {
-			commandOutcomes: [],
-			expectedThreadCount: 0,
-			outputHistory: [],
-			recoveryStatus: 'available',
-			revision,
-			sessions: [],
-			worktreeId: annotationWorktreeId,
-		},
+		eventKind: 'snapshot.required',
+		sourceGeneration: revision,
+		worktreeId: annotationWorktreeId,
 	} as const;
 }
 
@@ -502,27 +544,18 @@ function createAnnotationProductTransport(props: {
 		readonly observedSha256?: string;
 		readonly operationOrder: string[];
 	};
+	readonly onCalledMethod?: ((method: string) => void) | undefined;
 	readonly subscribedKinds: string[];
 }): BridgeProductTransportSession {
 	const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
 		BridgeProductSubscriptionEvent<'review.metadata'>
 	>(1);
-	const subscription = <
-		TSubscriptionKind extends 'file.annotations' | 'review.annotations' | 'review.metadata',
-	>(
-		subscriptionKind: TSubscriptionKind,
-		events: BridgeProductSubscription<TSubscriptionKind>['events'],
-	): BridgeProductSubscription<TSubscriptionKind> => ({
-		cancel: async (): Promise<void> => {},
-		events,
-		subscriptionId: `${subscriptionKind}-subscription`,
-		subscriptionKind,
-		update: async (): Promise<void> => {},
-	});
 	return {
 		bumpWorkerDerivationEpoch: (): number => 1,
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The annotation runtime test double implements only the call variants exercised by this suite.
 		call: (async (method: string): Promise<unknown> => {
 			props.calledMethods.push(method);
+			props.onCalledMethod?.(method);
 			if (
 				method === 'file.annotations.output.inspect' ||
 				method === 'review.annotations.output.inspect'
@@ -541,10 +574,19 @@ function createAnnotationProductTransport(props: {
 				return { reason: 'no-file-source-authority', status: 'unavailable' };
 			}
 			if (method === 'file.annotations.command' || method === 'review.annotations.command') {
-				return { kind: 'accepted', requestId: `${method}-product-request` };
+				return {
+					kind: 'completed',
+					outcome: {
+						requestId: `${method}-product-request`,
+						sessionId: null,
+						status: { kind: 'committed' },
+						surface: method === 'file.annotations.command' ? 'file' : 'review',
+					},
+				};
 			}
 			return null;
 		}) as BridgeProductTransportSession['call'],
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The annotation runtime test double opens only annotation output descriptors.
 		openContent: ((descriptor: BridgeProductAnnotationOutputContentDescriptor): unknown => {
 			if (props.inspection === undefined) {
 				throw new Error('Content is outside the annotation runtime protocol test.');
@@ -565,19 +607,35 @@ function createAnnotationProductTransport(props: {
 			};
 		}) as BridgeProductTransportSession['openContent'],
 		setPanePresentationFrameSink: (): void => {},
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The annotation runtime test double closes over its three supported subscription kinds.
 		subscribe: ((subscriptionKind: string): unknown => {
 			props.subscribedKinds.push(subscriptionKind);
 			switch (subscriptionKind) {
 				case 'file.annotations':
-					return subscription(subscriptionKind, props.fileAnnotationEvents);
+					return annotationTestSubscription(subscriptionKind, props.fileAnnotationEvents);
 				case 'review.annotations':
-					return subscription(subscriptionKind, props.reviewAnnotationEvents);
+					return annotationTestSubscription(subscriptionKind, props.reviewAnnotationEvents);
 				case 'review.metadata':
-					return subscription(subscriptionKind, reviewMetadataEvents);
+					return annotationTestSubscription(subscriptionKind, reviewMetadataEvents);
 				default:
 					throw new Error(`Unexpected subscription ${subscriptionKind}.`);
 			}
 		}) as BridgeProductTransportSession['subscribe'],
 		workerDerivationEpoch: (): number => 1,
+	};
+}
+
+function annotationTestSubscription<
+	TSubscriptionKind extends 'file.annotations' | 'review.annotations' | 'review.metadata',
+>(
+	subscriptionKind: TSubscriptionKind,
+	events: BridgeProductSubscription<TSubscriptionKind>['events'],
+): BridgeProductSubscription<TSubscriptionKind> {
+	return {
+		cancel: async (): Promise<void> => {},
+		events,
+		subscriptionId: `${subscriptionKind}-subscription`,
+		subscriptionKind,
+		update: async (): Promise<void> => {},
 	};
 }

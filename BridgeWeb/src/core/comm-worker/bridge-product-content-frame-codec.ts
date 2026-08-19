@@ -16,6 +16,7 @@ import {
 	type BridgeProductContentRequestFor,
 	type BridgeProductContentTerminal,
 	type BridgeProductAnnotationOutputContentIdentity,
+	type BridgeProductAnnotationProjectionContentIdentity,
 	type BridgeProductFileContentIdentity,
 	type BridgeProductReviewComparisonTargetsContentIdentity,
 	type BridgeProductReviewContentIdentity,
@@ -412,6 +413,7 @@ function validateBridgeProductAcceptedHeaderAgainstRequest(
 	}
 	const identityMaximumBytes =
 		header.identity.contentKind === 'annotation.output' ||
+		header.identity.contentKind === 'annotation.projection' ||
 		header.identity.contentKind === 'review.comparisonTargets'
 			? header.identity.maximumBytes
 			: header.identity.window.maximumBytes;
@@ -435,6 +437,7 @@ function bridgeProductDeclaredExactFactsForRequest(expectedRequest: BridgeProduc
 				declaredByteLength: expectedRequest.descriptor.declaredByteLength,
 				expectedSha256: expectedRequest.descriptor.expectedSha256,
 			};
+		case 'annotation.projection':
 		case 'review.comparisonTargets':
 			return { declaredByteLength: null, expectedSha256: null };
 	}
@@ -463,11 +466,13 @@ function concatenateBridgeProductContentBytes(
 function bridgeProductContentIdentitiesEqual(
 	left:
 		| BridgeProductAnnotationOutputContentIdentity
+		| BridgeProductAnnotationProjectionContentIdentity
 		| BridgeProductFileContentIdentity
 		| BridgeProductReviewContentIdentity
 		| BridgeProductReviewComparisonTargetsContentIdentity,
 	right:
 		| BridgeProductAnnotationOutputContentIdentity
+		| BridgeProductAnnotationProjectionContentIdentity
 		| BridgeProductFileContentIdentity
 		| BridgeProductReviewContentIdentity
 		| BridgeProductReviewComparisonTargetsContentIdentity,
@@ -482,6 +487,23 @@ function bridgeProductContentIdentitiesEqual(
 				left.formatVersion === right.formatVersion &&
 				left.maximumBytes === right.maximumBytes &&
 				left.outputKind === right.outputKind &&
+				left.surface === right.surface
+			);
+		case 'annotation.projection':
+			if (right.contentKind !== 'annotation.projection') return false;
+			return (
+				left.descriptorId === right.descriptorId &&
+				left.maximumBytes === right.maximumBytes &&
+				left.page.aggregateSha256 === right.page.aggregateSha256 &&
+				left.page.expectedMessageCount === right.page.expectedMessageCount &&
+				left.page.expectedSessionCount === right.page.expectedSessionCount &&
+				left.page.expectedThreadCount === right.page.expectedThreadCount &&
+				left.page.isLastPage === right.page.isLastPage &&
+				left.page.nextCursor === right.page.nextCursor &&
+				left.page.pageOrdinal === right.page.pageOrdinal &&
+				left.page.projectionRevision === right.page.projectionRevision &&
+				left.page.snapshotId === right.page.snapshotId &&
+				left.page.sourceGeneration === right.page.sourceGeneration &&
 				left.surface === right.surface
 			);
 		case 'file.content':

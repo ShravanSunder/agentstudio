@@ -6,7 +6,10 @@ import {
 	type BridgeProductCallResult,
 	type BridgeProductCallResultWire,
 } from './bridge-product-call-contracts.js';
-import { BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES } from './bridge-product-contract-primitives.js';
+import {
+	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
+	type BridgeProductRequestErrorCode,
+} from './bridge-product-contract-primitives.js';
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 import {
 	bridgeProductControlRequestSchema,
@@ -91,6 +94,25 @@ interface BridgeProductControlAdmissionProps<TResult> {
 	) => BridgeProductControlRequest;
 	readonly requestErrorFallback?: (code: string) => string;
 	readonly signal?: AbortSignal;
+}
+
+export class BridgeProductControlRequestError extends Error {
+	readonly code: BridgeProductRequestErrorCode;
+	readonly retryAfterMilliseconds: number | null;
+	readonly retryable: boolean;
+
+	constructor(props: {
+		readonly code: BridgeProductRequestErrorCode;
+		readonly message: string;
+		readonly retryAfterMilliseconds: number | null;
+		readonly retryable: boolean;
+	}) {
+		super(props.message);
+		this.name = 'BridgeProductControlRequestError';
+		this.code = props.code;
+		this.retryAfterMilliseconds = props.retryAfterMilliseconds;
+		this.retryable = props.retryable;
+	}
 }
 
 export class BridgeProductControlMux {
@@ -285,16 +307,19 @@ export class BridgeProductControlMux {
 				capabilityHeader: this.#authority.capabilityHeader,
 				executeProductRequest: this.#executeProductRequest,
 				request,
-				...(props.signal === undefined ? {} : { signal: props.signal }),
 			});
 			assertBridgeProductResponseCorrelation({ request, response });
 			this.#nextRequestSequence += 1;
 			if (response.kind === 'request.error') {
-				throw new Error(
-					response.safeMessage ??
+				throw new BridgeProductControlRequestError({
+					code: response.code,
+					message:
+						response.safeMessage ??
 						props.requestErrorFallback?.(response.code) ??
 						`Bridge product control request was rejected with ${response.code}.`,
-				);
+					retryAfterMilliseconds: response.retryAfterMilliseconds,
+					retryable: response.retryable,
+				});
 			}
 			return props.acceptResponse(response);
 		});
@@ -449,6 +474,13 @@ function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKin
 				);
 			}
 			return call.result;
+		case 'file.annotations.projection.query':
+			if (call.method !== 'file.annotations.projection.query') {
+				throw new Error(
+					'Bridge product File annotation projection query returned a cross-wired result.',
+				);
+			}
+			return call.result;
 		case 'file.source.current':
 			if (call.method !== 'file.source.current') {
 				throw new Error('Bridge product File source call returned a cross-wired result.');
@@ -485,6 +517,13 @@ function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKin
 			if (call.method !== 'review.annotations.output.candidates.query') {
 				throw new Error(
 					'Bridge product Review annotation candidate query returned a cross-wired result.',
+				);
+			}
+			return call.result;
+		case 'review.annotations.projection.query':
+			if (call.method !== 'review.annotations.projection.query') {
+				throw new Error(
+					'Bridge product Review annotation projection query returned a cross-wired result.',
 				);
 			}
 			return call.result;

@@ -566,6 +566,18 @@ export const bridgeProductMetadataFrameSchema =
 	bridgeProductMetadataFrameStructuralSchema.superRefine((frame, context): void => {
 		if (
 			frame.kind === 'subscription.data' &&
+			(frame.subscriptionKind === 'file.annotations' ||
+				frame.subscriptionKind === 'review.annotations') &&
+			frame.sourceGeneration !== frame.data.event.sourceGeneration
+		) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Annotation frame generation does not match its invalidation.',
+				path: ['sourceGeneration'],
+			});
+		}
+		if (
+			frame.kind === 'subscription.data' &&
 			frame.subscriptionKind === 'review.metadata' &&
 			frame.sourceGeneration !== frame.data.event.generation
 		) {

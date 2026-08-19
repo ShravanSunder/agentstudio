@@ -30,8 +30,7 @@ import {
 	bridgeWorkerAnnotationOutputCandidatesPageEventSchema,
 	bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
-	bridgeWorkerAnnotationProjectionResyncCommandSchema,
-	bridgeWorkerAnnotationProjectionEventSchema,
+	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
 } from './bridge-worker-annotation-contracts.js';
 import {
 	BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT,
@@ -98,6 +97,7 @@ export {
 	bridgeWorkerTransferDescriptorSchema,
 } from './bridge-worker-wire-base-contracts.js';
 export type { BridgeWorkerTransferDescriptor } from './bridge-worker-wire-base-contracts.js';
+export { bridgeWorkerAnnotationProjectionConvergenceEventSchema } from './bridge-worker-annotation-contracts.js';
 export const bridgeWorkerSelectCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
 		command: z.literal('select'),
@@ -356,7 +356,6 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerAnnotationCommandSchema,
 	bridgeWorkerAnnotationOutputInspectCommandSchema,
 	bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema,
-	bridgeWorkerAnnotationProjectionResyncCommandSchema,
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	bridgeWorkerHoverCommandSchema,
@@ -915,7 +914,7 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
 	bridgeWorkerAnnotationOutputCandidatesPageEventSchema,
-	bridgeWorkerAnnotationProjectionEventSchema,
+	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
 	bridgeWorkerHealthEventSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	bridgeWorkerFileDisplayPatchEventSchema,
@@ -933,7 +932,7 @@ export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('k
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
 	bridgeWorkerAnnotationOutputCandidatesPageEventSchema,
-	bridgeWorkerAnnotationProjectionEventSchema,
+	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
 	bridgeWorkerHealthEventSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	bridgeWorkerFileDisplayPatchEventSchema,

@@ -40,6 +40,7 @@ export function makeReviewProductTransport(props: {
 			const [subscriptionKind] = arguments_;
 			props.subscribedKinds.push(subscriptionKind);
 			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Generic transport fixtures close over the requested annotation subscription kind.
 				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
 			}
 			if (subscriptionKind !== 'review.metadata') {
