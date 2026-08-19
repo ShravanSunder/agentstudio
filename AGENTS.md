@@ -82,7 +82,8 @@ the question, then inspect current code/tests before making claims.
    sources, and [Architecture Overview](docs/architecture/README.md) for the
    architecture index.
 2. Architecture: open the one architecture doc for the concern before broad
-   searching. Examples: [Directory Structure](docs/architecture/directory_structure.md)
+   searching. Use [Architecture Overview](docs/architecture/README.md) as the
+   index. Examples: [Directory Structure](docs/architecture/directory_structure.md)
    for placement, [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md)
    for command routing, [Observability And Traceability](docs/architecture/observability_and_traceability.md)
    for trace/proof rules, and [AgentStudio IPC Architecture](docs/architecture/agentstudio_ipc_architecture.md)
@@ -90,13 +91,16 @@ the question, then inspect current code/tests before making claims.
    or native macOS affordance changes, also read
    [Style Guide](docs/guides/style_guide.md) and
    [App Architecture](docs/architecture/appkit_swiftui_architecture.md).
+   When the question is MainActor vs off-main, high-rate Terminal or sidebar
+   signals, or a new observer/debounce/timer/cache, use the
+   [Performance Lane Directive](#performance-lane-directive) routing table.
+   Do not infer hop shape from `@MainActor` annotations in this file.
 3. Testing: climb the proof pyramid. Start with focused `mise run test:<lane>`
    tasks for the changed code. Before PR readiness, run the complete local PR
    gate with `mise run test` from the repository root.
    Do not call unit tests, mocks, or fake integration coverage a smoke. If a
    higher proof layer is blocked, report the blocker separately from the
    passing lower-layer proof.
-   For expensive derived facts driven by product demand, read [Demand-Driven Derived-State Refresh](docs/architecture/demand_driven_derived_state_refresh.md) before adding observers, debounces, polling, timers, or caches.
 4. Observability: use the shared Victoria path below. AgentStudio produces
    telemetry; the shared stack owns VictoriaMetrics, VictoriaLogs, and
    VictoriaTraces. Prefer marker-scoped verifiers over screenshots, stale JSONL,
@@ -310,12 +314,47 @@ for a dedicated atom telemetry proof run.
 
 ### Performance Lane Directive
 
-- Classify a lane as `often` at about 10 or more events/minute, or `heavy` at 1 ms MainActor / 50 ms off-main.
-- Every `often` or `heavy` lane names an admission policy before work crosses its owner boundary.
-- Apply equality suppression before MainActor publication and use keyed reads on hot observation paths.
-- Move heavy derivation off MainActor while preserving the existing owner and published end state.
-- Put timing, cadence, and threshold constants in `AppPolicies`.
-- Ship marker-scoped probes with new performance lanes; measurement is part of the lane contract.
+Publish and mutate UI/atom state on MainActor. Schedule, contract, and derive
+off it. `@MainActor` on an atom names the publication owner, not the
+derivation thread. Classify a lane as `often` at about 10 or more
+events/minute, or `heavy` at 1 ms MainActor / 50 ms off-main, then load the
+owning doc before adding a hop, timer, debounce, observer, or cache.
+
+**New observer, debounce, poll, timer, or cache.** Load
+[Demand-Driven Derived-State Refresh](docs/architecture/demand_driven_derived_state_refresh.md).
+Classify the input first (ordered fact, latest-state, burst, expensive
+refresh, or future deadline). Debounce, throttle, and queues are mechanisms,
+not classifications; the wrong one silently drops ordering, scope, or
+currentness.
+
+**What may run on MainActor vs off-main.** Load
+[EventBus Design](docs/architecture/pane_runtime_eventbus_design.md).
+It owns hop shape: contract off-main, thin MainActor adapter, publish only
+changed semantic outcomes. A `@MainActor` type is not permission to derive,
+schedule, or admit there.
+
+**Ghostty title, output, CWD, or similar high-rate samples.** Load
+[Contract 7](docs/architecture/pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction)
+for what must be true, then
+[EventBus admission](docs/architecture/pane_runtime_eventbus_design.md#typed-admission-before-multiplexing)
+for how the hop is built. Raw callbacks must not wake the bus or MainActor.
+Contract and equality-suppress at the source; MainActor may apply one
+already-admitted value.
+
+**Sidebar row capture vs projection.** Load
+[Sidebar Data Flow](docs/architecture/workspace_data_architecture.md#sidebar-data-flow).
+MainActor captures keyed canonical facts only. Filtering, grouping, and
+row-index derivation stay in the existing detached worker. Do not join
+dictionaries or derive rows in the view.
+
+**Timing, cadence, or threshold constants.** Put them in `AppPolicies`, not
+`AppStyles`. If changing the value can change a state transition or
+command/event behavior, it is a policy. `AppStyles` is paint only.
+
+**Proving an `often`/`heavy` lane.** Load
+[Observability And Traceability](docs/architecture/observability_and_traceability.md).
+Measurement is part of the lane contract. Add marker-scoped probes; unit
+tests and feel are not performance proof.
 
 Use `AGENTSTUDIO_TRACE_BACKEND=jsonl|otlp|both` for explicit selection.
 `OTEL_EXPORTER_OTLP_ENDPOINT` is accepted only for loopback HTTP endpoints and
@@ -372,7 +411,7 @@ Instead:
 
 ## Architecture at a Glance
 
-AppKit-main architecture hosting SwiftUI views. Shared Core state is actor-bound in `CoreAtoms` and accessed through the one ambient `CoreAtomScope`, with `atom(\.foo)` as the typed `KeyPath<CoreAtoms, Value>` read path. Feature-owned mutable state is never ambient: App injects each Feature's concrete atom or facade explicitly, and supplies sibling facts through consumer-owned read-only projections. Canonical mutable state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms` or the owning Feature's matching path, and persistence wrappers live under the corresponding `State/MainActor/Persistence` path. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
+AppKit-main architecture hosting SwiftUI views. Shared Core state is actor-bound in `CoreAtoms` and accessed through the one ambient `CoreAtomScope`, with `atom(\.foo)` as the typed `KeyPath<CoreAtoms, Value>` read path. Feature-owned mutable state is never ambient: App injects each Feature's concrete atom or facade explicitly, and supplies sibling facts through consumer-owned read-only projections. Canonical mutable state is *published* from `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms` or the owning Feature's matching path, and persistence wrappers live under the corresponding `State/MainActor/Persistence` path. That `@MainActor` mark is the publication owner; load the [Performance Lane Directive](#performance-lane-directive) before putting derivation, admission, or timers on MainActor. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
 
 The compiled product graph is `AgentStudio` App executable/resource owner →
 eight independent Feature modules plus one coarse `AgentStudioCore` and
@@ -581,13 +620,11 @@ icons when a sidebar/local action already defines the presentation.
 - `Ghostty.AppFocusSynchronizer` owns app-level focus sync via `AppLifecycleAtom.isActive`
 Future terminal event-routing expansion belongs in `Ghostty.ActionRouter` plus adapter/runtime layers, not back in `Ghostty.swift`.
 
-**High-volume source rule:** Use the owning domain's typed source-admission path.
-Preserve exact commands and facts. Contract Terminal-local samples before
-MainActor/EventBus publication, publish only changed projected semantic outcomes
-from that contracted evidence, and use affected-key filesystem effects for ordinary
-pane/CWD changes. See [Pane Runtime Contract 7](docs/architecture/pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction),
-[EventBus Design](docs/architecture/pane_runtime_eventbus_design.md#typed-admission-before-multiplexing),
-and [Workspace Data Architecture](docs/architecture/workspace_data_architecture.md#filesystem-effect-admission-and-projection).
+**High-volume source rule:** Do not skip source admission. For Ghostty samples
+or filesystem effects, load the matching row in the
+[Performance Lane Directive](#performance-lane-directive); filesystem pane
+effects are owned by
+[Workspace Data Architecture](docs/architecture/workspace_data_architecture.md#filesystem-effect-admission-and-projection).
 
 ### Architecture Docs
 
@@ -596,10 +633,11 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | Doc | Covers |
 |-----|--------|
 | [Component Architecture](docs/architecture/component_architecture.md) | Data model, stores, coordinator, persistence, invariants |
-| [Workspace Data Architecture](docs/architecture/workspace_data_architecture.md) | Three-tier persistence, enrichment pipeline, event bus contracts, sidebar data flow |
+| [Workspace Data Architecture](docs/architecture/workspace_data_architecture.md) | Three-tier persistence, enrichment pipeline, filesystem-effect admission, sidebar capture vs projection |
+| [Demand-Driven Derived-State Refresh](docs/architecture/demand_driven_derived_state_refresh.md) | Classify-first vocabulary for expensive derived facts; load before observers, debounce, polling, or caches |
 | [Atom Persistence Boundaries](docs/architecture/atom_persistence_boundaries.md) | Atom-to-SQLite boundary model, lifecycle lanes, derived read models, runtime-only surfaces |
-| [Pane Runtime Architecture](docs/architecture/pane_runtime_architecture.md) | Pane runtime contracts (C1-C16), RuntimeEnvelope, event taxonomy |
-| [EventBus Design](docs/architecture/pane_runtime_eventbus_design.md) | Actor threading, connection patterns, multiplexing rule |
+| [Pane Runtime Architecture](docs/architecture/pane_runtime_architecture.md) | Pane runtime contracts (C1-C16), Ghostty source admission (C7), RuntimeEnvelope, event taxonomy |
+| [EventBus Design](docs/architecture/pane_runtime_eventbus_design.md) | MainActor vs off-main hops, admission before multiplexing, actor fan-out, Swift 6.2 isolation |
 | [Session Lifecycle](docs/architecture/session_lifecycle.md) | Pane identity, creation, close, undo, restore, zmx backend |
 | [Surface Architecture](docs/architecture/ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health, crash isolation |
 | [App Architecture](docs/architecture/appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers, events |
@@ -896,15 +934,18 @@ Where each key component lives — use this to decide where new files go. Apply 
 
 ## Swift Concurrency
 
-Target: Swift 6.2 / macOS 26. `@MainActor` for all stores, coordinators, and UI mutations.
+Target: Swift 6.2 / macOS 26. `@MainActor` for store, coordinator, and UI
+mutations — not for derivation, admission, or deadline scheduling. Load
+[EventBus Design](docs/architecture/pane_runtime_eventbus_design.md) when
+choosing a hop; load its
+[Swift 6.2 concurrency rules](docs/architecture/pane_runtime_eventbus_design.md#swift-62-concurrency-rules-se-0461)
+only for isolation gotchas.
 
-1. **Isolation first** — `@MainActor` for UI/stores, `actor` for boundary work
+1. **Isolation first** — `@MainActor` for UI/store mutations, `actor` for boundary work
 2. **`@concurrent nonisolated` for blocking I/O** — In Swift 6.2 (SE-0461), plain `nonisolated async` inherits the caller's actor executor. Without `@concurrent`, blocking I/O called from inside an actor blocks that actor's serial executor. `@concurrent` forces escape to the global concurrent executor. **This is a correctness requirement in 6.2, not a style choice.**
 3. **Structured concurrency** preferred; `Task.detached` only when isolation inheritance must be broken
 4. **C callback bridging** — capture stable IDs synchronously, never defer pointer dereference across async hops
 5. **AsyncStream standard** — `AsyncStream.makeStream(of:)`, explicit buffering policy, always cancel on shutdown
-
-See [EventBus Design — Swift 6.2 concurrency rules](docs/architecture/pane_runtime_eventbus_design.md#swift-62-concurrency-rules-se-0461) for the full gotchas table and threading model.
 
 ---
 
