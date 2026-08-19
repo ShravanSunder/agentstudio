@@ -304,6 +304,7 @@ actor BridgeContributionCaptureGate {
             continuation.resume()
         }
     }
+
 }
 
 actor BridgeComparisonGate {
@@ -335,6 +336,10 @@ actor BridgeComparisonGate {
         }
     }
 
+    func hasStartedComparisonCount(_ requestedCount: Int) -> Bool {
+        startedComparisonCount >= requestedCount
+    }
+
     func releaseAll() {
         isReleased = true
         let continuations = releaseContinuations
@@ -342,6 +347,11 @@ actor BridgeComparisonGate {
         for continuation in continuations {
             continuation.resume()
         }
+    }
+
+    func releaseFirst() {
+        guard !releaseContinuations.isEmpty else { return }
+        releaseContinuations.removeFirst().resume()
     }
 
     private func resumeSatisfiedStartedComparisonWaiters() {

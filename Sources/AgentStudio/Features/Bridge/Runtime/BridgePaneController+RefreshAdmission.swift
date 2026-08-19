@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
 package enum BridgePaneWorktreeProductInvalidation: Sendable {
@@ -34,7 +35,8 @@ extension BridgePaneController {
                     requiresReviewRefresh: true
                 )
             }
-            activeReviewRefreshTask?.cancel()
+            retireActiveFileRefreshTask()
+            retireActiveReviewRefreshTask()
         }
         return productActivityTransition
     }
@@ -86,6 +88,8 @@ extension BridgePaneController {
     package func handleWorktreeProductInvalidation(
         _ invalidation: BridgePaneWorktreeProductInvalidation
     ) async {
+        let affectsFileLane: Bool
+        let affectsReviewLane: Bool
         switch invalidation {
         case .filesChanged(let changeset):
             let matchesPaneWorktree = changeset.worktreeId == runtime.metadata.worktreeId
@@ -100,25 +104,36 @@ extension BridgePaneController {
             guard changeset.repoId == runtime.metadata.repoId,
                 matchesPaneWorktree || admitsCrossWorktreeContributionRefresh
             else { return }
+            reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded()
             refreshAdmissionCoordinator.recordInvalidation(
                 fileChangeset: matchesPaneWorktree ? changeset : nil,
                 requiresReviewRefresh: true
             )
+            affectsFileLane = matchesPaneWorktree
+            affectsReviewLane = true
         case .statusChanged(let status):
+            reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded()
             refreshAdmissionCoordinator.recordInvalidation(
                 fileChangeset: nil,
                 latestFileStatus: status,
                 requiresReviewRefresh: true
             )
+            affectsFileLane = true
+            affectsReviewLane = true
         }
-        reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded()
+        if affectsFileLane {
+            retireActiveFileRefreshTask()
+        }
+        if affectsReviewLane {
+            retireActiveReviewRefreshTask()
+        }
         scheduleWorktreeProductCatchUpIfPossible()
     }
 
     private func reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded() {
         let admissionSnapshot = refreshAdmissionCoordinator.diagnosticSnapshot
         guard admissionSnapshot.activity == .foreground,
-            admissionSnapshot.activeRefreshPass?.lanes.contains(.review) == true,
+            refreshAdmissionCoordinator.isRefreshLaneActive(.review),
             pendingComparisonReviewGeneration == nil,
             case .workspace(_, let baseline) = bridgePaneState.source,
             baseline?.contributionTarget != nil
@@ -130,17 +145,24 @@ extension BridgePaneController {
     }
 
     func scheduleWorktreeProductCatchUpIfPossible() {
-        guard activeReviewRefreshTask == nil,
-            let firstReservation = refreshAdmissionCoordinator.reserveForegroundRefreshPass()
+        scheduleFileCatchUpIfPossible()
+        scheduleReviewCatchUpIfPossible()
+    }
+
+    private func scheduleFileCatchUpIfPossible() {
+        guard activeFileRefreshTask == nil,
+            let firstReservation = refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .file)
         else { return }
 
         _ = scheduleProductPresentationPublication()
-        activeReviewRefreshTask = Task { @MainActor [weak self] in
+        let taskId = UUIDv7.generate()
+        activeFileRefreshTaskId = taskId
+        activeFileRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var reservation: BridgePaneRefreshCatchUpReservation? = firstReservation
             var finalOutcome = BridgePaneRefreshCatchUpOutcome.stale
             while let currentReservation = reservation, !Task.isCancelled {
-                let outcome = await self.performWorktreeProductCatchUp(currentReservation)
+                let outcome = await self.performFileCatchUp(currentReservation)
                 finalOutcome = outcome
                 self.refreshAdmissionCoordinator.completeRefreshPass(
                     currentReservation,
@@ -148,20 +170,84 @@ extension BridgePaneController {
                 )
                 reservation =
                     outcome == .succeeded
-                    ? self.refreshAdmissionCoordinator.reserveForegroundRefreshPass()
+                    ? self.refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .file)
                     : nil
                 _ = self.scheduleProductPresentationPublication()
                 guard outcome == .succeeded else { break }
             }
-            self.activeReviewRefreshTask = nil
-            self.scheduleRetainedReviewPackageBuildIfPossible()
+            self.retiringFileRefreshTaskById.removeValue(forKey: taskId)
+            guard self.activeFileRefreshTaskId == taskId else { return }
+            self.activeFileRefreshTask = nil
+            self.activeFileRefreshTaskId = nil
             if finalOutcome != .failed {
-                self.scheduleWorktreeProductCatchUpIfPossible()
+                self.scheduleFileCatchUpIfPossible()
             }
         }
     }
 
-    private func performWorktreeProductCatchUp(
+    private func scheduleReviewCatchUpIfPossible() {
+        guard activeReviewRefreshTask == nil,
+            let firstReservation = refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .review)
+        else { return }
+
+        _ = scheduleProductPresentationPublication()
+        let taskId = UUIDv7.generate()
+        activeReviewRefreshTaskId = taskId
+        activeReviewRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var reservation: BridgePaneRefreshCatchUpReservation? = firstReservation
+            var finalOutcome = BridgePaneRefreshCatchUpOutcome.stale
+            while let currentReservation = reservation, !Task.isCancelled {
+                let outcome = await self.performReviewCatchUp(currentReservation)
+                finalOutcome = outcome
+                self.refreshAdmissionCoordinator.completeRefreshPass(
+                    currentReservation,
+                    outcome: outcome
+                )
+                reservation =
+                    outcome == .succeeded
+                    ? self.refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .review)
+                    : nil
+                _ = self.scheduleProductPresentationPublication()
+                guard outcome == .succeeded else { break }
+            }
+            self.retiringReviewRefreshTaskById.removeValue(forKey: taskId)
+            guard self.activeReviewRefreshTaskId == taskId else { return }
+            self.activeReviewRefreshTask = nil
+            self.activeReviewRefreshTaskId = nil
+            self.scheduleRetainedReviewPackageBuildIfPossible()
+            if finalOutcome != .failed {
+                self.scheduleReviewCatchUpIfPossible()
+            }
+        }
+    }
+
+    func retireActiveFileRefreshTask() {
+        guard let taskId = activeFileRefreshTaskId,
+            let task = activeFileRefreshTask
+        else { return }
+        task.cancel()
+        retiringFileRefreshTaskById[taskId] = task
+        activeFileRefreshTask = nil
+        activeFileRefreshTaskId = nil
+    }
+
+    func retireActiveReviewRefreshTask() {
+        if let productAdmission = productAdmissionGate.acquire() {
+            reviewPublicationCoordinator.supersedePendingPublication(
+                productAdmission: productAdmission
+            )
+        }
+        guard let taskId = activeReviewRefreshTaskId,
+            let task = activeReviewRefreshTask
+        else { return }
+        task.cancel()
+        retiringReviewRefreshTaskById[taskId] = task
+        activeReviewRefreshTask = nil
+        activeReviewRefreshTaskId = nil
+    }
+
+    private func performFileCatchUp(
         _ reservation: BridgePaneRefreshCatchUpReservation
     ) async -> BridgePaneRefreshCatchUpOutcome {
         guard reservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
@@ -195,14 +281,19 @@ extension BridgePaneController {
             fileRefreshFailed = fileRefreshFailed || disposition == .failed
         }
 
-        guard reservation.requiresReviewRefresh else {
-            return fileRefreshFailed ? .failed : .succeeded
-        }
-        let reviewOutcome = await refreshCurrentReviewPackage(
+        return fileRefreshFailed ? .failed : .succeeded
+    }
+
+    private func performReviewCatchUp(
+        _ reservation: BridgePaneRefreshCatchUpReservation
+    ) async -> BridgePaneRefreshCatchUpOutcome {
+        guard reservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
+            let productAdmission = productAdmissionGate.acquire()
+        else { return .stale }
+        return await refreshCurrentReviewPackage(
+            reservation: reservation,
             foregroundWorkAdmission: reservation.foregroundWorkAdmission,
             productAdmission: productAdmission
         )
-        guard reviewOutcome == .succeeded else { return reviewOutcome }
-        return fileRefreshFailed ? .failed : .succeeded
     }
 }

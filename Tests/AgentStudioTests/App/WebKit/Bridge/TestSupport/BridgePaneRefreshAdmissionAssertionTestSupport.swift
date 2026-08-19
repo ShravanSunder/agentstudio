@@ -34,6 +34,34 @@ func waitForRefreshAdmissionQueuedMetadataFrame(
     return false
 }
 
+func waitForStartedComparisonCount(
+    _ expectedCount: Int,
+    gate: BridgeComparisonGate,
+    maxTurns: Int = 200
+) async -> Bool {
+    for _ in 0..<maxTurns {
+        if await gate.hasStartedComparisonCount(expectedCount) {
+            return true
+        }
+        await Task.yield()
+    }
+    return false
+}
+
+@MainActor
+func waitForRetiringReviewRefreshTasksToDrain(
+    _ controller: BridgePaneController,
+    maxTurns: Int = 2000
+) async -> Bool {
+    for _ in 0..<maxTurns {
+        if controller.retiringReviewRefreshTaskById.isEmpty {
+            return true
+        }
+        await Task.yield()
+    }
+    return false
+}
+
 @MainActor
 func waitForRefreshAdmissionIdle(
     _ controller: BridgePaneController,

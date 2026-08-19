@@ -5,11 +5,17 @@ enum BridgeReviewPackageLoadCommitDisposition: Equatable, Sendable {
     case rejected
 }
 
+private enum BridgeReviewMetadataReservationResult {
+    case accepted(BridgeReviewMetadataPublicationReservation?)
+    case rejected
+}
+
 @MainActor
 extension BridgePaneController {
     func commitReviewPackageLoad(
         _ load: BridgeReviewPackageLoadData,
         expectedReviewGeneration: BridgeReviewGeneration,
+        expectedReviewAuthorityGeneration: UInt64? = nil,
         productAdmission: BridgeProductAdmissionContext,
         traceContext: BridgeTraceContext?,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
@@ -24,26 +30,14 @@ extension BridgePaneController {
             return .rejected
         }
 
-        let reservation: BridgeReviewMetadataPublicationReservation?
-        do {
-            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                _ = reviewPublicationCoordinator.rejectReservation(
-                    publicationToken,
-                    productAdmission: productAdmission
-                )
-                return .rejected
-            }
-            reservation = try await productSchemeProvider?.reserveReviewPublication(
-                package: load.package,
-                publicationId: publicationToken.publicationId,
+        guard
+            case .accepted(let reservation) = await reserveReviewPublication(
+                load: load,
+                publicationToken: publicationToken,
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
-        } catch {
-            _ = reviewPublicationCoordinator.rejectReservation(
-                publicationToken,
-                productAdmission: productAdmission
-            )
+        else {
             return .rejected
         }
 
@@ -59,7 +53,12 @@ extension BridgePaneController {
 
         let commitResult = foregroundWorkAdmission.withValidAdmission {
             () -> BridgeReviewPublicationCommitResult? in
-            guard expectedReviewGeneration == self.nextReviewGeneration else { return nil }
+            let currentReviewAuthorityGeneration =
+                self.refreshAdmissionCoordinator.currentAuthorityGeneration(for: .review)
+            guard expectedReviewGeneration == self.nextReviewGeneration,
+                (expectedReviewAuthorityGeneration ?? currentReviewAuthorityGeneration)
+                    == currentReviewAuthorityGeneration
+            else { return nil }
             return self.reviewPublicationCoordinator.commit(
                 publicationToken,
                 productAdmission: productAdmission,
@@ -121,6 +120,37 @@ extension BridgePaneController {
             productAdmission: productAdmission
         )
         return .committed(delivery: deliveryDisposition)
+    }
+
+    private func reserveReviewPublication(
+        load: BridgeReviewPackageLoadData,
+        publicationToken: BridgeReviewPublicationToken,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) async -> BridgeReviewMetadataReservationResult {
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+            _ = reviewPublicationCoordinator.rejectReservation(
+                publicationToken,
+                productAdmission: productAdmission
+            )
+            return .rejected
+        }
+        do {
+            return .accepted(
+                try await productSchemeProvider?.reserveReviewPublication(
+                    package: load.package,
+                    publicationId: publicationToken.publicationId,
+                    productAdmission: productAdmission,
+                    foregroundWorkAdmission: foregroundWorkAdmission
+                )
+            )
+        } catch {
+            _ = reviewPublicationCoordinator.rejectReservation(
+                publicationToken,
+                productAdmission: productAdmission
+            )
+            return .rejected
+        }
     }
 
     private func captureCommittedReviewComparisonPresentation(

@@ -160,13 +160,24 @@ extension WebKitSerializedTests {
                 let snapshot = try await harness.nextReviewMetadataEvent(for: metadataLease)
                 return (reset, sourceAccepted, snapshot)
             }
-            let foregroundWorkAdmission = try #require(
-                harness.controller.refreshAdmissionCoordinator.acquireForegroundWork()
+            harness.controller.refreshAdmissionCoordinator.recordInvalidation(
+                fileChangeset: nil,
+                requiresReviewRefresh: true
+            )
+            let reservation = try #require(
+                harness.controller.refreshAdmissionCoordinator.reserveForegroundRefreshPass(
+                    for: .review
+                )
             )
 
             let refreshOutcome = await harness.controller.refreshCurrentReviewPackage(
-                foregroundWorkAdmission: foregroundWorkAdmission,
+                reservation: reservation,
+                foregroundWorkAdmission: reservation.foregroundWorkAdmission,
                 productAdmission: harness.productAdmission
+            )
+            harness.controller.refreshAdmissionCoordinator.completeRefreshPass(
+                reservation,
+                outcome: refreshOutcome
             )
             let (resetEvent, successorSourceAcceptedEvent, successorSnapshotEvent) =
                 try await successorEventsTask.value

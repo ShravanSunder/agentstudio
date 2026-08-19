@@ -41,7 +41,8 @@ extension BridgePaneController {
         )
         _ = scheduleProductPresentationPublication()
         pendingReviewPackageBuildReasons.insert(.productResync)
-        activeReviewRefreshTask?.cancel()
+        refreshAdmissionCoordinator.advanceAuthority(for: .review)
+        retireActiveReviewRefreshTask()
         scheduleRetainedReviewPackageBuildIfPossible()
         return true
     }

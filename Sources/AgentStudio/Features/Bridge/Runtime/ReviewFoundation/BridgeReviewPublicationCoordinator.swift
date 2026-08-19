@@ -291,6 +291,25 @@ final class BridgeReviewPublicationCoordinator {
         } ?? .closed
     }
 
+    @discardableResult
+    func supersedePendingPublication(
+        productAdmission: BridgeProductAdmissionContext
+    ) -> Bool {
+        guard !isClosed,
+            let pendingPublication,
+            pendingPublication.publication.productAdmission.matches(productAdmission)
+        else { return false }
+        return productAdmission.withValidAdmission {
+            guard !isClosed,
+                let pendingPublication = self.pendingPublication,
+                pendingPublication.publication.productAdmission.matches(productAdmission)
+            else { return false }
+            releasePublication(pendingPublication.publication)
+            self.pendingPublication = nil
+            return true
+        } ?? false
+    }
+
     /// Commits native B and presents pane B without suspension.
     ///
     /// `presentCommitted` executes while the admission gate linearizes the

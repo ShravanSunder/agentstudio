@@ -226,9 +226,9 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         expectRefreshPackageState(
             fixture,
             itemId: "item-newer",
-            revision: 2,
+            revision: 1,
             addedItemIds: ["item-newer"],
-            removedItemIds: ["item-new"]
+            removedItemIds: ["item-old"]
         )
     }
 

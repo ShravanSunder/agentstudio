@@ -67,7 +67,12 @@ package final class BridgePaneController {
     var nextReviewGeneration: BridgeReviewGeneration = 0
     var pendingComparisonReviewGeneration: BridgeReviewGeneration?
     var selectedReviewItemId: String?
+    var activeFileRefreshTask: Task<Void, Never>?
+    var activeFileRefreshTaskId: UUID?
+    var retiringFileRefreshTaskById: [UUID: Task<Void, Never>] = [:]
     var activeReviewRefreshTask: Task<Void, Never>?
+    var activeReviewRefreshTaskId: UUID?
+    var retiringReviewRefreshTaskById: [UUID: Task<Void, Never>] = [:]
     var productPresentationTransitionGeneration: UInt64 = 0
     var productPresentationTransitionTail: Task<Void, Never>?
     var surfaceSelectionTransitionTail: Task<Bool, Never>?
@@ -446,9 +451,20 @@ package final class BridgePaneController {
             productAdmissionGate.close()
             surfaceSelectionAuthority.invalidate()
             let reviewPublicationCloseDrain = reviewPublicationCoordinator.close()
-            let reviewRefreshTask = activeReviewRefreshTask
-            reviewRefreshTask?.cancel()
+            let fileRefreshTasks =
+                Array(retiringFileRefreshTaskById.values)
+                + [activeFileRefreshTask].compactMap { $0 }
+            let reviewRefreshTasks =
+                Array(retiringReviewRefreshTaskById.values)
+                + [activeReviewRefreshTask].compactMap { $0 }
+            for task in fileRefreshTasks { task.cancel() }
+            for task in reviewRefreshTasks { task.cancel() }
+            activeFileRefreshTask = nil
+            activeFileRefreshTaskId = nil
+            retiringFileRefreshTaskById.removeAll()
             activeReviewRefreshTask = nil
+            activeReviewRefreshTaskId = nil
+            retiringReviewRefreshTaskById.removeAll()
             let reviewContentLoaderCache = reviewContentLoaderCache
             let productSchemeProvider = productSchemeProvider
             let productPresentationTransitionTail = productPresentationTransitionTail
@@ -460,7 +476,8 @@ package final class BridgePaneController {
                 await reviewContentLoaderCache.closeAndDrain()
                 _ = await contentDemandDrain
                 async let closePublicationDrain: Void = reviewPublicationCloseDrain.releaseAndWait()
-                await reviewRefreshTask?.value
+                for task in fileRefreshTasks { await task.value }
+                for task in reviewRefreshTasks { await task.value }
                 let lateArtifactPinReleaseTask = reviewPublicationCoordinator.takeArtifactPinReleaseTask()
                 await closePublicationDrain
                 await lateArtifactPinReleaseTask?.value
