@@ -651,15 +651,11 @@ extension ObservedForgeEvents {
 
     func waitForLoadingStates(
         repoId: UUID,
-        expected: [Bool],
-        maxTurns: Int = 500
+        expected: [Bool]
     ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if loadingStates(for: repoId) == expected { return true }
-            await Task.yield()
+        await waitForRecordedEvent {
+            loadingStates(for: repoId) == expected
         }
-        Issue.record("Expected Forge loading states \(expected), received \(loadingStates(for: repoId))")
-        return false
     }
 
     func pullRequestsUnavailableCount(for repoId: UUID) -> Int {
@@ -669,13 +665,10 @@ extension ObservedForgeEvents {
         }
     }
 
-    func waitForPullRequestsUnavailable(repoId: UUID, maxTurns: Int = 500) async -> Bool {
-        for _ in 0..<maxTurns {
-            if pullRequestsUnavailableCount(for: repoId) > 0 { return true }
-            await Task.yield()
+    func waitForPullRequestsUnavailable(repoId: UUID) async -> Bool {
+        await waitForRecordedEvent {
+            pullRequestsUnavailableCount(for: repoId) > 0
         }
-        Issue.record("Expected Forge pull requests unavailable for repoId=\(repoId)")
-        return false
     }
 
     func pullRequestsChangedCount(for repoId: UUID) -> Int {
@@ -687,15 +680,11 @@ extension ObservedForgeEvents {
 
     func waitForPullRequestsChangedCount(
         repoId: UUID,
-        expectedCount: Int,
-        maxTurns: Int = 500
+        expectedCount: Int
     ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if pullRequestsChangedCount(for: repoId) == expectedCount { return true }
-            await Task.yield()
+        await waitForRecordedEvent {
+            pullRequestsChangedCount(for: repoId) == expectedCount
         }
-        Issue.record("Expected \(expectedCount) pullRequestsChanged events for repoId=\(repoId)")
-        return false
     }
 }
 
