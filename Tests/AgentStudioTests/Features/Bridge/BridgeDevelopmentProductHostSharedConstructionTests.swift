@@ -147,6 +147,57 @@ struct BridgeDevHostSharedConstructionTests {
         }
     }
 
+    @Test("source invalidations supersede the development Review publication task")
+    func sourceInvalidationsSupersedeDevelopmentReviewPublicationTask() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-source-refresh"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider()
+        let source = makeDevelopmentProductSource(worktreeRoot: repositoryURL)
+        let host = try await BridgeDevelopmentProductHost(
+            source: source,
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in provider }
+        )
+        try await withShutdownDevelopmentProductHost(host) {
+            _ = try await host.issueBootstrap(for: makeDevelopmentBootstrapRequest(surface: "review"))
+            let comparisonGate = BridgeComparisonGate()
+            await provider.setComparisonGate(comparisonGate)
+
+            // Act
+            await host.handleObservedWorktreeInvalidation(
+                developmentFileInvalidation(source: source, batchSequence: 10)
+            )
+            guard await waitForStartedComparisonCount(1, gate: comparisonGate) else {
+                Issue.record("Expected source invalidation 10 to start Review preparation")
+                await comparisonGate.releaseAll()
+                return
+            }
+            await host.handleObservedWorktreeInvalidation(
+                developmentFileInvalidation(source: source, batchSequence: 11)
+            )
+            guard await waitForStartedComparisonCount(2, gate: comparisonGate) else {
+                Issue.record("Expected source invalidation 11 to supersede Review preparation 10")
+                await comparisonGate.releaseAll()
+                return
+            }
+            await comparisonGate.releaseAll()
+            let reviewTask = await host.activeReviewComparisonTask
+            await reviewTask?.value
+            let didDrainRetiringTasks = await waitForRetiringReviewTasksToDrain(host)
+
+            // Assert
+            let publication = await host.diagnosticCommittedReviewPublication()
+            #expect(publication?.package.reviewGeneration == 3)
+            #expect(await provider.snapshot().reviewGenerationValues == [1, 2, 3])
+            #expect(didDrainRetiringTasks)
+        }
+    }
+
     @Test("shutdown cancels and drains the host-owned comparison publication task")
     func shutdownCancelsAndDrainsComparisonPublicationTask() async throws {
         // Arrange
@@ -367,6 +418,45 @@ struct BridgeDevHostSharedConstructionTests {
             }
         }
     }
+}
+
+private func developmentFileInvalidation(
+    source: BridgeDevelopmentProductSource,
+    batchSequence: UInt64
+) -> BridgePaneWorktreeProductInvalidation {
+    .filesChanged(
+        FileChangeset(
+            worktreeId: source.worktreeID,
+            repoId: source.repoID,
+            rootPath: source.worktreeRoot,
+            paths: ["tracked.txt"],
+            timestamp: .now,
+            batchSeq: batchSequence
+        )
+    )
+}
+
+private func waitForStartedComparisonCount(
+    _ expectedCount: Int,
+    gate: BridgeComparisonGate,
+    maximumTurns: Int = 20_000
+) async -> Bool {
+    for _ in 0..<maximumTurns {
+        if await gate.startedComparisonCountSnapshot() >= expectedCount { return true }
+        await Task.yield()
+    }
+    return false
+}
+
+private func waitForRetiringReviewTasksToDrain(
+    _ host: BridgeDevelopmentProductHost,
+    maximumTurns: Int = 20_000
+) async -> Bool {
+    for _ in 0..<maximumTurns {
+        if await host.retiringReviewComparisonTasks.isEmpty { return true }
+        await Task.yield()
+    }
+    return false
 }
 
 private struct BridgeDevSharedReviewProviderSnapshot: Sendable {

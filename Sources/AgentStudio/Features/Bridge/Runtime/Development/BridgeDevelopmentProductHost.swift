@@ -15,6 +15,7 @@ package actor BridgeDevelopmentProductHost {
     private let committedCallTarget: BridgeDevelopmentProductCommittedCallTarget
     var activeReviewComparisonTask: Task<Void, Never>?
     var activeReviewComparisonTaskGeneration: BridgeReviewGeneration?
+    var retiringReviewComparisonTasks: [BridgeReviewGeneration: Task<Void, Never>] = [:]
     private var bootstrapTransitionTail: Task<Void, Never>?
     private let gitReadScheduler: BridgeGitReadScheduler
     private var navigationBindingRevision = 0
@@ -254,6 +255,7 @@ package actor BridgeDevelopmentProductHost {
         _ invalidation: BridgePaneWorktreeProductInvalidation
     ) async {
         guard !isShutdown else { return }
+        let affectedLanes: Set<BridgePaneRefreshLane>
         switch invalidation {
         case .filesChanged(let changeset):
             guard changeset.repoId == repoId,
@@ -264,7 +266,7 @@ package actor BridgeDevelopmentProductHost {
             _ = await constructionCoordinator.invalidate(
                 worktree: worktreeConstructionIdentity
             )
-            _ = await worktreeRefreshDriver.recordInvalidation(
+            affectedLanes = await worktreeRefreshDriver.recordInvalidation(
                 fileChangeset: changeset,
                 requiresReviewRefresh: true
             )
@@ -272,11 +274,14 @@ package actor BridgeDevelopmentProductHost {
             _ = await constructionCoordinator.invalidate(
                 worktree: worktreeConstructionIdentity
             )
-            _ = await worktreeRefreshDriver.recordInvalidation(
+            affectedLanes = await worktreeRefreshDriver.recordInvalidation(
                 fileChangeset: nil,
                 latestFileStatus: status,
                 requiresReviewRefresh: true
             )
+        }
+        if affectedLanes.contains(.review) {
+            await scheduleObservedReviewRefreshIfPossible()
         }
     }
 
@@ -288,9 +293,17 @@ package actor BridgeDevelopmentProductHost {
         bootstrapTransitionTail = nil
         let reviewComparisonTask = activeReviewComparisonTask
         reviewComparisonTask?.cancel()
+        let retiringReviewComparisonTasks = Array(retiringReviewComparisonTasks.values)
+        for retiringReviewComparisonTask in retiringReviewComparisonTasks {
+            retiringReviewComparisonTask.cancel()
+        }
         await reviewComparisonTask?.value
+        for retiringReviewComparisonTask in retiringReviewComparisonTasks {
+            await retiringReviewComparisonTask.value
+        }
         activeReviewComparisonTask = nil
         activeReviewComparisonTaskGeneration = nil
+        self.retiringReviewComparisonTasks.removeAll()
         await MainActor.run {
             refreshAdmissionCoordinator.close()
             productAdmissionGate.close()
