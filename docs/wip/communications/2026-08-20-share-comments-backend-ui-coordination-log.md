@@ -253,3 +253,34 @@ proof, packaged WKWebView proof, and final `mise run test`
 Notes: 1Password signing failed once with `failed to fill whole buffer`; the
 second signed commit attempt succeeded. PR2 research files remain untracked and
 untouched
+
+### 2026-08-20 18:39 EDT — Share-comments UX runtime lane
+
+State: blocked on backend/comm-worker known-success response convergence
+Head: `395340a13` with UI checkpoint `b65c61c207`
+Owns: real Swift development backend + Vite + browser observation only; no
+backend/comm-worker edits
+Changed: none; isolated runtime state lives under
+`/tmp/agentstudio-bridge-share-proof.OafVz7`
+Proof: built the real development server, started it on `127.0.0.1:43873`,
+started Vite on `127.0.0.1:5174`, created and saved one real Review annotation,
+opened header-owned Share, observed `New (1)` / `All (1)`, switched to All, and
+clicked Copy Markdown. Native durable evidence says known success: two repeated
+attempts are `state=succeeded`; each has `event_kind=copied`; both exact capture
+files exist; the message is `status=locked, handled=1`. React convergence also
+observed `New (0)` / `All (1)` and `Output locked`.
+Needs from other lane: diagnose why the same
+`review.annotations.command` rejects at the comm-worker/UI boundary with
+`Bridge comm worker failed to forward review.annotations.command.` after the
+native effect and durable known-success transaction completed. Inspect the raw
+method result and `bridgeProductWorktreeAnnotationCommandResultSchema.parse`
+path, plus product-call correlation/replay after the post-effect response.
+Prove one click yields one delivered `succeeded` outcome, Share closes, success
+toast offers unhandle, and ordinary retry cannot duplicate an already-known
+effect.
+Next: backend/comm-worker owner corrects and proves the response convergence;
+UX lane then reruns Copy, toast unhandle, restart, and two-pane journeys
+Notes: this is a mental-model break, not an ordinary UI failure: the current UI
+correctly retained Share on its observed transport failure, while durable truth
+had already committed known success. A second All click repeated the real
+development clipboard capture, demonstrating the duplicate-effect risk.
