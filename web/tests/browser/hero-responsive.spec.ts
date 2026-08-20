@@ -10,10 +10,12 @@ interface HeroPlaneExpectation {
 }
 
 const heroPlaneExpectations: readonly HeroPlaneExpectation[] = [
-  { width: 1600, height: 1000, visible: true, top: "56px", right: "96px", scale: "0.78" },
-  { width: 1158, height: 900, visible: true, top: "52px", right: "64px", scale: "0.62" },
-  { width: 899, height: 900, visible: true, top: "48px", right: "32px", scale: "0.46" },
-  { width: 390, height: 844, visible: false, top: "48px", right: "32px", scale: "0.46" },
+  { width: 1280, height: 900, visible: true, top: "56px", right: "96px", scale: "0.78" },
+  { width: 1279, height: 900, visible: true, top: "52px", right: "64px", scale: "0.62" },
+  { width: 1024, height: 900, visible: true, top: "52px", right: "64px", scale: "0.62" },
+  { width: 1023, height: 900, visible: true, top: "48px", right: "32px", scale: "0.46" },
+  { width: 640, height: 844, visible: true, top: "48px", right: "32px", scale: "0.46" },
+  { width: 639, height: 844, visible: false, top: "48px", right: "32px", scale: "0.46" },
 ] as const;
 
 for (const expectation of heroPlaneExpectations) {
