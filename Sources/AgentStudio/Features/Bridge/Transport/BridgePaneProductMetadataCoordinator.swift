@@ -439,6 +439,9 @@ actor BridgePaneProductMetadataCoordinator {
                 activeStream: activeStream
             )
             guard case .enqueued = result else {
+                if case .queueReset = result {
+                    return false
+                }
                 discardFailedExactPaneSurfaceSelectionRequest(request)
                 return false
             }
@@ -566,6 +569,9 @@ actor BridgePaneProductMetadataCoordinator {
                 activeStream: activeStream
             )
             guard case .enqueued = result else {
+                if case .queueReset = result {
+                    return
+                }
                 discardFailedExactPaneSurfaceSelectionRequest(request)
                 return
             }

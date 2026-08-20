@@ -132,6 +132,29 @@ struct BridgePaneSurfaceSelectionPublicationTests {
         #expect(error.code == .resyncRequired)
         #expect(error.retryable)
         await coordinator.uninstall(lease: lease)
+        try await harness.closeProducer(lease)
+        let replacementLease = try await harness.admitMetadataFrames(through: 0)
+        let replacementPump = BridgeProductSchemeFramePump(
+            session: harness.session,
+            producerLease: replacementLease,
+            productAdmission: harness.productAdmission.context,
+            acknowledgeLifecycle: { _ in true }
+        )
+        await coordinator.install(
+            request: try coordinatorMetadataStreamRequest(),
+            lease: replacementLease,
+            productAdmission: harness.productAdmission.context,
+            session: harness.session
+        )
+        await coordinator.replayPaneSurfaceSelectionRequest()
+        let replayedFrame = try await pullMetadataFrame(from: replacementPump)
+        guard case .paneSurfaceSelectionRequested(let replayedRequest) = replayedFrame else {
+            Issue.record("Expected the exact selection request to replay after queue reset")
+            return
+        }
+        #expect(replayedRequest.navigationCommand.commandId == "selection-overflow")
+        await coordinator.uninstall(lease: replacementLease)
+        #expect(await replacementPump.cancel())
     }
 
     @Test("an enqueue rejection fails the exact command instead of retaining it for replay")
