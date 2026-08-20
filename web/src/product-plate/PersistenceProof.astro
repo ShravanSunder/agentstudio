@@ -14,13 +14,13 @@ const { beforeImage, restoredImage } = Astro.props;
 
 <div class="persistence-proof" data-persistence-proof data-enhanced="false">
   <div
-    class="flex min-h-[48px] border-b border-line-strong bg-canvas"
+    class="flex min-h-12 border-b border-line-strong bg-canvas"
     role="group"
     aria-label="Workspace restoration"
   >
     <button
       type="button"
-      class="persistence-proof__control relative min-w-[128px] cursor-pointer border-0 border-r border-line bg-transparent px-[18px] font-mono-product text-[12px] text-ink-muted uppercase max-phone:min-w-0 max-phone:flex-[1_1_50%]"
+      class="persistence-proof__control relative min-w-32 cursor-pointer border-0 border-r border-line bg-transparent px-4.5 font-mono-product text-[12px] text-ink-muted uppercase max-phone:min-w-0 max-phone:flex-[1_1_50%]"
       data-persistence-proof-button="before"
       aria-pressed="true"
       disabled
@@ -29,7 +29,7 @@ const { beforeImage, restoredImage } = Astro.props;
     </button>
     <button
       type="button"
-      class="persistence-proof__control relative min-w-[128px] cursor-pointer border-0 border-r border-line bg-transparent px-[18px] font-mono-product text-[12px] text-ink-muted uppercase max-phone:min-w-0 max-phone:flex-[1_1_50%]"
+      class="persistence-proof__control relative min-w-32 cursor-pointer border-0 border-r border-line bg-transparent px-4.5 font-mono-product text-[12px] text-ink-muted uppercase max-phone:min-w-0 max-phone:flex-[1_1_50%]"
       data-persistence-proof-button="restored"
       aria-pressed="false"
       disabled
@@ -72,12 +72,7 @@ const { beforeImage, restoredImage } = Astro.props;
   }
 
   .persistence-proof__control[aria-pressed="true"]::after {
-    position: absolute;
-    right: 16px;
-    bottom: 0;
-    left: 16px;
-    height: 2px;
-    background: var(--color-primary);
+    @apply absolute right-4 bottom-0 left-4 h-0.5 bg-primary;
     content: "";
   }
 </style>

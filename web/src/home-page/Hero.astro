@@ -5,16 +5,16 @@ import InstallCommand from "./InstallCommand.astro";
 ---
 
 <section
-  class="hero relative overflow-hidden px-page-inline pt-[clamp(72px,8vw,120px)] max-phone:pt-[72px]"
+  class="hero relative overflow-hidden px-page-inline pt-[clamp(72px,8vw,120px)] max-phone:pt-18"
   aria-labelledby="hero-title"
 >
-  <div class="relative z-[2] max-w-[1296px]">
-    <p class="eyebrow m-0 font-mono-product text-[12px] tracking-[0.12em] text-ink-faint uppercase">
+  <div class="relative z-[2] max-w-hero">
+    <p class="eyebrow m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase">
       {marketingCopy.hero.eyebrow}
     </p>
     <h1
       id="hero-title"
-      class="mt-[24px] mb-[30px] max-w-[1296px] font-display text-[clamp(74px,8.5vw,128px)] leading-[0.86] font-extrabold tracking-[-0.07em] max-phone:text-[clamp(46px,12vw,68px)] max-phone:leading-[0.92] max-phone:tracking-[-0.05em]"
+      class="mt-6 mb-7.5 max-w-hero font-display text-[clamp(74px,8.5vw,128px)] leading-[0.86] font-extrabold tracking-[-0.07em] max-phone:text-[clamp(46px,12vw,68px)] max-phone:leading-[0.92] max-phone:tracking-tighter"
       aria-label={marketingCopy.hero.headline}
     >
       <span class="block">{marketingCopy.hero.headlineLead}</span>{" "}
@@ -23,11 +23,11 @@ import InstallCommand from "./InstallCommand.astro";
         <span class="text-primary"> {marketingCopy.hero.headlineAccent}</span>
       </span>
     </h1>
-    <p class="m-0 max-w-[720px] text-[clamp(18px,1.7vw,24px)] leading-[1.5] text-ink-muted">
+    <p class="m-0 max-w-[720px] text-[clamp(18px,1.7vw,24px)] leading-normal text-ink-muted">
       {marketingCopy.hero.description}
     </p>
     <div
-      class="hero__actions mt-action flex w-full flex-wrap items-center justify-center gap-[12px] max-phone:flex-col max-phone:items-stretch"
+      class="hero__actions mt-action flex w-full flex-wrap items-center justify-center gap-3 max-phone:flex-col max-phone:items-stretch"
     >
       <InstallCommand />
     </div>

@@ -24,12 +24,12 @@ const { title, description } = Astro.props;
   </head>
   <body>
     <header
-      class="site-header sticky top-px z-20 mx-auto flex min-h-[72px] w-[min(calc(100%-32px),var(--container-frame))] items-center justify-between rounded-floating-shell border border-[rgb(137_180_250/24%)] px-page-inline py-[16px] max-site-edge:w-[calc(100%-2px)]"
+      class="site-header sticky top-px z-20 mx-auto flex min-h-18 w-[min(calc(100%-32px),var(--container-frame))] items-center justify-between rounded-floating-shell border border-[rgb(137_180_250/24%)] px-page-inline py-4 max-site-edge:w-[calc(100%-2px)]"
       data-site-header
       data-visual-state="resting"
     >
       <a
-        class="brand-link inline-flex items-center gap-[12px] font-bold"
+        class="brand-link inline-flex items-center gap-3 font-bold"
         href="#top"
         aria-label={marketingCopy.navigation.homeLabel}
       >
@@ -37,18 +37,18 @@ const { title, description } = Astro.props;
         <span>{marketingCopy.productName}</span>
       </a>
       <nav
-        class="flex items-center gap-[8px] text-[14px] text-ink-muted max-phone:gap-[4px]"
+        class="flex items-center gap-2 text-[14px] text-ink-muted max-phone:gap-1"
         aria-label={marketingCopy.navigation.primaryLabel}
       >
         <a
-          class="header-social-action grid size-[32px] place-items-center hover:text-ink"
+          class="header-social-action grid size-8 place-items-center hover:text-ink"
           href={marketingCopy.githubUrl}
           aria-label={marketingCopy.navigation.githubAction}
         >
           <GitHubMark />
         </a>
         <a
-          class="header-social-action grid size-[32px] place-items-center hover:text-ink [&_.social-mark]:size-[16px]"
+          class="header-social-action grid size-8 place-items-center hover:text-ink [&_.social-mark]:size-4"
           href={marketingCopy.socialLinks.x.url}
           aria-label={marketingCopy.socialLinks.x.label}
         >
@@ -58,7 +58,7 @@ const { title, description } = Astro.props;
     </header>
     <div class="site-header-frost" aria-hidden="true"></div>
     <div
-      class="site-frame relative z-[1] mx-auto mb-[16px] w-[min(calc(100%-32px),var(--container-frame))] overflow-visible bg-[rgb(46_48_54/97%)] max-site-edge:m-0 max-site-edge:w-full"
+      class="site-frame relative z-[1] mx-auto mb-4 w-[min(calc(100%-32px),var(--container-frame))] overflow-visible bg-[rgb(46_48_54/97%)] max-site-edge:m-0 max-site-edge:w-full"
     >
       <main id="top">
         <slot />
@@ -95,6 +95,8 @@ const { title, description } = Astro.props;
 </html>
 
 <style>
+  @reference "../styles/global.css";
+
   .site-header {
     background:
       linear-gradient(135deg, rgb(137 180 250 / 7%), transparent 42%, rgb(116 199 236 / 4%)),
@@ -116,12 +118,9 @@ const { title, description } = Astro.props;
   }
 
   .site-header[data-visual-state="floating"] {
-    top: 16px;
+    @apply top-3 min-h-16 rounded-floating-shell px-5.5 py-3;
     width: min(80vw, 672px);
-    min-height: 64px;
-    padding: 12px 22px;
     border-color: rgb(137 180 250 / 38%);
-    border-radius: var(--radius-floating-shell);
     background:
       linear-gradient(135deg, rgb(137 180 250 / 11%), transparent 40%, rgb(116 199 236 / 6%)),
       rgb(30 30 46 / 88%);
@@ -133,12 +132,12 @@ const { title, description } = Astro.props;
   }
 
   .site-header-frost {
+    @apply h-9;
     position: fixed;
     z-index: 19;
     top: 0;
     left: 50%;
     width: min(80vw, 672px);
-    height: 40px;
     pointer-events: none;
     opacity: 0;
     background: transparent;
@@ -161,7 +160,7 @@ const { title, description } = Astro.props;
 
   @media (max-width: 620px) {
     .site-header[data-visual-state="floating"] {
-      padding-inline: 18px;
+      @apply px-4.5;
     }
   }
 

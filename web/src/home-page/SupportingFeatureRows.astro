@@ -16,17 +16,17 @@ const mediaByFeatureId = {
 ---
 
 <section class="feature-details px-page-inline pt-section" aria-labelledby="feature-details-title">
-  <div class="section-heading mb-content max-w-[900px]">
-    <p class="eyebrow m-0 font-mono-product text-[12px] tracking-[0.12em] text-ink-faint uppercase">
+  <div class="section-heading mb-content max-w-section-heading">
+    <p class="eyebrow m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase">
       {marketingCopy.featureDetails.eyebrow}
     </p>
     <h2
       id="feature-details-title"
-      class="mt-[14px] mb-[20px] font-display text-[clamp(48px,6.4vw,94px)] leading-[0.92] font-extrabold tracking-[-0.06em]"
+      class="mt-3.5 mb-5 font-display text-section-title font-extrabold"
     >
       {marketingCopy.featureDetails.headline}
     </h2>
-    <p class="m-0 max-w-[700px] text-[19px] leading-[1.55] text-ink-muted">
+    <p class="m-0 max-w-copy text-marketing-body text-ink-muted">
       {marketingCopy.featureDetails.description}
     </p>
   </div>
@@ -34,15 +34,15 @@ const mediaByFeatureId = {
   <div class="border-t border-line-strong">
     {
       marketingCopy.featureDetails.items.map((item) => (
-        <article class="feature-detail grid grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)] items-center gap-[clamp(40px,5vw,76px)] border-b border-line-strong py-[clamp(48px,5vw,76px)] max-phone:grid-cols-1 max-phone:gap-[28px] max-phone:py-[40px]">
+        <article class="feature-detail grid grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)] items-center gap-[clamp(40px,5vw,76px)] border-b border-line-strong py-[clamp(48px,5vw,76px)] max-phone:grid-cols-1 max-phone:gap-7 max-phone:py-10">
           <div class="feature-detail__copy max-w-[440px] max-phone:max-w-[680px]">
             <h3 class="m-0 text-[clamp(28px,3.2vw,48px)] leading-none tracking-[-0.045em] text-ink max-phone:text-[clamp(30px,9vw,44px)]">
               {item.title}
             </h3>
-            <p class="mt-[22px] mb-0 text-[19px] leading-[1.55] text-ink-secondary max-phone:text-[16px]">
+            <p class="mt-5.5 mb-0 text-marketing-body text-ink-secondary max-phone:text-[16px]">
               {item.summary}
             </p>
-            <p class="mt-[12px] mb-0 text-[17px] leading-[1.55] text-ink-muted max-phone:text-[16px]">
+            <p class="mt-3 mb-0 text-[17px] leading-[1.55] text-ink-muted max-phone:text-[16px]">
               {item.detail}
             </p>
           </div>

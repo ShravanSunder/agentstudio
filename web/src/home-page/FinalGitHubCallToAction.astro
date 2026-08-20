@@ -4,7 +4,7 @@ import { marketingCopy } from "@/marketing-copy";
 ---
 
 <section
-  class="final-cta grid min-h-[700px] justify-items-center gap-y-[24px] px-page-inline py-[clamp(80px,7vw,112px)] text-center"
+  class="final-cta grid min-h-[700px] justify-items-center gap-y-6 px-page-inline py-[clamp(80px,7vw,112px)] text-center"
   aria-labelledby="final-cta-title"
 >
   <img src={appLogo.src} width="88" height="88" alt="" />
@@ -14,10 +14,10 @@ import { marketingCopy } from "@/marketing-copy";
   >
     {marketingCopy.productName}
   </h2>
-  <p class="m-0 max-w-[700px] text-[19px] leading-[1.55] text-ink-muted">
+  <p class="m-0 max-w-copy text-marketing-body text-ink-muted">
     {marketingCopy.finalCallToAction.description}
   </p>
-  <p class="m-0 font-mono-product text-[13px] tracking-[0.05em] text-ink-faint">
+  <p class="m-0 font-mono-product text-[13px] tracking-wider text-ink-faint">
     {marketingCopy.finalCallToAction.traits}
   </p>
 </section>

@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
 @theme {
+  --spacing: 4px;
+
   --color-canvas: #2e3036;
   --color-ground: #1e1e2e;
   --color-active-surface: #25272d;
@@ -19,18 +21,29 @@
   --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, sans-serif;
   --font-mono-product: ui-monospace, "SF Mono", monospace;
 
+  --text-eyebrow: 12px;
+  --text-marketing-body: 19px;
+  --text-marketing-body--line-height: 1.55;
+  --text-section-title: clamp(48px, 6.4vw, 94px);
+  --text-section-title--line-height: 0.92;
+  --text-section-title--letter-spacing: -0.06em;
+
+  --tracking-eyebrow: 0.12em;
+
   --radius-floating-shell: 24px;
   --radius-product: 16px;
   --radius-control: 10px;
 
   --container-frame: 1440px;
+  --container-copy: 700px;
+  --container-hero: 1296px;
+  --container-section-heading: 900px;
 
   --spacing-page-inline: clamp(24px, 4.5vw, 72px);
   --spacing-content: clamp(32px, 2.5vw, 40px);
   --spacing-action: clamp(48px, 3.5vw, 56px);
   --spacing-section: clamp(80px, 6vw, 96px);
 
-  --breakpoint-product-stacked: 84.375rem;
   --breakpoint-site-edge: 56.25rem;
   --breakpoint-phone: 38.75rem;
 }
