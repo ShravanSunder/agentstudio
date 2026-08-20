@@ -7,6 +7,7 @@ import '../app/bridge-app.css';
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import { waitForBridgeViewerTreeItemButton } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
+import { waitForFileViewerTreeItemButtonInAct } from './bridge-file-viewer-app-startup.browser.test-support.js';
 import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
 import {
 	makeFileContent,
@@ -150,7 +151,7 @@ describe('Bridge File activation telemetry', () => {
 				fileProductSession={fileProductSession}
 			/>,
 		);
-		expect(await waitForBridgeViewerTreeItemButton('src/context-switcher-ready.ts')).not.toBeNull();
+		await waitForFileViewerTreeItemButtonInAct({ path: 'src/context-switcher-ready.ts' });
 		const activationStartedAtPerfNow = performance.now();
 
 		await actUpdate(async () => {
@@ -167,6 +168,7 @@ describe('Bridge File activation telemetry', () => {
 				/>,
 			);
 		});
+		await actFrame();
 
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('contextSwitcherReady');
