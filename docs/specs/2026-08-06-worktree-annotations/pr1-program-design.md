@@ -523,7 +523,7 @@ Core command ownership remains:
 | single M1 right column | Edit when editable, Reply, Resolve/Reopen |
 | multi-message right column | Edit latest when editable, Reply, Resolve/Reopen |
 | composer right column | Revert, primary Save |
-| timeline row | status plus quiet shadcn toolbar actions: contextual Include/Exclude, Expand immediately before More; no circular message chrome and no Edit/Reply/Resolve duplication |
+| timeline row | status plus quiet shadcn toolbar actions: Expand/Collapse when multi-message, immediately before More; no inclusion toggle, circular message chrome, or Edit/Reply/Resolve duplication |
 | expanded thread level | Resolve/Reopen once |
 | expanded message | Edit when editable, Reply |
 
@@ -545,9 +545,10 @@ another range, `+`, outside click, or Escape clears according to the
 Specification.
 
 Pierre keeps selected source lines on its selection paint. A selected annotation
-row does not remix that yellow into comment chrome; the existing Pierre
-`--diffs-annotation-bg` remains the annotation-row background so comment
-metadata contrast is independent of range paint.
+row uses Pierre's normal selection computation with both selection mix weights
+raised to 78%, producing a darker related tint over `--diffs-annotation-bg`
+without a React-owned backing surface. Output inclusion remains inside the More
+popover's Review output flow rather than occupying the timeline.
 
 ## Output preparation and effects
 

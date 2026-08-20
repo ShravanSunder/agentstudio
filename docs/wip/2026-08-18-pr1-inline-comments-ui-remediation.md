@@ -185,8 +185,10 @@ Rules:
 - Resolve/Reopen uses one stable stateful command identity;
 - destructive treatment is reserved for a genuinely destructive action;
 - circular rail buttons do not become badges, pills, or square cards on hover/focus;
-- timeline Include/Exclude, Expand/Collapse, and More use `ghost` toolbar buttons
-  with the default compact radius and no visible circular outline.
+- timeline Expand/Collapse and More use `ghost` toolbar buttons with the
+  default compact radius and no visible circular outline;
+- output inclusion stays inside More → Review output and does not occupy a
+  permanent timeline control.
 
 ## 6. Exact command ownership
 
@@ -195,7 +197,7 @@ No command may appear in two locations on the same presentation.
 | Surface | Right circular command rail | Timeline row |
 | --- | --- | --- |
 | Empty or durable composer | Revert, Save | Draft/error state only |
-| One-message compact M1 | Edit when editable, Reply, Resolve/Reopen | time/state, Include/Exclude, Expand immediately before More |
+| One-message compact M1 | Edit when editable, Reply, Resolve/Reopen | time/state and More |
 | Multi-message compact | Edit M-last when editable, Reply, Resolve/Reopen | M-summary with message count/latest time/state, Expand immediately before More |
 | Expanded message | Edit when editable, Reply | author/time/message state |
 | Expanded thread | one thread-level Resolve/Reopen | thread state |
@@ -220,6 +222,7 @@ Explicit removals:
 - no Reply or Resolve/Reopen in the timeline row;
 - no output-history glyph in the message command rail;
 - no duplicate collapse/expand control;
+- no permanent Include/Exclude control in the timeline;
 - no unexplained permanent icon;
 - no floppy icon styled as a tiny rounded-square button outside the standard
   circular Button contract.
@@ -620,8 +623,8 @@ Current inline-shell receipt, 2026-08-20:
 - expanded hierarchy correction: no blue summary node, no transient
   `Mixed inclusion` status, quiet non-circular toolbar actions, 4 px message
   gap, and a neutral timeline rail;
-- Pierre contrast correction: selected source lines remain yellow while the
-  selected annotation row stays on the existing dark annotation background;
+- Pierre contrast correction: selected source lines retain their normal paint
+  while the selected annotation row uses Pierre's darker 78% relationship tint;
 - message rail geometry: three 24 px buttons use 2 px gaps and remain fully
   inside the 80 px card with 3 px top / 1 px bottom clearance;
 - File-to-Review adapter correction: File-origin threads map to the Review head

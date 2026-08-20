@@ -215,7 +215,7 @@ composer right command column
   Revert · Save primary
 
 timeline row
-  status · Include/Exclude · Expand · More
+  status · Expand/Collapse when multi-message · More
   never Edit, Reply, or Resolve/Reopen
 
 expanded message right command column
@@ -225,7 +225,7 @@ expanded thread level
   Resolve/Reopen exactly once
 
 output interaction
-  Copy selected · Export selected as JSON
+  More → Review output → select messages · Copy Markdown · Export JSON
 ```
 
 The core right-column controls are icon-only owned shadcn controls with one
@@ -999,11 +999,13 @@ exactly Edit M-last when M-last is editable, Reply, and Resolve/Reopen. Composer
 right columns MUST contain Revert and the primary-treated Save. These core
 controls MUST be icon-only controls with a canonical identity, tooltip, and
 accessible name. Message and composer command rails MUST use the visible
-circular treatment. The separate timeline row MUST own status, contextually
-available Include/Exclude, More, and—only for a multi-message thread—Expand or
-Collapse immediately before More. Those timeline actions MUST use the quiet
-owned shadcn toolbar treatment rather than circular message-command chrome. The
-timeline row MUST NOT duplicate Edit, Reply, or Resolve/Reopen.
+circular treatment. The separate timeline row MUST own status, More, and—only
+for a multi-message thread—Expand or Collapse immediately before More. Message
+inclusion for Copy or Export MUST remain inside More → Review output; the
+timeline MUST NOT expose a permanent inclusion toggle. Timeline actions MUST
+use the quiet owned shadcn toolbar treatment rather than circular
+message-command chrome. The timeline row MUST NOT duplicate Edit, Reply, or
+Resolve/Reopen.
 
 Explicit activation of Expand, Edit, or Reply MUST expand the same Pierre
 annotation row; focus alone MUST NOT expand it. Focus on the compact surface or
@@ -1026,10 +1028,12 @@ controls are deferred follow-up design work. Expanded message nodes use the
 comment spacing scale at 4 px between nodes, and their shared neutral timeline
 rail provides grouping without an outer bordered thread card.
 
-Selected source lines MUST retain Pierre's selection paint, while the selected
-annotation row MUST retain Pierre's existing dark annotation background rather
-than remixing selection yellow into comment metadata. The comment shell MUST
-NOT add a second backing surface merely to mask that Pierre paint interaction.
+Selected source lines MUST retain Pierre's selection paint. The selected
+annotation row MUST use a darker, restrained tint derived from that same Pierre
+selection paint and Pierre's annotation background, making the relationship
+visible without reducing comment metadata or command contrast. The comment
+shell MUST NOT add a second backing surface merely to mask that Pierre paint
+interaction.
 
 Reply and Edit authoring MUST occur at the end of the expanded timeline. Save
 or Revert MUST exit editing while leaving the thread expanded. Escape during
