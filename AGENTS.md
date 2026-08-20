@@ -65,7 +65,7 @@ App lifecycle, and other boundaries the development server cannot prove.
 
 > **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround for a primary or explicitly authorized local-vendor worktree: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If vendor-producing setup surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Shared linked worktrees do not build the vendors. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
 
-Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint automatically after every Edit/Write on `.swift` files.
+Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest.
 
 Identifiers: use the repo's UUIDv7 APIs for newly generated application and test
 identifiers (`UUIDv7.generate()` or the owning type's `generateUUIDv7()` helper).
@@ -554,7 +554,7 @@ icons when a sidebar/local action already defines the presentation.
 | `InboxSidebarRuntimeAtom` | runtime pending inbox filter handoff | `Features/InboxNotification/State/MainActor/Atoms/InboxSidebarState.swift` |
 | `InboxSidebarState` | UI-facing composition surface over inbox sidebar memory + runtime atoms | `Features/InboxNotification/State/MainActor/Atoms/InboxSidebarState.swift` |
 | `WorkspaceStore` | persistence wrapper over the workspace-domain atoms | `Core/State/MainActor/Persistence/WorkspaceStore.swift` |
-| `WorkspaceSQLiteDatastore` | actor boundary for explicit core/local boot preparation, retained database owners, strict core/local composition loading, repository caching, and commit sequencing; does not own atoms | `Core/State/SQLite/WorkspaceSQLiteDatastore.swift` |
+| `WorkspaceSQLiteDatastoreActor` | actor boundary for explicit core/local boot preparation, retained database owners, strict core/local composition loading, repository caching, and commit sequencing; does not own atoms | `Core/State/SQLite/WorkspaceSQLiteDatastoreActor.swift` |
 | `WorkspaceSQLiteDatastoreFactory` | app composition helper that supplies production core/local URLs and trace runtime to the datastore | `Core/State/SQLite/WorkspaceSQLiteDatastoreFactory.swift` |
 | `WorkspaceSQLiteSnapshot` | immutable live SQLite bridge snapshot passed across the MainActor/datastore boundary; not a row projection | `Core/State/SQLite/WorkspaceSQLiteSnapshot.swift` |
 | `WorkspaceSQLiteRecoveryClassifier` | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths; no repository or atom ownership | `Core/State/SQLite/WorkspaceSQLiteRecoveryClassifier.swift` |
@@ -681,6 +681,17 @@ Business rules belong in pure domain types; coordinators sequence them; persiste
 **Survey does not mean persist.** Every atom-backed field must be classified into one lifecycle lane: core graph, local UX memory, settings, cache, runtime/presentation, derived read model, or row projection. Only durable lanes get storage. Runtime/presentation atoms such as command-bar surfaces, transient keyboard surfaces, arrangement-panel requests, pane-note popover/draft state, focus handoffs, health snapshots, and ordinal helpers stay out of SQLite unless a separate UX decision explicitly promotes them to local memory with tests. Pane note text itself is durable pane metadata and belongs with the pane graph.
 
 **SQLite ownership.** `core.sqlite` is authoritative. Boot explicitly prepares core and the one app-root `local.sqlite` before hydration, then retains one writable owner for each accepted database. Workspace rows use `workspace_id`, window/sidebar rows use `window_id`, and repository/worktree/PR caches are global with no workspace owner. Core preparation failure stops boot. Physical local unavailability defaults every local lane without changing or blocking accepted core; an available database defaults only a logically invalid slice. Product enum and cross-field semantics belong to typed Swift codecs; SQLite retains storage-integrity constraints only.
+
+**SQLite and actor paths.** `State/MainActor/Persistence/` contains wrappers
+that hydrate, observe, or flush MainActor state; it is not the generic home for
+all persistence. Retained database actors, immutable database snapshots, and
+direct typed repositories live under the owning slice's `State/SQLite/` path.
+Actor-owned operational services that are not database owners live under
+`Runtime/<Capability>/`. Swift actor declarations use the `Actor` suffix so
+isolation ownership is visible at injection and call sites. Repositories,
+adapters, factories, protocols, and snapshots do not receive that suffix unless
+the declaration itself is an actor. Actor renames are hard cutovers without
+typealiases or compatibility wrappers.
 
 **SQLite recovery invariants.** A committed core transaction is complete independently of local state. Local recovery is exactly: quarantine the present database/WAL/SHM set, then create and migrate a fresh `local.sqlite`. Recovery is attempted only for classified corruption (`SQLITE_CORRUPT` / `SQLITE_NOTADB`) or an orphan sidecar set; non-corruption open failures must not move database sidecars. Quarantine or fresh-creation failure leaves local unavailable for the launch with no same-process retry. Preparation results and source-scrubbed diagnostics are emitted once and cached.
 
@@ -877,7 +888,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `WorkspaceEntityRecencyAtom` | `Core/State/MainActor/Atoms/` | Workspace-keyed pane recency |
 | `RepoCacheAtom` | `Core/State/MainActor/Atoms/` | Compatibility read surface over repository enrichment; does not own recency or notification unread counts |
 | `WorkspaceStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for the workspace-domain atoms |
-| `WorkspaceSQLiteDatastore` | `Core/State/SQLite/` | Actor boundary for product SQLite I/O, repository caching, strict core/local composition loading, and commit sequencing |
+| `WorkspaceSQLiteDatastoreActor` | `Core/State/SQLite/` | Actor boundary for product SQLite I/O, repository caching, strict core/local composition loading, and commit sequencing |
 | `WorkspaceSQLiteSnapshot` | `Core/State/SQLite/` | Immutable live SQLite bridge snapshot passed across the MainActor/datastore boundary; not a row projection |
 | `WorkspaceSQLiteRecoveryClassifier` | `Core/State/SQLite/` | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths |
 | `EntityRecencyStore` | `Core/State/MainActor/Persistence/` | Independent application and workspace recency hydration/flush lifecycles |

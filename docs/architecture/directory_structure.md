@@ -49,6 +49,7 @@ Sources/AgentStudio/
 │   │   └── MainActor/
 │   │       ├── Atoms/                # CoreAtoms, CoreAtomScope, atom(...), Core-owned atoms/readers
 │   │       └── Persistence/          # WorkspaceStore, RepoCacheStore, UIStateStore
+│   │   └── SQLite/                    # datastore actors, snapshots, recovery, direct repositories
 │   └── Views/                        # Shared pane/tree/drawer primitives
 │       ├── Drawer/                   # DrawerLayout, DrawerIconBar, DrawerIconBarFrameKey
 │       └── Panes/                    # FlatPaneDivider, drag payloads/coordinator,
@@ -65,6 +66,7 @@ Sources/AgentStudio/
 │   │   │   └── MainActor/
 │   │   │       ├── Atoms/            # BridgeDomainState, BridgePaneState, Push/*
 │   │   │       └── Persistence/      # (if needed)
+│   │   │   └── SQLite/                # Bridge-owned repositories over Core datastore actors
 │   │   ├── Transport/                # Feature-specific (JSON-RPC): RPCRouter, RPCMethod, ...
 │   │   └── Views/                    # Composable screens
 │   │
@@ -287,6 +289,18 @@ Features/<slice>/
 - Feature stores live at `Features/<slice>/State/MainActor/Persistence/`
 
 The `MainActor/` segment makes actor isolation visible in the filesystem and leaves room for future actor-scoped paths if other isolation domains ever earn their own atom homes.
+
+`State/MainActor/Persistence/` contains wrappers that hydrate, observe, or
+flush MainActor state; it is not a generic database folder. Retained database
+actors, immutable snapshots, recovery helpers, and direct typed repositories
+live under the owning slice's `State/SQLite/` path. Actor-owned operational
+services that are not persistence owners live under `Runtime/<Capability>/`.
+
+Swift actor declarations use the `Actor` suffix. Paths expose the isolation
+domain while the suffix exposes the same ownership at call sites. Repository,
+adapter, factory, protocol, and snapshot names do not receive the suffix unless
+the declaration itself is an actor. Actor renames are hard cutovers without
+typealiases or compatibility wrappers.
 
 #### Composition state vs feature state
 

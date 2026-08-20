@@ -567,7 +567,7 @@ invalid query or decode defaults only its logical slice.
 
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
-- Canonical workspace model (`WorkspaceStore`) writes through `WorkspaceSQLiteDatastore` into `core.sqlite`; no workspace JSON import/fallback path exists.
+- Canonical workspace model (`WorkspaceStore`) writes through `WorkspaceSQLiteDatastoreActor` into `core.sqlite`; no workspace JSON import/fallback path exists.
 - Local workspace continuation, pane recency, inbox rows, and feature preferences are keyed by `workspace_id` in the application `local.sqlite`. Window/sidebar presentation is keyed by durable `window_id` (the single window has the stable `main` role). Runtime focus remains on `SidebarFocusRuntimeAtom` and is composed for UI reads by `WorkspaceSidebarState`.
 - Derived enrichment data (`RepoEnrichmentCacheAtom`) is global in that same local database: repo/worktree/PR cache rows have no workspace owner. Enrichment contains `RepoEnrichment`, `WorktreeEnrichment`, PR counts, and rebuild metadata as separate keyed lanes. Notification unread counts are inbox-owned and derived from `InboxNotificationAtom`. Enrichment is written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events; `RepoCacheAtom` is the composed read surface for existing repo/sidebar consumers.
 - Product enum and cross-field semantics are decoded and validated by typed Swift codecs, while SQLite enforces storage integrity such as keys, relationships, uniqueness, boolean representation, scalar ranges, and singleton rows.
@@ -866,7 +866,7 @@ sequenceDiagram
 sequenceDiagram
     participant AD as AppDelegate
     participant Store as WorkspaceStore
-    participant DB as WorkspaceSQLiteDatastore
+    participant DB as WorkspaceSQLiteDatastoreActor
     participant Coord as WorkspaceSurfaceCoordinator
     participant RT as SessionRuntime
     participant SM as SurfaceManager
@@ -1032,7 +1032,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Atoms/CommandContext.swift` | Immutable command-policy projection and `CommandRequirement` vocabulary |
 | `Core/State/MainActor/Atoms/CommandContextDerived.swift` | Stateless projection from focused-pane plus workspace/presentation facts into `CommandContext` |
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
-| `Core/State/SQLite/WorkspaceSQLiteDatastore.swift` | Explicit core/local preparation, retained database ownership, strict hydration, local-slice I/O, and commit sequencing |
+| `Core/State/SQLite/WorkspaceSQLiteDatastoreActor.swift` | Explicit core/local preparation, retained database ownership, strict hydration, local-slice I/O, and commit sequencing |
 | `Core/State/SQLite/WorkspaceSQLiteDatastoreFactory.swift` | App composition helper that supplies production database URLs and tracing |
 | `Core/State/SQLite/WorkspaceSQLiteRecoveryClassifier.swift` | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths; no repository or atom ownership |
 | `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` | `core.sqlite` migration identifiers and durable workspace schema DDL |
