@@ -53,24 +53,24 @@ historical execution, not current acceptance. The current files show generic
 shells, large empty regions, no recognizable coding-agent sessions, weak or
 contaminated corner treatment, and an invalid half-size persistence layout.
 
-- [ ] Apply the source-pixel, crop, fit, readability, campaign-meaning, and
+- [x] Apply the source-pixel, crop, fit, readability, campaign-meaning, and
       two-plane approval gates from the mandatory verification SOP.
-- [ ] Produce one clean Parallel work calibration frame with real Claude Code
+- [x] Produce one clean Parallel work calibration frame with real Claude Code
       and Codex sessions before recapturing the other states.
 - [ ] Resolve the exact meaning of `Agy`; do not substitute `aider` silently.
-- [ ] Replace Pane drawer with a useful populated drawer attached to one named
+- [x] Replace Pane drawer with a useful populated drawer attached to one named
       agent task.
-- [ ] Replace Quick Find with a native, populated sheet over the same credible
+- [x] Replace Quick Find with a native, populated sheet over the same credible
       named-agent workspace.
-- [ ] Replace Review with a named agent beside a readable changed-files tree
+- [x] Replace Review with a named agent beside a readable changed-files tree
       and populated diff.
-- [ ] Replace both persistence sources from one matched named-agent restart
+- [x] Replace both persistence sources from one matched named-agent restart
       sequence.
-- [ ] Replace the persistence two-column layout with one full-scale frame at a
+- [x] Replace the persistence two-column layout with one full-scale frame at a
       time and an accessible Before/Restored control.
 - [ ] Inspect all source corners at 100 percent and all rendered states in local
       development, local production, and the exact Cloudflare deployment.
-- [ ] Create current desktop, phone, source, and magnified-corner contact sheets.
+- [x] Create current desktop, phone, source, and magnified-corner contact sheets.
 - [ ] Keep release status `NOT VERIFIED` until every source and rendered state
       passes.
 
@@ -89,18 +89,29 @@ Current recovery evidence:
   real `$ agent` pane scope over the same Codex and Claude Code workspace. The
   full-window region capture preserves the native sheet and background pixels,
   uses the matching window alpha boundary, and has no white corner wedges.
-- Pane drawer rehearsal is rejected. Two drawer children competed for focus;
-  one left too much empty space and the other became a dense file list. No
-  drawer candidate entered the website.
-- `pnpm --dir web run audit:captures` is the executable transition gate. It
-  currently passes the new Parallel work and Quick Find sources and rejects
-  Pane drawer, Review, and both persistence sources for non-canonical profile
-  or corner-alpha failures. The command remains outside the regular `check`
-  chain until all six captures pass, then it becomes a required check step.
+- The first Pane drawer rehearsal was rejected because two drawer children
+  competed for focus. The accepted replacement closes the redundant child and
+  shows one populated Git file-status drawer attached to the active task, with
+  the Codex and Claude Code work visible behind it.
+- Review shows the real CI workflow diff and Changed Files tree beside Claude
+  Code in the same `fix/sidebar-grid-alignment` worktree with PR #313 visible.
+- `pnpm --dir web run audit:captures` now passes all six sources and is part of
+  the regular `check` chain. It decodes every PNG, requires the canonical sRGB
+  chunk, rejects embedded non-canonical ICC profiles, and asserts alpha zero at
+  all four native-window corners.
 - The persistence website component now shows one complete full-width frame at
-  a time through an accessible Before/Restored control. Unit, type, lint,
-  formatting, capture-hash, and six browser interaction tests pass. The two
-  underlying persistence images remain rejected and must be recaptured.
+  a time through an accessible Before/Restored control. The matched clean
+  sequence used PID 23948 before close and PID 31000 after relaunch with the
+  same isolated data root. The same five tabs, All Panes grouping, Review file,
+  Claude Code worktree, PR #313, and terminal session returned.
+- Local production proof lives under
+  `/private/tmp/agentstudio-website-verification/working-tree/`. All five states
+  were clicked at 1600x1000 and 390x844. Single-image panels measured
+  1012x632.5 CSS pixels with no unused panel area. Persistence measured
+  1012x680.5 with one 1012x632.5 visible image plus the 48px state control.
+  Site-origin console warnings and errors were empty. Contact sheets cover all
+  desktop states, phone states, six full-resolution sources, and all four
+  magnified corners of every source.
 
 - [x] Make the clickable explainer the first product proof and remove the
   standalone hero screenshot.

@@ -533,6 +533,11 @@ a:focus-visible {
     overflow-x: auto;
     border-right: 0;
     border-bottom: 1px solid var(--line-strong);
+    scrollbar-width: none;
+  }
+
+  .product-plate__selectors::-webkit-scrollbar {
+    display: none;
   }
 
   .product-plate__selector {

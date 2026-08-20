@@ -28,7 +28,8 @@ export const marketingCopy = {
       label: "Pane drawer",
       description:
         "Open a build log, git status, documentation, or a browser beside the agent that prompted it.",
-      imageDescription: "A Git diff summary in a drawer attached to the right terminal pane.",
+      imageDescription:
+        "One populated Git file-status drawer attached to the active agent task, with Codex and Claude Code visible behind it.",
     },
     quickFind: {
       label: "Quick Find",
@@ -41,7 +42,7 @@ export const marketingCopy = {
       description:
         "Agent Studio presents every changed file as one continuous, read-only diff with file-tree navigation and syntax highlighting.",
       imageDescription:
-        "A read-only Swift diff and Changed Files tree beside the matching worktree terminal.",
+        "A CI workflow diff and Changed Files tree beside Claude Code in the matching worktree for pull request 313.",
     },
     persistence: {
       label: "Persistent terminal sessions",
@@ -50,9 +51,9 @@ export const marketingCopy = {
       beforeLabel: "Before close",
       restoredLabel: "Restored",
       beforeImageDescription:
-        "Five tabs, two visible terminal panes, drawer and Review entries, and the All Panes sidebar before closing.",
+        "Five tabs, All Panes, a CI workflow diff in Review, and Claude Code in the matching worktree before closing.",
       restoredImageDescription:
-        "Five restored tabs, the same terminal panes, drawer and Review entries, terminal output, and sidebar grouping after reopening.",
+        "The same five tabs, All Panes grouping, CI workflow diff, Claude Code worktree, pull request, and terminal session after reopening.",
     },
   },
   installation: {
