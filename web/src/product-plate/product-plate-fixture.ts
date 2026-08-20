@@ -19,7 +19,7 @@ interface SingleImageStory {
   readonly alternativeText: string;
 }
 
-interface PersistenceComparisonStory {
+export interface PersistenceComparisonStory {
   readonly kind: "persistence-comparison";
   readonly id: "persistent-workspace";
   readonly label: string;

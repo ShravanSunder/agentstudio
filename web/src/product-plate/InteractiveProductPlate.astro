@@ -3,6 +3,7 @@ import { Image } from "astro:assets";
 
 import { marketingCopy } from "@/marketing-copy";
 
+import PersistenceProof from "./PersistenceProof.astro";
 import { productPlateStories } from "./product-plate-fixture";
 ---
 
@@ -55,28 +56,7 @@ import { productPlateStories } from "./product-plate-fixture";
                 decoding="async"
               />
             ) : (
-              <div class="persistence-comparison">
-                <figure>
-                  <figcaption>{marketingCopy.stories.persistence.beforeLabel}</figcaption>
-                  <Image
-                    src={story.beforeImage}
-                    alt={marketingCopy.stories.persistence.beforeImageDescription}
-                    format="png"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                </figure>
-                <figure>
-                  <figcaption>{marketingCopy.stories.persistence.restoredLabel}</figcaption>
-                  <Image
-                    src={story.restoredImage}
-                    alt={marketingCopy.stories.persistence.restoredImageDescription}
-                    format="png"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                </figure>
-              </div>
+              <PersistenceProof story={story} />
             )}
           </article>
         ))
@@ -86,10 +66,17 @@ import { productPlateStories } from "./product-plate-fixture";
 </section>
 
 <script>
+  import { initializePersistenceProof } from "@/product-plate/persistence-proof-controller";
   import { initializeProductPlate } from "@/product-plate/product-plate-controller";
 
   const productPlateRoot = document.querySelector<HTMLElement>("[data-product-plate]");
   if (productPlateRoot !== null) {
     initializeProductPlate(productPlateRoot);
+  }
+
+  for (const persistenceProofRoot of document.querySelectorAll<HTMLElement>(
+    "[data-persistence-proof]",
+  )) {
+    initializePersistenceProof(persistenceProofRoot);
   }
 </script>

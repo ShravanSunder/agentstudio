@@ -556,6 +556,97 @@ variant:
 
 One failed item rejects that image. One failed image rejects the suite.
 
+### Source-pixel admission gate
+
+`RGBA` is a file format fact, not transparency proof. Before an image enters
+`web/src/assets/captures/`, record all of the following from the decoded source:
+
+- intrinsic width, intrinsic height, bit depth, color profile, and alpha mode;
+- RGBA values at all four exact corner pixels;
+- the first non-transparent pixel on the top, bottom, left, and right edges;
+- a 32 by 32 pixel crop from each corner, enlarged against both a checkerboard
+  and the real website product-panel background;
+- whether the image is a native window capture, a measured native-window
+  composite, or a generated derivative;
+- the single owner of corner clipping: native source alpha or one documented
+  composition mask, never a source mask plus a second CSS approximation.
+
+For a rounded native window, the exact outside-corner pixels must have alpha
+zero. Partially transparent antialiasing pixels must not contain a white or
+bright premultiplied fringe that becomes visible on `--product-ground`. A fully
+opaque corner fails when the frame claims to preserve a rounded native window.
+`hasAlpha: true` alone never passes this gate.
+
+For a Quick Find or other multi-window composite, the mask may affect only the
+separate native sheet boundary. Pixels outside that sheet must reveal the
+captured parent window, not white, gray filler, or a synthetic marketing scrim.
+The receipt records the measured sheet bounds and radius.
+
+### Crop, fit, and readability gate
+
+Every full-app source has one approved intrinsic aspect ratio. The rendered
+image must preserve it. At each required viewport, record:
+
+- image natural size and rendered size;
+- image and panel bounding boxes;
+- `object-fit`, `object-position`, CSS radius, overflow, and transform values;
+- whether every source edge is visible;
+- unused panel area above, below, left, and right of the image;
+- the rendered pixel height of the smallest text needed to understand the
+  feature.
+
+Full-app proof uses `width: 100%` and intrinsic height. It may not use
+`object-fit: cover`, a negative translation, an undocumented clip path, or CSS
+radius to hide source contamination. A close crop is allowed only when the
+storyboard names the crop and another visible frame establishes app context.
+
+Reject the state when the selector or another sibling forces a taller panel
+that leaves more than 10 percent of the product surface unused. Reject any
+state whose important agent name, task, repository, branch, changed-file name,
+or command result cannot be read at the actual website rendering size.
+
+Persistence may not place two 16:10 screenshots side by side inside a full-height
+plate. Show one full-scale frame at a time through an accessible Before/Restored
+control, comparison wipe, or another owner-approved full-scale pattern. The
+JavaScript-disabled fallback must still show one complete honest frame and make
+the second source available without creating a dead region.
+
+### Campaign-meaning gate
+
+The verifier asks one question before inspecting details: "Would this still
+look like coding-agent work if the website caption disappeared?" If the answer
+is no, reject the image.
+
+- Agent identity must come from real pane titles or real terminal content. A
+  website label, alt text, filename, or added overlay does not count.
+- The suite must contain recognizable real Claude Code and Codex sessions. The
+  owner-requested `Agy` identity remains blocked until the exact tool is named;
+  do not silently substitute `aider`.
+- Repository and Git context support the story but cannot replace agent output.
+- Use two or three primary panes. More panes require a state-specific written
+  reason and a rendered-scale readability pass.
+- A focal surface should occupy enough of the frame to read. Reject a pane,
+  drawer, command sheet, diff, or review path that is mostly empty.
+- Reject synthetic rails, glows, scrims, borders, focus boxes, fake labels, or
+  decorative zooms used to compensate for weak source composition.
+- One image proves one benefit. Unrelated UI must recede through native product
+  state and composition, not an invented marketing treatment.
+
+### Two-plane visual approval
+
+Each image receives two independent visual decisions:
+
+1. `SOURCE PASS`: inspect the decoded full-resolution source and its corner
+   crops. This proves content, crop, color, alpha, and native geometry.
+2. `RENDER PASS`: click the state in the real website at every required
+   viewport. This proves scale, fit, container background, borders, spacing,
+   and readability.
+
+Neither decision implies the other. A clean source can fail when the website
+shrinks it too far. A neat container can fail because it hides a contaminated
+source edge. Record both decisions per asset. Any `FAIL` keeps the whole suite
+at `NOT VERIFIED`.
+
 ## Corner and alpha verification
 
 For every source and generated image:

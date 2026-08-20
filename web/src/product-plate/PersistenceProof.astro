@@ -1,0 +1,57 @@
+---
+import { Image } from "astro:assets";
+
+import { marketingCopy } from "@/marketing-copy";
+
+import type { PersistenceComparisonStory } from "./product-plate-fixture";
+
+interface Props {
+  readonly story: PersistenceComparisonStory;
+}
+
+const { story } = Astro.props;
+---
+
+<div class="persistence-proof" data-persistence-proof data-enhanced="false">
+  <div class="persistence-proof__controls" role="group" aria-label="Workspace restoration">
+    <button
+      type="button"
+      data-persistence-proof-button="before"
+      aria-pressed="true"
+      disabled
+    >
+      {marketingCopy.stories.persistence.beforeLabel}
+    </button>
+    <button
+      type="button"
+      data-persistence-proof-button="restored"
+      aria-pressed="false"
+      disabled
+    >
+      {marketingCopy.stories.persistence.restoredLabel}
+    </button>
+  </div>
+
+  <figure data-persistence-frame="before">
+    <Image
+      src={story.beforeImage}
+      alt={marketingCopy.stories.persistence.beforeImageDescription}
+      widths={[720, 1080, 1440, 2160]}
+      sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
+      format="png"
+      loading="lazy"
+      decoding="async"
+    />
+  </figure>
+  <figure data-persistence-frame="restored" hidden>
+    <Image
+      src={story.restoredImage}
+      alt={marketingCopy.stories.persistence.restoredImageDescription}
+      widths={[720, 1080, 1440, 2160]}
+      sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
+      format="png"
+      loading="lazy"
+      decoding="async"
+    />
+  </figure>
+</div>

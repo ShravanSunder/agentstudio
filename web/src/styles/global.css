@@ -333,7 +333,7 @@ a:focus-visible {
 }
 
 .product-plate__panel > img,
-.persistence-comparison img {
+.persistence-proof img {
   display: block;
   width: 100%;
   height: auto;
@@ -444,24 +444,44 @@ a:focus-visible {
   display: none;
 }
 
-.persistence-comparison {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  background: var(--line-strong);
+.persistence-proof figure {
+  margin: 0;
 }
 
-.persistence-comparison figure {
-  margin: 0;
+.persistence-proof__controls {
+  display: flex;
+  min-height: 48px;
+  border-bottom: 1px solid var(--line-strong);
   background: var(--canvas);
 }
 
-.persistence-comparison figcaption {
-  padding: 12px 15px;
+.persistence-proof__controls button {
+  position: relative;
+  min-width: 128px;
+  padding: 0 18px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
   color: var(--ink-muted);
+  cursor: pointer;
   font-family: ui-monospace, "SF Mono", monospace;
   font-size: 12px;
   text-transform: uppercase;
+}
+
+.persistence-proof__controls button[aria-pressed="true"] {
+  background: var(--active-surface);
+  color: var(--ink);
+}
+
+.persistence-proof__controls button[aria-pressed="true"]::after {
+  position: absolute;
+  right: 16px;
+  bottom: 0;
+  left: 16px;
+  height: 2px;
+  background: var(--primary);
+  content: "";
 }
 
 .final-cta {
@@ -601,8 +621,9 @@ a:focus-visible {
     width: 100%;
   }
 
-  .persistence-comparison {
-    grid-template-columns: 1fr;
+  .persistence-proof__controls button {
+    flex: 1 1 50%;
+    min-width: 0;
   }
 
   .site-footer {

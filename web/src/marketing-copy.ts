@@ -22,7 +22,7 @@ export const marketingCopy = {
       description:
         "Each pane keeps its repository, branch, worktree, and current directory visible.",
       imageDescription:
-        "Two terminal panes beside the All Panes sidebar, with repository, branch, Git, activity, and recency context.",
+        "Codex and Claude Code working in two panes beside repository, branch, Git, activity, and recency context in All Panes.",
     },
     paneDrawer: {
       label: "Pane drawer",
@@ -34,7 +34,7 @@ export const marketingCopy = {
       label: "Quick Find",
       description: "Press Cmd+P to reach repositories, worktrees, panes, tabs, and commands.",
       imageDescription:
-        "Quick Find scoped to the agent-studio repository over a two-pane workspace.",
+        "Quick Find listing agent-studio, y-websocket, and sidebar worktree panes over active Codex and Claude Code sessions.",
     },
     review: {
       label: "Review",

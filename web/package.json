@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "audit:captures": "node --experimental-strip-types scripts/audit-capture-pixels.ts",
     "build": "ASTRO_TELEMETRY_DISABLED=1 astro build && node --experimental-strip-types scripts/stage-cloudflare-build-config.ts",
     "check": "pnpm run lint && pnpm run fmt:check && pnpm run typecheck && pnpm run verify:captures && pnpm run test:unit",
     "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev --host 127.0.0.1",

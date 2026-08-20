@@ -46,6 +46,62 @@ to the macOS Trash. They are recoverable, but none may return to the website or
 serve as an accepted source. Manifests, receipts, logs, and composition code
 remain as failure evidence until the replacement suite supersedes them.
 
+### 2026-08-20 capture and presentation rejection
+
+The later six-image suite is also rejected. Earlier checked capture rows record
+historical execution, not current acceptance. The current files show generic
+shells, large empty regions, no recognizable coding-agent sessions, weak or
+contaminated corner treatment, and an invalid half-size persistence layout.
+
+- [ ] Apply the source-pixel, crop, fit, readability, campaign-meaning, and
+      two-plane approval gates from the mandatory verification SOP.
+- [ ] Produce one clean Parallel work calibration frame with real Claude Code
+      and Codex sessions before recapturing the other states.
+- [ ] Resolve the exact meaning of `Agy`; do not substitute `aider` silently.
+- [ ] Replace Pane drawer with a useful populated drawer attached to one named
+      agent task.
+- [ ] Replace Quick Find with a native, populated sheet over the same credible
+      named-agent workspace.
+- [ ] Replace Review with a named agent beside a readable changed-files tree
+      and populated diff.
+- [ ] Replace both persistence sources from one matched named-agent restart
+      sequence.
+- [ ] Replace the persistence two-column layout with one full-scale frame at a
+      time and an accessible Before/Restored control.
+- [ ] Inspect all source corners at 100 percent and all rendered states in local
+      development, local production, and the exact Cloudflare deployment.
+- [ ] Create current desktop, phone, source, and magnified-corner contact sheets.
+- [ ] Keep release status `NOT VERIFIED` until every source and rendered state
+      passes.
+
+The detailed reasoning and shot directions live in
+`tmp/2026-08-20-website-proof-system-rethink.md`.
+
+Current recovery evidence:
+
+- Parallel work is a provisional calibration candidate, not final campaign
+  acceptance. The fresh 2560x1600 source shows real routed Codex and Claude Code
+  sessions doing separate read-only work, preserves native alpha-zero corners,
+  and is normalized to sRGB. The 1600px website render is structurally clean,
+  but the Codex identity and agent output still need an owner-level readability
+  decision at final scale.
+- Quick Find passes the current source and 1600px render review. It uses the
+  real `$ agent` pane scope over the same Codex and Claude Code workspace. The
+  full-window region capture preserves the native sheet and background pixels,
+  uses the matching window alpha boundary, and has no white corner wedges.
+- Pane drawer rehearsal is rejected. Two drawer children competed for focus;
+  one left too much empty space and the other became a dense file list. No
+  drawer candidate entered the website.
+- `pnpm --dir web run audit:captures` is the executable transition gate. It
+  currently passes the new Parallel work and Quick Find sources and rejects
+  Pane drawer, Review, and both persistence sources for non-canonical profile
+  or corner-alpha failures. The command remains outside the regular `check`
+  chain until all six captures pass, then it becomes a required check step.
+- The persistence website component now shows one complete full-width frame at
+  a time through an accessible Before/Restored control. Unit, type, lint,
+  formatting, capture-hash, and six browser interaction tests pass. The two
+  underlying persistence images remain rejected and must be recaptured.
+
 - [x] Make the clickable explainer the first product proof and remove the
   standalone hero screenshot.
 - [x] Keep Parallel work selected by default so its replacement capture is the

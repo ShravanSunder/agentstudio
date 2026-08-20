@@ -97,8 +97,35 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   const persistencePanel = page.getByRole("tabpanel", {
     name: /Persistent terminal sessions/,
   });
-  await expect(persistencePanel.getByText("Before close")).toBeVisible();
-  await expect(persistencePanel.getByText("Restored")).toBeVisible();
+  const beforeFrameButton = persistencePanel.getByRole("button", { name: "Before close" });
+  const restoredFrameButton = persistencePanel.getByRole("button", { name: "Restored" });
+  await expect(beforeFrameButton).toHaveAttribute("aria-pressed", "true");
+  await expect(restoredFrameButton).toHaveAttribute("aria-pressed", "false");
+  await expect(persistencePanel.locator('[data-persistence-frame="before"]')).toBeVisible();
+  await expect(persistencePanel.locator('[data-persistence-frame="restored"]')).toBeHidden();
+
+  const beforeFrameGeometry = await persistencePanel.evaluate((panel) => {
+    const image = panel.querySelector('[data-persistence-frame="before"] img');
+
+    if (!(image instanceof HTMLImageElement)) {
+      throw new Error("Before persistence frame is missing");
+    }
+
+    const panelBounds = panel.getBoundingClientRect();
+    const imageBounds = image.getBoundingClientRect();
+    return {
+      widthDifference: Math.abs(panelBounds.width - imageBounds.width),
+      unusedAreaBelow: panelBounds.bottom - imageBounds.bottom,
+    };
+  });
+  expect(beforeFrameGeometry.widthDifference).toBeLessThanOrEqual(2);
+  expect(beforeFrameGeometry.unusedAreaBelow).toBeLessThanOrEqual(64);
+
+  await restoredFrameButton.click();
+  await expect(beforeFrameButton).toHaveAttribute("aria-pressed", "false");
+  await expect(restoredFrameButton).toHaveAttribute("aria-pressed", "true");
+  await expect(persistencePanel.locator('[data-persistence-frame="before"]')).toBeHidden();
+  await expect(persistencePanel.locator('[data-persistence-frame="restored"]')).toBeVisible();
 
   await expect
     .poll(() =>
