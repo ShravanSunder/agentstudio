@@ -171,3 +171,25 @@ then resumes reliability v6 at F8/M8/R-BLO-014
 Notes: commit is unsigned only because two 1Password signing attempts failed
 with `failed to fill whole buffer`; hooks ran and passed on every attempt; PR2
 research files remain untracked and untouched
+
+### 2026-08-20 15:58 EDT — Backend/comm-worker reliability lane
+
+State: real development fast-loop backend proof complete; Share interaction still pending UI cutover
+Head: `5f8f2db98` with backend contract at `3eac7a5d1`
+Owns: live seeded-worktree backend/Vite process and browser validation; no UI edits
+Changed: none
+Proof: direct real-Darwin post-start Git edit test 1/1 passed; sandboxed
+backend correctly failed closed with typed `streamStartFailed`; identical
+approved unsandboxed backend started on isolated `/tmp` data and
+`127.0.0.1:43872`; health returned 204; bootstrap returned 200 binary / 404
+bytes; Vite started on `127.0.0.1:5174`, proxied backend health 204, and a real
+browser loaded current Review content from this worktree with no application
+console errors; both owned processes then stopped and both ports refused new
+connections
+Needs from other lane: finish the strict Share UI hard cut before New/All/copy/
+unhandle can receive integrated browser/manual proof
+Next: rerun full BridgeWeb/typecheck and Share journey immediately after UI
+reports consumption; backend continues non-colliding v6 contract inventory
+Notes: current real worktree proof displayed the three preserved PR2 research
+files but did not modify them; no temporary repo file or direct invalidation was
+used
