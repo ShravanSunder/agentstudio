@@ -2,6 +2,7 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudioInboxNotification
@@ -170,9 +171,15 @@ struct InboxNotificationRouterTests {
         in fixture: Fixture,
         description: String
     ) async {
-        await assertEventuallyMain(description) {
-            fixture.inboxAtom.notifications.count == count
+        let notificationCountValues = Observations {
+            fixture.inboxAtom.notifications.count
         }
+        for await notificationCount in notificationCountValues {
+            if notificationCount == count {
+                return
+            }
+        }
+        Issue.record("\(description): notification observation ended before reaching \(count)")
     }
 
     private func makeTraceRuntime(
