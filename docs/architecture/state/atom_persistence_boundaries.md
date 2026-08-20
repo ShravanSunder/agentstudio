@@ -215,7 +215,7 @@ read model that uses keyed readers internally.
 
 Lint rule `agentstudio_repo_cache_keyed_reads` rejects hot
 `repoEnrichmentByRepoId`, `worktreeEnrichmentByWorktreeId`, and
-`pullRequestCountByWorktreeId` dictionary reads outside the allowed cold-path
+`pullRequestFactsByBranch` dictionary reads outside the allowed cold-path
 surfaces.
 
 `RepoEnrichmentCacheAtom` is the reference implementation: repo enrichment,

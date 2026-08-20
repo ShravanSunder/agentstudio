@@ -376,10 +376,11 @@ AppDelegate (creates all services in dependency order)
             ├── DraggableTabBarHostingView (SwiftUI)
             └── terminalContainer (dynamic split hierarchy)
 
-Boot sequence (App/Boot/WorkspaceBootSequence.swift):
-  loadCanonicalStore → loadCacheStore → loadUIStore → establishRuntimeBus
-  → startFilesystemActor → startGitProjector → startForgeActor
-  → startCacheCoordinator → triggerInitialTopologySync → readyForReactiveSidebar
+Boot sequence ([`WorkspaceBootSequence.swift`](../../../Sources/AgentStudio/App/Boot/WorkspaceBootSequence.swift)):
+  presentation: prepareDatabases → loadCanonicalStore → establishRuntimeBus
+  then async: loadCacheStore → loadUIStore → startFilesystemActor → startGitProjector
+  → startForgeActor → startCacheCoordinator → armPersistenceObservation
+  → triggerInitialTopologySync → readyForReactiveSidebar
 
 Core/RuntimeEventSystem/ (shared pane-runtime domain):
 ├── PaneRuntime protocol     ← per-pane runtime contract

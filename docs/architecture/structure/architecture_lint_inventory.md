@@ -100,7 +100,7 @@ typed ignore reasons.
 | Fail `DerivedAtom` direct `atom(...)`, `CoreAtomScope`, or `CoreAtoms` reads. | Blocking | `agentstudio_derived_atom_declared_inputs` |
 | Fail same-file helper/wrapper calls from `DerivedAtom` compute closures when the helper hides an atom read. | Blocking | `agentstudio_derived_atom_declared_inputs` |
 | Fail raw `WorktreeEnrichment` equality as an atom comparator. | Blocking | `agentstudio_worktree_enrichment_comparator` |
-| Fail hot `repoEnrichmentByRepoId`, `worktreeEnrichmentByWorktreeId`, and `pullRequestCountByWorktreeId` dictionary reads outside named cold surfaces. | Blocking | `agentstudio_repo_cache_keyed_reads` |
+| Fail hot `repoEnrichmentByRepoId`, `worktreeEnrichmentByWorktreeId`, and `pullRequestFactsByBranch` dictionary reads outside named cold surfaces. | Blocking | `agentstudio_repo_cache_keyed_reads` |
 | Fail IPC contract code importing the app, AppKit, SwiftUI, or feature/runtime owners. | Blocking | `agentstudio_ipc_programmatic_control_boundary` and `agentstudio_appipc_port_boundary` |
 | Fail IPC composition outside the approved app composition location. | Blocking | `agentstudio_ipc_composition_location` |
 | Fail feature slices importing `AgentStudioAppIPC` directly. | Blocking | `agentstudio_features_do_not_import_appipc` |
