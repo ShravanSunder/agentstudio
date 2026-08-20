@@ -104,6 +104,12 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 			cursor: pointer;
 		}
 
+		[data-line-annotation][data-selected-line],
+		[data-gutter-buffer='annotation'][data-selected-line] {
+			--mix-selection-light: 78%;
+			--mix-selection-dark: 78%;
+		}
+
 		[data-diffs-header] [data-additions-count],
 		[data-diffs-header] [data-deletions-count] {
 			display: none;

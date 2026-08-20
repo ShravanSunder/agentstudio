@@ -3,6 +3,13 @@ import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { userEvent } from 'vitest/browser';
 
+import {
+	createBridgeMarkdownRenderWorkerClient,
+	type BridgeMarkdownRenderWorkerClient,
+} from '../app/markdown/worker/bridge-markdown-render-worker-client.js';
+import { buildBridgeMarkdownRenderWorkerSuccessResponse } from '../app/markdown/worker/bridge-markdown-render-worker-renderer.js';
+import type { BridgeMarkdownRenderWorkerRequest } from '../app/markdown/worker/bridge-markdown-render-worker-rpc.js';
+
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
 import {
@@ -23,7 +30,6 @@ import {
 	useWorktreeAnnotationProjection,
 	WorktreeAnnotationSurfaceProvider,
 } from './worktree-annotation-surface-provider.js';
-import { WorktreeAnnotationThreadOverlayHost } from './worktree-annotation-thread-overlay.js';
 import {
 	WorktreeAnnotationNewMessageComposer,
 	WorktreeAnnotationThread,
@@ -42,14 +48,14 @@ describe('worktree annotation inline thread', () => {
 		await expect.element(rendered.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Reply to thread' })).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Resolve thread' })).toBeVisible();
-		await expect.element(rendered.getByRole('button', { name: 'Expand 1 message' })).toBeVisible();
+		expect(document.querySelector('[aria-label="Expand 1 message"]')).toBeNull();
 		await expect
 			.element(rendered.getByRole('button', { name: 'More comment actions' }))
 			.toBeVisible();
 		expect(document.querySelector('[aria-label^="Show source range"]')).toBeNull();
 	});
 
-	test('renders summary plus latest inline and all messages once in the floating overlay', async () => {
+	test('renders summary plus latest collapsed and every message once when expanded inline', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
 
@@ -79,13 +85,86 @@ describe('worktree annotation inline thread', () => {
 		});
 
 		await expect.element(rendered.getByText('Keep the refresh asynchronous.')).toBeVisible();
-		expect(rendered.getByText('Add coverage for the failure case.').all()).toHaveLength(2);
-		const overlay = rendered.getByTestId('worktree-annotation-thread-overlay').element();
-		expect(compactFrame.contains(overlay)).toBe(false);
-		expect(overlay.querySelectorAll('[data-testid="worktree-annotation-message"]')).toHaveLength(2);
+		expect(rendered.getByText('Add coverage for the failure case.').all()).toHaveLength(1);
+		expect(
+			compactFrame.querySelectorAll('[data-testid="worktree-annotation-message"]'),
+		).toHaveLength(2);
+		await expect
+			.element(rendered.getByRole('button', { name: 'Collapse 2 messages' }))
+			.toBeVisible();
+
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'More comment actions' }).click();
+		});
+		expect(compactFrame.getAttribute('data-annotation-expanded')).toBe('true');
+		await act(async (): Promise<void> => {
+			rendered.getByRole('button', { name: 'Select all' }).element().focus();
+			await userEvent.keyboard('{Escape}');
+		});
+		expect(compactFrame.getAttribute('data-annotation-expanded')).toBe('true');
 	});
 
-	test('keeps one overlay keyed to the selected same-coordinate thread', async () => {
+	test('preserves the compact Markdown render while adding missing inline messages', async () => {
+		const abortedRequestIds: string[] = [];
+		const capturedRequests: BridgeMarkdownRenderWorkerRequest[] = [];
+		const deferredResponses: Array<ReturnType<typeof createDeferred<unknown>>> = [];
+		let nextRequestId = 0;
+		const markdownWorkerClient = createBridgeMarkdownRenderWorkerClient({
+			createRequestId: (): string => {
+				nextRequestId += 1;
+				return `annotation-markdown-${nextRequestId}`;
+			},
+			transport: {
+				abort: (request): void => {
+					abortedRequestIds.push(request.requestId);
+				},
+				send: (request): Promise<unknown> => {
+					capturedRequests.push(request);
+					const deferredResponse = createDeferred<unknown>();
+					deferredResponses.push(deferredResponse);
+					return deferredResponse.promise;
+				},
+			},
+		});
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface, markdownWorkerClient);
+
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Root Markdown.', messageId: rootMessageId }),
+			makeSavedMessage({ body: 'Latest Markdown.', messageId: replyMessageId, ordinal: 1 }),
+		]);
+		await settleBrowserCondition(
+			(): boolean => capturedRequests.length === 1,
+			'Expected compact M-last to start one Markdown render.',
+		);
+
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Expand 2 messages' }).click();
+		});
+		await settleBrowserCondition(
+			(): boolean => capturedRequests.length === 2,
+			'Expected inline expansion to retain M-last and add only the missing root render.',
+		);
+		expect(abortedRequestIds).toEqual([]);
+		await act(async (): Promise<void> => {
+			await Promise.all(
+				capturedRequests.map(async (request, index): Promise<void> => {
+					deferredResponses[index]?.resolve(
+						await buildBridgeMarkdownRenderWorkerSuccessResponse({
+							renderMarkdown: async () => ({
+								htmlCandidate: `<p>${request.requestId}</p>`,
+								mermaidDiagrams: [],
+							}),
+							request,
+						}),
+					);
+				}),
+			);
+			await Promise.resolve();
+		});
+	});
+
+	test('keeps one inline expansion keyed to the selected same-coordinate thread', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
 
@@ -127,14 +206,12 @@ describe('worktree annotation inline thread', () => {
 
 		await expect.element(rendered.getByText('Thread A root.')).toBeVisible();
 		expect(document.body.textContent).not.toContain('Thread B root.');
-		expect(
-			document.querySelectorAll('[data-testid="worktree-annotation-thread-overlay"]'),
-		).toHaveLength(1);
+		expect(document.querySelectorAll('[data-annotation-expanded="true"]')).toHaveLength(1);
 	});
 
 	test('returns focus to the nearest surviving compact thread when the invoker is removed', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
-		const rendered = await renderAnnotationProjection(surface);
+		await renderAnnotationProjection(surface);
 		const thirdThreadId = '00000000-0000-7000-8000-000000000095';
 		const firstThread = {
 			context: locatedContext,
@@ -158,6 +235,12 @@ describe('worktree annotation inline thread', () => {
 					messageId: secondReplyMessageId,
 					threadId: thirdThreadId,
 				}),
+				makeSavedMessage({
+					body: 'Third thread latest.',
+					messageId: thirdReplyMessageId,
+					ordinal: 1,
+					threadId: thirdThreadId,
+				}),
 			],
 		};
 		await publishThreads(surface, [firstThread, secondThread, thirdThread]);
@@ -166,10 +249,10 @@ describe('worktree annotation inline thread', () => {
 		);
 		if (thirdFrame === null) throw new Error('Expected the third compact thread.');
 		await act(async (): Promise<void> => {
-			thirdFrame.querySelector<HTMLButtonElement>('[aria-label="Expand 1 message"]')?.click();
+			thirdFrame.querySelector<HTMLButtonElement>('[aria-label="Expand 2 messages"]')?.click();
 			await Promise.resolve();
 		});
-		await expect.element(rendered.getByTestId('worktree-annotation-thread-overlay')).toBeVisible();
+		expect(thirdFrame.getAttribute('data-annotation-expanded')).toBe('true');
 
 		await act(async (): Promise<void> => {
 			surface.publishProjectionState({
@@ -188,9 +271,8 @@ describe('worktree annotation inline thread', () => {
 			await Promise.resolve();
 		});
 		await settleBrowserCondition(
-			(): boolean =>
-				document.querySelector('[data-testid="worktree-annotation-thread-overlay"]') === null,
-			'Expected removal of the exact thread identity to close its overlay.',
+			(): boolean => document.querySelector('[data-annotation-expanded="true"]') === null,
+			'Expected removal of the exact thread identity to collapse its inline expansion.',
 		);
 		const secondFrame = document.querySelector<HTMLElement>(
 			`[data-annotation-thread-id="${annotationBaseThreadId}"]`,
@@ -234,6 +316,45 @@ describe('worktree annotation inline thread', () => {
 		await expect.element(rendered.getByText('Draft')).toBeVisible();
 		await expect.element(rendered.getByText('Contains locked output')).toBeVisible();
 		await expect.element(rendered.getByText('Relocated')).toBeVisible();
+	});
+
+	test('shows the warning Draft cue when the compact latest message has a draft', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Earlier message.', messageId: rootMessageId }),
+			{
+				...makeSavedMessage({
+					body: 'Saved latest message.',
+					messageId: replyMessageId,
+					ordinal: 1,
+				}),
+				draft: {
+					activeEditToken: null,
+					body: 'Unsaved latest changes.',
+					revision: 2,
+				},
+			},
+		]);
+
+		await expect.element(rendered.getByText('Unsaved latest changes.')).toBeVisible();
+		const draftCue = rendered.getByTestId('worktree-annotation-thread-summary').getByText('Draft');
+		await expect.element(draftCue).toBeVisible();
+		expect(draftCue.element().className).toContain('text-warning');
+	});
+
+	test('keeps output inclusion controls out of the thread timeline', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Earlier included message.', messageId: rootMessageId }),
+			makeSavedMessage({ body: 'Latest included message.', messageId: replyMessageId, ordinal: 1 }),
+		]);
+		expect(document.querySelector('[aria-label="Include latest comment"]')).toBeNull();
+		expect(document.querySelector('[aria-label="Exclude latest comment"]')).toBeNull();
+		expect(rendered.getByText('Mixed inclusion').all()).toHaveLength(0);
 	});
 
 	test('reverts a durable reply draft instead of only hiding its composer', async () => {
@@ -416,7 +537,26 @@ describe('worktree annotation inline thread', () => {
 			surface.sentOperations
 				.map((operation) => operation.kind)
 				.filter((kind) => kind !== 'session.discover'),
-		).toEqual(['reply.create', 'demand.acquire', 'source.refresh', 'output.history', 'draft.save']);
+		).toEqual(['demand.acquire', 'source.refresh', 'output.history', 'reply.create', 'draft.save']);
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommitted(annotationSessionId, 1);
+			surface.publishThread({
+				context: locatedContext,
+				message: {
+					...annotationMessage({
+						messageId: secondRootMessageId,
+						ordinal: 1,
+						sessionRevision: 5,
+						threadId: annotationHeadThreadId,
+					}),
+					draft: null,
+					savedBody: 'Save across replacement',
+					savedRevision: 1,
+				},
+			});
+			await Promise.resolve();
+		});
+		await expect.element(rendered.getByRole('button', { name: 'Save annotation' })).toBeVisible();
 	});
 
 	test('keeps an edit token active until every overlapping composer unregisters', async () => {
@@ -505,7 +645,12 @@ describe('worktree annotation inline thread', () => {
 			(): boolean => document.querySelector('[aria-label="Annotation Markdown"]') === null,
 			'Expected the exact committed Save receipt to close the editor before projection.',
 		);
-		await expect.element(rendered.getByTestId('worktree-annotation-thread-overlay')).toBeVisible();
+		expect(
+			rendered
+				.getByTestId('worktree-annotation-thread')
+				.element()
+				.getAttribute('data-annotation-expanded'),
+		).toBe('true');
 		await act(async (): Promise<void> => {
 			surface.publishThread({
 				context: locatedContext,
@@ -566,7 +711,7 @@ describe('worktree annotation inline thread', () => {
 		expect(flushOperation.body).toBe('');
 	});
 
-	test('supports keyboard overlay entry and two-stage Escape while editing', async () => {
+	test('supports keyboard inline expansion and two-stage Escape while editing', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
 
@@ -581,13 +726,21 @@ describe('worktree annotation inline thread', () => {
 			await userEvent.keyboard('{Enter}');
 		});
 		await expect.element(rendered.getByText('Root body.')).toBeVisible();
-		await expect.element(rendered.getByTestId('worktree-annotation-thread-overlay')).toBeVisible();
-
-		await act(async (): Promise<void> => {
-			await rendered
+		expect(
+			rendered
 				.getByTestId('worktree-annotation-thread')
-				.getByRole('button', { name: 'Reply to thread' })
-				.click();
+				.element()
+				.getAttribute('data-annotation-expanded'),
+		).toBe('true');
+
+		const replyButtons = rendered
+			.getByTestId('worktree-annotation-thread')
+			.getByRole('button', { name: 'Reply to thread' })
+			.all();
+		const latestReplyButton = replyButtons.at(-1);
+		if (latestReplyButton === undefined) throw new Error('Expected the latest Reply control.');
+		await act(async (): Promise<void> => {
+			await latestReplyButton.click();
 		});
 		const composer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
 		await expect.element(composer).toBeVisible();
@@ -597,21 +750,21 @@ describe('worktree annotation inline thread', () => {
 			await userEvent.keyboard('{Escape}');
 		});
 		expect(document.querySelector('[aria-label="Reply with Markdown"]')).toBeNull();
-		await expect.element(rendered.getByTestId('worktree-annotation-thread-overlay')).toBeVisible();
+		expect(
+			rendered
+				.getByTestId('worktree-annotation-thread')
+				.element()
+				.getAttribute('data-annotation-expanded'),
+		).toBe('true');
 
 		await act(async (): Promise<void> => {
 			await userEvent.keyboard('{Escape}');
 		});
-		expect(document.querySelector('[data-testid="worktree-annotation-thread-overlay"]')).toBeNull();
-		expect(document.activeElement).toBe(
-			rendered
-				.getByTestId('worktree-annotation-thread')
-				.getByRole('button', { name: 'Reply to thread' })
-				.element(),
-		);
+		expect(document.querySelector('[data-annotation-expanded="true"]')).toBeNull();
+		expect(document.activeElement).toBe(latestReplyButton.element());
 	});
 
-	test('flushes the active editor before outside press closes and restores focus', async () => {
+	test('flushes the active editor before outside press collapses the inline thread', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
 		await publishThreadMessages(surface, [
@@ -631,11 +784,9 @@ describe('worktree annotation inline thread', () => {
 			await Promise.resolve();
 		});
 		await settleBrowserCondition(
-			(): boolean =>
-				document.querySelector('[data-testid="worktree-annotation-thread-overlay"]') === null,
-			'Expected outside press to close only after the active editor exited.',
+			(): boolean => document.querySelector('[data-annotation-expanded="true"]') === null,
+			'Expected outside press to collapse only after the active editor exited.',
 		);
-		expect(document.activeElement).toBe(replyButton.element());
 	});
 });
 
@@ -709,11 +860,14 @@ function ComposerRegistration(props: { readonly editToken: string }): null {
 
 async function renderAnnotationProjection(
 	surface: RecordingAnnotationBrowserSurface,
+	markdownWorkerClient?: BridgeMarkdownRenderWorkerClient,
 ): Promise<Awaited<ReturnType<typeof render>>> {
 	return await render(
-		<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+		<WorktreeAnnotationSurfaceProvider
+			markdownWorkerClient={markdownWorkerClient}
+			surfaceClient={surface.client}
+		>
 			<AnnotationProjection />
-			<WorktreeAnnotationThreadOverlayHost />
 		</WorktreeAnnotationSurfaceProvider>,
 	);
 }
@@ -724,7 +878,6 @@ async function renderRemountingAnnotationProjection(
 	return await render(
 		<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
 			<RemountingAnnotationProjection />
-			<WorktreeAnnotationThreadOverlayHost />
 		</WorktreeAnnotationSurfaceProvider>,
 	);
 }
@@ -744,11 +897,26 @@ async function publishThreads(
 		readonly messages: readonly WorktreeAnnotationMessageEntry[];
 	}[],
 ): Promise<void> {
+	const eligibleMessageCount = threads.reduce(
+		(count, thread): number =>
+			count +
+			thread.messages.filter(
+				(message): boolean =>
+					message.savedBody !== null && message.draft === null && message.status === 'editable',
+			).length,
+		0,
+	);
 	await act(async (): Promise<void> => {
 		surface.publishProjectionState({
 			expectedThreadCount: threads.length,
 			revision: 3,
-			sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
+			sessions: [
+				annotationSessionSummary({
+					eligibleMessageCount,
+					revision: 3,
+					sessionId: annotationSessionId,
+				}),
+			],
 		});
 		for (const thread of threads) {
 			surface.publishThreadMessages({ context: thread.context, messages: thread.messages });
@@ -792,6 +960,7 @@ const rootMessageId = '00000000-0000-7000-8000-000000000091';
 const replyMessageId = '00000000-0000-7000-8000-000000000092';
 const secondRootMessageId = '00000000-0000-7000-8000-000000000093';
 const secondReplyMessageId = '00000000-0000-7000-8000-000000000094';
+const thirdReplyMessageId = '00000000-0000-7000-8000-000000000096';
 
 async function settleBrowserCondition(
 	predicate: () => boolean,
@@ -808,4 +977,18 @@ async function settleBrowserCondition(
 	if (predicate()) return;
 	if (remainingFrames <= 0) throw new Error(failureMessage);
 	await settleBrowserCondition(predicate, failureMessage, remainingFrames - 1);
+}
+
+function createDeferred<TValue>(): {
+	readonly promise: Promise<TValue>;
+	readonly reject: (error: Error) => void;
+	readonly resolve: (value: TValue) => void;
+} {
+	let reject!: (error: Error) => void;
+	let resolve!: (value: TValue) => void;
+	const promise = new Promise<TValue>((promiseResolve, promiseReject): void => {
+		resolve = promiseResolve;
+		reject = promiseReject;
+	});
+	return { promise, reject, resolve };
 }

@@ -184,6 +184,7 @@ export function filePierreAnnotationsForExistingCodeView(props: {
 	readonly path: string;
 	readonly threads: readonly WorktreeAnnotationThreadProjection[];
 }): LineAnnotation[] {
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Existing CodeView fixes Pierre metadata to undefined; renderer validation owns the annotation metadata boundary.
 	return filePierreAnnotationsForThreads(props) as unknown as LineAnnotation[];
 }
 
@@ -191,6 +192,7 @@ export function filePierreAnnotationForExistingCodeViewComposer(props: {
 	readonly editToken: string;
 	readonly range: SelectedLineRange;
 }): LineAnnotation {
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Existing CodeView fixes Pierre metadata to undefined; renderer validation owns the annotation metadata boundary.
 	return filePierreAnnotationForComposer(props) as unknown as LineAnnotation;
 }
 
@@ -210,11 +212,13 @@ export function reviewPierreAnnotationsForExistingCodeView(props: {
 	readonly threads: readonly WorktreeAnnotationThreadProjection[];
 }): (DiffLineAnnotation | LineAnnotation)[] {
 	return props.itemType === 'diff'
-		? (reviewPierreAnnotationsForItem({
+		? // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Existing CodeView fixes Pierre metadata to undefined; renderer validation owns the annotation metadata boundary.
+			(reviewPierreAnnotationsForItem({
 				...props,
 				itemType: 'diff',
 			}) as unknown as DiffLineAnnotation[])
-		: (reviewPierreAnnotationsForItem({
+		: // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Existing CodeView fixes Pierre metadata to undefined; renderer validation owns the annotation metadata boundary.
+			(reviewPierreAnnotationsForItem({
 				...props,
 				itemType: 'file',
 			}) as unknown as LineAnnotation[]);
@@ -236,11 +240,13 @@ export function reviewPierreAnnotationForExistingCodeViewComposer(props: {
 	readonly range: SelectedLineRange;
 }): DiffLineAnnotation | LineAnnotation | null {
 	return props.itemType === 'diff'
-		? (reviewPierreAnnotationForComposer({
+		? // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Existing CodeView fixes Pierre metadata to undefined; renderer validation owns the annotation metadata boundary.
+			(reviewPierreAnnotationForComposer({
 				...props,
 				itemType: 'diff',
 			}) as unknown as DiffLineAnnotation | null)
-		: (reviewPierreAnnotationForComposer({
+		: // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Existing CodeView fixes Pierre metadata to undefined; renderer validation owns the annotation metadata boundary.
+			(reviewPierreAnnotationForComposer({
 				...props,
 				itemType: 'file',
 			}) as unknown as LineAnnotation);
@@ -376,7 +382,7 @@ function reviewDiffSideForSourceRole(
 	sourceRole: WorktreeAnnotationThreadProjection['context']['sourceRole'],
 ): 'additions' | 'deletions' | null {
 	if (sourceRole === 'review_base') return 'deletions';
-	if (sourceRole === 'review_head') return 'additions';
+	if (sourceRole === 'review_head' || sourceRole === 'file') return 'additions';
 	return null;
 }
 

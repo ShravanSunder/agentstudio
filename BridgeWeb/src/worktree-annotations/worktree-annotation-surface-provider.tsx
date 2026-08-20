@@ -120,6 +120,10 @@ export function WorktreeAnnotationSurfaceProvider(
 		: applicableLivingSessionIds.length === 1
 			? (applicableLivingSessionIds[0] ?? null)
 			: null;
+	useEffect((): (() => void) | undefined => {
+		if (activeSessionId === null) return undefined;
+		return annotationClient.acquireSession(activeSessionId);
+	}, [activeSessionId, annotationClient]);
 	const activeSession =
 		projection.sessions.find((session): boolean => session.sessionId === activeSessionId) ?? null;
 	const recoveryAllowsMutations = projection.recoveryStatus === 'available';
@@ -242,12 +246,29 @@ export function WorktreeAnnotationSurfaceProvider(
 					<worktreeAnnotationEditSurfaceRegistryContext.Provider value={editSurfaceRegistry}>
 						<worktreeAnnotationSessionSelectionContext.Provider value={sessionSelection}>
 							{props.children}
+							<WorktreeAnnotationThreadExpansionReconciler />
 						</worktreeAnnotationSessionSelectionContext.Provider>
 					</worktreeAnnotationEditSurfaceRegistryContext.Provider>
 				</WorktreeAnnotationInteractionProvider>
 			</worktreeAnnotationSurfaceClientContext.Provider>
 		</worktreeAnnotationMarkdownClientContext.Provider>
 	);
+}
+
+function WorktreeAnnotationThreadExpansionReconciler(): null {
+	const interaction = useWorktreeAnnotationInteraction();
+	const projection = useWorktreeAnnotationProjection();
+	useEffect((): void => {
+		const expansion = interaction.threadExpansion;
+		if (expansion.kind !== 'open') return;
+		if (
+			projection.threads.some((thread): boolean => thread.context.threadId === expansion.threadId)
+		)
+			return;
+		const focusTarget = interaction.resolveThreadFocus();
+		void interaction.collapseThread().then((): void => focusTarget?.focus());
+	}, [interaction, projection.threads]);
+	return null;
 }
 
 export function useWorktreeAnnotationMarkdownClient(): BridgeMarkdownRenderWorkerClient | null {

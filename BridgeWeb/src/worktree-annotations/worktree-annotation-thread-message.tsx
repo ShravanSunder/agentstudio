@@ -1,4 +1,4 @@
-import { Pencil, RotateCcw, Save } from 'lucide-react';
+import { Check, Pencil, Undo2 } from 'lucide-react';
 import {
 	useCallback,
 	useEffect,
@@ -41,8 +41,11 @@ import {
 
 export interface WorktreeAnnotationMessageEditorProps {
 	readonly active: boolean;
+	readonly appearance?: 'card' | 'chronology' | undefined;
 	readonly canEdit: boolean;
+	readonly compact?: boolean | undefined;
 	readonly commands: ReactNode;
+	readonly continueTimeline?: boolean | undefined;
 	readonly editToken: string | null;
 	readonly isEditing: boolean;
 	readonly message: WorktreeAnnotationMessageEntry;
@@ -51,6 +54,7 @@ export interface WorktreeAnnotationMessageEditorProps {
 	readonly ordinal: number;
 	readonly path: string | null;
 	readonly registerExitHandler?: ((handler: () => Promise<void>) => () => void) | undefined;
+	readonly timelineActions?: ReactNode | undefined;
 }
 
 export interface WorktreeAnnotationThreadSummaryProps {
@@ -281,16 +285,16 @@ export function WorktreeAnnotationMessageEditor(
 				onClick={() => void revert()}
 				preserveEditorFocus
 			>
-				<RotateCcw />
+				<Undo2 />
 			</WorktreeAnnotationCommandButton>
 			<WorktreeAnnotationCommandButton
 				disabled={!validation.ok || !editOwnershipReady}
 				label="Save annotation"
 				onClick={() => void save()}
 				preserveEditorFocus
-				primary
+				appearance="primary"
 			>
-				<Save />
+				<Check />
 			</WorktreeAnnotationCommandButton>
 		</>
 	) : (
@@ -310,7 +314,9 @@ export function WorktreeAnnotationMessageEditor(
 	return (
 		<WorktreeAnnotationInlineSurface
 			active={props.active}
+			appearance={props.appearance}
 			commands={messageCommands}
+			continueTimeline={props.continueTimeline}
 			draft={props.message.draft !== null}
 			metadata={
 				<>
@@ -329,12 +335,14 @@ export function WorktreeAnnotationMessageEditor(
 					)}
 				</>
 			}
+			timelineActions={props.timelineActions}
 		>
 			{props.isEditing && props.canEdit && props.message.status === 'editable' ? (
 				<Textarea
+					appearance="embedded"
 					autoFocus
 					aria-label="Annotation Markdown"
-					className="min-h-16 border-0 bg-comment-composer-bg p-0 shadow-none focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-ring/30"
+					className="min-h-16"
 					disabled={!editOwnershipReady}
 					value={body}
 					onBlur={(event) => {
@@ -371,14 +379,16 @@ export function WorktreeAnnotationMessageEditor(
 					}}
 				/>
 			) : (
-				<WorktreeAnnotationMessageBody
-					body={props.message.draft?.body ?? props.message.savedBody ?? ''}
-					messageId={props.message.messageId}
-					messageRevision={props.message.messageRevision}
-					path={props.path}
-					sessionId={props.message.sessionId}
-					sessionRevision={props.message.sessionRevision}
-				/>
+				<div className={props.compact === true ? 'line-clamp-3' : undefined}>
+					<WorktreeAnnotationMessageBody
+						body={props.message.draft?.body ?? props.message.savedBody ?? ''}
+						messageId={props.message.messageId}
+						messageRevision={props.message.messageRevision}
+						path={props.path}
+						sessionId={props.message.sessionId}
+						sessionRevision={props.message.sessionRevision}
+					/>
+				</div>
 			)}
 			{operationError === null ? null : (
 				<p className="text-xs text-destructive" role="alert">

@@ -495,24 +495,23 @@ describe('worktree annotation Pierre integration', () => {
 			(): boolean => compactThread.getBoundingClientRect().height > 0,
 			'Expected Pierre to finish measuring the compact annotation row.',
 		);
-		const rowBoundsBeforeOverlay = compactThread.getBoundingClientRect();
-		const scrollTopBeforeOverlay = codeViewScrollOwner.scrollTop;
+		const rowBoundsBeforeExpansion = compactThread.getBoundingClientRect();
+		const scrollTopBeforeExpansion = codeViewScrollOwner.scrollTop;
 
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
 		});
-		const threadOverlay = rendered.getByTestId('worktree-annotation-thread-overlay').element();
-		expect(compactThread.contains(threadOverlay)).toBe(false);
 		expect(compactThread.isConnected).toBe(true);
-		const rowBoundsAfterOverlay = compactThread.getBoundingClientRect();
-		expect(rowBoundsAfterOverlay.height).toBeCloseTo(rowBoundsBeforeOverlay.height, 1);
-		expect(rowBoundsAfterOverlay.top).toBeCloseTo(rowBoundsBeforeOverlay.top, 1);
-		expect(codeViewScrollOwner.scrollTop).toBe(scrollTopBeforeOverlay);
 		const replyComposer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
 		const originalTextarea = replyComposer.element();
 		if (!(originalTextarea instanceof HTMLTextAreaElement)) {
 			throw new Error('Expected the Reply composer to use the owned Textarea.');
 		}
+		expect(compactThread.contains(originalTextarea)).toBe(true);
+		const rowBoundsAfterExpansion = compactThread.getBoundingClientRect();
+		expect(rowBoundsAfterExpansion.height).toBeGreaterThan(rowBoundsBeforeExpansion.height);
+		expect(rowBoundsAfterExpansion.top).toBeCloseTo(rowBoundsBeforeExpansion.top, 1);
+		expect(codeViewScrollOwner.scrollTop).toBe(scrollTopBeforeExpansion);
 		await act(async (): Promise<void> => {
 			await replyComposer.fill('h');
 			await Promise.resolve();
@@ -549,10 +548,10 @@ describe('worktree annotation Pierre integration', () => {
 		expect(document.activeElement).toBe(originalTextarea);
 		expect(originalTextarea.value).toBe('h');
 		expect(compactThread.getBoundingClientRect().height).toBeCloseTo(
-			rowBoundsBeforeOverlay.height,
+			rowBoundsAfterExpansion.height,
 			1,
 		);
-		expect(codeViewScrollOwner.scrollTop).toBe(scrollTopBeforeOverlay);
+		expect(codeViewScrollOwner.scrollTop).toBe(scrollTopBeforeExpansion);
 		await act(async (): Promise<void> => {
 			surface.publishProjectionState({
 				expectedThreadCount: 1,

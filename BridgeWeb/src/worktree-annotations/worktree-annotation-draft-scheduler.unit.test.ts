@@ -69,6 +69,7 @@ describe('WorktreeAnnotationDraftScheduler', () => {
 		for (let editIndex = 1; editIndex <= 6; editIndex += 1) {
 			scheduler.edit(`Edit ${editIndex}`);
 			clock.advanceBy(900);
+			// eslint-disable-next-line no-await-in-loop -- Each edit must settle before advancing the injected clock.
 			await clock.flushMicrotasks();
 		}
 
@@ -254,7 +255,9 @@ function deferredPromise(): {
 	readonly reject: (error: Error) => void;
 	readonly resolve: () => void;
 } {
+	// oxlint-disable-next-line unicorn/consistent-function-scoping -- Deferred callbacks are replaced by the Promise constructor.
 	let resolvePromise: () => void = (): void => {};
+	// oxlint-disable-next-line unicorn/consistent-function-scoping -- Deferred callbacks are replaced by the Promise constructor.
 	let rejectPromise: (error: Error) => void = (): void => {};
 	const promise = new Promise<void>((resolve, reject): void => {
 		resolvePromise = resolve;
@@ -289,7 +292,7 @@ class ControlledDraftClock implements WorktreeAnnotationDraftClock {
 		while (true) {
 			const nextTimer = [...this.#timers.entries()]
 				.filter(([, timer]) => timer.deadline <= target)
-				.sort((left, right): number => left[1].deadline - right[1].deadline)[0];
+				.toSorted((left, right): number => left[1].deadline - right[1].deadline)[0];
 			if (nextTimer === undefined) break;
 			this.#nowMilliseconds = nextTimer[1].deadline;
 			this.#timers.delete(nextTimer[0]);

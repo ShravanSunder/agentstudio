@@ -73,12 +73,19 @@ describe('worktree annotation Pierre adapter', () => {
 			threads: [
 				threadProjection({ endLine: 9, sourceRole: 'review_head', startLine: 7 }),
 				threadProjection({ endLine: 3, sourceRole: 'review_base', startLine: 2 }),
+				threadProjection({
+					endLine: 12,
+					sourceRole: 'file',
+					startLine: 11,
+					threadId: '00000000-0000-7000-8000-000000000013',
+				}),
 			],
 		});
 
 		expect(annotations.map(({ lineNumber, side }) => [lineNumber, side])).toEqual([
 			[9, 'additions'],
 			[3, 'deletions'],
+			[12, 'additions'],
 		]);
 		expect(
 			fileAnnotationOriginForPierreSelection({

@@ -16,7 +16,6 @@ import {
 	useWorktreeAnnotationProjection,
 	WorktreeAnnotationSurfaceProvider,
 } from './worktree-annotation-surface-provider.js';
-import { WorktreeAnnotationThreadOverlayHost } from './worktree-annotation-thread-overlay.js';
 import { WorktreeAnnotationThread } from './worktree-annotation-thread.js';
 
 describe('worktree annotation browser edit ownership', () => {
@@ -25,7 +24,6 @@ describe('worktree annotation browser edit ownership', () => {
 		const rendered = await render(
 			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
 				<ProjectedThread portalGeneration={0} />
-				<WorktreeAnnotationThreadOverlayHost />
 			</WorktreeAnnotationSurfaceProvider>,
 		);
 		await publishMessage(
@@ -33,8 +31,10 @@ describe('worktree annotation browser edit ownership', () => {
 			draftMessage({ activeEditToken: 'persisted-token', revision: 1 }),
 		);
 
+		const resumeDraftButton = rendered.getByRole('button', { name: 'Resume draft' });
+		assertPointerTarget(resumeDraftButton.element());
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Resume draft' }).click();
+			await resumeDraftButton.click();
 			await settleInteraction();
 		});
 		await waitForOperationKind(surface, 'draft.edit.acquire');
@@ -60,7 +60,6 @@ describe('worktree annotation browser edit ownership', () => {
 		await rendered.rerender(
 			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
 				<ProjectedThread portalGeneration={1} />
-				<WorktreeAnnotationThreadOverlayHost />
 			</WorktreeAnnotationSurfaceProvider>,
 		);
 		await act(async (): Promise<void> => settleInteraction());
@@ -80,7 +79,6 @@ describe('worktree annotation browser edit ownership', () => {
 		const rendered = await render(
 			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
 				<ProjectedThread />
-				<WorktreeAnnotationThreadOverlayHost />
 			</WorktreeAnnotationSurfaceProvider>,
 		);
 		await publishMessage(
@@ -201,6 +199,7 @@ async function waitForOperationKind(
 ): Promise<void> {
 	for (let attempt = 0; attempt < 60; attempt += 1) {
 		if (surface.sentOperations.some((operation) => operation.kind === kind)) return;
+		// eslint-disable-next-line no-await-in-loop -- Browser state must settle between bounded observation attempts.
 		await act(async (): Promise<void> => settleInteraction());
 	}
 	throw new Error(`Expected ${kind} annotation operation.`);
@@ -210,4 +209,25 @@ async function settleInteraction(): Promise<void> {
 	await Promise.resolve();
 	await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 	await Promise.resolve();
+}
+
+function assertPointerTarget(control: HTMLElement | SVGElement): void {
+	const bounds = control.getBoundingClientRect();
+	const hitTarget = document.elementFromPoint(
+		bounds.x + bounds.width / 2,
+		bounds.y + bounds.height / 2,
+	);
+	if (
+		hitTarget === control ||
+		(control instanceof HTMLElement && hitTarget?.closest('button') === control)
+	) {
+		return;
+	}
+	const commandColumn = control.parentElement;
+	const surfaceCard = commandColumn?.parentElement;
+	const article = control.closest('article');
+	const style = getComputedStyle(control);
+	throw new Error(
+		`Expected Resume draft to own its pointer target; control=${JSON.stringify(bounds.toJSON())}, commandColumn=${JSON.stringify(commandColumn?.getBoundingClientRect().toJSON())}, surfaceCard=${JSON.stringify(surfaceCard?.getBoundingClientRect().toJSON())}, article=${JSON.stringify(article?.getBoundingClientRect().toJSON())}, style=${JSON.stringify({ pointerEvents: style.pointerEvents, position: style.position, transform: style.transform, zoom: style.zoom })}, hit=${hitTarget?.outerHTML ?? 'none'}.`,
+	);
 }

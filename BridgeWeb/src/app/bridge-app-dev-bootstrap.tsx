@@ -18,6 +18,8 @@ import {
 // oxlint-disable-next-line import/no-unassigned-import -- Dev server must load the same app CSS as packaged BridgeWeb.
 import './bridge-app.css';
 
+await preloadBridgeReviewViewerShell();
+
 const rootElement = document.querySelector('#root');
 
 if (rootElement !== null) {
@@ -68,6 +70,10 @@ if (rootElement !== null) {
 			<Toaster />
 		</>,
 	);
+}
+
+async function preloadBridgeReviewViewerShell(): Promise<void> {
+	await import('../review-viewer/shell/review-viewer-shell.js');
 }
 
 function bridgeAppDevTelemetryScenario(props: {

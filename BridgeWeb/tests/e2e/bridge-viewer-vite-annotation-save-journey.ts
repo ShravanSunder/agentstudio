@@ -1,47 +1,73 @@
 import { chromium, type Page, type Response, type Route } from 'playwright';
 
+import {
+	revealReviewTreeFilePath,
+	reviewTreeReachablePathScrollTopMap,
+	waitForVisibleReviewTreeFilePath,
+} from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
 import type {
 	BridgeViewerOwnedViteProductServer,
 	BridgeViewerViteProductFixtureOracle,
 } from './bridge-viewer-vite-product-fixture.ts';
-import { bridgeViewerViteProductFileUrl } from './bridge-viewer-vite-product-url.ts';
+import {
+	bridgeViewerViteProductFileUrl,
+	bridgeViewerViteProductReviewUrl,
+} from './bridge-viewer-vite-product-url.ts';
 
-const annotationSaveProofTimeoutMilliseconds = 120_000;
+const annotationSaveJourneyTimeoutMilliseconds = 120_000;
 const annotationProjectionResponseTimeoutMilliseconds = 30_000;
 
-export interface AnnotationSaveIndependentProjectionProof {
-	readonly composerCountAfterCommit: number;
+export interface AnnotationSaveJourneyObservations {
 	readonly gatedProjectionRequestCount: number;
-	readonly savingControlCount: number;
+	readonly projectedSavedMessageCount: number;
+	readonly reloadedSavedMessageCount: number;
+	readonly savingControlCountAfterCommit: number;
+	readonly committedBodyCountWhileProjectionGated: number;
 }
 
-export async function proveAnnotationSaveSettlesBeforeProjection(props: {
+export async function runAnnotationSaveJourney(props: {
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
 	readonly server: BridgeViewerOwnedViteProductServer;
-}): Promise<AnnotationSaveIndependentProjectionProof> {
+	readonly surface: 'file' | 'review';
+}): Promise<AnnotationSaveJourneyObservations> {
 	const browser = await chromium.launch({ channel: 'chrome', headless: true });
 	const diagnostics: string[] = [];
 	let page: Page | null = null;
 	try {
 		page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		observeAnnotationJourneyDiagnostics(page, diagnostics);
+		const reviewFile = props.oracle.reviewFiles[0];
+		if (props.surface === 'review' && reviewFile === undefined) {
+			throw new Error('Review annotation Save journey requires a changed review file.');
+		}
+		const initialReviewProjectionReceived =
+			props.surface === 'review' ? waitForAnnotationProjectionContentResponse(page) : null;
 		await page.goto(
-			bridgeViewerViteProductFileUrl(props.server.origin, props.oracle.largeFilePath),
+			props.surface === 'file'
+				? bridgeViewerViteProductFileUrl(props.server.origin, props.oracle.largeFilePath)
+				: bridgeViewerViteProductReviewUrl(props.server.origin),
 			{
-				timeout: annotationSaveProofTimeoutMilliseconds,
+				timeout: annotationSaveJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			},
 		);
-		await waitForSelectedFileReady({ oracle: props.oracle, page });
-		await selectFileRangeForAnnotation({ endLine: 5, page, startLine: 2 });
+		if (props.surface === 'file') {
+			await waitForSelectedFileReady({ oracle: props.oracle, page });
+		} else {
+			await selectReviewFile({ page, path: reviewFile?.path ?? '' });
+			await waitForSelectedReviewReady({ itemId: reviewFile?.itemId ?? '', page });
+			await initialReviewProjectionReceived;
+		}
+		await selectRangeForAnnotation({ endLine: 5, page, startLine: 2, surface: props.surface });
 
-		const rootCreateCommitted = waitForCommittedAnnotationCommand(page, 'root.create');
-		const rootProjectionReceived = waitForAnnotationProjectionContentResponse(page);
-		await page
-			.getByRole('textbox', { name: 'Write an annotation in Markdown' })
-			.fill('Save must settle from its exact command receipt.');
+		const rootCreateCommitted = waitForCommittedAnnotationCommand(
+			page,
+			'root.create',
+			props.surface,
+		);
+		const savedBody = 'Save must settle from its exact command receipt.';
+		await page.getByRole('textbox', { name: 'Write an annotation in Markdown' }).fill(savedBody);
 		await rootCreateCommitted;
-		await rootProjectionReceived;
 		await page
 			.locator('[data-testid="worktree-annotation-message"][data-annotation-draft="present"]')
 			.waitFor({ state: 'visible', timeout: annotationProjectionResponseTimeoutMilliseconds });
@@ -53,11 +79,13 @@ export async function proveAnnotationSaveSettlesBeforeProjection(props: {
 				return saveButton !== null && !saveButton.disabled;
 			},
 			undefined,
-			{ timeout: annotationSaveProofTimeoutMilliseconds },
+			{ timeout: annotationSaveJourneyTimeoutMilliseconds },
 		);
 
 		const projectionGate = createDeferred<void>();
 		let gatedProjectionRequestCount = 0;
+		let savingControlCountAfterCommit = 0;
+		let committedBodyCountWhileProjectionGated = 0;
 		const projectionRoutePattern = '**/__bridge-product/content**';
 		const projectionRouteHandler = async (route: Route): Promise<void> => {
 			const body: unknown = route.request().postDataJSON();
@@ -69,21 +97,57 @@ export async function proveAnnotationSaveSettlesBeforeProjection(props: {
 		};
 		await page.route(projectionRoutePattern, projectionRouteHandler);
 		try {
-			const draftSaveCommitted = waitForCommittedAnnotationCommand(page, 'draft.save');
+			const draftSaveCommitted = waitForCommittedAnnotationCommand(
+				page,
+				'draft.save',
+				props.surface,
+			);
 			await page.getByRole('button', { name: 'Save annotation' }).click();
 			await draftSaveCommitted;
 			await settleBrowserFrames(page, 2);
-			return {
-				composerCountAfterCommit: await page
-					.getByRole('textbox', { name: 'Write an annotation in Markdown' })
-					.count(),
-				gatedProjectionRequestCount,
-				savingControlCount: await page.getByRole('button', { name: 'Saving annotation' }).count(),
-			};
+			savingControlCountAfterCommit = await page
+				.getByRole('button', { name: 'Saving annotation' })
+				.count();
+			committedBodyCountWhileProjectionGated = await page
+				.getByText(savedBody, { exact: true })
+				.count();
 		} finally {
 			projectionGate.resolve();
 			await page.unrouteAll({ behavior: 'wait' });
 		}
+		const savedThreadBody = page
+			.getByTestId('worktree-annotation-thread')
+			.getByText(savedBody, { exact: true });
+		await savedThreadBody.waitFor({
+			state: 'visible',
+			timeout: annotationProjectionResponseTimeoutMilliseconds,
+		});
+		const projectedSavedMessageCount = await savedThreadBody.count();
+
+		await page.reload({
+			timeout: annotationSaveJourneyTimeoutMilliseconds,
+			waitUntil: 'domcontentloaded',
+		});
+		if (props.surface === 'file') {
+			await waitForSelectedFileReady({ oracle: props.oracle, page });
+		} else {
+			await waitForSelectedReviewReady({ itemId: reviewFile?.itemId ?? '', page });
+		}
+		const reloadedSavedThreadBody = page
+			.getByTestId('worktree-annotation-thread')
+			.getByText(savedBody, { exact: true });
+		await reloadedSavedThreadBody.waitFor({
+			state: 'visible',
+			timeout: annotationProjectionResponseTimeoutMilliseconds,
+		});
+
+		return {
+			committedBodyCountWhileProjectionGated,
+			gatedProjectionRequestCount,
+			projectedSavedMessageCount,
+			reloadedSavedMessageCount: await reloadedSavedThreadBody.count(),
+			savingControlCountAfterCommit,
+		};
 	} catch (error: unknown) {
 		if (page !== null) {
 			recordAnnotationDiagnostic(
@@ -92,7 +156,7 @@ export async function proveAnnotationSaveSettlesBeforeProjection(props: {
 			);
 		}
 		throw new Error(
-			`Annotation Save proof failed: browser=${JSON.stringify(diagnostics)} server=${props.server.diagnostics()}`,
+			`Annotation Save journey failed: browser=${JSON.stringify(diagnostics)} server=${props.server.diagnostics()}`,
 			{ cause: error },
 		);
 	} finally {
@@ -163,7 +227,10 @@ function observeAnnotationJourneyDiagnostics(page: Page, diagnostics: string[]):
 				)}`,
 			);
 		}
-		if (method === 'file.annotations.projection.query') {
+		if (
+			method === 'file.annotations.projection.query' ||
+			method === 'review.annotations.projection.query'
+		) {
 			void response
 				.json()
 				.then((responseBody: unknown): void => {
@@ -248,17 +315,79 @@ function isUnknownRecord(value: unknown): value is Readonly<Record<string, unkno
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-async function selectFileRangeForAnnotation(props: {
+async function waitForSelectedReviewReady(props: {
+	readonly itemId: string;
+	readonly page: Page;
+}): Promise<void> {
+	await props.page.waitForFunction(
+		(itemId: string): boolean => {
+			const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+			if (panel?.getAttribute('data-selected-item-id') !== itemId) return false;
+			const pending: Array<Element | ShadowRoot> = [panel];
+			let visibleAdditionRowCount = 0;
+			while (pending.length > 0) {
+				const current = pending.shift();
+				if (current === undefined) break;
+				for (const row of current.querySelectorAll('[data-column-number]')) {
+					const bounds = row.getBoundingClientRect();
+					if (row.closest('[data-additions]') !== null && bounds.width > 0 && bounds.height > 0) {
+						visibleAdditionRowCount += 1;
+						if (visibleAdditionRowCount >= 3) return true;
+					}
+				}
+				for (const descendant of current.querySelectorAll('*')) {
+					if (descendant.shadowRoot !== null) pending.push(descendant.shadowRoot);
+				}
+			}
+			return false;
+		},
+		props.itemId,
+		{ timeout: annotationSaveJourneyTimeoutMilliseconds },
+	);
+}
+
+async function selectReviewFile(props: {
+	readonly page: Page;
+	readonly path: string;
+}): Promise<void> {
+	await props.page.waitForSelector('[data-testid="review-viewer-shell"]', {
+		timeout: annotationSaveJourneyTimeoutMilliseconds,
+	});
+	const scrollTopByPath = await reviewTreeReachablePathScrollTopMap(props.page);
+	const scrollTopHint = scrollTopByPath.get(props.path);
+	if (scrollTopHint === undefined) {
+		throw new Error(`Review annotation journey cannot reach tree path ${props.path}.`);
+	}
+	await revealReviewTreeFilePath({ page: props.page, path: props.path, scrollTopHint });
+	await waitForVisibleReviewTreeFilePath({ page: props.page, path: props.path });
+	await props.page.evaluate((path: string): void => {
+		const treeHost = document.querySelector(
+			'[data-testid="bridge-review-trees-panel"] file-tree-container',
+		);
+		const row = treeHost?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(path)}"]`);
+		if (!(row instanceof HTMLElement)) throw new Error(`Review file row missing: ${path}`);
+		row.click();
+	}, props.path);
+}
+
+async function selectRangeForAnnotation(props: {
 	readonly endLine: number;
 	readonly page: Page;
 	readonly startLine: number;
+	readonly surface: 'file' | 'review';
 }): Promise<void> {
-	const startRow = props.page.locator(`[data-column-number="${props.startLine}"]`).first();
-	const endRow = props.page.locator(`[data-column-number="${props.endLine}"]`).first();
-	await startRow.waitFor({ state: 'visible', timeout: annotationSaveProofTimeoutMilliseconds });
-	await endRow.waitFor({ state: 'visible', timeout: annotationSaveProofTimeoutMilliseconds });
-	const startBounds = await startRow.boundingBox();
-	const endBounds = await endRow.boundingBox();
+	let startBounds: AnnotationRangeBounds | null;
+	let endBounds: AnnotationRangeBounds | null;
+	if (props.surface === 'file') {
+		const startRow = props.page.locator(`[data-column-number="${props.startLine}"]`).first();
+		const endRow = props.page.locator(`[data-column-number="${props.endLine}"]`).first();
+		await startRow.waitFor({ state: 'visible', timeout: annotationSaveJourneyTimeoutMilliseconds });
+		await endRow.waitFor({ state: 'visible', timeout: annotationSaveJourneyTimeoutMilliseconds });
+		startBounds = await startRow.boundingBox();
+		endBounds = await endRow.boundingBox();
+	} else {
+		[startBounds, endBounds] = await reviewAdditionRangeBounds(props.page);
+	}
 	if (startBounds === null || endBounds === null) {
 		throw new Error('File annotation range rows must have visible pointer geometry.');
 	}
@@ -269,12 +398,51 @@ async function selectFileRangeForAnnotation(props: {
 	const endpointUtility = props.page.locator('[data-utility-button]').first();
 	await endpointUtility.waitFor({
 		state: 'visible',
-		timeout: annotationSaveProofTimeoutMilliseconds,
+		timeout: annotationSaveJourneyTimeoutMilliseconds,
 	});
 	await endpointUtility.click();
 	await props.page
 		.getByRole('textbox', { name: 'Write an annotation in Markdown' })
-		.waitFor({ state: 'visible', timeout: annotationSaveProofTimeoutMilliseconds });
+		.waitFor({ state: 'visible', timeout: annotationSaveJourneyTimeoutMilliseconds });
+}
+
+interface AnnotationRangeBounds {
+	readonly height: number;
+	readonly width: number;
+	readonly x: number;
+	readonly y: number;
+}
+
+async function reviewAdditionRangeBounds(
+	page: Page,
+): Promise<readonly [AnnotationRangeBounds, AnnotationRangeBounds]> {
+	const additionRows = await page.evaluate((): AnnotationRangeBounds[] => {
+		const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+		if (panel === null) return [];
+		const pending: Array<Element | ShadowRoot> = [panel];
+		const rows: AnnotationRangeBounds[] = [];
+		while (pending.length > 0) {
+			const current = pending.shift();
+			if (current === undefined) break;
+			for (const row of current.querySelectorAll('[data-column-number]')) {
+				const bounds = row.getBoundingClientRect();
+				if (row.closest('[data-additions]') !== null && bounds.width > 0 && bounds.height > 0) {
+					rows.push({ height: bounds.height, width: bounds.width, x: bounds.x, y: bounds.y });
+				}
+			}
+			for (const descendant of current.querySelectorAll('*')) {
+				if (descendant.shadowRoot !== null) pending.push(descendant.shadowRoot);
+			}
+		}
+		return rows;
+	});
+	const orderedAdditionRows = additionRows.toSorted((left, right): number => left.y - right.y);
+	const startBounds = orderedAdditionRows[0];
+	const endBounds = orderedAdditionRows[2];
+	if (startBounds === undefined || endBounds === undefined) {
+		throw new Error('Review annotation journey requires visible additions-side line geometry.');
+	}
+	return [startBounds, endBounds];
 }
 
 async function settleBrowserFrames(page: Page, frameCount: number): Promise<void> {
@@ -291,17 +459,18 @@ async function settleBrowserFrames(page: Page, frameCount: number): Promise<void
 async function waitForCommittedAnnotationCommand(
 	page: Page,
 	operationKind: 'draft.save' | 'root.create',
+	surface: 'file' | 'review',
 ): Promise<void> {
 	const response = await page.waitForResponse(
-		(candidate): boolean => isAnnotationCommandResponse(candidate, operationKind),
-		{ timeout: annotationSaveProofTimeoutMilliseconds },
+		(candidate): boolean => isAnnotationCommandResponse(candidate, operationKind, surface),
+		{ timeout: annotationSaveJourneyTimeoutMilliseconds },
 	);
 	const body: unknown = await response.json();
 	if (
 		!isUnknownRecord(body) ||
 		body['kind'] !== 'call.completed' ||
 		!isUnknownRecord(body['call']) ||
-		body['call']['method'] !== 'file.annotations.command' ||
+		body['call']['method'] !== `${surface}.annotations.command` ||
 		!isUnknownRecord(body['call']['result']) ||
 		body['call']['result']['kind'] !== 'completed' ||
 		!isUnknownRecord(body['call']['result']['outcome']) ||
@@ -337,6 +506,7 @@ async function waitForAnnotationProjectionContentResponse(page: Page): Promise<v
 function isAnnotationCommandResponse(
 	response: Response,
 	operationKind: 'draft.save' | 'root.create',
+	surface: 'file' | 'review',
 ): boolean {
 	const request = response.request();
 	if (
@@ -350,7 +520,7 @@ function isAnnotationCommandResponse(
 		isUnknownRecord(body) &&
 		body['kind'] === 'product.call' &&
 		isUnknownRecord(body['call']) &&
-		body['call']['method'] === 'file.annotations.command' &&
+		body['call']['method'] === `${surface}.annotations.command` &&
 		isUnknownRecord(body['call']['request']) &&
 		isUnknownRecord(body['call']['request']['operation']) &&
 		body['call']['request']['operation']['kind'] === operationKind
@@ -390,6 +560,6 @@ async function waitForSelectedFileReady(props: {
 			expectedSha256: props.oracle.fileContent.sha256,
 			path: props.oracle.largeFilePath,
 		},
-		{ timeout: annotationSaveProofTimeoutMilliseconds },
+		{ timeout: annotationSaveJourneyTimeoutMilliseconds },
 	);
 }

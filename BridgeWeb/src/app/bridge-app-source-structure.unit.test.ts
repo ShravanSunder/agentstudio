@@ -57,8 +57,15 @@ describe('BridgeApp source structure', () => {
 		expect(source).not.toContain('rows: []');
 	});
 
-	test('owns the Review annotation overlay beside the stable viewer shell', () => {
+	test('keeps annotation thread expansion inline under Pierre ownership', () => {
 		const reviewModeSource = readSource('bridge-app-review-viewer-mode.tsx');
+		const filePanelSource = readSource('../file-viewer/bridge-file-viewer-code-panel.tsx');
+		const compactThreadSource = readSource(
+			'../worktree-annotations/worktree-annotation-compact-thread.tsx',
+		);
+		const surfaceProviderSource = readSource(
+			'../worktree-annotations/worktree-annotation-surface-provider.tsx',
+		);
 		const annotationHookSource = readSource(
 			'../review-viewer/code-view/use-bridge-code-view-worktree-annotations.tsx',
 		);
@@ -67,7 +74,13 @@ describe('BridgeApp source structure', () => {
 			'../review-viewer/code-view/bridge-code-view-panel-frame.tsx',
 		);
 
-		expect(reviewModeSource).toContain('<WorktreeAnnotationThreadOverlayHost />');
+		expect(reviewModeSource).not.toContain('WorktreeAnnotationThreadOverlayHost');
+		expect(filePanelSource).not.toContain('WorktreeAnnotationThreadOverlayHost');
+		expect(compactThreadSource).toContain('interaction.expandThread');
+		expect(compactThreadSource).toContain('<WorktreeAnnotationNewMessageComposer');
+		expect(compactThreadSource).not.toContain('<Popover');
+		expect(compactThreadSource).not.toContain('<ScrollArea');
+		expect(surfaceProviderSource).not.toContain('WorktreeAnnotationThreadOverlayHost');
 		expect(annotationHookSource).not.toContain('WorktreeAnnotationThreadOverlayHost');
 		expect(annotationHookSource).not.toContain('readonly overlay: ReactNode');
 		expect(codeViewPanelSource).not.toContain('annotationOverlay=');

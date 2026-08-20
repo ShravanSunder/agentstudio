@@ -457,7 +457,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 		const annotationHarness = createWorktreeAnnotationBrowserProviderHarness('fileView');
 		const mountedCodeView: { current: CodeView | null } = { current: null };
 		const mountedCodeViewRoot: { current: HTMLElement | null } = { current: null };
-		const setItemReceipts: CodeViewItem<undefined>[][] = [];
+		const setItemReceipts: CodeViewItem[][] = [];
 		const scrollToReceipts: CodeViewScrollTarget[] = [];
 		let setupCount = 0;
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
@@ -473,7 +473,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			originalSetup.call(this, root);
 		};
 		CodeView.prototype.setItems = function captureCodeViewItems(
-			items: readonly CodeViewItem<undefined>[],
+			items: readonly CodeViewItem[],
 		): void {
 			setItemReceipts.push([...items]);
 			originalSetItems.call(this, items);

@@ -8,6 +8,14 @@ import {
 import type { CSSProperties, ReactElement } from 'react';
 import { Toaster as Sonner, type ToasterProps } from 'sonner';
 
+const toasterStyle: CSSProperties & Record<`--${string}`, string> = {
+	'--border-radius': 'var(--radius)',
+	'--normal-bg': 'var(--bridge-surface-raised-bg)',
+	'--normal-border': 'var(--bridge-border-opaque)',
+	'--normal-text': 'var(--bridge-text-primary)',
+	'--width': '20rem',
+};
+
 function Toaster({ ...props }: ToasterProps): ReactElement {
 	return (
 		<Sonner
@@ -22,15 +30,7 @@ function Toaster({ ...props }: ToasterProps): ReactElement {
 				warning: <TriangleAlertIcon className="size-3.5" />,
 			}}
 			position="bottom-right"
-			style={
-				{
-					'--border-radius': 'var(--radius)',
-					'--normal-bg': 'var(--bridge-surface-raised-bg)',
-					'--normal-border': 'var(--bridge-border-opaque)',
-					'--normal-text': 'var(--bridge-text-primary)',
-					'--width': '20rem',
-				} as CSSProperties
-			}
+			style={toasterStyle}
 			toastOptions={{
 				classNames: {
 					closeButton:

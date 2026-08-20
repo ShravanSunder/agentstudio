@@ -5,6 +5,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useEffect,
 	type ReactElement,
 	type ReactNode,
 } from 'react';
@@ -36,7 +37,7 @@ export type WorktreeAnnotationPierreRangePresentation =
 			readonly threadId: string;
 	  };
 
-export type WorktreeAnnotationThreadOverlay =
+export type WorktreeAnnotationThreadExpansion =
 	| { readonly kind: 'closed' }
 	| {
 			readonly editor: WorktreeAnnotationEditorState | null;
@@ -56,20 +57,20 @@ export interface WorktreeAnnotationInteractionController {
 	readonly activeThreadId: string | null;
 	readonly activateSavedThread: (identity: WorktreeAnnotationSavedRangeIdentity) => void;
 	readonly clearRangePresentation: () => void;
-	readonly closeOverlay: () => Promise<void>;
-	readonly exitOverlayEditor: () => Promise<void>;
-	readonly finishOverlayEditor: () => void;
+	readonly collapseThread: () => Promise<void>;
+	readonly exitThreadEditor: () => Promise<void>;
+	readonly expandThread: (threadId: string, invoker: HTMLElement) => void;
+	readonly finishThreadEditor: () => void;
 	readonly handleCommentBlur: (nextTarget: EventTarget | null) => void;
-	readonly openThreadOverlay: (threadId: string, invoker: HTMLElement) => void;
 	readonly outputSelection: WorktreeAnnotationOutputSelection;
 	readonly pierreRangePresentation: WorktreeAnnotationPierreRangePresentation;
-	readonly registerOverlayEditorExit: (exitEditor: () => Promise<void>) => () => void;
-	readonly resolveOverlayFinalFocus: () => HTMLElement | null;
+	readonly registerThreadEditorExit: (exitEditor: () => Promise<void>) => () => void;
+	readonly resolveThreadFocus: () => HTMLElement | null;
 	readonly setOutputSelection: (selection: WorktreeAnnotationOutputSelection) => void;
 	readonly setPendingRange: (itemId: string, range: WorktreeAnnotationRange) => void;
 	readonly startMessageEdit: (threadId: string, messageId: string, invoker: HTMLElement) => void;
 	readonly startReply: (threadId: string, invoker: HTMLElement) => void;
-	readonly threadOverlay: WorktreeAnnotationThreadOverlay;
+	readonly threadExpansion: WorktreeAnnotationThreadExpansion;
 }
 
 const worktreeAnnotationInteractionContext =
@@ -80,13 +81,13 @@ export function WorktreeAnnotationInteractionProvider(props: {
 }): ReactElement {
 	const [pierreRangePresentation, setPierreRangePresentation] =
 		useState<WorktreeAnnotationPierreRangePresentation>({ kind: 'none' });
-	const [threadOverlay, setThreadOverlay] = useState<WorktreeAnnotationThreadOverlay>({
+	const [threadExpansion, setThreadExpansion] = useState<WorktreeAnnotationThreadExpansion>({
 		kind: 'closed',
 	});
 	const [outputSelection, setOutputSelection] = useState<WorktreeAnnotationOutputSelection>(
 		createWorktreeAnnotationOutputSelection,
 	);
-	const overlayEditorExitRef = useRef<(() => Promise<void>) | null>(null);
+	const threadEditorExitRef = useRef<(() => Promise<void>) | null>(null);
 
 	const activateSavedThread = useCallback(
 		(identity: WorktreeAnnotationSavedRangeIdentity): void => {
@@ -102,8 +103,8 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			currentPresentation.kind === 'none' ? currentPresentation : { kind: 'none' },
 		);
 	}, []);
-	const openThreadOverlay = useCallback((threadId: string, invoker: HTMLElement): void => {
-		setThreadOverlay({
+	const expandThread = useCallback((threadId: string, invoker: HTMLElement): void => {
+		setThreadExpansion({
 			editor: null,
 			invoker,
 			kind: 'open',
@@ -113,7 +114,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 	}, []);
 	const startMessageEdit = useCallback(
 		(threadId: string, messageId: string, invoker: HTMLElement): void => {
-			setThreadOverlay({
+			setThreadExpansion({
 				editor: {
 					editToken: createWorktreeAnnotationEditToken(),
 					kind: 'message',
@@ -128,7 +129,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 		[],
 	);
 	const startReply = useCallback((threadId: string, invoker: HTMLElement): void => {
-		setThreadOverlay({
+		setThreadExpansion({
 			editor: { editToken: createWorktreeAnnotationEditToken(), kind: 'reply' },
 			invoker,
 			kind: 'open',
@@ -136,54 +137,76 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			threadId,
 		});
 	}, []);
-	const registerOverlayEditorExit = useCallback((exitEditor: () => Promise<void>): (() => void) => {
-		overlayEditorExitRef.current = exitEditor;
+	const registerThreadEditorExit = useCallback((exitEditor: () => Promise<void>): (() => void) => {
+		threadEditorExitRef.current = exitEditor;
 		return (): void => {
-			if (overlayEditorExitRef.current === exitEditor) overlayEditorExitRef.current = null;
+			if (threadEditorExitRef.current === exitEditor) threadEditorExitRef.current = null;
 		};
 	}, []);
-	const exitOverlayEditor = useCallback(async (): Promise<void> => {
-		await overlayEditorExitRef.current?.();
-		overlayEditorExitRef.current = null;
-		setThreadOverlay(
-			(currentOverlay): WorktreeAnnotationThreadOverlay =>
-				currentOverlay.kind === 'closed' ? currentOverlay : { ...currentOverlay, editor: null },
+	const exitThreadEditor = useCallback(async (): Promise<void> => {
+		await threadEditorExitRef.current?.();
+		threadEditorExitRef.current = null;
+		const focusTarget =
+			threadExpansion.kind === 'open' && threadExpansion.invoker.isConnected
+				? threadExpansion.invoker
+				: null;
+		setThreadExpansion(
+			(currentExpansion): WorktreeAnnotationThreadExpansion =>
+				currentExpansion.kind === 'closed'
+					? currentExpansion
+					: { ...currentExpansion, editor: null },
 		);
-	}, []);
-	const finishOverlayEditor = useCallback((): void => {
-		overlayEditorExitRef.current = null;
-		setThreadOverlay(
-			(currentOverlay): WorktreeAnnotationThreadOverlay =>
-				currentOverlay.kind === 'closed' ? currentOverlay : { ...currentOverlay, editor: null },
+		queueMicrotask((): void => focusTarget?.focus());
+	}, [threadExpansion]);
+	const finishThreadEditor = useCallback((): void => {
+		threadEditorExitRef.current = null;
+		const focusTarget =
+			threadExpansion.kind === 'open' && threadExpansion.invoker.isConnected
+				? threadExpansion.invoker
+				: null;
+		setThreadExpansion(
+			(currentExpansion): WorktreeAnnotationThreadExpansion =>
+				currentExpansion.kind === 'closed'
+					? currentExpansion
+					: { ...currentExpansion, editor: null },
 		);
-	}, []);
-	const closeOverlay = useCallback(async (): Promise<void> => {
-		await overlayEditorExitRef.current?.();
-		overlayEditorExitRef.current = null;
-		setThreadOverlay((currentOverlay): WorktreeAnnotationThreadOverlay => {
-			if (currentOverlay.kind === 'closed') return currentOverlay;
+		queueMicrotask((): void => focusTarget?.focus());
+	}, [threadExpansion]);
+	const collapseThread = useCallback(async (): Promise<void> => {
+		const exitEditor = threadEditorExitRef.current;
+		if (exitEditor !== null) await exitEditor();
+		threadEditorExitRef.current = null;
+		setThreadExpansion((currentExpansion): WorktreeAnnotationThreadExpansion => {
+			if (currentExpansion.kind === 'closed') return currentExpansion;
 			return { kind: 'closed' };
 		});
 	}, []);
-	const resolveOverlayFinalFocus = useCallback((): HTMLElement | null => {
-		if (threadOverlay.kind === 'closed') return null;
-		if (threadOverlay.invoker.isConnected) return threadOverlay.invoker;
-		const sameThreadControl = document.querySelector<HTMLElement>(
-			`[data-annotation-thread-id="${CSS.escape(threadOverlay.threadId)}"] button:not(:disabled)`,
-		);
-		if (sameThreadControl !== null) return sameThreadControl;
+	const resolveThreadFocus = useCallback((): HTMLElement | null => {
+		if (threadExpansion.kind === 'closed') return null;
+		if (threadExpansion.invoker.isConnected) return threadExpansion.invoker;
 		const survivingControls = [
 			...document.querySelectorAll<HTMLElement>(
 				'[data-testid="worktree-annotation-thread"] button:not(:disabled)',
 			),
 		];
-		return nearestElementToPoint(survivingControls, threadOverlay.returnFocusPoint);
-	}, [threadOverlay]);
+		return nearestElementToPoint(survivingControls, threadExpansion.returnFocusPoint);
+	}, [threadExpansion]);
 	const handleCommentBlur = useCallback(
 		(nextTarget: EventTarget | null): void => {
-			if (threadOverlay.kind === 'open') return;
-			queueMicrotask((): void => {
+			requestAnimationFrame((): void => {
 				const focusedElement = nextTarget instanceof Element ? nextTarget : document.activeElement;
+				if (threadExpansion.kind === 'open') {
+					if (
+						focusedElement instanceof Element &&
+						focusedElement.closest('[data-worktree-annotation-preserve-expansion]') !== null
+					)
+						return;
+					const sameThread = focusedElement?.closest(
+						`[data-annotation-thread-id="${CSS.escape(threadExpansion.threadId)}"]`,
+					);
+					if (sameThread === null) void collapseThread();
+					return;
+				}
 				if (focusedElement?.closest('[data-worktree-annotation-interaction]') === null) {
 					setPierreRangePresentation((currentPresentation) =>
 						currentPresentation.kind === 'savedThread' ? { kind: 'none' } : currentPresentation,
@@ -191,49 +214,66 @@ export function WorktreeAnnotationInteractionProvider(props: {
 				}
 			});
 		},
-		[threadOverlay.kind],
+		[collapseThread, threadExpansion],
 	);
+	useEffect((): (() => void) | undefined => {
+		if (threadExpansion.kind !== 'open') return undefined;
+		const handleDocumentClick = (event: globalThis.MouseEvent): void => {
+			if (!(event.target instanceof Element)) return;
+			const currentThread = event.target.closest(
+				`[data-annotation-thread-id="${CSS.escape(threadExpansion.threadId)}"]`,
+			);
+			if (
+				currentThread !== null ||
+				event.target.closest('[data-worktree-annotation-preserve-expansion]') !== null
+			)
+				return;
+			void collapseThread();
+		};
+		document.addEventListener('click', handleDocumentClick, true);
+		return (): void => document.removeEventListener('click', handleDocumentClick, true);
+	}, [collapseThread, threadExpansion]);
 	const controller = useMemo<WorktreeAnnotationInteractionController>(
 		() => ({
 			activeThreadId:
-				threadOverlay.kind === 'open'
-					? threadOverlay.threadId
+				threadExpansion.kind === 'open'
+					? threadExpansion.threadId
 					: pierreRangePresentation.kind === 'savedThread'
 						? pierreRangePresentation.threadId
 						: null,
 			activateSavedThread,
 			clearRangePresentation,
-			closeOverlay,
-			exitOverlayEditor,
-			finishOverlayEditor,
+			collapseThread,
+			exitThreadEditor,
+			expandThread,
+			finishThreadEditor,
 			handleCommentBlur,
-			openThreadOverlay,
 			outputSelection,
 			pierreRangePresentation,
-			registerOverlayEditorExit,
-			resolveOverlayFinalFocus,
+			registerThreadEditorExit,
+			resolveThreadFocus,
 			setOutputSelection,
 			setPendingRange,
 			startMessageEdit,
 			startReply,
-			threadOverlay,
+			threadExpansion,
 		}),
 		[
 			activateSavedThread,
 			clearRangePresentation,
-			closeOverlay,
-			exitOverlayEditor,
-			finishOverlayEditor,
+			collapseThread,
+			exitThreadEditor,
+			expandThread,
+			finishThreadEditor,
 			handleCommentBlur,
-			openThreadOverlay,
 			outputSelection,
 			pierreRangePresentation,
-			registerOverlayEditorExit,
-			resolveOverlayFinalFocus,
+			registerThreadEditorExit,
+			resolveThreadFocus,
 			setPendingRange,
 			startMessageEdit,
 			startReply,
-			threadOverlay,
+			threadExpansion,
 		],
 	);
 	return (
@@ -250,9 +290,8 @@ function elementCenter(element: HTMLElement): { readonly x: number; readonly y: 
 
 function nearestElementToPoint(
 	elements: readonly HTMLElement[],
-	point: { readonly x: number; readonly y: number } | null,
+	point: { readonly x: number; readonly y: number },
 ): HTMLElement | null {
-	if (point === null) return elements[0] ?? null;
 	return (
 		elements.toSorted((left, right): number => {
 			const leftCenter = elementCenter(left);

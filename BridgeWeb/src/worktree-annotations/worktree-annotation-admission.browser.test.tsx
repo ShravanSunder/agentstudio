@@ -1,6 +1,6 @@
 import { act, type ReactElement } from 'react';
-import { describe, expect, test } from 'vitest';
-import { render } from 'vitest-browser-react';
+import { afterEach, describe, expect, test } from 'vitest';
+import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
@@ -15,6 +15,34 @@ import { WorktreeAnnotationNewMessageComposer } from './worktree-annotation-thre
 const secondSessionId = '00000000-0000-7000-8000-000000000019';
 
 describe('worktree annotation transient admission decision', () => {
+	afterEach(async (): Promise<void> => {
+		await cleanup();
+	});
+
+	test('demands the sole applicable session discovered after reload', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		await render(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<div>Review content</div>
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				expectedThreadCount: 0,
+				revision: 3,
+				sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
+			});
+			await settleInteraction();
+		});
+
+		await waitForOperationKind(surface, 'demand.acquire');
+		expect(surface.sentOperations).toContainEqual({
+			kind: 'demand.acquire',
+			sessionId: annotationSessionId,
+		});
+	});
+
 	test('resumes the original inline intent with the explicitly selected applicable session', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await render(<AdmissionFixture surface={surface} />);
@@ -143,9 +171,22 @@ async function waitForOperationCount(
 ): Promise<void> {
 	for (let attempt = 0; attempt < 50; attempt += 1) {
 		if (surface.sentOperations.length >= expectedCount) return;
+		// eslint-disable-next-line no-await-in-loop -- Browser state must settle between bounded observation attempts.
 		await act(async (): Promise<void> => settleInteraction());
 	}
 	throw new Error(`Expected ${expectedCount} annotation operations.`);
+}
+
+async function waitForOperationKind(
+	surface: RecordingAnnotationBrowserSurface,
+	kind: 'demand.acquire',
+): Promise<void> {
+	for (let attempt = 0; attempt < 50; attempt += 1) {
+		if (surface.sentOperations.some((operation) => operation.kind === kind)) return;
+		// eslint-disable-next-line no-await-in-loop -- Browser state must settle between bounded observation attempts.
+		await act(async (): Promise<void> => settleInteraction());
+	}
+	throw new Error(`Expected annotation operation ${kind}.`);
 }
 
 async function settleInteraction(): Promise<void> {

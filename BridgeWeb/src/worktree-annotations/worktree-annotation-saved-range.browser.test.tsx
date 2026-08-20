@@ -77,6 +77,10 @@ describe.sequential('saved annotation range activation', () => {
 				await Promise.resolve();
 			});
 			await settleBrowserCondition(
+				(): boolean => commentSurface.getAttribute('data-annotation-active') === 'true',
+				'Expected focus to activate the saved File thread.',
+			);
+			await settleBrowserCondition(
 				(): boolean =>
 					selectedLineCalls.some(
 						(selection): boolean =>
@@ -92,9 +96,7 @@ describe.sequential('saved annotation range activation', () => {
 				range: { end: 7, start: 4 },
 			});
 			expect(scrollCalls).toHaveLength(scrollCallCountBeforeFocus);
-			expect(
-				document.querySelector('[data-testid="worktree-annotation-thread-overlay"]'),
-			).toBeNull();
+			expect(document.querySelector('[data-annotation-expanded="true"]')).toBeNull();
 			expect(document.querySelector('[aria-label^="Show source range"]')).toBeNull();
 		} finally {
 			CodeView.prototype.setSelectedLines = originalSetSelectedLines;
@@ -178,9 +180,7 @@ describe.sequential('saved annotation range activation', () => {
 			);
 			expect(selectedLineCalls).toContainEqual({ id: 'item-source', range: expectedRange });
 			expect(scrollCalls).toHaveLength(scrollCallCountBeforeFocus);
-			expect(
-				document.querySelector('[data-testid="worktree-annotation-thread-overlay"]'),
-			).toBeNull();
+			expect(document.querySelector('[data-annotation-expanded="true"]')).toBeNull();
 			expect(document.querySelector('[aria-label^="Show source range"]')).toBeNull();
 		} finally {
 			CodeView.prototype.setSelectedLines = originalSetSelectedLines;

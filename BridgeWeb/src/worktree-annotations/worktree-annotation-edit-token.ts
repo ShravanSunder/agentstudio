@@ -1,3 +1,5 @@
+import { uuidv7 } from 'uuidv7';
+
 export function createWorktreeAnnotationEditToken(): string {
-	return `annotation-edit-${crypto.randomUUID()}`;
+	return `annotation-edit-${uuidv7()}`;
 }

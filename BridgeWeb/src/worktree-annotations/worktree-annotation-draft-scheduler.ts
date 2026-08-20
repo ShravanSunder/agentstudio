@@ -164,6 +164,7 @@ export class WorktreeAnnotationDraftScheduler {
 		this.#cancelPendingFlush();
 		if (!this.#currentBodyNeedsPersistence()) return;
 		while (this.#currentBody !== this.#lastAcknowledgedBody) {
+			// eslint-disable-next-line no-await-in-loop -- Persistence must serialize drafts until the latest body is acknowledged.
 			await this.#flushCurrentBody();
 		}
 	}

@@ -8,8 +8,9 @@ export function bridgeViewerViteProductFileUrl(origin: string, path?: string): s
 	return url.toString();
 }
 
-export function bridgeViewerViteProductReviewUrl(origin: string): string {
+export function bridgeViewerViteProductReviewUrl(origin: string, path?: string): string {
 	const url = new URL(bridgeViewerViteProductFileUrl(origin));
 	url.searchParams.set('viewer', 'review');
+	if (path !== undefined) url.searchParams.set('path', path);
 	return url.toString();
 }

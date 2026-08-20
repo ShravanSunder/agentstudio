@@ -1,7 +1,7 @@
 import type { ConsoleMessage, Page, Request, Response } from 'playwright';
 import { expect } from 'vitest';
 
-export interface ReviewComparisonBrowserProof {
+export interface ReviewComparisonBrowserObservation {
 	readonly packageId: string;
 	readonly reviewGeneration: number;
 	readonly revision: number;
@@ -75,7 +75,7 @@ export async function waitForSettledReviewComparison(props: {
 	readonly expectedTargetOID: string;
 	readonly page: Page;
 	readonly timeoutMilliseconds: number;
-}): Promise<ReviewComparisonBrowserProof> {
+}): Promise<ReviewComparisonBrowserObservation> {
 	const comparisonTrigger = props.page.getByTestId('bridge-review-comparison-trigger');
 	await expect
 		.poll(async (): Promise<string | null> => await comparisonTrigger.textContent(), {
@@ -141,7 +141,7 @@ export async function waitForSettledReviewComparisonWithDiagnostics(props: {
 	readonly failureContext: () => string;
 	readonly page: Page;
 	readonly timeoutMilliseconds: number;
-}): Promise<ReviewComparisonBrowserProof> {
+}): Promise<ReviewComparisonBrowserObservation> {
 	try {
 		return await waitForSettledReviewComparison(props);
 	} catch (error: unknown) {

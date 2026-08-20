@@ -1,6 +1,7 @@
 import { Ellipsis, HistoryIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
+import { uuidv7 } from 'uuidv7';
 
 import { Button } from '@/components/ui/button.js';
 import {
@@ -14,6 +15,7 @@ import {
 import { Separator } from '@/components/ui/separator.js';
 
 import type { BridgeProductCallResult } from '../core/comm-worker/bridge-product-call-contracts.js';
+import { WorktreeAnnotationCommandButton } from './worktree-annotation-inline-surface.js';
 import {
 	WorktreeAnnotationOutputCandidateSelection,
 	type WorktreeAnnotationOutputCandidate,
@@ -38,6 +40,7 @@ import {
 export interface WorktreeAnnotationOutputControlsProps {
 	readonly activeSessionId: string;
 	readonly compact?: boolean | undefined;
+	readonly compactButtonAppearance?: 'message' | 'toolbar' | undefined;
 	readonly disabled?: boolean | undefined;
 	readonly triggerLabel?: string | undefined;
 }
@@ -159,7 +162,7 @@ export function WorktreeAnnotationOutputControls(
 		if (isInteractionDisabled || selectedMessageCount === 0 || isOutputPending) return;
 		setIsOutputPending(true);
 		setFeedback(null);
-		const transferId = `annotation-output-${crypto.randomUUID()}`;
+		const transferId = `annotation-output-${uuidv7()}`;
 		try {
 			const operations = worktreeAnnotationOutputTransferOperations({
 				outputKind,
@@ -168,8 +171,10 @@ export function WorktreeAnnotationOutputControls(
 				transferId,
 			});
 			let commandOutcome: Awaited<ReturnType<typeof annotationClient.execute>> | null = null;
-			for (const operation of operations)
+			for (const operation of operations) {
+				// eslint-disable-next-line no-await-in-loop -- Output selection chunks are an ordered transaction protocol.
 				commandOutcome = await annotationClient.execute(operation);
+			}
 			if (commandOutcome === null) throw new Error('Annotation output transfer was empty.');
 			handleCommandOutcome(commandOutcome);
 			refreshOutputHistory();
@@ -242,20 +247,18 @@ export function WorktreeAnnotationOutputControls(
 	return (
 		<Popover open={isOpen} onOpenChange={setOutputInteractionOpen}>
 			{props.compact === true ? (
-				<Button
-					aria-label={triggerLabel}
+				<WorktreeAnnotationCommandButton
+					appearance={props.compactButtonAppearance ?? 'toolbar'}
+					buttonRef={compactTriggerRef}
 					disabled={
 						isInteractionDisabled ||
 						((activeSession?.eligibleMessageCount ?? 0) === 0 && sessionHistory.length === 0)
 					}
+					label={triggerLabel}
 					onClick={() => setOutputInteractionOpen(true)}
-					ref={compactTriggerRef}
-					size="icon-xs"
-					title={triggerLabel}
-					variant="ghost"
 				>
 					<Ellipsis />
-				</Button>
+				</WorktreeAnnotationCommandButton>
 			) : (
 				<PopoverTrigger
 					render={
@@ -277,6 +280,7 @@ export function WorktreeAnnotationOutputControls(
 				align="end"
 				anchor={props.compact === true ? compactTriggerRef : undefined}
 				className="max-h-[min(36rem,var(--available-height))] w-96 gap-2 overflow-y-auto"
+				data-worktree-annotation-preserve-expansion
 			>
 				<PopoverHeader>
 					<PopoverTitle>Review output</PopoverTitle>

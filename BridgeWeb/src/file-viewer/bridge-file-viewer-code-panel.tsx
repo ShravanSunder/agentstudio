@@ -29,7 +29,6 @@ import {
 	useWorktreeAnnotationSessionSelection,
 	useWorktreeAnnotationSessionDemand,
 } from '../worktree-annotations/worktree-annotation-surface-provider.js';
-import { WorktreeAnnotationThreadOverlayHost } from '../worktree-annotations/worktree-annotation-thread-overlay.js';
 import {
 	WorktreeAnnotationNewMessageComposer,
 	WorktreeAnnotationThread,
@@ -429,7 +428,6 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 					</div>
 				) : null}
 			</BridgePierreWorkerPoolProvider>
-			<WorktreeAnnotationThreadOverlayHost />
 			{props.staleNotice ?? null}
 		</section>
 	);

@@ -1,17 +1,13 @@
 import { chromium, type Page, type Request } from 'playwright';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
-import {
-	collectBridgeViewerProductOnlyContractViolations,
-	type BridgeViewerProductOnlyJourneyProof,
-} from '../../scripts/verify-bridge-viewer-worktree-dev-server/product-only-real-router-contract.ts';
+import { collectBridgeViewerProductOnlyContractViolations } from '../../scripts/verify-bridge-viewer-worktree-dev-server/product-only-real-router-contract.ts';
 import { runBridgeViewerProductOnlyJourney } from '../../scripts/verify-bridge-viewer-worktree-dev-server/product-only-real-router-page.ts';
 import {
 	revealReviewTreeFilePath,
 	reviewTreeReachablePathScrollTopMap,
 	waitForVisibleReviewTreeFilePath,
 } from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
-import { proveAnnotationSaveSettlesBeforeProjection } from './bridge-viewer-vite-annotation-save-proof.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -29,7 +25,7 @@ import {
 	observeBrowserRuntimeDiagnostics,
 	waitForSettledReviewComparison,
 	waitForSettledReviewComparisonWithDiagnostics,
-} from './bridge-viewer-vite-review-comparison-proof.ts';
+} from './bridge-viewer-vite-review-comparison-observation.ts';
 
 const productJourneyTimeoutMilliseconds = 120_000;
 
@@ -49,7 +45,7 @@ interface PaintedSourceCorrelation {
 	readonly surface: string;
 }
 
-interface FileDeepScrollProof {
+interface FileDeepScrollObservation {
 	readonly deepTreePathPainted: boolean;
 	readonly finalMarkerPainted: boolean;
 	readonly lineCount: number;
@@ -63,7 +59,10 @@ interface FileDeepScrollProof {
 	readonly workerUrls: readonly string[];
 }
 
-interface FileDeepScrollBrowserSnapshot extends Omit<FileDeepScrollProof, 'paintedCorrelations'> {
+interface FileDeepScrollBrowserSnapshot extends Omit<
+	FileDeepScrollObservation,
+	'paintedCorrelations'
+> {
 	readonly encodedPaintedCorrelations: string;
 }
 
@@ -75,7 +74,7 @@ interface ProductContentRequestObservation {
 	responseStatus: number | null;
 }
 
-interface ReviewSelectionProof {
+interface ReviewSelectionObservation {
 	readonly bodyText: string;
 	readonly paintedCorrelations: readonly PaintedSourceCorrelation[];
 	readonly paintedPublicationId: string | null;
@@ -87,7 +86,7 @@ interface ReviewSelectionBrowserSnapshot {
 	readonly paintedPublicationId: string | null;
 }
 
-interface FileContentScrollProof {
+interface FileContentScrollObservation {
 	readonly finalMarkerPainted: boolean;
 	readonly firstMarkerPainted: boolean;
 	readonly middleMarkerPainted: boolean;
@@ -126,16 +125,16 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 		expect(oracle.changedPaths).toHaveLength(16);
 		expect(oracle.reviewFiles).toHaveLength(oracle.changedPaths.length);
 
-		const proof = await runBridgeViewerProductOnlyJourney({
+		const journeyObservations = await runBridgeViewerProductOnlyJourney({
 			baseUrl: server.origin,
 			expectedReviewItemIds: oracle.expectedReviewItemIds,
 		});
 
-		expect(collectBridgeViewerProductOnlyContractViolations(proof)).toEqual([]);
-		assertJourneyFreshness({ oracle, proof, server });
+		expect(collectBridgeViewerProductOnlyContractViolations(journeyObservations)).toEqual([]);
+		assertJourneyFreshness({ journeyObservations, oracle, server });
 	});
 
-	test('proves Review base/head body truth, request leases, painted publication correlation, and directory disclosure interaction', async () => {
+	test('observes Review base/head body truth, request leases, painted publication correlation, and directory disclosure interaction', async () => {
 		const oracle = requireFixtureOracle();
 		const server = requireOwnedServer();
 		const browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -165,12 +164,12 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 				// oxlint-disable-next-line no-await-in-loop -- Visibility is the bounded event before the real click.
 				await waitForVisibleReviewTreeFilePath({ page, path: reviewFile.path });
 				// oxlint-disable-next-line no-await-in-loop -- Each selection must reach painted terminal state before the next real user interaction.
-				const selectionProof = await selectReviewFileAndReadProof({ page, reviewFile });
-				expectReviewBodyLinesPainted(selectionProof.bodyText, reviewFile.base.body);
-				expectReviewBodyLinesPainted(selectionProof.bodyText, reviewFile.head.body);
-				expect(selectionProof.paintedCorrelations).toHaveLength(2);
+				const selectionObservation = await selectReviewFileAndReadObservation({ page, reviewFile });
+				expectReviewBodyLinesPainted(selectionObservation.bodyText, reviewFile.base.body);
+				expectReviewBodyLinesPainted(selectionObservation.bodyText, reviewFile.head.body);
+				expect(selectionObservation.paintedCorrelations).toHaveLength(2);
 				for (const roleOracle of [reviewFile.base, reviewFile.head]) {
-					const correlation = selectionProof.paintedCorrelations.find(
+					const correlation = selectionObservation.paintedCorrelations.find(
 						(candidate): boolean => candidate.role === roleOracle.role,
 					);
 					expect(correlation).toEqual(
@@ -180,7 +179,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 							observedSha256: roleOracle.sha256,
 							pierreItemId: reviewFile.itemId,
 							position: 'whole',
-							publicationId: selectionProof.paintedPublicationId,
+							publicationId: selectionObservation.paintedPublicationId,
 							role: roleOracle.role,
 							semanticItemId: reviewFile.itemId,
 							surface: 'review',
@@ -244,46 +243,52 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			});
 			await waitForSelectedFileReady({ oracle, page });
 			await clearFileSearchAndScrollTreeDeep({ oracle, page });
-			const contentScrollProof = await scrollSelectedFileThroughMarkers({
+			const contentScrollObservation = await scrollSelectedFileThroughMarkers({
 				content: oracle.fileContent,
 				page,
 			});
-			const proof = await readFileDeepScrollProof({ oracle, page, workerUrls });
+			const deepScrollObservation = await readFileDeepScrollObservation({
+				oracle,
+				page,
+				workerUrls,
+			});
 
-			expect(proof.selectedPath).toBe(oracle.largeFilePath);
-			expect(proof.renderedPath).toBe(oracle.largeFilePath);
-			expect(proof.lineCount).toBe(oracle.largeFileLineCount);
-			expect(proof.scrollHeight).toBeGreaterThan(980);
-			expect(proof.scrollTop).toBeGreaterThan(0);
-			expect(proof.treeScrollTop).toBeGreaterThan(0);
-			expect(proof.deepTreePathPainted).toBe(true);
-			expect(contentScrollProof).toEqual({
+			expect(deepScrollObservation.selectedPath).toBe(oracle.largeFilePath);
+			expect(deepScrollObservation.renderedPath).toBe(oracle.largeFilePath);
+			expect(deepScrollObservation.lineCount).toBe(oracle.largeFileLineCount);
+			expect(deepScrollObservation.scrollHeight).toBeGreaterThan(980);
+			expect(deepScrollObservation.scrollTop).toBeGreaterThan(0);
+			expect(deepScrollObservation.treeScrollTop).toBeGreaterThan(0);
+			expect(deepScrollObservation.deepTreePathPainted).toBe(true);
+			expect(contentScrollObservation).toEqual({
 				finalMarkerPainted: true,
 				firstMarkerPainted: true,
 				middleMarkerPainted: true,
 			});
-			expect(proof.finalMarkerPainted).toBe(true);
+			expect(deepScrollObservation.finalMarkerPainted).toBe(true);
 			expect(
-				proof.workerUrls.some((url): boolean => url.includes('bridge-comm-worker-vite-entry')),
+				deepScrollObservation.workerUrls.some((url): boolean =>
+					url.includes('bridge-comm-worker-vite-entry'),
+				),
 			).toBe(true);
-			expect(proof.paintedCorrelations).toEqual([
+			expect(deepScrollObservation.paintedCorrelations).toEqual([
 				expect.objectContaining({
 					descriptorId: expect.stringMatching(/^file-content-[0-9a-f]{32}$/u),
 					disposition: 'painted',
-					itemId: proof.renderedItemId,
+					itemId: deepScrollObservation.renderedItemId,
 					observedSha256: oracle.largeFileSha256,
 					position: 'whole',
 					publicationId: expect.stringMatching(/\S/u),
 					requestId: expect.stringMatching(/\S/u),
 					role: 'file',
-					semanticItemId: proof.renderedItemId,
+					semanticItemId: deepScrollObservation.renderedItemId,
 					sourceGeneration: expect.any(Number),
 					sourceIdentity: expect.stringMatching(/\S/u),
 					surface: 'file',
 				}),
 			]);
-			expect(proof.paintedCorrelations[0]?.sourceGeneration).toBeGreaterThan(0);
-			const initialCorrelation = proof.paintedCorrelations[0];
+			expect(deepScrollObservation.paintedCorrelations[0]?.sourceGeneration).toBeGreaterThan(0);
+			const initialCorrelation = deepScrollObservation.paintedCorrelations[0];
 			const initialRequest = contentRequests.find(
 				(candidate): boolean => candidate.contentRequestId === initialCorrelation?.requestId,
 			);
@@ -309,27 +314,27 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			});
 			await waitForSelectedFileContentReady({ content: mutatedContent, oracle, page });
 			await scrollSelectedFileThroughMarkers({ content: mutatedContent, page });
-			const replacementProof = await readFileDeepScrollProof({
+			const replacementObservation = await readFileDeepScrollObservation({
 				content: mutatedContent,
 				oracle,
 				page,
 				workerUrls,
 			});
-			expect(replacementProof.paintedCorrelations).toEqual([
+			expect(replacementObservation.paintedCorrelations).toEqual([
 				expect.objectContaining({
 					disposition: 'painted',
 					observedSha256: mutatedContent.sha256,
 					surface: 'file',
 				}),
 			]);
-			expect(replacementProof.paintedCorrelations).not.toEqual(
+			expect(replacementObservation.paintedCorrelations).not.toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({ observedSha256: oracle.fileContent.sha256 }),
 				]),
 			);
 			const replacementRequest = contentRequests.find(
 				(candidate): boolean =>
-					candidate.contentRequestId === replacementProof.paintedCorrelations[0]?.requestId,
+					candidate.contentRequestId === replacementObservation.paintedCorrelations[0]?.requestId,
 			);
 			expect(replacementRequest?.descriptor).toEqual(
 				expect.objectContaining({
@@ -348,16 +353,6 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			await page?.close();
 			await browser.close();
 		}
-	});
-
-	test('ends Save progress on committed draft.save while annotation projection content is gated', async () => {
-		const proof = await proveAnnotationSaveSettlesBeforeProjection({
-			oracle: requireFixtureOracle(),
-			server: requireOwnedServer(),
-		});
-		expect(proof.gatedProjectionRequestCount).toBeGreaterThan(0);
-		expect(proof.composerCountAfterCommit).toBe(0);
-		expect(proof.savingControlCount).toBe(0);
 	});
 
 	test('restores a UI-committed symbolic comparison across backend restart and resolves the moved Git target', async () => {
@@ -404,7 +399,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 
 			// Act: process A commits the symbolic target through the real Compare Worktree UI.
 			await pageA.getByTestId(`comparison-branch-${fixture.oracle.comparisonTargetName}`).click();
-			const processAProof = await waitForSettledReviewComparison({
+			const processAObservation = await waitForSettledReviewComparison({
 				expectedTargetLabel: fixture.oracle.comparisonTargetName,
 				expectedTargetOID: fixture.oracle.baseRef,
 				page: pageA,
@@ -426,7 +421,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
-			const processBProof = await waitForSettledReviewComparisonWithDiagnostics({
+			const processBObservation = await waitForSettledReviewComparisonWithDiagnostics({
 				diagnostics: pageBDiagnostics,
 				expectedTargetLabel: fixture.oracle.comparisonTargetName,
 				expectedTargetOID: movedTargetOID,
@@ -442,24 +437,24 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 
 			// Assert
 			const restartReceipt = {
-				processA: { backendPid: processABackendPid, proof: processAProof },
-				processB: { backendPid: processBBackendPid, proof: processBProof },
+				processA: { backendPid: processABackendPid, observation: processAObservation },
+				processB: { backendPid: processBBackendPid, observation: processBObservation },
 			};
 			expect(restartReceipt.processA.backendPid).toBeGreaterThan(0);
 			expect(restartReceipt.processB.backendPid).toBeGreaterThan(0);
 			expect(restartReceipt.processB.backendPid).not.toBe(restartReceipt.processA.backendPid);
 			expect(processBCleanup.forcedTerminationRequired).toBe(false);
 			expect(processBCleanup.ownedProcessAliveAfterStop).toBe(false);
-			expect(restartReceipt.processA.proof.targetOID).toBe(fixture.oracle.baseRef);
-			expect(restartReceipt.processB.proof.targetOID).toBe(movedTargetOID);
-			expect(restartReceipt.processB.proof.targetOID).not.toBe(
-				restartReceipt.processA.proof.targetOID,
+			expect(restartReceipt.processA.observation.targetOID).toBe(fixture.oracle.baseRef);
+			expect(restartReceipt.processB.observation.targetOID).toBe(movedTargetOID);
+			expect(restartReceipt.processB.observation.targetOID).not.toBe(
+				restartReceipt.processA.observation.targetOID,
 			);
-			expect(restartReceipt.processB.proof.symbolicTargetLabel).toBe(
-				restartReceipt.processA.proof.symbolicTargetLabel,
+			expect(restartReceipt.processB.observation.symbolicTargetLabel).toBe(
+				restartReceipt.processA.observation.symbolicTargetLabel,
 			);
-			expect(restartReceipt.processB.proof.packageId).not.toBe(
-				restartReceipt.processA.proof.packageId,
+			expect(restartReceipt.processB.observation.packageId).not.toBe(
+				restartReceipt.processA.observation.packageId,
 			);
 		} finally {
 			await browser.close();
@@ -471,33 +466,33 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 });
 
 function assertJourneyFreshness(props: {
+	readonly journeyObservations: Awaited<ReturnType<typeof runBridgeViewerProductOnlyJourney>>;
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
-	readonly proof: BridgeViewerProductOnlyJourneyProof;
 	readonly server: BridgeViewerOwnedViteProductServer;
 }): void {
 	expect(props.server.pid).toBeGreaterThan(0);
 	expect(props.server.version).toMatch(/^\d+\.\d+\.\d+$/u);
-	expect(new URL(props.proof.observedPageUrl).origin).toBe(props.server.origin);
-	expect(props.proof.browser.name).toBe('chromium');
-	expect(props.proof.reviewFreshRoute.expectedItemIds).toEqual(props.oracle.expectedReviewItemIds);
-	expect(props.proof.reviewFreshRoute.observedHeaderItemIds).toEqual(
+	expect(new URL(props.journeyObservations.observedPageUrl).origin).toBe(props.server.origin);
+	expect(props.journeyObservations.browser.name).toBe('chromium');
+	expect(props.journeyObservations.reviewFreshRoute.expectedItemIds).toEqual(
 		props.oracle.expectedReviewItemIds,
 	);
-	expect(props.proof.reviewFreshRoute.hydrationMilestones.map(({ label }) => label)).toEqual([
-		'initial',
-		'quarter',
-		'middle',
-		'threeQuarter',
-		'final',
-	]);
-	expect(props.proof.workers.some((worker): boolean => worker.kind === 'comm-worker')).toBe(true);
+	expect(props.journeyObservations.reviewFreshRoute.observedHeaderItemIds).toEqual(
+		props.oracle.expectedReviewItemIds,
+	);
 	expect(
-		props.proof.productRouteTranscript.some(
+		props.journeyObservations.reviewFreshRoute.hydrationMilestones.map(({ label }) => label),
+	).toEqual(['initial', 'quarter', 'middle', 'threeQuarter', 'final']);
+	expect(
+		props.journeyObservations.workers.some((worker): boolean => worker.kind === 'comm-worker'),
+	).toBe(true);
+	expect(
+		props.journeyObservations.productRouteTranscript.some(
 			(entry): boolean => entry.contentKind === 'file.content' && entry.httpStatus === 200,
 		),
 	).toBe(true);
 	expect(
-		props.proof.productRouteTranscript.some(
+		props.journeyObservations.productRouteTranscript.some(
 			(entry): boolean => entry.contentKind === 'review.content' && entry.httpStatus === 200,
 		),
 	).toBe(true);
@@ -591,7 +586,7 @@ async function clearFileSearchAndScrollTreeDeep(props: {
 async function scrollSelectedFileThroughMarkers(props: {
 	readonly content: BridgeViewerViteProductContentOracle;
 	readonly page: Page;
-}): Promise<FileContentScrollProof> {
+}): Promise<FileContentScrollObservation> {
 	const observedMarkers = new Set<string>();
 	for (const [scrollFraction, marker] of [
 		[0, props.content.firstMarker],
@@ -643,12 +638,12 @@ async function scrollSelectedFileThroughMarkers(props: {
 	};
 }
 
-async function readFileDeepScrollProof(props: {
+async function readFileDeepScrollObservation(props: {
 	readonly content?: BridgeViewerViteProductContentOracle;
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
 	readonly page: Page;
 	readonly workerUrls: readonly string[];
-}): Promise<FileDeepScrollProof> {
+}): Promise<FileDeepScrollObservation> {
 	const content = props.content ?? props.oracle.fileContent;
 	const snapshot = await props.page.evaluate(
 		({ deepTreePath, finalMarker, workerUrls }): FileDeepScrollBrowserSnapshot => {
@@ -660,7 +655,9 @@ async function readFileDeepScrollProof(props: {
 				'[data-testid="bridge-file-viewer-code-view"] .bridge-code-view-scroll-owner',
 			);
 			if (!(canvas instanceof HTMLElement) || !(scrollOwner instanceof HTMLElement)) {
-				throw new Error('File deep-scroll proof requires the mounted canvas and scroll owner.');
+				throw new Error(
+					'File deep-scroll observation requires the mounted canvas and scroll owner.',
+				);
 			}
 			const encodedCorrelations =
 				renderedItem?.getAttribute('data-bridge-painted-source-correlations') ?? '[]';
@@ -706,9 +703,9 @@ async function readFileDeepScrollProof(props: {
 			workerUrls: props.workerUrls,
 		},
 	);
-	const { encodedPaintedCorrelations, ...proof } = snapshot;
+	const { encodedPaintedCorrelations, ...observation } = snapshot;
 	return {
-		...proof,
+		...observation,
 		paintedCorrelations: decodePaintedSourceCorrelations(encodedPaintedCorrelations),
 	};
 }
@@ -887,10 +884,10 @@ function readFileDescriptorRootRevisionToken(
 		: null;
 }
 
-async function selectReviewFileAndReadProof(props: {
+async function selectReviewFileAndReadObservation(props: {
 	readonly page: Page;
 	readonly reviewFile: BridgeViewerViteProductReviewFileOracle;
-}): Promise<ReviewSelectionProof> {
+}): Promise<ReviewSelectionObservation> {
 	await props.page.evaluate((path: string): void => {
 		const host = document.querySelector(
 			'[data-testid="bridge-review-trees-panel"] file-tree-container',

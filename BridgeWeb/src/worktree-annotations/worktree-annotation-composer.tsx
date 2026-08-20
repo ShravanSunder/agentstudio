@@ -1,4 +1,4 @@
-import { LoaderCircle, RotateCcw, Save } from 'lucide-react';
+import { Check, LoaderCircle, Undo2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
 import { Textarea } from '@/components/ui/textarea.js';
@@ -50,6 +50,7 @@ export interface WorktreeAnnotationNewMessageComposerProps {
 		editToken: string,
 		admission?: WorktreeAnnotationRootAdmission,
 	) => BridgeProductWorktreeAnnotationOperation;
+	readonly continueTimeline?: boolean | undefined;
 	readonly editToken?: string | undefined;
 	readonly onCancel: () => void;
 	readonly onSaved: () => void;
@@ -85,6 +86,8 @@ export function WorktreeAnnotationNewMessageComposer(
 	const [isDurable, setIsDurable] = useState(initialDurableMessage !== null);
 	const [operationError, setOperationError] = useState<string | null>(null);
 	const [savePhase, setSavePhase] = useState<WorktreeAnnotationSavePhase>('idle');
+	const [committedCursor, setCommittedCursor] =
+		useState<WorktreeAnnotationMessageCommandCursor | null>(null);
 	const [demandedSessionId, setDemandedSessionId] = useState<string | null>(
 		initialDurableMessage?.sessionId ?? null,
 	);
@@ -100,7 +103,7 @@ export function WorktreeAnnotationNewMessageComposer(
 			? null
 			: messageCommandCursorFromProjection(initialDurableMessage),
 	);
-	useWorktreeAnnotationEditSurfaceToken(editTokenRef.current);
+	useWorktreeAnnotationEditSurfaceToken(committedCursor === null ? editTokenRef.current : null);
 	useWorktreeAnnotationSessionDemand(demandedSessionId);
 	const releaseWhenEditInactive = useWorktreeAnnotationDeferredEditRelease();
 	const createOperationRef = useRef(props.createOperation);
@@ -230,6 +233,19 @@ export function WorktreeAnnotationNewMessageComposer(
 		if (!hasLocalEditSinceMountRef.current) setBody(projectedDraft.body);
 		setIsDurable(true);
 	}, [isDurable, projectedDurableMessage, scheduler]);
+	const projectedCommittedMessage =
+		committedCursor === null ? null : currentMessageById(projection, committedCursor.messageId);
+	useEffect((): void => {
+		if (
+			committedCursor === null ||
+			projectedCommittedMessage === null ||
+			projectedCommittedMessage.savedRevision === null ||
+			projectedCommittedMessage.savedRevision < (committedCursor.savedRevision ?? 0)
+		) {
+			return;
+		}
+		props.onSaved();
+	}, [committedCursor, projectedCommittedMessage, props]);
 	const validation = validateWorktreeAnnotationMarkdown(body);
 	const onCancel = props.onCancel;
 	const registerExitHandler = props.registerExitHandler;
@@ -247,9 +263,9 @@ export function WorktreeAnnotationNewMessageComposer(
 		}
 	}, [body, onCancel, scheduler]);
 	useEffect((): (() => void) | undefined => {
-		if (registerExitHandler === undefined) return undefined;
+		if (committedCursor !== null || registerExitHandler === undefined) return undefined;
 		return registerExitHandler(flushAndExit);
-	}, [flushAndExit, registerExitHandler]);
+	}, [committedCursor, flushAndExit, registerExitHandler]);
 	const save = async (): Promise<void> => {
 		if (savePhase !== 'idle') return;
 		setOperationError(null);
@@ -276,10 +292,14 @@ export function WorktreeAnnotationNewMessageComposer(
 					sessionId: cursor.sessionId,
 				});
 				assertCommittedAnnotationOutcome(outcome);
-				targetMessageCursorRef.current = messageCommandCursorFromOutcome(outcome);
+				const savedCursor = messageCommandCursorFromOutcome(outcome);
+				if (savedCursor.draftRevision !== null || savedCursor.savedRevision === null) {
+					throw new Error('Committed annotation Save did not return its saved message receipt.');
+				}
+				targetMessageCursorRef.current = savedCursor;
+				setCommittedCursor(savedCursor);
 			});
 			setSavePhase('idle');
-			props.onSaved();
 		} catch (error: unknown) {
 			setSavePhase('idle');
 			setOperationError(annotationErrorMessage(error));
@@ -325,32 +345,38 @@ export function WorktreeAnnotationNewMessageComposer(
 				<WorktreeAnnotationInlineSurface
 					active={props.active}
 					commands={
-						<>
-							<WorktreeAnnotationCommandButton
-								disabled={savePhase !== 'idle'}
-								label="Revert draft"
-								onClick={() => void revert()}
-								preserveEditorFocus
-							>
-								<RotateCcw />
-							</WorktreeAnnotationCommandButton>
-							<WorktreeAnnotationCommandButton
-								disabled={!validation.ok || savePhase !== 'idle'}
-								label={savePhase === 'saving' ? 'Saving annotation' : 'Save annotation'}
-								onClick={() => void save()}
-								preserveEditorFocus
-								primary
-							>
-								{savePhase === 'idle' ? <Save /> : <LoaderCircle className="animate-spin" />}
-							</WorktreeAnnotationCommandButton>
-						</>
+						committedCursor === null ? (
+							<>
+								<WorktreeAnnotationCommandButton
+									disabled={savePhase !== 'idle'}
+									label="Revert draft"
+									onClick={() => void revert()}
+									preserveEditorFocus
+								>
+									<Undo2 />
+								</WorktreeAnnotationCommandButton>
+								<WorktreeAnnotationCommandButton
+									disabled={!validation.ok || savePhase !== 'idle'}
+									label={savePhase === 'saving' ? 'Saving annotation' : 'Save annotation'}
+									onClick={() => void save()}
+									preserveEditorFocus
+									appearance="primary"
+								>
+									{savePhase === 'idle' ? <Check /> : <LoaderCircle className="animate-spin" />}
+								</WorktreeAnnotationCommandButton>
+							</>
+						) : undefined
 					}
-					draft={isDurable}
+					continueTimeline={props.continueTimeline}
+					draft={isDurable && committedCursor === null}
+					embedded={props.placement === 'embedded'}
 					metadata={
 						<>
 							<span className="font-medium text-comment-foreground">You</span>
 							<span aria-hidden="true">·</span>
-							{savePhase === 'saving' ? (
+							{committedCursor !== null ? (
+								<span className="font-medium text-comment-foreground">Saved</span>
+							) : savePhase === 'saving' ? (
 								<span>Saving draft…</span>
 							) : isDurable ? (
 								<>
@@ -364,73 +390,86 @@ export function WorktreeAnnotationNewMessageComposer(
 							) : (
 								<span>New comment</span>
 							)}
+							{projection.readStatus.kind === 'refreshing' ? <span>Refreshing</span> : null}
+							{projection.readStatus.kind === 'unavailable' ? (
+								<span>Updates unavailable</span>
+							) : null}
 						</>
 					}
 				>
-					<div
-						aria-busy={savePhase === 'idle' ? undefined : true}
-						data-testid="worktree-annotation-new-message-composer"
-					>
-						<Textarea
-							autoFocus
-							aria-label={props.placeholder}
-							className="min-h-16 border-0 bg-comment-composer-bg p-0 shadow-none focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-ring/30"
-							placeholder={props.placeholder}
-							readOnly={savePhase !== 'idle'}
-							value={body}
-							onBlur={(event) => {
-								const surface = event.currentTarget.closest(
-									'[data-testid="worktree-annotation-message"]',
-								);
-								if (
-									event.relatedTarget instanceof Node &&
-									surface?.contains(event.relatedTarget) === true
-								) {
-									return;
-								}
-								if (body.trim().length === 0 && targetMessageIdRef.current === null) {
-									props.onCancel();
-									return;
-								}
-								void scheduler
-									.focusLost()
-									.then((): void => {
-										if (body.trim().length === 0) props.onCancel();
-									})
-									.catch((error: unknown) => setOperationError(annotationErrorMessage(error)));
-							}}
-							onChange={(event) => {
-								const nextBody = event.currentTarget.value;
-								hasLocalEditSinceMountRef.current = true;
-								setBody(nextBody);
-								scheduler.edit(nextBody);
-							}}
-							onKeyDown={(event) => {
-								if (
-									event.key === 'Enter' &&
-									(event.metaKey || event.ctrlKey) &&
-									savePhase === 'idle'
-								) {
-									event.preventDefault();
-									void save();
-								} else if (event.key === 'Escape') {
-									event.preventDefault();
-									if (body.trim().length === 0) props.onCancel();
-									else {
-										void scheduler
-											.focusLost()
-											.then(props.onCancel)
-											.catch((error: unknown) => setOperationError(annotationErrorMessage(error)));
+					{committedCursor === null ? (
+						<div
+							aria-busy={savePhase === 'idle' ? undefined : true}
+							data-testid="worktree-annotation-new-message-composer"
+						>
+							<Textarea
+								appearance="embedded"
+								autoFocus
+								aria-label={props.placeholder}
+								className="min-h-16"
+								placeholder={props.placeholder}
+								readOnly={savePhase !== 'idle'}
+								value={body}
+								onBlur={(event) => {
+									const surface = event.currentTarget.closest(
+										'[data-testid="worktree-annotation-message"]',
+									);
+									if (
+										event.relatedTarget instanceof Node &&
+										surface?.contains(event.relatedTarget) === true
+									) {
+										return;
 									}
-								}
-							}}
-						/>
-						{operationError === null ? null : (
-							<p className="text-xs text-destructive" role="alert">
-								{operationError}
-							</p>
-						)}
-					</div>
+									if (body.trim().length === 0 && targetMessageIdRef.current === null) {
+										props.onCancel();
+										return;
+									}
+									void scheduler
+										.focusLost()
+										.then((): void => {
+											if (body.trim().length === 0) props.onCancel();
+										})
+										.catch((error: unknown) => setOperationError(annotationErrorMessage(error)));
+								}}
+								onChange={(event) => {
+									const nextBody = event.currentTarget.value;
+									hasLocalEditSinceMountRef.current = true;
+									setBody(nextBody);
+									scheduler.edit(nextBody);
+								}}
+								onKeyDown={(event) => {
+									if (
+										event.key === 'Enter' &&
+										(event.metaKey || event.ctrlKey) &&
+										savePhase === 'idle'
+									) {
+										event.preventDefault();
+										void save();
+									} else if (event.key === 'Escape') {
+										event.preventDefault();
+										if (body.trim().length === 0) props.onCancel();
+										else {
+											void scheduler
+												.focusLost()
+												.then(props.onCancel)
+												.catch((error: unknown) =>
+													setOperationError(annotationErrorMessage(error)),
+												);
+										}
+									}
+								}}
+							/>
+							{operationError === null ? null : (
+								<p className="text-xs text-destructive" role="alert">
+									{operationError}
+								</p>
+							)}
+						</div>
+					) : (
+						<div data-testid="worktree-annotation-committed-pending-projection">
+							<p className="whitespace-pre-wrap text-xs/relaxed">{body}</p>
+						</div>
+					)}
 				</WorktreeAnnotationInlineSurface>
 			</WorktreeAnnotationConversationFrame>
 			{pendingAdmission === null ? null : (

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useId, useState, type ReactElement } from 'react';
 
 import { WorktreeAnnotationMarkdown } from './worktree-annotation-markdown.js';
 import { useWorktreeAnnotationMarkdownClient } from './worktree-annotation-surface-provider.js';
@@ -16,11 +16,12 @@ export function WorktreeAnnotationMessageBody(
 	props: WorktreeAnnotationMessageBodyProps,
 ): ReactElement {
 	const markdownClient = useWorktreeAnnotationMarkdownClient();
+	const renderInstanceId = useId();
 	const [renderedHtml, setRenderedHtml] = useState<string | null>(null);
 	useEffect((): (() => void) | void => {
 		setRenderedHtml(null);
 		if (markdownClient === null) return;
-		const abortKey = `annotation:${props.messageId}`;
+		const abortKey = `annotation:${props.messageId}:${renderInstanceId}`;
 		let isCurrent = true;
 		const task = markdownClient.startRender({
 			abortKey,
@@ -51,6 +52,7 @@ export function WorktreeAnnotationMessageBody(
 		props.messageId,
 		props.messageRevision,
 		props.path,
+		renderInstanceId,
 		props.sessionId,
 		props.sessionRevision,
 	]);

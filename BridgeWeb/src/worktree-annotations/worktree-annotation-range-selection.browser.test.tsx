@@ -1,7 +1,7 @@
 import { parseDiffFromFile } from '@pierre/diffs';
 import { act } from 'react';
-import { describe, expect, test } from 'vitest';
-import { render } from 'vitest-browser-react';
+import { afterEach, describe, expect, test } from 'vitest';
+import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
@@ -24,6 +24,10 @@ import {
 import { WorktreeAnnotationSurfaceProvider } from './worktree-annotation-surface-provider.js';
 
 describe('worktree annotation Pierre range selection', () => {
+	afterEach(async (): Promise<void> => {
+		await cleanup();
+	});
+
 	test('paints a dragged File range, keeps its endpoint utility, and clears on Escape', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		await render(
@@ -260,6 +264,10 @@ describe('worktree annotation Pierre range selection', () => {
 			if (composerBeforeDurableProjection === null) {
 				throw new Error('Expected the Review root composer before durable projection.');
 			}
+			const saveButton = rendered.getByRole('button', { name: 'Save annotation' }).element();
+			expect(saveButton.classList).toContain('text-primary');
+			expect(saveButton.classList).not.toContain('bg-primary');
+			expect(saveButton.querySelector('svg')?.classList).toContain('lucide-check');
 			await act(async (): Promise<void> => {
 				await rendered
 					.getByRole('textbox', { name: 'Write an annotation in Markdown' })
@@ -295,11 +303,11 @@ describe('worktree annotation Pierre range selection', () => {
 				const operationError = document.querySelector('[role="alert"]')?.textContent;
 				if (operationError !== undefined) throw new Error(operationError);
 			});
-			await settleBrowserCondition(
-				(): boolean =>
-					document.querySelector('[aria-label="Write an annotation in Markdown"]') === null,
-				'Expected the exact committed Save receipt to close before projection convergence.',
-			);
+			await expect.element(rendered.getByText('Split projection Save')).toBeVisible();
+			expect(
+				document.querySelector('[data-testid="worktree-annotation-committed-pending-projection"]'),
+			).not.toBeNull();
+			expect(document.querySelector('[aria-label="Write an annotation in Markdown"]')).toBeNull();
 			await act(async (): Promise<void> => {
 				surface.publishProjectionState({
 					expectedThreadCount: 1,
@@ -333,6 +341,13 @@ describe('worktree annotation Pierre range selection', () => {
 				await nextAnimationFrame();
 				await nextAnimationFrame();
 			});
+			await settleBrowserCondition(
+				(): boolean =>
+					document.querySelector(
+						'[data-testid="worktree-annotation-committed-pending-projection"]',
+					) === null,
+				'Expected authoritative M1 to replace the committed receipt presentation.',
+			);
 			await expect.element(rendered.getByText('Split projection Save')).toBeVisible();
 			expect(
 				surface.sentOperations
