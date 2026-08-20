@@ -4,8 +4,8 @@
   color-scheme: dark;
   --canvas: #2e3036;
   --ground: #1e1e2e;
-  --elevated: #363a4f;
-  --selected: #45475a;
+  --active-surface: #25272d;
+  --product-ground: #24262b;
   --rear-plane-one: #11111b;
   --rear-plane-two: #151520;
   --ink: #ffffff;
@@ -21,6 +21,8 @@
   --radius-product: 16px;
   --radius-control: 10px;
   --frame-width: 1440px;
+  --space-content: clamp(32px, 2.5vw, 40px);
+  --space-section: clamp(64px, 5vw, 80px);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
   background: var(--canvas);
   color: var(--ink);
@@ -166,6 +168,7 @@ a:focus-visible {
 }
 
 .eyebrow {
+  margin: 0;
   color: var(--ink-faint);
   font-family: ui-monospace, "SF Mono", monospace;
   font-size: 12px;
@@ -206,7 +209,7 @@ a:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  margin-top: 36px;
+  margin-top: var(--space-content);
 }
 
 .hero__actions {
@@ -337,12 +340,12 @@ a:focus-visible {
 }
 
 .product-story {
-  padding-top: clamp(64px, 6vw, 96px);
+  padding-top: var(--space-section);
 }
 
 .section-heading {
   max-width: 900px;
-  margin-bottom: 54px;
+  margin-bottom: var(--space-content);
 }
 
 .section-heading h2,
@@ -370,7 +373,7 @@ a:focus-visible {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-product);
   overflow: clip;
-  background: var(--ground);
+  background: var(--product-ground);
 }
 
 .product-plate__selectors {
@@ -382,7 +385,7 @@ a:focus-visible {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
   width: 100%;
-  padding: clamp(9px, calc(1.25vw - 8.8px), 11px) 20px;
+  padding: clamp(7.5px, calc(1.25vw - 10.5px), 9.5px) 20px;
   border: 0;
   border-bottom: 1px solid var(--line);
   background: transparent;
@@ -415,7 +418,7 @@ a:focus-visible {
 .product-plate__selector[aria-selected="true"],
 .product-plate__selector.is-default:disabled {
   box-shadow: inset 4px 0 var(--primary);
-  background: var(--elevated);
+  background: var(--active-surface);
   color: var(--ink);
 }
 
@@ -426,10 +429,11 @@ a:focus-visible {
 
 .product-plate__panels {
   min-width: 0;
-  padding: 20px;
+  background: var(--product-ground);
 }
 
 .product-plate__panel {
+  background: var(--product-ground);
   border: 0;
   border-radius: 0;
   overflow: clip;
@@ -463,23 +467,25 @@ a:focus-visible {
 .final-cta {
   display: grid;
   justify-items: center;
+  row-gap: 24px;
   min-height: 700px;
-  padding-block: 120px;
+  padding-block: clamp(80px, 7vw, 112px);
   border-top: 1px solid var(--line);
   text-align: center;
 }
 
 .final-cta h2 {
-  margin-top: 28px;
+  margin: 0;
   font-size: clamp(72px, 10vw, 140px);
 }
 
 .final-cta__actions {
   justify-content: center;
+  margin-top: 8px;
 }
 
 .final-cta__traits {
-  margin-top: 18px !important;
+  margin: 0 !important;
   color: var(--ink-faint) !important;
   font-family: ui-monospace, "SF Mono", monospace;
   font-size: 13px !important;
@@ -494,6 +500,31 @@ a:focus-visible {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@media (max-width: 1350px) {
+  .product-plate {
+    grid-template-columns: 1fr;
+  }
+
+  .product-plate__selectors {
+    display: flex;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-strong);
+  }
+
+  .product-plate__selector {
+    flex: 0 0 190px;
+    min-height: 118px;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+  }
+
+  .product-plate__selector[aria-selected="true"],
+  .product-plate__selector.is-default:disabled {
+    box-shadow: inset 0 -4px var(--primary);
   }
 }
 
@@ -521,29 +552,6 @@ a:focus-visible {
 
   .hero__planes {
     display: none;
-  }
-
-  .product-plate {
-    grid-template-columns: 1fr;
-  }
-
-  .product-plate__selectors {
-    display: flex;
-    overflow-x: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--line-strong);
-  }
-
-  .product-plate__selector {
-    flex: 0 0 190px;
-    min-height: 118px;
-    border-right: 1px solid var(--line);
-    border-bottom: 0;
-  }
-
-  .product-plate__selector[aria-selected="true"],
-  .product-plate__selector.is-default:disabled {
-    box-shadow: inset 0 -4px var(--primary);
   }
 }
 
@@ -591,10 +599,6 @@ a:focus-visible {
 
   .secondary-action {
     width: 100%;
-  }
-
-  .product-plate__panels {
-    padding: 8px;
   }
 
   .persistence-comparison {

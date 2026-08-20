@@ -1,8 +1,7 @@
 ---
 import appLogo from "@/assets/brand/app-logo-transparent.svg";
+import GitHubMark from "@/github-action/GitHubMark.astro";
 import { marketingCopy } from "@/marketing-copy";
-
-import InstallCommand from "./InstallCommand.astro";
 ---
 
 <section class="final-cta" aria-labelledby="final-cta-title">
@@ -11,6 +10,9 @@ import InstallCommand from "./InstallCommand.astro";
   <p>{marketingCopy.finalCallToAction.description}</p>
   <p class="final-cta__traits">{marketingCopy.finalCallToAction.traits}</p>
   <div class="final-cta__actions">
-    <InstallCommand compact />
+    <a class="secondary-action github-action" href={marketingCopy.githubUrl}>
+      <GitHubMark />
+      {marketingCopy.navigation.githubAction}
+    </a>
   </div>
 </section>

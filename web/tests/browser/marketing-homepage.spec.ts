@@ -10,8 +10,13 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   expect(
     await page.locator("body").evaluate((body) => getComputedStyle(body).backgroundColor),
   ).toBe("rgb(46, 48, 54)");
-  await expect(page.getByRole("link", { name: "GitHub", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("link", { name: "GitHub", exact: true })).toHaveCount(2);
+  await expect(page.locator(".site-header .github-action")).toHaveCount(1);
+  await expect(page.locator(".final-cta .github-action")).toHaveCount(1);
   await expect(page.locator(".hero__actions a")).toHaveCount(0);
+  await expect(page.locator("[data-install-command-root]")).toHaveCount(1);
+  await expect(page.getByRole("link", { name: "Shravan Sunder on GitHub" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Shravan Sunder on X" })).toBeVisible();
 
   const installCenterOffset = await page.locator(".hero").evaluate((hero) => {
     const actions = hero.querySelector(".hero__actions");
@@ -38,6 +43,41 @@ test("renders the claim-first homepage and switches product stories", async ({ p
     "aria-selected",
     "true",
   );
+
+  const plateGeometry = await page.locator(".product-plate").evaluate((plate) => {
+    const selectors = plate.querySelector(".product-plate__selectors")?.getBoundingClientRect();
+    const panels = plate.querySelector(".product-plate__panels")?.getBoundingClientRect();
+    const image = plate
+      .querySelector('[data-product-plate-panel="parallel-work"] img')
+      ?.getBoundingClientRect();
+    const selected = plate.querySelector('[aria-selected="true"]');
+
+    if (
+      selectors === undefined ||
+      panels === undefined ||
+      image === undefined ||
+      selected === null
+    ) {
+      throw new Error("Product plate geometry is incomplete");
+    }
+
+    return {
+      stackedLayout: selectors.bottom <= image.top + 1,
+      imageGap: Math.abs(selectors.right - image.left),
+      stackedImageGap: Math.abs(selectors.bottom - image.top),
+      panelImageTopOffset: Math.abs(panels.top - image.top),
+      panelImageBottomOffset: Math.abs(panels.bottom - image.bottom),
+      selectedBackground: getComputedStyle(selected).backgroundColor,
+    };
+  });
+  if (plateGeometry.stackedLayout) {
+    expect(plateGeometry.stackedImageGap).toBeLessThanOrEqual(1);
+  } else {
+    expect(plateGeometry.imageGap).toBeLessThanOrEqual(1);
+  }
+  expect(plateGeometry.panelImageTopOffset).toBeLessThanOrEqual(2);
+  expect(plateGeometry.panelImageBottomOffset).toBeLessThanOrEqual(2);
+  expect(plateGeometry.selectedBackground).toBe("rgb(37, 39, 45)");
 
   const originalUrl = page.url();
   await page.getByRole("tab", { name: /Pane drawer/ }).click();

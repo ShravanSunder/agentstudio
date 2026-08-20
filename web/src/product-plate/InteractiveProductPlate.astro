@@ -50,7 +50,9 @@ import { productPlateStories } from "./product-plate-fixture";
                 alt={story.alternativeText}
                 widths={[720, 1080, 1440, 2160]}
                 sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
-                quality={90}
+                format="png"
+                loading={index === 0 ? "eager" : "lazy"}
+                decoding="async"
               />
             ) : (
               <div class="persistence-comparison">
@@ -59,7 +61,9 @@ import { productPlateStories } from "./product-plate-fixture";
                   <Image
                     src={story.beforeImage}
                     alt={marketingCopy.stories.persistence.beforeImageDescription}
-                    quality={90}
+                    format="png"
+                    loading="lazy"
+                    decoding="async"
                   />
                 </figure>
                 <figure>
@@ -67,7 +71,9 @@ import { productPlateStories } from "./product-plate-fixture";
                   <Image
                     src={story.restoredImage}
                     alt={marketingCopy.stories.persistence.restoredImageDescription}
-                    quality={90}
+                    format="png"
+                    loading="lazy"
+                    decoding="async"
                   />
                 </figure>
               </div>

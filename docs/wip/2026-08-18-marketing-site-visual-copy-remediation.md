@@ -340,6 +340,20 @@ Current 2560x1600 capture acceptance:
 
 ### Proof and delivery
 
+### Owner visual corrections after live review
+
+- [x] Replace the purple selector fill with Ghostty charcoal and retain only
+  the blue active rail.
+- [x] Remove the horizontal gap between the selector rail and product image.
+- [x] Preserve screenshot alpha so rounded capture corners never flatten white.
+- [x] Apply one deliberate 40/80/40 content, section, and content spacing rhythm.
+- [x] Keep Homebrew installation only in the hero.
+- [x] Put one official-mark GitHub button in the closing lockup.
+- [x] Prove the footer shows the Agent Studio icon at left and visible GitHub/X
+  icons aligned at the far right.
+- [ ] Re-run desktop/mobile screenshots, interaction checks, Cloudflare build,
+  deployment, and live verification before closing these corrections.
+
 - [x] Run Astro/type-aware Oxlint/Oxfmt with zero errors and warnings.
 - [x] Run Vitest state-machine tests.
 - [x] Re-run Playwright desktop/mobile, JavaScript-disabled, keyboard, and
