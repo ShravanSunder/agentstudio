@@ -12,7 +12,7 @@ struct WorktreeAnnotationMigrationTests {
         let projectRoot = try #require(String(#filePath).components(separatedBy: "/Tests/").first)
         let sourceURL = URL(fileURLWithPath: projectRoot).appending(
             path:
-                "Sources/AgentStudio/Features/Bridge/State/MainActor/Persistence/WorktreeAnnotationSQLiteRepository+OutputCandidates.swift"
+                "Sources/AgentStudio/Features/Bridge/State/SQLite/WorktreeAnnotations/WorktreeAnnotationSQLiteRepository+OutputCandidates.swift"
         )
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
