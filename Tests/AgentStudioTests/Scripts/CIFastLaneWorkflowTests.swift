@@ -704,8 +704,7 @@ struct CIFastLaneWorkflowTests {
     private func discoveredSuiteNames(annotationOrder: String, source: String) throws -> String {
         try runBash(
             "source scripts/swift-test-helpers.sh; "
-                + "pattern=\"$(serialized_main_actor_suite_pattern \(annotationOrder))\"; "
-                + "rg --no-filename -U --pcre2 -o --replace '$1' \"$pattern\" - || true",
+                + "serialized_main_actor_suite_names_from_stdin \(annotationOrder)",
             standardInput: source
         )
     }

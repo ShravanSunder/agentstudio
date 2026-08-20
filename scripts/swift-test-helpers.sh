@@ -66,22 +66,39 @@ serialized_main_actor_suite_pattern() {
   esac
 }
 
+serialized_main_actor_suite_matches() {
+  local annotation_order="$1"
+  local pattern
+  pattern="$(serialized_main_actor_suite_pattern "$annotation_order")"
+
+  SERIALIZED_SUITE_PATTERN="$pattern" find Tests/AgentStudioTests -type f -name '*.swift' \
+    -exec /usr/bin/perl -0777 -ne '
+      BEGIN { $pattern = qr/$ENV{"SERIALIZED_SUITE_PATTERN"}/; }
+      while ($_ =~ /$pattern/g) { print "$ARGV:$1\n"; }
+    ' {} +
+}
+
+serialized_main_actor_suite_names_from_stdin() {
+  local annotation_order="$1"
+  local pattern
+  pattern="$(serialized_main_actor_suite_pattern "$annotation_order")"
+
+  SERIALIZED_SUITE_PATTERN="$pattern" /usr/bin/perl -0777 -ne '
+    BEGIN { $pattern = qr/$ENV{"SERIALIZED_SUITE_PATTERN"}/; }
+    while ($_ =~ /$pattern/g) { print "$1\n"; }
+  '
+}
+
 aggregate_serial_non_webkit_suite_filters() {
   # Permit formatted multiline Suite arguments, but never cross into the next
   # attribute or type declaration while searching for the serialized trait.
-  local main_actor_before_suite_pattern
-  main_actor_before_suite_pattern="$(serialized_main_actor_suite_pattern main-actor-first)"
-  local suite_before_main_actor_pattern
-  suite_before_main_actor_pattern="$(serialized_main_actor_suite_pattern suite-first)"
   local webkit_leaf_suite_pattern
   webkit_leaf_suite_pattern="$(webkit_leaf_suite_filters | /usr/bin/paste -sd'|' -)"
   local excluded_suite_pattern="GlobalPreferencesBootstrapBenchmarkTests|E2E|Zmx|$webkit_leaf_suite_pattern|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)"
 
   {
-    rg --no-heading -U --pcre2 -o --replace '$1' \
-      "$main_actor_before_suite_pattern" Tests/AgentStudioTests -g '*.swift'
-    rg --no-heading -U --pcre2 -o --replace '$1' \
-      "$suite_before_main_actor_pattern" Tests/AgentStudioTests -g '*.swift'
+    serialized_main_actor_suite_matches main-actor-first
+    serialized_main_actor_suite_matches suite-first
     printf '%s:%s\n' \
       'Tests/AgentStudioTests/Features/Terminal/State/TerminalActivityProjectorTests.swift' \
       'TerminalActivityProjectorTests'

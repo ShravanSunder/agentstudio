@@ -651,46 +651,6 @@ final class ManualForgeMonotonicNow: @unchecked Sendable {
     }
 }
 
-actor GatedForgeStatusProvider: ForgeStatusProvider {
-    private struct PendingCall {
-        let origin: String
-        let continuation: CheckedContinuation<ForgePullRequestQueryOutcome, Never>
-    }
-
-    private var calls: [PendingCall] = []
-
-    var callCount: Int { calls.count }
-    var origins: [String] { calls.map(\.origin) }
-
-    func pullRequests(origin: String) async -> ForgePullRequestQueryOutcome {
-        await withCheckedContinuation { continuation in
-            calls.append(PendingCall(origin: origin, continuation: continuation))
-        }
-    }
-
-    func resolve(callAt index: Int, with outcome: ForgePullRequestQueryOutcome) {
-        guard calls.indices.contains(index) else {
-            Issue.record("No Forge provider call at index \(index); recorded \(calls.count)")
-            return
-        }
-        calls[index].continuation.resume(returning: outcome)
-    }
-
-    func resolveIfPresent(callAt index: Int, with outcome: ForgePullRequestQueryOutcome) {
-        guard calls.indices.contains(index) else { return }
-        calls[index].continuation.resume(returning: outcome)
-    }
-
-    func waitForCallCount(_ expectedCount: Int, maxTurns: Int = 500) async -> Bool {
-        for _ in 0..<maxTurns {
-            if calls.count >= expectedCount { return true }
-            await Task.yield()
-        }
-        Issue.record("Expected \(expectedCount) Forge provider calls, received \(calls.count)")
-        return false
-    }
-}
-
 actor ObservedForgeEvents {
     // Internal so focused Forge test files can add scoped read helpers.
     var recordedEvents: [ForgeEvent] = []

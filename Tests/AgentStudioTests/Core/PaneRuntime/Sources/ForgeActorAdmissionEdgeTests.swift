@@ -6,7 +6,7 @@ import Testing
 @testable import AgentStudioCore
 
 @MainActor
-@Suite("ForgeActor admission edges")
+@Suite("ForgeActor admission edges", .serialized)
 struct ForgeActorAdmissionEdgeTests {
     @Test("provider request publishes bounded loading edges around a successful query")
     func providerRequestPublishesLoadingEdgesAroundSuccess() async {
@@ -310,11 +310,11 @@ struct ForgeActorAdmissionEdgeTests {
         await fixture.clock.waitForPendingSleepCount(atLeast: 1)
         #expect(await fixture.provider.callCount == 1)
 
-        #expect(performanceRecorder.outcomes == ["deferred"])
+        #expect(await performanceRecorder.waitForOutcomes(["deferred"]))
 
         fixture.advance(by: AppPolicies.ForgeRefresh.pendingFollowUpDelay)
         #expect(await fixture.provider.waitForCallCount(2))
-        #expect(performanceRecorder.outcomes == ["deferred", "admitted"])
+        #expect(await performanceRecorder.waitForOutcomes(["deferred", "admitted"]))
 
         await fixture.provider.resolve(callAt: 1, with: .complete([]))
         await fixture.actor.shutdown()
@@ -700,10 +700,39 @@ extension ObservedForgeEvents {
 }
 
 private final class ForgePerformanceRecorderSpy: ForgePerformanceRecording, @unchecked Sendable {
+    private struct OutcomeWaiter {
+        let expectedOutcomes: [String]
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     private let lock = NSLock()
     private var recordedOutcomes: [String] = []
+    private var outcomeWaiters: [OutcomeWaiter] = []
 
     var outcomes: [String] { lock.withLock { recordedOutcomes } }
+
+    func waitForOutcomes(_ expectedOutcomes: [String]) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let immediateResult = lock.withLock { () -> Bool? in
+                if recordedOutcomes == expectedOutcomes {
+                    return true
+                }
+                if recordedOutcomes.count >= expectedOutcomes.count {
+                    return false
+                }
+                outcomeWaiters.append(
+                    OutcomeWaiter(
+                        expectedOutcomes: expectedOutcomes,
+                        continuation: continuation
+                    )
+                )
+                return nil
+            }
+            if let immediateResult {
+                continuation.resume(returning: immediateResult)
+            }
+        }
+    }
 
     func record(
         _ event: AgentStudioPerformanceTraceRecorder.Event,
@@ -712,6 +741,24 @@ private final class ForgePerformanceRecorderSpy: ForgePerformanceRecording, @unc
         guard event == .forgeRefresh,
             case .string(let outcome) = attributes()["agentstudio.performance.forge.outcome"]
         else { return }
-        lock.withLock { recordedOutcomes.append(outcome) }
+        let satisfiedWaiters = lock.withLock {
+            recordedOutcomes.append(outcome)
+            var remainingWaiters: [OutcomeWaiter] = []
+            var satisfiedWaiters: [(CheckedContinuation<Bool, Never>, Bool)] = []
+            for waiter in outcomeWaiters {
+                if recordedOutcomes == waiter.expectedOutcomes {
+                    satisfiedWaiters.append((waiter.continuation, true))
+                } else if recordedOutcomes.count >= waiter.expectedOutcomes.count {
+                    satisfiedWaiters.append((waiter.continuation, false))
+                } else {
+                    remainingWaiters.append(waiter)
+                }
+            }
+            outcomeWaiters = remainingWaiters
+            return satisfiedWaiters
+        }
+        for (continuation, result) in satisfiedWaiters {
+            continuation.resume(returning: result)
+        }
     }
 }

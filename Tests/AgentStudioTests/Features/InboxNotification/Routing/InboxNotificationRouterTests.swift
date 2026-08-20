@@ -304,9 +304,9 @@ struct InboxNotificationRouterTests {
         )
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await fixture.router.flushTraceRecords()
-        await assertEventuallyMain("inbox router should write decision and append traces") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+        await assertEventuallyAsync("inbox router should write decision and append traces") {
+            await fixture.router.flushTraceRecords()
+            return (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"inbox.notification.appended\"") == true
         }
 
@@ -348,9 +348,9 @@ struct InboxNotificationRouterTests {
         _ = await fixture.bus.post(makePaneEnvelope(paneId: paneId, event: .terminal(.bellRang)))
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await fixture.router.flushTraceRecords()
-        await assertEventuallyMain("inbox router should write eventbus delivery summary") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+        await assertEventuallyAsync("inbox router should write eventbus delivery summary") {
+            await fixture.router.flushTraceRecords()
+            return (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"eventbus.deliver\"") == true
         }
 
