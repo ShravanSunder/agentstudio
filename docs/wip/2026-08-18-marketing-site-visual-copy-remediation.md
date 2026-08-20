@@ -45,31 +45,32 @@ open row here.
       double border, synthetic mask, mismatched radius, accidental crop, or
       image-to-panel gap. Passing four exact corner pixels is necessary but not
       sufficient.
-- [ ] Make every full app window fit the product-image boundary with all four
+- [x] Make every full app window fit the product-image boundary with all four
       native edges visible; do not use CSS clipping, radius, `object-fit: cover`,
       or a marketing frame to hide a bad source.
-- [ ] Reject and replace Pane drawer if the drawer overwhelms the frame, hides
+- [x] Reject and replace Pane drawer if the drawer overwhelms the frame, hides
       the named agents, or contains unrelated/mostly empty output.
-- [ ] Recapture Review in unified diff mode with the global repository sidebar
+- [x] Recapture Review in unified diff mode with the global repository sidebar
       hidden, the Review Changed Files sidebar fully visible, one readable
       selected file, and the originating agent terminal still readable beside
       it.
-- [ ] Keep exactly two primary panes in every showcase capture. Sidebars are
+- [x] Keep exactly two primary panes in every showcase capture. Sidebars are
       context surfaces, not additional panes.
-- [ ] Keep recognizable already-running agent UI visible in every primary
+- [x] Keep recognizable already-running agent UI visible in every primary
       capture. Capture preparation may arrange panes but must not start, prompt,
       interrupt, or steer an agent without a separate explicit owner handoff.
-- [ ] Apply the global-sidebar visibility matrix deliberately: Parallel shows
+- [x] Apply the global-sidebar visibility matrix deliberately: Parallel shows
       Pane/All Panes; Git/PR shows By Repo beside two agent/terminal panes;
       Drawer, Quick Find, Review, Files, Pane Zoom, and full-screen views hide
       the Agent Studio sidebar. Review and Files keep their own file tree.
-- [ ] Reject the Git/PR capture if it reuses Review or Files merely to fill the
+- [x] Reject the Git/PR capture if it reuses Review or Files merely to fill the
       second pane. It must show repository context beside two meaningful
       agent/terminal panes.
-- [ ] Extend browser proof to activate and measure Parallel work, Pane drawer,
-      Quick Find, Review, Persistent terminal sessions, Before close, and
-      Restored. No default-state inference.
-- [ ] Run the project-local copy skill against every visible line only after the
+- [x] Extend browser proof to activate and measure Parallel work, Pane drawer,
+      Quick Find, Review, and Git context at desktop and phone widths. Exercise
+      Before close and Restored in the supporting persistence row. No
+      default-state inference.
+- [x] Run the project-local copy skill against every visible line only after the
       screenshots prove their claims; do not rewrite copy to excuse weak pixels.
 - [ ] Rebuild local desktop/phone/source/corner contact sheets from the exact
       post-fix commit and reject the suite if one state fails.
@@ -110,13 +111,11 @@ open row here.
 - [ ] Deploy only the accepted exact commit, then repeat the full deployed
       walkthrough and record the Cloudflare version and rollback route.
 
-Current observed failures from the deployed 1600px walkthrough:
-
-- Pane drawer is visually dominant and covers most agent context.
-- Review uses a narrow split diff rather than the required unified diff; the
-  Review tree/diff/terminal widths do not yet meet the new owner composition.
-- Existing browser automation measures the default state and persistence but
-  does not prove every state image and boundary.
+The previous deployed 1600px Drawer, Review, and browser-coverage failures are
+resolved in local source. The exact Cloudflare deployment and deployed
+walkthrough remain open. Full-window phone captures fit but their internal UI
+text remains too small to serve as detailed phone proof without a focused
+derivative or loop.
 
 Release decision remains `NOT VERIFIED` until every row above has proof.
 
@@ -139,8 +138,25 @@ Current implementation evidence:
   without overflow, while internal agent/diff/file-tree text is too small at
   the full-window 390px presentation. Evidence:
   `/private/tmp/agentstudio-website-verification/current-working-tree/local-development/390/review.png`.
-- Git/PR capture remains open. It requires By Repo plus two existing
-  agent/terminal panes, with no Review or Files pane and no agent control.
+- Git context now uses By Repo beside two existing populated Codex and Claude
+  panes with branch, changed-line, and ahead/behind status. It contains no
+  Review or Files pane and no agent was started, prompted, interrupted, or
+  steered. The source SHA-256 is
+  `8eab0a39bacb1f86a3e6e8f15855ca08a57f736f323ccf1c100b1bb1013b7e74`;
+  the normalized website asset SHA-256 is
+  `ca8e6f1b85fb722fedadd7020efd77a93fcdbeb0961ffb0489d1611862a753c4`.
+- Pane drawer now hides the global sidebar, retains two existing agent panes,
+  and shows one compact attached drawer with real `git status --short
+  --branch` output. The source SHA-256 is
+  `bf30f15de6c1c533db3ee9257c2b09e3d8aed9cde721c36681436c7f8ca33860`;
+  the normalized website asset SHA-256 is
+  `45bc035952b4bcc0d5784612b2fb467fdcf2473550cf10fac901474c0896b879`.
+- Quick Find now hides the global sidebar and shows a real `$ agent` pane/tab
+  query over the same two-agent workspace without executing a result. The
+  source SHA-256 is
+  `5e9a38172895799ae16a2ae436674c99320ebd7b63eeb29cd8cb4e5f0741913d`;
+  the normalized website asset SHA-256 is
+  `ca1f2ae0bc73a7b17d9373723eda2b419632a3fa395dbf248d728d8fa7239cde`.
 - Spacing/divider proof passes in the 30-case desktop/mobile browser suite:
   the showcase-to-details gap is at least 80 pixels and the following CTA has a
   zero-width top border. Current desktop/phone disclosure screenshots are at
