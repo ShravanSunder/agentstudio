@@ -29,13 +29,13 @@ export const marketingCopy = {
       description:
         "Open a build log, git status, documentation, or a browser beside the agent that prompted it.",
       imageDescription:
-        "One populated Git file-status drawer attached to the active agent task, with Codex and Claude Code visible behind it.",
+        "One compact Git-status drawer attached to the active Codex task, with a second Claude pane visible and the global sidebar hidden.",
     },
     quickFind: {
       label: "Quick Find",
       description: "Press Cmd+P to reach repositories, worktrees, panes, tabs, and commands.",
       imageDescription:
-        "Quick Find listing agent-studio, y-websocket, and sidebar worktree panes over active Codex and Claude Code sessions.",
+        "Quick Find listing agent-studio, y-websocket, and sidebar worktree panes over Codex and Claude sessions with the global sidebar hidden.",
     },
     review: {
       label: "Review",
