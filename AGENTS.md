@@ -165,7 +165,10 @@ Display:
   [Choosing the execution owner](docs/architecture/commands/command_specs.md#choosing-the-execution-owner).
 - IPC is a separate exhaustive `ipcSpec` (exposure, durable target,
   privilege, arguments). Adding an `AppCommand` must classify IPC in the
-  same change. Do not add an IPC method that is not an `AppCommand`.
+  same change. Do not add a **command.execute** verb that is not an
+  `AppCommand`. Transport methods (`command.list`, `pane.*`, `terminal.*`,
+  `events.subscribe`, auth) live in the IPC registry and are not a second
+  command catalog.
 - `LocalActionSpec` / `ActionSpec` is presentation-only when there is no
   `AppCommand`. Reuse it; do not invent a second label.
 

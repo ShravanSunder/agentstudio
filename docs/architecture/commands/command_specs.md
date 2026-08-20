@@ -344,9 +344,10 @@ Programmatic control shares `AppCommand` identity and canonical public copy, but
 it does not derive authority from command-bar presentation. `command.list`
 projects the independent `AppCommand.ipcSpec` contract for discovery, including
 execution mode, durable target handle kinds, typed argument schema, and
-required privileges. `command.execute` is still reserved for commands
-explicitly marked headless-executable; it validates and decodes the command's
-typed IPC argument contract before dispatching to the app/shell owner.
+required privileges. `command.execute` is still reserved for commands whose
+`ipcSpec.exposure` is `.headless` or `.headlessAndInteractive`; it validates and
+decodes the command's typed IPC argument contract before dispatching to the
+app/shell owner.
 Command-bar presentation remains explicit as `ui.commandBar.open`; see
 [AgentStudio IPC Architecture](ipc.md#command-and-ui-presentation-boundary).
 If a command row only opens a chooser or requires interactive input, add a
@@ -371,7 +372,7 @@ case .addDrawerPane:
     return .init(
         trigger: .init(key: .character(.d), modifiers: [.command, .shift]),
         alternateTriggers: [
-            .init(key: .character(.p), modifiers: [])
+            .init(key: .character(.p), modifiers: []): [.emptyDrawer]
         ],
         contexts: [.global, .terminalAppOwned, .emptyDrawer]
     )

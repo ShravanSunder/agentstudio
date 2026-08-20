@@ -50,7 +50,10 @@ one already-admitted value on MainActor.
 | [`EventBus.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventBus.swift) | Fan-out transport: named policy subscriptions, fact-topic interest, replay diagnostics |
 | [`EventChannels.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventChannels.swift) | `PaneRuntimeEventBus` handle |
 | [`AppEventBus.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Events/AppEventBus.swift) | App-level notification bus (not runtime facts) |
-| Feature runtimes under [`Core/RuntimeEventSystem/Runtime/`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime) and Features | `TerminalRuntime`, `BridgeRuntime`, `WebviewRuntime`, `SwiftPaneRuntime` |
+| [`SwiftPaneRuntime.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/SwiftPaneRuntime.swift) | Native Swift pane runtime |
+| [`TerminalRuntime.swift`](../../../Sources/AgentStudio/Features/Terminal/Runtime/TerminalRuntime.swift) | Terminal pane runtime |
+| [`BridgeRuntime.swift`](../../../Sources/AgentStudio/Features/Bridge/Runtime/BridgeRuntime.swift) | Bridge viewer runtime |
+| [`WebviewRuntime.swift`](../../../Sources/AgentStudio/Features/Webview/Runtime/WebviewRuntime.swift) | Browser pane runtime |
 
 ## Three Data Flow Planes
 
@@ -82,7 +85,7 @@ One `@MainActor` runtime **class** per transport; one **instance** per pane.
 | Runtime class | Content types |
 | --- | --- |
 | `TerminalRuntime` | `.terminal` |
-| `BridgeRuntime` | Bridge viewer modes (diff, review, file, …) |
+| `BridgeRuntime` | `.diff`, `.review`, `.editor` (no `.file` content type) |
 | `WebviewRuntime` | `.browser` |
 | `SwiftPaneRuntime` | Native panes such as `.codeViewer` |
 

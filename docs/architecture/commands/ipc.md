@@ -5,14 +5,18 @@ automation, pane agents, and future MCP adapters. It exposes semantic app
 methods over local transports without exposing zmx daemon IPC as a public API.
 
 Command verbs, labels, and `ipcSpec` classification live in
-[Command Specs](command_specs.md) — not in this transport document. Adding an
-IPC method requires classifying `ipcSpec` on an `AppCommand` in the same change.
+[Command Specs](command_specs.md) — not in this transport document. Adding a
+**command.execute** verb requires classifying `ipcSpec` on an `AppCommand` in
+the same change. Transport methods (`command.list`, `pane.*`, `terminal.*`,
+`events.subscribe`, auth) live in the IPC registry and are not `AppCommand`
+cases.
 
 ## Status
 
 This section is a transport inventory, not a command catalog. Verbs live in
-[Command Specs](command_specs.md). Remaining method names here must not be
-added as RPC without `ipcSpec`.
+[Command Specs](command_specs.md). Do not add a `command.execute` RPC without
+`AppCommand.ipcSpec`. Do not invent a dummy `AppCommand` for `pane.*` /
+`terminal.*` / `events.subscribe`.
 
 The phase-1 foundation currently owns:
 
@@ -36,10 +40,11 @@ The phase-1 foundation currently owns:
   restored missing-host gaps are logged instead of terminating the debug app.
 - Concrete terminal runtime adapter for `terminal.status`,
   `terminal.snapshot`, and `terminal.send`.
-- Explicit command/UI split: `command.list` projects typed IPC exposure
-  metadata from every `AppCommandSpec`, while `command.execute` remains
-  reserved for commands explicitly marked headless-executable. UI presentation
-  lives under `ui.commandBar.open` with `uiPresent` authority.
+- Explicit command/UI split: `command.list` projects each `AppCommand` through
+  `AppCommandSpec` (label) plus independent `ipcSpec` (exposure, targets,
+  privilege, arguments). `command.execute` remains reserved for commands whose
+  `ipcSpec.exposure` is `.headless` or `.headlessAndInteractive`. UI presentation lives under
+  `ui.commandBar.open` with `uiPresent` authority.
 - Generic app-owned IPC contribution substrate for feature-local method
   definitions under approved app composition folders. The substrate merges
   contributed methods with the base registry, validates namespaces/security
@@ -209,21 +214,22 @@ automation is exercising recoverable layout state.
 ## Command And UI Presentation Boundary
 
 IPC command methods and UI presentation methods are intentionally separate.
-`command.list` is command discovery. It projects every `AppCommandSpec` into a
-typed IPC list entry with execution modes, target handle kinds, and required
-privilege classes, and typed argument schemas for commands that accept headless
-arguments. This keeps the app command catalog as the source of truth:
-adding an `AppCommandSpec` creates an IPC-discoverable command contract instead
-of requiring a second hand-written IPC catalog.
+`command.list` is command discovery. It enumerates `AppCommand.allCases` and
+projects `AppCommandSpec` labels plus the independent `ipcSpec` contract
+(execution modes, durable handle kinds, privileges, argument schema) into a
+typed IPC list entry. This keeps one command identity: do not hand-write a
+second IPC verb catalog.
 
 `command.execute` is reserved for headless semantic command execution. It must
 not present the command bar, picker UI, sheets, or prompts as an implicit side
 effect. A command-spec row that requires UI presentation or interactive input
 fails closed with a stable `requires presentation` or `parameters required`
 error until a semantic method with explicit parameters exists. Commands execute
-only when their `AppCommandSpec` is explicitly marked headless-executable, and
-the adapter validates the typed argument schema from that spec before active
-window lookup or shell-owner dispatch. The initial narrow argument shape is a
+only when `AppCommand.ipcSpec.exposure` is `.headless` or
+`.headlessAndInteractive`. `AppCommandSpec` has no headless field; it forwards
+`ipcExposure` from `ipcSpec`. The adapter validates
+`command.ipcSpec.argumentContract` before active window lookup or shell-owner
+dispatch. The initial narrow argument shape is a
 string enum, used by `setRepoSidebarSortOrder` with `order = ascending |
 descending`; broader JSON Schema, nested objects, or command-bar selection state
 require a new spec/design pass. The public command-id wrapper remains open so
@@ -233,9 +239,9 @@ capability` instead of parameter-decoding errors.
 ```
 command.list / command.execute
   -> AgentStudioIPCCommandAdapter
-       exposes AppCommandSpec IPC metadata for discovery
-       rejects non-headless command specs for command.execute
-       validates typed string-enum arguments
+       lists AppCommand.allCases with AppCommandSpec labels + ipcSpec
+       rejects non-headless ipcSpec exposure for command.execute
+       validates typed string-enum arguments from ipcSpec
   -> injected shell/app command owner
   -> AgentStudioProgrammaticControl DTO
 

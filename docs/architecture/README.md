@@ -99,8 +99,8 @@ serialization remain execution policy rather than module ownership.
 │  └──────┬────────────────┬─────────────────┬───────────────────┘       │
 │         │                │                 │                           │
 │  ┌──────┴──────┐  ┌──────┴──────┐  ┌──────┴──────┐                    │
-│  │Filesystem   │  │GitProjector │  │ForgeActor   │                    │
-│  │Actor        │  │(git status) │  │(PR counts)  │                    │
+│  │Filesystem   │  │GitWorkingDir │  │ForgeActor   │                    │
+│  │Actor        │  │Projector     │  │(PR facts)   │                    │
 │  └─────────────┘  └─────────────┘  └─────────────┘                    │
 │                                                                        │
 │  ┌───────────────┐  ┌───────────────┐                                  │

@@ -170,7 +170,8 @@ struct WorkspaceCacheState: Codable {
     var lastRebuiltAt: Date
     var repoEnrichment: [UUID: RepoEnrichment]           // keyed by CanonicalRepo.id
     var worktreeEnrichment: [UUID: WorktreeEnrichment]    // keyed by CanonicalWorktree.id
-    var pullRequestCounts: [UUID: Int]                     // keyed by CanonicalWorktree.id
+    // Live PR lane is RepoCacheAtom.pullRequestFacts(for:) keyed by RepoBranchKey,
+    // not a worktree-id Int map named pullRequestCounts.
     // notificationCounts removed per LUNA-361: unread counts are now
     // derived from InboxNotificationAtom.unreadCount(forWorktreeId:)
     // in Features/InboxNotification/State/MainActor/Atoms/, not stored
@@ -183,20 +184,17 @@ hot observation surface. It owns each repo-cache lane through keyed
 `AtomFamily` slots:
 
 ```swift
-AtomFamily<UUID, RepoEnrichment>       // keyed by CanonicalRepo.id
-AtomFamily<UUID, WorktreeEnrichment>   // keyed by CanonicalWorktree.id
-AtomFamily<UUID, Int>                  // pull request count keyed by CanonicalWorktree.id
+AtomFamily<UUID, RepoEnrichment>                 // keyed by CanonicalRepo.id
+AtomFamily<UUID, WorktreeEnrichment>             // keyed by CanonicalWorktree.id
+AtomFamily<RepoBranchKey, PullRequestFacts>      // keyed by repo+branch, not worktree Int counts
 ```
 
-`RepoWorktreeCacheFacts` is a composed read result for surfaces that really need
-both `WorktreeEnrichment?` and `pullRequestCount?`, such as status chips. Branch
-labels, trace identity, tab titles, and command-bar rows should read
-`worktreeEnrichment(for:)` so PR-count changes do not wake branch-only readers.
-Dictionary-shaped snapshots remain available for SQLite/legacy persistence,
-boot pruning, and cold batch projection. Hot UI code should prefer
-`repoEnrichment(for:)`, `worktreeEnrichment(for:)`, `pullRequestCount(for:)`, or
-`worktreeFacts(for:)` unless a broader snapshot path is explicitly measured and
-justified.
+Keyed reads: `repoEnrichment(for:)`, `worktreeEnrichment(for:)`, and
+`pullRequestFacts(for:)` on `RepoCacheAtom` / `RepoEnrichmentCacheAtom`.
+There is no `RepoWorktreeCacheFacts` type and no `pullRequestCount(for:)`.
+PR badges come from `PullRequestFacts` keyed by `RepoBranchKey`.
+Dictionary-shaped snapshots remain for SQLite/legacy persistence, boot
+pruning, and cold batch projection.
 
 ### Tier C: Sidebar Local UX Memory
 
@@ -280,7 +278,7 @@ GitWorkingDirectoryProjector (local git enrichment)
 ForgeActor (remote forge enrichment)
   subscribes to .branchChanged, .originChanged, .worktreeDiscovered
   runs: gh pr list, GitHub API
-  emits: .pullRequestCountsChanged, .checksUpdated, .refreshFailed
+  emits: .pullRequestsChanged, .checksUpdated, .refreshFailed
       │
       │ all three post to EventBus, fan-out to:
       ▼
@@ -295,7 +293,7 @@ WorkspaceCacheCoordinator (@MainActor, topology accumulator)
   .topology(.repoRemoved) → mark unavailable → orphan panes → prune cache
   .snapshotChanged → write to cache store
   .branchChanged → write to cache store (ForgeActor gets its own copy via bus fan-out)
-  .pullRequestCountsChanged → map branch→worktreeId → write to cache
+  .pullRequestsChanged → map branch→worktreeId → write to cache
       │
       │ topology effects via TopologyEffectHandler (NOT bus):
       ▼
@@ -390,7 +388,7 @@ handleTopology_*    — CANONICAL mutations (shared RepositoryTopologyAtom via W
 
 handleEnrichment_*  — DERIVED cache writes (RepoEnrichmentCacheAtom through RepoCacheAtom)
   Events: .snapshotChanged, .branchChanged, .originChanged, .originUnavailable,
-          .pullRequestCountsChanged, .checksUpdated
+          .pullRequestsChanged, .checksUpdated
   Touches: repo enrichment cache only; entity recency has separate direct owners
 
 syncScope_*         — ACTOR registration management
@@ -478,6 +476,7 @@ TopologyEvent (envelope: SystemEnvelope, all via bus)
       — .scanned([]) = authoritative empty (remove stale linked worktrees)
       — .scanned([url1, url2]) = authoritative list (reconcile to match)
       — .notScanned = boot replay / manual add (leave existing worktrees unchanged)
+  .reposDiscovered(parentPath:, repositories:) — producer: FilesystemActor (batch scan)
   .repoRemoved(repoPath:)                   — producer: FilesystemActor (watched folder diff, global dedup)
   .worktreeRegistered(worktreeId:, repoId:, rootPath:) — producer: FilesystemActor
   .worktreeUnregistered(worktreeId:, repoId:)          — producer: FilesystemActor
@@ -486,8 +485,12 @@ FilesystemEvent (producer: FilesystemActor, envelope: WorktreeEnvelope)
   .filesChanged(changeset:)
   .worktreeRegistered(worktreeId:, repoId:, rootPath:)
   .worktreeUnregistered(worktreeId:, repoId:)
+  .gitSnapshotChanged(snapshot:)
+  .diffAvailable(diffId:, worktreeId:, repoId:)
+  .branchChanged(worktreeId:, repoId:, from:, to:)
 
 GitWorkingDirectoryEvent (producer: GitWorkingDirectoryProjector, envelope: WorktreeEnvelope)
+  .statusOutcome(GitStatusOutcomeFact)
   .snapshotChanged(snapshot:)
   .branchChanged(worktreeId:, repoId:, from:, to:)
   .originChanged(repoId:, from:, to:)
@@ -497,10 +500,13 @@ GitWorkingDirectoryEvent (producer: GitWorkingDirectoryProjector, envelope: Work
   .diffAvailable(diffId:, worktreeId:, repoId:)
 
 ForgeEvent (producer: ForgeActor, envelope: WorktreeEnvelope)
-  .pullRequestCountsChanged(repoId:, countsByBranch:)
+  .pullRequestsChanged(repoId:, factsByBranch:)
+  .pullRequestBranchesInvalidated(repoId:, branches:)
+  .pullRequestRepositoryInvalidated(repoId:)
+  .pullRequestsUnavailable(repoId:)
   .checksUpdated(repoId:, status:)
   .refreshFailed(repoId:, error:)
-  .rateLimited(repoId:, retryAfter:)
+  .rateLimited(repoId:, retryAfterSeconds:)
 ```
 
 Discovery events (`.repoDiscovered`, `.repoRemoved`) live in `SystemEnvelope` because the canonical repo does not exist yet at emit time — no repoId is available. All other workspace events live in `WorktreeEnvelope` where repoId is always present. For the full 3-tier envelope hierarchy, see [Pane Runtime Architecture — Contract 3](../runtime/pane_runtime_architecture.md#contract-3-event-envelope).
@@ -513,9 +519,9 @@ The sidebar is a pure reader. It reads structure from one store, display data fr
 
 ```
 RepositoryTopologyAtom             → canonical global repo/worktree structure (what exists)
-RepoCacheAtom.repoEnrichment      → org name, display name, groupKey (how to group)
-RepoCacheAtom.worktreeEnrichment  → branch, git status (how to display)
-RepoCacheAtom.pullRequestCounts   → PR badges
+RepoCacheAtom.repoEnrichmentByRepoId           → org name, display name, groupKey
+RepoCacheAtom.worktreeEnrichmentByWorktreeId   → branch, git status
+RepoCacheAtom.pullRequestFacts(for:)           → PR badges (facts by RepoBranchKey)
 InboxNotificationAtom.unreadCount(forWorktreeId:) → notification bells
                                  (per LUNA-361; moved from RepoCacheAtom)
 WorkspaceSidebarState          → filter and sidebar shell composition
@@ -622,7 +628,7 @@ Boot replay uses the same `.repoDiscovered` event and same coordinator code path
    → updates repo-A membership and requests refresh through demand admission
    → starts immediately only when demanded and stale/missing
    → gh pr list for new branch
-   → emits .pullRequestCountsChanged
+   → emits .pullRequestsChanged
 5. CacheCoordinator writes all to cache store (gets branchChanged + prCountsChanged from bus)
 6. Sidebar: branch chip updates, PR badge updates
 ```
@@ -779,7 +785,7 @@ func handleTopology(_ event: TopologyEvent) {
     }
 }
 
-// 6. Later, GitProjector emits .snapshotChanged, .branchChanged
+// 6. Later, GitWorkingDirectoryProjector emits .snapshotChanged, .branchChanged
 // 7. WorkspaceCacheCoordinator writes enrichment to RepoCacheAtom
 // 8. Sidebar re-renders via @Observable
 ```

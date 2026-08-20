@@ -28,7 +28,7 @@ exhaustive decision. Normative Terminal source contract:
 | [`FilesystemActor.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemActor.swift) | FSEvents ingress, batching, topology facts |
 | [`GitWorkingDirectoryProjector`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Git/) | Git snapshot/branch/origin facts from filesystem |
 | [`ForgeActor.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Forge/ForgeActor.swift) | Demand-driven PR/forge facts |
-| [`NotificationReducer.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Reduction/NotificationReducer.swift) | Runtime-plane notification classification consumer |
+| [`NotificationReducer.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Reduction/NotificationReducer.swift) | Critical vs lossy/frame-coalesced EventBus scheduling (not Inbox kind mapping) |
 | App coordinators under [`App/Coordination/`](../../../Sources/AgentStudio/App/Coordination) | Bus → cache/topology/surface sequencing |
 
 ## Why This Exists
@@ -47,15 +47,17 @@ exhaustive decision. Normative Terminal source contract:
 
 **These are not redundant.** `AppEventBus` carries app-level notifications
 such as `.worktreeBellRang` and other app-shell fan-out that is not itself a
-workspace command. `PaneRuntimeEventBus` carries system facts
-(`.repoDiscovered`, `.snapshotChanged`, `.pullRequestCountsChanged`).
+workspace command. `PaneRuntimeEventBus` carries admitted facts such as
+`.repoDiscovered`, `.snapshotChanged`, and `.pullRequestsChanged`
+(`ForgeEvent` facts-by-branch, not a counts-only envelope case).
 Workspace work does **not** route through `AppEventBus`; it uses
 `WorkspaceActionCommand` and the validated coordinator pipeline directly.
 AppKit/macOS lifecycle ingress uses `ApplicationLifecycleMonitor` plus
 `AppLifecycleAtom` / `WindowLifecycleAtom`, not either bus.
 
-Inbox notification promotion consumes `GhosttyEvent.bellRang` from
-`PaneRuntimeEventBus`; it does not depend on `AppEventBus.worktreeBellRang`.
+Inbox promotion consumes `PaneRuntimeEvent.terminal(.bellRang)` from
+`PaneRuntimeEventBus` after Contract 7 admission. It does not depend on
+`AppEventBus.worktreeBellRang` and must not ingest raw `GhosttyEvent`.
 
 ## Commands never on the bus
 
@@ -130,8 +132,9 @@ live, batch, and replay yield.
 
 ### `actor FilesystemActor`
 
-App-wide singleton. FSEvents ingress, deepest-root routing, path filtering,
-debounce/max-latency, chunked `filesChanged` and topology facts.
+App-wide instance (constructed by `FilesystemGitPipeline`, not `.shared`).
+FSEvents ingress, deepest-root routing, path filtering, debounce/max-latency,
+chunked `filesChanged` and topology facts.
 
 ### `actor GitWorkingDirectoryProjector`
 
@@ -141,7 +144,7 @@ Consumes filesystem facts; emits `snapshotChanged`, `branchChanged`,
 
 ### `actor ForgeActor`
 
-App-wide, keyed by repo. Demand-driven PR/forge enrichment with per-repo
+App-wide instance, keyed by repo in actor state (not `.shared`). Demand-driven PR/forge enrichment with per-repo
 single-flight, policy backoff, and equality-suppressed publication. Triggered
 by bus branch/origin facts, demand deadlines, and direct
 `refresh(repo:)` commands — not by duplicate coordinator polling.
@@ -153,7 +156,7 @@ the current plane.
 
 | Need | Pattern |
 | --- | --- |
-| Multi-subscriber admitted facts | `bus.post` / named `subscribe(policy:name:interest:)` |
+| Multi-subscriber admitted facts | `bus.post` / `subscribe(policy:subscriberName:factInterest:)` |
 | Request-response control | Direct async call on capability protocol |
 | UI binding | `@Observable` on MainActor (before bus when multiplexed) |
 | Heavy one-shot work from MainActor | `@concurrent nonisolated static` helper |
