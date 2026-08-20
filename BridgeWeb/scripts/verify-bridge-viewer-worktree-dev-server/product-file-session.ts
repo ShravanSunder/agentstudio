@@ -46,6 +46,8 @@ type FileDescriptorReadyEvent = Extract<
 	FileMetadataEvent,
 	{ readonly eventKind: 'file.descriptorReady' }
 >;
+type FileInvalidatedEvent = Extract<FileMetadataEvent, { readonly eventKind: 'file.invalidated' }>;
+type FileStatusPatchEvent = Extract<FileMetadataEvent, { readonly eventKind: 'file.statusPatch' }>;
 export interface BridgeVerifierProductFileSource {
 	readonly acceptedStreamSequence: number;
 	readonly sourceAccepted: FileSourceAcceptedEvent;
@@ -56,6 +58,12 @@ export interface BridgeVerifierProductFileSource {
 export interface BridgeVerifierProductFileContent {
 	readonly byteLength: number;
 	readonly bytes: ArrayBuffer;
+}
+
+export interface BridgeVerifierProductFileRefresh {
+	readonly descriptor: FileDescriptorReadyEvent;
+	readonly invalidation: FileInvalidatedEvent;
+	readonly status: FileStatusPatchEvent;
 }
 
 export interface BridgeVerifierProductFileSessionProps {
@@ -158,10 +166,16 @@ export class BridgeVerifierProductFileSession {
 		};
 	}
 
-	async demandDescriptor(path: string): Promise<FileDescriptorReadyEvent> {
+	async demandDescriptor(
+		path: string,
+		excludedDescriptorId?: string,
+	): Promise<FileDescriptorReadyEvent> {
 		this.#requireState('open');
 		const cachedDescriptor = this.#descriptorByPath.get(path);
 		if (cachedDescriptor !== undefined) return cachedDescriptor;
+		if (excludedDescriptorId !== undefined && this.#demandedPaths.has(path)) {
+			await this.#removeDescriptorDemand(path);
+		}
 		const baseInterestSha256 = this.#interestSha256;
 		if (baseInterestSha256 === null) throw new Error('File subscription interest is unavailable.');
 		const targetInterestRevision = this.#interestRevision + 1;
@@ -217,7 +231,11 @@ export class BridgeVerifierProductFileSession {
 
 		const descriptor = await this.#waitForFileEvent(
 			(event): event is FileDescriptorReadyEvent =>
-				event.eventKind === 'file.descriptorReady' && event.path === path,
+				event.eventKind === 'file.descriptorReady' &&
+				event.path === path &&
+				(excludedDescriptorId === undefined ||
+					event.availability.availabilityKind !== 'available' ||
+					event.availability.contentDescriptor.descriptorId !== excludedDescriptorId),
 		);
 		if (descriptor.availability.availabilityKind !== 'available') {
 			this.#descriptorByPath.set(path, descriptor);
@@ -225,6 +243,61 @@ export class BridgeVerifierProductFileSession {
 		}
 		this.#descriptorByPath.set(path, descriptor);
 		return descriptor;
+	}
+
+	async #removeDescriptorDemand(path: string): Promise<void> {
+		const baseInterestSha256 = this.#interestSha256;
+		if (baseInterestSha256 === null) throw new Error('File subscription interest is unavailable.');
+		const targetInterestRevision = this.#interestRevision + 1;
+		const remainingPaths = [...this.#demandedPaths].filter((demandedPath) => demandedPath !== path);
+		const targetInterestState: BridgeProductSubscriptionInterestState = {
+			interests: [{ lane: 'foreground', paths: remainingPaths }],
+			pathScope: [],
+			subscriptionKind: 'file.metadata',
+		};
+		const targetInterestSha256 = createHash('sha256')
+			.update(encodeBridgeProductSubscriptionInterestState(targetInterestState))
+			.digest('hex');
+		const updateId = `verifier-file-remove-${randomUUID()}`;
+		const response = await this.#postControl({
+			baseInterestRevision: this.#interestRevision,
+			baseInterestSha256,
+			batchCount: 1,
+			batchIndex: 0,
+			delta: {
+				add: [],
+				addPathScope: [],
+				removePathScope: [],
+				removePaths: [path],
+				subscriptionKind: 'file.metadata',
+			},
+			kind: 'subscription.updateBatch',
+			subscriptionId: this.#subscriptionId,
+			subscriptionKind: 'file.metadata',
+			targetInterestRevision,
+			targetInterestSha256,
+			totalDeltaItemCount: 1,
+			updateId,
+			workerDerivationEpoch: 0,
+		});
+		if (
+			response.kind !== 'subscription.updateBatchAccepted' ||
+			response.disposition !== 'committed'
+		) {
+			throw new Error('Expected a committed descriptor-demand removal.');
+		}
+		await this.#requireMetadataStream().frames.waitFor(
+			(frame) =>
+				frame.kind === 'subscription.interestsCommitted' &&
+				frame.subscriptionId === this.#subscriptionId &&
+				frame.updateId === updateId &&
+				frame.interestRevision === targetInterestRevision &&
+				frame.interestSha256 === targetInterestSha256,
+		);
+		this.#interestRevision = targetInterestRevision;
+		this.#interestSha256 = targetInterestSha256;
+		this.#demandedPaths.delete(path);
+		this.#descriptorByPath.delete(path);
 	}
 
 	async openContent(
@@ -286,12 +359,43 @@ export class BridgeVerifierProductFileSession {
 		decoder.finish();
 		if (terminal === null) throw new Error('File content stream ended without a terminal frame.');
 		if (terminal.kind !== 'complete') {
-			throw new Error(`File content ended with ${terminal.kind}.`);
+			throw new Error(
+				terminal.kind === 'error'
+					? `File content ended with ${terminal.kind}: ${terminal.code}:${terminal.safeMessage ?? 'no message'}.`
+					: `File content ended with ${terminal.kind}.`,
+			);
 		}
 		return {
 			byteLength: terminal.bytes.byteLength,
 			bytes: terminal.bytes,
 		};
+	}
+
+	async waitForRefresh(
+		path: string,
+		previousDescriptorId: string,
+	): Promise<BridgeVerifierProductFileRefresh> {
+		this.#requireState('open');
+		let invalidation: FileInvalidatedEvent | null = null;
+		let status: FileStatusPatchEvent | null = null;
+		while (invalidation === null || status === null) {
+			// oxlint-disable-next-line no-await-in-loop -- Refresh facts are an ordered metadata sequence.
+			const event = await this.#waitForFileEvent(
+				(candidate): candidate is FileInvalidatedEvent | FileStatusPatchEvent =>
+					(candidate.eventKind === 'file.invalidated' && candidate.path === path) ||
+					(candidate.eventKind === 'file.statusPatch' &&
+						candidate.patch.patchKind === 'summary' &&
+						(candidate.patch.unstaged ?? 0) > 0),
+			);
+			if (event.eventKind === 'file.invalidated') {
+				invalidation = event;
+				this.#descriptorByPath.delete(path);
+			} else {
+				status = event;
+			}
+		}
+		const descriptor = await this.demandDescriptor(path, previousDescriptorId);
+		return { descriptor, invalidation, status };
 	}
 
 	async close(): Promise<void> {
