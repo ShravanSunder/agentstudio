@@ -92,8 +92,8 @@ main File / Review surface
              one message  → show M1 directly
              two or more → show compact M-summary + M-last
              explicit Expand / Edit / Reply
-                         → anchored floating overlay with complete flat thread
-                           and reply/edit authoring
+                         → expand the same inline timeline to M1 ... Mn
+                           with reply/edit authoring below
              new root    → inline Save / Revert
              whole thread → Resolve / Reopen
 
@@ -141,7 +141,7 @@ PR1 human boundary
   explicit Save. Focus loss flushes the draft immediately; Escape or starting
   another range flushes and collapses a non-empty new-root draft. Clearing a
   never-saved message back to empty removes that unsaved message when the change
-  is flushed. Reply and edit composers follow P1-U14's overlay-close behavior.
+  is flushed. Reply and edit composers follow P1-U14's inline-expansion close behavior.
   Clearing an existing saved message creates a durable empty working draft so
   the edit is not lost; Save remains unavailable until the body is valid, while
   Revert restores the saved body. The active editor, visible text, focus, and
@@ -163,7 +163,11 @@ PR1 human boundary
   replaces the message's one current saved body and clears that draft. Revert
   clears the draft to restore the current saved body, or removes an unsaved new
   message draft. A message does not retain a pre-output history of saved bodies.
-  Command+Enter invokes Save; Enter and Shift+Enter insert a newline.
+  Command+Enter invokes Save; Enter and Shift+Enter insert a newline. Save
+  progress ends when the exact Save command reports committed or failed; later
+  cross-view/read-model convergence is separate and must not leave a committed
+  Save looking busy or turn it into a failure. While that read model refreshes
+  or is unavailable, the last complete annotation state remains usable.
 - Why: Crash protection must not silently declare incomplete writing eligible
   for output.
 - Evidence: owner confirmation on 2026-08-14.
@@ -198,9 +202,9 @@ PR1 human boundary
   source or diff line presentation; Markdown files remain annotatable there.
   Located threads appear inline beside their source in the main view, anchored
   at the range endpoint. At most one comment is active: focusing its compact
-  surface or controls paints its complete stored range but does not open its
-  floating chronology overlay. Once opened explicitly, that overlay keeps the
-  range painted while open. Moving activity to another comment moves the paint
+  surface or controls paints its complete stored range but does not expand its
+  chronology. Once expanded explicitly, that thread keeps the range painted
+  while open. Moving activity to another comment moves the paint
   to that comment's range; clearing comment-system focus/activity removes
   saved-range paint. Inactive saved threads keep only their inline card and no
   range paint. No separate location command is needed.
@@ -396,16 +400,19 @@ thread state remains open until explicit Resolve
   Every root message and reply belongs to that thread and may receive a later
   human reply. Replies form one flat chronological sequence; they do not nest.
   A one-message thread shows M1 directly. A thread with two or more messages
-  keeps exactly one compact inline projection containing M-summary plus M-last;
-  the complete M1 through Mn chronology appears only in an anchored floating
-  overlay that does not expand Pierre's normal-flow annotation row. Explicit
-  Expand, Edit, or Reply opens that overlay; focus alone does not. Reply and
-  Edit authoring occur inside the overlay. Save or Revert ends editing but keeps
-  the overlay open. Escape during active editing first flushes and exits edit
-  mode while leaving the overlay open; a later Escape closes it. Outside click
-  safely flushes an active draft and closes the overlay. Closing returns focus
-  to the inline control that opened it. The summary is presentation, not another
-  message. PR1 has no standalone comments and no agent-authored messages.
+  keeps exactly one compact inline projection containing M-summary plus M-last.
+  Explicit Expand, Edit, or Reply expands that same Pierre annotation row into
+  one timeline containing M-summary followed by M1 through Mn exactly once;
+  focus alone does not expand it. Reply and Edit authoring occur at the end of
+  that inline timeline. Save or Revert ends editing but keeps the thread
+  expanded. Escape during active editing first flushes and exits edit mode
+  while leaving the thread expanded; a later Escape collapses it. Outside click
+  safely flushes an active draft and collapses the thread. Collapsing returns
+  focus to the inline control that invoked the expansion. Pierre remains the
+  sole scroll owner and remeasures the expanded row, so later diff rows move
+  down and return on collapse; the thread adds no nested scrollbar. The summary
+  is presentation, not another message. PR1 has no standalone comments and no
+  agent-authored messages.
 - Why: Once output has exposed a message, its content must remain stable while
   later clarification remains possible without erasing history. A flat thread
   remains readable in both the product and its external outputs.
@@ -493,11 +500,11 @@ thread history
   replies form one flat chronological sequence
   one message is shown directly
   two or more show compact M-summary + M-last inline
-  the complete chronology opens only in an anchored floating overlay
-  explicit Expand/Edit/Reply opens it; focus alone does not
-  Reply/Edit authoring lives in that overlay; Save/Revert keeps it open
-  Escape exits editing before it closes the overlay; outside click safely
-  flushes and closes; focus returns to the invoking inline control
+  explicit Expand/Edit/Reply expands the same inline row; focus alone does not
+  expanded chronology is M-summary + M1...Mn exactly once, with no nested scroll
+  Reply/Edit authoring lives at the end; Save/Revert keeps the row expanded
+  Escape exits editing before collapse; outside click safely flushes and
+  collapses; focus returns to the invoking inline control
   the summary is not a message
   resolution applies to the whole thread
   successful or crash-unknown output changes each included message to locked
@@ -515,7 +522,7 @@ output
 main-view presentation
   located threads → inline beside source
   focused/active compact thread → paint its complete stored range
-  overlay open → keep that one thread's range painted
+  inline thread expanded → keep that one thread's range painted
   another thread active → move paint to the new thread's range
   comment activity cleared → clear saved-range paint
   inactive saved thread → endpoint-anchored inline card only

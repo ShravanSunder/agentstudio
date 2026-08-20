@@ -47,7 +47,10 @@ PR1's current design artifacts are:
   [`pr1-program-design.md`](./pr1-program-design.md)
 
 PR2 still requires its own current Requirements identity and bounded design
-cycle. The deprecated drafts below remain source material only.
+cycle. Current non-normative product research and vision input is captured in
+[`pr2-vision-and-product-research.md`](./pr2-vision-and-product-research.md).
+It does not replace that future Requirements identity. The deprecated drafts
+below remain source material only.
 
 ## Comparison-selector loading boundary
 
