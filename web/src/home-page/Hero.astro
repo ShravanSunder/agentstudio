@@ -1,0 +1,28 @@
+---
+import { marketingCopy } from "@/marketing-copy";
+
+import InstallCommand from "./InstallCommand.astro";
+---
+
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero__copy">
+    <p class="eyebrow">{marketingCopy.hero.eyebrow}</p>
+    <h1 id="hero-title" aria-label={marketingCopy.hero.headline}>
+      <span class="hero__headline-line">{marketingCopy.hero.headlineLead}</span>{" "}
+      <span class="hero__headline-line">
+        {marketingCopy.hero.headlineTail}
+        <span class="hero__headline-accent"> {marketingCopy.hero.headlineAccent}</span>
+      </span>
+    </h1>
+    <p class="hero__summary">{marketingCopy.hero.description}</p>
+    <div class="hero__actions">
+      <InstallCommand />
+    </div>
+  </div>
+
+  <div class="hero__planes" aria-hidden="true">
+    <span class="hero__plane hero__plane--rear-one"></span>
+    <span class="hero__plane hero__plane--rear-two"></span>
+    <span class="hero__plane hero__plane--front"><span class="hero__glyph">&gt;_</span></span>
+  </div>
+</section>

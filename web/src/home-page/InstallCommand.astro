@@ -1,0 +1,35 @@
+---
+import { installCommandText, marketingCopy } from "@/marketing-copy";
+
+interface Props {
+  readonly compact?: boolean;
+}
+
+const { compact = false } = Astro.props;
+---
+
+<div
+  class:list={["install-command", { "install-command--compact": compact }]}
+  data-install-command-root
+  data-install-command={installCommandText}
+>
+  <code>
+    {
+      marketingCopy.installation.commands.map((command) => (
+        <span><span aria-hidden="true">$ </span>{command}</span>
+      ))
+    }
+  </code>
+  <button type="button" data-install-copy aria-label={marketingCopy.installation.copyButton}>
+    {marketingCopy.installation.copyButtonVisible}
+  </button>
+  <span class="install-command__status" data-install-status aria-live="polite"></span>
+</div>
+
+<script>
+  import { initializeInstallCommand } from "@/install-command/install-command-controller";
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-install-command-root]")) {
+    initializeInstallCommand(root);
+  }
+</script>

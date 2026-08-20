@@ -1,0 +1,38 @@
+{
+  "name": "@agentstudio/marketing-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "ASTRO_TELEMETRY_DISABLED=1 astro build",
+    "check": "pnpm run lint && pnpm run fmt:check && pnpm run typecheck && pnpm run verify:captures && pnpm run test:unit",
+    "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev --host 127.0.0.1",
+    "fmt": "oxfmt .",
+    "fmt:check": "oxfmt --check .",
+    "lint": "oxlint --type-aware src scripts tests",
+    "normalize:captures": "node --experimental-strip-types scripts/stamp-srgb-color-profile.ts",
+    "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview --host 127.0.0.1",
+    "test:browser": "playwright test",
+    "test:unit": "vitest run",
+    "typecheck": "ASTRO_TELEMETRY_DISABLED=1 astro check",
+    "verify:captures": "node --experimental-strip-types scripts/verify-capture-assets.ts"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.10",
+    "@playwright/test": "1.62.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "26.1.1",
+    "astro": "7.2.2",
+    "oxfmt": "0.63.0",
+    "oxlint": "1.78.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "sharp": "0.35.3",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": "^26.0.0"
+  },
+  "packageManager": "pnpm@11.14.0"
+}

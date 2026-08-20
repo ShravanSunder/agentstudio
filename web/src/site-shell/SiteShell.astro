@@ -1,0 +1,58 @@
+---
+import appLogo from "@/assets/brand/app-logo-transparent.svg";
+import GitHubMark from "@/github-action/GitHubMark.astro";
+import { marketingCopy } from "@/marketing-copy";
+import XMark from "@/social-links/XMark.astro";
+import "@/styles/global.css";
+
+interface Props {
+  readonly title: string;
+  readonly description: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#2E3036" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <div class="site-frame">
+      <header class="site-header">
+        <a class="brand-link" href="#top" aria-label={marketingCopy.navigation.homeLabel}>
+          <img src={appLogo.src} width="32" height="32" alt="" />
+          <span>{marketingCopy.productName}</span>
+        </a>
+        <nav aria-label={marketingCopy.navigation.primaryLabel}>
+          <a class="github-action" href={marketingCopy.githubUrl}>
+            <GitHubMark />
+            <span>{marketingCopy.navigation.githubAction}</span>
+          </a>
+        </nav>
+      </header>
+      <main id="top">
+        <slot />
+      </main>
+      <footer class="site-footer">
+        <img src={appLogo.src} width="28" height="28" alt="" />
+        <nav class="footer-socials" aria-label={marketingCopy.socialLinks.label}>
+          <a
+            href={marketingCopy.socialLinks.github.url}
+            aria-label={marketingCopy.socialLinks.github.label}
+          >
+            <GitHubMark />
+          </a>
+          <a href={marketingCopy.socialLinks.x.url} aria-label={marketingCopy.socialLinks.x.label}>
+            <XMark />
+          </a>
+        </nav>
+      </footer>
+    </div>
+  </body>
+</html>

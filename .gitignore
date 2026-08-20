@@ -35,6 +35,10 @@ node_modules/
 .vite/
 BridgeWeb/dist/
 BridgeWeb/.vitest-attachments/
+web/.astro/
+web/dist/
+web/playwright-report/
+web/test-results/
 
 # Generated BridgeWeb app bundle resources. Regenerate with:
 #   mise run bridge-web-build

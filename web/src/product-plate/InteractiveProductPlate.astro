@@ -1,0 +1,89 @@
+---
+import { Image } from "astro:assets";
+
+import { marketingCopy } from "@/marketing-copy";
+
+import { productPlateStories } from "./product-plate-fixture";
+---
+
+<section id="workspace" class="product-story" aria-labelledby="workspace-title">
+  <div class="section-heading">
+    <p class="eyebrow">{marketingCopy.switcher.eyebrow}</p>
+    <h2 id="workspace-title">{marketingCopy.switcher.headline}</h2>
+    <p>{marketingCopy.switcher.description}</p>
+  </div>
+
+  <div class="product-plate" data-product-plate data-enhanced="false">
+    <div
+      class="product-plate__selectors"
+      data-product-plate-selectors
+      aria-label={marketingCopy.switcher.accessibilityLabel}
+    >
+      {
+        productPlateStories.map((story, index) => (
+          <button
+            type="button"
+            data-product-plate-selector={story.id}
+            disabled
+            tabindex="-1"
+            class:list={["product-plate__selector", { "is-default": index === 0 }]}
+          >
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <strong>{story.label}</strong>
+            <small>{story.description}</small>
+          </button>
+        ))
+      }
+    </div>
+
+    <div class="product-plate__panels">
+      {
+        productPlateStories.map((story, index) => (
+          <article
+            class="product-plate__panel"
+            data-product-plate-panel={story.id}
+            hidden={index !== 0}
+          >
+            {story.kind === "single-image" ? (
+              <Image
+                src={story.image}
+                alt={story.alternativeText}
+                widths={[720, 1080, 1440, 2160]}
+                sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
+                quality={90}
+              />
+            ) : (
+              <div class="persistence-comparison">
+                <figure>
+                  <figcaption>{marketingCopy.stories.persistence.beforeLabel}</figcaption>
+                  <Image
+                    src={story.beforeImage}
+                    alt={marketingCopy.stories.persistence.beforeImageDescription}
+                    quality={90}
+                  />
+                </figure>
+                <figure>
+                  <figcaption>{marketingCopy.stories.persistence.restoredLabel}</figcaption>
+                  <Image
+                    src={story.restoredImage}
+                    alt={marketingCopy.stories.persistence.restoredImageDescription}
+                    quality={90}
+                  />
+                </figure>
+              </div>
+            )}
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<script>
+  import { initializeProductPlate } from "@/product-plate/product-plate-controller";
+
+  const productPlateRoot = document.querySelector<HTMLElement>("[data-product-plate]");
+  if (productPlateRoot !== null) {
+    initializeProductPlate(productPlateRoot);
+  }
+</script>
