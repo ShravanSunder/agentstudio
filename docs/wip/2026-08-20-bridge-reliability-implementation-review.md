@@ -183,7 +183,7 @@
 ## Correction groups and implementation order
 
 1. **Epoch and replacement correctness — C1 + H7.** Correct render-receipt admission, re-anchor a replacement worker instance, and replay current surface intent. Prove an old worker at epoch 2 cannot block a replacement worker starting at epoch 1.
-2. **Missing terminal outcomes — H1 + H2 + H6 + M7.** Settle worker death, descriptor absence, lost File receipt, suspension, and producer death while a successor is awaited.
+2. **Missing terminal outcomes — H1 + H2 + H5 + H6 + M7.** Settle worker death, descriptor absence, lost File receipt, suspension, and producer death while a successor is awaited.
 3. **Recovery ownership — H3 + M1 + M5.** Give subscription reopen one owner, allow one bounded automatic retry only for a real retryable production failure, expose explicit retry for retained unavailable state, and make failure-to-unavailable transitions finite.
 4. **Native latest-generation holes — M2 + M3 + M4.** Fence File emissions, prevent stale Review failure from becoming sticky, close the gate-closed MainActor loop, and recover failed File refresh without letting obsolete work publish.
 5. **Last-complete presentation — M9.** Preserve and continue showing retained File, Review, and Markdown content during replacement instead of hiding or discarding it.
