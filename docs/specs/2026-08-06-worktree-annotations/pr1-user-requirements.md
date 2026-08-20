@@ -7,9 +7,9 @@ Status: current Requirements authority for PR1
 PR1 establishes a durable human review loop inside the selected repository
 worktree. A reviewer creates human-authored threads on source-backed material in
 File View and Review View, preserves unfinished messages across reload and
-restart, explicitly saves intentional message content, and hands any selected
-saved messages to the working agent through Markdown clipboard copy or
-versioned JSON file export.
+restart, explicitly saves intentional message content, and hands the current
+saved messages in the review's `New` or `All` view to the working agent through
+Markdown clipboard copy or versioned JSON file export.
 
 PR1's customer-facing annotation surface is only located inline threads beside
 their source in the main File or Review view. It adds no whole-file or
@@ -38,8 +38,8 @@ deliver to, query, authorize, or accept mutations from an agent in this slice.
 
 Reviews completed plans, specifications, files, and code changes in the
 worktree where an agent worked. The reviewer creates durable transformation
-requests, deliberately saves the messages that are ready, hands off a selected
-batch, and verifies the resulting worktree changes.
+requests, deliberately saves the messages that are ready, hands off the
+displayed New or All batch, and verifies the resulting worktree changes.
 
 ### Working agent
 
@@ -59,7 +59,7 @@ one human review round
   +-- find and continue the right session ........ P1-U1, U7, U8, U13
   +-- comment inline without losing work ......... P1-U2, U3, U4, U5, U14
   +-- keep locations honest as source changes .... P1-U6, U7, U8
-  +-- hand selected saved messages to an agent ... P1-U9, U10, U11, U12
+  +-- hand New or All saved messages to an agent . P1-U9, U10, U11, U12
   `-- return, inspect changes, and resolve threads  P1-U8, U14
 ```
 
@@ -74,9 +74,10 @@ agent completes work in a selected worktree
   → reviewer creates or continues one living annotation session
   → reviewer starts inline source-backed threads and writes Markdown messages
   → message drafts autosave; explicit Save establishes output-eligible content
-  → reviewer selects some or all saved messages
-  → reviewer copies Markdown or exports versioned JSON
-      → Copy shows a short confirmation and closes the copy interaction
+  → reviewer opens Share comments from the File or Review header
+  → reviewer displays New or All current saved comments
+  → reviewer copies that displayed set as Markdown or exports versioned JSON
+      → success shows a short confirmation and closes Share comments
       → copied threads remain open
   → agent changes the worktree through the existing interaction
   → reviewer returns to the same living session
@@ -286,7 +287,7 @@ placement.
 ```
 
 ```text
-Copy selected messages
+Copy New or All displayed messages
         +-- changes only included editable messages to locked
         +-- leaves every containing thread open
         `-- never means the requested work was addressed
@@ -295,14 +296,20 @@ Resolve whole thread
         `-- explicit reviewer action after inspecting the resulting work
 ```
 
-### P1-U9 — Produce any selected saved-message output batch
+### P1-U9 — Produce the displayed New or All saved-message batch
 
 - Affected classes: human reviewer and working agent.
-- Need: The reviewer can select some or all editable messages that have a saved
-  body and no working draft, and produce one deterministic, model-readable
-  batch. A message with an unsaved draft must be Saved or Reverted first.
-- Why: Review may proceed in partial rounds, while explicit Save remains the
-  output boundary.
+- Need: File View and Review View expose one header-owned, in-layout Share
+  comments mode. The reviewer displays either `New` current saved messages or
+  `All` current saved messages and produces that complete displayed set as one
+  deterministic, model-readable batch. There is no second manual thread or
+  message checklist. `New` membership is independent of whether a message is
+  editable or locked; `All` includes both new and handled saved messages. Draft
+  text never enters either set, so a message with a working draft must be Saved
+  or Reverted before its current body can participate.
+- Why: The reviewer needs a fast review-level handoff without reproducing the
+  inline thread hierarchy as a second selection interface, while explicit Save
+  remains the output boundary.
 - Evidence: owner confirmation on 2026-08-14 and the established partial-output
   workflow.
 - Authority: authorized.
@@ -329,7 +336,7 @@ Resolve whole thread
 
 - Affected classes: human reviewer and working agent.
 - Need: File export writes a versioned, lossless JSON representation of the same
-  selected message-batch semantics used by clipboard Markdown.
+  New or All message-batch semantics used by clipboard Markdown.
 - Why: A file output must preserve identities, exact snapshotted content,
   source evidence, ordering, and request bodies without parsing prose.
 - Evidence: owner selection of structured file export on 2026-08-14.
@@ -342,12 +349,20 @@ Resolve whole thread
 - Affected class: human reviewer.
 - Need: A successful copy or export preserves an immutable ordered snapshot of
   the exact saved message bodies and thread source context used for that action.
-  Every included message becomes immutable; clarification or correction is a new
-  human reply. Later work does not rewrite the historical batch. Normal Copy
-  success shows a concise copied confirmation, closes the copy interaction, and
-  leaves every containing thread open. A crash-recovered attempt whose external
+  Every included editable message becomes immutable; clarification or correction
+  is a new human reply. The successful output marks its exact current saved
+  messages handled by default. The success toast and durable output history both
+  let the reviewer mark that output's exact saved messages not handled, which
+  returns them to `New` without unlocking them or changing historical output.
+  Later work does not rewrite the historical batch. Normal Copy and Export
+  success show a concise confirmation, close Share comments, and leave every
+  containing thread open. A crash-recovered attempt whose external
   outcome cannot be proven remains inspectable as unknown; its messages remain
-  locked and its exact bytes may be copied again explicitly.
+  locked and its exact bytes may be copied again explicitly. If the external
+  effect succeeds but durable finalization fails, Share comments closes with a
+  truthful partial-success warning; included messages remain locked and New,
+  and the product offers no ordinary retry that could silently duplicate the
+  effect.
 - Why: The reviewer must be able to determine and reproduce what was prepared
   without claiming that an agent received it.
 - Evidence: owner-confirmed PR1 output boundary and the advisory PR1 durable
@@ -355,22 +370,6 @@ Resolve whole thread
 - Authority: authorized.
 - Priority: must, assigned by the Agent Studio owner.
 - Hypothesis state: none.
-
-```text
-saved human messages
-        │ select
-        ▼
-immutable output batch
-        ├─ Copy succeeds   ──► clipboard + durable output event
-        │                    └─ copied toast + close copy UI
-        └─ Export succeeds ──► JSON file + durable output event
-
-successful or crash-unknown output locks included messages
-        │
-        └─ correction or clarification ──► new human reply
-
-thread state remains open until explicit Resolve
-```
 
 ### P1-U13 — Discover and resume applicable sessions predictably
 
@@ -433,14 +432,14 @@ thread state remains open until explicit Resolve
 - Missing capabilities: durable sessions, optional autosaved drafts and current
   saved message bodies,
   source-backed human threads shared across both viewers, explicit lifecycle and
-  continuity, partial/all selection, deterministic Markdown copy, versioned
+  continuity, New/All review-level output scope, deterministic Markdown copy, versioned
   JSON export, and immutable output history.
 - Allowed surface: Agent Studio’s existing worktree, File/Review viewer,
   persistence, Markdown, clipboard, and file-export capabilities.
 - Protected boundary: PR0 comparison behavior remains authoritative foundation;
   PR1 does not redesign comparison selection or target loading.
 - Non-goals: direct or automated agent delivery; agent query, identity,
-  authorship, replies, or mutation; acknowledgement, retry, reconciliation,
+  authorship, replies, or mutation; agent acknowledgement, retry, reconciliation,
   bindings, providers, Codex App Server, App IPC annotation operations, guided
   review, quick edit, multi-user collaboration, external code-host review,
   issue tracking, arbitrary source editing, DOM/SVG/Mermaid-node anchoring, and
@@ -516,8 +515,15 @@ message size
 
 output
   Copy   → deterministic Markdown clipboard packet
-           → concise copied toast; copy UI closes; threads stay open
-  Export → versioned lossless JSON file
+           → concise copied toast; Share comments closes; threads stay open
+  Export → versioned lossless JSON file; Share comments closes on success
+  New    → every new current saved body, whether editable or locked
+  All    → every current saved body, whether new/handled or editable/locked
+  success → included editable messages lock and exact saved bodies become handled
+            by default
+  toast and durable history → Mark as not handled returns those exact saved
+            bodies to New without unlocking or rewriting history
+  failure/cancellation → no new lock or handled transition; Share comments remains
 
 main-view presentation
   located threads → inline beside source

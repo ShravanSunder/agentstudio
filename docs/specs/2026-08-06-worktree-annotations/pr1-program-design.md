@@ -89,7 +89,7 @@ Sources/AgentStudio/Features/Bridge/
 | `Models/Transport/WorktreeAnnotations/` | strict command, notification, projection-query/content, and output wire DTOs |
 | `Runtime/WorktreeAnnotations/` | `WorktreeAnnotationServiceActor`, change publication, edit ownership, source capture/evaluation orchestration, output coordination |
 | `State/SQLite/WorktreeAnnotations/` | repository protocol, datastore adapter, typed GRDB operations, recovery witness writer |
-| `Transport/WorktreeAnnotations/` | command adapter, pane notification source, projection query/content source, output content source, selection assembler |
+| `Transport/WorktreeAnnotations/` | command adapter, pane notification source, projection query/content source, output content source, New/All scope assembler |
 
 Native AppKit effects stay in App composition:
 
@@ -164,12 +164,12 @@ MainActor state. Direct annotation SQL belongs under
 
 | Truth or effect | Sole owner |
 | --- | --- |
-| sessions, threads, messages, saved bodies, optional drafts, immutable origins, output attempts/events/exact bytes, recovery provenance | `WorktreeAnnotationSQLiteRepository` through `WorkspaceSQLiteDatastoreActor` |
+| sessions, threads, messages, saved bodies, optional drafts, immutable origins, output attempts/events/exact bytes, reversible handled disposition for exact output membership, recovery provenance | `WorktreeAnnotationSQLiteRepository` through `WorkspaceSQLiteDatastoreActor` |
 | semantic command admission, edit-token ownership, demand/query policy, recovery mutation gate, change publication | `WorktreeAnnotationServiceActor` |
 | active notification subscription, pane/worktree/source authority, current placement evaluation, projection descriptor reservations | pane-scoped annotation transport sources |
 | exact mutation/query correlation result | typed command response |
 | pending/newest invalidation and in-flight projection query | worker annotation query controller |
-| last complete fetched projection, inline thread expansion, active editor, focus, unsent text, temporary output selection | BridgeWeb annotation state |
+| last complete fetched projection, inline thread expansion, active editor, focus, unsent text, active New/All Share mode | BridgeWeb annotation state |
 | clipboard replacement and save-panel/file write | App implementation of output-effect contract |
 
 There is no `WorktreeAnnotationProjectionAtom`, annotation `AtomRegistry`
@@ -202,7 +202,20 @@ Thread.origin           located | wholeFile | session
 Message.status          editable | locked
 Message.savedBody       String?
 Message.draft           WorktreeAnnotationDraft?
+Message.handled         Bool, for the exact current saved revision
 ```
+
+The pre-release message row gains `handled`, defaulting to false. Output
+membership already records each attempt's message identity and expected saved
+revision. Known-success finalization sets `handled = true` for the exact
+membership while locking any editable members. `Mark as not handled` resolves
+the attempt membership and sets `handled = false` only where the current saved
+revision still matches; it never unlocks or edits output records. A later known
+success may set the same current revision handled again. Known failure,
+cancellation, recovered unknown, and partial success do not set handled. These
+transactions advance the session semantic revision and publish the ordinary
+session-changed invalidation, so two panes reduce commands in repository commit
+order and converge through the existing last-complete projection path.
 
 PR1 creates only `located` thread origins. Retained `wholeFile` and `session`
 variants have no PR1 UI. `paused` is not lifecycle state; uncertain
@@ -501,6 +514,24 @@ Shared annotation components live under `BridgeWeb/src/worktree-annotations/`
 and compose owned shadcn primitives. File and Review supply thin Pierre range
 adapters. No global/session/whole-file annotation panel or side panel exists.
 
+File and Review content headers each compose the same shared Share-comments
+control. Activating it inserts an ordinary row between the content header and
+Pierre canvas. BridgeWeb owns the transient `new | all` display choice; the
+projection supplies authoritative counts and per-current-saved-body membership.
+The selected choice filters inline comment presentation and is passed directly
+to output preparation. There is no independent candidate list, checkbox state,
+selected count, popover, dialog, nested scroll area, or thread-owned output
+entry point.
+
+One pure shared projection derives Share presentation from the last complete
+annotation snapshot. It filters messages at message granularity, then derives
+each surviving thread's one-message or multi-message compact/expanded shape
+from only the participating messages. Exact and relocated threads flow through
+the existing File/Review Pierre adapters. Outdated and unavailable messages
+flow to `WorktreeAnnotationOtherSavedComments`, an in-layout sibling below the
+Pierre canvas using original location and placement-warning data. Hidden
+messages are absent from rendered, keyboard, and accessibility traversal.
+
 ```text
 one-message thread
   inline = M1
@@ -523,7 +554,8 @@ Core command ownership remains:
 | single M1 right column | Reply, primary-tint Resolve/Reopen |
 | multi-message right column | Reply, primary-tint Resolve/Reopen |
 | composer right column | Revert, primary Save |
-| timeline row | status plus quiet shadcn toolbar actions: Expand/Collapse when multi-message, immediately before More; no inclusion toggle, circular message chrome, or Edit/Reply/Resolve duplication |
+| timeline row | status plus quiet shadcn toolbar actions: Expand/Collapse when multi-message, immediately before More; no output entry, inclusion toggle, circular message chrome, or Edit/Reply/Resolve duplication |
+| File/Review header | Share comments entry; in-flow New/All, Copy Markdown, Export JSON, Done |
 | expanded thread level | Resolve/Reopen once |
 | expanded message | Reply; guarded body click or focused Enter edits |
 
@@ -544,12 +576,17 @@ thread range. Only the active pending/thread range is painted. Selection,
 another range, `+`, outside click, or Escape clears according to the
 Specification.
 
-Pierre keeps selected source lines on its selection paint and the full
+While Share comments is active, body activation continues to paint the exact
+saved Pierre range without using body click to begin Edit. Explicit Edit,
+Reply, and Resolve/Reopen controls retain their normal admission; their command
+results may invalidate and refresh New/All membership. Escape and Done close
+Share comments without an effect. Pierre keeps selected source lines on its
+selection paint and the full
 annotation row on `--diffs-annotation-bg`. The active standalone thread frame
 uses `--comment-active-surface`, a 14% translucent overlay derived from the
-inherited `--diffs-selection-base`, and caps responsively at 48rem. Output
-inclusion and the discoverable Edit action remain inside More; non-interactive
-body click and focused Enter also begin Edit.
+inherited `--diffs-selection-base`, and caps responsively at 48rem. The
+discoverable Edit action remains inside More outside Share mode;
+non-interactive body click and focused Enter also begin Edit outside Share mode.
 
 ## Output preparation and effects
 
@@ -574,18 +611,21 @@ sequenceDiagram
     participant Coordinator as OutputCoordinatorActor
     participant Effect as App output effect
 
-    UI->>Pane: prepare selected saved messages
+    UI->>Pane: output.scope.commit(scope, displayed projection/source fence)
     Pane->>Pane: obtain/refresh native placement snapshot and source fence
-    Pane->>Service: selection + immutable placement handoff
+    Pane->>Service: fenced scope + immutable placement handoff
+    Service->>Repo: atomically validate session/source fence
     Service->>Repo: transaction stores exact batch and prepared attempt
     Repo-->>Coordinator: immutable prepared output
     Coordinator->>Effect: clipboard or save-panel/file effect
     alt effect known success
-        Coordinator->>Repo: finalize success and lock selected messages
+        Coordinator->>Repo: finalize success, lock editable messages, mark exact membership handled
     else effect known failure
         Coordinator->>Repo: cancel attempt
+    else effect known success and finalize fails
+        Coordinator-->>UI: partial success; retain locks, handled remains false
     else result unknown after restart
-        Coordinator->>Repo: mark unknown and lock selected messages
+        Coordinator->>Repo: mark unknown and lock editable messages
     end
 ```
 
@@ -595,12 +635,30 @@ Markdown bodies, and `---` separators. Message Markdown admits H2-H6 but no H1,
 raw HTML, or unsafe link destinations. JSON is versioned, strict, and preserves
 the same message/order/origin/placement facts.
 
-Clipboard success shows the shared Sonner toast and closes Copy UI; it does not
-resolve threads. Export uses the native save panel. Once output succeeds or is
-recovered unknown, selected messages are locked but remain replyable. Output
-history stores exact bytes, selection, format, destination metadata permitted
-by policy, status, and events. Unknown repetition uses stored exact bytes and
-does not rerun current formatting.
+Clipboard and Export success show the shared Sonner toast and close Share
+comments; neither resolves threads. Export uses the native save panel. Once
+output succeeds or is recovered unknown, included editable messages are locked
+but remain replyable and output-eligible. Known success marks the exact current
+saved membership handled by default. The toast and durable history invoke the
+same repository command to mark that exact membership not handled; this changes
+New membership only and never unlocks messages or rewrites output history.
+Output history stores exact bytes, membership, format, destination metadata
+permitted by policy, status, handling disposition, and events. Unknown
+repetition uses stored exact bytes and does not rerun current formatting.
+
+The scope command carries the displayed annotation projection revision, active
+session semantic revision, and File/Review source generation. The pane adapter
+and repository validate those fences before preparation. A mismatch returns the
+existing exact conflict outcome with no effect; BridgeWeb keeps Share comments
+open and lets ordinary invalidation/query convergence install the successor.
+The command never re-evaluates a newer repository scope behind an older visible
+projection.
+
+`output.handled.clear(attemptID, expectedSessionRevision)` is the one reversible
+handling command used by both toast and history. It resolves stored attempt
+membership, checks every current saved revision, clears handled atomically, and
+returns an exact committed/conflict result. It does not reconstruct output or
+repeat an external effect.
 
 ## Failure and recovery
 
@@ -617,7 +675,7 @@ does not rerun current formatting.
 | pane/session closes | cancel notification/query/content tasks and release reservations/edit owner generation |
 | source evaluation unavailable | durable origin remains; current placement is unavailable; no fabricated exact placement |
 | local DB classified corrupt | quarantine DB/WAL/SHM, create fresh DB, write durable recovery witness, expose recovered-degraded, reject mutations until explicit acknowledgement |
-| output effect succeeds but finalization fails | visible partial success; exact prepared attempt remains inspectable and becomes unknown on recovery |
+| output effect succeeds but finalization fails | close Share comments with a partial-success warning; retain provisional locks and exact prepared attempt; leave handled false/New; offer no ordinary retry or Mark as not handled; recover the attempt as unknown |
 
 Recovery provenance is written by `WorkspaceSQLiteDatastoreActor` during
 quarantine-and-replace so “annotations lost in recovery” differs durably from
@@ -696,6 +754,26 @@ or proof weakening.
 
 ## Cutover
 
+The output call path changes in place:
+
+| Behavior | Current edge | Target edge | Status |
+| --- | --- | --- | --- |
+| output entry | thread More or rail handoff opens `WorktreeAnnotationOutputControls` Popover | shared File/Review content-header trigger opens in-flow Share comments | changed |
+| presentation | candidate query feeds paged checkbox list and selected count | last-complete projection derives message-filtered New/All inline threads plus Other saved comments | changed |
+| membership command | `output.selection.begin/chunk/commit` transfers explicit/all-eligible selection | one `output.scope.commit` carries New/All plus displayed projection/session/source fence | changed |
+| native preparation | adapter filters only editable saved messages and assembles current repository membership | adapter validates the displayed fence and assembles editable or locked saved messages in the displayed scope | changed |
+| success | finalize locks members and records exact output | finalize also sets exact current members handled; UI toast dismisses Share comments | changed |
+| unhandle | no predecessor | toast/history invoke `output.handled.clear` against exact attempt membership | added |
+| history inspect/repeat | exact stored bytes inspected or explicitly repeated | same inspect/repeat path; history also exposes durable unhandle action | preserved/extended |
+| failure/cancellation | typed output outcome keeps Popover open | typed outcome keeps Share comments open with no lock/handled transition | changed presentation, preserved effect semantics |
+| partial success | effect occurred, finalization failed, Popover remains | Share comments closes; warning retains prepared/unknown inspection; locked members remain New | changed |
+
+`WorktreeAnnotationOutputCandidateSelection`, output-candidate query routing,
+temporary `outputSelection`, and thread-owned output composition are removed in
+the same cutover. Output history inspection/repetition, immutable batch
+projectors, App clipboard/save-panel effects, exact command settlement, compact
+invalidations, and finite projection/content routes remain authoritative.
+
 This is a hard cutover with no compatibility path:
 
 ```text
@@ -707,11 +785,14 @@ rename application/output actor owners with Actor suffix
 replace complete annotation metadata events with compact notifications
 add projection query/content operation and worker controller
 delete annotation metadata FIFO/cursor/resync machinery
-retain SQLite schema, domain identities, output records, UI behavior, and exact output formats
+add pre-release message handled storage and exact scope/unhandle operations
+replace candidate/selection UI and transport with header-owned New/All Share mode
+retain domain identities, immutable output records, exact output formats, and three physical routes
 ```
 
-No migration changes stored annotation meaning. Existing PR1-created schema is
-still pre-release and cuts over in place on this branch. Product enum literals
+The pre-release local schema cuts over in place with `handled = false` for every
+existing message, so existing saved bodies initially appear under New. No dual
+selection/scope path or compatibility shim remains. Product enum literals
 remain Swift-owned; SQLite gains no product-enum checks.
 
 ## Requirement realization and proof seams
@@ -722,7 +803,7 @@ remain Swift-owned; SQLite gains no product-enum checks.
 | P1-U2/U3; R-P1-003/004/006 | draft scheduler, service edit ownership, revision-checked repository transactions, exact command results, last-complete finite refresh | first-character red/green, debounce/max-wait clock tests, focus loss, Save/Revert, restart, multi-pane invalidation during active editor |
 | P1-U4/U14; R-P1-005/016/017 | 16 KiB policy, complete-message finite-content record cursor, flat threads, compact/expanded inline UI | H2-H6/H1/raw HTML/unsafe link tests, 16/64/128 KiB framing, no split message, M1 vs summary+last, inline chronology and Pierre remeasurement |
 | P1-U5/U6/U7; R-P1-002/007/008 | native source capture/evaluator, pane-scoped placement, reviewer continuity choice, Pierre adapters | File/Review range creation, exact/relocated/outdated/unavailable, same/uncertain/detached, active-only range paint |
-| P1-U9/U10/U11/U12; R-P1-010/011/012/013 | arbitrary selection assembler, immutable batch projectors, output coordinator actor, App effects, exact history | 130 candidates, exact Markdown/JSON, real clipboard/save file, partial success, restart unknown, repetition exact bytes |
+| P1-U9/U10/U11/U12; R-P1-010/011/012/013 | projection/session/source-fenced New/All scope assembler, message handled column and attempt-membership reduction, filtered inline/Other presentation, immutable batch projectors, output coordinator actor, App effects, exact history | stale displayed scope conflicts with no effect; mixed-thread New/All matrix including locked/draft/unavailable placement; repository success/unhandle/later-success/two-pane/restart reduction; exact Markdown/JSON; real clipboard/save file; success dismissal; durable Mark as not handled; partial success; restart unknown; repetition exact bytes |
 | R-P1-014 | service multicast observer registry, per-observer aggregate coalescence, pane notifications, snapshot-consistent paged query, worker query fencing, reconnect snapshot-required | register-two-before-bootstrap, mutation during initial query reaches both, invalidation 11...15 coalesces, reset/reopen current query, >2 MiB page identity/ordering, stale query rejection, exact observer cleanup, last-complete retention |
 | R-P1-015 | no agent/delivery/App IPC/delete/global UI types or methods | architecture/source scans and complete diff review |
 
@@ -744,4 +825,5 @@ do not prove SQLite, NSPasteboard, NSSavePanel, or packaged focus behavior.
 - Pierre upgrade is separate work; PR1 uses the repository's current pinned
   version.
 - Side panel, global/session/whole-file UI, rendered-preview anchoring, deletion,
-  agent replies, delivery, acknowledgement, and App IPC remain outside PR1.
+  agent replies, delivery, agent acknowledgement, and App IPC remain outside
+  PR1.

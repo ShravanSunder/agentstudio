@@ -12,8 +12,9 @@ Program Design:
 
 PR1 is complete when a human can create or continue one living annotation
 session in File View and Review View, recover unfinished human-message drafts,
-explicitly save output-eligible message content, copy any selected saved
-messages as a path- and line-oriented Markdown packet, export the same batch as
+explicitly save output-eligible message content, display the current saved
+messages under `New` or `All`, copy that displayed set as a path- and
+line-oriented Markdown packet, export the same batch as
 versioned JSON, return after the worktree changes, and continue or resolve the
 inline review threads without any direct agent integration.
 
@@ -22,7 +23,7 @@ inspect source-backed material
   → start an inline human thread, or expand it to reply/edit
   → autosave and recover message draft
   → Save intentional message content
-  → select saved messages
+  → open Share comments and display New or All saved messages
   → Copy Markdown or Export JSON
   → inspect changed worktree in the same session
   → resolve or continue inline threads; continuity may pause or detach
@@ -48,9 +49,10 @@ main File / Review view
            keep that thread's range painted while open
            Pierre remeasures the row; no nested thread scrollbar
 
-  Copy selected → clipboard → "Copied N comments" toast
-                               copy interaction closes
-                               threads remain open
+  Copy/Export displayed set → effect succeeds → success toast
+                                                 Share comments closes
+                                                 handled by default
+  toast/history → Mark as not handled → exact saved bodies return to New
 
 No PR1 global-review panel, whole-file/session comments, persistent session
 chrome, or comment sidebar exists.
@@ -227,7 +229,7 @@ expanded thread level
   Resolve/Reopen exactly once
 
 output interaction
-  More → Review output → select messages · Copy Markdown · Export JSON
+  File/Review header → Share comments → New | All · Copy Markdown · Export JSON
 
 edit interaction
   guarded body click · focused Enter · More → Edit annotation
@@ -375,8 +377,9 @@ saved message
 
 Every annotation is a thread with one root human message. Every later PR1
 message is a human reply in one flat chronological sequence in that thread;
-replies do not nest. Only an `editable` message with a saved body and no draft
-may enter output selection. Autosave never changes thread resolution. Thread
+replies do not nest. Only a message with a current saved body and no draft may
+enter the New or All output projection. Lock controls editing, not output
+membership. Autosave never changes thread resolution. Thread
 resolution is `open | resolved`, applies to the whole thread rather than an
 individual message, and changes only through an explicit human action.
 
@@ -570,12 +573,13 @@ draft so clearing the editor is durable; Save remains unavailable while the
 body is invalid and Revert remains available.
 
 The UI MUST distinguish a draft from the saved body and offer Save and Revert.
-Output selection MUST admit only an `editable` message whose saved body is
-present and whose draft is absent. It MUST NOT silently output a prior saved
-body while unsaved edits exist. Draft state MUST use a visible text label and a
-warning-semantic cue, never color alone. Successful or crash-unknown output
-MUST change included messages to `locked`; locked messages cannot be edited or
-selected again, but their threads remain replyable.
+New/All output membership MUST admit an editable or locked message whose saved
+body is present and whose draft is absent. It MUST NOT silently output a prior
+saved body while unsaved edits exist. Draft state MUST use a visible text label
+and a warning-semantic cue, never color alone. Successful or crash-unknown
+output MUST change included editable messages to `locked`; locked messages
+cannot be edited, but remain output-eligible under New or All and their threads
+remain replyable.
 
 Basis: P1-U3, P1-U9.
 
@@ -621,15 +625,52 @@ read-only; its management surface is follow-up scope.
 
 Basis: P1-U8.
 
-### R-P1-010 — Deterministic batch snapshot
+### R-P1-010 — Deterministic New or All batch snapshot
 
-The reviewer MUST be able to select any non-empty subset of eligible saved
-human messages or all eligible saved messages. Eligibility requires status
-`editable`, a present saved body, and no draft. Invoking Copy or Export MUST
-construct one immutable batch snapshot containing the exact selected message
-identities, saved bodies, immutable origins, trustworthy current
-thread-placement summaries, source excerpts, thread-resolution states, and
-deterministic order.
+File View and Review View MUST expose Share comments from the viewer header as
+an ordinary in-layout command row rather than a popover, dialog, floating
+overlay, thread command, or nested scroll surface. Share comments MUST default
+to `New` and let the reviewer switch between `New` and `All`. That choice MUST
+filter the inline comments shown by the viewer and MUST be the complete output
+membership; PR1 MUST NOT add a second thread/message checklist or selected-count
+state.
+
+`New` MUST contain every current saved body whose handled boundary is not set,
+whether its message is editable or locked. `All` MUST contain every current
+saved body, whether new or handled and whether editable or locked. A message
+with a draft MUST contribute neither the draft nor its prior saved body until
+the draft is Saved or Reverted. Outdated or unavailable located comments that
+cannot render inline MUST appear in one temporary in-flow `Other saved comments`
+section while Share comments is active; this section MUST NOT admit future
+whole-file, session, or general-review comment kinds.
+
+The filter applies at message granularity. Under `New`, a thread is present only
+when it has at least one new current saved message, and only those new messages
+participate in its compact or expanded projection. Under `All`, every current
+saved message participates. A filtered thread with one participating message
+renders that message directly; one with two or more derives M-summary, M-last,
+message count, latest activity, and expansion chronology from only the
+participating messages. Handled or draft-bearing messages hidden by the active
+filter MUST NOT remain in keyboard or accessibility traversal. `Other saved
+comments` uses the same message filter and ordering but presents the original
+location and placement warning because no trustworthy Pierre slot exists.
+
+While Share comments is active, clicking a comment body MUST activate and paint
+its complete Pierre range without beginning Edit. Explicit Edit, Reply, and
+Resolve/Reopen controls retain their normal contracts; a committed mutation may
+change New/All membership through ordinary projection convergence. `Escape` and
+`Done` MUST close the mode without output, while Command+A retains ordinary
+text-selection meaning. An empty New or All display MUST disable Copy and
+Export.
+
+Invoking Copy or Export MUST construct one immutable batch snapshot containing
+the exact displayed message identities, saved bodies, immutable origins,
+trustworthy current thread-placement summaries, source excerpts,
+thread-resolution states, and deterministic order. The invocation MUST bind the
+displayed annotation projection and source generation. If either is stale,
+native MUST return an exact no-effect conflict, Share comments MUST remain open,
+and normal projection convergence MUST refresh the displayed membership before
+another output attempt.
 
 The order MUST group located threads by repository-relative path, then use the
 trustworthy current line or original line when no current line is trustworthy,
@@ -637,8 +678,8 @@ and finally stable thread and message identity. Later message edits or
 thread-placement changes MUST NOT alter the batch.
 
 ```text
-selection
-   │ validate editable + savedBody present + draft absent
+New or All display
+   │ validate current savedBody present + draft absent
    ▼
 snapshot exact saved bodies + source context + thread state
    │ deterministic order
@@ -646,7 +687,7 @@ snapshot exact saved bodies + source context + thread state
    └─► JSON projection     ──► native save-panel/file effect
 
 Both projections consume the same immutable snapshot; neither rebuilds the
-selection independently.
+displayed membership independently.
 ```
 
 Basis: P1-U9, P1-U12.
@@ -893,22 +934,31 @@ Basis: P1-U11.
 
 A successful clipboard replacement or completed file write MUST create durable
 output history for the exact immutable batch and output kind and MUST make every
-included message immutable. History MUST allow the reviewer to inspect and
-reproduce the original output semantics. It MUST NOT mark any thread or message
-delivered, acknowledged, accepted, or resolved. Later clarification MUST be a
-new human reply in the same thread.
+included editable message immutable. History MUST allow the reviewer to inspect
+and reproduce the original output semantics. It MUST NOT mark any thread or
+message delivered, agent-acknowledged, accepted, or resolved. Later
+clarification MUST be a new human reply in the same thread.
 
-After normal Copy success, the UI MUST show a concise `Copied N comments`
-confirmation using the product-owned shadcn-style toast presentation, close the
-copy interaction, and leave every containing thread open and visible. Copy MUST
-NOT resolve, collapse, or hide a thread and MUST NOT claim that an agent
-addressed it.
+After normal Copy or Export success, the UI MUST show a concise result-specific
+confirmation using the product-owned shadcn-style toast presentation, mark the
+exact output saved bodies handled by default, close Share comments, and leave
+every containing thread open and visible. The toast and durable output history
+MUST both offer `Mark as not handled` for that exact output membership. That
+action MUST return those exact current saved bodies to `New` without unlocking
+their messages or mutating the immutable output event. Copy and Export MUST NOT
+resolve, collapse, or hide a thread or claim that an agent addressed it.
 
 Generation or validation failure MUST cause no clipboard/file effect and no
 history entry. User-cancelled file selection MUST cause neither a file nor
-history entry. If an external output succeeds but durable history subsequently
-fails, the UI MUST report partial success accurately and MUST NOT claim that
-history was recorded.
+history entry. Failure or cancellation MUST leave Share comments open and MUST
+not create a new lock or handled transition. If an external output succeeds but
+durable history subsequently fails, the UI MUST report partial success
+accurately and MUST NOT claim that history was recorded. This partial success
+MUST close Share comments because the external effect is known to have occurred,
+leave the exact included messages locked, leave their handled boundary unset so
+they remain `New`, and expose no `Mark as not handled` action. The warning MUST
+direct the reviewer to the inspectable prepared/unknown attempt rather than
+offering an ordinary retry that could duplicate the external effect.
 
 If restart recovers a prepared attempt whose clipboard/file outcome cannot be
 proven, history MUST show the attempt as `unknown`, included messages MUST stay
@@ -970,7 +1020,7 @@ Basis: P1-U1, P1-U2, P1-U6, P1-U8, P1-U12, P1-U14.
 ### R-P1-015 — PR1 stop line
 
 Every requirement above MUST be satisfiable when no agent integration,
-delivery target, provider, authorization binding, acknowledgement state,
+delivery target, provider, authorization binding, agent-acknowledgement state,
 reconciliation state, Codex process, or annotation App IPC operation exists.
 
 Basis: all P1-U rows and the confirmed PR1/PR2 boundary.
@@ -989,9 +1039,9 @@ compact inline surface. A thread containing two or more messages MUST render
 exactly M-summary plus M-last while collapsed. M-summary MUST derive
 deterministically from the current thread projection and identify message count,
 latest activity, resolution, and any hidden Draft, placement, or lock state
-needed to avoid a false compact representation. Temporary output-selection
-differences MUST remain inside the Review output interaction and MUST NOT appear
-as thread-summary status. M-summary MUST NOT become a
+needed to avoid a false compact representation. Temporary New/All presentation
+differences MUST remain inside Share comments and MUST NOT appear as
+thread-summary status. M-summary MUST NOT become a
 stored, selectable, exportable, or replyable message. M-last MUST remain the
 projection of the actual latest message.
 
@@ -1006,8 +1056,9 @@ right columns MUST contain Revert and the primary-treated Save. These core
 controls MUST be icon-only controls with a canonical identity, tooltip, and
 accessible name. Message and composer command rails MUST use the visible
 circular treatment. The separate timeline row MUST own status, More, and—only
-for a multi-message thread—Expand or Collapse immediately before More. Message
-inclusion for Copy or Export MUST remain inside More → Review output; the
+for a multi-message thread—Expand or Collapse immediately before More. Copy and
+Export MUST remain owned by the File/Review header Share comments mode; thread
+More MUST remain local to actions such as Edit and MUST NOT open output. The
 timeline MUST NOT expose a permanent inclusion toggle. Timeline actions MUST
 use the quiet owned shadcn toolbar treatment rather than circular
 message-command chrome. The timeline row MUST NOT duplicate Edit, Reply, or
@@ -1085,11 +1136,11 @@ dynamic complete-message packing
 | Contract slot | PR1 behavior |
 | --- | --- |
 | Consumer | human reviewer and pasted-text recipient |
-| Input | one non-empty deterministic selection of editable messages with saved bodies and no drafts |
-| Success | packet replaces clipboard; exact history is recorded; copied toast appears; copy UI closes; threads remain open |
-| Empty selection | action is unavailable or rejected without effect |
+| Input | non-empty deterministic New or All display of current saved bodies with no drafts |
+| Success | packet replaces clipboard; exact history is recorded; messages lock as needed; bodies become handled by default; toast and durable history offer Mark as not handled; Share comments closes; threads remain open |
+| Empty display | action is unavailable or rejected without effect |
 | Generation/validation failure | no clipboard mutation and no history |
-| Clipboard succeeds/history fails | visible partial success; clipboard content remains; no false history claim |
+| Clipboard succeeds/history fails | Share comments closes; visible partial success; clipboard content remains; included messages stay locked and New; no Mark as not handled or false history claim; prepared attempt is inspectable and recovers unknown |
 | Recovered unknown attempt | inspectable unknown history; messages locked; exact bytes may be copied again only by explicit action |
 | Cancellation | not applicable after invocation |
 | Compatibility | Markdown is model-readable output, not a machine parsing contract |
@@ -1099,11 +1150,11 @@ dynamic complete-message packing
 | Contract slot | PR1 behavior |
 | --- | --- |
 | Consumer | human reviewer and structured-file recipient |
-| Input | one non-empty deterministic selection of editable messages with saved bodies and no drafts, plus a user-selected destination |
-| Success | one complete versioned JSON file is present and exact batch history is recorded |
+| Input | non-empty deterministic New or All display of current saved bodies with no drafts, plus a user-selected destination |
+| Success | one complete versioned JSON file is present; exact history is recorded; messages lock as needed; bodies become handled by default; toast and durable history offer Mark as not handled; Share comments closes |
 | User cancellation | no output file and no history |
 | Generation/validation failure | no output file and no history |
-| File succeeds/history fails | visible partial success; file remains; no false history claim |
+| File succeeds/history fails | Share comments closes; visible partial success; file remains; included messages stay locked and New; no Mark as not handled or false history claim; prepared attempt is inspectable and recovers unknown |
 | Compatibility | unsupported format versions fail closed; PR1 makes no cross-version compatibility promise |
 
 ## Reliability and quality obligations
@@ -1178,9 +1229,9 @@ authorization to prebuild PR2 delivery machinery.
 | R-P1-002, R-P1-007 | automated selection/admission and placement-state behavior using real source evidence plus manual pending-range and endpoint/gutter `+` proof; focus each compact thread and its controls, move activity between threads, keep expanded-thread activity, and clear comment activity to prove exactly one full stored range is painted through `selectedLines`, inactive cards retain no range paint, and no location command exists |
 | R-P1-003, R-P1-004, R-P1-006 | automated draft/save/revert behavior with controlled time and restart state inspection, plus a real-thread Reply/Edit projection-reconciliation case proving the first character, editor identity, local value, focus, containing thread, and single editing authority remain continuous while state and content updates arrive separately |
 | R-P1-005, R-P1-017 | automated Markdown/size/frame admission plus manual visual inspection and boundary rejection |
-| R-P1-010, R-P1-011 | deterministic snapshot/Markdown behavior plus actual clipboard inspection |
+| R-P1-010, R-P1-011 | deterministic New/All scope and Markdown behavior; File/Review browser plus manual visual proof of header entry, in-flow row, no checklist/popover/nested scroll, body range activation without editing, empty-scope disablement, Other saved comments, Escape/Done, and actual clipboard inspection |
 | R-P1-012 | schema validation, encode/decode, malformed-input, and unsupported-version evidence |
-| R-P1-013 | automated failure/partial-success behavior plus actual file/clipboard effect inspection |
+| R-P1-013 | automated Copy/Export success dismissal, default handled transition, toast/history Mark as not handled, failure/cancellation retention, partial-success behavior, and actual file/clipboard effect inspection |
 | R-P1-014 | integration behavior across File/Review and restart with canonical state inspection |
 | R-P1-016 | automated M1-only and collapsed M-summary-plus-M-last rendering, focus activation without expansion, expanded-thread active range, one inline M-summary-plus-M1-through-Mn chronology, Pierre row growth with stable row top/scroll anchor, exact command ownership, independent same-coordinate threads, inline authoring, Escape/outside-click/focus-return behavior, and collapsed-content accessibility exclusion plus manual File/Review, narrow-width, 200% text, reduced-motion, and packaged VoiceOver interaction |
 | R-P1-015 | dependency/surface inspection proving the complete journey without PR2 machinery |
