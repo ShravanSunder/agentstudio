@@ -209,9 +209,7 @@ enum WorktreeAnnotationSourceCapture {
         case .session:
             return nil
         case .wholeFile(_, let sourceRole):
-            guard sourceRole == .reviewBase || sourceRole == .reviewHead else {
-                throw WorktreeAnnotationSourceResolutionError.invalidSource
-            }
+            guard sourceRole == .reviewBase || sourceRole == .reviewHead else { return nil }
             return ReviewRefreshRequirement(
                 sourceRole: sourceRole,
                 sourceIdentity: nil,
@@ -219,7 +217,7 @@ enum WorktreeAnnotationSourceCapture {
             )
         case .located(let origin):
             guard origin.sourceRole == .reviewBase || origin.sourceRole == .reviewHead else {
-                throw WorktreeAnnotationSourceResolutionError.invalidSource
+                return nil
             }
             return ReviewRefreshRequirement(
                 sourceRole: origin.sourceRole,
@@ -444,14 +442,10 @@ extension BridgePaneProductFileMetadataSource {
             case .session:
                 continue
             case .wholeFile(let path, let sourceRole):
-                guard sourceRole == .file else {
-                    throw WorktreeAnnotationSourceResolutionError.invalidSource
-                }
+                guard sourceRole == .file else { continue }
                 candidatePaths.insert(path)
             case .located(let origin):
-                guard origin.sourceRole == .file else {
-                    throw WorktreeAnnotationSourceResolutionError.invalidSource
-                }
+                guard origin.sourceRole == .file else { continue }
                 candidatePaths.insert(origin.repositoryRelativePath)
             }
         }

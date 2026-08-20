@@ -6,8 +6,8 @@ import Testing
 @MainActor
 @Suite("Worktree annotation source capture")
 struct WorktreeAnnotationSourceCaptureTests {
-    @Test("Review refresh loads the exact published head handle")
-    func reviewRefreshLoadsExactPublishedHeadHandle() async throws {
+    @Test("Review refresh loads its exact head handle and ignores File-only origins")
+    func reviewRefreshLoadsExactPublishedHeadHandleAndIgnoresFileOrigins() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let publication = makeReviewPackage(
             itemCount: 1,
@@ -63,7 +63,25 @@ struct WorktreeAnnotationSourceCaptureTests {
                             contextAfter: nil
                         )
                     )
-                )
+                ),
+                WorktreeAnnotationSourceRefreshRequirement(
+                    threadID: WorktreeAnnotationThreadID(
+                        rawValue: UUID(uuidString: "55555555-5555-7555-8555-555555555555")!
+                    ),
+                    origin: .located(
+                        WorktreeAnnotationLocatedOrigin(
+                            repositoryRelativePath: "Sources/FileOnly.swift",
+                            startLine: 1,
+                            endLine: 1,
+                            sourceRole: .file,
+                            diffSide: nil,
+                            sourceIdentity: "file-source-1",
+                            selectedExcerpt: "file content",
+                            contextBefore: nil,
+                            contextAfter: nil
+                        )
+                    )
+                ),
             ],
             productAdmission: productAdmission.context
         )
