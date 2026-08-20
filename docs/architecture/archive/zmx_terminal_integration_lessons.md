@@ -241,7 +241,7 @@ correct — the bug reproduced in Ghostty's own app, proving it was a zmx issue.
 
 | Document | Relevance |
 |----------|-----------|
-| [Session Lifecycle](session_lifecycle.md) | zmx IPC protocol, binary format, session name derivation, restore flow |
-| [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Deferred attach sequencing, geometry readiness, SIGWINCH relay path |
+| [Session Lifecycle](../runtime/session_lifecycle.md) | zmx IPC protocol, binary format, session name derivation, restore flow |
+| [Zmx Restore and Sizing](../runtime/zmx_restore_and_sizing.md) | Deferred attach sequencing, geometry readiness, SIGWINCH relay path |
 | [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Future: SSH tunnel architecture, fork strategy, security model |
-| [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface lifecycle, C API primitives |
+| [Surface Architecture](../runtime/ghostty_surface_architecture.md) | Ghostty surface lifecycle, C API primitives |

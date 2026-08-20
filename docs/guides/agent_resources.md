@@ -236,7 +236,7 @@ The current app layout is hybrid:
   observable view models, not atoms or global stores.
 - `Infrastructure/` owns domain-agnostic utilities and external integrations.
 
-Use [Directory Structure & Module Boundaries](../architecture/directory_structure.md) as the placement source of truth.
+Use [Directory Structure & Module Boundaries](../architecture/structure/directory_structure.md) as the placement source of truth.
 
 ### Zig Build System
 Ghostty and zmx are built by `mise run setup` in the primary worktree or an
@@ -247,4 +247,4 @@ primary, or use `mise run setup --use-local-vendors` when the accepted task
 requires changing Ghostty or zmx.
 
 ### Swift Concurrency
-The project targets **macOS 26 only** (`.macOS(.v26)` in `Package.swift`). Use Swift 6.2 concurrency features deliberately: `@MainActor` for UI/state mutation, actors for boundary work, `AsyncStream`/`AsyncThrowingStream` for event streams, and `@concurrent nonisolated` for blocking work that must escape an actor executor. Refer to the [Swift Language Guide](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/) and [Pane Runtime EventBus Design](../architecture/pane_runtime_eventbus_design.md) before changing concurrency boundaries.
+The project targets **macOS 26 only** (`.macOS(.v26)` in `Package.swift`). Use Swift 6.2 concurrency features deliberately: `@MainActor` for UI/state mutation, actors for boundary work, `AsyncStream`/`AsyncThrowingStream` for event streams, and `@concurrent nonisolated` for blocking work that must escape an actor executor. Refer to the [Swift Language Guide](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/) and [Pane Runtime EventBus Design](../architecture/runtime/pane_runtime_eventbus_design.md) before changing concurrency boundaries.

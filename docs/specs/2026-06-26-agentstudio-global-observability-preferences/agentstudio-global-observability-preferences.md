@@ -111,9 +111,9 @@ Source anchors:
 - `Sources/AgentStudio/Infrastructure/AppDataPaths.swift:44-60`
 - `scripts/run-debug-observability.sh:464-476`
 - `scripts/run-debug-observability.sh:631-688`
-- `docs/architecture/component_architecture.md:576-598`
-- `docs/architecture/observability_and_traceability.md:11-21`
-- `docs/architecture/observability_and_traceability.md:43-56`
+- `docs/architecture/structure/component_architecture.md:576-598`
+- `docs/architecture/observability/observability_and_traceability.md:11-21`
+- `docs/architecture/observability/observability_and_traceability.md:43-56`
 - `Sources/AgentStudio/Infrastructure/Diagnostics/AgentStudioOTLPBootstrapper.swift:92-183`
 
 ## Design Contract

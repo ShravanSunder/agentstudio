@@ -4,7 +4,15 @@ AgentStudio app IPC is the app-level programmatic-control boundary for local
 automation, pane agents, and future MCP adapters. It exposes semantic app
 methods over local transports without exposing zmx daemon IPC as a public API.
 
+Command verbs, labels, and `ipcSpec` classification live in
+[Command Specs](command_specs.md) — not in this transport document. Adding an
+IPC method requires classifying `ipcSpec` on an `AppCommand` in the same change.
+
 ## Status
+
+This section is a transport inventory, not a command catalog. Verbs live in
+[Command Specs](command_specs.md). Remaining method names here must not be
+added as RPC without `ipcSpec`.
 
 The phase-1 foundation currently owns:
 
@@ -48,7 +56,7 @@ The phase-1 foundation currently owns:
 - Pane-agent bootstrap primitive that delivers a single-use subject token
   through a close-on-exec file descriptor while environment variables carry
   only socket/runtime routing metadata.
-- App-owned pane-agent launch owner under [`App/PaneAgents`](../../Sources/AgentStudio/App/PaneAgents) that remaps exactly
+- App-owned pane-agent launch owner under [`App/PaneAgents`](../../../Sources/AgentStudio/App/PaneAgents) that remaps exactly
   one bootstrap fd into `agentstudio-pane-agent` with
   `POSIX_SPAWN_CLOEXEC_DEFAULT`.
 - `agentstudio-pane-agent` helper executable that reads the bootstrap fd once,
@@ -457,7 +465,7 @@ IPC methods are not command-bus messages. The app IPC layer validates method
 identity, principal authority, target scope, and grants before calling the
 smallest app-owned protocol port that can satisfy the operation.
 
-The live app listener is composed by [`AppDelegate+IPC.swift`](../../Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift) after workspace
+The live app listener is composed by [`AppDelegate+IPC.swift`](../../../Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift) after workspace
 boot wires lifecycle consumers. It writes runtime metadata under
 `AppDataPaths.rootDirectory()/ipc`, refuses to steal an existing live socket,
 unlinks only stale dead sockets, and stops before termination persistence drains

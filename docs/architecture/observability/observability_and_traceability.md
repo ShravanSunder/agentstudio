@@ -113,12 +113,12 @@ probe sequence. The snapshot compares the current on-disk app executable
 identity to the startup baseline and exports only controlled classifications
 such as same/different/missing disk identity plus reachability. Raw executable
 paths remain JSONL-only.
-Use [`scripts/report-tcc-upgrade-probe-observability.sh`](../../scripts/report-tcc-upgrade-probe-observability.sh) after a marker-scoped
+Use [`scripts/report-tcc-upgrade-probe-observability.sh`](../../../scripts/report-tcc-upgrade-probe-observability.sh) after a marker-scoped
 debug or beta launch to summarize the identity/access rows. The report helper
 is read-only and can require identity discontinuity or access denial, which is
 the proof gate for a Homebrew-style replacement reproduction.
 For the generated-debug reproduction only, use
-[`scripts/replace-running-debug-app-for-tcc-probe.sh`](../../scripts/replace-running-debug-app-for-tcc-probe.sh) to dry-run and, with
+[`scripts/replace-running-debug-app-for-tcc-probe.sh`](../../../scripts/replace-running-debug-app-for-tcc-probe.sh) to dry-run and, with
 explicit acknowledgement, replace the executable inside the generated
 per-worktree debug app while the monitor is active. The helper refuses beta,
 stable, `/Applications`, and non-generated debug paths; it is not a release or
@@ -246,7 +246,7 @@ beta app launched, rendered, and accepted a UI interaction, but it does not
 replace marker-scoped VictoriaLogs/VictoriaMetrics proof for telemetry or
 focused tests for source-side projection and safety rules. The debug-binary
 launch recipe is
-[Peekaboo PID Targeting](../guides/agent_resources.md#peekaboo-pid-targeting).
+[Peekaboo PID Targeting](../../guides/agent_resources.md#peekaboo-pid-targeting).
 
 ## Local proof launch
 

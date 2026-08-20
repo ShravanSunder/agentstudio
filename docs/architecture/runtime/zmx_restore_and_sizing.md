@@ -96,7 +96,7 @@ User resizes window
   With zmx: 3 extra IPC hops before the shell knows about the resize.
 ```
 
-See [zmx Terminal Integration](zmx_terminal_integration_lessons.md) for the full investigation (21 debugging epochs) and design principles.
+See [zmx Terminal Integration](../archive/zmx_terminal_integration_lessons.md) for the full investigation (21 debugging epochs) and design principles.
 
 ## Runtime Flow
 
@@ -226,14 +226,14 @@ The automated suites cover the attach/sizing gate policy and zmx daemon lifecycl
 
 ## Ticket Mapping
 
-- `LUNA-295`: `Two Attach Paths (Current + Target)` → see also [Contract 5a: Attach Readiness Policy](pane_runtime_architecture.md#contract-5a-attach-readiness-policy-luna-295)
-- `LUNA-324`: `Startup zmx Session Reconciliation (LUNA-324)` and future background janitor policy → see also [Contract 5b: Restart Reconcile Policy](pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
+- `LUNA-295`: [Two Attach Paths (Current + Target)](#two-attach-paths-current--target)
+- `LUNA-324`: [Startup zmx Session Reconciliation](#startup-zmx-session-reconciliation-luna-324)
 - `LUNA-342`: `Lifecycle Facts (Ghostty + zmx)` and contract wording in this document
 - `LUNA-354`: zmx backend IPC — direct IPC replacing CLI shell-outs
 
 ## Related Documentation
 
-- **[zmx Terminal Integration](zmx_terminal_integration_lessons.md)** — Two-terminal problem investigation, OSC 133 fix, design principles
+- **[zmx Terminal Integration](../archive/zmx_terminal_integration_lessons.md)** — Two-terminal problem investigation, OSC 133 fix, design principles
 - **[Session Lifecycle](session_lifecycle.md)** — zmx IPC protocol, binary format, session restore flow
-- **[Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md)** — SSH tunnel architecture, fork strategy
+- **[Remote zmx Architecture Ideas](../archive/remote_zmx_architecture_ideas.md)** — SSH tunnel architecture, fork strategy
 - **[Surface Architecture](ghostty_surface_architecture.md)** — Ghostty C API, surface lifecycle, occlusion

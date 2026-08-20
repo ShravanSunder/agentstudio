@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. AppKit controls the window lifecycle, responder chain, and terminal surface management. SwiftUI handles forms, lists, and animations. State is distributed across independent `@Observable` stores (Jotai-style) with `private(set)` for unidirectional flow (Valtio-style). A coordinator sequences cross-store operations. See [Component Architecture](component_architecture.md) for the full data model and service layer.
+Agent Studio uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. AppKit controls the window lifecycle, responder chain, and terminal surface management. SwiftUI handles forms, lists, and animations. State is distributed across independent `@Observable` stores (Jotai-style) with `private(set)` for unidirectional flow (Valtio-style). A coordinator sequences cross-store operations. See [Component Architecture](../structure/component_architecture.md) for the full data model and service layer.
 
 ---
 
@@ -31,8 +31,8 @@ Agent Studio follows an **AppKit-main** architecture. This decision was made to 
 Host surfaces such as pane toolbars, drawer chrome, window chrome, and tab shells remain App-owned assembly points. When those surfaces embed capability-specific UI, keep the shell and placement logic in `App/` while the reusable capability content lives in its owning `Features/<Capability>/` slice.
 
 Example:
-- [`App/Panes/DrawerEditorChooser/`](../../Sources/AgentStudio/App/Panes/DrawerEditorChooser) owns the drawer toolbar button, anchoring, divider, and pane wiring
-- [`SharedComponents/EditorChooser/`](../../Sources/AgentStudio/SharedComponents/EditorChooser) owns the numbered editor chooser menu rows and bookmark UI
+- [`App/Panes/DrawerEditorChooser/`](../../../Sources/AgentStudio/App/Panes/DrawerEditorChooser) owns the drawer toolbar button, anchoring, divider, and pane wiring
+- [`SharedComponents/EditorChooser/`](../../../Sources/AgentStudio/SharedComponents/EditorChooser) owns the numbered editor chooser menu rows and bookmark UI
 
 ### NSHostingController
 Use for full-screen components, sidebars, or major view controller containment.
@@ -199,7 +199,7 @@ height assumptions in the content hierarchy.
 
 ## Data Flow & State
 
-The full data model, service layer, and mutation pipeline are documented in [Component Architecture](component_architecture.md). Key patterns relevant to the AppKit+SwiftUI boundary:
+The full data model, service layer, and mutation pipeline are documented in [Component Architecture](../structure/component_architecture.md). Key patterns relevant to the AppKit+SwiftUI boundary:
 
 - **Atomic stores**: `WorkspaceStore`, `SurfaceManager`, `SessionRuntime` — each `@Observable @MainActor`, each owns one domain. All state is `private(set)` for unidirectional flow. SwiftUI views observe store properties automatically via `@Observable` property tracking. No `@Published`, no `objectWillChange`, no Combine subscriptions.
 - **Coordinator**: `WorkspaceSurfaceCoordinator` sequences cross-store operations (e.g., close tab touches `WorkspaceStore` + `SurfaceManager` + `SessionRuntime`). Owns no domain state.
@@ -326,7 +326,7 @@ Terminal process termination routes through `PaneTabViewController.handleTermina
 
 `PaneCloseTransitionCoordinator` provides fast visual feedback on pane close. It marks a pane as "closing" (opacity 0.58, scale 0.985) then dispatches the actual close action after a short delay. `PaneLeafContainer` reads `closingPaneIds` and applies the transition. The pane is non-interactive during the transition.
 
-See [Component Architecture — Service Layer](component_architecture.md#3-service-layer) for detailed descriptions of each service.
+See [Component Architecture — Service Layer](../structure/component_architecture.md#3-service-layer) for detailed descriptions of each service.
 
 ### Split Drag Interaction Path
 
@@ -427,7 +427,7 @@ Agents reviewing Swift concurrency code must not flag these as bugs:
 | `Task { [weak self] in self?.prop }` in `@MainActor` method | Task inherits MainActor isolation (SE-0304) |
 | `cont!` after `AsyncStream<T> { cont = $0 }` | Build closure is synchronous — cont is always set |
 | `continuation.finish()` in `isolated deinit` | Continuation is Sendable, deinit runs on actor |
-| Events emitted during `.draining` lifecycle | `.draining` is the lifecycle state where a runtime flushes remaining events before transitioning to `.terminated`. Events during draining are intentional — see [Contract 5](pane_runtime_architecture.md#contract-5-panelifecyclestatemachine). |
+| Events emitted during `.draining` lifecycle | `.draining` is the lifecycle state where a runtime flushes remaining events before transitioning to `.terminated`. Events during draining are intentional — see [Session Lifecycle States](../runtime/session_lifecycle.md#session-lifecycle-states). |
 | `[weak self]` + `while let self` loop in Task | Strong ref held per iteration, released between iterations — no retain cycle |
 | `DispatchQueue.main.async` in NSView subclasses | These classes are already `@MainActor`. The dispatch is redundant but compiles. Tracked as SwiftLint warnings for LUNA-325 migration — not a correctness bug. |
 
@@ -501,7 +501,7 @@ consumes the event only after `TabContextMenuPresenter` accepts presentation.
 
 ### Reference Implementation
 
-See [`DraggableTabBarHostingView.swift`](../../Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift) for the gesture recognizer pattern applied to tab bar drag-to-reorder.
+See [`DraggableTabBarHostingView.swift`](../../../Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift) for the gesture recognizer pattern applied to tab bar drag-to-reorder.
 
 ---
 
@@ -601,7 +601,7 @@ the authoritative command ID, `AppCommandSpec` carries the authoritative metadat
 commands, and `atom(\.workspaceFocus).currentFocus(...)` provides the shared app-wide focus context.
 The command bar consumes those shared models; it does not define commands itself.
 
-> **Files:** [`Features/CommandBar/CommandBarPanelController.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarPanelController.swift), [`Features/CommandBar/CommandBarState.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarState.swift), [`Features/CommandBar/CommandBarDataSource.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift), [`Infrastructure/Search/CommandBarSearch.swift`](../../Sources/AgentStudio/Infrastructure/Search/CommandBarSearch.swift), [`Features/CommandBar/CommandBarPanel.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarPanel.swift), [`Features/CommandBar/CommandBarItem.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarItem.swift), [`Features/CommandBar/CommandBarWorktreeActionResolver.swift`](../../Sources/AgentStudio/Features/CommandBar/CommandBarWorktreeActionResolver.swift), [`Features/CommandBar/Views/`](../../Sources/AgentStudio/Features/CommandBar/Views)
+> **Files:** [`Features/CommandBar/CommandBarPanelController.swift`](../../../Sources/AgentStudio/Features/CommandBar/CommandBarPanelController.swift), [`Features/CommandBar/CommandBarState.swift`](../../../Sources/AgentStudio/Features/CommandBar/CommandBarState.swift), [`Features/CommandBar/CommandBarDataSource.swift`](../../../Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift), [`Infrastructure/Search/CommandBarSearch.swift`](../../../Sources/AgentStudio/Infrastructure/Search/CommandBarSearch.swift), [`Features/CommandBar/CommandBarPanel.swift`](../../../Sources/AgentStudio/Features/CommandBar/CommandBarPanel.swift), [`Features/CommandBar/CommandBarItem.swift`](../../../Sources/AgentStudio/Features/CommandBar/CommandBarItem.swift), [`Features/CommandBar/CommandBarWorktreeActionResolver.swift`](../../../Sources/AgentStudio/Features/CommandBar/CommandBarWorktreeActionResolver.swift), [`Features/CommandBar/Views/`](../../../Sources/AgentStudio/Features/CommandBar/Views)
 
 ---
 
@@ -611,9 +611,9 @@ Management layer enables split insertion and pane rearrangement. Three component
 
 | Component | Location | Role |
 |-----------|----------|------|
-| `ManagementLayerAtom` | [`Core/State/MainActor/Atoms/ManagementLayerAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/ManagementLayerAtom.swift) | Canonical active/inactive state |
-| `ManagementLayerMonitor` | [`App/Lifecycle/ManagementLayerMonitor.swift`](../../Sources/AgentStudio/App/Lifecycle/ManagementLayerMonitor.swift) | Observes atom state changes, drives side effects |
-| `TabBarManagementLayerButton` | [`App/Panes/TabBar/ShellTabBarControls.swift`](../../Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift) | Toolbar integration for toggling management layer |
+| `ManagementLayerAtom` | [`Core/State/MainActor/Atoms/ManagementLayerAtom.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/ManagementLayerAtom.swift) | Canonical active/inactive state |
+| `ManagementLayerMonitor` | [`App/Lifecycle/ManagementLayerMonitor.swift`](../../../Sources/AgentStudio/App/Lifecycle/ManagementLayerMonitor.swift) | Observes atom state changes, drives side effects |
+| `TabBarManagementLayerButton` | [`App/Panes/TabBar/ShellTabBarControls.swift`](../../../Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift) | Toolbar integration for toggling management layer |
 
 Toggled via the command pipeline or the toolbar button. The command bar's `CommandBarStatusStrip` also reflects the current mode.
 
@@ -623,13 +623,13 @@ Toggled via the command pipeline or the toolbar button. The command bar's `Comma
 
 For the Ghostty surface lifecycle, ownership model, state machine, and health monitoring, see:
 
-**[Ghostty Surface Architecture](ghostty_surface_architecture.md)**
+**[Ghostty Surface Architecture](../runtime/ghostty_surface_architecture.md)**
 
 ## Session Restore
 
 Terminal session state is managed by `WorkspaceStore` (persistence) and `SessionRuntime` (health/lifecycle). `WorkspaceSurfaceCoordinator` is the active intermediary for surface and runtime orchestration — views never call `SurfaceManager` or `SessionRuntime` directly. The zmx backend (`ZmxBackend`) provides session persistence across app restarts via raw byte passthrough daemons.
 
-For the full session lifecycle, restore flow, and zmx configuration, see: **[Session Lifecycle](session_lifecycle.md)**
+For the full session lifecycle, restore flow, and zmx configuration, see: **[Session Lifecycle](../runtime/session_lifecycle.md)**
 
 ---
 
@@ -643,7 +643,229 @@ For the full session lifecycle, restore flow, and zmx configuration, see: **[Ses
 
 ## Related Documentation
 
-- **[Architecture Overview](README.md)** — System overview and document index
-- **[Component Architecture](component_architecture.md)** — Data model, service layer, data flow, persistence
-- **[Session Lifecycle](session_lifecycle.md)** — Session creation, close, undo, restore, zmx backend
-- **[Surface Architecture](ghostty_surface_architecture.md)** — Surface ownership, health monitoring, crash isolation
+- **[Architecture Overview](../README.md)** — System overview and document index
+- **[Component Architecture](../structure/component_architecture.md)** — Data model, service layer, data flow, persistence
+- **[Session Lifecycle](../runtime/session_lifecycle.md)** — Session creation, close, undo, restore, zmx backend
+- **[Surface Architecture](../runtime/ghostty_surface_architecture.md)** — Surface ownership, health monitoring, crash isolation
+
+## Command Host Surfaces
+
+> Hosts **consume** [`command_specs.md`](../commands/command_specs.md). They do not define `AppCommand`, labels, icons, or `ipcSpec`.
+
+Load next in this file:
+
+- [Navigation And Terminal Shortcut Map](#navigation-and-terminal-shortcut-map) — host routing of already-specified shortcuts
+- [Command Bar Scope Ownership](#command-bar-scope-ownership) — `>` `$` `#` Quick Open surfaces
+- [Keyboard Surface Contract](#keyboard-surface-contract) — which responder owns keys
+
+## Navigation And Terminal Shortcut Map
+
+| Command | Shortcut | Owner | Notes |
+| --- | --- | --- | --- |
+| `selectTab1...9` | `⌘1...9` | `PaneTabViewController` | Selects tab ordinal in the active workspace window. |
+| `prevTab` | `⌘J` | `PaneTabViewController` | Selects previous tab in the active workspace window. |
+| `nextTab` | `⌘L` | `PaneTabViewController` | Selects next tab in the active workspace window. |
+| `focusPane1...9` | `⌥1...9` | `PaneTabViewController` | Focuses visible pane ordinal in the active arrangement. |
+| `switchArrangement` | `⌘⌥I` | `PaneTabViewController` + arrangement panel presentation atom | Shows the arrangement surface for the active tab. |
+| `previousArrangement` | `⌘⌥J` | `PaneTabViewController` | Selects previous arrangement in the current tab. |
+| `nextArrangement` | `⌘⌥L` | `PaneTabViewController` | Selects next arrangement in the current tab. |
+| `zoomPane` | `⌘⇧↵` | `PaneTabViewController` | Enters or cancels Pane Zoom. |
+| `showViewer` | `⌘O` | `PaneTabViewController` | Outside Zoom, enters Zoom with Viewer visible; inside Zoom, toggles Viewer without exiting Zoom. |
+| `scrollToBottom` | `⌘⇧K` | Terminal runtime | Terminal-owned; dispatches `scroll_to_bottom`. |
+| `scrollPageUp` | `⌘⇧I` | Terminal runtime | Terminal-owned; dispatches `scroll_page_up`. |
+| `jumpToPreviousPrompt` | `⌘⇧J` | Terminal runtime | Terminal-owned; dispatches `jump_to_prompt:-1`. |
+| `jumpToNextPrompt` | `⌘⇧L` | Terminal runtime | Terminal-owned; dispatches `jump_to_prompt:1`. |
+| `editPaneNote` | `⌘⌥⇧N` | `PaneTabViewController` | Opens the note editor for the active main pane only. |
+| `openPaneLocationInBookmarkedEditor` | `⌘⌥O` | `PaneTabViewController` | Opens the active pane location in the configured/default editor. |
+| `openPaneLocationInEditorMenu` | `⌘⌥⌃O` | `PaneTabViewController` | Opens the editor chooser for the active pane. |
+| `copyCurrentPanePath` | `⌥O` | `PaneTabViewController` | Copies the active main pane's actual live cwd. |
+| `showInboxNotifications` | `⌘U` | `AppDelegate` shell | Shows the inbox sidebar notification surface. |
+| `showPaneInboxNotifications` | `⌘⇧U` | `PaneTabViewController` | Shows notifications scoped to the active pane/drawer family. |
+| Ghostty clear scrollback | none | `GhosttySurfaceView` host override | `⌘K` is swallowed and never forwarded to Ghostty. |
+
+## Command Bar Scope Ownership
+
+The command bar is split by ownership, not by implementation convenience:
+
+| Scope | Owns | Does not own |
+|-------|------|--------------|
+| Quick Open (`⌘T`) | Immediate terminal opening from current directories and repository/worktree locations. | Repository management, arbitrary commands, and existing pane navigation. |
+| `>` Commands | Dispatchable verbs: close, rename, copy current pane path, edit pane note, arrangement commands. | Repo/worktree browsing. |
+| `$` Pane | Existing pane and tab navigation. Search includes pane title, note, tab title, repo/worktree context, and cwd identity. | Opening new locations or path-management actions. |
+| `#` Repo | Locations and opening: repos, worktrees, worktree path commands, opening a new pane, and navigating to existing panes for that worktree. | Generic verbs and arbitrary pane selection. |
+
+Empty roots add scope-specific recency without changing ownership:
+
+| Root | Empty-query composition |
+|------|-------------------------|
+| Quick Open (`⌘T`) | Current, Recent (up to 5 live repository/worktree targets), then Repositories & Worktrees |
+| Main | Recent Repositories (up to 3), then Repos, Panes, Tabs, Commands |
+| `#` | Recent Repositories (up to 5), Recent Worktrees (up to 5), then Repositories |
+| `$` | Recent Panes (up to 5), then existing pane/tab groups |
+| `>` | Recent Commands (up to 3), then existing command categories |
+
+Quick Open's Current group is ordered by normalized, deduplicated path:
+the focused worktree or focused pane cwd when no worktree exists, the first
+watched-folder root, then the user's home folder. Directory rows open their
+exact path immediately and do not expose an actions menu. Repository and
+worktree rows resolve live identity at activation and retain their existing
+actions menu.
+
+Any meaningful root query removes the Current and Recent groups from Quick
+Open, removes the Recent groups from the other roots, and searches each
+complete canonical scope exactly once. Clearing back to an empty query restores
+the empty-root projection. Repository/worktree/pane history is a lookup hint
+only: activation re-resolves the current entity from live state. Command
+history remains Command-Bar-owned and is recorded only after accepted
+Commands-root dispatch initiation.
+
+Quick Open Return opens a terminal pane in the current tab, falling back to a
+new tab when no tab exists. `⌘↩` always opens a new tab. `⌥↩` opens a pane in
+the current tab and is unavailable without one. `PaneTabViewController` owns
+both placements and routes them through validated `WorkspaceActionCommand`
+execution. Directory choices do not write recency.
+
+Recent Repository enters the existing repository menu. Recent Worktree enters
+the existing worktree action menu so path, terminal, Bridge, and existing-pane
+actions remain available from the recent row. Recent Pane focuses the pane, and
+Recent Command reuses its canonical command behavior.
+
+Nested menus render one breadcrumb trail beneath the search field. Repository
+and worktree levels use the shared entity icon vocabulary instead of repeating
+type words: the repository book, the main-worktree star, or the linked-worktree
+glyph appears beside the entity name. Full typed labels such as
+`Repository agent-studio` and `Worktree main` remain available to accessibility
+clients. Ancestors are clickable; the current level is context, not a button.
+`Tab` enters the selected row's child menu when it has one. `Shift-Tab` or
+`Backspace` on an empty search field pops exactly one level, while `Backspace`
+with text edits the query normally. `Escape` dismisses the entire command bar.
+
+`#` is an object navigator. Root rows represent repos. A repository level
+targets its stored main worktree for direct actions, falling back to the first
+worktree only when no main worktree exists, and orders its groups as Terminal,
+Path, Worktrees, then Panes. Worktree rows drill into actions for that concrete
+filesystem location, ordered as Terminal, Path, Panes, then Navigate to. A
+chevron means Return drills in; no chevron means Return executes. Container
+rows may expose skip-ahead shortcuts such as `⌘↩` or `⌥↩`; leaf rows do not
+invent modifier variants unless there is a separate, explicit action.
+
+Path actions use `LocalActionSpec.copyPath` and
+`LocalActionSpec.revealInFinder` for labels and icons. The execution helper is
+shared so sidebar context menus and command-bar rows do not drift.
+
+Repo sidebar grouping commands (`repo`, `pane`, `tab`) and inbox grouping
+commands (`tab`, `repo`, `pane`, `none`) are app/sidebar shell commands. They
+belong in the `>` command surface when exposed as command rows; they are not
+repo-object rows in `#`. Programmatic tests execute headless sidebar
+`AppCommandSpec` definitions through authenticated generic `command.execute`;
+command-bar presentation is not proof. Repo sidebar sort order is a
+deterministic headless app command for IPC proof: `setRepoSidebarSortOrder`
+accepts `order = ascending|descending`. Favorites are always presented first
+within the selected grouping rather than acting as a visibility mode.
+
+Repo favorite buttons and context-menu actions select the state-specific
+`addRepoFavorite` or `removeRepoFavorite` `AppCommandSpec`. Both commands require
+an explicit typed Repo target, execute through the same targeted dispatcher as
+interactive command surfaces, resolve to `WorkspaceActionCommand.setRepoFavorite`,
+and are exposed automatically through authenticated generic `command.execute`.
+Internal restore, reconciliation, and fact-consumption paths may still call the
+owning atom's typed mutation methods directly; user-facing controls may not.
+Inbox grouping, sort, row-state filter, content-mode, and clear controls follow
+the same rule. Filter and content-mode buttons dispatch typed arguments through
+`setInboxRowStateFilter` and `setInboxContentMode`; their command handlers own
+the preference-atom writes.
+
+## Repo And Worktree Command Implementation
+
+Worktrunk integration is retired from the production app. Repo/worktree command
+rows express product intent through the command pipeline; production discovery,
+status, file, and review Git reads use the `agentstudio-git` package behind the
+owning Core, Infrastructure, or Bridge adapters. Do not add a Worktrunk service,
+startup phase, production `wt` subprocess, or ad hoc production Git CLI data
+plane. TypeScript Git subprocesses remain limited to documented Vite
+development and test-fixture utilities.
+
+## Keyboard Surface Contract
+
+Keyboard interpretation resolves in this precedence order:
+
+1. Command-bar activation reservation.
+2. `ActiveKeyboardSurface.commandBar(scope:)`
+3. `ActiveKeyboardSurface.transient(kind:)`
+4. `ActiveKeyboardSurface.stable(owner:)`
+
+Stable owners are long-lived focus regions:
+
+- `.mainWindowChain`
+- `.managementLayer`
+- `.sidebar(.repos)`
+- `.sidebar(.inbox)`
+- `.otherWindow`
+
+Command bar is a privileged overlay surface. While active, it owns keyboard
+interpretation through its AppKit panel and local command-bar router. Its
+activation shortcuts remain available from workspace-owned surfaces even when a
+pane-local transient surface is active. Command bar surface state is scoped to
+the workspace window that presented the panel, so an open command bar in one
+workspace window does not suppress or reclassify shortcuts in another workspace
+window.
+
+The `⌘T` Quick Open activation is named `AppShortcut.newTab` at the shortcut
+layer but dispatches `AppCommand.showCommandBarQuickOpen`. It belongs in both
+`.global` and `.terminalAppOwned` contexts so a focused terminal pane can decode
+it directly rather than relying on AppKit main-menu fallback.
+
+Command bar activation is not a transient-surface allowance. It is a
+higher-precedence reservation checked before active surface policy. The
+reserved activations are `⌘T`, `⌘P`, `⌘⇧P`, and `⌘⌥P`; they are still blocked
+when the stable owner is `.otherWindow`.
+
+Transient surfaces are temporary pane-local keyboard islands:
+
+- `.tabRename(tabId:)`
+- `.arrangementPanel(tabId:)`
+- `.arrangementRename(tabId:arrangementId:)`
+- `.paneInbox(parentPaneId:)`
+- `.editorChooser(paneId:)`
+- `.paneNote(paneId:)`
+
+Transient surfaces suppress app/global/management shortcuts by default while
+their local responder handles local keys such as Return, Escape, arrows, and
+number selection. A transient surface may explicitly allow a small set of
+app-owned shortcuts it owns. Those allow/block decisions live in
+`AppShortcutDispatchPolicy` as exhaustive switches; adding an `AppShortcut` or
+`TransientKeyboardSurfaceKind` must force a compile-time classification.
+
+Current surface-owned app shortcuts:
+
+- `.arrangementPanel(tabId:)` allows `.previousArrangement`, `.nextArrangement`,
+  `.prevTab`, `.nextTab`, and `selectTab1...9` so the user can jump tabs
+  without closing the panel first.
+- `.tabRename(tabId:)`, `.arrangementRename(tabId:arrangementId:)`,
+  `.paneInbox(parentPaneId:)`, `.editorChooser(paneId:)`, and
+  `.paneNote(paneId:)` own no app shortcuts.
+
+These keyboard surfaces are not `AppCommandSurface` values. Interactive
+surface exposure never changes shortcut precedence, transient-surface
+suppression, or command-bar activation reservation.
+
+SwiftUI/AppKit surfaces that know their owning workspace window pass that
+`workspaceWindowId` into registration; the key/focused-window fallback is only
+a last-resort resolution path. A transient surface keeps the same workspace
+owner across kind changes such as arrangement panel to arrangement rename.
+
+Arrangement panel presentation is tab-local. Command dispatch may create a
+request in `ArrangementPanelPresentationAtom`, but the tab bar or collapsed bar
+consumes that request only when its tab matches. Switching tabs while the tab
+bar arrangement panel is open closes that panel instead of retargeting it to
+the new active tab. Pane inbox popovers are pane-local panels; inbox sidebar
+remains the stable `.sidebar(.inbox)` surface.
+
+This suppression intentionally includes destructive global shortcuts such as
+`closeWindow`. When a transient popover or editor is open, local cancellation
+or close behavior belongs to that responder; the workspace window should not
+close from an app-level shortcut underneath it.
+
+Repo sidebar and inbox sidebar are separate stable keyboard surfaces. They are
+tested by setting sidebar visibility, selected surface, and sidebar focus; they
+do not require a shortcut that creates the surface.

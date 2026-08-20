@@ -7,12 +7,12 @@ BridgeWeb-specific rules. The Vite command loop lives in
 
 ## Architecture Sources
 
-- Start with [Bridge Viewer Architecture](../docs/architecture/bridge_viewer_architecture.md)
+- Start with [Bridge Viewer Architecture](../docs/architecture/bridge/bridge_viewer_architecture.md)
   for the end-to-end ownership and data-flow map.
-- [Bridge Web Runtime Architecture](../docs/architecture/bridge_web_runtime_architecture.md)
+- [Bridge Web Runtime Architecture](../docs/architecture/bridge/bridge_web_runtime_architecture.md)
   is the source of truth for BridgeWeb workers, stores, demand, rendering, and
   browser proof.
-- Use [Bridge Native Runtime Architecture](../docs/architecture/bridge_native_runtime_architecture.md)
+- Use [Bridge Native Runtime Architecture](../docs/architecture/bridge/bridge_native_runtime_architecture.md)
   when changing the WebKit, scheme, session, or protocol boundary.
 
 ## UI Components

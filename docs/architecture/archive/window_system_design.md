@@ -7,16 +7,16 @@
 > **Specific known issues:**
 >
 > - **Internal contradiction on drawer-pane lifecycle.** Section "Transient State" (~line 121) describes an "Orphaned pane pool" with a 5-minute TTL into which drawer panes are promoted when their parent is deleted. Later, section "Concept 3: Drawer" (~line 345) says parent-pane deletion **backgrounds** drawer panes. Those are two different stories about the same lifecycle. The actual code behavior should be checked and the loser removed.
-> - **Stale ownership naming (now fixed in this doc).** Older revisions said management-layer state was stored in `ManagementLayerMonitor.shared` (~line 553). Per [`appkit_swiftui_architecture.md`](appkit_swiftui_architecture.md) the canonical owner is `ManagementLayerAtom` and `ManagementLayerMonitor` is a side-effect observer. The reference here has been updated, but other instances of the older mental model may persist in this doc.
+> - **Stale ownership naming (now fixed in this doc).** Older revisions said management-layer state was stored in `ManagementLayerMonitor.shared` (~line 553). Per [`appkit_swiftui_architecture.md`](../hosting/appkit_swiftui_architecture.md) the canonical owner is `ManagementLayerAtom` and `ManagementLayerMonitor` is a side-effect observer. The reference here has been updated, but other instances of the older mental model may persist in this doc.
 > - **Pre-LUNA-361 mental model.** Sections discussing notification routing, sidebar surfaces, or composition state may reflect designs superseded by the authoritative architecture docs below.
 >
 > **Authoritative docs for the concepts this one covers:**
 >
-> - [`component_architecture.md`](component_architecture.md) — atoms, stores, coordinator, persistence
-> - [`workspace_data_architecture.md`](workspace_data_architecture.md) — three-tier persistence, sidebar data flow
-> - [`appkit_swiftui_architecture.md`](appkit_swiftui_architecture.md) — AppKit + SwiftUI hybrid, controller layer
-> - [`directory_structure.md`](directory_structure.md) — module boundaries, Feature Slice Self-Containment
-> - [`pane_runtime_architecture.md`](pane_runtime_architecture.md) — runtime contracts, event taxonomy
+> - [`component_architecture.md`](../structure/component_architecture.md) — atoms, stores, coordinator, persistence
+> - [`workspace_data_architecture.md`](../state/workspace_data_architecture.md) — three-tier persistence, sidebar data flow
+> - [`appkit_swiftui_architecture.md`](../hosting/appkit_swiftui_architecture.md) — AppKit + SwiftUI hybrid, controller layer
+> - [`directory_structure.md`](../structure/directory_structure.md) — module boundaries, Feature Slice Self-Containment
+> - [`pane_runtime_architecture.md`](../runtime/pane_runtime_architecture.md) — runtime contracts, event taxonomy
 >
 > Consult those first. Use this doc only for the foundational concepts (pane/tab/drawer/dynamic-view definitions) that haven't been re-described elsewhere, and verify against code before relying on any specific claim.
 
@@ -570,7 +570,7 @@ Multiple UI surfaces that trigger operations through the same `WorkspaceActionCo
 
 A window-level toggle that enables pane manipulation controls. When off, panes show clean content with no distractions. When on, hover reveals controls for rearranging, splitting, minimizing, and closing panes.
 
-- Stored in `ManagementLayerAtom` ([`Core/State/MainActor/Atoms/ManagementLayerAtom.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/ManagementLayerAtom.swift)) — `@Observable @MainActor` with `private(set) var isActive: Bool`. `ManagementLayerMonitor` ([`App/Lifecycle/`](../../Sources/AgentStudio/App/Lifecycle)) is a side-effect observer, not the canonical owner. See [appkit_swiftui_architecture.md](appkit_swiftui_architecture.md) for the three-component split.
+- Stored in `ManagementLayerAtom` ([`Core/State/MainActor/Atoms/ManagementLayerAtom.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/ManagementLayerAtom.swift)) — `@Observable @MainActor` with `private(set) var isActive: Bool`. `ManagementLayerMonitor` ([`App/Lifecycle/`](../../../Sources/AgentStudio/App/Lifecycle)) is a side-effect observer, not the canonical owner. See [appkit_swiftui_architecture.md](../hosting/appkit_swiftui_architecture.md) for the three-component split.
 - Toggled via toolbar button (separate button group, left of "Add Repo") or keyboard shortcut
 - Icon: `slider.horizontal.3`, highlighted when active
 
@@ -770,7 +770,7 @@ The current layout is a horizontal flat pane strip — vertical splits are not s
 | `right` | `right` | unchanged |
 | `previous` / `next` | `focusPrevPane` / `focusNextPane` | focus only |
 
-This mapping lives in `mapSplitDirection`, `mapResizeSplitDirection`, and `mapGotoSplitDirection` in [`App/Coordination/WorkspaceSurfaceCoordinator.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift).
+This mapping lives in `mapSplitDirection`, `mapResizeSplitDirection`, and `mapGotoSplitDirection` in [`App/Coordination/WorkspaceSurfaceCoordinator.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift).
 
 ### Drawer Pane Tab Resolution
 

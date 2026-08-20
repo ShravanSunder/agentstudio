@@ -1,4 +1,4 @@
-# Commands and Shortcuts
+# Command Specs
 
 ## TL;DR
 
@@ -28,21 +28,21 @@ paths stay in sync with the tree. Each file has one job.
 
 | File | Owns |
 |------|------|
-| [`AppCommand.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommand.swift) | Command **identities**, `AppCommandSpec` shape (label, `CommandIcon`, `helpText`, surfaces, targeting), and dispatch protocol. |
-| [`AppShortcut.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppShortcut.swift) | Keyboard **bindings** and the contexts where they fire. |
-| [`AppCommand+Catalog.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+Catalog.swift) | Exhaustive interactive `AppCommandSpec` catalog — the only place to add command copy, icon, shortcut, surfaces, targeting, context requirements, and command-bar grouping. |
-| [`CommandIcon.swift`](../../Sources/AgentStudio/Core/Actions/CommandIcon.swift) | `CommandIcon` / `SystemSymbol` / octicon tokens used by specs. Do not invent SF Symbol names on controls. |
-| [`AppCommandPresentationPolicy.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommandPresentationPolicy.swift) | Typed interactive surfaces, targeting modes, presentation subjects, and the pure `shouldPresent` query. |
-| [`AppCommandDispatcher.swift`](../../Sources/AgentStudio/App/Commands/AppCommandDispatcher.swift) | The only execution entry. Hosts dispatch; they do not call owners directly. |
-| [`WorkspaceFocusedPane.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusedPane.swift) | Immutable normalized focus identity and content. |
-| [`WorkspaceFocusedPaneResolver.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusedPaneResolver.swift) | Pure requested-focus normalization against live workspace state. |
-| [`CommandContext.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/CommandContext.swift) | Immutable command-policy facts and requirements. |
-| [`CommandContextDerived.swift`](../../Sources/AgentStudio/Core/State/MainActor/Atoms/CommandContextDerived.swift) | Pure projection from focused-pane and workspace/presentation facts. |
-| [`AppCommand+DisplayDescriptor.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+DisplayDescriptor.swift) | Projection from `AppCommandSpec` into app-free display descriptors and tooltip render values. |
-| [`AppCommand+IPCProjection.swift`](../../Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift) | Independent exhaustive `ipcSpec`: exposure, durable targets, privileges, arguments, plus public command-list DTO. |
-| [`UIActionPresentation.swift`](../../Sources/AgentStudio/Core/Actions/UIActionPresentation.swift) | `LocalActionSpec` / `ActionSpec` for UI with no `AppCommand` — labels, icons, help, compact tooltips. |
-| [`ControlTooltipSource.swift`](../../Sources/AgentStudio/Core/Actions/ControlTooltipSource.swift) | Tooltip source, provenance, copy style, and resolver. |
-| [`ControlTooltipRenderValue.swift`](../../Sources/AgentStudio/Infrastructure/ControlTooltipRenderValue.swift) | Render-only tooltip value that UI primitives and SharedComponents may consume. |
+| [`AppCommand.swift`](../../../Sources/AgentStudio/Core/Actions/Commands/AppCommand.swift) | Command **identities**, `AppCommandSpec` shape (label, `CommandIcon`, `helpText`, surfaces, targeting), and dispatch protocol. |
+| [`AppShortcut.swift`](../../../Sources/AgentStudio/Core/Actions/Commands/AppShortcut.swift) | Keyboard **bindings** and the contexts where they fire. |
+| [`AppCommand+Catalog.swift`](../../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+Catalog.swift) | Exhaustive interactive `AppCommandSpec` catalog — the only place to add command copy, icon, shortcut, surfaces, targeting, context requirements, and command-bar grouping. |
+| [`CommandIcon.swift`](../../../Sources/AgentStudio/Core/Actions/CommandIcon.swift) | `CommandIcon` / `SystemSymbol` / octicon tokens used by specs. Do not invent SF Symbol names on controls. |
+| [`AppCommandPresentationPolicy.swift`](../../../Sources/AgentStudio/Core/Actions/Commands/AppCommandPresentationPolicy.swift) | Typed interactive surfaces, targeting modes, presentation subjects, and the pure `shouldPresent` query. |
+| [`AppCommandDispatcher.swift`](../../../Sources/AgentStudio/App/Commands/AppCommandDispatcher.swift) | The only execution entry. Hosts dispatch; they do not call owners directly. |
+| [`WorkspaceFocusedPane.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusedPane.swift) | Immutable normalized focus identity and content. |
+| [`WorkspaceFocusedPaneResolver.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusedPaneResolver.swift) | Pure requested-focus normalization against live workspace state. |
+| [`CommandContext.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/CommandContext.swift) | Immutable command-policy facts and requirements. |
+| [`CommandContextDerived.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/CommandContextDerived.swift) | Pure projection from focused-pane and workspace/presentation facts. |
+| [`AppCommand+DisplayDescriptor.swift`](../../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+DisplayDescriptor.swift) | Projection from `AppCommandSpec` into app-free display descriptors and tooltip render values. |
+| [`AppCommand+IPCProjection.swift`](../../../Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift) | Independent exhaustive `ipcSpec`: exposure, durable targets, privileges, arguments, plus public command-list DTO. |
+| [`UIActionPresentation.swift`](../../../Sources/AgentStudio/Core/Actions/UIActionPresentation.swift) | `LocalActionSpec` / `ActionSpec` for UI with no `AppCommand` — labels, icons, help, compact tooltips. |
+| [`ControlTooltipSource.swift`](../../../Sources/AgentStudio/Core/Actions/ControlTooltipSource.swift) | Tooltip source, provenance, copy style, and resolver. |
+| [`ControlTooltipRenderValue.swift`](../../../Sources/AgentStudio/Infrastructure/ControlTooltipRenderValue.swift) | Render-only tooltip value that UI primitives and SharedComponents may consume. |
 
 ## Command Specs And Execution Owners
 
@@ -80,7 +80,7 @@ shape. SharedComponents render resolved values only — they must not take
 - Presence vs enablement: hosts ask `shouldPresent`; `canDispatch` plus
   validators are authority
 - IPC: [Exhaustive interactive and IPC projections](#exhaustive-interactive-and-ipc-projections)
-- Keyboard: [Keyboard Surface Contract](#keyboard-surface-contract);
+- Keyboard: [Keyboard Surface Contract](../hosting/appkit_swiftui_architecture.md#keyboard-surface-contract);
   display keys with `displayKeyBinding(in:)`
 - Owners: [Choosing the execution owner](#choosing-the-execution-owner)
   (`AppDelegate` for app/window/sidebar shell; `PaneTabViewController` for
@@ -88,8 +88,8 @@ shape. SharedComponents render resolved values only — they must not take
 - Add/change: [Adding a new command — decision tree](#adding-a-new-command-decision-tree)
 
 Command-bar `>` `$` `#` rows consume this catalog; they are not how you
-define a command. Detail:
-[Command Bar Scope Ownership](#command-bar-scope-ownership).
+define a command. Host detail:
+[Command Host Surfaces](../hosting/appkit_swiftui_architecture.md#command-host-surfaces).
 
 ## The four layers
 
@@ -289,7 +289,7 @@ label. Toolbars resolve `AppCommand` through hosts such as
    command requirements, shortcut, and command-bar grouping.
 4. **IPC classification?** Classify the same identity in the exhaustive
    exposure, durable-target, privilege, and argument switches in
-   [`AppCommand+IPCProjection.swift`](../../Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift).
+   [`AppCommand+IPCProjection.swift`](../../../Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift).
 5. **Interactive host?** Have the host request its exact
    `AppCommandPresentationQuery`, keep placement/order local, and use the
    matching `canDispatch` overload for enabled state.
@@ -348,7 +348,7 @@ required privileges. `command.execute` is still reserved for commands
 explicitly marked headless-executable; it validates and decodes the command's
 typed IPC argument contract before dispatching to the app/shell owner.
 Command-bar presentation remains explicit as `ui.commandBar.open`; see
-[AgentStudio IPC Architecture](agentstudio_ipc_architecture.md#command-and-ui-presentation-boundary).
+[AgentStudio IPC Architecture](ipc.md#command-and-ui-presentation-boundary).
 If a command row only opens a chooser or requires interactive input, add a
 semantic IPC method with explicit parameters before exposing it through
 `command.execute`.
@@ -357,133 +357,6 @@ Argument-bearing execution requests go directly to the app/shell execution
 owner instead of consulting the parameterless `canExecute(_:)` result. IPC
 derives whether every argument value is a string while decoding the wire
 payload; in-process callers cannot override that validation fact.
-
-## Navigation And Terminal Shortcut Map
-
-| Command | Shortcut | Owner | Notes |
-| --- | --- | --- | --- |
-| `selectTab1...9` | `⌘1...9` | `PaneTabViewController` | Selects tab ordinal in the active workspace window. |
-| `prevTab` | `⌘J` | `PaneTabViewController` | Selects previous tab in the active workspace window. |
-| `nextTab` | `⌘L` | `PaneTabViewController` | Selects next tab in the active workspace window. |
-| `focusPane1...9` | `⌥1...9` | `PaneTabViewController` | Focuses visible pane ordinal in the active arrangement. |
-| `switchArrangement` | `⌘⌥I` | `PaneTabViewController` + arrangement panel presentation atom | Shows the arrangement surface for the active tab. |
-| `previousArrangement` | `⌘⌥J` | `PaneTabViewController` | Selects previous arrangement in the current tab. |
-| `nextArrangement` | `⌘⌥L` | `PaneTabViewController` | Selects next arrangement in the current tab. |
-| `zoomPane` | `⌘⇧↵` | `PaneTabViewController` | Enters or cancels Pane Zoom. |
-| `showViewer` | `⌘O` | `PaneTabViewController` | Outside Zoom, enters Zoom with Viewer visible; inside Zoom, toggles Viewer without exiting Zoom. |
-| `scrollToBottom` | `⌘⇧K` | Terminal runtime | Terminal-owned; dispatches `scroll_to_bottom`. |
-| `scrollPageUp` | `⌘⇧I` | Terminal runtime | Terminal-owned; dispatches `scroll_page_up`. |
-| `jumpToPreviousPrompt` | `⌘⇧J` | Terminal runtime | Terminal-owned; dispatches `jump_to_prompt:-1`. |
-| `jumpToNextPrompt` | `⌘⇧L` | Terminal runtime | Terminal-owned; dispatches `jump_to_prompt:1`. |
-| `editPaneNote` | `⌘⌥⇧N` | `PaneTabViewController` | Opens the note editor for the active main pane only. |
-| `openPaneLocationInBookmarkedEditor` | `⌘⌥O` | `PaneTabViewController` | Opens the active pane location in the configured/default editor. |
-| `openPaneLocationInEditorMenu` | `⌘⌥⌃O` | `PaneTabViewController` | Opens the editor chooser for the active pane. |
-| `copyCurrentPanePath` | `⌥O` | `PaneTabViewController` | Copies the active main pane's actual live cwd. |
-| `showInboxNotifications` | `⌘U` | `AppDelegate` shell | Shows the inbox sidebar notification surface. |
-| `showPaneInboxNotifications` | `⌘⇧U` | `PaneTabViewController` | Shows notifications scoped to the active pane/drawer family. |
-| Ghostty clear scrollback | none | `GhosttySurfaceView` host override | `⌘K` is swallowed and never forwarded to Ghostty. |
-
-## Command Bar Scope Ownership
-
-The command bar is split by ownership, not by implementation convenience:
-
-| Scope | Owns | Does not own |
-|-------|------|--------------|
-| Quick Open (`⌘T`) | Immediate terminal opening from current directories and repository/worktree locations. | Repository management, arbitrary commands, and existing pane navigation. |
-| `>` Commands | Dispatchable verbs: close, rename, copy current pane path, edit pane note, arrangement commands. | Repo/worktree browsing. |
-| `$` Pane | Existing pane and tab navigation. Search includes pane title, note, tab title, repo/worktree context, and cwd identity. | Opening new locations or path-management actions. |
-| `#` Repo | Locations and opening: repos, worktrees, worktree path commands, opening a new pane, and navigating to existing panes for that worktree. | Generic verbs and arbitrary pane selection. |
-
-Empty roots add scope-specific recency without changing ownership:
-
-| Root | Empty-query composition |
-|------|-------------------------|
-| Quick Open (`⌘T`) | Current, Recent (up to 5 live repository/worktree targets), then Repositories & Worktrees |
-| Main | Recent Repositories (up to 3), then Repos, Panes, Tabs, Commands |
-| `#` | Recent Repositories (up to 5), Recent Worktrees (up to 5), then Repositories |
-| `$` | Recent Panes (up to 5), then existing pane/tab groups |
-| `>` | Recent Commands (up to 3), then existing command categories |
-
-Quick Open's Current group is ordered by normalized, deduplicated path:
-the focused worktree or focused pane cwd when no worktree exists, the first
-watched-folder root, then the user's home folder. Directory rows open their
-exact path immediately and do not expose an actions menu. Repository and
-worktree rows resolve live identity at activation and retain their existing
-actions menu.
-
-Any meaningful root query removes the Current and Recent groups from Quick
-Open, removes the Recent groups from the other roots, and searches each
-complete canonical scope exactly once. Clearing back to an empty query restores
-the empty-root projection. Repository/worktree/pane history is a lookup hint
-only: activation re-resolves the current entity from live state. Command
-history remains Command-Bar-owned and is recorded only after accepted
-Commands-root dispatch initiation.
-
-Quick Open Return opens a terminal pane in the current tab, falling back to a
-new tab when no tab exists. `⌘↩` always opens a new tab. `⌥↩` opens a pane in
-the current tab and is unavailable without one. `PaneTabViewController` owns
-both placements and routes them through validated `WorkspaceActionCommand`
-execution. Directory choices do not write recency.
-
-Recent Repository enters the existing repository menu. Recent Worktree enters
-the existing worktree action menu so path, terminal, Bridge, and existing-pane
-actions remain available from the recent row. Recent Pane focuses the pane, and
-Recent Command reuses its canonical command behavior.
-
-Nested menus render one breadcrumb trail beneath the search field. Repository
-and worktree levels use the shared entity icon vocabulary instead of repeating
-type words: the repository book, the main-worktree star, or the linked-worktree
-glyph appears beside the entity name. Full typed labels such as
-`Repository agent-studio` and `Worktree main` remain available to accessibility
-clients. Ancestors are clickable; the current level is context, not a button.
-`Tab` enters the selected row's child menu when it has one. `Shift-Tab` or
-`Backspace` on an empty search field pops exactly one level, while `Backspace`
-with text edits the query normally. `Escape` dismisses the entire command bar.
-
-`#` is an object navigator. Root rows represent repos. A repository level
-targets its stored main worktree for direct actions, falling back to the first
-worktree only when no main worktree exists, and orders its groups as Terminal,
-Path, Worktrees, then Panes. Worktree rows drill into actions for that concrete
-filesystem location, ordered as Terminal, Path, Panes, then Navigate to. A
-chevron means Return drills in; no chevron means Return executes. Container
-rows may expose skip-ahead shortcuts such as `⌘↩` or `⌥↩`; leaf rows do not
-invent modifier variants unless there is a separate, explicit action.
-
-Path actions use `LocalActionSpec.copyPath` and
-`LocalActionSpec.revealInFinder` for labels and icons. The execution helper is
-shared so sidebar context menus and command-bar rows do not drift.
-
-Repo sidebar grouping commands (`repo`, `pane`, `tab`) and inbox grouping
-commands (`tab`, `repo`, `pane`, `none`) are app/sidebar shell commands. They
-belong in the `>` command surface when exposed as command rows; they are not
-repo-object rows in `#`. Programmatic tests execute headless sidebar
-`AppCommandSpec` definitions through authenticated generic `command.execute`;
-command-bar presentation is not proof. Repo sidebar sort order is a
-deterministic headless app command for IPC proof: `setRepoSidebarSortOrder`
-accepts `order = ascending|descending`. Favorites are always presented first
-within the selected grouping rather than acting as a visibility mode.
-
-Repo favorite buttons and context-menu actions select the state-specific
-`addRepoFavorite` or `removeRepoFavorite` `AppCommandSpec`. Both commands require
-an explicit typed Repo target, execute through the same targeted dispatcher as
-interactive command surfaces, resolve to `WorkspaceActionCommand.setRepoFavorite`,
-and are exposed automatically through authenticated generic `command.execute`.
-Internal restore, reconciliation, and fact-consumption paths may still call the
-owning atom's typed mutation methods directly; user-facing controls may not.
-Inbox grouping, sort, row-state filter, content-mode, and clear controls follow
-the same rule. Filter and content-mode buttons dispatch typed arguments through
-`setInboxRowStateFilter` and `setInboxContentMode`; their command handlers own
-the preference-atom writes.
-
-## Repo And Worktree Command Implementation
-
-Worktrunk integration is retired from the production app. Repo/worktree command
-rows express product intent through the command pipeline; production discovery,
-status, file, and review Git reads use the `agentstudio-git` package behind the
-owning Core, Infrastructure, or Bridge adapters. Do not add a Worktrunk service,
-startup phase, production `wt` subprocess, or ad hoc production Git CLI data
-plane. TypeScript Git subprocesses remain limited to documented Vite
-development and test-fixture utilities.
 
 ## Multiple bindings per command — `alternateTriggers`
 
@@ -530,91 +403,6 @@ Add a new context only when an existing one would cause cross-routing
 "nice to organize" reasons — the routing layer enumerates contexts to
 find a match, so each new context is a small cost on every keystroke.
 
-## Keyboard Surface Contract
-
-Keyboard interpretation resolves in this precedence order:
-
-1. Command-bar activation reservation.
-2. `ActiveKeyboardSurface.commandBar(scope:)`
-3. `ActiveKeyboardSurface.transient(kind:)`
-4. `ActiveKeyboardSurface.stable(owner:)`
-
-Stable owners are long-lived focus regions:
-
-- `.mainWindowChain`
-- `.managementLayer`
-- `.sidebar(.repos)`
-- `.sidebar(.inbox)`
-- `.otherWindow`
-
-Command bar is a privileged overlay surface. While active, it owns keyboard
-interpretation through its AppKit panel and local command-bar router. Its
-activation shortcuts remain available from workspace-owned surfaces even when a
-pane-local transient surface is active. Command bar surface state is scoped to
-the workspace window that presented the panel, so an open command bar in one
-workspace window does not suppress or reclassify shortcuts in another workspace
-window.
-
-The `⌘T` Quick Open activation is named `AppShortcut.newTab` at the shortcut
-layer but dispatches `AppCommand.showCommandBarQuickOpen`. It belongs in both
-`.global` and `.terminalAppOwned` contexts so a focused terminal pane can decode
-it directly rather than relying on AppKit main-menu fallback.
-
-Command bar activation is not a transient-surface allowance. It is a
-higher-precedence reservation checked before active surface policy. The
-reserved activations are `⌘T`, `⌘P`, `⌘⇧P`, and `⌘⌥P`; they are still blocked
-when the stable owner is `.otherWindow`.
-
-Transient surfaces are temporary pane-local keyboard islands:
-
-- `.tabRename(tabId:)`
-- `.arrangementPanel(tabId:)`
-- `.arrangementRename(tabId:arrangementId:)`
-- `.paneInbox(parentPaneId:)`
-- `.editorChooser(paneId:)`
-- `.paneNote(paneId:)`
-
-Transient surfaces suppress app/global/management shortcuts by default while
-their local responder handles local keys such as Return, Escape, arrows, and
-number selection. A transient surface may explicitly allow a small set of
-app-owned shortcuts it owns. Those allow/block decisions live in
-`AppShortcutDispatchPolicy` as exhaustive switches; adding an `AppShortcut` or
-`TransientKeyboardSurfaceKind` must force a compile-time classification.
-
-Current surface-owned app shortcuts:
-
-- `.arrangementPanel(tabId:)` allows `.previousArrangement`, `.nextArrangement`,
-  `.prevTab`, `.nextTab`, and `selectTab1...9` so the user can jump tabs
-  without closing the panel first.
-- `.tabRename(tabId:)`, `.arrangementRename(tabId:arrangementId:)`,
-  `.paneInbox(parentPaneId:)`, `.editorChooser(paneId:)`, and
-  `.paneNote(paneId:)` own no app shortcuts.
-
-These keyboard surfaces are not `AppCommandSurface` values. Interactive
-surface exposure never changes shortcut precedence, transient-surface
-suppression, or command-bar activation reservation.
-
-SwiftUI/AppKit surfaces that know their owning workspace window pass that
-`workspaceWindowId` into registration; the key/focused-window fallback is only
-a last-resort resolution path. A transient surface keeps the same workspace
-owner across kind changes such as arrangement panel to arrangement rename.
-
-Arrangement panel presentation is tab-local. Command dispatch may create a
-request in `ArrangementPanelPresentationAtom`, but the tab bar or collapsed bar
-consumes that request only when its tab matches. Switching tabs while the tab
-bar arrangement panel is open closes that panel instead of retargeting it to
-the new active tab. Pane inbox popovers are pane-local panels; inbox sidebar
-remains the stable `.sidebar(.inbox)` surface.
-
-This suppression intentionally includes destructive global shortcuts such as
-`closeWindow`. When a transient popover or editor is open, local cancellation
-or close behavior belongs to that responder; the workspace window should not
-close from an app-level shortcut underneath it.
-
-Repo sidebar and inbox sidebar are separate stable keyboard surfaces. They are
-tested by setting sidebar visibility, selected surface, and sidebar focus; they
-do not require a shortcut that creates the surface.
-
 ## Displaying the bound key in the UI
 
 Use the helper, never reach for the raw character:
@@ -636,10 +424,10 @@ helper returns `nil` — handle that case explicitly.
 ## Tooltips, help text, and compact control copy
 
 Labels, icons, help, and dense tooltips come from the spec, not the control.
-[`ActionSpec.helpText`](../../Sources/AgentStudio/Core/Actions/UIActionPresentation.swift)
+[`ActionSpec.helpText`](../../../Sources/AgentStudio/Core/Actions/UIActionPresentation.swift)
 is descriptive command help for command-palette rows, menus, accessibility
 descriptions, and other places where the user is reading an action
-description. Icons are [`CommandIcon`](../../Sources/AgentStudio/Core/Actions/CommandIcon.swift)
+description. Icons are [`CommandIcon`](../../../Sources/AgentStudio/Core/Actions/CommandIcon.swift)
 on the spec.
 
 Icon buttons and dense toolbars need compact control text instead. Use the
@@ -655,10 +443,10 @@ AppCommandSpec
 ```
 
 Owned by
-[`AppCommand+DisplayDescriptor.swift`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+DisplayDescriptor.swift),
-[`ControlTooltipSource.swift`](../../Sources/AgentStudio/Core/Actions/ControlTooltipSource.swift),
+[`AppCommand+DisplayDescriptor.swift`](../../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+DisplayDescriptor.swift),
+[`ControlTooltipSource.swift`](../../../Sources/AgentStudio/Core/Actions/ControlTooltipSource.swift),
 and
-[`ControlTooltipRenderValue.swift`](../../Sources/AgentStudio/Infrastructure/ControlTooltipRenderValue.swift).
+[`ControlTooltipRenderValue.swift`](../../../Sources/AgentStudio/Infrastructure/ControlTooltipRenderValue.swift).
 For command-backed controls, App projects `AppCommandSpec` into the display
 descriptor. For UI-only controls, `LocalActionSpec.actionSpec` projects into
 the same descriptor shape. For feature-local shortcuts, the feature's
@@ -699,12 +487,12 @@ two call sites will fork and diverge.
 
 | Goes here | When the value… | Examples |
 |-----------|-----------------|----------|
-| [`AppCommandSpec`](../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+Catalog.swift) | Is command identity display: label, `CommandIcon`, `helpText`, shortcut, surfaces | Catalog entry for `addDrawerPane` |
-| [`AppShortcut`](../../Sources/AgentStudio/Core/Actions/Commands/AppShortcut.swift) | Is a keyboard binding (key + modifiers + contexts) | `cmd-shift-D` for `addDrawerPane`, raw `P` for empty-drawer alt |
-| [`CommandIcon`](../../Sources/AgentStudio/Core/Actions/CommandIcon.swift) | Is the SF Symbol or octicon token on a spec | `.system(.plus)`, `.octicon(.gitPullRequest)` |
-| [`AppPolicies`](../../Sources/AgentStudio/Infrastructure/AppPolicies.swift) (for example `AppPolicies.DragAndDrop`) | Is a runtime behavioral rule that gates filtering, hit testing, ordering, what's accepted vs rejected | `drawerMaxRows = 2`, `paneRowSideZoneFloor = 24`, `paneRowSideZoneFraction = 0.25` |
-| [`AppStyles`](../../Sources/AgentStudio/Infrastructure/AppStyles.swift) (for example `AppStyles.General.Layout`) | Only changes how something LOOKS (paint width, font size, opacity) | `dropTargetMarkerWidth = 8`, `paneGap = 1` |
-| [`LocalActionSpec`](../../Sources/AgentStudio/Core/Actions/UIActionPresentation.swift) (`actionSpec.label`, `actionSpec.helpText`, `actionSpec.controlToolTip`) | Is UI text shown in buttons, menus, command rows, or compact tooltips when there is no `AppCommand` | "Add Drawer Pane", "Add a drawer pane to the active pane", "Clear notifications" |
+| [`AppCommandSpec`](../../../Sources/AgentStudio/Core/Actions/Commands/AppCommand+Catalog.swift) | Is command identity display: label, `CommandIcon`, `helpText`, shortcut, surfaces | Catalog entry for `addDrawerPane` |
+| [`AppShortcut`](../../../Sources/AgentStudio/Core/Actions/Commands/AppShortcut.swift) | Is a keyboard binding (key + modifiers + contexts) | `cmd-shift-D` for `addDrawerPane`, raw `P` for empty-drawer alt |
+| [`CommandIcon`](../../../Sources/AgentStudio/Core/Actions/CommandIcon.swift) | Is the SF Symbol or octicon token on a spec | `.system(.plus)`, `.octicon(.gitPullRequest)` |
+| [`AppPolicies`](../../../Sources/AgentStudio/Infrastructure/AppPolicies.swift) (for example `AppPolicies.DragAndDrop`) | Is a runtime behavioral rule that gates filtering, hit testing, ordering, what's accepted vs rejected | `drawerMaxRows = 2`, `paneRowSideZoneFloor = 24`, `paneRowSideZoneFraction = 0.25` |
+| [`AppStyles`](../../../Sources/AgentStudio/Infrastructure/AppStyles.swift) (for example `AppStyles.General.Layout`) | Only changes how something LOOKS (paint width, font size, opacity) | `dropTargetMarkerWidth = 8`, `paneGap = 1` |
+| [`LocalActionSpec`](../../../Sources/AgentStudio/Core/Actions/UIActionPresentation.swift) (`actionSpec.label`, `actionSpec.helpText`, `actionSpec.controlToolTip`) | Is UI text shown in buttons, menus, command rows, or compact tooltips when there is no `AppCommand` | "Add Drawer Pane", "Add a drawer pane to the active pane", "Clear notifications" |
 
 If a value SOMETIMES gates behavior and SOMETIMES is purely visual
 (rare), prefer `AppPolicies` and have the visual layer read from it.

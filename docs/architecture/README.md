@@ -17,31 +17,32 @@ Current owners and historical/background docs are listed separately in
 document as current authority.
 
 `AGENTS.md` owns the 5-line everyday proof ladder; this index names which proof
-doc to open ([Observability And Traceability — Proof Model](observability_and_traceability.md#proof-model),
+doc to open ([Observability And Traceability — Proof Model](observability/observability_and_traceability.md#proof-model),
 [Style Guide — Shared Shell Controls](../guides/style_guide.md#shared-shell-controls), and the other rows below).
 
 | Question | Start here | What you get wrong if you skip | Then verify in code |
 | --- | --- | --- | --- |
-| Where does a file or new type go? | [Directory Structure — Decision Process](directory_structure.md#decision-process-where-does-this-file-go) | You put a Feature type in [`Core/Models/`](../../Sources/AgentStudio/Core/Models) or skip the four-test process. Trees and compiled DAG: [Repository Root](directory_structure.md#repository-root), [Source And Target Structure](directory_structure.md#source-and-target-structure), [SwiftPM Module Graph](directory_structure.md#swiftpm-module-graph). | [`Sources/AgentStudio/`](../../Sources/AgentStudio) placement and import direction |
-| Where should a file or module test live? | [Directory Structure — Test Target Ownership](directory_structure.md#test-target-ownership) | You park a module test on the executable target or infer ownership from `swift test --filter`. | [`Package.swift`](../../Package.swift) target and source lists |
-| Do I need an atom, a derived node, an eager projection, or a repository? | [Atom Persistence Boundaries — Need An Atom?](atom_persistence_boundaries.md#need-an-atom) | You wrap CRUD in an atom, assume every atom is a SQL table, or reach for `EagerDerivedAtomFamily` as a default. | Product owner vs `*Repository` vs `TabBarAdapter` / `RepoExplorerProjectionAdapter` |
-| Which command path, shortcut display, or dense-control tooltip source should I use? | [Command Specs And Execution Owners](commands_and_shortcuts.md#command-specs-and-execution-owners), then [Files to load](commands_and_shortcuts.md#files-to-load), [Adding a new command — decision tree](commands_and_shortcuts.md#adding-a-new-command-decision-tree), and [Exhaustive interactive and IPC projections](commands_and_shortcuts.md#exhaustive-interactive-and-ipc-projections) | You put a label, icon, tooltip, shortcut, or IPC method on a view instead of the spec catalog. Display: [Tooltips, help text, and compact control copy](commands_and_shortcuts.md#tooltips-help-text-and-compact-control-copy). | The [file table](commands_and_shortcuts.md#files-to-load); never infer paths from this index |
+| Where does a file or new type go? | [Directory Structure — Decision Process](structure/directory_structure.md#decision-process-where-does-this-file-go) | You put a Feature type in [`Core/Models/`](../../Sources/AgentStudio/Core/Models) or skip the four-test process. Trees and compiled DAG: [Repository Root](structure/directory_structure.md#repository-root), [Source And Target Structure](structure/directory_structure.md#source-and-target-structure), [SwiftPM Module Graph](structure/directory_structure.md#swiftpm-module-graph). | [`Sources/AgentStudio/`](../../Sources/AgentStudio) placement and import direction |
+| Where should a file or module test live? | [Directory Structure — Test Target Ownership](structure/directory_structure.md#test-target-ownership) | You park a module test on the executable target or infer ownership from `swift test --filter`. | [`Package.swift`](../../Package.swift) target and source lists |
+| Do I need an atom, a derived node, an eager projection, or a repository? | [Atom Persistence Boundaries — Need An Atom?](state/atom_persistence_boundaries.md#need-an-atom) | You wrap CRUD in an atom, assume every atom is a SQL table, or reach for `EagerDerivedAtomFamily` as a default. | Product owner vs `*Repository` vs `TabBarAdapter` / `RepoExplorerProjectionAdapter` |
+| Which command path, shortcut display, or dense-control tooltip source should I use? | [Command Specs And Execution Owners](commands/command_specs.md#command-specs-and-execution-owners), then [Files to load](commands/command_specs.md#files-to-load), [Adding a new command — decision tree](commands/command_specs.md#adding-a-new-command-decision-tree), and [Exhaustive interactive and IPC projections](commands/command_specs.md#exhaustive-interactive-and-ipc-projections) | You put a label, icon, tooltip, shortcut, or IPC method on a view instead of the spec catalog. Display: [Tooltips, help text, and compact control copy](commands/command_specs.md#tooltips-help-text-and-compact-control-copy). | The [file table](commands/command_specs.md#files-to-load); never infer paths from this index |
 | Which shared UI primitive or dense-control visual pattern should I use? | [Style Guide — Shared Shell Controls](../guides/style_guide.md#shared-shell-controls) | You copy styling into a feature, or you put a behavior constant in `AppStyles`. | [`SharedComponents/`](../../Sources/AgentStudio/SharedComponents), [`AppStyles.swift`](../../Sources/AgentStudio/Infrastructure/AppStyles.swift), [`AppPolicies.swift`](../../Sources/AgentStudio/Infrastructure/AppPolicies.swift) |
-| How do the native titlebar, tab hit testing, tab dragging, and window dragging fit together? | [AppKit + SwiftUI Hybrid Architecture — Native Titlebar And Tab Strip](appkit_swiftui_architecture.md#native-titlebar-and-tab-strip) | You treat tab dragging as SwiftUI-local and break window-rooted hit testing. | `MainWindowController`, `MainToolbarChromeView`, `DraggableTabBarHostingView`, window-rooted toolbar tests |
-| Is this app state, runtime state, or persisted state? | [Atom Persistence Boundaries — Lifecycle Lanes](atom_persistence_boundaries.md#lifecycle-lanes) | You persist a runtime/presentation atom, or you leave a durable field unsaved. | [`Core/State/MainActor/Atoms/`](../../Sources/AgentStudio/Core/State/MainActor/Atoms), persistence wrappers |
-| Is this write-owner atom / derived read model / SQLite row? | [Atom Persistence Boundaries — Roles](atom_persistence_boundaries.md#roles) | A `Codable` convenience type becomes both live atom state and the SQLite contract. | Atom types vs `*Row` projections vs derived `Pane`/`Tab` readers |
-| Workspace command vs pane runtime command vs bus fact vs AppKit lifecycle? | [Mutation Flow](#mutation-flow) in this index; then [Pane Runtime EventBus Design — Admission And Hop Shape](pane_runtime_eventbus_design.md#admission-and-hop-shape) and [Commands and Shortcuts — Command planes](commands_and_shortcuts.md#command-planes) | You route a command through the bus, or you bounce AppKit lifecycle through `WorkspaceActionCommand`. | `WorkspaceActionCommand`, `PaneRuntimeCommand`, `PaneRuntimeEventBus`, `ApplicationLifecycleMonitor` |
-| How do pane/runtime commands and facts move? | [Pane Runtime Architecture — Three Data Flow Planes](pane_runtime_architecture.md#three-data-flow-planes) and [Pane Runtime EventBus Design — TL;DR](pane_runtime_eventbus_design.md#tldr) | You infer hop shape from `@MainActor` annotations and wake MainActor for raw samples. | [`Core/RuntimeEventSystem/`](../../Sources/AgentStudio/Core/RuntimeEventSystem), [`App/Coordination/`](../../Sources/AgentStudio/App/Coordination) |
-| What may run on MainActor vs off-main? | [Pane Runtime EventBus Design — Admission And Hop Shape](pane_runtime_eventbus_design.md#admission-and-hop-shape) | A `@MainActor` type becomes permission to derive, schedule, or admit there. | Terminal drain/projector, `EagerDerivedAtom`, `FilesystemProjectionIndex` |
-| Where are high-rate source signals admitted, contracted, and projected? | [Pane Runtime Architecture — Contract 7](pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction) and [Pane Runtime EventBus Design — Typed Admission](pane_runtime_eventbus_design.md#typed-admission-before-multiplexing); for filesystem effects, [Workspace Data Architecture — Filesystem Effect Admission](workspace_data_architecture.md#filesystem-effect-admission-and-projection) | Raw callbacks wake the bus or MainActor; you skip source admission. | Terminal source routing/projectors and `FilesystemProjectionIndex` |
-| How should expensive derived facts react to product demand without polling or stale publication? | [Demand-Driven Derived-State Refresh — Selection Rule](demand_driven_derived_state_refresh.md#selection-rule) | Debounce/throttle is treated as a classification; the wrong mechanism silently drops ordering, scope, or currentness. | The concrete observer, admission owner, executor, publication path, and keyed read model |
-| How do I prove telemetry or performance? | [Observability And Traceability — Proof Model](observability_and_traceability.md#proof-model) | Unit tests and feel stand in for marker-scoped Victoria proof. | Trace tags, proof scripts, Victoria verifier output |
-| How do I launch debug/beta proof? | [Observability And Traceability — Local proof launch](observability_and_traceability.md#local-proof-launch) | You inherit production identity, share zmx state across worktrees, or treat JSONL as proof. | Debug/beta launchers, identity print, Victoria marker verifiers |
-| How does programmatic control stay out of zmx internals? | [AgentStudio App IPC Architecture — Target Ownership](agentstudio_ipc_architecture.md#target-ownership) | App IPC reaches into zmx sockets or session internals. | [`App/IPCComposition/`](../../Sources/AgentStudio/App/IPCComposition), app ports, runtime adapters |
-| How does Bridge Viewer split work between native Swift/WebKit and BridgeWeb? | [Bridge Viewer Architecture — System Map](bridge_viewer_architecture.md#system-map), then [Bridge Product Transport — The three route jobs](bridge_product_transport_architecture.md#the-three-route-jobs), [Bridge Native Runtime — Ownership Map](bridge_native_runtime_architecture.md#ownership-map), or [Bridge Web Runtime — Runtime Topology](bridge_web_runtime_architecture.md#runtime-topology) | Git/protocol work lands in TypeScript, or native and web ownership duplicate. | [`Sources/AgentStudio/Features/Bridge/`](../../Sources/AgentStudio/Features/Bridge), [`BridgeWeb/src/`](../../BridgeWeb/src) |
-| When editing BridgeWeb React UI? | [BridgeWeb AGENTS.md — UI Components](../../BridgeWeb/AGENTS.md#ui-components), then [Bridge Viewer Architecture — System Map](bridge_viewer_architecture.md#system-map) | You hand-roll a route-local control instead of owned primitives, or you skip the BridgeWeb operating contract. | [`BridgeWeb/src/components/ui/`](../../BridgeWeb/src/components/ui), FileViewer/ReviewViewer shared chrome |
+| How do the native titlebar, tab hit testing, tab dragging, and window dragging fit together? | [AppKit + SwiftUI Hybrid Architecture — Native Titlebar And Tab Strip](hosting/appkit_swiftui_architecture.md#native-titlebar-and-tab-strip) | You treat tab dragging as SwiftUI-local and break window-rooted hit testing. | `MainWindowController`, `MainToolbarChromeView`, `DraggableTabBarHostingView`, window-rooted toolbar tests |
+| Is this app state, runtime state, or persisted state? | [Atom Persistence Boundaries — Lifecycle Lanes](state/atom_persistence_boundaries.md#lifecycle-lanes) | You persist a runtime/presentation atom, or you leave a durable field unsaved. | [`Core/State/MainActor/Atoms/`](../../Sources/AgentStudio/Core/State/MainActor/Atoms), persistence wrappers |
+| Is this write-owner atom / derived read model / SQLite row? | [Atom Persistence Boundaries — Roles](state/atom_persistence_boundaries.md#roles) | A `Codable` convenience type becomes both live atom state and the SQLite contract. | Atom types vs `*Row` projections vs derived `Pane`/`Tab` readers |
+| Workspace command vs pane runtime command vs bus fact vs AppKit lifecycle? | [Mutation Flow](#mutation-flow) in this index; then [Pane Runtime EventBus Design — Admission And Hop Shape](runtime/pane_runtime_eventbus_design.md#admission-and-hop-shape) and [Command Specs — Command planes](commands/command_specs.md#command-planes) | You route a command through the bus, or you bounce AppKit lifecycle through `WorkspaceActionCommand`. | `WorkspaceActionCommand`, `PaneRuntimeCommand`, `PaneRuntimeEventBus`, `ApplicationLifecycleMonitor` |
+| How do pane/runtime commands and facts move? | [Pane Runtime Architecture — Three Data Flow Planes](runtime/pane_runtime_architecture.md#three-data-flow-planes) and [Pane Runtime EventBus Design — TL;DR](runtime/pane_runtime_eventbus_design.md#tldr) | You infer hop shape from `@MainActor` annotations and wake MainActor for raw samples. | [`Core/RuntimeEventSystem/`](../../Sources/AgentStudio/Core/RuntimeEventSystem), [`App/Coordination/`](../../Sources/AgentStudio/App/Coordination) |
+| I have a new signal, derived fact, or EventBus case? | [Pane Runtime Architecture — New signal decision tree](runtime/pane_runtime_architecture.md#new-signal-decision-tree) then [Need An Atom?](state/atom_persistence_boundaries.md#need-an-atom) and [Selection Rule](state/demand_driven_derived_state_refresh.md#selection-rule) | You invent a bus event and transform it on MainActor, or skip admission. | Source admission owner, atom vs repository choice, EventBus fact topic |
+| What may run on MainActor vs off-main? | [Pane Runtime EventBus Design — Admission And Hop Shape](runtime/pane_runtime_eventbus_design.md#admission-and-hop-shape) | A `@MainActor` type becomes permission to derive, schedule, or admit there. | Terminal drain/projector, `EagerDerivedAtom`, `FilesystemProjectionIndex` |
+| Where are high-rate source signals admitted, contracted, and projected? | [Pane Runtime Architecture — Contract 7](runtime/pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction) and [Pane Runtime EventBus Design — Typed Admission](runtime/pane_runtime_eventbus_design.md#typed-admission-before-multiplexing); for filesystem effects, [Workspace Data Architecture — Filesystem Effect Admission](state/workspace_data_architecture.md#filesystem-effect-admission-and-projection) | Raw callbacks wake the bus or MainActor; you skip source admission. | Terminal source routing/projectors and `FilesystemProjectionIndex` |
+| How should expensive derived facts react to product demand without polling or stale publication? | [Demand-Driven Derived-State Refresh — Selection Rule](state/demand_driven_derived_state_refresh.md#selection-rule) | Debounce/throttle is treated as a classification; the wrong mechanism silently drops ordering, scope, or currentness. | The concrete observer, admission owner, executor, publication path, and keyed read model |
+| How do I prove telemetry or performance? | [Observability And Traceability — Proof Model](observability/observability_and_traceability.md#proof-model) | Unit tests and feel stand in for marker-scoped Victoria proof. | Trace tags, proof scripts, Victoria verifier output |
+| How do I launch debug/beta proof? | [Observability And Traceability — Local proof launch](observability/observability_and_traceability.md#local-proof-launch) | You inherit production identity, share zmx state across worktrees, or treat JSONL as proof. | Debug/beta launchers, identity print, Victoria marker verifiers |
+| How does programmatic control stay out of zmx internals? | [AgentStudio App IPC Architecture — Target Ownership](commands/ipc.md#target-ownership) | App IPC reaches into zmx sockets or session internals. | [`App/IPCComposition/`](../../Sources/AgentStudio/App/IPCComposition), app ports, runtime adapters |
+| How does Bridge Viewer split work between native Swift/WebKit and BridgeWeb? | [Bridge Viewer Architecture — System Map](bridge/bridge_viewer_architecture.md#system-map), then [Bridge Product Transport — The three route jobs](bridge/bridge_product_transport_architecture.md#the-three-route-jobs), [Bridge Native Runtime — Ownership Map](bridge/bridge_native_runtime_architecture.md#ownership-map), or [Bridge Web Runtime — Runtime Topology](bridge/bridge_web_runtime_architecture.md#runtime-topology) | Git/protocol work lands in TypeScript, or native and web ownership duplicate. | [`Sources/AgentStudio/Features/Bridge/`](../../Sources/AgentStudio/Features/Bridge), [`BridgeWeb/src/`](../../BridgeWeb/src) |
+| When editing BridgeWeb React UI? | [BridgeWeb AGENTS.md — UI Components](../../BridgeWeb/AGENTS.md#ui-components), then [Bridge Viewer Architecture — System Map](bridge/bridge_viewer_architecture.md#system-map) | You hand-roll a route-local control instead of owned primitives, or you skip the BridgeWeb operating contract. | [`BridgeWeb/src/components/ui/`](../../BridgeWeb/src/components/ui), FileViewer/ReviewViewer shared chrome |
 | BridgeWeb Vite loop, zig/Xcode, or Swift build-slot recovery? | [Agent Resources — BridgeWeb Fast UI Loop](../guides/agent_resources.md#bridgeweb-fast-ui-loop), [Xcode And Zig](../guides/agent_resources.md#xcode-and-zig-vendor-builds), [Swift Build-Slot Recovery](../guides/agent_resources.md#swift-build-slot-recovery) | You rebuild the full app for Bridge UI, hydrate vendors by hand, or collide on `.build`. | `mise` tasks, [`scripts/swift-build-slot.sh`](../../scripts/swift-build-slot.sh), Bridge development server |
-| Local SQLite recovery internals? | [Atom Persistence Boundaries — Local recovery](atom_persistence_boundaries.md#local-recovery) | You reconstruct quarantine/reopen from an agent contract instead of the persistence owner. | `WorkspaceSQLiteRecoveryClassifier`, sidecar quarantine |
+| Local SQLite recovery internals? | [Atom Persistence Boundaries — Local recovery](state/atom_persistence_boundaries.md#local-recovery) | You reconstruct quarantine/reopen from an agent contract instead of the persistence owner. | `WorkspaceSQLiteRecoveryClassifier`, sidecar quarantine |
 
 ## Compiled Module Graph
 
@@ -116,7 +117,7 @@ serialization remain execution policy rather than module ownership.
 ## Architecture Principles
 
 - **Pane as primary entity** — `Pane` is the stable identity across model, runtime, view registry, surface metadata, and restore flows
-- **Atomic stores (inspired by Jotai)** — Use an atom only for **shared UI state** that SwiftUI, a command surface, or a derived projection must observe. Read [Need An Atom?](atom_persistence_boundaries.md#need-an-atom) and [`Sources/AgentStudio/Infrastructure/AtomLib/`](../../Sources/AgentStudio/Infrastructure/AtomLib). CRUD without Observation belongs in a repository. An atom does not have to be backed by SQLite. Each justified atom owns one observed domain and has one reason to change. Compatibility facades such as `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, and `WorkspaceTabLayoutAtom` bridge existing call sites while split write owners land. Persistence wrappers snapshot atom groups that happen to be durable. Feature atoms live inside their feature slice at `Features/<slice>/State/MainActor/Atoms/` — see [Directory Structure — Feature Slice Self-Containment](directory_structure.md#feature-slice-self-containment).
+- **Atomic stores (inspired by Jotai)** — Use an atom only for **shared UI state** that SwiftUI, a command surface, or a derived projection must observe. Read [Need An Atom?](state/atom_persistence_boundaries.md#need-an-atom) and [`Sources/AgentStudio/Infrastructure/AtomLib/`](../../Sources/AgentStudio/Infrastructure/AtomLib). CRUD without Observation belongs in a repository. An atom does not have to be backed by SQLite. Each justified atom owns one observed domain and has one reason to change. Compatibility facades such as `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, and `WorkspaceTabLayoutAtom` bridge existing call sites while split write owners land. Persistence wrappers snapshot atom groups that happen to be durable. Feature atoms live inside their feature slice at `Features/<slice>/State/MainActor/Atoms/` — see [Directory Structure — Feature Slice Self-Containment](structure/directory_structure.md#feature-slice-self-containment).
 - **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers.
 - **Coordinator for cross-store sequencing** — A coordinator sequences operations across stores for a single user action. Owns no state, contains no domain logic.
 - **Lifecycle ingress stays separate** — `ApplicationLifecycleMonitor` owns AppKit ingress only. It mutates `AppLifecycleAtom` and `WindowLifecycleAtom`, both `@Observable` atomic stores with `private(set)` mutation surfaces. `WindowLifecycleAtom` holds transient window facts only: key/focus state, terminal container bounds, launch-layout-settle state, and derived readiness; none of those readiness properties are persisted.
@@ -124,7 +125,7 @@ serialization remain execution policy rather than module ownership.
 - **Surface independence** — Ghostty surfaces are ephemeral runtime resources; the model layer never holds `NSView` references
 - **Main-actor UI state, off-main runtime work** — AppKit, SwiftUI, atoms, observable UI state, and WebKit integration stay on `@MainActor`; expensive runtime work such as file I/O, hashing, diff preparation, and provider calls belongs behind actors/services with `Sendable` request/result models.
 - **AsyncStream over Combine/NotificationCenter** — All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. Existing Combine/NotificationCenter migrated incrementally.
-- **Trace tags select instrumentation** — Observability emitters are gated by `AGENTSTUDIO_TRACE_TAGS`; backends are selected separately by `AGENTSTUDIO_TRACE_BACKEND` and loopback OTLP variables. Do not add one-off env vars for individual emitters. See [Observability And Traceability — Control Plane](observability_and_traceability.md#control-plane).
+- **Trace tags select instrumentation** — Observability emitters are gated by `AGENTSTUDIO_TRACE_TAGS`; backends are selected separately by `AGENTSTUDIO_TRACE_BACKEND` and loopback OTLP variables. Do not add one-off env vars for individual emitters. See [Observability And Traceability — Control Plane](observability/observability_and_traceability.md#control-plane).
 
 Current atom vocabulary:
 
@@ -142,6 +143,7 @@ Use the smallest boundary that still matches the kind of work being done.
 | Workspace mutation | `WorkspaceActionCommand` | Validator-gated, then sequenced into stores by `WorkspaceSurfaceCoordinator`. |
 | Runtime command | `PaneRuntimeCommand` | Direct command routing to a single runtime via `RuntimeRegistry`. |
 | Runtime fact | `PaneRuntimeEventBus` | Fan-out for runtime/system facts only. Never route commands through it. |
+| Ordered post-topology effects | `TopologyEffectHandler` | After topology facts; not via the bus. |
 | App-level notification that is not a command | `AppEventBus` | Notification fan-out only. |
 | AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` | Owns AppKit callbacks and writes lifecycle stores. |
 | UI-only local state | Local `@Observable` view/controller state | Keep it local; do not bounce it through a bus or `NotificationCenter`. |
@@ -233,42 +235,75 @@ AppKit/macOS lifecycle ingress → ApplicationLifecycleMonitor → AppLifecycleA
 
 ## Document Index
 
-**Current owners** below are the architecture catalog. No two current owners
-are authoritative for the same topic. Historical and idea documents are listed
-after the table; they are not current authority even when they still contain
-useful background.
+**Current owners** below are the architecture catalog, grouped by folder. No two
+current owners are authoritative for the same topic. Historical documents live
+only under [`archive/`](archive/README.md).
 
-| Document | Ownership | Covers |
-|----------|-----------|--------|
-| [Component Architecture](component_architecture.md) | Structural overview — how components compose | Data model (pane, tab, layout, session), service layer, named coordinators, persistence format, store boundaries, invariants |
-| [Workspace Data Architecture](workspace_data_architecture.md) | Workspace-level data — repos, worktrees, enrichment | Three-tier persistence, canonical vs enrichment models, enrichment pipeline, topology reconciliation, typed filesystem/Git pane-projection admission, affected-key effects, sidebar data flow, ordering/replay contracts |
-| [Demand-Driven Derived-State Refresh](demand_driven_derived_state_refresh.md) | Generic classify-first vocabulary for expensive derived facts | Selection rule, nine-stage loop, bounded outcome telemetry, R-INV suppression/deferral gates, and drift discipline |
-| [Atom Persistence Boundaries](atom_persistence_boundaries.md) | Atom-to-SQLite ownership model | Write-owner atom rules, current lifecycle lanes, derived read models, current row projections, runtime-only surfaces, and ownership map |
-| [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane-level runtime contracts | Pane runtime contracts (C1-C16), typed Ghostty source admission and bounded contraction (C7), event envelopes, per-pane event taxonomy, adapter/runtime/coordinator layers, attach and restart contracts, command dispatch, and source/sink/projection vocabulary. Verify locked pseudo-code against [`PaneRuntime.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntime.swift). |
-| [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | EventBus threading and coordination | Concrete admission-to-coordination mechanics, actor fan-out, boundary actors, compact MainActor application, semantic projection, connection patterns, and Swift 6.2 threading model. Shipped adoption is current; the migration inventory is historical. |
-| [Session Lifecycle](session_lifecycle.md) | Pane identity and session backend lifecycle | Pane identity contract, creation, close, undo, restore, runtime status, zmx backend |
-| [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Zmx-specific attach and sizing | Deferred attach sequencing, geometry readiness, restart reconcile policy, zmx restore/sizing test coverage |
-| [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface management | Surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
-| [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell | AppKit hosting model, controllers, command bar panel, event handling |
-| [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Shared command identity, independent exhaustive interactive/IPC projections, typed surfaces and targeting, capability and execution, shortcut routing, and tooltip projection |
-| [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic control | SwiftPM target split, socket/JSON-RPC foundation, auth, permission grants, protocol ports, CLI/smoke client, app composition, zmx separation, and lint-rule ownership boundaries |
-| [Directory Structure](directory_structure.md) | Module, test, and file-placement boundaries | Repo-root tree, [`Sources/AgentStudio/`](../../Sources/AgentStudio) tree, compiled SwiftPM graph, package visibility, Core vs Features decision process, import rule, paired tests, executable integration ownership |
-| [Architecture Lint Inventory](architecture_lint_inventory.md) | Architecture lint enforcement map | Live SwiftSyntax rule IDs must match [`ArchitectureRule.swift`](../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Core/ArchitectureRule.swift); stock SwiftLint plus blocking/report-only/test/review classifications |
-| [Bridge Viewer Architecture](bridge_viewer_architecture.md) | End-to-end Bridge Viewer ownership | Product boundaries, native/web split, source-to-paint lifecycle, viewer modes, freshness, and proof routing |
-| [Bridge Product Transport Architecture](bridge_product_transport_architecture.md) | Bridge native/web product transport | Command, metadata, content, demand, application-protocol, and placement boundaries |
-| [Bridge Native Runtime Architecture](bridge_native_runtime_architecture.md) | Swift/WebKit Bridge runtime | Shared construction, `agentstudio-git`, Git scheduling, pane publication, transport, activity, and teardown |
-| [Bridge Web Runtime Architecture](bridge_web_runtime_architecture.md) | BridgeWeb runtime | One comm worker per pane, separate File/Review state, demand, cache, Pierre/Shiki rendering, suspension, and reconvergence |
+### structure/
 
-### Historical And Background
+| Document | Ownership |
+|----------|-----------|
+| [Directory Structure](structure/directory_structure.md) | Module, test, and file-placement boundaries |
+| [Component Architecture](structure/component_architecture.md) | Structural overview — how components compose |
+| [Architecture Lint Inventory](structure/architecture_lint_inventory.md) | Live architecture-lint rule map |
 
-These files remain in the tree for motivation or early design. They are **not**
-current owners. Verify every claim against a current owner and source.
+### state/
 
-| Document | Status | Live owner instead |
-|----------|--------|--------------------|
-| [Window System Design](window_system_design.md) | Self-disclaimed outdated; internal drawer-lifecycle contradiction | [Component Architecture](component_architecture.md), [Session Lifecycle](session_lifecycle.md), [App Architecture](appkit_swiftui_architecture.md) |
-| [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Forward-looking fork/SSH ideas; not shipped | [Zmx Restore and Sizing](zmx_restore_and_sizing.md), [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) |
-| [JTBD & Requirements](jtbd_and_requirements.md) | Product motivation | Current owners above for implementation |
+| Document | Ownership |
+|----------|-----------|
+| [Atom Persistence Boundaries](state/atom_persistence_boundaries.md) | Atom vs repository vs derived / SQLite roles |
+| [Workspace Data Architecture](state/workspace_data_architecture.md) | Repos, worktrees, enrichment, sidebar projection |
+| [Demand-Driven Derived-State Refresh](state/demand_driven_derived_state_refresh.md) | Classify-first vocabulary for expensive derived facts |
+
+### runtime/
+
+| Document | Ownership |
+|----------|-----------|
+| [Pane Runtime Architecture](runtime/pane_runtime_architecture.md) | Planes, named contracts, new-signal tree; verify against `PaneRuntime.swift` |
+| [Pane Runtime EventBus Design](runtime/pane_runtime_eventbus_design.md) | Admission, hop shape, two buses, shipped actors, Swift 6.2 |
+| [Session Lifecycle](runtime/session_lifecycle.md) | Pane identity and session backend lifecycle |
+| [Zmx Restore and Sizing](runtime/zmx_restore_and_sizing.md) | Deferred attach and zmx sizing |
+| [Surface Architecture](runtime/ghostty_surface_architecture.md) | Ghostty surface ownership |
+
+### commands/
+
+| Document | Ownership |
+|----------|-----------|
+| [Command Specs](commands/command_specs.md) | `AppCommand` identity, `AppCommandSpec`, `ipcSpec`, `LocalActionSpec`, shortcuts |
+| [App IPC](commands/ipc.md) | Socket/JSON-RPC transport, ports, auth — hops to command specs for catalog |
+
+### hosting/
+
+| Document | Ownership |
+|----------|-----------|
+| [AppKit + SwiftUI Hybrid Architecture](hosting/appkit_swiftui_architecture.md) | Native chrome hosts that consume command specs |
+
+### bridge/
+
+| Document | Ownership |
+|----------|-----------|
+| [Bridge Viewer Architecture](bridge/bridge_viewer_architecture.md) | End-to-end Bridge ownership |
+| [Bridge Product Transport](bridge/bridge_product_transport_architecture.md) | Native/web product transport |
+| [Bridge Native Runtime](bridge/bridge_native_runtime_architecture.md) | Swift/WebKit Bridge runtime |
+| [Bridge Web Runtime](bridge/bridge_web_runtime_architecture.md) | BridgeWeb runtime |
+| [BridgeWeb Design Tokens](bridge/bridgeweb_design_token_architecture.md) | Token layer ownership |
+
+### observability/
+
+| Document | Ownership |
+|----------|-----------|
+| [Observability And Traceability](observability/observability_and_traceability.md) | Proof model and local proof launch |
+
+### archive/
+
+Not current authority. See [archive/README.md](archive/README.md).
+
+| Document | Live owner instead |
+|----------|--------------------|
+| [Window System Design](archive/window_system_design.md) | Component / Session / Hosting |
+| [Remote zmx Ideas](archive/remote_zmx_architecture_ideas.md) | Zmx restore / App IPC |
+| [JTBD & Requirements](archive/jtbd_and_requirements.md) | Current owners above |
+| [Zmx Terminal Integration Lessons](archive/zmx_terminal_integration_lessons.md) | Session / Zmx restore |
 
 ## Related
 

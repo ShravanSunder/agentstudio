@@ -2,7 +2,7 @@
 
 > **Status:** Authoritative architecture for workspace-level data model, persistence, enrichment pipeline, and sidebar data flow.
 > **Target:** Swift 6.2 / macOS 26
-> **Companion docs:** [Pane Runtime Architecture](pane_runtime_architecture.md) (event envelope contracts, pane-level concerns), [EventBus Design](pane_runtime_eventbus_design.md) (actor threading, connection patterns), [Component Architecture](component_architecture.md) (structural overview), [Atom Persistence Boundaries](atom_persistence_boundaries.md) (write-owner atom and SQLite boundary model)
+> **Companion docs:** [Pane Runtime Architecture](../runtime/pane_runtime_architecture.md) (event envelope contracts, pane-level concerns), [EventBus Design](../runtime/pane_runtime_eventbus_design.md) (actor threading, connection patterns), [Component Architecture](../structure/component_architecture.md) (structural overview), [Atom Persistence Boundaries](atom_persistence_boundaries.md) (write-owner atom and SQLite boundary model)
 
 ## TL;DR
 
@@ -63,11 +63,11 @@ application-global, while pane facts carry an explicit `workspace_id`. If the
 database is corrupt, local recovery may quarantine it and all local lanes
 default; enrichment rebuilds and recency starts empty while core remains usable.
 
-> **Note on composition state.** `sidebarCollapsed` and `sidebarSurface` live on `WorkspaceSidebarMemoryAtom` as workspace-scoped shell memory. `sidebarHasFocus` lives on `SidebarFocusRuntimeAtom` and is runtime-only. `WorkspaceSidebarState` composes both for UI callers. See [directory_structure.md — composition state vs feature state](directory_structure.md).
+> **Note on composition state.** `sidebarCollapsed` and `sidebarSurface` live on `WorkspaceSidebarMemoryAtom` as workspace-scoped shell memory. `sidebarHasFocus` lives on `SidebarFocusRuntimeAtom` and is runtime-only. `WorkspaceSidebarState` composes both for UI callers. See [directory_structure.md — composition state vs feature state](../structure/directory_structure.md).
 
 ### Tier A: Canonical Models
 
-> **Files:** [`Core/Models/CanonicalRepo.swift`](../../Sources/AgentStudio/Core/Models/CanonicalRepo.swift), [`Core/Models/CanonicalWorktree.swift`](../../Sources/AgentStudio/Core/Models/CanonicalWorktree.swift)
+> **Files:** [`Core/Models/CanonicalRepo.swift`](../../../Sources/AgentStudio/Core/Models/CanonicalRepo.swift), [`Core/Models/CanonicalWorktree.swift`](../../../Sources/AgentStudio/Core/Models/CanonicalWorktree.swift)
 
 ```swift
 struct CanonicalRepo: Codable, Identifiable, Hashable {
@@ -466,7 +466,7 @@ After classification, linked worktrees are grouped under their parent clone into
 
 Used by `FilesystemActor` as the blocking filesystem walk behind watched-folder refresh. The grouped results enable the coordinator to create correct worktree families from the first topology event.
 
-> **Files:** [`Infrastructure/RepoScanner.swift`](../../Sources/AgentStudio/Infrastructure/RepoScanner.swift), [`Core/State/MainActor/Coordination/RepositoryWorktreeReconciliation.swift`](../../Sources/AgentStudio/Core/State/MainActor/Coordination/RepositoryWorktreeReconciliation.swift)
+> **Files:** [`Infrastructure/RepoScanner.swift`](../../../Sources/AgentStudio/Infrastructure/RepoScanner.swift), [`Core/State/MainActor/Coordination/RepositoryWorktreeReconciliation.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Coordination/RepositoryWorktreeReconciliation.swift)
 
 ### Event Namespaces
 
@@ -503,7 +503,7 @@ ForgeEvent (producer: ForgeActor, envelope: WorktreeEnvelope)
   .rateLimited(repoId:, retryAfter:)
 ```
 
-Discovery events (`.repoDiscovered`, `.repoRemoved`) live in `SystemEnvelope` because the canonical repo does not exist yet at emit time — no repoId is available. All other workspace events live in `WorktreeEnvelope` where repoId is always present. For the full 3-tier envelope hierarchy, see [Pane Runtime Architecture — Contract 3](pane_runtime_architecture.md#contract-3-event-envelope).
+Discovery events (`.repoDiscovered`, `.repoRemoved`) live in `SystemEnvelope` because the canonical repo does not exist yet at emit time — no repoId is available. All other workspace events live in `WorktreeEnvelope` where repoId is always present. For the full 3-tier envelope hierarchy, see [Pane Runtime Architecture — Contract 3](../runtime/pane_runtime_architecture.md#contract-3-event-envelope).
 
 ---
 
@@ -547,7 +547,7 @@ Branch display: `WorktreeEnrichment.branch` from cache, falling back to `"detach
 
 ### App Boot (implemented)
 
-Boot is driven by `WorkspaceBootSequence` ([`App/Boot/WorkspaceBootSequence.swift`](../../Sources/AgentStudio/App/Boot/WorkspaceBootSequence.swift)), which defines ordered steps executed synchronously on the main actor:
+Boot is driven by `WorkspaceBootSequence` ([`App/Boot/WorkspaceBootSequence.swift`](../../../Sources/AgentStudio/App/Boot/WorkspaceBootSequence.swift)), which defines ordered steps executed synchronously on the main actor:
 
 ```
 WorkspaceBootStep (in order):
@@ -638,7 +638,7 @@ When a repo directory moves on disk, the plan is:
 
 ### Deferred Launch Restore
 
-> **Files:** [`App/Boot/AppDelegate+LaunchRestore.swift`](../../Sources/AgentStudio/App/Boot/AppDelegate+LaunchRestore.swift), [`App/Lifecycle/WindowRestoreBridge.swift`](../../Sources/AgentStudio/App/Lifecycle/WindowRestoreBridge.swift), [`App/Boot/AppDelegateLaunchRestoreObservationState.swift`](../../Sources/AgentStudio/App/Boot/AppDelegateLaunchRestoreObservationState.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift), [`Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift`](../../Sources/AgentStudio/Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift), [`Features/Terminal/Restore/TerminalRestoreScheduler.swift`](../../Sources/AgentStudio/Features/Terminal/Restore/TerminalRestoreScheduler.swift)
+> **Files:** [`App/Boot/AppDelegate+LaunchRestore.swift`](../../../Sources/AgentStudio/App/Boot/AppDelegate+LaunchRestore.swift), [`App/Lifecycle/WindowRestoreBridge.swift`](../../../Sources/AgentStudio/App/Lifecycle/WindowRestoreBridge.swift), [`App/Boot/AppDelegateLaunchRestoreObservationState.swift`](../../../Sources/AgentStudio/App/Boot/AppDelegateLaunchRestoreObservationState.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift), [`Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift`](../../../Sources/AgentStudio/Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift), [`Features/Terminal/Restore/TerminalRestoreScheduler.swift`](../../../Sources/AgentStudio/Features/Terminal/Restore/TerminalRestoreScheduler.swift)
 
 zmx terminal panes require a trusted `initialFrame` before Ghostty surface creation. During app boot, `terminalContainerBounds` may be zero because the window has not settled layout yet. The deferred launch restore flow handles this geometry gate.
 
@@ -994,11 +994,11 @@ Key testing principles:
 
 ## Cross-References
 
-- **Event envelope hierarchy:** [Pane Runtime Architecture — Contract 3](pane_runtime_architecture.md#contract-3-event-envelope) — `RuntimeEnvelope` 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`)
-- **Actor threading model:** [EventBus Design](pane_runtime_eventbus_design.md) — connection patterns, `@concurrent` helpers, multiplexing rule
-- **Pane-level replay:** [Pane Runtime Architecture — Contract 14](pane_runtime_architecture.md#contract-14-replay-buffer)
-- **Filesystem batching:** [Pane Runtime Architecture — Contract 6](pane_runtime_architecture.md#contract-6-filesystem-batching) — debounce/max-latency
-- **Component overview:** [Component Architecture](component_architecture.md) — data model, store boundaries, coordinator role
-- **Pane identity and restore:** [Session Lifecycle](session_lifecycle.md) — pane identity contract, restore sequencing, undo/residency states
-- **Surface lifecycle:** [Surface Architecture](ghostty_surface_architecture.md) — Ghostty surface ownership, health monitoring
+- **Event envelope hierarchy:** [Pane Runtime Architecture — Contract 3](../runtime/pane_runtime_architecture.md#contract-3-event-envelope) — `RuntimeEnvelope` 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`)
+- **Actor threading model:** [EventBus Design](../runtime/pane_runtime_eventbus_design.md) — connection patterns, `@concurrent` helpers, multiplexing rule
+- **Pane-level replay:** [Ordering, Replay, and Idempotency](#ordering-replay-and-idempotency); EventBus per-source replay in [Current shipped behavior](../runtime/pane_runtime_eventbus_design.md#current-shipped-behavior)
+- **Filesystem batching:** [Actor Responsibilities](#actor-responsibilities) (FilesystemActor debounce/max-latency)
+- **Component overview:** [Component Architecture](../structure/component_architecture.md) — data model, store boundaries, coordinator role
+- **Pane identity and restore:** [Session Lifecycle](../runtime/session_lifecycle.md) — pane identity contract, restore sequencing, undo/residency states
+- **Surface lifecycle:** [Surface Architecture](../runtime/ghostty_surface_architecture.md) — Ghostty surface ownership, health monitoring
 - **Planned: persistent folder watching:** `WatchedPath` model, periodic rescan

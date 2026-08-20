@@ -8,9 +8,9 @@ linked doc, then verify in current code and tests. Do not treat this file as the
 architecture, atom catalog, or observability launch runbook. When you need to
 know how the app is organized — folders, modules, or commands — always load
 both
-[Directory Structure — Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure)
+[Directory Structure — Source And Target Structure](docs/architecture/structure/directory_structure.md#source-and-target-structure)
 and
-[Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners).
+[Command Specs And Execution Owners](docs/architecture/commands/command_specs.md#command-specs-and-execution-owners).
 Do not infer organization from this file.
 
 ## Daily Commands
@@ -72,17 +72,17 @@ organization, always load command specs and directory structure together.
 
 | When | Load | What you get wrong if you skip |
 | --- | --- | --- |
-| How the app is organized | Always load [Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure) and [Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners) (then [Files to load](docs/architecture/commands_and_shortcuts.md#files-to-load)) | You put a type in the wrong slice, invent a parallel command path, or guess owners from this file. |
+| How the app is organized | Always load [Source And Target Structure](docs/architecture/structure/directory_structure.md#source-and-target-structure) and [Command Specs And Execution Owners](docs/architecture/commands/command_specs.md#command-specs-and-execution-owners) (then [Files to load](docs/architecture/commands/command_specs.md#files-to-load)) | You put a type in the wrong slice, invent a parallel command path, or guess owners from this file. |
 | Any architecture question | [Architecture Overview — How To Read](docs/architecture/README.md#how-to-read-this-index) | You search the tree instead of the owning doc. That index is the one architecture catalog. |
-| File or new type placement | [Directory Structure — Decision Process](docs/architecture/directory_structure.md#decision-process-where-does-this-file-go) | A Feature type lands in `Core/Models/`. Named component → slice lookup is [Component Architecture §7](docs/architecture/component_architecture.md#7-key-files). Repo tree and SwiftPM DAG: [Repository Root](docs/architecture/directory_structure.md#repository-root), [Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure), [SwiftPM Module Graph](docs/architecture/directory_structure.md#swiftpm-module-graph). |
-| File or module test placement | [Directory Structure — Test Target Ownership](docs/architecture/directory_structure.md#test-target-ownership) | A module test parks on the executable target, or you infer ownership from `swift test --filter`. |
-| Do I need an atom, derived node, eager projection, or a repository? | [Need An Atom?](docs/architecture/atom_persistence_boundaries.md#need-an-atom) | You wrap CRUD in an atom, assume every atom is a SQL table, or reach for `EagerDerivedAtomFamily` as a default. |
-| Write-owner vs derived vs SQLite row | [Atom Persistence Boundaries — Roles](docs/architecture/atom_persistence_boundaries.md#roles) | A `Codable` convenience type becomes both live state and the storage contract. Survey does not mean persist. |
-| Command, shortcut, tooltip, or IPC | [Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners), then [Files to load](docs/architecture/commands_and_shortcuts.md#files-to-load), [Adding a new command — decision tree](docs/architecture/commands_and_shortcuts.md#adding-a-new-command-decision-tree), and [Exhaustive interactive and IPC projections](docs/architecture/commands_and_shortcuts.md#exhaustive-interactive-and-ipc-projections) | You invent a button, label, icon, tooltip, shortcut, or IPC method off the spec catalog. Display hops: [Tooltips, help text, and compact control copy](docs/architecture/commands_and_shortcuts.md#tooltips-help-text-and-compact-control-copy). |
-| Native chrome / shared UI | [Style Guide — Shared Shell Controls](docs/guides/style_guide.md#shared-shell-controls) and [App Architecture — Core Hosting Patterns](docs/architecture/appkit_swiftui_architecture.md#core-hosting-patterns) | You copy styling into a feature or put a behavior constant in `AppStyles`. |
-| BridgeWeb React UI | This file, then [BridgeWeb AGENTS.md — UI Components](BridgeWeb/AGENTS.md#ui-components) | You hand-roll route-local controls instead of owned primitives. Token recipes live in [BridgeWeb Design-Token Architecture — Layer and ownership rules](docs/architecture/bridgeweb_design_token_architecture.md#layer-and-ownership-rules). The Vite loop lives in [BridgeWeb Fast UI Loop](docs/guides/agent_resources.md#bridgeweb-fast-ui-loop). |
+| File or new type placement | [Directory Structure — Decision Process](docs/architecture/structure/directory_structure.md#decision-process-where-does-this-file-go) | A Feature type lands in `Core/Models/`. Named component → slice lookup is [Component Architecture §7](docs/architecture/structure/component_architecture.md#7-key-files). Repo tree and SwiftPM DAG: [Repository Root](docs/architecture/structure/directory_structure.md#repository-root), [Source And Target Structure](docs/architecture/structure/directory_structure.md#source-and-target-structure), [SwiftPM Module Graph](docs/architecture/structure/directory_structure.md#swiftpm-module-graph). |
+| File or module test placement | [Directory Structure — Test Target Ownership](docs/architecture/structure/directory_structure.md#test-target-ownership) | A module test parks on the executable target, or you infer ownership from `swift test --filter`. |
+| Do I need an atom, derived node, eager projection, or a repository? | [Need An Atom?](docs/architecture/state/atom_persistence_boundaries.md#need-an-atom) | You wrap CRUD in an atom, assume every atom is a SQL table, or reach for `EagerDerivedAtomFamily` as a default. |
+| Write-owner vs derived vs SQLite row | [Atom Persistence Boundaries — Roles](docs/architecture/state/atom_persistence_boundaries.md#roles) | A `Codable` convenience type becomes both live state and the storage contract. Survey does not mean persist. |
+| Command, shortcut, tooltip, or IPC | [Command Specs And Execution Owners](docs/architecture/commands/command_specs.md#command-specs-and-execution-owners), then [Files to load](docs/architecture/commands/command_specs.md#files-to-load), [Adding a new command — decision tree](docs/architecture/commands/command_specs.md#adding-a-new-command-decision-tree), and [Exhaustive interactive and IPC projections](docs/architecture/commands/command_specs.md#exhaustive-interactive-and-ipc-projections) | You invent a button, label, icon, tooltip, shortcut, or IPC method off the spec catalog. Display hops: [Tooltips, help text, and compact control copy](docs/architecture/commands/command_specs.md#tooltips-help-text-and-compact-control-copy). |
+| Native chrome / shared UI | [Style Guide — Shared Shell Controls](docs/guides/style_guide.md#shared-shell-controls) and [App Architecture — Core Hosting Patterns](docs/architecture/hosting/appkit_swiftui_architecture.md#core-hosting-patterns) | You copy styling into a feature or put a behavior constant in `AppStyles`. |
+| BridgeWeb React UI | This file, then [BridgeWeb AGENTS.md — UI Components](BridgeWeb/AGENTS.md#ui-components) | You hand-roll route-local controls instead of owned primitives. Token recipes live in [BridgeWeb Design-Token Architecture — Layer and ownership rules](docs/architecture/bridge/bridgeweb_design_token_architecture.md#layer-and-ownership-rules). The Vite loop lives in [BridgeWeb Fast UI Loop](docs/guides/agent_resources.md#bridgeweb-fast-ui-loop). |
 | Bootstrap, Vite loop, zig/Xcode, build slots | [First-Time Setup](docs/guides/agent_resources.md#first-time-setup), [BridgeWeb Fast UI Loop](docs/guides/agent_resources.md#bridgeweb-fast-ui-loop), [Xcode And Zig](docs/guides/agent_resources.md#xcode-and-zig-vendor-builds), [Swift Build-Slot Recovery](docs/guides/agent_resources.md#swift-build-slot-recovery) | You hydrate vendors by hand, rebuild the full app for Bridge UI, or collide on `.build`. |
-| Debug/beta proof launch | [Observability — Local proof launch](docs/architecture/observability_and_traceability.md#local-proof-launch) | You inherit production identity, share zmx roots, or treat JSONL as proof. |
+| Debug/beta proof launch | [Observability — Local proof launch](docs/architecture/observability/observability_and_traceability.md#local-proof-launch) | You inherit production identity, share zmx roots, or treat JSONL as proof. |
 | MainActor, debounce, Ghostty samples, sidebar rows | [Performance Lane](#performance-lane-directive) below | You infer hop shape from `@MainActor` and skip source admission. |
 
 Do not infer hop shape from `@MainActor` annotations in this file.
@@ -97,14 +97,14 @@ Core/Features/App. Features never import sibling Features. App owns
 cross-Feature composition. SharedComponents is stateless and depends only on
 Infrastructure. Cross-target declarations use the narrowest necessary `package`
 visibility; do not broadly promote product APIs to `public`. Exact placement
-tests live in [Directory Structure — Import Rule](docs/architecture/directory_structure.md#import-rule-hard-boundary).
+tests live in [Directory Structure — Import Rule](docs/architecture/structure/directory_structure.md#import-rule-hard-boundary).
 
 **Folder arcs.** Everyday placement. Always load Directory Structure when
 placing, renaming, or asking where a type lives. Trees and the compiled DAG live in
-[Repository Root](docs/architecture/directory_structure.md#repository-root),
-[Source And Target Structure](docs/architecture/directory_structure.md#source-and-target-structure),
-and [SwiftPM Module Graph](docs/architecture/directory_structure.md#swiftpm-module-graph).
-Use [Decision Process](docs/architecture/directory_structure.md#decision-process-where-does-this-file-go)
+[Repository Root](docs/architecture/structure/directory_structure.md#repository-root),
+[Source And Target Structure](docs/architecture/structure/directory_structure.md#source-and-target-structure),
+and [SwiftPM Module Graph](docs/architecture/structure/directory_structure.md#swiftpm-module-graph).
+Use [Decision Process](docs/architecture/structure/directory_structure.md#decision-process-where-does-this-file-go)
 for a new file:
 
 - `App/` — composition root, shells, pane/window controllers, lifecycle, cross-slice orchestration
@@ -140,14 +140,14 @@ verbs or copy. **When:** any new user-visible verb, keystroke, chrome control,
 or programmatic method. UI with no `AppCommand` still uses `LocalActionSpec` /
 `ActionSpec` for the same display pipeline.
 
-Load [Command Specs And Execution Owners](docs/architecture/commands_and_shortcuts.md#command-specs-and-execution-owners)
-then the [file table](docs/architecture/commands_and_shortcuts.md#files-to-load).
+Load [Command Specs And Execution Owners](docs/architecture/commands/command_specs.md#command-specs-and-execution-owners)
+then the [file table](docs/architecture/commands/command_specs.md#files-to-load).
 Code against
-[Adding a new command — decision tree](docs/architecture/commands_and_shortcuts.md#adding-a-new-command-decision-tree)
+[Adding a new command — decision tree](docs/architecture/commands/command_specs.md#adding-a-new-command-decision-tree)
 and
-[Exhaustive interactive and IPC projections](docs/architecture/commands_and_shortcuts.md#exhaustive-interactive-and-ipc-projections).
+[Exhaustive interactive and IPC projections](docs/architecture/commands/command_specs.md#exhaustive-interactive-and-ipc-projections).
 Display:
-[Tooltips, help text, and compact control copy](docs/architecture/commands_and_shortcuts.md#tooltips-help-text-and-compact-control-copy).
+[Tooltips, help text, and compact control copy](docs/architecture/commands/command_specs.md#tooltips-help-text-and-compact-control-copy).
 
 - `AppCommand` is identity. Add the case first.
 - `AppCommandSpec` is the interactive catalog: label, `CommandIcon`,
@@ -162,7 +162,7 @@ Display:
   `toolTip`, or ad-hoc SF Symbol on the control.
 - `AppShortcut` is bindings. Display keys with `displayKeyBinding(in:)`.
 - Execute only through `AppCommandDispatcher`. Shell vs pane owners:
-  [Choosing the execution owner](docs/architecture/commands_and_shortcuts.md#choosing-the-execution-owner).
+  [Choosing the execution owner](docs/architecture/commands/command_specs.md#choosing-the-execution-owner).
 - IPC is a separate exhaustive `ipcSpec` (exposure, durable target,
   privilege, arguments). Adding an `AppCommand` must classify IPC in the
   same change. Do not add an IPC method that is not an `AppCommand`.
@@ -171,8 +171,8 @@ Display:
 
 **Atoms.** Inspired by Jotai: a piece of **shared UI state** that subscribers
 observe. Read our implementation:
-[Need An Atom?](docs/architecture/atom_persistence_boundaries.md#need-an-atom),
-[AtomLib Observation Primitives](docs/architecture/atom_persistence_boundaries.md#atomlib-observation-primitives),
+[Need An Atom?](docs/architecture/state/atom_persistence_boundaries.md#need-an-atom),
+[AtomLib Observation Primitives](docs/architecture/state/atom_persistence_boundaries.md#atomlib-observation-primitives),
 and `Sources/AgentStudio/Infrastructure/AtomLib/`.
 
 - Use an atom only when SwiftUI, a command surface, or a derived projection
@@ -185,11 +185,11 @@ and `Sources/AgentStudio/Infrastructure/AtomLib/`.
 - CRUD, query, coalesce, or retention with no subscriber belongs in a
   repository, not an atom.
 - Pick the primitive in
-  [Which primitive](docs/architecture/atom_persistence_boundaries.md#which-primitive).
+  [Which primitive](docs/architecture/state/atom_persistence_boundaries.md#which-primitive).
   Choose local UI vs atom vs SQLite in
-  [Shared UI, local view state, or SQLite only](docs/architecture/atom_persistence_boundaries.md#shared-ui-local-view-state-or-sqlite-only).
+  [Shared UI, local view state, or SQLite only](docs/architecture/state/atom_persistence_boundaries.md#shared-ui-local-view-state-or-sqlite-only).
   Then classify the type in
-  [Roles](docs/architecture/atom_persistence_boundaries.md#roles).
+  [Roles](docs/architecture/state/atom_persistence_boundaries.md#roles).
 - Atom methods may only assign, equal-write suppress, and keep observation
   indexes — no SQL, I/O, or business rules.
 - Path: `<owner>/State/MainActor/Atoms/`. Core reads `atom(\.foo)`; Feature
@@ -202,12 +202,12 @@ and `Sources/AgentStudio/Infrastructure/AtomLib/`.
 - Stores own I/O, debounced saves, and schema versioning. They never contain
   domain logic.
 - Path: `<owner>/State/MainActor/Persistence/`. Tiers live in
-  [Three Persistence Tiers](docs/architecture/workspace_data_architecture.md#three-persistence-tiers).
+  [Three Persistence Tiers](docs/architecture/state/workspace_data_architecture.md#three-persistence-tiers).
 
 **Always ask the user** before adding an atom or store, adding unrelated
 properties to an existing atom, or adding new event types or coordinator
 responsibilities. Adding an atom starts at
-[Update Rule](docs/architecture/atom_persistence_boundaries.md#update-rule).
+[Update Rule](docs/architecture/state/atom_persistence_boundaries.md#update-rule).
 
 **Coordinators.** Sequence operations across stores. Own no state, contain no
 domain logic. If a coordinator `if` decides *what* to do with domain data, that
@@ -221,18 +221,22 @@ app-domain coordination. No god-store, no `ObservableObject/@Published`, no
 `DispatchQueue.main.async` from C callbacks. Store-level time-dependent logic
 accepts `any Clock<Duration>`.
 
-**Coordination plane.** Use the narrowest plane that still preserves the
-boundary:
+**Coordination Plane Decision Table.** Use the narrowest plane that still
+preserves the boundary:
 
 | If the change is... | Use |
 | --- | --- |
 | Workspace mutation | `WorkspaceActionCommand` |
 | Runtime command | `PaneRuntimeCommand` |
-| Runtime or topology fact | `PaneRuntimeEventBus` |
+| Runtime fact | `PaneRuntimeEventBus` (including topology facts) |
 | Ordered post-topology effects | `TopologyEffectHandler` (not via bus) |
 | App-level notification that is not a command | `AppEventBus` |
 | AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` |
 | UI-only local state | Local `@Observable` state |
+
+The old `AppCommand -> AppEventBus -> controller -> WorkspaceActionCommand`
+chain is retired. Workspace work enters through validated
+`WorkspaceActionCommand` routing directly.
 
 **Architecture at a glance.** AppKit-main hosting SwiftUI. Shared UI state is
 *published* from `@MainActor @Observable` atoms; that mark is the publication
@@ -253,12 +257,12 @@ Architecture lint is stock SwiftLint plus
 `Tools/AgentStudioArchitectureLint`; do not add SwiftSyntax to the app package
 or restore repo-local `rg` architecture-lint scripts. Catalogs and diagrams:
 [Architecture Overview — How To Read](docs/architecture/README.md#how-to-read-this-index),
-[Component Architecture — Principles](docs/architecture/component_architecture.md#11-architecture-principles),
+[Component Architecture — Principles](docs/architecture/structure/component_architecture.md#11-architecture-principles),
 project tree and target DAG in
-[Repository Root](docs/architecture/directory_structure.md#repository-root)
-and [SwiftPM Module Graph](docs/architecture/directory_structure.md#swiftpm-module-graph),
+[Repository Root](docs/architecture/structure/directory_structure.md#repository-root)
+and [SwiftPM Module Graph](docs/architecture/structure/directory_structure.md#swiftpm-module-graph),
 component → slice in
-[Component Architecture §7](docs/architecture/component_architecture.md#7-key-files).
+[Component Architecture §7](docs/architecture/structure/component_architecture.md#7-key-files).
 
 ## Performance Lane Directive
 
@@ -268,29 +272,33 @@ derivation thread. Classify a lane as `often` at about 10 or more
 events/minute, or `heavy` at 1 ms MainActor / 50 ms off-main, then load the
 owning doc before adding a hop, timer, debounce, observer, or cache.
 
+**New EventBus case, runtime fact, or MainActor transform.** Load
+[Pane Runtime Architecture — New signal decision tree](docs/architecture/runtime/pane_runtime_architecture.md#new-signal-decision-tree).
+Do not invent a bus event and join/transform it on MainActor.
+
 **New observer, debounce, poll, timer, or cache.** Load
-[Demand-Driven Derived-State Refresh — Selection Rule](docs/architecture/demand_driven_derived_state_refresh.md#selection-rule).
+[Demand-Driven Derived-State Refresh — Selection Rule](docs/architecture/state/demand_driven_derived_state_refresh.md#selection-rule).
 Classify the input first (ordered fact, latest-state, burst, expensive
 refresh, or future deadline). Debounce, throttle, and queues are mechanisms,
 not classifications; the wrong one silently drops ordering, scope, or
 currentness.
 
 **What may run on MainActor vs off-main.** Load
-[EventBus Design — Admission And Hop Shape](docs/architecture/pane_runtime_eventbus_design.md#admission-and-hop-shape).
+[EventBus Design — Admission And Hop Shape](docs/architecture/runtime/pane_runtime_eventbus_design.md#admission-and-hop-shape).
 It owns hop shape: contract off-main, thin MainActor adapter, publish only
 changed semantic outcomes. A `@MainActor` type is not permission to derive,
 schedule, or admit there.
 
 **Ghostty title, output, CWD, or similar high-rate samples.** Load
-[Contract 7](docs/architecture/pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction)
+[Contract 7](docs/architecture/runtime/pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction)
 for what must be true, then
-[EventBus admission](docs/architecture/pane_runtime_eventbus_design.md#typed-admission-before-multiplexing)
+[EventBus admission](docs/architecture/runtime/pane_runtime_eventbus_design.md#typed-admission-before-multiplexing)
 for how the hop is built. Raw callbacks must not wake the bus or MainActor.
 Contract and equality-suppress at the source; MainActor may apply one
 already-admitted value.
 
 **Sidebar row capture vs projection.** Load
-[Sidebar Data Flow](docs/architecture/workspace_data_architecture.md#sidebar-data-flow).
+[Sidebar Data Flow](docs/architecture/state/workspace_data_architecture.md#sidebar-data-flow).
 MainActor captures keyed canonical facts only. Filtering, grouping, and
 row-index derivation stay in the existing detached worker. Do not join
 dictionaries or derive rows in the view.
@@ -301,7 +309,7 @@ command/event behavior, it is a policy. `AppStyles` is paint only. See
 [Style Guide — Shared Shell Controls](docs/guides/style_guide.md#shared-shell-controls).
 
 **Proving an `often`/`heavy` lane.** Load
-[Observability And Traceability — Proof Model](docs/architecture/observability_and_traceability.md#proof-model).
+[Observability And Traceability — Proof Model](docs/architecture/observability/observability_and_traceability.md#proof-model).
 Measurement is part of the lane contract. Add marker-scoped probes; unit
 tests and feel are not performance proof.
 
@@ -325,7 +333,7 @@ mise run verify-debug-observability
 
 Launch identity, already-running refusal, IPC escrow, beta LaunchServices, and
 OTLP scrub live in
-[Observability — Local proof launch](docs/architecture/observability_and_traceability.md#local-proof-launch).
+[Observability — Local proof launch](docs/architecture/observability/observability_and_traceability.md#local-proof-launch).
 Collector absence or exporter failure must be fail-open for normal app startup
 and must not prevent JSONL writes. OTLP output is source-scrubbed: raw paths,
 raw UUIDs, prompts, payload text, errors, and tool output must not be exported.
@@ -376,9 +384,9 @@ repos: `ghostty-org/ghostty`, `swiftlang/swift`.
 
 Target: Swift 6.2 / macOS 26. `@MainActor` for store, coordinator, and UI
 mutations — not for derivation, admission, or deadline scheduling. Load
-[EventBus Design — Admission And Hop Shape](docs/architecture/pane_runtime_eventbus_design.md#admission-and-hop-shape)
+[EventBus Design — Admission And Hop Shape](docs/architecture/runtime/pane_runtime_eventbus_design.md#admission-and-hop-shape)
 when choosing a hop; load its
-[Swift 6.2 concurrency rules](docs/architecture/pane_runtime_eventbus_design.md#swift-62-concurrency-rules-se-0461)
+[Swift 6.2 concurrency rules](docs/architecture/runtime/pane_runtime_eventbus_design.md#swift-62-concurrency-rules-se-0461)
 only for isolation gotchas.
 
 1. **Isolation first** — `@MainActor` for UI/store mutations, `actor` for boundary work

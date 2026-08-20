@@ -274,8 +274,8 @@ result.
 Update only current sources of truth:
 
 - `AGENTS.md`;
-- `docs/architecture/workspace_data_architecture.md`;
-- `docs/architecture/component_architecture.md`;
+- `docs/architecture/state/workspace_data_architecture.md`;
+- `docs/architecture/structure/component_architecture.md`;
 - boot comments that say RepoCache opens the shared local database.
 
 Remove the nonexistent `WorkspaceSQLiteStoreBackendFactory.swift` entry and
