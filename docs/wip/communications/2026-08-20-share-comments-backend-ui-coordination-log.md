@@ -193,3 +193,63 @@ reports consumption; backend continues non-colliding v6 contract inventory
 Notes: current real worktree proof displayed the three preserved PR2 research
 files but did not modify them; no temporary repo file or direct invalidation was
 used
+
+### 2026-08-20 18:23 EDT — Share-comments UX lane
+
+State: active; strict UI cutover behavior green, full unit gate blocked on one backend fixture
+Head: `415c3a2702` plus uncommitted UI-lane work
+Owns: BridgeWeb Share presentation, File/Review header and inline projection,
+output-result presentation, in-flow history, and UI browser fixtures; no
+comm-worker strict-schema fixture ownership
+Changed: completed the UI hard cut to `output.scope.commit` and
+`output.handled.clear`; removed candidate/checklist selection; moved history
+out of both rail Popovers into Share layout; fixed success-toast unhandle to
+read the latest session revision; partial success now closes with a warning
+toast; added File/Review strict-scope browser coverage
+Proof: `pnpm --dir BridgeWeb run typecheck` passed; focused Share browser set
+5 files / 26 tests passed; new integrated Share surface 1 file / 4 tests
+passed; `pnpm --dir BridgeWeb run check` passed. Full unit gate reached 278
+files / 1,878 tests: 277 files and 1,870 tests passed; 8 tests in
+`bridge-comm-worker-annotation-projection-query-controller.unit.test.ts`
+failed because the strict fixture message at lines 481-493 omits required
+`handled: boolean`, producing the exact Zod path
+`message.message.handled`.
+Needs from other lane: add the required `handled` fixture fact in the owned
+projection-query-controller unit fixture and rerun the full unit gate; do not
+change UI semantics or restore the old candidate/selection protocol
+Next: UX lane continues browser/full BridgeWeb proof that does not require
+editing the backend fixture, then commits only UI-owned paths after integrated
+green proof
+Notes: this is an out-of-scope backend fixture gap exposed by the strict schema,
+not authority for the UI lane to edit comm-worker tests; unrelated PR2 files
+remain untouched
+
+### 2026-08-20 18:31 EDT — Share-comments UX lane
+
+State: UI checkpoint complete; integrated runtime/readiness proof remains blocked
+Head: `b65c61c207` (`feat(annotations): share new or all comments`)
+Owns: committed BridgeWeb Share mode, both viewer integrations, strict output
+presentation, in-flow Other/history sections, and focused UI proof
+Changed: checkpoint `b65c61c207` hard-cuts the UI from candidate/checklist and
+thread/rail output Popovers to header-owned in-flow New/All sharing; preserves
+exact-byte history inspection/repeat; known success closes and offers exact
+unhandle; failure/cancel retains; partial closes with warning and no unhandle
+Proof: focused unit 4 files / 16 tests passed; focused browser 7 files / 35
+tests passed; `pnpm --dir BridgeWeb run check` passed; packaged
+`pnpm --dir BridgeWeb run build` passed; integrated screenshot written to
+`tmp/bridgeweb-worktree-annotation-share-integrated.png`. Full browser reached
+49 passing files / 261 passing tests with only 2 pre-existing Pierre width
+assertions failing: source commit `1058646834` changed standalone frames from
+600px to `max-w-3xl` (observed 768px), while the older tests still require
+`<= 600`; no layout or proof-gate edit was made by this lane.
+Needs from other lane: (1) add `handled` to the owned comm-worker projection
+query fixture reported at 18:23 and rerun full unit; (2) route the pre-existing
+600px-vs-768px Pierre contract mismatch to its UI owner; (3) run the promised
+real backend/Vite New/All/copy/export/unhandle/restart/two-pane journey against
+`b65c61c207`
+Next: after those two external proof blockers are corrected or owner-resolved,
+rerun full BridgeWeb integration, real development fast-loop visual/effect
+proof, packaged WKWebView proof, and final `mise run test`
+Notes: 1Password signing failed once with `failed to fill whole buffer`; the
+second signed commit attempt succeeded. PR2 research files remain untracked and
+untouched
