@@ -3,12 +3,36 @@ import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
 
 import { performanceOnlyMode } from './verify-bridge-viewer-worktree-dev-server/config.ts';
-import { runSelfHostedBridgeViewerProductOnlyRegression } from './verify-bridge-viewer-worktree-dev-server/product-only-real-router-regression.ts';
 
 if (performanceOnlyMode) {
 	await runSelfHostedBridgeViewerPerformanceVerifier();
 } else {
 	await runSelfHostedBridgeViewerProductOnlyRegression();
+}
+
+async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<void> {
+	const moduleLoader = await createViteServer({
+		configFile: false,
+		server: { middlewareMode: true },
+	});
+	try {
+		const loadedRegression: unknown = await moduleLoader.ssrLoadModule(
+			'/scripts/verify-bridge-viewer-worktree-dev-server/product-only-real-router-regression.ts',
+		);
+		if (typeof loadedRegression !== 'object' || loadedRegression === null) {
+			throw new Error('Expected the owned product regression module.');
+		}
+		const runRegression =
+			'runSelfHostedBridgeViewerProductOnlyRegression' in loadedRegression
+				? loadedRegression.runSelfHostedBridgeViewerProductOnlyRegression
+				: undefined;
+		if (typeof runRegression !== 'function') {
+			throw new Error('Expected the owned product regression entrypoint.');
+		}
+		await runRegression();
+	} finally {
+		await moduleLoader.close();
+	}
 }
 
 async function runSelfHostedBridgeViewerPerformanceVerifier(): Promise<void> {
