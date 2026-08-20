@@ -7,6 +7,71 @@ import Testing
 
 @Suite("RepoExplorer pane projection")
 struct RepoExplorerPaneProjectionTests {
+    @Test("pane and tab recency colors degrade through policy-owned time tiers")
+    func recencyTierUsesPolicyThresholds() {
+        let now = Date(timeIntervalSince1970: 100_000)
+
+        #expect(
+            RepoExplorerPaneRecencyTier.classify(referenceDate: now.addingTimeInterval(-60), now: now) == .strongBlue)
+        #expect(
+            RepoExplorerPaneRecencyTier.classify(referenceDate: now.addingTimeInterval(-(10 * 60)), now: now)
+                == .mediumBlue
+        )
+        #expect(
+            RepoExplorerPaneRecencyTier.classify(referenceDate: now.addingTimeInterval(-(60 * 60)), now: now)
+                == .mutedBlue
+        )
+        #expect(
+            RepoExplorerPaneRecencyTier.classify(referenceDate: now.addingTimeInterval(-(12 * 60 * 60)), now: now)
+                == .faintBlue
+        )
+        #expect(
+            RepoExplorerPaneRecencyTier.classify(referenceDate: now.addingTimeInterval(-(24 * 60 * 60)), now: now)
+                == .grey
+        )
+    }
+
+    @Test("pane note wins over terminal output and empty panes omit L2")
+    func paneSecondaryLineUsesNoteThenTerminalOutputThenNothing() {
+        let referenceDate = Date(timeIntervalSince1970: 10)
+        let notedPane = RepoExplorerPaneRowFacts(
+            terminalTitle: "zsh",
+            noteText: "Waiting on review",
+            latestMessageText: "Tests passed",
+            recencyReferenceDate: referenceDate,
+            recencyText: "Now",
+            isActive: false
+        )
+        let activePane = RepoExplorerPaneRowFacts(
+            terminalTitle: "zsh",
+            latestMessageText: "Tests passed",
+            recencyReferenceDate: referenceDate,
+            recencyText: "Now",
+            isActive: false
+        )
+        let quietPane = RepoExplorerPaneRowFacts(
+            terminalTitle: "zsh",
+            latestMessageText: nil,
+            recencyReferenceDate: referenceDate,
+            recencyText: "Now",
+            isActive: false
+        )
+
+        #expect(notedPane.secondaryLine == .note("Waiting on review"))
+        #expect(activePane.secondaryLine == .terminalOutput("Tests passed"))
+        #expect(quietPane.secondaryLine == nil)
+
+        let drawerPane = RepoExplorerPaneRowFacts(
+            terminalTitle: "Drawer",
+            latestMessageText: nil,
+            recencyReferenceDate: referenceDate,
+            recencyText: "Now",
+            isActive: false,
+            isDrawerPane: true
+        )
+        #expect(drawerPane.sidebarTerminalTitle == "zsh")
+    }
+
     @Test("All Panes rows are complete worker values sorted by recency")
     func allPanesRowsCarryPresentationFactsInRecencyOrder() throws {
         let repoId = UUIDv7.generate()
@@ -54,7 +119,8 @@ struct RepoExplorerPaneProjectionTests {
                     latestMessageText: "Tests passed",
                     recencyReferenceDate: Date(timeIntervalSince1970: 20),
                     recencyText: "Now",
-                    isActive: true
+                    isActive: true,
+                    isDrawerPane: true
                 ),
             ]
         )
@@ -66,6 +132,7 @@ struct RepoExplorerPaneProjectionTests {
         #expect(rows[0].secondaryText == "Tests passed")
         #expect(rows[0].recencyText == "Now")
         #expect(rows[0].isActive)
+        #expect(rows[0].isDrawerPane)
     }
 
     @Test("All Panes orders never-focused panes by the recency date used for display")
@@ -297,7 +364,7 @@ struct RepoExplorerPaneProjectionTests {
         #expect(projection.paneDestinationsByWorktreeId[worktree.id]?.map(\.paneId) == [associatedPaneId])
         #expect(projection.sections.map(\.kind) == [.panes, .ungrouped])
         let ungroupedSection = try #require(projection.sections.last)
-        #expect(ungroupedSection.title == "Ungrouped")
+        #expect(ungroupedSection.title == "No Repositories")
         #expect(
             Set(ungroupedSection.unassociatedPaneDestinations.map(\.paneId))
                 == [nilAssociationPaneId, danglingAssociationPaneId]

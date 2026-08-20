@@ -169,6 +169,7 @@ package enum GitStatusOutcome: String, Sendable, Equatable {
 }
 
 package enum ForgeEvent: Sendable {
+    case pullRequestRefreshStateChanged(repoId: UUID, isLoading: Bool)
     case pullRequestsChanged(repoId: UUID, factsByBranch: [String: PullRequestFacts])
     case pullRequestBranchesInvalidated(repoId: UUID, branches: Set<String>)
     case pullRequestRepositoryInvalidated(repoId: UUID)

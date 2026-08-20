@@ -633,8 +633,8 @@ struct RepoExplorerViewProjectionHelperTests {
         }
     }
 
-    @Test("source group icon uses same checkout color contract as worktree rows")
-    func sourceGroupIconUsesCheckoutColorContract() {
+    @Test("source group icon stays muted while checkout rows retain their colors")
+    func sourceGroupIconIsMuted() {
         let repoId = UUIDv7.generate()
         let repo = RepoPresentationItem(
             id: repoId,
@@ -658,16 +658,7 @@ struct RepoExplorerViewProjectionHelperTests {
 
         let icon = RepoExplorerView.sourceGroupIcon(for: group)
 
-        let expectedColorHex = RepoPresentationColoring.checkoutColorHex(
-            for: repo,
-            in: group
-        )
-
-        if case .coloredRepo(let colorHex) = icon {
-            #expect(colorHex == expectedColorHex)
-        } else {
-            Issue.record("Expected RepoExplorer group header to use colored repo source icon")
-        }
+        #expect(icon == .repo)
     }
 
     @Test("source group icon uses repo semantics for All Panes and tab semantics for By Tab")

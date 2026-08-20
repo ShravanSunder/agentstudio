@@ -12,41 +12,25 @@ package struct RepoExplorerPanePresentation: Identifiable {
 
 struct RepoExplorerPaneRow: View {
     let row: RepoExplorerProjectedPaneRow
-    let pullRequestCount: Int?
     let octiconLoader: OcticonLoader
     let onFocus: () -> Void
 
     @State private var isHovering = false
 
-    static func normalizedPullRequestCount(_ pullRequestCount: Int?) -> Int? {
-        guard let pullRequestCount, pullRequestCount > 0 else { return nil }
-        return pullRequestCount
-    }
-
     var body: some View {
         Button(action: onFocus) {
             SidebarRowShell(isHovering: isHovering) {
-                VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
-                    HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
-                        Image(systemName: "square.split.2x1")
-                            .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
-                            .frame(
-                                width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
-                                alignment: .leading
-                            )
-                        Text(row.primaryText)
-                            .font(.system(size: AppStyles.General.Typography.textBase, weight: .semibold))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .layoutPriority(1)
-                            .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .sidebarIconLineTextColumnGuide()
-                    SidebarMetadataLine(text: row.secondaryText)
-                    chipRow
-                }
+                RepoExplorerPaneRowContent(
+                    primaryText: row.primaryText,
+                    secondaryLine: row.secondaryLine,
+                    branchContextText: row.branchContextText,
+                    branchStatus: row.branchStatus,
+                    recencyText: row.recencyText,
+                    recencyTier: row.recencyTier,
+                    isActive: row.isActive,
+                    isDrawerPane: row.isDrawerPane,
+                    octiconLoader: octiconLoader
+                )
             }
         }
         .buttonStyle(.plain)
@@ -55,7 +39,9 @@ struct RepoExplorerPaneRow: View {
             [
                 row.primaryText,
                 row.secondaryText,
-                Self.normalizedPullRequestCount(pullRequestCount).map { "\($0) pull requests" },
+                row.branchContextText,
+                row.branchStatus?.prCount.map { "\($0) pull requests" },
+                row.isDrawerPane ? "Drawer" : nil,
                 row.recencyText,
                 row.isActive ? "Active" : nil,
             ]
@@ -64,35 +50,116 @@ struct RepoExplorerPaneRow: View {
         )
     }
 
+}
+
+struct RepoExplorerPaneRowContent: View {
+    let primaryText: String
+    let secondaryLine: RepoExplorerPaneSecondaryLine?
+    let branchContextText: String?
+    let branchStatus: GitBranchStatus?
+    let recencyText: String
+    let recencyTier: RepoExplorerPaneRecencyTier
+    let isActive: Bool
+    let isDrawerPane: Bool
+    let octiconLoader: OcticonLoader
+
+    var body: some View {
+        VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+            HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
+                AppEntityIcon.pane.swiftUIImage(
+                    loader: octiconLoader,
+                    size: AppStyles.Shell.Sidebar.rowIdentityIconSize
+                )
+                .frame(
+                    width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
+                    alignment: .trailing
+                )
+                Text(primaryText)
+                    .font(.system(size: AppStyles.General.Typography.textBase, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .sidebarIconLineTextColumnGuide()
+            if let secondaryLine {
+                SidebarMetadataLine(
+                    icon: .systemName(secondaryLine.iconSystemName),
+                    text: secondaryLine.text
+                )
+                .saturation(secondaryLine.isTerminalOutput ? 0 : 1)
+            }
+            if let branchContextText {
+                SidebarMetadataLine(
+                    icon: .octicon(name: "octicon-git-branch", loader: octiconLoader),
+                    text: branchContextText
+                )
+            }
+            chipRow
+        }
+    }
+
     @ViewBuilder
     private var chipRow: some View {
-        let normalizedPullRequestCount = Self.normalizedPullRequestCount(pullRequestCount)
         HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
-            if let normalizedPullRequestCount {
-                SidebarPullRequestChipSpec.chip(count: normalizedPullRequestCount, octiconLoader: octiconLoader)
+            if let branchStatus,
+                SidebarGitStatusChips.hasContent(branchStatus: branchStatus)
+            {
+                SidebarGitStatusChips(branchStatus: branchStatus, octiconLoader: octiconLoader)
+            }
+            if isDrawerPane {
+                SidebarChip(
+                    icon: .system(.rectangleBottomhalfFilled),
+                    octiconLoader: octiconLoader,
+                    text: nil,
+                    style: .neutral
+                )
             }
             SidebarChip(
                 icon: .system(.clock),
                 octiconLoader: octiconLoader,
-                text: row.recencyText,
-                style: .neutral
+                text: recencyText,
+                style: recencyChipStyle
             )
-            if row.isActive {
+            if isActive {
                 SidebarChip(
                     icon: .system(.circleFill),
                     octiconLoader: octiconLoader,
-                    text: "active",
+                    text: "Active",
                     style: .accent(.accentColor)
                 )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .sidebarChipRowTextColumnGuide()
+        .sidebarPendingPullRequestIndicator(
+            isVisible: branchStatus.map {
+                SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: $0)
+            } ?? false
+        )
+    }
+
+    private var recencyChipStyle: SidebarChip.Style {
+        switch recencyTier {
+        case .strongBlue: .accent(AppStyles.Shell.Sidebar.chipInfoColor)
+        case .mediumBlue: .accent(AppStyles.Shell.Sidebar.recencyMediumBlue)
+        case .mutedBlue: .accent(AppStyles.Shell.Sidebar.recencyMutedBlue)
+        case .faintBlue: .accent(AppStyles.Shell.Sidebar.recencyFaintBlue)
+        case .grey: .neutral
+        }
     }
 }
 
 struct RepoExplorerUnassociatedPaneRow: View {
-    let label: String
+    let primaryText: String
+    let secondaryLine: RepoExplorerPaneSecondaryLine?
+    let recencyText: String
+    let recencyTier: RepoExplorerPaneRecencyTier
+    let isActive: Bool
+    let isDrawerPane: Bool
+    let octiconLoader: OcticonLoader
     let onFocus: () -> Void
 
     @State private var isHovering = false
@@ -100,15 +167,26 @@ struct RepoExplorerUnassociatedPaneRow: View {
     var body: some View {
         Button(action: onFocus) {
             SidebarRowShell(isHovering: isHovering) {
-                SidebarMetadataLine(
-                    icon: .systemName("square.split.2x1"),
-                    text: label
+                RepoExplorerPaneRowContent(
+                    primaryText: primaryText,
+                    secondaryLine: secondaryLine,
+                    branchContextText: nil,
+                    branchStatus: nil,
+                    recencyText: recencyText,
+                    recencyTier: recencyTier,
+                    isActive: isActive,
+                    isDrawerPane: isDrawerPane,
+                    octiconLoader: octiconLoader
                 )
             }
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .accessibilityLabel(label)
+        .accessibilityLabel(
+            [primaryText, secondaryLine?.text, isDrawerPane ? "Drawer" : nil, recencyText, isActive ? "Active" : nil]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+        )
     }
 }
 

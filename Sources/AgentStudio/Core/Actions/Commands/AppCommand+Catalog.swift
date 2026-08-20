@@ -665,8 +665,8 @@ extension AppCommand {
                 label: "Edit Pane Note",
                 icon: .system(.pencil),
                 helpText: "Set a note for the current pane",
-                surfacePolicy: .exposed([.commandBar]),
-                targeting: .contextual,
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane

@@ -35,6 +35,23 @@ additional when the change requires it. Post-merge benchmark/stress tasks and
 the opt-in zmx lifecycle lane are not pull-request gates. Do not claim a branch
 or PR is ready until `mise run test` exits successfully on the current HEAD.
 
+Test topology has one owner: the `mise run test:*` tasks and
+`scripts/run-swift-test-task.sh`. CI may schedule the prebuild, fast, large, and
+WebKit tasks independently, but it must call those same mise tasks rather than
+recreate raw `swift test` commands. The Swift fast lane keeps ordinary suites
+concurrent through Swift Testing itself; do not add SwiftPM `--parallel` to the
+fast inventory. Suites that share process-global state (including AppKit, MainActor
+singletons, shared datastores, or long-lived buses) must be excluded from that
+concurrent invocation. Annotate MainActor global suites with both `@MainActor`
+and `@Suite(..., .serialized)` so `aggregate_serial_non_webkit_suite_filters`
+discovers them; explicitly classified long-lived actor suites live in that same
+function. Its runner executes one suite per process with at most four processes
+concurrently against the already-built test bundle, avoiding SwiftPM's shared
+build-path lock. `@Suite(.serialized)` serializes only within one suite; it does
+not isolate that suite from other suites in the same process. Do not use SwiftPM
+`--parallel` or `--num-workers` as a substitute for process isolation: Xcode
+26.3 still runs Swift Testing through one helper process.
+
 First-time setup: `mise install && mise run doctor-mac && mise run setup && mise run build`. See [Agent Resources](docs/guides/agent_resources.md) for full bootstrap.
 
 Agents must use plain `mise run setup` by default. It builds vendors in the primary worktree and reuses those prepared inputs from linked worktrees. Do not hydrate submodules or invoke low-level vendor tasks directly. Use `mise run setup --use-local-vendors` only when the user explicitly requests Ghostty/zmx vendor work or the accepted task requires changing one of those vendors; an ordinary setup failure does not authorize the flag.

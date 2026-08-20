@@ -468,9 +468,7 @@ struct TerminalActivityRouterTests {
             activityAtom: atom,
             surfaceIDForPaneID: { $0 },
             isPaneCurrentlyAttended: { _ in true },
-            // Realistic raw viewport text: the real output line followed by the
-            // shell's freshly-printed (bare) prompt as the trailing line.
-            lastOutputLineReader: { _ in "echo-command-output\n$ " },
+            lastOutputLineReader: { _ in "echo-command-output" },
             recordSettledActivityStatus: { paneId, lastOutputLine in
                 recordedCalls.record(paneId: paneId, lastOutputLine: lastOutputLine)
             }
@@ -489,13 +487,15 @@ struct TerminalActivityRouterTests {
             )
         )
 
-        _ = await subscriber.firstEvent { envelope in
-            RuntimeEnvelopeHarness.paneEvents(from: [envelope]).contains {
-                if case .terminalActivity(.unseenActivitySettled(let activity)) = $0.event {
-                    return activity.lastOutputLine == "echo-command-output" && activity.rowsAdded == 0
+        await assertEventuallyAsync("commandFinished should publish a zero-row settled activity") {
+            await subscriber.count { envelope in
+                RuntimeEnvelopeHarness.paneEvents(from: [envelope]).contains {
+                    if case .terminalActivity(.unseenActivitySettled(let activity)) = $0.event {
+                        return activity.lastOutputLine == "echo-command-output" && activity.rowsAdded == 0
+                    }
+                    return false
                 }
-                return false
-            }
+            } == 1
         }
 
         #expect(recordedCalls.calls.count == 1)

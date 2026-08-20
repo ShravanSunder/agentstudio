@@ -22,6 +22,10 @@ package struct SidebarGroupRow: View {
                 loader: octiconLoader,
                 size: AppStyles.Shell.Sidebar.groupIconSize
             )
+            .frame(
+                width: AppStyles.Shell.Sidebar.groupIconColumnWidth,
+                alignment: .trailing
+            )
 
             HStack(spacing: AppStyles.Shell.Sidebar.groupTitleSpacing) {
                 Text(repoTitle)

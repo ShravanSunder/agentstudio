@@ -210,7 +210,8 @@ package struct RepoExplorerView: View {
             ),
             paneRowFactsByPaneId: paneRowFactsByPaneId(now: paneRecencyDisplayReferenceDate),
             tabGroupFactsByTabId: tabGroupFactsByTabId(),
-            unavailablePullRequestRepoIds: repoCache.unavailablePullRequestRepoIds
+            unavailablePullRequestRepoIds: repoCache.unavailablePullRequestRepoIds,
+            loadingPullRequestRepoIds: repoCache.loadingPullRequestRepoIds
         )
     }
 
@@ -234,6 +235,7 @@ package struct RepoExplorerView: View {
                 {
                     _ = repoCache.pullRequestFacts(for: branchKey)
                 }
+                _ = repoCache.isPullRequestLoading(forRepository: repositoryID)
                 observedSlotCount += 1
             }
         }
@@ -483,7 +485,10 @@ package struct RepoExplorerView: View {
                 ) {
                     switch entry {
                     case .sectionHeader(let kind):
-                        sectionHeader(kind: kind)
+                        sectionHeader(
+                            kind: kind,
+                            isFirstRow: entry.id == rowIndex.entries.first?.id
+                        )
 
                     case .loadingSectionHeader(let kind):
                         RepoExplorerLoadingSectionHeaderRow(
@@ -683,9 +688,6 @@ package struct RepoExplorerView: View {
                         ) {
                             RepoExplorerPaneRow(
                                 row: resolvedPaneContext.row,
-                                pullRequestCount: cachedProjectionResult.branchStatusByWorktreeId[
-                                    resolvedPaneContext.destination.worktreeId
-                                ]?.prCount,
                                 octiconLoader: octiconLoader,
                                 onFocus: { focusPane(resolvedPaneContext.destination.paneId) }
                             )
@@ -700,10 +702,17 @@ package struct RepoExplorerView: View {
                         }
 
                     case .unassociatedPaneRow(let destination):
+                        let paneFacts = cachedProjectionResult.paneRowFactsByPaneId[destination.paneId]
+                        let primaryText =
+                            "Pane \(destination.paneIndexInTab + 1) · \(paneFacts?.sidebarTerminalTitle ?? "zsh")"
                         RepoExplorerUnassociatedPaneRow(
-                            label: destination.label(
-                                paneDisplayLabel: atom(\.paneDisplay).displayLabel(for: destination.paneId)
-                            ),
+                            primaryText: primaryText,
+                            secondaryLine: paneFacts?.secondaryLine,
+                            recencyText: paneFacts?.recencyText ?? "Now",
+                            recencyTier: paneFacts?.recencyTier ?? .strongBlue,
+                            isActive: paneFacts?.isActive ?? false,
+                            isDrawerPane: paneFacts?.isDrawerPane ?? false,
+                            octiconLoader: octiconLoader,
                             onFocus: { focusPane(destination.paneId) }
                         )
                         .listRowInsets(
@@ -746,11 +755,11 @@ package struct RepoExplorerView: View {
         )
     }
 
-    private func sectionHeader(kind: RepoExplorerSidebarSectionKind) -> some View {
+    private func sectionHeader(kind: RepoExplorerSidebarSectionKind, isFirstRow: Bool) -> some View {
         SectionSubheadingLabel(kind.title)
             .padding(.leading, Self.sectionHeaderLeadingInset)
             .padding(.trailing, AppStyles.Components.SectionSubheading.horizontalPadding)
-            .padding(.top, AppStyles.Components.SectionSubheading.topPadding)
+            .padding(.top, isFirstRow ? 0 : AppStyles.Components.SectionSubheading.topPadding)
             .padding(.bottom, AppStyles.Components.SectionSubheading.bottomPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityAddTraits(.isHeader)
@@ -1009,7 +1018,9 @@ package struct RepoExplorerView: View {
             let referenceProjection = RepoExplorerProjection.project(
                 result.snapshot,
                 paneRowFactsByPaneId: result.paneRowFactsByPaneId,
-                tabGroupFactsByTabId: result.tabGroupFactsByTabId
+                tabGroupFactsByTabId: result.tabGroupFactsByTabId,
+                branchNameByWorktreeId: result.branchNameByWorktreeId,
+                branchStatusByWorktreeId: result.branchStatusByWorktreeId
             )
             AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
                 stage: "final_projection",

@@ -18,6 +18,10 @@ func makeInboxNotificationTestOcticonLoader(from testFilePath: String = #filePat
 @MainActor
 @Suite("InboxNotificationSidebarView focus and activation", .serialized)
 struct InboxSidebarFocusActivationTests {
+    init() {
+        installTestCoreAtomsIfNeeded()
+    }
+
     @Test("publishing non-nil inbox focus flips sidebarHasFocus true")
     func nonNilInboxFocusPublishesTrue() {
         let uiState = WorkspaceSidebarState()

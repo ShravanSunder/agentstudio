@@ -129,7 +129,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let openFinderHandler: @MainActor (URL) -> Bool
     private let openExternalURLHandler: @MainActor (URL) -> Bool
     private let copyPathHandler: @MainActor (URL) -> Void
-    private let paneNotePresentation: PaneNotePresentation?
+    private let paneNotePresentation: PaneNotePresentation
     private let bridgeViewerSurfaceRequestHandler: BridgeViewerSurfaceRequestHandler
     private var arrangementView: WorkspaceArrangementViewDerived {
         WorkspaceArrangementViewDerived(
@@ -284,7 +284,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.openFinderHandler = openFinderHandler
         self.openExternalURLHandler = openExternalURLHandler
         self.copyPathHandler = copyPathHandler
-        self.paneNotePresentation = paneNotePresentation
+        self.paneNotePresentation = paneNotePresentation ?? .toolbarAnchored()
         self.bridgeViewerSurfaceRequestHandler =
             bridgeViewerSurfaceRequestHandler
             ?? { surface, paneId in
@@ -1248,6 +1248,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 )
             },
             paneInboxPresentation: paneInboxPresentation,
+            paneNotePresentation: paneNotePresentation,
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
             },
@@ -3497,6 +3498,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
+        if command == .editPaneNote, targetType == .pane {
+            guard store.paneAtom.pane(target) != nil else { return }
+            paneNotePresentation.present(target)
+            return
+        }
+
         if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
             handleTargetedPaneInboxCommand(command, target: target, targetType: targetType)
             return
@@ -4383,7 +4390,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     ) -> Bool? {
         switch command {
         case .minimizePane, .expandPane, .closePane, .splitRight, .detachDrawerPane,
-            .extractPaneToTab, .movePaneToTab, .toggleDrawer, .addDrawerPane:
+            .extractPaneToTab, .movePaneToTab, .toggleDrawer, .addDrawerPane, .editPaneNote:
             break
         default:
             return nil
@@ -4446,6 +4453,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case (.toggleDrawer, .layout):
             return activeLayoutShowsPane(target)
         case (.addDrawerPane, .layout):
+            return activeLayoutShowsPane(target)
+        case (.editPaneNote, .layout):
             return activeLayoutShowsPane(target)
         default:
             return false
@@ -4664,11 +4673,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         case .editPaneNote:
             guard let paneId = activeMainPaneCommandTarget() else { return false }
-            if let paneNotePresentation {
-                paneNotePresentation.present(paneId)
-            } else {
-                requestPaneNotePresentation(for: paneId)
-            }
+            paneNotePresentation.present(paneId)
             return true
         case .copyCurrentPanePath:
             guard let path = activeMainPanePath() else { return false }

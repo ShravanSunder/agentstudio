@@ -48,6 +48,7 @@ struct FlatPaneStripContent: View {
     let useDrawerFramePreference: Bool
     let isInactivePersistentTab: Bool
     let paneInboxPresentation: PaneInboxPresentation?
+    let paneNotePresentation: PaneNotePresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
@@ -115,6 +116,7 @@ struct FlatPaneStripContent: View {
                             useDrawerFramePreference: useDrawerFramePreference,
                             isInactivePersistentTab: isInactivePersistentTab,
                             paneInboxPresentation: paneInboxPresentation,
+                            paneNotePresentation: paneNotePresentation,
                             onOpenPaneGitHub: onOpenPaneGitHub,
                             notificationCountForWorktree: notificationCountForWorktree,
                             viewRegistry: viewRegistry,
@@ -168,6 +170,7 @@ private struct PaneSegmentSlotView: View {
     let useDrawerFramePreference: Bool
     let isInactivePersistentTab: Bool
     let paneInboxPresentation: PaneInboxPresentation?
+    let paneNotePresentation: PaneNotePresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     let notificationCountForWorktree: (UUID) -> Int
     let viewRegistry: ViewRegistry
@@ -213,6 +216,7 @@ private struct PaneSegmentSlotView: View {
                     dropTargetCoordinateSpace: coordinateSpaceName,
                     useDrawerFramePreference: useDrawerFramePreference,
                     paneInboxPresentation: paneInboxPresentation,
+                    paneNotePresentation: paneNotePresentation,
                     ordinal: ordinal,
                     workspaceWindowId: workspaceWindowId,
                     toolbarPresentation: paneSurfaceToolbarPresentation(segment.paneId)

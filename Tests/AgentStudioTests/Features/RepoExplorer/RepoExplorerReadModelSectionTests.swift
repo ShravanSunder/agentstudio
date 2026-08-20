@@ -271,11 +271,12 @@ extension RepoExplorerReadModelTests {
 
         #expect(projection.sections.map(\.kind) == [.favorites, .repositories])
         #expect(projection.loadingRepos.isEmpty)
+        let groupId = "remote:askluna/\(favoriteRepo.name)"
         #expect(
             rowIndex.entries.map(\.id) == [
                 "section-header:favorites",
-                "group:repo:\(favoriteId.uuidString)",
-                "worktree:repo:\(favoriteId.uuidString):\(favoriteId.uuidString):\(favoriteWorktree.id.uuidString):inactive",
+                "group:\(groupId)",
+                "worktree:\(groupId):\(favoriteId.uuidString):\(favoriteWorktree.id.uuidString):inactive",
                 "section-header:repositories",
             ])
     }

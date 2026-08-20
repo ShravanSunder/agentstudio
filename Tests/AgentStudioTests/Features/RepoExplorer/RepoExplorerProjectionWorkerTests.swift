@@ -68,6 +68,34 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(resolvedStatus.pullRequestDataUnavailable)
     }
 
+    @Test("explicit Forge loading state controls the pending glyph lifecycle")
+    func explicitForgeLoadingStateControlsPendingGlyphLifecycle() throws {
+        let repoId = UUID()
+        let worktreeId = UUIDv7.generate()
+        let repoOnly = repo(id: repoId, worktreeId: worktreeId, name: "agent-studio")
+
+        let idleResult = try RepoExplorerProjectionWorker.project(request(repos: [repoOnly]))
+        let idleStatus = try #require(idleResult.branchStatusByWorktreeId[worktreeId])
+        #expect(!idleStatus.pullRequestIsLoading)
+
+        let loadingResult = try RepoExplorerProjectionWorker.project(
+            request(repos: [repoOnly], loadingPullRequestRepoIds: [repoId])
+        )
+        let loadingStatus = try #require(loadingResult.branchStatusByWorktreeId[worktreeId])
+        #expect(loadingStatus.pullRequestIsLoading)
+
+        let unavailableResult = try RepoExplorerProjectionWorker.project(
+            request(
+                repos: [repoOnly],
+                unavailablePullRequestRepoIds: [repoId],
+                loadingPullRequestRepoIds: [repoId]
+            )
+        )
+        let unavailableStatus = try #require(unavailableResult.branchStatusByWorktreeId[worktreeId])
+        #expect(!unavailableStatus.pullRequestIsLoading)
+        #expect(unavailableStatus.pullRequestDataUnavailable)
+    }
+
     @Test("scoped favorite projection matches the full reference without whole-surface projection")
     func scopedFavoriteProjectionMatchesReference() throws {
         let repoId = UUID()
@@ -243,8 +271,8 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(
             result.rowIndex.entries.map(\.id) == [
                 "section-header:repositories",
-                "group:repo:\(repoId.uuidString)",
-                "worktree:repo:\(repoId.uuidString):\(repoId.uuidString):\(repo.worktrees[0].id.uuidString):inactive",
+                "group:remote:askluna/agent-studio",
+                "worktree:remote:askluna/agent-studio:\(repoId.uuidString):\(repo.worktrees[0].id.uuidString):inactive",
             ])
         #expect(result.branchNameByWorktreeId[repo.worktrees[0].id] == "Unknown branch")
     }
@@ -718,12 +746,14 @@ struct RepoExplorerProjectionWorkerTests {
 
     private func request(
         repos: [RepoPresentationItem],
-        unavailablePullRequestRepoIds: Set<UUID> = []
+        unavailablePullRequestRepoIds: Set<UUID> = [],
+        loadingPullRequestRepoIds: Set<UUID> = []
     ) -> RepoExplorerProjectionRequest {
         request(
             repos: repos,
             generation: repos.reduce(0) { $0 + ($1.isFavorite ? 1 : 0) },
-            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds
+            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds,
+            loadingPullRequestRepoIds: loadingPullRequestRepoIds
         )
     }
 
@@ -735,7 +765,8 @@ struct RepoExplorerProjectionWorkerTests {
         query: String = "",
         bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:],
         paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:],
-        unavailablePullRequestRepoIds: Set<UUID> = []
+        unavailablePullRequestRepoIds: Set<UUID> = [],
+        loadingPullRequestRepoIds: Set<UUID> = []
     ) -> RepoExplorerProjectionRequest {
         RepoExplorerProjectionRequest(
             generation: generation,
@@ -775,7 +806,8 @@ struct RepoExplorerProjectionWorkerTests {
                     )
                 }
             ),
-            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds
+            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds,
+            loadingPullRequestRepoIds: loadingPullRequestRepoIds
         )
     }
 

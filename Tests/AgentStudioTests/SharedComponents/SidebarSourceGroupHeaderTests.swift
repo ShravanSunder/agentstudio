@@ -29,9 +29,9 @@ struct SidebarSourceGroupHeaderTests {
     func appEntityIconsDescribeFixedSidebarIconSlots() {
         #expect(AppEntityIcon.repo.symbol == .octicon(.repo))
         #expect(AppEntityIcon.otherSources.symbol == .system(.tray))
-        #expect(AppEntityIcon.pane.symbol == .system(.rectangleSplit2x1))
+        #expect(AppEntityIcon.pane.symbol == .system(.squareSplit2x1))
         #expect(AppEntityIcon.tab.symbol == .system(.squareStackFill))
-        #expect(AppEntityIcon.paneGroup.symbol == .system(.rectangleSplit2x1))
+        #expect(AppEntityIcon.paneGroup.symbol == .system(.squareSplit2x1))
         #expect(AppEntityIcon.tabGroup.symbol == .system(.squareStackFill))
     }
 

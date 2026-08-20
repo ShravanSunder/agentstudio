@@ -38,11 +38,11 @@ package struct SidebarMetadataLine: View {
                 Image(systemName: systemName)
                     .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))
                     .foregroundStyle(prominence.foregroundStyle)
-                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
+                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .trailing)
             case .octicon(let name, let loader):
                 OcticonImage(name: name, size: AppStyles.Shell.Sidebar.branchIconSize, loader: loader)
                     .foregroundStyle(prominence.foregroundStyle)
-                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
+                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .trailing)
             case nil:
                 if reservesIconColumn {
                     Color.clear

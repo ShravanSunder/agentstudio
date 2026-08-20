@@ -174,7 +174,7 @@ struct RepoExplorerWorktreeRowTests {
         for source in [chipSource, rowSource] {
             #expect(!source.contains("repeatForever"))
         }
-        #expect(!chipSource.contains("symbolEffect"))
+        #expect(chipSource.contains(".variableColor.iterative"))
     }
 
     @Test("branch and placement second lines render through the shared SidebarMetadataLine component")
@@ -193,17 +193,16 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!rowSource.contains("Image(systemName: \"square.split.2x1\")"))
     }
 
-    @Test("stale pull request metadata renders as a bare chip-height glyph")
+    @Test("pending pull request progress renders as a bare chip-height gutter glyph")
     func stalePullRequestMetadataRendersAsBareGlyph() throws {
         let rowSource = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
             encoding: .utf8
         )
 
-        let glyphStart = try #require(rowSource.range(of: "private var stalePullRequestGlyph: some View"))
+        let glyphStart = try #require(rowSource.range(of: "package struct SidebarPendingPullRequestIndicator"))
         let glyphEnd = try #require(
-            rowSource.range(
-                of: "private var checkoutTypeIcon: some View", range: glyphStart.upperBound..<rowSource.endIndex)
+            rowSource.range(of: "extension View", range: glyphStart.upperBound..<rowSource.endIndex)
         )
         let glyphSource = String(rowSource[glyphStart.lowerBound..<glyphEnd.lowerBound])
 
@@ -220,28 +219,45 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!glyphSource.contains("repeatForever"))
     }
 
-    @Test("stale glyph compensates its leading inset only when it is the chips line's first item")
-    func staleGlyphCompensatesLeadingInsetOnlyWhenFirst() throws {
-        let rowSource = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+    @Test("every shared sidebar chip uses the standard outer height")
+    func everySharedSidebarChipUsesStandardOuterHeight() throws {
+        let chipSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
             encoding: .utf8
         )
 
-        // The glyph carries no pill padding of its own, so when it renders as the chips line's leading
-        // item it must supply the same compensating inset the row-level guide assumes every leading
-        // chip pill provides; when a diff/sync chip already precedes it, no extra inset is added.
-        #expect(rowSource.contains("private var isFirstChipsLineItem: Bool"))
-        let glyphUsageStart = try #require(
-            rowSource.range(of: "if branchStatus.prCount == nil && !branchStatus.pullRequestDataUnavailable {")
+        #expect(
+            chipSource.components(separatedBy: ".frame(height: AppStyles.Shell.Sidebar.chipLineHeight)").count
+                == 5
         )
-        let glyphUsageEnd = try #require(
-            rowSource.range(of: "} else if let prCount", range: glyphUsageStart.upperBound..<rowSource.endIndex)
+        #expect(!chipSource.contains(".padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)"))
+    }
+
+    @Test("pending progress overlays the icon gutter and never enters chip layout flow")
+    func pendingProgressOverlaysIconGutterWithoutTakingChipSpace() throws {
+        let sharedSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
+            encoding: .utf8
         )
-        let glyphUsageSource = String(rowSource[glyphUsageStart.lowerBound..<glyphUsageEnd.lowerBound])
-        #expect(glyphUsageSource.contains("stalePullRequestGlyph"))
-        #expect(glyphUsageSource.contains(".padding("))
-        #expect(glyphUsageSource.contains("isFirstChipsLineItem"))
-        #expect(glyphUsageSource.contains("AppStyles.Shell.Sidebar.chipHorizontalPadding"))
+        let worktreeSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+        let paneSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
+            encoding: .utf8
+        )
+
+        #expect(sharedSource.contains(".overlay(alignment: .leading)"))
+        #expect(sharedSource.contains("AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth"))
+        #expect(sharedSource.contains("AppStyles.Shell.Sidebar.groupIconTitleSpacing"))
+        #expect(sharedSource.contains(".accessibilityLabel(\"Refreshing pull request status\")"))
+        #expect(!sharedSource.contains("Pull request facts not fetched"))
+        #expect(!sharedSource.contains("pendingPullRequestGlyph"))
+        #expect(worktreeSource.contains(".sidebarPendingPullRequestIndicator("))
+        #expect(paneSource.contains(".sidebarPendingPullRequestIndicator("))
+        #expect(paneSource.contains("text: \"Active\""))
+        #expect(!paneSource.contains("text: \"active\""))
     }
 
     @Test("a detached-HEAD worktree resolves pull request data unavailable immediately")
@@ -260,7 +276,7 @@ struct RepoExplorerWorktreeRowTests {
         )
 
         let detachedStatus = GitBranchStatus.status(enrichment: detachedEnrichment, pullRequestFacts: nil)
-        let branchedPendingStatus = GitBranchStatus.status(enrichment: branchedEnrichment, pullRequestFacts: nil)
+        let branchedIdleStatus = GitBranchStatus.status(enrichment: branchedEnrichment, pullRequestFacts: nil)
 
         // Detached HEAD is a local, synchronous fact of the enrichment itself
         // (no branch to key a forge query on) and must resolve to terminal
@@ -270,16 +286,27 @@ struct RepoExplorerWorktreeRowTests {
         #expect(detachedStatus.prCount == nil)
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: detachedStatus))
 
-        #expect(!branchedPendingStatus.pullRequestDataUnavailable)
-        #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: branchedPendingStatus))
+        #expect(!branchedIdleStatus.pullRequestDataUnavailable)
+        #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: branchedIdleStatus))
     }
 
     @Test("resolved-unavailable pull request state renders neither the pending glyph nor a chip")
     func resolvedUnavailablePullRequestStateRendersNoGlyphAndNoChip() {
-        let pendingStillLoading = GitBranchStatus(
+        let idleWithoutFacts = GitBranchStatus(
             isDirty: false,
             syncState: .synced,
             prCount: nil,
+            pullRequestIsLoading: false,
+            pullRequestDataUnavailable: false,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+        let activeRequest = GitBranchStatus(
+            isDirty: false,
+            syncState: .synced,
+            prCount: nil,
+            pullRequestIsLoading: true,
             pullRequestDataUnavailable: false,
             linesAdded: 0,
             linesDeleted: 0,
@@ -295,12 +322,13 @@ struct RepoExplorerWorktreeRowTests {
             untrackedFileCount: 0
         )
 
-        // Genuinely pending (still waiting on the first forge query) keeps
-        // showing the pending signal so the row honestly reflects in-flight work.
-        #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: pendingStillLoading))
+        #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: idleWithoutFacts))
+        #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: activeRequest))
+        #expect(SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: activeRequest))
         // Resolved-unavailable (no remote, or repeated failures past the
         // honesty threshold) must never render as still-pending.
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: terminallyUnavailable))
+        #expect(!SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: terminallyUnavailable))
     }
 
     @Test("a stale positive PR count never renders once the repo resolves unavailable")
@@ -326,21 +354,14 @@ struct RepoExplorerWorktreeRowTests {
                 branchStatus: terminallyUnavailableWithStaleCount))
 
         let rowSource = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
             encoding: .utf8
         )
-        let renderBranchStart = try #require(rowSource.range(of: "else if let prCount = branchStatus.prCount,"))
+        let renderBranchStart = try #require(rowSource.range(of: "if let prCount = branchStatus.prCount,"))
         let renderBranchEnd = try #require(
             rowSource.range(of: "{", range: renderBranchStart.upperBound..<rowSource.endIndex))
         let renderBranchSource = String(rowSource[renderBranchStart.lowerBound..<renderBranchEnd.lowerBound])
         #expect(renderBranchSource.contains("!branchStatus.pullRequestDataUnavailable"))
-    }
-
-    @Test("pane trailing metadata suppresses zero pull requests")
-    func paneTrailingMetadataSuppressesZeroPullRequests() {
-        #expect(RepoExplorerPaneRow.normalizedPullRequestCount(nil) == nil)
-        #expect(RepoExplorerPaneRow.normalizedPullRequestCount(0) == nil)
-        #expect(RepoExplorerPaneRow.normalizedPullRequestCount(2) == 2)
     }
 
     @Test("row content accepts primitive unread count")
@@ -500,16 +521,18 @@ struct RepoExplorerWorktreeRowTests {
         )
 
         #expect(paneNavigationSource.contains("SidebarMetadataLine("))
-        #expect(paneNavigationSource.contains("text: row.secondaryText"))
+        #expect(paneNavigationSource.contains("text: secondaryLine.text"))
+        #expect(paneNavigationSource.contains(".saturation(secondaryLine.isTerminalOutput ? 0 : 1)"))
         #expect(paneNavigationSource.contains("AppStyles.Shell.Sidebar.rowContentSpacing"))
         #expect(paneNavigationSource.contains("SidebarChip("))
-        #expect(paneNavigationSource.contains("text: \"active\""))
-        #expect(paneNavigationSource.contains("normalizedPullRequestCount(pullRequestCount)"))
-        #expect(paneNavigationSource.contains("text: row.recencyText"))
-        // Both the pane row and the worktree row now render the "square.split.2x1" placement
-        // line through the same shared SidebarMetadataLine component rather than each hand-rolling
-        // their own icon+text HStack.
-        #expect(paneNavigationSource.contains(".systemName(\"square.split.2x1\")"))
+        #expect(paneNavigationSource.contains("text: \"Active\""))
+        #expect(!paneNavigationSource.contains("text: \"active\""))
+        #expect(paneNavigationSource.contains("SidebarGitStatusChips("))
+        #expect(paneNavigationSource.contains("branchStatus: branchStatus"))
+        #expect(paneNavigationSource.contains("text: recencyText"))
+        // By Repo placement uses the shared metadata line. Pane and tab rows instead use that same
+        // component for their note/output and branch-context lines.
+        #expect(paneNavigationSource.contains("text: branchContextText"))
         #expect(worktreeRowSource.contains(".systemName(\"square.split.2x1\")"))
         #expect(worktreeRowSource.contains("SidebarMetadataLine("))
         #expect(!worktreeRowSource.contains("Image(systemName: \"square.split.2x1\")"))
@@ -525,9 +548,8 @@ struct RepoExplorerWorktreeRowTests {
             contentsOfFile: "Sources/AgentStudio/SharedComponents/AppEntityIcon.swift",
             encoding: .utf8
         )
-
         #expect(explorerViewSource.contains("leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset"))
-        #expect(explorerViewSource.contains("pullRequestCount: cachedProjectionResult.branchStatusByWorktreeId"))
+        #expect(explorerViewSource.contains("branchStatusByWorktreeId: result.branchStatusByWorktreeId"))
         #expect(appEntityIconSource.contains("case .tabGroup:"))
         #expect(appEntityIconSource.contains("AppStyles.Shell.Sidebar.tabGroupIconColor"))
     }
@@ -553,6 +575,9 @@ struct RepoExplorerWorktreeRowTests {
             #expect(source.contains(".sidebarChipRowTextColumnGuide()"))
             #expect(source.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
         }
+        #expect(paneRowSource.contains("AppEntityIcon.pane.swiftUIImage("))
+        #expect(paneRowSource.contains("size: AppStyles.Shell.Sidebar.rowIdentityIconSize"))
+        #expect(worktreeRowSource.contains("AppStyles.Shell.Sidebar.worktreeIconSize"))
         #expect(alignmentSource.contains("AppStyles.Shell.Sidebar.statusRowLeadingIndent"))
         #expect(!alignmentSource.contains("textColumnLeadingInset"))
 
@@ -565,6 +590,23 @@ struct RepoExplorerWorktreeRowTests {
             alignmentSource.range(of: "}\n}", range: guideStart.upperBound..<alignmentSource.endIndex))
         let guideSource = String(alignmentSource[guideStart.lowerBound..<guideEnd.lowerBound])
         #expect(guideSource.contains("AppStyles.Shell.Sidebar.chipHorizontalPadding"))
+    }
+
+    @Test("an admitted PR refresh shows gutter progress even when cached facts remain")
+    func admittedPullRequestRefreshShowsProgressWithCachedFacts() {
+        let enrichment = WorktreeEnrichment(
+            worktreeId: UUIDv7.generate(),
+            repoId: UUIDv7.generate(),
+            branch: "main",
+            isMainWorktree: true
+        )
+        let status = GitBranchStatus.status(
+            enrichment: enrichment,
+            pullRequestFacts: PullRequestFacts(openCount: 2, exactOpenURL: nil),
+            pullRequestIsLoading: true
+        )
+
+        #expect(SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: status))
     }
 
     @Test("repo explorer remains inbox-feature agnostic")

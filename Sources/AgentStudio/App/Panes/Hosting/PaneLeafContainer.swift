@@ -42,6 +42,7 @@ struct PaneLeafContainer: View {
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
     let paneInboxPresentation: PaneInboxPresentation?
+    let paneNotePresentation: PaneNotePresentation?
     let ordinal: Int?
     let workspaceWindowId: UUID?
     let toolbarPresentation: PaneSurfaceToolbarPresentation
@@ -81,6 +82,7 @@ struct PaneLeafContainer: View {
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false,
         paneInboxPresentation: PaneInboxPresentation? = nil,
+        paneNotePresentation: PaneNotePresentation? = nil,
         ordinal: Int? = nil,
         workspaceWindowId: UUID? = nil,
         toolbarPresentation: PaneSurfaceToolbarPresentation,
@@ -104,6 +106,7 @@ struct PaneLeafContainer: View {
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
         self.paneInboxPresentation = paneInboxPresentation
+        self.paneNotePresentation = paneNotePresentation
         self.ordinal = ordinal
         self.workspaceWindowId = workspaceWindowId
         self.toolbarPresentation = toolbarPresentation
@@ -199,7 +202,7 @@ struct PaneLeafContainer: View {
     }
 
     var body: some View {
-        GeometryReader { _ in
+        GeometryReader { paneGeometry in
             let managementContext = PaneManagementContext.project(
                 paneId: paneHost.id,
                 store: store,
@@ -272,7 +275,9 @@ struct PaneLeafContainer: View {
                             octiconLoader: octiconLoader,
                             editorChooser: editorChooser,
                             paneInboxPresentation: paneInboxPresentation,
+                            paneNotePresentation: paneNotePresentation,
                             workspaceWindowId: workspaceWindowId,
+                            owningPaneSize: paneGeometry.size,
                             actionDispatcher: actionDispatcher,
                             onPaneFocusTrigger: onPaneFocusTrigger
                         )
@@ -934,67 +939,5 @@ extension PaneLeafContainer {
         }
 
         return drawerPaneId
-    }
-}
-
-// MARK: - DragHandleDragPreview
-
-/// Preview view shown by SwiftUI's `.draggable(_:preview:)` when a drag session
-/// actually begins. By wrapping the preview in a dedicated `View` struct with
-/// `init` + `onAppear` traces, we can distinguish "SwiftUI evaluated the preview
-/// closure during body construction" (doesn't mean a drag started) from
-/// "SwiftUI initiated an NSDraggingSession and is rendering this preview
-/// attached to the cursor" (definitive signal that .draggable recognized).
-struct DragHandleDragPreview: View {
-    let paneId: UUID
-    let drawerParentPaneId: UUID?
-    let tabId: UUID
-
-    init(paneId: UUID, drawerParentPaneId: UUID?, tabId: UUID) {
-        self.paneId = paneId
-        self.drawerParentPaneId = drawerParentPaneId
-        self.tabId = tabId
-        RestoreTrace.log(
-            "DragHandleDragPreview.init pane=\(paneId) drawerParent=\(drawerParentPaneId?.uuidString ?? "nil") tab=\(tabId)"
-        )
-    }
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: AppStyles.Shell.ManagementLayer.dragHandleCornerRadius)
-                .fill(Color(.windowBackgroundColor).opacity(0.8))
-            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                .font(.system(size: AppStyles.General.Icon.toolbar, weight: .medium))
-                .foregroundStyle(.secondary)
-        }
-        .frame(
-            width: AppStyles.Shell.ManagementLayer.dragHandleWidth,
-            height: AppStyles.Shell.ManagementLayer.dragHandleHeight
-        )
-        .onAppear {
-            let sessionID = DragSession.start()
-            let source = drawerParentPaneId == nil ? "main-pane" : "drawer-pane"
-            RestoreTrace.log(
-                "DragHandleDragPreview.onAppear session=\(sessionID) source=\(source) pane=\(paneId) drawerParent=\(drawerParentPaneId?.uuidString ?? "nil") tab=\(tabId)"
-            )
-        }
-        .onDisappear {
-            RestoreTrace.log(
-                "DragHandleDragPreview.onDisappear pane=\(paneId) drawerParent=\(drawerParentPaneId?.uuidString ?? "nil") tab=\(tabId)"
-            )
-        }
-    }
-}
-
-/// Payload for dragging the new tab button.
-struct NewTabDragPayload: Codable, Transferable {
-    var timestamp: Date
-
-    init() {
-        self.timestamp = Date()
-    }
-
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .agentStudioNewTab)
     }
 }

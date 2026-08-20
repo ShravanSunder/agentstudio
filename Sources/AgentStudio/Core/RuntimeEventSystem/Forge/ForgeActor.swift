@@ -483,10 +483,25 @@ package actor ForgeActor {
 
         let statusProvider = self.statusProvider
         providerTasksByRepoId[repoId] = Task { [weak self, statusProvider] in
-            let outcome = await statusProvider.pullRequests(origin: request.origin)
             guard let self else { return }
+            await self.providerRequestDidStart(request)
+            let outcome = await statusProvider.pullRequests(origin: request.origin)
             await self.completeProviderRequest(request, outcome: outcome)
         }
+    }
+
+    private func providerRequestDidStart(_ request: ProviderRequest) async {
+        guard !isShuttingDown,
+            let state = refreshStateByRepoId[request.repoId],
+            state.activeRequestId == request.id,
+            state.generation == request.generation,
+            state.origin == request.origin
+        else { return }
+        await emitForgeEvent(
+            repoId: request.repoId,
+            correlationId: request.correlationId,
+            event: .pullRequestRefreshStateChanged(repoId: request.repoId, isLoading: true)
+        )
     }
 
     /// Applies one provider outcome to `state` and returns the per-outcome
@@ -587,19 +602,29 @@ package actor ForgeActor {
         }
 
         refreshStateByRepoId[request.repoId] = state
-        if let event {
-            await emitForgeEvent(
-                repoId: request.repoId,
-                correlationId: request.correlationId,
-                event: event
-            )
-        }
-        if shouldEmitUnavailable {
-            await emitForgeEvent(
-                repoId: request.repoId,
-                correlationId: request.correlationId,
-                event: .pullRequestsUnavailable(repoId: request.repoId)
-            )
+        // Commit the accepted completion before the external bus await. ForgeActor is
+        // reentrant across that await, and a concurrent manual refresh must observe the
+        // completed request rather than append a follow-up to stale active-request state.
+        await emitForgeEvent(
+            repoId: request.repoId,
+            correlationId: request.correlationId,
+            event: .pullRequestRefreshStateChanged(repoId: request.repoId, isLoading: false)
+        )
+        if requestRemainsCurrentForResultPublication(request) {
+            if let event {
+                await emitForgeEvent(
+                    repoId: request.repoId,
+                    correlationId: request.correlationId,
+                    event: event
+                )
+            }
+            if shouldEmitUnavailable {
+                await emitForgeEvent(
+                    repoId: request.repoId,
+                    correlationId: request.correlationId,
+                    event: .pullRequestsUnavailable(repoId: request.repoId)
+                )
+            }
         }
 
         guard var currentState = refreshStateByRepoId[request.repoId],
@@ -632,6 +657,16 @@ package actor ForgeActor {
             }
         }
         rescheduleDeadline()
+    }
+
+    private func requestRemainsCurrentForResultPublication(_ request: ProviderRequest) -> Bool {
+        guard !isShuttingDown,
+            let currentState = refreshStateByRepoId[request.repoId],
+            currentState.generation == request.generation,
+            currentState.origin == request.origin
+        else { return false }
+
+        return demandedBranches(repoId: request.repoId) == request.demandedBranches
     }
 
     private func minimumRetryAt(

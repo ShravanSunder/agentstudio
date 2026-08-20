@@ -108,15 +108,16 @@ package enum AppStyles {
             package static let rowVerticalInset: CGFloat = 6
             package static let listRowLeadingInset: CGFloat = 2
             package static let groupIconSize: CGFloat = 14
-            package static let groupIconColumnWidth: CGFloat = 18
             package static let groupIconTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
             package static let rowLeadingIconColumnWidth: CGFloat = AppStyles.General.Typography.textBase
+            package static let groupIconColumnWidth: CGFloat = rowLeadingIconColumnWidth
+            package static let rowIdentityIconSize: CGFloat = 11
             package static let sectionHeaderChevronColumnWidth: CGFloat = AppStyles.General.Typography.textBase
             package static let sectionHeaderChevronLabelSpacing: CGFloat = groupIconTitleSpacing
             package static let groupOrganizationFontSize: CGFloat = AppStyles.General.Typography.textSm
             package static let groupTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
             package static let groupOrganizationMaxWidth: CGFloat = 120
-            package static let worktreeIconSize: CGFloat = 11
+            package static let worktreeIconSize: CGFloat = rowIdentityIconSize
             package static let branchIconSize: CGFloat = 10
             package static let branchFontSize: CGFloat = AppStyles.General.Typography.textSm
             package static let rowHorizontalInset: CGFloat = AppStyles.General.Spacing.tight / 2
@@ -200,13 +201,16 @@ package enum AppStyles {
 
             package static let groupChildRowLeadingInset: CGFloat =
                 listRowLeadingInset
-                + AppStyles.General.Typography.textBase
-                + AppStyles.General.Spacing.tight
+                + sectionHeaderChevronColumnWidth
+                + sectionHeaderChevronLabelSpacing
 
             package static let statusRowLeadingIndent: CGFloat =
-                rowLeadingIconColumnWidth + AppStyles.General.Spacing.tight
+                rowLeadingIconColumnWidth + groupIconTitleSpacing
 
             package static let chipInfoColor = Color(red: 0.47, green: 0.69, blue: 0.96)
+            package static let recencyMediumBlue = Color(red: 0.55, green: 0.68, blue: 0.84)
+            package static let recencyMutedBlue = Color(red: 0.56, green: 0.64, blue: 0.75)
+            package static let recencyFaintBlue = Color(red: 0.57, green: 0.61, blue: 0.66)
             package static let chipSuccessColor = Color(red: 0.42, green: 0.84, blue: 0.50)
             package static let chipWarningColor = Color(red: 0.93, green: 0.71, blue: 0.34)
             package static let chipDangerColor = Color(red: 0.93, green: 0.41, blue: 0.41)
@@ -313,6 +317,10 @@ package enum AppStyles {
             package static let labeledActionTrailingPadding: CGFloat = AppStyles.General.Spacing.standard
             package static let dividerHeight: CGFloat = 16
             package static let dividerHorizontalPadding = AppStyles.General.Spacing.standard
+            package static let statusClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
+            package static let statusValueSpacing: CGFloat = AppStyles.General.Spacing.tight
+            package static let statusIconSize: CGFloat = AppStyles.General.Typography.textSm
+            package static let statusFontSize: CGFloat = AppStyles.General.Typography.textXs
         }
 
         package enum ManagementLayer {
@@ -428,6 +436,12 @@ package enum AppStyles {
             package static let horizontalPadding: CGFloat = 12
             package static let topPadding: CGFloat = AppStyles.General.Spacing.loose
             package static let bottomPadding: CGFloat = AppStyles.General.Spacing.tight
+        }
+
+        package enum PaneNote {
+            package static let minimumWidth: CGFloat = 380
+            package static let minimumHeight: CGFloat = 220
+            package static let paneSizeRatio: CGFloat = 0.60
         }
 
         package enum EditorChooser {

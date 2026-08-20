@@ -6,8 +6,53 @@ import Testing
 @testable import AgentStudioCore
 
 @MainActor
-@Suite("ForgeActor admission edges")
+@Suite("ForgeActor admission edges", .serialized)
 struct ForgeActorAdmissionEdgeTests {
+    @Test("provider request publishes bounded loading edges around a successful query")
+    func providerRequestPublishesLoadingEdgesAroundSuccess() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/loading")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+
+        #expect(await fixture.provider.waitForCallCount(1))
+        #expect(await fixture.events.waitForLoadingStates(repoId: repoId, expected: [true]))
+
+        await fixture.provider.resolve(callAt: 0, with: .complete([]))
+
+        #expect(await fixture.events.waitForLoadingStates(repoId: repoId, expected: [true, false]))
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/loading",
+                expected: PullRequestFacts(openCount: 0, exactOpenURL: nil)
+            )
+        )
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
+    @Test("failed provider request clears loading before entering backoff")
+    func failedProviderRequestClearsLoadingBeforeBackoff() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/failure")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+
+        #expect(await fixture.provider.waitForCallCount(1))
+        #expect(await fixture.events.waitForLoadingStates(repoId: repoId, expected: [true]))
+        await fixture.provider.resolve(callAt: 0, with: .failed(message: "offline"))
+
+        #expect(await fixture.events.waitForLoadingStates(repoId: repoId, expected: [true, false]))
+        #expect(await fixture.events.waitForRefreshFailure(repoId: repoId))
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
     @Test("truncated repository result preserves facts and waits for the minimum retry deadline")
     func truncatedResultPreservesFactsAndBacksOff() async {
         let fixture = await ForgeActorFixture.make()
@@ -265,11 +310,11 @@ struct ForgeActorAdmissionEdgeTests {
         await fixture.clock.waitForPendingSleepCount(atLeast: 1)
         #expect(await fixture.provider.callCount == 1)
 
-        #expect(performanceRecorder.outcomes == ["deferred"])
+        #expect(await performanceRecorder.waitForOutcomes(["deferred"]))
 
         fixture.advance(by: AppPolicies.ForgeRefresh.pendingFollowUpDelay)
         #expect(await fixture.provider.waitForCallCount(2))
-        #expect(performanceRecorder.outcomes == ["deferred", "admitted"])
+        #expect(await performanceRecorder.waitForOutcomes(["deferred", "admitted"]))
 
         await fixture.provider.resolve(callAt: 1, with: .complete([]))
         await fixture.actor.shutdown()
@@ -595,6 +640,24 @@ struct ForgeActorAdmissionEdgeTests {
 }
 
 extension ObservedForgeEvents {
+    func loadingStates(for repoId: UUID) -> [Bool] {
+        recordedEvents.compactMap { event in
+            guard case .pullRequestRefreshStateChanged(let eventRepoId, let isLoading) = event,
+                eventRepoId == repoId
+            else { return nil }
+            return isLoading
+        }
+    }
+
+    func waitForLoadingStates(
+        repoId: UUID,
+        expected: [Bool]
+    ) async -> Bool {
+        await waitForRecordedEvent {
+            loadingStates(for: repoId) == expected
+        }
+    }
+
     func pullRequestsUnavailableCount(for repoId: UUID) -> Int {
         recordedEvents.count { event in
             guard case .pullRequestsUnavailable(let eventRepoId) = event else { return false }
@@ -602,13 +665,10 @@ extension ObservedForgeEvents {
         }
     }
 
-    func waitForPullRequestsUnavailable(repoId: UUID, maxTurns: Int = 500) async -> Bool {
-        for _ in 0..<maxTurns {
-            if pullRequestsUnavailableCount(for: repoId) > 0 { return true }
-            await Task.yield()
+    func waitForPullRequestsUnavailable(repoId: UUID) async -> Bool {
+        await waitForRecordedEvent {
+            pullRequestsUnavailableCount(for: repoId) > 0
         }
-        Issue.record("Expected Forge pull requests unavailable for repoId=\(repoId)")
-        return false
     }
 
     func pullRequestsChangedCount(for repoId: UUID) -> Int {
@@ -620,23 +680,48 @@ extension ObservedForgeEvents {
 
     func waitForPullRequestsChangedCount(
         repoId: UUID,
-        expectedCount: Int,
-        maxTurns: Int = 500
+        expectedCount: Int
     ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if pullRequestsChangedCount(for: repoId) == expectedCount { return true }
-            await Task.yield()
+        await waitForRecordedEvent {
+            pullRequestsChangedCount(for: repoId) == expectedCount
         }
-        Issue.record("Expected \(expectedCount) pullRequestsChanged events for repoId=\(repoId)")
-        return false
     }
 }
 
 private final class ForgePerformanceRecorderSpy: ForgePerformanceRecording, @unchecked Sendable {
+    private struct OutcomeWaiter {
+        let expectedOutcomes: [String]
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     private let lock = NSLock()
     private var recordedOutcomes: [String] = []
+    private var outcomeWaiters: [OutcomeWaiter] = []
 
     var outcomes: [String] { lock.withLock { recordedOutcomes } }
+
+    func waitForOutcomes(_ expectedOutcomes: [String]) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let immediateResult = lock.withLock { () -> Bool? in
+                if recordedOutcomes == expectedOutcomes {
+                    return true
+                }
+                if recordedOutcomes.count >= expectedOutcomes.count {
+                    return false
+                }
+                outcomeWaiters.append(
+                    OutcomeWaiter(
+                        expectedOutcomes: expectedOutcomes,
+                        continuation: continuation
+                    )
+                )
+                return nil
+            }
+            if let immediateResult {
+                continuation.resume(returning: immediateResult)
+            }
+        }
+    }
 
     func record(
         _ event: AgentStudioPerformanceTraceRecorder.Event,
@@ -645,6 +730,24 @@ private final class ForgePerformanceRecorderSpy: ForgePerformanceRecording, @unc
         guard event == .forgeRefresh,
             case .string(let outcome) = attributes()["agentstudio.performance.forge.outcome"]
         else { return }
-        lock.withLock { recordedOutcomes.append(outcome) }
+        let satisfiedWaiters = lock.withLock {
+            recordedOutcomes.append(outcome)
+            var remainingWaiters: [OutcomeWaiter] = []
+            var satisfiedWaiters: [(CheckedContinuation<Bool, Never>, Bool)] = []
+            for waiter in outcomeWaiters {
+                if recordedOutcomes == waiter.expectedOutcomes {
+                    satisfiedWaiters.append((waiter.continuation, true))
+                } else if recordedOutcomes.count >= waiter.expectedOutcomes.count {
+                    satisfiedWaiters.append((waiter.continuation, false))
+                } else {
+                    remainingWaiters.append(waiter)
+                }
+            }
+            outcomeWaiters = remainingWaiters
+            return satisfiedWaiters
+        }
+        for (continuation, result) in satisfiedWaiters {
+            continuation.resume(returning: result)
+        }
     }
 }

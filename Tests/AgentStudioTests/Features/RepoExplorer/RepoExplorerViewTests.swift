@@ -28,12 +28,12 @@ struct RepoExplorerViewTests {
         #expect(measurement.outcome == .success)
     }
 
-    @Test("By Repo and pane rows render the PR chip through the one shared spec")
-    func prChipRenderSitesUseTheSharedSpec() throws {
+    @Test("By Repo and pane rows render Git status through the shared chip owner")
+    func gitStatusRenderSitesUseTheSharedOwner() throws {
         // Owner-reported defect: pane rows built their PR chip with `.accent(.accentColor)` (system
         // accent) while By Repo used a different color/icon path, so the two surfaces could drift.
-        // Both render call sites must go through SidebarPullRequestChipSpec so the glyph and color
-        // can never diverge again.
+        // Both render call sites must go through SidebarGitStatusChips, which owns the shared PR
+        // spec, so the glyph and color can never diverge again.
         let worktreeRowSource = try String(
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
             encoding: .utf8
@@ -42,13 +42,18 @@ struct RepoExplorerViewTests {
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
             encoding: .utf8
         )
+        let sharedChipsSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
+            encoding: .utf8
+        )
 
         for source in [worktreeRowSource, paneRowSource] {
-            #expect(source.contains("SidebarPullRequestChipSpec.chip(count:"))
+            #expect(source.contains("SidebarGitStatusChips(branchStatus:"))
             // Neither row constructs its own inline PR chip anymore; the octicon string only
             // appears inside the shared spec itself (SidebarChips.swift), never at a row call site.
             #expect(!source.contains("octicon-git-pull-request"))
         }
+        #expect(sharedChipsSource.contains("SidebarPullRequestChipSpec.chip(count:"))
     }
 
     @Test("selected grouping segment icon call site passes the accent foregroundOverride")
