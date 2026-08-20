@@ -22,6 +22,7 @@
   --radius-product: 16px;
   --radius-control: 10px;
   --frame-width: 1440px;
+  --space-page-inline: clamp(24px, 4.5vw, 72px);
   --space-content: clamp(32px, 2.5vw, 40px);
   --space-action: clamp(48px, 3.5vw, 56px);
   --space-section: clamp(80px, 6vw, 96px);
@@ -74,13 +75,12 @@ a:focus-visible {
   background: rgb(46 48 54 / 97%);
 }
 
-.site-header,
-.site-footer {
+.site-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   min-height: 72px;
-  padding: 16px 32px;
+  padding: 16px var(--space-page-inline);
   border: 1px solid rgb(137 180 250 / 24%);
   background:
     linear-gradient(135deg, rgb(137 180 250 / 7%), transparent 42%, rgb(116 199 236 / 4%)),
@@ -94,11 +94,11 @@ a:focus-visible {
 
 .site-header {
   position: sticky;
-  top: 0;
+  top: 1px;
   z-index: 20;
-  width: 100%;
+  width: min(calc(100% - 32px), var(--frame-width));
   margin-inline: auto;
-  border-radius: var(--radius-product);
+  border-radius: var(--radius-floating-shell);
   transition:
     top 280ms cubic-bezier(0.22, 1, 0.36, 1),
     width 360ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -112,7 +112,7 @@ a:focus-visible {
 
 .site-header[data-visual-state="floating"] {
   top: 16px;
-  width: min(540px, calc(100% - 32px));
+  width: min(80vw, 672px);
   min-height: 64px;
   padding: 12px 22px;
   border-color: rgb(137 180 250 / 38%);
@@ -121,35 +121,10 @@ a:focus-visible {
     linear-gradient(135deg, rgb(137 180 250 / 11%), transparent 40%, rgb(116 199 236 / 6%)),
     rgb(30 30 46 / 88%);
   box-shadow:
-    0 20px 54px rgb(10 11 17 / 34%),
-    0 4px 14px rgb(10 11 17 / 22%),
-    inset 0 1px rgb(255 255 255 / 10%);
-}
-
-.site-footer {
-  width: 100%;
-  margin-top: 16px;
-  border-radius: var(--radius-floating-shell);
-  color: var(--ink-faint);
-  font-family: ui-monospace, "SF Mono", monospace;
-  font-size: 13px;
-  letter-spacing: 0.04em;
-}
-
-.footer-profile-links {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-
-.footer-profile-links a {
-  display: inline-grid;
-  place-items: center;
-  color: var(--ink-muted);
-}
-
-.footer-profile-links a:hover {
-  color: var(--ink);
+    0 30px 68px rgb(8 9 14 / 44%),
+    0 10px 26px rgb(10 11 17 / 32%),
+    0 2px 0 rgb(137 180 250 / 10%),
+    inset 0 1px rgb(255 255 255 / 12%);
 }
 
 .brand-link {
@@ -171,6 +146,13 @@ a:focus-visible {
   color: var(--ink);
 }
 
+.header-social-action {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+}
+
 .github-action {
   display: inline-flex;
   align-items: center;
@@ -185,7 +167,7 @@ a:focus-visible {
 .product-story,
 .feature-details,
 .final-cta {
-  padding-inline: clamp(24px, 4.5vw, 72px);
+  padding-inline: var(--space-page-inline);
 }
 
 .hero {
@@ -658,21 +640,7 @@ a:focus-visible {
   }
 
   .site-header {
-    width: calc(100% - 24px);
-    padding-inline: 18px;
-  }
-
-  .site-header[data-visual-state="floating"] {
-    width: calc(100% - 24px);
-  }
-
-  .site-footer {
-    width: calc(100% - 24px);
-    margin-inline: auto;
-  }
-
-  .site-header nav a:not(:last-child) {
-    display: none;
+    width: calc(100% - 2px);
   }
 
   .hero__planes {
@@ -681,14 +649,15 @@ a:focus-visible {
 }
 
 @media (max-width: 620px) {
+  :root {
+    --space-page-inline: 18px;
+  }
+
   .site-header nav {
     gap: 12px;
   }
 
-  .hero,
-  .product-story,
-  .feature-details,
-  .final-cta {
+  .site-header[data-visual-state="floating"] {
     padding-inline: 18px;
   }
 
@@ -749,11 +718,6 @@ a:focus-visible {
   .feature-detail__copy p,
   .feature-detail__copy .feature-detail__summary {
     font-size: 16px;
-  }
-
-  .site-footer {
-    align-items: center;
-    flex-direction: row;
   }
 }
 

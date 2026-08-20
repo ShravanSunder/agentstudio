@@ -27,15 +27,12 @@ test("renders the claim-first homepage and switches product stories", async ({ p
     await page.locator("body").evaluate((body) => getComputedStyle(body).backgroundImage),
   ).toBe("none");
   await expect(page.getByRole("link", { name: "GitHub", exact: true })).toHaveCount(2);
-  await expect(page.locator(".site-header .github-action")).toHaveCount(1);
+  await expect(page.locator(".site-header .header-social-action")).toHaveCount(2);
   await expect(page.locator(".final-cta .github-action")).toHaveCount(1);
   await expect(page.locator(".hero__actions a")).toHaveCount(0);
   await expect(page.locator("[data-install-command-root]")).toHaveCount(1);
-  await expect(page.getByRole("link", { name: "Shravan Sunder on GitHub" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Shravan Sunder on X" })).toBeVisible();
-  await expect(
-    page.getByRole("navigation", { name: "Shravan Sunder profile links" }),
-  ).toBeVisible();
+  await expect(page.locator(".site-footer")).toHaveCount(0);
 
   const installCenterOffset = await page.locator(".hero").evaluate((hero) => {
     const actions = hero.querySelector(".hero__actions");
@@ -353,27 +350,30 @@ test("separates the showcase and follow-up with spacing instead of a duplicate r
   expect(transitionGeometry.finalCallToActionBorderTopWidth).toBe("0px");
 });
 
-test("morphs the boxed header into a floating glass pill and matches the footer radius", async ({
-  page,
-}) => {
+test("morphs the frame-width header into a max-w-2xl floating glass pill", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.goto("/");
 
   const restingGeometry = await page.evaluate(() => {
     const header = document.querySelector(".site-header");
-    const main = document.querySelector(".site-frame > main");
-    const footer = document.querySelector(".site-footer");
+    const frame = document.querySelector(".site-frame");
+    const main = frame?.querySelector(":scope > main");
+    const brand = header?.querySelector(".brand-link");
+    const heroEyebrow = document.querySelector(".hero .eyebrow");
     if (
       !(header instanceof HTMLElement) ||
+      !(frame instanceof HTMLElement) ||
       !(main instanceof HTMLElement) ||
-      !(footer instanceof HTMLElement)
+      !(brand instanceof HTMLElement) ||
+      !(heroEyebrow instanceof HTMLElement)
     ) {
       throw new Error("Site shell surfaces are incomplete");
     }
 
     const headerStyle = getComputedStyle(header);
     const mainStyle = getComputedStyle(main);
-    const footerStyle = getComputedStyle(footer);
+    const headerBounds = header.getBoundingClientRect();
+    const frameBounds = frame.getBoundingClientRect();
     return {
       headerState: header.dataset["visualState"],
       header: {
@@ -382,19 +382,22 @@ test("morphs the boxed header into a floating glass pill and matches the footer 
         bottom: headerStyle.borderBottomWidth,
         left: headerStyle.borderLeftWidth,
         radius: headerStyle.borderRadius,
-        width: header.getBoundingClientRect().width,
+        width: headerBounds.width,
+        x: headerBounds.x,
+        paddingLeft: headerStyle.paddingLeft,
+        paddingRight: headerStyle.paddingRight,
+      },
+      frame: {
+        width: frameBounds.width,
+        x: frameBounds.x,
       },
       main: {
         right: mainStyle.borderRightWidth,
         left: mainStyle.borderLeftWidth,
       },
-      footer: {
-        top: footerStyle.borderTopWidth,
-        right: footerStyle.borderRightWidth,
-        bottom: footerStyle.borderBottomWidth,
-        left: footerStyle.borderLeftWidth,
-        radius: footerStyle.borderRadius,
-      },
+      contentAlignmentDelta: Math.abs(
+        brand.getBoundingClientRect().x - heroEyebrow.getBoundingClientRect().x,
+      ),
     };
   });
 
@@ -405,19 +408,19 @@ test("morphs the boxed header into a floating glass pill and matches the footer 
     bottom: "1px",
     left: "1px",
   });
-  expect(restingGeometry.header.width).toBeGreaterThan(1300);
+  expect(restingGeometry.header.radius).toBe("24px");
+  expect(restingGeometry.header.width).toBe(restingGeometry.frame.width);
+  expect(restingGeometry.header.x).toBe(restingGeometry.frame.x);
+  expect(restingGeometry.header.paddingLeft).toBe("72px");
+  expect(restingGeometry.header.paddingRight).toBe("72px");
+  expect(restingGeometry.contentAlignmentDelta).toBeLessThanOrEqual(1);
   expect(restingGeometry.main).toEqual({ right: "0px", left: "0px" });
-  expect(restingGeometry.footer).toMatchObject({
-    top: "1px",
-    right: "1px",
-    bottom: "1px",
-    left: "1px",
-  });
 
   await page.evaluate(() => window.scrollTo({ top: 500, behavior: "instant" }));
   const siteHeader = page.locator(".site-header");
   await expect(siteHeader).toHaveAttribute("data-visual-state", "floating");
-  await expect(siteHeader).toHaveCSS("width", "540px");
+  await expect(siteHeader).toHaveCSS("width", "672px");
+  await expect(siteHeader).toHaveCSS("border-radius", "24px");
 
   const floatingGeometry = await siteHeader.evaluate((header) => {
     const headerStyle = getComputedStyle(header);
@@ -432,9 +435,9 @@ test("morphs the boxed header into a floating glass pill and matches the footer 
     };
   });
 
-  expect(floatingGeometry.width).toBeLessThanOrEqual(560);
+  expect(floatingGeometry.width).toBe(672);
   expect(floatingGeometry.top).toBeGreaterThanOrEqual(10);
-  expect(floatingGeometry.radius).toBe(restingGeometry.footer.radius);
+  expect(floatingGeometry.radius).toBe("24px");
   expect(floatingGeometry.backgroundColor).not.toBe("rgb(46, 48, 54)");
   expect(floatingGeometry.backdropFilter).not.toBe("none");
   expect(floatingGeometry.boxShadow).not.toBe("none");
@@ -444,12 +447,26 @@ test("contains phone composition within the document viewport", async ({ page })
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
-  const documentWidths = await page.evaluate(() => ({
-    clientWidth: document.documentElement.clientWidth,
-    scrollWidth: document.documentElement.scrollWidth,
-  }));
+  const siteHeader = page.locator(".site-header");
+  const documentWidths = await page.evaluate(() => {
+    const header = document.querySelector(".site-header");
+    if (!(header instanceof HTMLElement)) {
+      throw new Error("Site header is missing");
+    }
+
+    return {
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      attachedHeaderWidth: header.getBoundingClientRect().width,
+    };
+  });
 
   expect(documentWidths.scrollWidth).toBeLessThanOrEqual(documentWidths.clientWidth);
+  expect(documentWidths.attachedHeaderWidth).toBe(documentWidths.clientWidth - 2);
+
+  await page.evaluate(() => window.scrollTo({ top: 500, behavior: "instant" }));
+  await expect(siteHeader).toHaveAttribute("data-visual-state", "floating");
+  await expect(siteHeader).toHaveCSS("width", "312px");
   await expect(page.getByRole("tab", { name: /Git context/ })).toBeAttached();
   await expect(page.getByRole("button", { name: "Before close" })).toBeAttached();
 });

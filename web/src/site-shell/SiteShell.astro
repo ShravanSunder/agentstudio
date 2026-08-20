@@ -23,36 +23,32 @@ const { title, description } = Astro.props;
     <title>{title}</title>
   </head>
   <body>
-    <div class="site-frame">
-      <header class="site-header" data-site-header data-visual-state="resting">
-        <a class="brand-link" href="#top" aria-label={marketingCopy.navigation.homeLabel}>
-          <img src={appLogo.src} width="32" height="32" alt="" />
-          <span>{marketingCopy.productName}</span>
+    <header class="site-header" data-site-header data-visual-state="resting">
+      <a class="brand-link" href="#top" aria-label={marketingCopy.navigation.homeLabel}>
+        <img src={appLogo.src} width="32" height="32" alt="" />
+        <span>{marketingCopy.productName}</span>
+      </a>
+      <nav aria-label={marketingCopy.navigation.primaryLabel}>
+        <a
+          class="header-social-action"
+          href={marketingCopy.githubUrl}
+          aria-label={marketingCopy.navigation.githubAction}
+        >
+          <GitHubMark />
         </a>
-        <nav aria-label={marketingCopy.navigation.primaryLabel}>
-          <a class="github-action" href={marketingCopy.githubUrl}>
-            <GitHubMark />
-            <span>{marketingCopy.navigation.githubAction}</span>
-          </a>
-        </nav>
-      </header>
+        <a
+          class="header-social-action"
+          href={marketingCopy.socialLinks.x.url}
+          aria-label={marketingCopy.socialLinks.x.label}
+        >
+          <XMark />
+        </a>
+      </nav>
+    </header>
+    <div class="site-frame">
       <main id="top">
         <slot />
       </main>
-      <footer class="site-footer">
-        <img src={appLogo.src} width="28" height="28" alt="" />
-        <nav class="footer-profile-links" aria-label={marketingCopy.socialLinks.label}>
-          <a
-            href={marketingCopy.socialLinks.github.url}
-            aria-label={marketingCopy.socialLinks.github.label}
-          >
-            <GitHubMark />
-          </a>
-          <a href={marketingCopy.socialLinks.x.url} aria-label={marketingCopy.socialLinks.x.label}>
-            <XMark />
-          </a>
-        </nav>
-      </footer>
     </div>
     <script>
       const floatingHeaderScrollThreshold = 32;
