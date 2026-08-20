@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
@@ -18,6 +18,7 @@ import {
 import {
 	actFrame,
 	actUpdate,
+	installBridgeFileViewerNoopResizeObserver,
 	makeTestTelemetryRecorder,
 	requireMetadataPublisher,
 	settleBridgeFileViewerBrowserUpdates,
@@ -27,7 +28,13 @@ import {
 	waitForVisibleCodeText,
 } from './bridge-file-viewer-browser-test-harness.js';
 
+const originalResizeObserver = globalThis.ResizeObserver;
+
 describe('Bridge File activation telemetry', () => {
+	beforeEach((): void => {
+		installBridgeFileViewerNoopResizeObserver();
+	});
+
 	afterEach(async () => {
 		await settleBridgeFileViewerBrowserUpdates();
 		await act(async (): Promise<void> => {
@@ -37,6 +44,10 @@ describe('Bridge File activation telemetry', () => {
 		await actFrame();
 		document.body.replaceChildren();
 		terminateBridgePierreWorkerPoolSingletonForTest();
+	});
+
+	afterAll((): void => {
+		Object.assign(globalThis, { ResizeObserver: originalResizeObserver });
 	});
 
 	test('records File TTFI when metadata arrives after the mounted tree setup frame', async () => {
@@ -153,18 +164,21 @@ describe('Bridge File activation telemetry', () => {
 		expect(await waitForBridgeViewerTreeItemButton('src/context-switcher-ready.ts')).not.toBeNull();
 		const activationStartedAtPerfNow = performance.now();
 
-		await rerender(
-			<BridgeFileViewerApp
-				activationCause="context_switcher"
-				activationSequence={3}
-				activationStartedAtPerfNow={activationStartedAtPerfNow}
-				autoOpenInitialFile={true}
-				initialMetadataEvents={initialMetadataEvents}
-				isActive={true}
-				telemetryRecorder={telemetryRecorder}
-				fileProductSession={fileProductSession}
-			/>,
-		);
+		await act(async (): Promise<void> => {
+			await rerender(
+				<BridgeFileViewerApp
+					activationCause="context_switcher"
+					activationSequence={3}
+					activationStartedAtPerfNow={activationStartedAtPerfNow}
+					autoOpenInitialFile={true}
+					initialMetadataEvents={initialMetadataEvents}
+					isActive={true}
+					telemetryRecorder={telemetryRecorder}
+					fileProductSession={fileProductSession}
+				/>,
+			);
+			await Promise.resolve();
+		});
 
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('contextSwitcherReady');
