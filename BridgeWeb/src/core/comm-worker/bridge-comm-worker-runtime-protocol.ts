@@ -31,6 +31,10 @@ import {
 import { callCurrentFileSourceWithTelemetry } from './bridge-comm-worker-product-control-runtime.js';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import {
+	BridgeCommWorkerRenderFulfillmentLifecycleDriver,
+	type BridgeCommWorkerRenderFulfillmentSurface,
+} from './bridge-comm-worker-render-fulfillment-lifecycle-driver.js';
+import {
 	bridgeWorkerComparisonTargetsContentOpen,
 	createBridgeWorkerComparisonTargetsQueryRunner,
 	settleBridgeWorkerComparisonTargetsControlRequest,
@@ -135,7 +139,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const preparationCompletions: Promise<void>[] = [];
 	let drainScheduled = false;
 	let shouldRequestDrainAfterMessage = false;
-	let cancelReviewRenderFulfillmentWake: (() => void) | null = null;
+	let advanceRenderFulfillmentLifecycle = (
+		_surface: BridgeCommWorkerRenderFulfillmentSurface,
+	): void => {};
 	let activeComparisonTargetsProductControlRequestId: string | null = null;
 	const panePresentationAuthority = new BridgeCommWorkerPanePresentationAuthority();
 	const comparisonTargetsQueryRunner = createBridgeWorkerComparisonTargetsQueryRunner({
@@ -279,7 +285,8 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		drainScheduled = false;
 		const completions = preparationCompletions.splice(0, preparationCompletions.length);
 		const runResult = pump.runUntilBudget();
-		advanceReviewRenderFulfillmentLifecycle();
+		advanceRenderFulfillmentLifecycle('file');
+		advanceRenderFulfillmentLifecycle('review');
 		if (pump.getPendingWorkIds().length > 0) {
 			requestPreparationDrain();
 		}
@@ -489,25 +496,23 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 							},
 						}),
 				}),
+		retryAnnotationProjection: (surface): void => {
+			productController?.retryAnnotationProjection(surface);
+		},
 	});
-	const advanceReviewRenderFulfillmentLifecycle = (): void => {
-		const nowMilliseconds = props.now?.() ?? performance.now();
-		const lifecycleAdvance = handler.advanceReviewRenderFulfillmentLifecycle(nowMilliseconds);
-		cancelReviewRenderFulfillmentWake?.();
-		cancelReviewRenderFulfillmentWake = null;
-		if (lifecycleAdvance.nextWakeAtMilliseconds === null) return;
-		cancelReviewRenderFulfillmentWake = scheduleRenderFulfillmentWake(
-			Math.max(0, lifecycleAdvance.nextWakeAtMilliseconds - nowMilliseconds),
-			(): void => {
-				cancelReviewRenderFulfillmentWake = null;
-				shouldRequestDrainAfterMessage = false;
-				advanceReviewRenderFulfillmentLifecycle();
-				if (shouldRequestDrainAfterMessage || pump.getPendingWorkIds().length > 0) {
-					requestPreparationDrain();
-				}
-			},
-		);
-	};
+	const renderFulfillmentLifecycleDriver = new BridgeCommWorkerRenderFulfillmentLifecycleDriver({
+		advanceBySurface: {
+			file: handler.advanceFileRenderFulfillmentLifecycle,
+			review: handler.advanceReviewRenderFulfillmentLifecycle,
+		},
+		needsPreparationDrain: (): boolean =>
+			shouldRequestDrainAfterMessage || pump.getPendingWorkIds().length > 0,
+		now: props.now ?? performance.now.bind(performance),
+		requestPreparationDrain,
+		scheduleWake: scheduleRenderFulfillmentWake,
+	});
+	advanceRenderFulfillmentLifecycle = (surface): void =>
+		renderFulfillmentLifecycleDriver.advance(surface);
 	if (productTransport !== undefined) {
 		productTransport.setPaneSurfaceSelectionFrameSink?.((frame): void => {
 			port.postMessage(bridgeWorkerNativeSurfaceSelectionRequestFromMetadataFrame(frame));
@@ -646,6 +651,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			},
 			onFileMetadataFailure: (_error, workerDerivationEpoch): void => {
 				activeFileWorkerDerivationEpoch = workerDerivationEpoch;
+				productController?.setAnnotationProjectionSourceUnavailable('file', _error);
 				publishUpdatingChrome();
 				abortAllFileContentPreparations();
 				const displayProjection = fileQueryProjection.applyDisplayPatches([
@@ -688,6 +694,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			},
 			onReviewMetadataFailure: (_error, workerDerivationEpoch): void => {
 				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
+				productController?.setAnnotationProjectionSourceUnavailable('review', _error);
 				reviewDemandScheduling.updateWorkerDerivationEpoch(workerDerivationEpoch);
 				publishUpdatingChrome();
 				const failureDisposition =
@@ -816,11 +823,8 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				publishUpdatingChrome();
 			}
 		}
-		if (
-			parsedMessage.data.command === 'renderDisposition' &&
-			parsedMessage.data.receipt.surface === 'review'
-		) {
-			advanceReviewRenderFulfillmentLifecycle();
+		if (parsedMessage.data.command === 'renderDisposition') {
+			advanceRenderFulfillmentLifecycle(parsedMessage.data.receipt.surface);
 		}
 		const handlerDurationMilliseconds =
 			readBridgeCommWorkerRuntimeNowMilliseconds(props.now) - handlerStartedAtMilliseconds;

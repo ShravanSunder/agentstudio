@@ -31,6 +31,7 @@ import {
 	bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
 	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
+	bridgeWorkerAnnotationProjectionRetryCommandSchema,
 } from './bridge-worker-annotation-contracts.js';
 import {
 	BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT,
@@ -98,6 +99,7 @@ export {
 } from './bridge-worker-wire-base-contracts.js';
 export type { BridgeWorkerTransferDescriptor } from './bridge-worker-wire-base-contracts.js';
 export { bridgeWorkerAnnotationProjectionConvergenceEventSchema } from './bridge-worker-annotation-contracts.js';
+export type { BridgeWorkerAnnotationProjectionRetryCommand } from './bridge-worker-annotation-contracts.js';
 export const bridgeWorkerSelectCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
 		command: z.literal('select'),
@@ -356,6 +358,7 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerAnnotationCommandSchema,
 	bridgeWorkerAnnotationOutputInspectCommandSchema,
 	bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema,
+	bridgeWorkerAnnotationProjectionRetryCommandSchema,
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	bridgeWorkerHoverCommandSchema,

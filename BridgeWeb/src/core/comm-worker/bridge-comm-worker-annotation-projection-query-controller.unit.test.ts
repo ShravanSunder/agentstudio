@@ -100,6 +100,79 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		).toEqual([12]);
 	});
 
+	test('settles stale-await unavailable when its presentation source producer dies', async () => {
+		const harness = await createHarness({
+			pages: await makeProjectionPages(1, 18),
+			queryOverride: (): Promise<never> =>
+				Promise.reject(
+					new BridgeProductControlRequestError({
+						code: 'stale_source',
+						message: 'Presentation source has not converged.',
+						retryAfterMilliseconds: null,
+						retryable: false,
+					}),
+				),
+		});
+		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 17 });
+		harness.controller.ensureSubscription();
+		harness.notifications.push(snapshotRequired(18));
+		await harness.controller.waitForIdle();
+		expect(harness.statuses).toEqual(['refreshing']);
+
+		harness.controller.sourceUnavailable(new Error('File metadata producer ended.'));
+
+		expect(harness.statuses).toEqual(['refreshing', 'unavailable']);
+	});
+
+	test('retries one typed retryable projection failure before publishing unavailable', async () => {
+		const pages = await makeProjectionPages(1, 16);
+		let queryAttemptCount = 0;
+		const harness = await createHarness({
+			pages,
+			queryOverride: (): Promise<unknown> => {
+				queryAttemptCount += 1;
+				return queryAttemptCount === 1
+					? Promise.reject(
+							new BridgeProductControlRequestError({
+								code: 'internal',
+								message: 'Projection capacity is temporarily unavailable.',
+								retryAfterMilliseconds: null,
+								retryable: true,
+							}),
+						)
+					: Promise.resolve({ descriptor: pages[0]?.descriptor });
+			},
+		});
+		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 16 });
+		harness.controller.ensureSubscription();
+		harness.notifications.push(snapshotRequired(16));
+
+		await harness.controller.waitForIdle();
+
+		expect(harness.querySourceGenerations).toEqual([16, 16]);
+		expect(harness.failures).toEqual([]);
+		expect(harness.statuses).toEqual(['refreshing', 'refreshing', 'ready']);
+	});
+
+	test('reopens one failed active notification subscription and bootstraps current truth', async () => {
+		const firstNotifications = createNotificationQueue('file');
+		const replacementNotifications = createNotificationQueue('file');
+		const harness = await createHarness({
+			notificationQueues: [firstNotifications, replacementNotifications],
+			pages: await makeProjectionPages(1, 17),
+		});
+		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 17 });
+		harness.controller.ensureSubscription();
+
+		firstNotifications.close();
+		await flushTaskQueueUntil(() => harness.subscriptionCount() === 2);
+		replacementNotifications.push(snapshotRequired(17));
+		await harness.controller.waitForIdle();
+
+		expect(harness.subscriptionCount()).toBe(2);
+		expect(harness.statuses).toEqual(['unavailable', 'refreshing', 'ready']);
+	});
+
 	test('coalesces invalidations 11 through 15 while 10 is blocked and fences stale completion', async () => {
 		const firstQuery = deferred<unknown>();
 		const pages10 = await makeProjectionPages(1, 10);
@@ -224,6 +297,7 @@ interface MutableProjectionPage {
 }
 
 interface TestNotificationQueue {
+	readonly close: () => void;
 	readonly push: (event: BridgeProductWorktreeAnnotationEvent) => void;
 	readonly subscription: BridgeProductSubscription<'file.annotations' | 'review.annotations'>;
 }
@@ -242,9 +316,11 @@ interface AnnotationProjectionTestHarness {
 	readonly querySourceGenerations: number[];
 	readonly querySessionIds: string[][];
 	readonly statuses: Array<BridgeCommWorkerAnnotationProjectionPublication['state']['kind']>;
+	readonly subscriptionCount: () => number;
 }
 
 async function createHarness(props: {
+	readonly notificationQueues?: readonly TestNotificationQueue[];
 	readonly pages: readonly MutableProjectionPage[];
 	readonly queryOverride?: (
 		request: BridgeProductAnnotationProjectionQueryRequest,
@@ -253,6 +329,8 @@ async function createHarness(props: {
 	readonly terminalKind?: 'complete' | 'error';
 }): Promise<AnnotationProjectionTestHarness> {
 	const notifications = createNotificationQueue('file');
+	const notificationQueues = props.notificationQueues ?? [notifications];
+	let observedSubscriptionCount = 0;
 	const publications: AnnotationProjectionTestHarness['publications'] = [];
 	const failures: unknown[] = [];
 	const statuses: AnnotationProjectionTestHarness['statuses'] = [];
@@ -278,7 +356,12 @@ async function createHarness(props: {
 			if (page === undefined) throw new Error('Unknown annotation projection descriptor.');
 			return makeContentStream(page, props.terminalKind ?? 'complete');
 		},
-		subscribe: () => notifications.subscription,
+		subscribe: () => {
+			const subscription = notificationQueues[observedSubscriptionCount]?.subscription;
+			observedSubscriptionCount += 1;
+			if (subscription === undefined) throw new Error('Unexpected annotation subscription reopen.');
+			return subscription;
+		},
 	};
 	const controller = new BridgeCommWorkerAnnotationProjectionQueryController({
 		onConvergence: ({ state, surface }): void => {
@@ -297,6 +380,7 @@ async function createHarness(props: {
 		querySourceGenerations,
 		querySessionIds,
 		statuses,
+		subscriptionCount: (): number => observedSubscriptionCount,
 	};
 }
 
@@ -332,6 +416,10 @@ function createNotificationQueue(surface: 'file' | 'review'): TestNotificationQu
 					subscriptionKind: 'review.annotations',
 				};
 	return {
+		close: (): void => {
+			for (const resolve of waiters.splice(0)) resolve({ done: true, value: undefined });
+			pending.push({ done: true, value: undefined });
+		},
 		push: (event: BridgeProductWorktreeAnnotationEvent): void => {
 			const resolve = waiters.shift();
 			if (resolve === undefined) pending.push({ done: false, value: event });

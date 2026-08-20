@@ -44,6 +44,7 @@ export interface WorktreeAnnotationSurfaceClient {
 	readonly queryOutputCandidates: (
 		query: BridgeProductCallRequest<'file.annotations.output.candidates.query'>,
 	) => Promise<BridgeProductCallResult<'file.annotations.output.candidates.query'>>;
+	readonly retryProjection: () => void;
 	readonly subscribe: (listener: () => void) => () => void;
 	readonly waitForSnapshot: <TResult>(
 		select: (snapshot: WorktreeAnnotationProjectionSnapshot) => TResult | null,
@@ -349,6 +350,14 @@ export function createWorktreeAnnotationSurfaceClient(
 		getSnapshot: projectionStore.getSnapshot,
 		inspectOutput,
 		queryOutputCandidates,
+		retryProjection: (): void => {
+			if (isDisposed) return;
+			surfaceClient.send({
+				command: 'annotationProjectionRetry',
+				epoch: currentSurfaceEpoch(surfaceClient),
+				surface: surfaceClient.surface,
+			});
+		},
 		subscribe: projectionStore.subscribe,
 		waitForSnapshot,
 	};

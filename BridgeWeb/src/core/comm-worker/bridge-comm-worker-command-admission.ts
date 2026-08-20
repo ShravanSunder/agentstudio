@@ -21,6 +21,7 @@ export function bridgeCommWorkerIntentEpochDomain(
 		case 'annotationCommand':
 		case 'annotationOutputInspect':
 		case 'annotationOutputCandidatesQuery':
+		case 'annotationProjectionRetry':
 			return message.surface === 'fileView' ? 'fileAnnotation' : 'reviewAnnotation';
 		case 'hover':
 		case 'select':

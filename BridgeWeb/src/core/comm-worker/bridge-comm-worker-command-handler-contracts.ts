@@ -36,6 +36,7 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly renderFulfillmentNow?: () => number;
 	readonly renderReceiptLeaseDurationMilliseconds?: number;
 	readonly renderRetryBackoffMilliseconds?: number;
+	readonly retryAnnotationProjection?: (surface: 'file' | 'review') => void;
 	readonly scheduleDemandExecution?: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
 	) => void;
@@ -102,9 +103,12 @@ export interface BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest 
 }
 
 export interface BridgeCommWorkerCommandHandler {
+	readonly advanceFileRenderFulfillmentLifecycle: (
+		atMilliseconds: number,
+	) => BridgeCommWorkerRenderFulfillmentLifecycleAdvance;
 	readonly advanceReviewRenderFulfillmentLifecycle: (
 		atMilliseconds: number,
-	) => BridgeCommWorkerReviewRenderFulfillmentLifecycleAdvance;
+	) => BridgeCommWorkerRenderFulfillmentLifecycleAdvance;
 	readonly applyReviewMetadataApplication: (
 		application: BridgeCommWorkerReviewMetadataApplication,
 	) => readonly BridgeWorkerServerToMainMessage[];
@@ -124,7 +128,7 @@ export interface BridgeCommWorkerCommandHandler {
 	) => readonly BridgeWorkerServerToMainMessage[];
 }
 
-export interface BridgeCommWorkerReviewRenderFulfillmentLifecycleAdvance {
+export interface BridgeCommWorkerRenderFulfillmentLifecycleAdvance {
 	readonly nextWakeAtMilliseconds: number | null;
 }
 

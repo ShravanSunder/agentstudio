@@ -64,6 +64,8 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	readonly #surface: BridgeCommWorkerAnnotationSurface;
 	readonly #transport: BridgeCommWorkerAnnotationProjectionTransport;
 	#active = false;
+	#automaticQueryRetryConsumed = false;
+	#automaticSubscriptionReopenConsumed = false;
 	#abortController: AbortController | null = null;
 	#disposed = false;
 	#invalidation: AnnotationProjectionInvalidation | null = null;
@@ -72,6 +74,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	#queryLoop: Promise<void> | null = null;
 	readonly #queryAttempts = new Set<Promise<void>>();
 	#scheduledQueryStart: Promise<void> | null = null;
+	#scheduledSubscriptionReopen: Promise<void> | null = null;
 	#sessionIds: readonly string[] = [];
 	#sourceGeneration: number | null = null;
 	#subscription: BridgeProductSubscription<'file.annotations' | 'review.annotations'> | null = null;
@@ -84,12 +87,17 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 
 	ensureSubscription(): void {
 		if (this.#disposed || this.#subscription !== null) return;
-		const subscription = this.#transport.subscribe(this.#surface);
+		let subscription: BridgeProductSubscription<'file.annotations' | 'review.annotations'>;
+		try {
+			subscription = this.#transport.subscribe(this.#surface);
+		} catch (error) {
+			this.#handleSubscriptionFailure(error);
+			return;
+		}
 		this.#subscription = subscription;
 		void this.#consumeSubscription(subscription).catch((error: unknown): void => {
 			if (this.#subscription !== subscription || this.#disposed) return;
-			this.#subscription = null;
-			this.#onConvergence({ state: { error, kind: 'unavailable' }, surface: this.#surface });
+			this.#handleSubscriptionFailure(error);
 		});
 	}
 
@@ -112,9 +120,12 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			nextActive &&
 			(becameActive || previousSourceGeneration !== demand.sourceGeneration || sessionDemandChanged)
 		) {
+			this.#automaticQueryRetryConsumed = false;
+			this.#automaticSubscriptionReopenConsumed = false;
 			this.#invalidationGeneration += 1;
 			this.#abortController?.abort();
 		}
+		if (nextActive && this.#subscription === null) this.ensureSubscription();
 		if (becameActive || this.#invalidationGeneration > this.#lastAttemptedGeneration) {
 			this.#scheduleQueryLoop();
 		}
@@ -122,9 +133,20 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 
 	retry(): void {
 		if (this.#disposed || this.#invalidation === null) return;
+		this.#automaticQueryRetryConsumed = false;
+		this.#automaticSubscriptionReopenConsumed = false;
+		if (this.#active && this.#subscription === null) this.ensureSubscription();
 		this.#invalidationGeneration += 1;
 		this.#abortController?.abort();
 		this.#scheduleQueryLoop();
+	}
+
+	sourceUnavailable(error: unknown): void {
+		if (this.#disposed || !this.#active) return;
+		this.#invalidationGeneration += 1;
+		this.#lastAttemptedGeneration = this.#invalidationGeneration;
+		this.#abortController?.abort();
+		this.#onConvergence({ state: { error, kind: 'unavailable' }, surface: this.#surface });
 	}
 
 	async dispose(): Promise<void> {
@@ -137,6 +159,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		await Promise.allSettled([
 			...(subscription === null ? [] : [subscription.cancel()]),
 			...(this.#scheduledQueryStart === null ? [] : [this.#scheduledQueryStart]),
+			...(this.#scheduledSubscriptionReopen === null ? [] : [this.#scheduledSubscriptionReopen]),
 			...this.#queryAttempts,
 		]);
 	}
@@ -144,7 +167,15 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	async waitForIdle(): Promise<void> {
 		await Promise.resolve();
 		await Promise.resolve();
-		while (this.#scheduledQueryStart !== null || this.#queryAttempts.size > 0) {
+		while (
+			this.#scheduledQueryStart !== null ||
+			this.#scheduledSubscriptionReopen !== null ||
+			this.#queryAttempts.size > 0
+		) {
+			if (this.#scheduledSubscriptionReopen !== null) {
+				// eslint-disable-next-line no-await-in-loop -- Reopen is one bounded task boundary.
+				await this.#scheduledSubscriptionReopen;
+			}
 			if (this.#scheduledQueryStart !== null) {
 				// eslint-disable-next-line no-await-in-loop -- The scheduled start coalesces current notification facts.
 				await this.#scheduledQueryStart;
@@ -160,6 +191,8 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		for await (const unknownEvent of subscription.events) {
 			if (this.#disposed || this.#subscription !== subscription) return;
 			const event = bridgeProductWorktreeAnnotationEventSchema.parse(unknownEvent);
+			this.#automaticQueryRetryConsumed = false;
+			this.#automaticSubscriptionReopenConsumed = false;
 			this.#invalidation = {
 				sourceGeneration: event.sourceGeneration,
 				worktreeId: event.worktreeId,
@@ -171,6 +204,26 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		if (!this.#disposed && this.#subscription === subscription) {
 			throw new Error('Annotation projection notification subscription ended unexpectedly.');
 		}
+	}
+
+	#handleSubscriptionFailure(error: unknown): void {
+		this.#subscription = null;
+		this.#onConvergence({ state: { error, kind: 'unavailable' }, surface: this.#surface });
+		if (
+			this.#disposed ||
+			!this.#active ||
+			this.#automaticSubscriptionReopenConsumed ||
+			this.#scheduledSubscriptionReopen !== null
+		) {
+			return;
+		}
+		this.#automaticSubscriptionReopenConsumed = true;
+		const scheduledReopen = scheduleBridgeCommWorkerTaskBoundary((): void => {
+			if (this.#scheduledSubscriptionReopen !== scheduledReopen) return;
+			this.#scheduledSubscriptionReopen = null;
+			this.ensureSubscription();
+		});
+		this.#scheduledSubscriptionReopen = scheduledReopen;
 	}
 
 	#scheduleQueryLoop(): void {
@@ -244,6 +297,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				return;
 			}
 			this.#onConvergence({ state: { kind: 'ready', snapshot }, surface: this.#surface });
+			this.#automaticQueryRetryConsumed = false;
 		} catch (error) {
 			if (
 				!this.#disposed &&
@@ -252,6 +306,11 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				attemptGeneration === this.#invalidationGeneration &&
 				!isStaleSourceProjectionAttempt(error)
 			) {
+				if (isRetryableProjectionAttempt(error) && !this.#automaticQueryRetryConsumed) {
+					this.#automaticQueryRetryConsumed = true;
+					this.#invalidationGeneration += 1;
+					return;
+				}
 				this.#onConvergence({
 					state: { error, kind: 'unavailable' },
 					surface: this.#surface,
@@ -340,6 +399,10 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 
 function isStaleSourceProjectionAttempt(error: unknown): boolean {
 	return error instanceof BridgeProductControlRequestError && error.code === 'stale_source';
+}
+
+function isRetryableProjectionAttempt(error: unknown): boolean {
+	return error instanceof BridgeProductControlRequestError && error.retryable;
 }
 
 export function bridgeCommWorkerAnnotationProjectionTransport(

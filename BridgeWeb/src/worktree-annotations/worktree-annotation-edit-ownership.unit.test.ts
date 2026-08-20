@@ -138,6 +138,7 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 		queryOutputCandidates: async () => {
 			throw new Error('Unexpected output candidate query.');
 		},
+		retryProjection: (): void => {},
 		subscribe: () => (): void => {},
 		waitForSnapshot: async (select) => {
 			const result = select(snapshot());

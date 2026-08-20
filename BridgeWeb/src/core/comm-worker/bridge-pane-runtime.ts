@@ -367,6 +367,7 @@ function bridgePaneReplacementReplayIdentity(
 		case 'annotationCommand':
 		case 'annotationOutputCandidatesQuery':
 		case 'annotationOutputInspect':
+		case 'annotationProjectionRetry':
 		case 'fileDisplayResync':
 		case 'hover':
 		case 'markFileViewed':

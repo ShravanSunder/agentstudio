@@ -185,6 +185,10 @@ export class BridgeCommWorkerProductController {
 		this.#annotationProjectionBySurface[surface].retry();
 	}
 
+	setAnnotationProjectionSourceUnavailable(surface: 'file' | 'review', error: unknown): void {
+		this.#annotationProjectionBySurface[surface].sourceUnavailable(error);
+	}
+
 	async disposeAnnotationProjections(): Promise<void> {
 		await Promise.all([
 			this.#annotationProjectionBySurface.file.dispose(),

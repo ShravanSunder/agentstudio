@@ -75,6 +75,19 @@ describe('worktree annotation finite projection store', () => {
 });
 
 describe('worktree annotation surface command rendezvous', () => {
+	test('sends one typed projection retry for the owning surface', () => {
+		const harness = createSurfaceClientHarness();
+
+		harness.client.retryProjection();
+
+		expect(harness.sentCommands).toContainEqual({
+			command: 'annotationProjectionRetry',
+			epoch: 0,
+			surface: 'fileView',
+		});
+		harness.client.dispose();
+	});
+
 	test('exact Save outcome settles while projection transport is unavailable', async () => {
 		const harness = createSurfaceClientHarness();
 		const save = harness.client.execute({
@@ -151,8 +164,10 @@ describe('worktree annotation surface command rendezvous', () => {
 function createSurfaceClientHarness(): {
 	readonly client: ReturnType<typeof createWorktreeAnnotationSurfaceClient>;
 	readonly publish: (message: BridgeWorkerServerToMainMessage) => void;
+	readonly sentCommands: Array<Parameters<BridgePaneSurfaceClient['send']>[0]>;
 } {
 	let listener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
+	const sentCommands: Parameters<BridgePaneSurfaceClient['send']>[0][] = [];
 	const surfaceClient = {
 		lifecycle: createBridgeWorkerRpcLifecycleStore(),
 		renderFulfillmentCoordinator: createBridgeMainRenderFulfillmentCoordinator({
@@ -161,7 +176,10 @@ function createSurfaceClientHarness(): {
 			sendDisposition: (): void => {},
 		}),
 		renderStore: createBridgeMainRenderSnapshotStore(),
-		send: (): string => 'worker-save-1',
+		send: (command): string => {
+			sentCommands.push(command);
+			return 'worker-save-1';
+		},
 		subscribeMessages: (
 			nextListener: (message: BridgeWorkerServerToMainMessage) => void,
 		): (() => void) => {
@@ -177,6 +195,7 @@ function createSurfaceClientHarness(): {
 		publish: (message): void => {
 			listener?.(message);
 		},
+		sentCommands,
 	};
 }
 

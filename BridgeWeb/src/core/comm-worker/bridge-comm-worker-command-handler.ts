@@ -8,7 +8,7 @@ import type {
 	BridgeCommWorkerCommandHandler,
 	BridgeCommWorkerDemandExecutionScheduleRequest,
 	BridgeCommWorkerReviewMetadataApplicationTransaction,
-	BridgeCommWorkerReviewRenderFulfillmentLifecycleAdvance,
+	BridgeCommWorkerRenderFulfillmentLifecycleAdvance,
 	BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 	BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	CreateBridgeCommWorkerCommandHandlerProps,
@@ -77,7 +77,7 @@ export type {
 	BridgeCommWorkerDemandExecutionScheduleRequest,
 	BridgeCommWorkerReviewMetadataApplicationTransaction,
 	BridgeCommWorkerReviewMetadataResetScheduleRequest,
-	BridgeCommWorkerReviewRenderFulfillmentLifecycleAdvance,
+	BridgeCommWorkerRenderFulfillmentLifecycleAdvance,
 	BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 	BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	CreateBridgeCommWorkerCommandHandlerProps,
@@ -238,9 +238,28 @@ export function createBridgeCommWorkerCommandHandler(
 	};
 
 	return {
+		advanceFileRenderFulfillmentLifecycle: (
+			atMilliseconds,
+		): BridgeCommWorkerRenderFulfillmentLifecycleAdvance => {
+			fileViewStore.renderFulfillmentRegistry.expireReceiptLeases(atMilliseconds);
+			const releasedItemIds =
+				fileViewStore.renderFulfillmentRegistry.releaseReadyRetries(atMilliseconds);
+			const selectedState = fileViewStore.getState();
+			if (selectedState.selectedId !== null && releasedItemIds.includes(selectedState.selectedId)) {
+				props.scheduleSelectedFileViewContentReadyPreparation({
+					epoch: selectedState.selectedEpoch,
+					itemId: selectedState.selectedId,
+					store: fileViewStore,
+				});
+			}
+			return {
+				nextWakeAtMilliseconds:
+					fileViewStore.renderFulfillmentRegistry.nextLifecycleWakeAtMilliseconds(),
+			};
+		},
 		advanceReviewRenderFulfillmentLifecycle: (
 			atMilliseconds,
-		): BridgeCommWorkerReviewRenderFulfillmentLifecycleAdvance => {
+		): BridgeCommWorkerRenderFulfillmentLifecycleAdvance => {
 			reviewStore.renderFulfillmentRegistry.expireReceiptLeases(atMilliseconds);
 			const releasedItemIds =
 				reviewStore.renderFulfillmentRegistry.releaseReadyRetries(atMilliseconds);
@@ -376,6 +395,9 @@ export function createBridgeCommWorkerCommandHandler(
 				...(props.applyRenderDisposition === undefined
 					? {}
 					: { applyRenderDisposition: props.applyRenderDisposition }),
+				...(props.retryAnnotationProjection === undefined
+					? {}
+					: { retryAnnotationProjection: props.retryAnnotationProjection }),
 			});
 		},
 	};
@@ -407,6 +429,7 @@ interface HandleBridgeWorkerCommandProps {
 	readonly requestFileDisplayResync?: (
 		command: BridgeWorkerFileDisplayResyncCommand,
 	) => readonly BridgeWorkerServerToMainMessage[];
+	readonly retryAnnotationProjection?: (surface: 'file' | 'review') => void;
 	readonly applyRenderDisposition?: (props: {
 		readonly command: BridgeWorkerRenderDispositionCommand;
 		readonly store: BridgeCommWorkerStore;
@@ -495,6 +518,9 @@ function handleBridgeWorkerCommand(
 		case 'annotationOutputInspect':
 		case 'annotationOutputCandidatesQuery':
 			return [];
+		case 'annotationProjectionRetry':
+			props.retryAnnotationProjection?.(props.message.surface === 'fileView' ? 'file' : 'review');
+			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
 		case 'markFileViewed':
 		case 'annotationCommand':
 		case 'metadataInterestUpdate':

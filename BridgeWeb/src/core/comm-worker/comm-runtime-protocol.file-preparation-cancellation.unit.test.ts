@@ -37,6 +37,35 @@ interface PendingContentAttempt {
 }
 
 describe('Bridge comm worker selected File preparation cancellation', () => {
+	test('reissues the selected File publication after its receipt lease expires', async () => {
+		// Arrange
+		let nowMilliseconds = 0;
+		const scheduledWakes: TestScheduledRenderFulfillmentWake[] = [];
+		const harness = await createPendingFilePreparationHarness({
+			now: (): number => nowMilliseconds,
+			scheduleRenderFulfillmentWake: (delayMilliseconds, wake): (() => void) => {
+				const scheduledWake = { active: true, delayMilliseconds, wake };
+				scheduledWakes.push(scheduledWake);
+				return (): void => {
+					scheduledWake.active = false;
+				};
+			},
+		});
+		await completeAttempt(harness, 0, 'descriptor-file-1');
+		expect(fileRenderJobs(harness.postedMessages)).toHaveLength(1);
+
+		// Act
+		nowMilliseconds = 5_000;
+		runScheduledRenderFulfillmentWake(scheduledWakes[0]);
+		nowMilliseconds = 5_025;
+		runScheduledRenderFulfillmentWake(scheduledWakes[1]);
+		await drainUntilAttemptCount(harness, 2);
+		await completeAttempt(harness, 1, 'descriptor-file-1');
+
+		// Assert
+		expect(fileRenderJobs(harness.postedMessages)).toHaveLength(2);
+	});
+
 	test('settles descriptor preparation unavailable when the current File refresh ends without a descriptor', async () => {
 		// Arrange
 		const harness = await createPendingFilePreparationHarness({
@@ -283,10 +312,21 @@ interface PendingFilePreparationHarness {
 	readonly scheduledDrains: BridgeCommWorkerPreparationDrain[];
 }
 
+interface TestScheduledRenderFulfillmentWake {
+	active: boolean;
+	readonly delayMilliseconds: number;
+	readonly wake: () => void;
+}
+
 async function createPendingFilePreparationHarness(
 	props: {
 		readonly includeDescriptor?: boolean;
 		readonly initialRefreshingLanes?: BridgeProductPanePresentationFrame['refreshingLanes'];
+		readonly now?: () => number;
+		readonly scheduleRenderFulfillmentWake?: (
+			delayMilliseconds: number,
+			wake: () => void,
+		) => () => void;
 	} = {},
 ): Promise<PendingFilePreparationHarness> {
 	const events = new BridgeProductBoundedAsyncQueue<
@@ -379,6 +419,10 @@ async function createPendingFilePreparationHarness(
 			maxWindowLines: 10_000,
 		},
 		productTransport,
+		...(props.now === undefined ? {} : { now: props.now }),
+		...(props.scheduleRenderFulfillmentWake === undefined
+			? {}
+			: { scheduleRenderFulfillmentWake: props.scheduleRenderFulfillmentWake }),
 		schedulePreparationDrain: (drain): void => {
 			scheduledDrains.push(drain);
 		},
@@ -422,6 +466,16 @@ async function createPendingFilePreparationHarness(
 	} satisfies PendingFilePreparationHarness;
 	if (props.includeDescriptor !== false) await drainUntilAttemptCount(harness, 1);
 	return harness;
+}
+
+function runScheduledRenderFulfillmentWake(
+	scheduledWake: TestScheduledRenderFulfillmentWake | undefined,
+): void {
+	if (scheduledWake === undefined || !scheduledWake.active) {
+		throw new Error('Expected an active File render-fulfillment wake.');
+	}
+	scheduledWake.active = false;
+	scheduledWake.wake();
 }
 
 async function drainUntilAttemptCount(

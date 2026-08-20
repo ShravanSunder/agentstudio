@@ -42,6 +42,13 @@ export const bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema =
 		})
 		.strict();
 
+export const bridgeWorkerAnnotationProjectionRetryCommandSchema = bridgeWorkerMainToServerBaseSchema
+	.extend({
+		command: z.literal('annotationProjectionRetry'),
+		surface: bridgeWorkerInteractionSurfaceSchema,
+	})
+	.strict();
+
 export const bridgeWorkerAnnotationCommandAcceptedEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
 		kind: z.literal('annotationCommandAccepted'),
@@ -133,6 +140,9 @@ export type BridgeWorkerAnnotationOutputInspectCommand = z.infer<
 >;
 export type BridgeWorkerAnnotationOutputCandidatesQueryCommand = z.infer<
 	typeof bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema
+>;
+export type BridgeWorkerAnnotationProjectionRetryCommand = z.infer<
+	typeof bridgeWorkerAnnotationProjectionRetryCommandSchema
 >;
 export type BridgeWorkerAnnotationOutputInspectionEvent = z.infer<
 	typeof bridgeWorkerAnnotationOutputInspectionEventSchema
