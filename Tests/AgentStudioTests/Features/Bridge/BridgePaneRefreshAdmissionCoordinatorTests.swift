@@ -155,6 +155,54 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         )
     }
 
+    @Test("committed refresh repairs an unavailable comparison attempt")
+    func committedRefreshRepairsUnavailableComparisonAttempt() {
+        // Arrange
+        let predecessor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-7",
+            reviewGeneration: 7,
+            revision: 11
+        )
+        let recovered = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-9",
+            reviewGeneration: 9,
+            revision: 13
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: .branch(name: "main"),
+                attempt: .settled(reviewGeneration: 7),
+                displayedSnapshot: .current(predecessor)
+            )
+        )
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/base"),
+            reviewGeneration: 8
+        )
+        coordinator.failReviewComparisonAttempt(
+            reviewGeneration: 8,
+            failureKind: "providerUnavailable",
+            retryable: true
+        )
+
+        // Act
+        coordinator.recordCommittedReviewComparisonSnapshot(
+            reviewGeneration: 9,
+            displayedSnapshotIdentity: recovered
+        )
+
+        // Assert
+        #expect(
+            coordinator.productPresentationSnapshot.reviewComparison
+                == BridgePaneReviewComparisonPresentation(
+                    activeTarget: .branch(name: "stack/base"),
+                    attempt: .settled(reviewGeneration: 9),
+                    displayedSnapshot: .current(recovered)
+                )
+        )
+    }
+
     @Test("comparison transitions retain the published repository default target")
     func comparisonTransitionsRetainPublishedRepositoryDefaultTarget() throws {
         let repositoryDefaultTarget = BridgeReviewComparisonDefaultTargetIdentity(

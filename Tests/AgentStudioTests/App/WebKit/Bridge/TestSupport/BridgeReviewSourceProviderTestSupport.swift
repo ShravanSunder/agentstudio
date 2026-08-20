@@ -271,18 +271,19 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
 }
 
 actor BridgeContributionCaptureGate {
-    private var hasStarted = false
-    private var startedWaiters: [CheckedContinuation<Void, Never>] = []
+    private struct StartedCaptureWaiter {
+        let requestedCount: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private var startedCaptureCount = 0
+    private var startedCaptureWaiters: [StartedCaptureWaiter] = []
     private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
     private var isReleased = false
 
     func waitUntilReleased() async {
-        hasStarted = true
-        let waiters = startedWaiters
-        startedWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
+        startedCaptureCount += 1
+        resumeSatisfiedStartedCaptureWaiters()
         guard !isReleased else { return }
         await withCheckedContinuation { continuation in
             releaseContinuations.append(continuation)
@@ -290,9 +291,18 @@ actor BridgeContributionCaptureGate {
     }
 
     func waitForStart() async {
-        guard !hasStarted else { return }
+        await waitForStartedCaptureCount(1)
+    }
+
+    func waitForStartedCaptureCount(_ requestedCount: Int) async {
+        guard startedCaptureCount < requestedCount else { return }
         await withCheckedContinuation { continuation in
-            startedWaiters.append(continuation)
+            startedCaptureWaiters.append(
+                StartedCaptureWaiter(
+                    requestedCount: requestedCount,
+                    continuation: continuation
+                )
+            )
         }
     }
 
@@ -305,6 +315,22 @@ actor BridgeContributionCaptureGate {
         }
     }
 
+    func releaseFirst() {
+        guard !releaseContinuations.isEmpty else { return }
+        releaseContinuations.removeFirst().resume()
+    }
+
+    private func resumeSatisfiedStartedCaptureWaiters() {
+        var pendingWaiters: [StartedCaptureWaiter] = []
+        for waiter in startedCaptureWaiters {
+            if startedCaptureCount >= waiter.requestedCount {
+                waiter.continuation.resume()
+            } else {
+                pendingWaiters.append(waiter)
+            }
+        }
+        startedCaptureWaiters = pendingWaiters
+    }
 }
 
 actor BridgeComparisonGate {

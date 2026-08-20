@@ -210,9 +210,16 @@ final class BridgePaneRefreshAdmissionCoordinator {
             )
             return
         }
+        let nextAttempt: BridgePaneReviewComparisonAttempt
+        switch reviewComparison.attempt {
+        case .pending, .unavailable:
+            nextAttempt = .settled(reviewGeneration: reviewGeneration)
+        case .selectionRequired, .settled:
+            nextAttempt = reviewComparison.attempt
+        }
         let nextComparison = BridgePaneReviewComparisonPresentation(
             activeTarget: reviewComparison.activeTarget,
-            attempt: reviewComparison.attempt,
+            attempt: nextAttempt,
             displayedSnapshot: .current(displayedSnapshotIdentity),
             repositoryDefaultTarget: reviewComparison.repositoryDefaultTarget
         )

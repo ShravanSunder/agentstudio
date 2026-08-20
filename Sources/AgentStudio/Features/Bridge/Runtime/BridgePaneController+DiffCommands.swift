@@ -651,11 +651,15 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
         } catch is CancellationError {
-            failReviewComparisonRefresh(refreshGeneration, failureKind: "refreshCancelled")
             return .stale
         } catch {
-            failReviewComparisonRefresh(refreshGeneration, failureKind: "defaultTargetUnavailable")
-            return .failed
+            return failCurrentReviewComparisonRefresh(
+                refreshGeneration,
+                failureKind: "defaultTargetUnavailable",
+                reservation: reservation,
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                productAdmission: productAdmission
+            )
         }
         return await performReviewPackageRefresh(
             currentPublication: currentPublication,
@@ -694,7 +698,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 }) == true
             else {
                 await constructionResult.releaseArtifactPin()
-                failReviewComparisonRefresh(refreshGeneration, failureKind: "refreshSuperseded")
                 return .stale
             }
 
@@ -718,7 +721,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 )
             else {
                 await load.releaseArtifactPin()
-                failReviewComparisonRefresh(refreshGeneration, failureKind: "refreshSuperseded")
                 return .stale
             }
             guard !Self.isUnchangedSameLineageLoad(load, currentPublication: currentPublication)
@@ -744,45 +746,60 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
             guard case .committed = disposition else {
-                failReviewComparisonRefresh(refreshGeneration, failureKind: "publicationRejected")
-                return Task.isCancelled || foregroundWorkAdmission.withValidAdmission({ true }) == nil
-                    ? .stale
-                    : .failed
+                return failCurrentReviewComparisonRefresh(
+                    refreshGeneration,
+                    failureKind: "publicationRejected",
+                    reservation: reservation,
+                    foregroundWorkAdmission: foregroundWorkAdmission,
+                    productAdmission: productAdmission
+                )
             }
             return .succeeded
         } catch BridgeProviderFailure.providerUnavailable {
             bridgeDiffCommandLogger.debug("Skipped bridge review refresh: provider unavailable")
-            failReviewComparisonAttempt(
-                reviewGeneration: refreshGeneration,
+            return failCurrentReviewComparisonRefresh(
+                refreshGeneration,
                 failureKind: "providerUnavailable",
-                retryable: true
+                reservation: reservation,
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                productAdmission: productAdmission
             )
-            return .failed
         } catch is CancellationError {
-            failReviewComparisonRefresh(refreshGeneration, failureKind: "refreshCancelled")
             return .stale
         } catch {
             bridgeDiffCommandLogger.debug(
                 "Skipped bridge review refresh: \(String(describing: error), privacy: .private)"
             )
-            failReviewComparisonAttempt(
-                reviewGeneration: refreshGeneration,
+            return failCurrentReviewComparisonRefresh(
+                refreshGeneration,
                 failureKind: Self.reviewPackageLoadFailureSummary(for: error, stage: "package"),
-                retryable: true
+                reservation: reservation,
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                productAdmission: productAdmission
             )
-            return foregroundWorkAdmission.withValidAdmission({ true }) == nil ? .stale : .failed
         }
     }
 
-    private func failReviewComparisonRefresh(
+    private func failCurrentReviewComparisonRefresh(
         _ reviewGeneration: BridgeReviewGeneration,
-        failureKind: String
-    ) {
+        failureKind: String,
+        reservation: BridgePaneRefreshCatchUpReservation,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> BridgePaneRefreshCatchUpOutcome {
+        guard
+            !Task.isCancelled,
+            foregroundWorkAdmission.withValidAdmission({ true }) == true,
+            productAdmission.withValidAdmission({ true }) == true,
+            refreshAdmissionCoordinator.isRefreshPassCurrent(reservation),
+            reviewGeneration == nextReviewGeneration
+        else { return .stale }
         failReviewComparisonAttempt(
             reviewGeneration: reviewGeneration,
             failureKind: failureKind,
             retryable: true
         )
+        return .failed
     }
 
     private func settleReviewComparisonAttempt(
