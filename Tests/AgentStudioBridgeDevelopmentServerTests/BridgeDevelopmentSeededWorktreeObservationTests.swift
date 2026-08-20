@@ -1,9 +1,9 @@
-import AgentStudioBridge
 import AgentStudioCore
 import AgentStudioTestSupport
 import Foundation
 import Testing
 
+@testable import AgentStudioBridge
 @testable import AgentStudioBridgeDevelopmentServer
 
 @Suite("Bridge development seeded worktree observation", .serialized)
@@ -237,6 +237,65 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
         #expect(await bus.subscriberCount == 0)
     }
 
+    @Test("real Darwin observation refreshes the development Review publication")
+    func realDarwinObservationRefreshesDevelopmentReviewPublication() async throws {
+        // Arrange
+        let root = try FilesystemTestGitRepo.create(
+            named: "bridge-development-live-review"
+        )
+        defer { FilesystemTestGitRepo.destroy(root) }
+        let trackedFile = root.appending(path: "tracked.txt")
+        try "initial\n".write(to: trackedFile, atomically: true, encoding: .utf8)
+        try FilesystemTestGitRepo.runGit(at: root, args: ["add", "tracked.txt"])
+        try FilesystemTestGitRepo.runGit(at: root, args: ["commit", "-m", "Initial"])
+        let source = BridgeDevelopmentObservationFixture.makeSource(root: root)
+        let host = try await BridgeDevelopmentProductHost(
+            source: source,
+            contributionTargetCommit: { _ in .unchanged(source.paneState) }
+        )
+        let observation = BridgeDevelopmentSeededWorktreeObservation(
+            source: source,
+            invalidationSink: { invalidation in
+                await host.handleObservedWorktreeInvalidation(invalidation)
+            }
+        )
+        do {
+            let bootstrapRequest = try JSONDecoder().decode(
+                BridgeDevelopmentProductBootstrapRequest.self,
+                from: Data(
+                    #"{"navigationIntent":{"commandId":"live-review","commandKind":"activateContext","surface":"review"},"reason":"initial"}"#
+                        .utf8
+                )
+            )
+            _ = try await host.issueBootstrap(for: bootstrapRequest)
+            try await observation.start()
+            #expect(await host.diagnosticCommittedReviewPublication()?.package.reviewGeneration == 1)
+
+            // Act
+            try "initial\nupdated\n".write(to: trackedFile, atomically: false, encoding: .utf8)
+            #expect(
+                await waitForCommittedReviewGeneration(
+                    2,
+                    host: host,
+                    timeout: .seconds(5)
+                )
+            )
+
+            // Assert
+            let publication = try #require(await host.diagnosticCommittedReviewPublication())
+            #expect(publication.package.reviewGeneration >= 2)
+            #expect(publication.package.itemsById.values.contains { $0.headPath == "tracked.txt" })
+            await observation.stopFactAdmissionAndDrainRouting()
+            await host.shutdown()
+            await observation.shutdownSources()
+        } catch {
+            await observation.stopFactAdmissionAndDrainRouting()
+            await host.shutdown()
+            await observation.shutdownSources()
+            throw error
+        }
+    }
+
 }
 
 private struct BridgeDevelopmentObservationFixture {
@@ -415,4 +474,21 @@ private actor BridgeDevelopmentObservationTerminalProbe {
         }
         return false
     }
+}
+
+private func waitForCommittedReviewGeneration(
+    _ expectedGeneration: Int,
+    host: BridgeDevelopmentProductHost,
+    timeout: Duration
+) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if await host.diagnosticCommittedReviewPublication()?.package.reviewGeneration.rawValue
+            ?? 0 >= expectedGeneration
+        {
+            return true
+        }
+        await Task.yield()
+    }
+    return false
 }
