@@ -40,6 +40,31 @@ extension BridgeDevelopmentProductHost {
         }
     }
 
+    package func handleObservedWorktreeTerminal() async {
+        guard !isShutdown, let activeTarget = try? Self.reviewTarget(from: paneState) else { return }
+        let reviewGeneration = nextReviewGeneration.next()
+        nextReviewGeneration = reviewGeneration
+        await MainActor.run {
+            _ = refreshAdmissionCoordinator.advanceAuthority(for: .file)
+            _ = refreshAdmissionCoordinator.advanceAuthority(for: .review)
+            worktreeRefreshDriver.retireActiveFileOperation()
+            refreshAdmissionCoordinator.recordFileRefreshFailure(
+                .init(failureKind: .fileRefreshFailed)
+            )
+            refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                activeTarget: activeTarget,
+                reviewGeneration: reviewGeneration.rawValue
+            )
+            refreshAdmissionCoordinator.failReviewComparisonAttempt(
+                reviewGeneration: reviewGeneration.rawValue,
+                failureKind: "observation_terminal",
+                retryable: false
+            )
+        }
+        retireActiveReviewComparisonTask()
+        await publishCurrentPanePresentation()
+    }
+
     func applyCommittedReviewComparisonUpdate(
         _ request: BridgeProductReviewComparisonUpdateRequest,
         productAdmission: BridgeProductAdmissionContext

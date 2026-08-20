@@ -85,6 +85,9 @@ package actor FilesystemActor {
     var watchedFolderScanState = FilesystemWatchedFolderScanState()
 
     private var ingressTask: Task<Void, Never>?
+    private let ingressTerminalStream: AsyncStream<FSEventStreamRuntimeTerminal>
+    private let ingressTerminalContinuation: AsyncStream<FSEventStreamRuntimeTerminal>.Continuation
+    private var didReportIngressTerminal = false
     private var drainTask: Task<Void, Never>?
     var lastRecordedLogicalDebtSnapshot: FilesystemLogicalDebtSnapshot?
     var logicalDebtSnapshotPublicationRevision: UInt64 = 0
@@ -98,6 +101,10 @@ package actor FilesystemActor {
         maxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
+        let (ingressTerminalStream, ingressTerminalContinuation) =
+            AsyncStream<FSEventStreamRuntimeTerminal>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
         self.watchedFolderScanScheduler = watchedFolderScanScheduler
@@ -105,6 +112,8 @@ package actor FilesystemActor {
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.ingressTerminalStream = ingressTerminalStream
+        self.ingressTerminalContinuation = ingressTerminalContinuation
     }
 
     init<C: Clock>(
@@ -116,6 +125,10 @@ package actor FilesystemActor {
         maxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) where C.Duration == Duration, C: Sendable {
+        let (ingressTerminalStream, ingressTerminalContinuation) =
+            AsyncStream<FSEventStreamRuntimeTerminal>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
         self.watchedFolderScanScheduler = watchedFolderScanScheduler
@@ -123,6 +136,8 @@ package actor FilesystemActor {
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.ingressTerminalStream = ingressTerminalStream
+        self.ingressTerminalContinuation = ingressTerminalContinuation
     }
 
     isolated deinit {
@@ -256,6 +271,10 @@ package actor FilesystemActor {
         // lifecycle parity with other filesystem source conformers.
     }
 
+    package func runtimeTerminals() -> AsyncStream<FSEventStreamRuntimeTerminal> {
+        ingressTerminalStream
+    }
+
     package func shutdown() async {
         guard !hasShutdown else { return }
         watchedFolderScanState.isShuttingDown = true
@@ -301,6 +320,7 @@ package actor FilesystemActor {
         activePaneWorktreeId = nil
         fseventStreamClient.shutdown()
         hasShutdown = true
+        ingressTerminalContinuation.finish()
     }
 
     private func ingestRawPaths(worktreeId: UUID, paths: [String]) async {
@@ -371,7 +391,15 @@ package actor FilesystemActor {
                 }
                 await self.consumeCoarseRefreshDebt()
             }
+            guard !Task.isCancelled else { return }
+            await self?.reportIngressTerminalIfNeeded()
         }
+    }
+
+    private func reportIngressTerminalIfNeeded() {
+        guard !hasShutdown, !didReportIngressTerminal else { return }
+        didReportIngressTerminal = true
+        ingressTerminalContinuation.yield(.eventsEnded)
     }
 
     private func consumeCoarseRefreshDebt() async {

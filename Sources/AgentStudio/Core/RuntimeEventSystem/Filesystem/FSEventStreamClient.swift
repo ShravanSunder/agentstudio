@@ -21,6 +21,10 @@ package enum FSEventStreamRegistrationOutcome: Sendable, Equatable {
     case unavailable(FSEventStreamRegistrationUnavailableReason)
 }
 
+package enum FSEventStreamRuntimeTerminal: Sendable, Equatable {
+    case eventsEnded
+}
+
 package protocol FSEventStreamClient: Sendable {
     func events() -> AsyncStream<FSEventBatch>
     func consumeCoarseRefreshDebt() -> Set<UUID>

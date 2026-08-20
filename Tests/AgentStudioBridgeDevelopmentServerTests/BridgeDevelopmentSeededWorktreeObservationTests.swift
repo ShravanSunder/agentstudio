@@ -133,6 +133,59 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
         await observation.shutdown()
     }
 
+    @Test("detected filesystem ingress completion stops fact admission")
+    func detectedFilesystemIngressCompletionStopsFactAdmission() async throws {
+        // Arrange
+        let fixture = try BridgeDevelopmentObservationFixture.make()
+        defer { fixture.removeRoot() }
+        let observation = fixture.makeObservation()
+        let terminalProbe = BridgeDevelopmentObservationTerminalProbe()
+        try await observation.start { terminal in
+            await terminalProbe.record(terminal)
+        }
+        #expect(await fixture.probe.waitForStatusCount(1))
+        let initialFileCount = await fixture.probe.fileChangesets.count
+
+        // Act
+        fixture.fseventClient.shutdown()
+        #expect(await fixture.waitForUnregisteredWorktreeCount(1))
+        #expect(await terminalProbe.waitForTerminalCount(1))
+        await fixture.bus.post(
+            .worktree(
+                WorktreeEnvelope(
+                    source: .system(.builtin(.filesystemWatcher)),
+                    seq: 92,
+                    timestamp: .now,
+                    repoId: fixture.source.repoID,
+                    worktreeId: fixture.source.worktreeID,
+                    event: .filesystem(
+                        .filesChanged(
+                            changeset: FileChangeset(
+                                worktreeId: fixture.source.worktreeID,
+                                repoId: fixture.source.repoID,
+                                rootPath: fixture.source.worktreeRoot,
+                                paths: ["Sources/Late.swift"],
+                                timestamp: .now,
+                                batchSeq: 92
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        for _ in 0..<200 {
+            await Task.yield()
+        }
+
+        // Assert
+        #expect(await fixture.probe.fileChangesets.count == initialFileCount)
+        #expect(fixture.fseventClient.unregisteredWorktreeIds == [fixture.source.worktreeID])
+        await observation.shutdown()
+        await observation.shutdown()
+        #expect(await fixture.bus.subscriberCount == 0)
+        #expect(await terminalProbe.terminals == [.eventsEnded])
+    }
+
     @Test("real Darwin observation routes a post-start Git worktree edit")
     func realDarwinObservationRoutesPostStartEdit() async throws {
         // Arrange
@@ -253,6 +306,17 @@ private struct BridgeDevelopmentObservationFixture {
     func removeRoot() {
         try? FileManager.default.removeItem(at: source.worktreeRoot)
     }
+
+    func waitForUnregisteredWorktreeCount(
+        _ expectedCount: Int,
+        maximumTurns: Int = 20_000
+    ) async -> Bool {
+        for _ in 0..<maximumTurns {
+            if fseventClient.unregisteredWorktreeIds.count >= expectedCount { return true }
+            await Task.yield()
+        }
+        return false
+    }
 }
 
 private actor BridgeDevelopmentObservationGitProvider: GitWorkingTreeStatusProvider {
@@ -328,6 +392,25 @@ private actor BridgeDevelopmentObservationProbe {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if statuses.count >= expectedCount { return true }
+            await Task.yield()
+        }
+        return false
+    }
+}
+
+private actor BridgeDevelopmentObservationTerminalProbe {
+    private(set) var terminals: [FSEventStreamRuntimeTerminal] = []
+
+    func record(_ terminal: FSEventStreamRuntimeTerminal) {
+        terminals.append(terminal)
+    }
+
+    func waitForTerminalCount(
+        _ expectedCount: Int,
+        maximumTurns: Int = 20_000
+    ) async -> Bool {
+        for _ in 0..<maximumTurns {
+            if terminals.count >= expectedCount { return true }
             await Task.yield()
         }
         return false

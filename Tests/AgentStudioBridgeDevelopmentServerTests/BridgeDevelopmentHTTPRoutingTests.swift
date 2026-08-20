@@ -114,6 +114,34 @@ struct BridgeDevelopmentHTTPRoutingTests {
         }
     }
 
+    @Test("health route reports unavailable after runtime readiness is lost")
+    func healthRouteReportsUnavailable() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-http-unavailable"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
+        try await withDevelopmentHost(host) {
+            let application = BridgeDevelopmentHTTPApplication.make(
+                host: host,
+                healthIsReady: { false }
+            )
+
+            // Act / Assert
+            try await application.test(.router) { client in
+                try await client.execute(
+                    uri: "/__bridge-product/health",
+                    method: .get
+                ) { response in
+                    #expect(response.status == .serviceUnavailable)
+                    #expect(response.body.readableBytes == 0)
+                }
+            }
+        }
+    }
+
     @Test("bootstrap route returns the existing binary session envelope")
     func bootstrapRouteReturnsSessionEnvelope() async throws {
         // Arrange

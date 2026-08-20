@@ -4,10 +4,12 @@ import Foundation
 
 enum BridgeDevelopmentSeededWorktreeObservationError: Error, Equatable {
     case registrationUnavailable(FSEventStreamRegistrationUnavailableReason)
+    case runtimeTerminal(FSEventStreamRuntimeTerminal)
 }
 
 actor BridgeDevelopmentSeededWorktreeObservation {
     typealias InvalidationSink = @Sendable (BridgePaneWorktreeProductInvalidation) async -> Void
+    typealias RuntimeTerminalSink = @Sendable (FSEventStreamRuntimeTerminal) async -> Void
 
     struct Dependencies {
         let bus: EventBus<RuntimeEnvelope>
@@ -64,9 +66,11 @@ actor BridgeDevelopmentSeededWorktreeObservation {
     private var acceptsRuntimeFacts = false
     private var didShutdownSources = false
     private var didStopFactAdmission = false
+    private var detectedRuntimeTerminal: FSEventStreamRuntimeTerminal?
     private var isShutdown = false
     private var isStarted = false
     private var routingTask: Task<Void, Never>?
+    private var terminalTask: Task<Void, Never>?
 
     init(
         source: BridgeDevelopmentProductSource,
@@ -79,7 +83,9 @@ actor BridgeDevelopmentSeededWorktreeObservation {
         self.canonicalWorktreeRoot = source.worktreeRoot.standardizedFileURL.resolvingSymlinksInPath()
     }
 
-    func start() async throws {
+    func start(
+        runtimeTerminalSink: @escaping RuntimeTerminalSink = { _ in }
+    ) async throws {
         guard !isShutdown, !didStopFactAdmission, !isStarted else { return }
         let stream = await dependencies.bus.subscribe(
             policy: .criticalUnbounded,
@@ -91,6 +97,17 @@ actor BridgeDevelopmentSeededWorktreeObservation {
             for await envelope in stream {
                 guard !Task.isCancelled else { break }
                 await self?.route(envelope)
+            }
+        }
+        let runtimeTerminals = await dependencies.filesystemActor.runtimeTerminals()
+        terminalTask = Task { [weak self] in
+            for await terminal in runtimeTerminals {
+                guard !Task.isCancelled else { break }
+                await self?.handleDetectedRuntimeTerminal(
+                    terminal,
+                    runtimeTerminalSink: runtimeTerminalSink
+                )
+                break
             }
         }
 
@@ -106,6 +123,12 @@ actor BridgeDevelopmentSeededWorktreeObservation {
             guard case .unavailable(let reason) = registrationOutcome else { return }
             throw BridgeDevelopmentSeededWorktreeObservationError.registrationUnavailable(reason)
         }
+        if let detectedRuntimeTerminal {
+            throw BridgeDevelopmentSeededWorktreeObservationError.runtimeTerminal(
+                detectedRuntimeTerminal
+            )
+        }
+        isStarted = true
 
         await dependencies.filesystemActor.setActivity(
             worktreeId: source.worktreeID,
@@ -121,7 +144,11 @@ actor BridgeDevelopmentSeededWorktreeObservation {
         await dependencies.gitWorkingDirectoryProjector.setActivePaneWorktree(
             worktreeId: source.worktreeID
         )
-        isStarted = true
+        if let detectedRuntimeTerminal {
+            throw BridgeDevelopmentSeededWorktreeObservationError.runtimeTerminal(
+                detectedRuntimeTerminal
+            )
+        }
     }
 
     func shutdown() async {
@@ -130,7 +157,18 @@ actor BridgeDevelopmentSeededWorktreeObservation {
     }
 
     func stopFactAdmissionAndDrainRouting() async {
-        guard !didStopFactAdmission else { return }
+        await stopFactAdmissionAndDrainRouting(drainTerminalTask: true)
+    }
+
+    private func stopFactAdmissionAndDrainRouting(
+        drainTerminalTask: Bool
+    ) async {
+        guard !didStopFactAdmission else {
+            if drainTerminalTask {
+                await cancelAndDrainTerminalTask()
+            }
+            return
+        }
         didStopFactAdmission = true
         acceptsRuntimeFacts = false
         if isStarted {
@@ -149,6 +187,9 @@ actor BridgeDevelopmentSeededWorktreeObservation {
             await dependencies.filesystemActor.unregister(worktreeId: source.worktreeID)
         }
         await cancelAndDrainRoutingTask()
+        if drainTerminalTask {
+            await cancelAndDrainTerminalTask()
+        }
         isStarted = false
     }
 
@@ -170,6 +211,22 @@ actor BridgeDevelopmentSeededWorktreeObservation {
         routingTask = nil
         task?.cancel()
         await task?.value
+    }
+
+    private func cancelAndDrainTerminalTask() async {
+        let task = terminalTask
+        terminalTask = nil
+        task?.cancel()
+        await task?.value
+    }
+
+    private func handleDetectedRuntimeTerminal(
+        _ terminal: FSEventStreamRuntimeTerminal,
+        runtimeTerminalSink: RuntimeTerminalSink
+    ) async {
+        detectedRuntimeTerminal = terminal
+        await stopFactAdmissionAndDrainRouting(drainTerminalTask: false)
+        await runtimeTerminalSink(terminal)
     }
 
     private func route(_ envelope: RuntimeEnvelope) async {

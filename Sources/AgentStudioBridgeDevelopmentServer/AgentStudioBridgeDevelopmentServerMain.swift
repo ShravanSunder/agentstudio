@@ -37,7 +37,10 @@ enum AgentStudioBridgeDevelopmentServerMain {
                 try await runtime.start()
                 let application = BridgeDevelopmentHTTPApplication.make(
                     host: host,
-                    configuration: configuration.applicationConfiguration
+                    configuration: configuration.applicationConfiguration,
+                    healthIsReady: {
+                        await runtime.healthIsReady()
+                    }
                 )
                 let serviceGroup = ServiceGroup(
                     configuration: .init(

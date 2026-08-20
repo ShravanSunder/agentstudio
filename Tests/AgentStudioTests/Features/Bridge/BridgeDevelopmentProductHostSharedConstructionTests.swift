@@ -241,6 +241,43 @@ struct BridgeDevHostSharedConstructionTests {
         #expect(await host.activeReviewComparisonTask == nil)
     }
 
+    @Test("detected observation terminal retains the last complete Review publication")
+    func detectedObservationTerminalRetainsLastCompleteReviewPublication() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-observation-terminal"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider()
+        let host = try await BridgeDevelopmentProductHost(
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in provider }
+        )
+        try await withShutdownDevelopmentProductHost(host) {
+            _ = try await host.issueBootstrap(for: makeDevelopmentBootstrapRequest(surface: "review"))
+            let initialPublication = try #require(
+                await host.diagnosticCommittedReviewPublication()
+            )
+
+            // Act
+            await host.handleObservedWorktreeTerminal()
+
+            // Assert
+            let presentation = await host.diagnosticPanePresentation()
+            let retainedPublication = await host.diagnosticCommittedReviewPublication()
+            #expect(presentation.fileRefreshFailure?.failureKind == .fileRefreshFailed)
+            #expect(presentation.fileRefreshFailure?.retryable == false)
+            #expect(
+                presentation.reviewComparison?.attempt
+                    == .unavailable(failureKind: "observation_terminal", retryable: false)
+            )
+            #expect(retainedPublication?.publicationId == initialPublication.publicationId)
+        }
+    }
+
     @Test("initial Review bootstrap settles presentation for the restored symbolic target")
     func initialReviewBootstrapSettlesRestoredTargetPresentation() async throws {
         // Arrange

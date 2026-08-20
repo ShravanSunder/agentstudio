@@ -10,11 +10,12 @@ enum BridgeDevelopmentHTTPApplication {
 
     static func make(
         host: BridgeDevelopmentProductHost,
-        configuration: ApplicationConfiguration = .init()
+        configuration: ApplicationConfiguration = .init(),
+        healthIsReady: @escaping @Sendable () async -> Bool = { true }
     ) -> some ApplicationProtocol {
         let router = Router()
         router.get("/__bridge-product/health") { _, _ -> Response in
-            Response(status: .noContent)
+            Response(status: await healthIsReady() ? .noContent : .serviceUnavailable)
         }
         router.post("/__bridge-product/bootstrap") { request, _ -> Response in
             try await bootstrapResponse(request: request, host: host)
