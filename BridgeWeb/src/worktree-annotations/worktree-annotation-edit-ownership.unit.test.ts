@@ -71,6 +71,7 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 		commandOutcomes: [],
 		outputHistory: [],
 		presentationRevision: message.messageRevision,
+		sourceGeneration: 0,
 		recoveryStatus: 'available',
 		revision: message.sessionRevision,
 		sessions: [],
@@ -134,9 +135,6 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 		getSnapshot: snapshot,
 		inspectOutput: async () => {
 			throw new Error('Unexpected output inspection.');
-		},
-		queryOutputCandidates: async () => {
-			throw new Error('Unexpected output candidate query.');
 		},
 		retryProjection: (): void => {},
 		subscribe: () => (): void => {},

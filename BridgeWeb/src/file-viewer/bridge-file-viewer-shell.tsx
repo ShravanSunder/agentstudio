@@ -11,6 +11,7 @@ import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker
 import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
+import { WorktreeAnnotationShareSurface } from '../worktree-annotations/worktree-annotation-output-controls.js';
 import {
 	BridgeFileViewerCodePanel,
 	type BridgeFileViewerSelectedCodeViewItem,
@@ -140,6 +141,7 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 							statusText={statusText}
 							title={props.contentHeaderTitle}
 						/>
+						<WorktreeAnnotationShareSurface />
 						{props.markdownPresentation === null || props.markdownPresentation === undefined ? (
 							<BridgeFileViewerCodePanel
 								openFileState={props.openFileState}

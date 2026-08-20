@@ -23,6 +23,7 @@ import type {
 	BridgeReviewSearchMode,
 } from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
+import { WorktreeAnnotationShareHeaderControl } from '../worktree-annotations/worktree-annotation-output-controls.js';
 import { WorktreeAnnotationSurfaceProvider } from '../worktree-annotations/worktree-annotation-surface-provider.js';
 import type { BridgeFileTreeFilterCandidate } from './bridge-app-control.js';
 import {
@@ -338,6 +339,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const comparisonIsLoading = bridgeReviewComparisonPaneIsLoading(comparisonPaneState);
 	const contentHeaderControls = (
 		<>
+			<WorktreeAnnotationShareHeaderControl />
 			<BridgeReviewComparisonControl
 				comparisonPresentation={panelChromeSlice.reviewComparison}
 				displayedReviewPackage={presentationSnapshot?.reviewPackage ?? null}

@@ -45,13 +45,11 @@ describe('worktree annotation inline thread', () => {
 		]);
 
 		await expect.element(rendered.getByText('Keep the refresh asynchronous.')).toBeVisible();
-		expect(rendered.getByRole('button', { name: 'Edit annotation' }).all()).toHaveLength(0);
+		await expect.element(rendered.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Reply to thread' })).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Resolve thread' })).toBeVisible();
 		expect(document.querySelector('[aria-label="Expand 1 message"]')).toBeNull();
-		await expect
-			.element(rendered.getByRole('button', { name: 'More comment actions' }))
-			.toBeVisible();
+		expect(rendered.getByRole('button', { name: 'More comment actions' }).all()).toHaveLength(0);
 		expect(document.querySelector('[aria-label^="Show source range"]')).toBeNull();
 	});
 
@@ -94,11 +92,11 @@ describe('worktree annotation inline thread', () => {
 			.toBeVisible();
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'More comment actions' }).click();
+			await rendered.getByRole('button', { name: 'Edit annotation' }).click();
 		});
 		expect(compactFrame.getAttribute('data-annotation-expanded')).toBe('true');
 		await act(async (): Promise<void> => {
-			rendered.getByRole('button', { name: 'Select all' }).element().focus();
+			rendered.getByRole('textbox', { name: 'Annotation Markdown' }).element().focus();
 			await userEvent.keyboard('{Escape}');
 		});
 		expect(compactFrame.getAttribute('data-annotation-expanded')).toBe('true');

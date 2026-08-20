@@ -49,7 +49,7 @@ describe('worktree annotation recovery and rail history controls', () => {
 			await Promise.resolve();
 		});
 		await expect
-			.element(rendered.getByRole('button', { name: 'Output history' }))
+			.element(rendered.getByRole('button', { name: 'History (1)' }))
 			.not.toBeInTheDocument();
 
 		await act(async (): Promise<void> => {
@@ -62,10 +62,27 @@ describe('worktree annotation recovery and rail history controls', () => {
 			await Promise.resolve();
 		});
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Output history' }).click();
+			await rendered.getByRole('button', { name: 'History (1)' }).click();
 			await settleInteraction();
 		});
 		await expect.element(rendered.getByText('Clipboard Markdown · 1 comment')).toBeVisible();
+		expect(document.querySelector('[data-slot="popover-content"]')).toBeNull();
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Inspect output attempt 1' }).click();
+			await settleInteraction();
+		});
+		expect(surface.sentOutputInspectionAttemptIds).toEqual([
+			'00000000-0000-7000-8000-000000000071',
+		]);
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentInspection({
+				attemptId: '00000000-0000-7000-8000-000000000071',
+				content: '# Exact saved output',
+				outputKind: 'clipboard_markdown',
+			});
+			await settleInteraction();
+		});
+		await expect.element(rendered.getByText('# Exact saved output')).toBeVisible();
 		expect(document.body.textContent).not.toContain('Root comment');
 		expect(document.body.textContent).not.toContain('Thread 1');
 	});
@@ -91,6 +108,7 @@ async function settleInteraction(): Promise<void> {
 function outputHistorySummary(): WorktreeAnnotationOutputHistorySummary {
 	return {
 		attemptId: '00000000-0000-7000-8000-000000000071',
+		canMarkNotHandled: true,
 		createdAt: Date.UTC(2026, 7, 17, 10),
 		messageCount: 1,
 		outputKind: 'clipboard_markdown',

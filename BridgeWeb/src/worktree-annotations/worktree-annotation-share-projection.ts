@@ -3,6 +3,7 @@ import type { WorktreeAnnotationShareScope } from './worktree-annotation-share-m
 export interface WorktreeAnnotationShareMessageFacts {
 	readonly draft: object | null;
 	readonly handled: boolean;
+	readonly messageId: string;
 	readonly savedBody: string | null;
 }
 
@@ -10,7 +11,10 @@ export interface WorktreeAnnotationShareThreadFacts<
 	TMessage extends WorktreeAnnotationShareMessageFacts,
 > {
 	readonly context: {
+		readonly path: string;
 		readonly placement: 'exact' | 'outdated' | 'relocated' | 'unavailable';
+		readonly startLine: number;
+		readonly threadId: string;
 	};
 	readonly messages: readonly TMessage[];
 }

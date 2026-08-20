@@ -1,9 +1,5 @@
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
-import type {
-	BridgeProductCallRequest,
-	BridgeProductCallResult,
-} from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeProductAnnotationOutputContentDescriptor } from '../core/comm-worker/bridge-product-content-contracts.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import {
@@ -42,9 +38,6 @@ export interface WorktreeAnnotationSurfaceClient {
 	readonly getServerSnapshot: () => WorktreeAnnotationProjectionSnapshot;
 	readonly getSnapshot: () => WorktreeAnnotationProjectionSnapshot;
 	readonly inspectOutput: (attemptId: string) => Promise<WorktreeAnnotationOutputInspection>;
-	readonly queryOutputCandidates: (
-		query: BridgeProductCallRequest<'file.annotations.output.candidates.query'>,
-	) => Promise<BridgeProductCallResult<'file.annotations.output.candidates.query'>>;
 	readonly retryProjection: () => void;
 	readonly subscribe: (listener: () => void) => () => void;
 	readonly waitForSnapshot: <TResult>(
@@ -63,13 +56,6 @@ interface PendingAnnotationOutputInspection {
 	readonly resolve: (inspection: WorktreeAnnotationOutputInspection) => void;
 }
 
-interface PendingAnnotationOutputCandidateQuery {
-	readonly reject: (error: Error) => void;
-	readonly resolve: (
-		page: BridgeProductCallResult<'file.annotations.output.candidates.query'>,
-	) => void;
-}
-
 export function createWorktreeAnnotationSurfaceClient(
 	surfaceClient: BridgePaneSurfaceClient,
 ): WorktreeAnnotationSurfaceClient {
@@ -77,10 +63,6 @@ export function createWorktreeAnnotationSurfaceClient(
 	const pendingOutputInspectionsByWorkerRequestId = new Map<
 		string,
 		PendingAnnotationOutputInspection
-	>();
-	const pendingOutputCandidateQueriesByWorkerRequestId = new Map<
-		string,
-		PendingAnnotationOutputCandidateQuery
 	>();
 	const pendingWorkerRequestIdByProductRequestId = new Map<string, string>();
 	const acceptedProductRequestIdByWorkerRequestId = new Map<string, string>();
@@ -128,13 +110,7 @@ export function createWorktreeAnnotationSurfaceClient(
 	const failWorkerRequest = (workerRequestId: string, error: Error): void => {
 		const pendingCommand = pendingCommandsByWorkerRequestId.get(workerRequestId);
 		const pendingOutputInspection = pendingOutputInspectionsByWorkerRequestId.get(workerRequestId);
-		const pendingCandidateQuery =
-			pendingOutputCandidateQueriesByWorkerRequestId.get(workerRequestId);
-		if (
-			pendingCommand === undefined &&
-			pendingOutputInspection === undefined &&
-			pendingCandidateQuery === undefined
-		) {
+		if (pendingCommand === undefined && pendingOutputInspection === undefined) {
 			retainBoundedOrphanCorrelation(degradedFailureByWorkerRequestId, workerRequestId, error);
 			return;
 		}
@@ -149,10 +125,6 @@ export function createWorktreeAnnotationSurfaceClient(
 			pendingOutputInspectionsByWorkerRequestId.delete(workerRequestId);
 			pendingOutputInspection.reject(error);
 		}
-		if (pendingCandidateQuery !== undefined) {
-			pendingOutputCandidateQueriesByWorkerRequestId.delete(workerRequestId);
-			pendingCandidateQuery.reject(error);
-		}
 	};
 
 	const unsubscribeMessages = surfaceClient.subscribeMessages(
@@ -166,13 +138,6 @@ export function createWorktreeAnnotationSurfaceClient(
 					descriptor: message.descriptor,
 					exactBytes: new Uint8Array(message.exactBytes),
 				});
-				return;
-			}
-			if (message.kind === 'annotationOutputCandidatesPage') {
-				const pendingQuery = pendingOutputCandidateQueriesByWorkerRequestId.get(message.requestId);
-				if (pendingQuery === undefined) return;
-				pendingOutputCandidateQueriesByWorkerRequestId.delete(message.requestId);
-				pendingQuery.resolve(message.page);
 				return;
 			}
 			if (message.kind === 'annotationCommandAccepted') {
@@ -240,24 +205,6 @@ export function createWorktreeAnnotationSurfaceClient(
 		});
 		return new Promise<WorktreeAnnotationOutputInspection>((resolve, reject): void => {
 			pendingOutputInspectionsByWorkerRequestId.set(workerRequestId, { reject, resolve });
-			const degradedFailure = degradedFailureByWorkerRequestId.get(workerRequestId);
-			if (degradedFailure === undefined) return;
-			degradedFailureByWorkerRequestId.delete(workerRequestId);
-			failWorkerRequest(workerRequestId, degradedFailure);
-		});
-	};
-	const queryOutputCandidates = (
-		query: BridgeProductCallRequest<'file.annotations.output.candidates.query'>,
-	): Promise<BridgeProductCallResult<'file.annotations.output.candidates.query'>> => {
-		if (isDisposed) return Promise.reject(new Error('Annotation surface client is disposed.'));
-		const workerRequestId = surfaceClient.send({
-			command: 'annotationOutputCandidatesQuery',
-			epoch: currentSurfaceEpoch(surfaceClient),
-			query,
-			surface: surfaceClient.surface,
-		});
-		return new Promise((resolve, reject): void => {
-			pendingOutputCandidateQueriesByWorkerRequestId.set(workerRequestId, { reject, resolve });
 			const degradedFailure = degradedFailureByWorkerRequestId.get(workerRequestId);
 			if (degradedFailure === undefined) return;
 			degradedFailureByWorkerRequestId.delete(workerRequestId);
@@ -338,10 +285,6 @@ export function createWorktreeAnnotationSurfaceClient(
 				pendingInspection.reject(disposalError);
 			}
 			pendingOutputInspectionsByWorkerRequestId.clear();
-			for (const pendingQuery of pendingOutputCandidateQueriesByWorkerRequestId.values()) {
-				pendingQuery.reject(disposalError);
-			}
-			pendingOutputCandidateQueriesByWorkerRequestId.clear();
 			pendingWorkerRequestIdByProductRequestId.clear();
 			outcomesByProductRequestId.clear();
 			acceptedProductRequestIdByWorkerRequestId.clear();
@@ -354,7 +297,6 @@ export function createWorktreeAnnotationSurfaceClient(
 		getServerSnapshot: projectionStore.getServerSnapshot,
 		getSnapshot: projectionStore.getSnapshot,
 		inspectOutput,
-		queryOutputCandidates,
 		retryProjection: (): void => {
 			if (isDisposed) return;
 			surfaceClient.send({

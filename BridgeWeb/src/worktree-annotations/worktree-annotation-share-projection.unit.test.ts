@@ -102,10 +102,15 @@ function threadFixture(
 	messages: readonly MessageFixture[],
 ): {
 	readonly context: {
+		readonly path: string;
 		readonly placement: 'exact' | 'outdated' | 'relocated' | 'unavailable';
+		readonly startLine: number;
 		readonly threadId: string;
 	};
 	readonly messages: readonly MessageFixture[];
 } {
-	return { context: { placement, threadId }, messages };
+	return {
+		context: { path: `Sources/${threadId}.swift`, placement, startLine: 1, threadId },
+		messages,
+	};
 }

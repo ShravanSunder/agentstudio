@@ -36,6 +36,7 @@ export interface WorktreeAnnotationProjectionSnapshot {
 	readonly recoveryStatus: 'available' | 'recovered_degraded' | 'unavailable';
 	readonly revision: number | null;
 	readonly sessions: readonly WorktreeAnnotationSessionSummary[];
+	readonly sourceGeneration: number;
 	readonly threads: readonly WorktreeAnnotationThreadProjection[];
 	readonly worktreeId: string | null;
 }
@@ -48,6 +49,7 @@ export const emptyWorktreeAnnotationProjectionSnapshot: WorktreeAnnotationProjec
 	recoveryStatus: 'available',
 	revision: null,
 	sessions: [],
+	sourceGeneration: 0,
 	threads: [],
 	worktreeId: null,
 };
@@ -85,6 +87,7 @@ export class WorktreeAnnotationProjectionStore {
 			recoveryStatus: snapshot.recoveryStatus,
 			revision: snapshot.projectionRevision,
 			sessions: snapshot.sessions,
+			sourceGeneration: snapshot.sourceGeneration,
 			threads: snapshot.threads.toSorted(compareAnnotationThreads),
 			worktreeId: snapshot.worktreeId,
 		});

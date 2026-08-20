@@ -36,7 +36,7 @@ export function annotationOutputFeedback(
 				};
 			}
 			return {
-				closeInteraction: false,
+				closeInteraction: true,
 				message: null,
 				severity: 'success',
 				toast: successfulExportMessage(outcome.summary),
@@ -56,7 +56,10 @@ export function annotationOutputFeedback(
 				'error',
 			);
 		case 'partial_success':
-			return visibleOutputFeedback(partialSuccessMessage(outcome.summary), 'warning');
+			return {
+				...visibleOutputFeedback(partialSuccessMessage(outcome.summary), 'warning'),
+				closeInteraction: true,
+			};
 		default:
 			return assertNeverOutputOutcome(outcome);
 	}

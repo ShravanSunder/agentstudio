@@ -20,6 +20,7 @@ import { Button } from '../components/ui/button.js';
 import { bridgeWorkerFileQueryKey } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
 import { recordBridgeFileSelectionCommitTelemetrySample } from '../foundation/telemetry/bridge-viewer-activation-telemetry.js';
 import { recordBridgeViewerFileOpenReadyTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import { WorktreeAnnotationShareHeaderControl } from '../worktree-annotations/worktree-annotation-output-controls.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import {
 	bridgeFileViewerCodeViewOptions,
@@ -130,6 +131,7 @@ export function BridgeFileViewerAppImplementation(
 	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({ selection });
 	const contentHeaderControls = (
 		<>
+			<WorktreeAnnotationShareHeaderControl />
 			{isActive &&
 			renderSnapshotController.panelChromeSlice.fileRefreshFailure !== undefined &&
 			renderSnapshotController.panelChromeSlice.fileRefreshFailure !== null ? (

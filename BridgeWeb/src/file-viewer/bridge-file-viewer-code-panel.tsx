@@ -20,6 +20,7 @@ import {
 import { BridgePierreWorkerPoolProvider } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import { useWorktreeAnnotationSelectionDismissal } from '../worktree-annotations/use-worktree-annotation-selection-dismissal.js';
 import { createWorktreeAnnotationEditToken } from '../worktree-annotations/worktree-annotation-edit-token.js';
+import { deriveWorktreeAnnotationShareProjection } from '../worktree-annotations/worktree-annotation-share-projection.js';
 import {
 	useWorktreeAnnotationActiveEditTokens,
 	useWorktreeAnnotationActiveNewMessageEditTokens,
@@ -78,7 +79,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	const activeNewMessageEditTokens = useWorktreeAnnotationActiveNewMessageEditTokens();
 	const activeAnnotationSessionId = annotationSessionSelection.activeSessionId;
 	useWorktreeAnnotationSessionDemand(activeAnnotationSessionId);
-	const activeAnnotationThreads = annotationProjection.threads.filter(
+	const unfilteredAnnotationThreads = annotationProjection.threads.filter(
 		(thread): boolean =>
 			activeAnnotationSessionId !== null &&
 			thread.messages.some((message) => message.sessionId === activeAnnotationSessionId) &&
@@ -89,6 +90,13 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 					activeNewMessageEditTokens.has(message.draft.activeEditToken),
 			),
 	);
+	const activeAnnotationThreads =
+		annotationInteraction.shareMode.kind === 'open'
+			? deriveWorktreeAnnotationShareProjection({
+					scope: annotationInteraction.shareMode.scope,
+					threads: unfilteredAnnotationThreads,
+				}).inlineThreads
+			: unfilteredAnnotationThreads;
 	const [pendingAnnotationComposer, setPendingAnnotationComposer] =
 		useState<PendingFileAnnotationComposer | null>(null);
 	const pendingAnnotationComposerRef = useRef(pendingAnnotationComposer);

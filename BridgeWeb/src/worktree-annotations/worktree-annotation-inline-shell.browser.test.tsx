@@ -158,13 +158,13 @@ describe('worktree annotation inline shell', () => {
 		);
 	});
 
-	test('keeps only Reply and primary Resolve in the compact rail and edits from the body', async () => {
+	test('keeps local Edit, Reply, and primary Resolve in the compact rail and edits from the body', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderInlineShell(surface);
 		await publishTwoMessageThread(surface);
 
 		const thread = rendered.getByTestId('worktree-annotation-thread');
-		expect(thread.getByRole('button', { name: 'Edit annotation' }).all()).toHaveLength(0);
+		await expect.element(thread.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
 		await expect.element(thread.getByRole('button', { name: 'Reply to thread' })).toBeVisible();
 		const resolveButton = thread.getByRole('button', { name: 'Resolve thread' });
 		await expect.element(resolveButton).toBeVisible();
@@ -178,14 +178,11 @@ describe('worktree annotation inline shell', () => {
 			.toBeVisible();
 	});
 
-	test('offers Edit in More and supports Enter from message focus', async () => {
+	test('offers direct Edit and supports Enter from message focus', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderInlineShell(surface);
 		await publishTwoMessageThread(surface);
 
-		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'More comment actions' }).click();
-		});
 		await expect.element(rendered.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Edit annotation' }).click();

@@ -7,6 +7,7 @@ import { page } from 'vitest/browser';
 
 import { createBridgePaneRuntime } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeWorkerMainToServerMessage } from '../core/comm-worker/bridge-worker-contracts.js';
+import { WorktreeAnnotationSurfaceProvider } from '../worktree-annotations/worktree-annotation-surface-provider.js';
 import { BridgeFileViewerAppImplementation } from './bridge-file-viewer-app.js';
 import {
 	BridgeFileViewerSurfaceClientProvider,
@@ -72,7 +73,9 @@ describe('Bridge File viewer render snapshot controller Browser Mode', () => {
 		// Act
 		const rendered = await render(
 			<BridgeFileViewerSurfaceClientProvider surfaceClient={fileViewClient}>
-				<BridgeFileViewerAppImplementation shellComponent={HeaderControlsProbe} />
+				<WorktreeAnnotationSurfaceProvider surfaceClient={fileViewClient}>
+					<BridgeFileViewerAppImplementation shellComponent={HeaderControlsProbe} />
+				</WorktreeAnnotationSurfaceProvider>
 			</BridgeFileViewerSurfaceClientProvider>,
 		);
 		await rendered.getByRole('button', { name: 'Retry' }).click();

@@ -7,7 +7,6 @@ import { WorktreeAnnotationNewMessageComposer } from './worktree-annotation-comp
 import { WorktreeAnnotationConversationFrame } from './worktree-annotation-conversation-frame.js';
 import { WorktreeAnnotationCommandButton } from './worktree-annotation-inline-surface.js';
 import type { WorktreeAnnotationRange } from './worktree-annotation-interaction.js';
-import { WorktreeAnnotationOutputControls } from './worktree-annotation-output-controls.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationThreadProjection,
@@ -132,21 +131,18 @@ export function WorktreeAnnotationThread(
 					{isExpanded ? <ChevronUp /> : <ChevronDown />}
 				</WorktreeAnnotationCommandButton>
 			)}
-			<WorktreeAnnotationOutputControls
-				activeSessionId={sessionId}
-				compact
-				compactButtonAppearance="toolbar"
-				disabled={!ownsActiveSession}
-				onEdit={
-					latestMessage.status === 'editable' && canEditMessages
-						? (invoker) => {
-								activateRange();
-								interaction.startMessageEdit(threadId, latestMessage.messageId, invoker);
-							}
-						: undefined
-				}
-				triggerLabel="More comment actions"
-			/>
+			{latestMessage.status !== 'editable' || !canEditMessages ? null : (
+				<WorktreeAnnotationCommandButton
+					appearance="toolbar"
+					label="Edit annotation"
+					onClick={(event) => {
+						activateRange();
+						interaction.startMessageEdit(threadId, latestMessage.messageId, event.currentTarget);
+					}}
+				>
+					<span aria-hidden="true">•••</span>
+				</WorktreeAnnotationCommandButton>
+			)}
 		</>
 	);
 	const renderedMessages = isExpanded ? visibleMessages : [latestMessage];
@@ -208,7 +204,9 @@ export function WorktreeAnnotationThread(
 							isEditing={messageEditor !== null}
 							message={message}
 							onBeginEdit={(invoker) =>
-								interaction.startMessageEdit(threadId, message.messageId, invoker)
+								interaction.shareMode.kind === 'open'
+									? activateRange()
+									: interaction.startMessageEdit(threadId, message.messageId, invoker)
 							}
 							onFinishEdit={interaction.finishThreadEditor}
 							ordinal={message.ordinal + 1}

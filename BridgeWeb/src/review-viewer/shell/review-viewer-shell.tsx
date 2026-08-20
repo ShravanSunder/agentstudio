@@ -35,7 +35,7 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
-import { WorktreeAnnotationOutputHistoryControl } from '../../worktree-annotations/worktree-annotation-output-history-control.js';
+import { WorktreeAnnotationShareSurface } from '../../worktree-annotations/worktree-annotation-output-controls.js';
 import { WorktreeAnnotationRecoveryWarning } from '../../worktree-annotations/worktree-annotation-recovery-warning.js';
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import type { BridgeCodeViewItemPresentation } from '../code-view/bridge-code-view-materialization.js';
@@ -345,6 +345,7 @@ export function renderReviewViewerShellPresentation(presentation: {
 							statusText={statusText}
 							title={contentHeaderTitle}
 						/>
+						<WorktreeAnnotationShareSurface />
 						<BridgeReviewComparisonStatusBanner
 							onRetry={props.onRetryComparison}
 							state={props.comparisonPaneState}
@@ -518,10 +519,6 @@ export function renderReviewViewerShellPresentation(presentation: {
 									triggerRef={searchTriggerRef}
 								/>
 							</div>,
-							<WorktreeAnnotationOutputHistoryControl
-								data-testid="bridge-review-output-history-control"
-								key="annotation-output-history"
-							/>,
 						],
 						trailingTestId: 'bridge-review-rail-toolbar-trailing',
 					}),

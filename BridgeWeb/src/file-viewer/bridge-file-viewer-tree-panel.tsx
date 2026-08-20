@@ -12,7 +12,6 @@ import { bridgeViewerTreeStyle } from '../app/bridge-viewer-tree-theme.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
-import { WorktreeAnnotationOutputHistoryControl } from '../worktree-annotations/worktree-annotation-output-history-control.js';
 import { WorktreeAnnotationRecoveryWarning } from '../worktree-annotations/worktree-annotation-recovery-warning.js';
 import type {
 	BridgeFileViewerFilterMode,
@@ -160,7 +159,6 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 									? {}
 									: { triggerRef: props.searchTriggerRef })}
 							/>
-							<WorktreeAnnotationOutputHistoryControl data-testid="bridge-file-output-history-control" />
 						</>
 					),
 					trailingClassName: 'shrink-0',

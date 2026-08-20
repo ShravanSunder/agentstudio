@@ -37,7 +37,7 @@ describe('worktree annotation output presentation', () => {
 				}),
 			}),
 		).toEqual({
-			closeInteraction: false,
+			closeInteraction: true,
 			message: null,
 			severity: 'success',
 			toast: 'Exported 1 comment to review-comments.json.',
@@ -58,6 +58,7 @@ describe('worktree annotation output presentation', () => {
 				summary: outputSummary({ messageCount: 2, outputKind: 'clipboard_markdown' }),
 			}),
 		).toMatchObject({
+			closeInteraction: true,
 			message: 'Clipboard contains 2 comments, but durable history was not recorded.',
 			severity: 'warning',
 		});

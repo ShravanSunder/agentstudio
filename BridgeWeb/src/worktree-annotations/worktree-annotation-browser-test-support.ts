@@ -79,22 +79,12 @@ export class RecordingAnnotationBrowserSurface {
 	readonly #listeners = new Set<(message: BridgeWorkerServerToMainMessage) => void>();
 	readonly client: BridgePaneSurfaceClient;
 	readonly sentOperations: BridgeProductWorktreeAnnotationOperation[] = [];
-	readonly sentOutputCandidateQueries: Array<{
-		readonly cursor:
-			| { readonly kind: 'start' }
-			| { readonly flatOrdinal: number; readonly kind: 'after'; readonly messageId: string };
-		readonly expectedSessionRevision: number;
-		readonly limit: number;
-		readonly sessionId: string;
-	}> = [];
 	readonly sentOutputInspectionAttemptIds: string[] = [];
 	readonly #pendingAnnotationCommands: Array<{
 		readonly operation: BridgeProductWorktreeAnnotationOperation;
 		readonly requestId: string;
 	}> = [];
 	#lastOutputInspectionRequestId: string | null = null;
-	#candidateQueryCount = 0;
-	readonly #candidateQueryFailureCalls: ReadonlySet<number>;
 	#nextRequest = 0;
 	#outputHistory: readonly WorktreeAnnotationOutputHistorySummary[] = [];
 	#pendingProjectionThreadsById = new Map<
@@ -122,12 +112,8 @@ export class RecordingAnnotationBrowserSurface {
 
 	constructor(
 		surface: 'fileView' | 'review',
-		props: {
-			readonly candidateQueryFailureCalls?: readonly number[];
-			readonly failRootCreateWithConflict?: boolean;
-		} = {},
+		props: { readonly failRootCreateWithConflict?: boolean } = {},
 	) {
-		this.#candidateQueryFailureCalls = new Set(props.candidateQueryFailureCalls ?? []);
 		const renderStore = createBridgeMainRenderSnapshotStore();
 		this.client = {
 			lifecycle: {
@@ -141,7 +127,6 @@ export class RecordingAnnotationBrowserSurface {
 			send: (command): string => {
 				if (
 					command.command !== 'annotationCommand' &&
-					command.command !== 'annotationOutputCandidatesQuery' &&
 					command.command !== 'annotationOutputInspect'
 				) {
 					throw new Error(`Unexpected browser annotation command ${command.command}.`);
@@ -153,29 +138,9 @@ export class RecordingAnnotationBrowserSurface {
 					this.#lastOutputInspectionRequestId = requestId;
 					return requestId;
 				}
-				if (command.command === 'annotationOutputCandidatesQuery') {
-					this.sentOutputCandidateQueries.push(command.query);
-					this.#candidateQueryCount += 1;
-					if (this.#candidateQueryFailureCalls.has(this.#candidateQueryCount)) {
-						queueMicrotask((): void => this.publishHealth(requestId, 'degraded'));
-					} else {
-						queueMicrotask((): void => this.#publishCandidatePage(requestId, command.query));
-					}
-					return requestId;
-				}
 				this.sentOperations.push(command.operation);
 				const operation = command.operation;
 				this.#pendingAnnotationCommands.push({ operation, requestId });
-				if (
-					operation.kind === 'output.selection.begin' ||
-					operation.kind === 'output.selection.chunk' ||
-					operation.kind === 'output.selection.cancel'
-				) {
-					const sessionId = operation.sessionId;
-					queueMicrotask((): void =>
-						this.#publishCommandStatus(requestId, { kind: 'committed' }, sessionId),
-					);
-				}
 				if (props.failRootCreateWithConflict === true && command.operation.kind === 'root.create') {
 					queueMicrotask((): void => this.#publishConflict(requestId));
 				}
@@ -434,6 +399,18 @@ export class RecordingAnnotationBrowserSurface {
 			wireVersion: 1,
 		});
 		this.#revision += 1;
+		const sessions =
+			outcome.kind === 'succeeded' || outcome.kind === 'partial_success'
+				? this.#sessions.map((session) =>
+						session.sessionId === outcome.summary.sessionId
+							? {
+									...session,
+									semanticRevision: session.semanticRevision + 1,
+									updatedAt: session.updatedAt + 1,
+								}
+							: session,
+					)
+				: this.#sessions;
 		this.publishProjectionState({
 			commandOutcomes: [
 				{
@@ -446,7 +423,7 @@ export class RecordingAnnotationBrowserSurface {
 			expectedThreadCount: this.#threadsById.size,
 			outputHistory: this.#outputHistory,
 			revision: this.#revision,
-			sessions: this.#sessions,
+			sessions,
 		});
 		for (const thread of this.#threadsById.values()) this.#publishThreadEvent(thread);
 	}
@@ -576,116 +553,6 @@ export class RecordingAnnotationBrowserSurface {
 				worktreeId: 'worktree-1',
 			},
 		});
-	}
-
-	#publishCandidatePage(
-		workerRequestId: string,
-		operation: RecordingAnnotationBrowserSurface['sentOutputCandidateQueries'][number],
-	): void {
-		const allCandidates = [...this.#threadsById.values()]
-			.flatMap((thread) =>
-				thread.messages
-					.filter(
-						(message): boolean =>
-							message.sessionId === operation.sessionId &&
-							message.savedBody !== null &&
-							message.savedRevision !== null &&
-							message.draft === null &&
-							message.status === 'editable',
-					)
-					.map((message) => ({ context: thread.context, message })),
-			)
-			.toSorted((left, right) => {
-				if (left.context.path !== right.context.path) {
-					return left.context.path.localeCompare(right.context.path);
-				}
-				if (left.context.startLine !== right.context.startLine) {
-					return left.context.startLine - right.context.startLine;
-				}
-				return left.message.messageId.localeCompare(right.message.messageId);
-			});
-		const startIndex = operation.cursor.kind === 'start' ? 0 : operation.cursor.flatOrdinal + 1;
-		const pageEntries = allCandidates.slice(startIndex, startIndex + operation.limit);
-		const candidates = pageEntries.map(({ context, message }, index) => ({
-			authoredAt: message.createdAt,
-			endLine: context.endLine,
-			excerpt:
-				message.savedBody
-					?.replaceAll(/[#*_`>|[\]()~-]/g, '')
-					.trim()
-					.slice(0, 240) ?? '',
-			flatOrdinal: startIndex + index,
-			location:
-				context.placement === 'exact' || context.placement === 'relocated'
-					? ('current' as const)
-					: ('original' as const),
-			messageId: message.messageId,
-			path: context.path,
-			placement: context.placement,
-			startLine: context.startLine,
-			state: 'eligible' as const,
-			threadId: context.threadId,
-		}));
-		const lastCandidate = candidates.at(-1);
-		this.#publish({
-			direction: 'serverWorkerToMain',
-			kind: 'annotationOutputCandidatesPage',
-			page: {
-				candidates,
-				eligibleMessageCount: allCandidates.length,
-				eligibleWithoutInlinePlacementCount: allCandidates.filter(
-					({ context }): boolean =>
-						context.placement !== 'exact' && context.placement !== 'relocated',
-				).length,
-				nextCursor:
-					startIndex + candidates.length < allCandidates.length && lastCandidate !== undefined
-						? {
-								flatOrdinal: lastCandidate.flatOrdinal,
-								kind: 'after',
-								messageId: lastCandidate.messageId,
-							}
-						: null,
-				sessionId: operation.sessionId,
-				sessionRevision: operation.expectedSessionRevision,
-			},
-			requestId: workerRequestId,
-			surface: this.client.surface,
-			transferDescriptors: [],
-			wireVersion: 1,
-		});
-	}
-
-	#publishCommandStatus(
-		workerRequestId: string,
-		status: AnnotationCommandOutcome['status'],
-		sessionId: string | null,
-	): void {
-		const productRequestId = `product-${workerRequestId}`;
-		this.#publish({
-			direction: 'serverWorkerToMain',
-			kind: 'annotationCommandAccepted',
-			productRequestId,
-			requestId: workerRequestId,
-			surface: this.client.surface,
-			transferDescriptors: [],
-			wireVersion: 1,
-		});
-		this.#revision += 1;
-		this.publishProjectionState({
-			commandOutcomes: [
-				{
-					requestId: productRequestId,
-					sessionId,
-					status,
-					surface: this.client.surface === 'fileView' ? 'file' : 'review',
-				},
-			],
-			expectedThreadCount: this.#threadsById.size,
-			outputHistory: this.#outputHistory,
-			revision: this.#revision,
-			sessions: this.#sessions,
-		});
-		for (const thread of this.#threadsById.values()) this.#publishThreadEvent(thread);
 	}
 
 	#publishAnnotationEvent(

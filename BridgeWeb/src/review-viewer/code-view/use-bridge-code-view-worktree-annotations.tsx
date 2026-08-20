@@ -19,6 +19,7 @@ import {
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import { useWorktreeAnnotationSelectionDismissal } from '../../worktree-annotations/use-worktree-annotation-selection-dismissal.js';
 import { createWorktreeAnnotationEditToken } from '../../worktree-annotations/worktree-annotation-edit-token.js';
+import { deriveWorktreeAnnotationShareProjection } from '../../worktree-annotations/worktree-annotation-share-projection.js';
 import type { WorktreeAnnotationThreadProjection } from '../../worktree-annotations/worktree-annotation-surface-client.js';
 import {
 	useWorktreeAnnotationActiveEditTokens,
@@ -73,21 +74,25 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 	const activeNewMessageEditTokens = useWorktreeAnnotationActiveNewMessageEditTokens();
 	const activeSessionId = sessionSelection.activeSessionId;
 	useWorktreeAnnotationSessionDemand(activeSessionId);
-	const activeThreads = useMemo(
-		() =>
-			projection.threads.filter(
-				(thread): boolean =>
-					activeSessionId !== null &&
-					thread.messages.some((message) => message.sessionId === activeSessionId) &&
-					!thread.messages.every(
-						(message): boolean =>
-							message.draft?.activeEditToken !== null &&
-							message.draft?.activeEditToken !== undefined &&
-							activeNewMessageEditTokens.has(message.draft.activeEditToken),
-					),
-			),
-		[activeNewMessageEditTokens, activeSessionId, projection.threads],
-	);
+	const activeThreads = useMemo(() => {
+		const sessionThreads = projection.threads.filter(
+			(thread): boolean =>
+				activeSessionId !== null &&
+				thread.messages.some((message) => message.sessionId === activeSessionId) &&
+				!thread.messages.every(
+					(message): boolean =>
+						message.draft?.activeEditToken !== null &&
+						message.draft?.activeEditToken !== undefined &&
+						activeNewMessageEditTokens.has(message.draft.activeEditToken),
+				),
+		);
+		return interaction.shareMode.kind === 'open'
+			? deriveWorktreeAnnotationShareProjection({
+					scope: interaction.shareMode.scope,
+					threads: sessionThreads,
+				}).inlineThreads
+			: sessionThreads;
+	}, [activeNewMessageEditTokens, activeSessionId, interaction.shareMode, projection.threads]);
 	const [pendingComposer, setPendingComposer] = useState<{
 		readonly editToken: string;
 		readonly itemId: string;

@@ -11,10 +11,6 @@ import {
 } from 'react';
 
 import { createWorktreeAnnotationEditToken } from './worktree-annotation-edit-token.js';
-import {
-	createWorktreeAnnotationOutputSelection,
-	type WorktreeAnnotationOutputSelection,
-} from './worktree-annotation-output-selection.js';
 import type { WorktreeAnnotationShareScope } from './worktree-annotation-share-mode.js';
 
 export type WorktreeAnnotationEditorState =
@@ -68,12 +64,10 @@ export interface WorktreeAnnotationInteractionController {
 	readonly expandThread: (threadId: string, invoker: HTMLElement) => void;
 	readonly finishThreadEditor: () => void;
 	readonly handleCommentBlur: (nextTarget: EventTarget | null) => void;
-	readonly outputSelection: WorktreeAnnotationOutputSelection;
 	readonly openShareMode: () => void;
 	readonly pierreRangePresentation: WorktreeAnnotationPierreRangePresentation;
 	readonly registerThreadEditorExit: (exitEditor: () => Promise<void>) => () => void;
 	readonly resolveThreadFocus: () => HTMLElement | null;
-	readonly setOutputSelection: (selection: WorktreeAnnotationOutputSelection) => void;
 	readonly setPendingRange: (itemId: string, range: WorktreeAnnotationRange) => void;
 	readonly setShareScope: (scope: WorktreeAnnotationShareScope) => void;
 	readonly shareMode: WorktreeAnnotationShareMode;
@@ -93,9 +87,6 @@ export function WorktreeAnnotationInteractionProvider(props: {
 	const [threadExpansion, setThreadExpansion] = useState<WorktreeAnnotationThreadExpansion>({
 		kind: 'closed',
 	});
-	const [outputSelection, setOutputSelection] = useState<WorktreeAnnotationOutputSelection>(
-		createWorktreeAnnotationOutputSelection,
-	);
 	const [shareMode, setShareMode] = useState<WorktreeAnnotationShareMode>({ kind: 'closed' });
 	const threadEditorExitRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -270,12 +261,10 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			expandThread,
 			finishThreadEditor,
 			handleCommentBlur,
-			outputSelection,
 			openShareMode,
 			pierreRangePresentation,
 			registerThreadEditorExit,
 			resolveThreadFocus,
-			setOutputSelection,
 			setPendingRange,
 			setShareScope,
 			shareMode,
@@ -292,7 +281,6 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			expandThread,
 			finishThreadEditor,
 			handleCommentBlur,
-			outputSelection,
 			openShareMode,
 			pierreRangePresentation,
 			registerThreadEditorExit,

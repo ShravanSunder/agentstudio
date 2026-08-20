@@ -57,6 +57,7 @@ describe('worktree annotation finite projection store', () => {
 		store.replaceOutputHistory([
 			{
 				attemptId: '00000000-0000-7000-8000-000000000021',
+				canMarkNotHandled: true,
 				createdAt: 1,
 				messageCount: 1,
 				outputKind: 'clipboard_markdown',
