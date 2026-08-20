@@ -19,34 +19,31 @@ export const marketingCopy = {
   stories: {
     parallelWork: {
       label: "Parallel work",
-      description:
-        "Each pane keeps its repository, branch, worktree, and current directory visible.",
+      description: "See which repository, worktree, branch, and directory each agent is using.",
       imageDescription:
         "Codex and Claude Code working in two panes beside repository, branch, Git, activity, and recency context in All Panes.",
     },
     paneDrawer: {
       label: "Pane drawer",
-      description:
-        "Open a build log, git status, documentation, or a browser beside the agent that prompted it.",
+      description: "Keep related terminals and tools attached to the agent task that needs them.",
       imageDescription:
         "One compact Git-status drawer attached to the active Codex task, with a second Claude pane visible and the global sidebar hidden.",
     },
     quickFind: {
       label: "Quick Find",
-      description: "Press Cmd+P to reach repositories, worktrees, panes, tabs, and commands.",
+      description: "Press Cmd+P to jump to a repository, pane, or command.",
       imageDescription:
         "Quick Find listing agent-studio, y-websocket, and sidebar worktree panes over Codex and Claude sessions with the global sidebar hidden.",
     },
     review: {
       label: "Review",
-      description:
-        "Agent Studio presents every changed file as one continuous, read-only diff with file-tree navigation and syntax highlighting.",
+      description: "Review every changed file in one continuous diff with its file tree beside it.",
       imageDescription:
         "A readable unified CI workflow diff and Changed Files tree beside Claude Code in the matching worktree for pull request 313, with the global repository sidebar hidden.",
     },
     gitContext: {
-      label: "Git context",
-      description: "Keep branch, change counts, and ahead or behind status beside each pane.",
+      label: "Git and PR context",
+      description: "See each agent's branch, changes, and pull request.",
       imageDescription:
         "Agent Studio grouped by repository with Codex and Claude panes beside branch, changed-line, and ahead or behind Git status.",
     },
