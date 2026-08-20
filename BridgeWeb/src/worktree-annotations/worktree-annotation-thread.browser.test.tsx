@@ -45,7 +45,7 @@ describe('worktree annotation inline thread', () => {
 		]);
 
 		await expect.element(rendered.getByText('Keep the refresh asynchronous.')).toBeVisible();
-		await expect.element(rendered.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
+		expect(rendered.getByRole('button', { name: 'Edit annotation' }).all()).toHaveLength(0);
 		await expect.element(rendered.getByRole('button', { name: 'Reply to thread' })).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Resolve thread' })).toBeVisible();
 		expect(document.querySelector('[aria-label="Expand 1 message"]')).toBeNull();
@@ -596,7 +596,7 @@ describe('worktree annotation inline thread', () => {
 
 		await publishThreadMessages(surface, [draftMessage]);
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Resume draft' }).click();
+			await rendered.getByText('Reviewed body.').click();
 		});
 		await settleBrowserCondition(
 			(): boolean =>
@@ -676,7 +676,7 @@ describe('worktree annotation inline thread', () => {
 
 		await publishThreadMessages(surface, [savedMessage]);
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Edit annotation' }).click();
+			await rendered.getByText('Saved body.').click();
 			await rendered.getByRole('textbox', { name: 'Annotation Markdown' }).fill('');
 			rendered.getByRole('textbox', { name: 'Annotation Markdown' }).element().blur();
 		});

@@ -106,6 +106,7 @@ export function WorktreeAnnotationThread(
 				</WorktreeAnnotationCommandButton>
 				{!isLatest ? null : (
 					<WorktreeAnnotationCommandButton
+						appearance="primary"
 						disabled={!canSetThreadResolution}
 						label={props.thread.context.resolution === 'open' ? 'Resolve thread' : 'Reopen thread'}
 						onClick={() => void setResolution()}
@@ -136,6 +137,14 @@ export function WorktreeAnnotationThread(
 				compact
 				compactButtonAppearance="toolbar"
 				disabled={!ownsActiveSession}
+				onEdit={
+					latestMessage.status === 'editable' && canEditMessages
+						? (invoker) => {
+								activateRange();
+								interaction.startMessageEdit(threadId, latestMessage.messageId, invoker);
+							}
+						: undefined
+				}
 				triggerLabel="More comment actions"
 			/>
 		</>
@@ -144,6 +153,7 @@ export function WorktreeAnnotationThread(
 
 	return (
 		<WorktreeAnnotationConversationFrame
+			active={rangeActive}
 			aria-label={`${annotationThreadLocationLabel(props.thread)} annotation thread`}
 			data-annotation-thread-id={threadId}
 			data-annotation-placement={props.thread.context.placement}

@@ -1,4 +1,4 @@
-import type { FocusEvent, MouseEvent, ReactElement, ReactNode, Ref } from 'react';
+import type { FocusEvent, KeyboardEvent, MouseEvent, ReactElement, ReactNode, Ref } from 'react';
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar.js';
 import { Button } from '@/components/ui/button.js';
@@ -16,6 +16,7 @@ export interface WorktreeAnnotationInlineSurfaceProps {
 	readonly onBlurCapture?: ((event: FocusEvent<HTMLElement>) => void) | undefined;
 	readonly onClickCapture?: ((event: MouseEvent<HTMLElement>) => void) | undefined;
 	readonly onFocusCapture?: ((event: FocusEvent<HTMLElement>) => void) | undefined;
+	readonly onKeyDownCapture?: ((event: KeyboardEvent<HTMLElement>) => void) | undefined;
 	readonly timelineActions?: ReactNode | undefined;
 }
 
@@ -33,6 +34,7 @@ export function WorktreeAnnotationInlineSurface(
 				onBlurCapture={props.onBlurCapture}
 				onClickCapture={props.onClickCapture}
 				onFocusCapture={props.onFocusCapture}
+				onKeyDownCapture={props.onKeyDownCapture}
 			>
 				<div className="mb-1 flex min-w-0 items-center gap-1.5 text-xs/relaxed text-comment-muted">
 					{props.metadata}
@@ -59,6 +61,7 @@ export function WorktreeAnnotationInlineSurface(
 			onBlurCapture={props.onBlurCapture}
 			onClickCapture={props.onClickCapture}
 			onFocusCapture={props.onFocusCapture}
+			onKeyDownCapture={props.onKeyDownCapture}
 			tabIndex={0}
 		>
 			<Avatar aria-label="You">

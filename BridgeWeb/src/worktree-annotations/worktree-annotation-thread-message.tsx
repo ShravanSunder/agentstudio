@@ -1,4 +1,4 @@
-import { Check, Pencil, Undo2 } from 'lucide-react';
+import { Check, Undo2 } from 'lucide-react';
 import {
 	useCallback,
 	useEffect,
@@ -6,6 +6,7 @@ import {
 	useRef,
 	useState,
 	type ReactElement,
+	type MouseEvent as ReactMouseEvent,
 	type ReactNode,
 } from 'react';
 
@@ -200,6 +201,17 @@ export function WorktreeAnnotationMessageEditor(
 		if (!canEdit && isEditing) onFinishEdit();
 	}, [canEdit, isEditing, onFinishEdit]);
 	const validation = validateWorktreeAnnotationMarkdown(body);
+	const messageCanBeginEditing = props.canEdit && props.message.status === 'editable';
+	const beginEditingFromBody = (event: ReactMouseEvent<HTMLDivElement>): void => {
+		if (!messageCanBeginEditing || props.isEditing) return;
+		if (
+			event.target instanceof Element &&
+			event.target.closest('a, button, input, select, textarea, [role="button"]') !== null
+		)
+			return;
+		if (window.getSelection()?.isCollapsed === false) return;
+		props.onBeginEdit(event.currentTarget);
+	};
 	const registerExitHandler = props.registerExitHandler;
 	const flushAndFinish = useCallback(async (): Promise<void> => {
 		try {
@@ -298,18 +310,7 @@ export function WorktreeAnnotationMessageEditor(
 			</WorktreeAnnotationCommandButton>
 		</>
 	) : (
-		<>
-			{props.message.status === 'editable' ? (
-				<WorktreeAnnotationCommandButton
-					disabled={!props.canEdit}
-					label={props.message.draft === null ? 'Edit annotation' : 'Resume draft'}
-					onClick={(event) => props.onBeginEdit(event.currentTarget)}
-				>
-					<Pencil />
-				</WorktreeAnnotationCommandButton>
-			) : null}
-			{props.commands}
-		</>
+		props.commands
 	);
 	return (
 		<WorktreeAnnotationInlineSurface
@@ -335,6 +336,21 @@ export function WorktreeAnnotationMessageEditor(
 					)}
 				</>
 			}
+			onKeyDownCapture={(event) => {
+				if (
+					!messageCanBeginEditing ||
+					props.isEditing ||
+					event.key !== 'Enter' ||
+					event.target !== event.currentTarget ||
+					event.altKey ||
+					event.ctrlKey ||
+					event.metaKey ||
+					event.shiftKey
+				)
+					return;
+				event.preventDefault();
+				props.onBeginEdit(event.currentTarget);
+			}}
 			timelineActions={props.timelineActions}
 		>
 			{props.isEditing && props.canEdit && props.message.status === 'editable' ? (
@@ -379,7 +395,10 @@ export function WorktreeAnnotationMessageEditor(
 					}}
 				/>
 			) : (
-				<div className={props.compact === true ? 'line-clamp-3' : undefined}>
+				<div
+					className={props.compact === true ? 'line-clamp-3' : undefined}
+					onClick={beginEditingFromBody}
+				>
 					<WorktreeAnnotationMessageBody
 						body={props.message.draft?.body ?? props.message.savedBody ?? ''}
 						messageId={props.message.messageId}

@@ -197,9 +197,9 @@ No command may appear in two locations on the same presentation.
 | Surface | Right circular command rail | Timeline row |
 | --- | --- | --- |
 | Empty or durable composer | Revert, Save | Draft/error state only |
-| One-message compact M1 | Edit when editable, Reply, Resolve/Reopen | time/state and More |
-| Multi-message compact | Edit M-last when editable, Reply, Resolve/Reopen | M-summary with message count/latest time/state, Expand immediately before More |
-| Expanded message | Edit when editable, Reply | author/time/message state |
+| One-message compact M1 | Reply, primary-tint Resolve/Reopen | time/state and More with Edit |
+| Multi-message compact | Reply, primary-tint Resolve/Reopen | M-summary with message count/latest time/state, Expand immediately before More with Edit M-last |
+| Expanded message | Reply; body click or focused Enter edits | author/time/message state |
 | Expanded thread | one thread-level Resolve/Reopen | thread state |
 
 Canonical icons:
@@ -323,13 +323,13 @@ M-summary followed by M1 through Mn exactly once.
 ```text
 ◉ M-summary                              Collapse · More
 │
-◉ M1                                          Edit · Reply
+◉ M1                                                 Reply
 │ first message
 │
-◉ M2                                          Edit · Reply
+◉ M2                                                 Reply
 │ intermediate message
 │
-◉ M-last                    Edit · Reply · Resolve/Reopen
+◉ M-last                         Reply · Resolve/Reopen
 │ latest message
 │
 ◉ Draft reply                               Revert · Save
@@ -342,7 +342,8 @@ Requirements:
 - no card around every message;
 - separators and spacing distinguish messages without nested surfaces or a
   second timeline;
-- Expand opens chronology; Reply/Edit open chronology with the stable editor;
+- Expand opens chronology; Reply and body/More Edit open chronology with the
+  stable editor;
 - one Resolve/Reopen command exists at thread level;
 - expanded summary omits the redundant blue node because message avatars own
   the visible chronology nodes;
@@ -623,8 +624,9 @@ Current inline-shell receipt, 2026-08-20:
 - expanded hierarchy correction: no blue summary node, no transient
   `Mixed inclusion` status, quiet non-circular toolbar actions, 4 px message
   gap, and a neutral timeline rail;
-- Pierre contrast correction: selected source lines retain their normal paint
-  while the selected annotation row uses Pierre's darker 86% relationship tint;
+- Pierre contrast correction: the full annotation row remains neutral while
+  the active responsive `max-w-3xl` thread frame overlays Pierre with 14% of
+  its inherited selection hue;
 - message rail geometry: three 24 px buttons use 2 px gaps and remain fully
   inside the 80 px card with 3 px top / 1 px bottom clearance;
 - File-to-Review adapter correction: File-origin threads map to the Review head

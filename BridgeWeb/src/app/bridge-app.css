@@ -70,6 +70,7 @@
 	--color-comment-divider: var(--comment-divider);
 	--color-comment-hover: var(--comment-hover);
 	--color-comment-active: var(--comment-active);
+	--color-comment-active-surface: var(--comment-active-surface);
 	--color-comment-composer-bg: var(--comment-composer-bg);
 	--color-comment-destructive: var(--comment-destructive);
 }
@@ -308,6 +309,12 @@
 	--comment-hover: color-mix(in srgb, var(--accent) 64%, transparent);
 	/* Comment-lane-owned active-range placeholder; S5 defines its final interaction use. */
 	--comment-active: var(--primary);
+	/* Active thread overlay inherits Pierre's selection hue while preserving its row beneath. */
+	--comment-active-surface: color-mix(
+		in lab,
+		transparent 86%,
+		var(--diffs-selection-base, var(--warning))
+	);
 	/* Composer inherits the comment surface. */
 	--comment-composer-bg: transparent;
 	/* Destructive comment feedback. */

@@ -112,13 +112,12 @@ treatment does not require a visible text label.
 ### Saved one-message thread
 
 ```text
-  ◉── You · 2m · Saved · Open              Include   More
+  ◉── You · 2m · Saved · Open                        More
   │
   │  ╭──────────────────────────────────────────────╮
   │  │ Please keep source refresh separate.        │
-  │  │                                          ✎   │ Edit
   │  │                                          ↩   │ Reply
-  │  │                                          ✓   │ Resolve
+  │  │                                          ●   │ Resolve, primary tint
   │  ╰──────────────────────────────────────────────╯
 
   resolved state: same thread and history; Resolve becomes Reopen
@@ -126,21 +125,22 @@ treatment does not require a visible text label.
 
 When the thread contains exactly one message, M1 is the inline body; there is
 no synthetic summary. The body is top-aligned and content-sized. The right
-command column contains exactly Edit, Reply, and Resolve/Reopen, and its height
-never sets the body height. A one-message thread has no disclosure control;
-focus never implies expansion.
+command column contains exactly Reply and primary-tint Resolve/Reopen, and its
+height never sets the body height. Clicking non-interactive body content or
+pressing Enter on the focused message begins Edit; More also exposes Edit for
+discoverability. A one-message thread has no disclosure control; focus never
+implies expansion.
 
 ### Compact multi-message thread
 
 ```text
-  ◉── 3 messages · latest 1m · Open    Include   Expand   More
+  ◉── 3 messages · latest 1m · Open              Expand   More
   │
   │  ╭──────────────────────────────────────────────╮
   │  │ M-summary: 3 messages · latest by You       │
   │  │ M-last: Add coverage for the failure case…  │
-  │  │                                          ✎   │ Edit M-last
   │  │                                          ↩   │ Reply
-  │  │                                          ✓   │ Resolve
+  │  │                                          ●   │ Resolve, primary tint
   │  ╰──────────────────────────────────────────────╯
 ```
 
@@ -150,34 +150,36 @@ activity, resolution, and any hidden Draft, placement, or lock state
 needed to avoid a false compact representation. M-last presents a bounded view
 of the latest actual message. M-summary is not authored Markdown, not another
 message, and not independently selectable or output content. The right command
-column contains exactly Edit M-last, Reply, and Resolve/Reopen.
+column contains exactly Reply and primary-tint Resolve/Reopen. Body click,
+focused Enter, and More edit M-last when it is editable.
 
 ### Expanded inline complete thread
 
 ```text
   ◉── 3 messages · latest 1m · Open      Collapse · More
   │
-  ◉── M1                                      ✎  ↩
+  ◉── M1                                         ↩
   │   First message
   │
-  ◉── M2                                      ✎  ↩
+  ◉── M2                                         ↩
   │   Intermediate message
   │
-  ◉── M-last                                  ✎  ↩  ✓
+  ◉── M-last                                     ↩  ●
   │   Latest message
   │
   ◉── Draft reply                              ↶  ●
       Reply with Markdown
 ```
 
-Expand, Edit, or Reply expands the same inline annotation row; merely focusing
+Expand, body/More Edit, or Reply expands the same inline annotation row; merely focusing
 an inline message or command does not. The expanded row displays M-summary and
 M1 through Mn exactly once in one flat timeline. The compact M-last DOM remains
 the same keyed message when expansion adds the missing earlier messages. Pierre
 remeasures the annotation row and remains the sole scroll owner, so later diff
 rows move down without a nested thread scrollbar. Each expanded message exposes
-Edit when editable and Reply in its right command column. Resolve/Reopen remains
-one thread command, never an independent message state.
+Reply in its right command column and supports guarded body-click or focused
+Enter editing. Resolve/Reopen remains one primary-tint thread command, never an
+independent message state.
 
 Reply and Edit authoring live at the end of the expanded inline timeline. Save
 or Revert exits edit mode and keeps the thread expanded so the chronology
@@ -193,12 +195,12 @@ controls are deferred until the basic inline chronology is visually accepted.
 ```text
   ◉── You · Draft · saved locally
   │  ╭──────────────────────────────────────────────╮
-  │  │ Add failure coverage…                  ▶     │ Resume
+  │  │ Add failure coverage…                        │ Click body or use More
   │  ╰──────────────────────────────────────────────╯
 ```
 
 An empty composer disappears. A durable non-empty new-root draft may collapse,
-but its text summary, `Draft` label, author, and Resume action remain visible in
+but its text summary, `Draft` label, author, and body/More Resume action remain visible in
 the same shell rather than moving to a separate panel. Reply and edit drafts
 remain part of their expanded-thread contract above.
 
@@ -206,10 +208,10 @@ remain part of their expanded-thread contract above.
 
 ```text
 M1 right command column
-  Edit · Reply · Resolve/Reopen
+  Reply · Resolve/Reopen primary tint
 
 multi-message compact right command column
-  Edit M-last · Reply · Resolve/Reopen
+  Reply · Resolve/Reopen primary tint
 
 composer right command column
   Revert · Save primary
@@ -219,13 +221,16 @@ timeline row
   never Edit, Reply, or Resolve/Reopen
 
 expanded message right command column
-  Edit when editable · Reply
+  Reply
 
 expanded thread level
   Resolve/Reopen exactly once
 
 output interaction
   More → Review output → select messages · Copy Markdown · Export JSON
+
+edit interaction
+  guarded body click · focused Enter · More → Edit annotation
 ```
 
 The core right-column controls are icon-only owned shadcn controls with one
@@ -993,9 +998,10 @@ projection of the actual latest message.
 The inline surface MUST own one rounded visual boundary composed from the
 product's owned shadcn primitives. Its message body MUST be top-aligned and
 content-sized; the vertically stacked right command column MUST NOT determine
-body height. The M1 right column MUST contain exactly Edit M1 when M1 is
-editable, Reply, and Resolve/Reopen. The multi-message right column MUST contain
-exactly Edit M-last when M-last is editable, Reply, and Resolve/Reopen. Composer
+body height. The M1 and compact M-last right columns MUST contain exactly Reply
+and primary-tint Resolve/Reopen. Editable message bodies MUST begin Edit on a
+non-interactive body click or focused Enter, while links and non-collapsed text
+selection remain undisturbed. More MUST also expose Edit for M-last. Composer
 right columns MUST contain Revert and the primary-treated Save. These core
 controls MUST be icon-only controls with a canonical identity, tooltip, and
 accessible name. Message and composer command rails MUST use the visible
@@ -1007,15 +1013,15 @@ use the quiet owned shadcn toolbar treatment rather than circular
 message-command chrome. The timeline row MUST NOT duplicate Edit, Reply, or
 Resolve/Reopen.
 
-Explicit activation of Expand, Edit, or Reply MUST expand the same Pierre
+Explicit activation of Expand, body/More Edit, or Reply MUST expand the same Pierre
 annotation row; focus alone MUST NOT expand it. Focus on the compact surface or
 any of its controls MUST instead activate that thread and paint its complete
 stored range. The expanded row MUST keep the thread active and its range painted
 while focus moves within it. It MUST contain exactly one timeline: M-summary
 followed by M1 through Mn exactly once in flat chronological order. The existing
 M-last element MUST retain its keyed DOM identity while the missing earlier
-messages are added. Each expanded message's right column MUST expose Edit when
-that message is editable and Reply. Resolve/Reopen MUST remain one thread-level
+messages are added. Each expanded message's right column MUST expose Reply.
+Resolve/Reopen MUST remain one thread-level
 command and continue to affect the whole thread only. Threads MUST remain
 independently expandable and resolvable when several projections share one
 physical annotation row or source coordinate.
@@ -1028,12 +1034,12 @@ controls are deferred follow-up design work. Expanded message nodes use the
 comment spacing scale at 4 px between nodes, and their shared neutral timeline
 rail provides grouping without an outer bordered thread card.
 
-Selected source lines MUST retain Pierre's selection paint. The selected
-annotation row MUST use a darker, restrained tint derived from that same Pierre
-selection paint and Pierre's annotation background, making the relationship
-visible without reducing comment metadata or command contrast. The comment
-shell MUST NOT add a second backing surface merely to mask that Pierre paint
-interaction.
+Selected source lines MUST retain Pierre's selection paint while the full
+annotation row retains Pierre's neutral annotation background. The active
+standalone thread frame MUST use a translucent 14% overlay derived from
+Pierre's inherited selection hue so Pierre remains visible beneath it. The
+frame MUST cap at 48rem (`max-w-3xl`) while shrinking to the available row
+width, and MUST introduce no outer border or opacity on text and controls.
 
 Reply and Edit authoring MUST occur at the end of the expanded timeline. Save
 or Revert MUST exit editing while leaving the thread expanded. Escape during

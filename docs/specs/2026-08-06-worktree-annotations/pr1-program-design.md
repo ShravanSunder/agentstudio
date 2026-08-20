@@ -520,12 +520,12 @@ Core command ownership remains:
 
 | Surface | Commands |
 | --- | --- |
-| single M1 right column | Edit when editable, Reply, Resolve/Reopen |
-| multi-message right column | Edit latest when editable, Reply, Resolve/Reopen |
+| single M1 right column | Reply, primary-tint Resolve/Reopen |
+| multi-message right column | Reply, primary-tint Resolve/Reopen |
 | composer right column | Revert, primary Save |
 | timeline row | status plus quiet shadcn toolbar actions: Expand/Collapse when multi-message, immediately before More; no inclusion toggle, circular message chrome, or Edit/Reply/Resolve duplication |
 | expanded thread level | Resolve/Reopen once |
-| expanded message | Edit when editable, Reply |
+| expanded message | Reply; guarded body click or focused Enter edits |
 
 Focus activates the thread and paints its complete stored range. Focus alone
 does not expand the chronology. Expand/Edit/Reply expand the same Pierre
@@ -544,11 +544,12 @@ thread range. Only the active pending/thread range is painted. Selection,
 another range, `+`, outside click, or Escape clears according to the
 Specification.
 
-Pierre keeps selected source lines on its selection paint. A selected annotation
-row uses Pierre's normal selection computation with both selection mix weights
-raised to 86%, producing a darker related tint over `--diffs-annotation-bg`
-without a React-owned backing surface. Output inclusion remains inside the More
-popover's Review output flow rather than occupying the timeline.
+Pierre keeps selected source lines on its selection paint and the full
+annotation row on `--diffs-annotation-bg`. The active standalone thread frame
+uses `--comment-active-surface`, a 14% translucent overlay derived from the
+inherited `--diffs-selection-base`, and caps responsively at 48rem. Output
+inclusion and the discoverable Edit action remain inside More; non-interactive
+body click and focused Enter also begin Edit.
 
 ## Output preparation and effects
 

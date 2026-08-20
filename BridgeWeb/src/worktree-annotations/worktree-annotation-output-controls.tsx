@@ -1,4 +1,4 @@
-import { Ellipsis, HistoryIcon } from 'lucide-react';
+import { Ellipsis, HistoryIcon, Pencil } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
 import { uuidv7 } from 'uuidv7';
@@ -42,6 +42,7 @@ export interface WorktreeAnnotationOutputControlsProps {
 	readonly compact?: boolean | undefined;
 	readonly compactButtonAppearance?: 'message' | 'toolbar' | undefined;
 	readonly disabled?: boolean | undefined;
+	readonly onEdit?: ((invoker: HTMLElement) => void) | undefined;
 	readonly triggerLabel?: string | undefined;
 }
 
@@ -98,6 +99,11 @@ export function WorktreeAnnotationOutputControls(
 		(summary): boolean => summary.sessionId === props.activeSessionId,
 	);
 	const isInteractionDisabled = props.disabled === true;
+	const compactTriggerIsDisabled =
+		isInteractionDisabled ||
+		(props.onEdit === undefined &&
+			(activeSession?.eligibleMessageCount ?? 0) === 0 &&
+			sessionHistory.length === 0);
 	const triggerLabel = props.triggerLabel ?? 'Review output';
 
 	useEffect((): void => {
@@ -250,10 +256,7 @@ export function WorktreeAnnotationOutputControls(
 				<WorktreeAnnotationCommandButton
 					appearance={props.compactButtonAppearance ?? 'toolbar'}
 					buttonRef={compactTriggerRef}
-					disabled={
-						isInteractionDisabled ||
-						((activeSession?.eligibleMessageCount ?? 0) === 0 && sessionHistory.length === 0)
-					}
+					disabled={compactTriggerIsDisabled}
 					label={triggerLabel}
 					onClick={() => setOutputInteractionOpen(true)}
 				>
@@ -283,11 +286,33 @@ export function WorktreeAnnotationOutputControls(
 				data-worktree-annotation-preserve-expansion
 			>
 				<PopoverHeader>
-					<PopoverTitle>Review output</PopoverTitle>
+					<PopoverTitle>
+						{props.onEdit === undefined ? 'Review output' : 'Comment actions'}
+					</PopoverTitle>
 					<PopoverDescription>
-						Choose immutable saved versions. Copy and Export never resolve their threads.
+						{props.onEdit === undefined
+							? 'Choose immutable saved versions. Copy and Export never resolve their threads.'
+							: 'Edit the latest message or prepare immutable saved output.'}
 					</PopoverDescription>
 				</PopoverHeader>
+				{props.onEdit === undefined ? null : (
+					<>
+						<Button
+							className="w-full justify-start"
+							size="sm"
+							variant="ghost"
+							onClick={() => {
+								const invoker = compactTriggerRef.current;
+								setOutputInteractionOpen(false);
+								if (invoker !== null) props.onEdit?.(invoker);
+							}}
+						>
+							<Pencil />
+							Edit annotation
+						</Button>
+						<Separator />
+					</>
+				)}
 				<WorktreeAnnotationOutputCandidateSelection
 					candidates={candidates}
 					eligibleMessageCount={eligibleMessageCount}

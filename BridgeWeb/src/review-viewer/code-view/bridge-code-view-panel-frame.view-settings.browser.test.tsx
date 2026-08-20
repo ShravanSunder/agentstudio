@@ -9,11 +9,9 @@ import { bridgeCodeViewOptions } from './bridge-code-view-options.js';
 import { BridgeCodeViewPanelFrame } from './bridge-code-view-panel-frame.js';
 
 describe('BridgeCodeViewPanelFrame View Settings', () => {
-	test('uses a restrained darker selection tint for focused annotation rows', () => {
+	test('keeps selected annotation rows on Pierre annotation background', () => {
 		expect(bridgeCodeViewOptions.unsafeCSS).toContain('[data-line-annotation][data-selected-line]');
-		expect(bridgeCodeViewOptions.unsafeCSS).toContain('--mix-selection-light: 86%');
-		expect(bridgeCodeViewOptions.unsafeCSS).toContain('--mix-selection-dark: 86%');
-		expect(bridgeCodeViewOptions.unsafeCSS).not.toContain(
+		expect(bridgeCodeViewOptions.unsafeCSS).toContain(
 			'--diffs-line-bg: var(--diffs-annotation-bg)',
 		);
 	});
