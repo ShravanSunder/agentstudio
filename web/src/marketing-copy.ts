@@ -20,32 +20,37 @@ export const marketingCopy = {
     parallelWork: {
       label: "Parallel work",
       description: "See which repository, worktree, branch, and directory each agent is using.",
+      phoneDescription: "See All Panes and both agent contexts at a glance.",
       imageDescription:
-        "Codex and Claude Code working in two panes beside repository, branch, Git, activity, and recency context in All Panes.",
+        "Agent Studio All Panes with Antigravity in agent-studio on main and Codex in agent-vm on master.",
     },
     paneDrawer: {
       label: "Pane drawer",
-      description: "Keep related terminals and tools attached to the agent task that needs them.",
+      description: "Keep related terminals and tools attached to the agent that needs them.",
+      phoneDescription: "Keep a task's Git terminal attached in its drawer.",
       imageDescription:
-        "One compact Git-status drawer attached to the active Codex task, with a second Claude pane visible and the global sidebar hidden.",
+        "A Git-status drawer attached beneath Antigravity with the global sidebar hidden.",
     },
     quickFind: {
       label: "Quick Find",
       description: "Press Cmd+P to jump to a repository, pane, or command.",
+      phoneDescription: "Jump to a repository, pane, or command with Cmd+P.",
       imageDescription:
-        "Quick Find listing agent-studio, y-websocket, and sidebar worktree panes over Codex and Claude sessions with the global sidebar hidden.",
+        "Agent Studio Quick Find showing recent repositories and command, pane, and repository scopes with the global sidebar hidden.",
     },
     review: {
       label: "Review",
       description: "Review every changed file in one continuous diff with its file tree beside it.",
+      phoneDescription: "Inspect the diff and changed-files tree together.",
       imageDescription:
-        "A readable unified CI workflow diff and Changed Files tree beside Claude Code in the matching worktree for pull request 313, with the global repository sidebar hidden.",
+        "Agent Studio Review showing a continuous AGENTS.md diff beside its Changed Files tree, with the global sidebar hidden.",
     },
     gitContext: {
       label: "Git and PR context",
-      description: "See each agent's branch, changes, and pull request.",
+      description: "See the branch, changes, and pull request beside the work.",
+      phoneDescription: "See the pull request beside its worktree and branch.",
       imageDescription:
-        "Agent Studio grouped by repository with Codex and Claude panes beside branch, changed-line, and ahead or behind Git status.",
+        "Agent Studio filtered to workspace-local, with PR 201 and branch status beside the By Repo sidebar.",
     },
     persistence: {
       label: "Persistent terminal sessions",

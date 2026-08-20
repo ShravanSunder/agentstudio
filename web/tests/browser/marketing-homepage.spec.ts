@@ -5,7 +5,7 @@ const productStoryCases = [
   { id: "pane-drawer", accessibleName: /Pane drawer/ },
   { id: "quick-find", accessibleName: /Quick Find/ },
   { id: "review", accessibleName: /Review/ },
-  { id: "git-context", accessibleName: /Git context/ },
+  { id: "git-context", accessibleName: /Git and PR context/ },
 ] as const;
 
 const verificationViewports = [
@@ -106,8 +106,8 @@ test("renders the claim-first homepage and switches product stories", async ({ p
     "true",
   );
 
-  await page.getByRole("tab", { name: /Git context/ }).click();
-  await expect(page.getByRole("tabpanel", { name: /Git context/ })).toBeVisible();
+  await page.getByRole("tab", { name: /Git and PR context/ }).click();
+  await expect(page.getByRole("tabpanel", { name: /Git and PR context/ })).toBeVisible();
 
   const persistencePanel = page.locator(".feature-detail").first();
   const beforeFrameButton = persistencePanel.getByRole("button", { name: "Before close" });
@@ -245,7 +245,8 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
     .toBeCloseTo(collapsedGeometry.selectorWidth, 0);
 
   await selectorViewport.evaluate((selectors) => {
-    selectors.scrollLeft = selectors.clientWidth * 2;
+    selectors.style.scrollBehavior = "auto";
+    selectors.scrollTo({ behavior: "auto", left: selectors.clientWidth * 2 });
     selectors.dispatchEvent(new Event("scrollend"));
   });
   await expect(page.locator('[data-product-plate-selector="quick-find"]')).toHaveAttribute(
@@ -347,8 +348,12 @@ test("uses product focus color for the selected story and neutral inactive indic
 }) => {
   await page.goto("/");
 
-  const selectedIndex = page.locator('.product-plate__selector[aria-selected="true"] span');
-  const inactiveIndices = page.locator('.product-plate__selector[aria-selected="false"] span');
+  const selectedIndex = page.locator(
+    '.product-plate__selector[aria-selected="true"] > span:first-child',
+  );
+  const inactiveIndices = page.locator(
+    '.product-plate__selector[aria-selected="false"] > span:first-child',
+  );
 
   expect(await selectedIndex.evaluate((index) => getComputedStyle(index).color)).toBe(
     "rgb(137, 180, 250)",
@@ -611,6 +616,6 @@ test("contains phone composition within the document viewport", async ({ page })
   await page.evaluate(() => window.scrollTo({ top: 500, behavior: "instant" }));
   await expect(siteHeader).toHaveAttribute("data-visual-state", "floating");
   await expect(siteHeader).toHaveCSS("width", "312px");
-  await expect(page.getByRole("tab", { name: /Git context/ })).toBeAttached();
+  await expect(page.getByRole("tab", { name: /Git and PR context/ })).toBeAttached();
   await expect(page.getByRole("button", { name: "Before close" })).toBeAttached();
 });

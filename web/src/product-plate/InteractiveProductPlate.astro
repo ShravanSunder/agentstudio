@@ -66,7 +66,8 @@ import { productPlateStories } from "./product-plate-fixture";
                 {story.label}
               </strong>
               <small class="mt-[7px] max-w-[760px] leading-[1.4] text-ink-faint max-product-stacked:text-[17px] max-phone:text-[16px]">
-                {story.description}
+                <span class="max-phone:hidden">{story.description}</span>
+                <span class="hidden max-phone:inline">{story.phoneDescription}</span>
               </small>
             </button>
           ))
@@ -93,16 +94,24 @@ import { productPlateStories } from "./product-plate-fixture";
             data-product-plate-panel={story.id}
             hidden={index !== 0}
           >
-            <Image
-              src={story.image}
-              alt={story.alternativeText}
-              widths={[720, 1080, 1440, 2160]}
-              sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
-              format="png"
-              loading={index === 0 ? "eager" : "lazy"}
-              decoding="async"
-              class="block h-auto w-full"
-            />
+            <picture class="block">
+              <source
+                media="(max-width: 520px)"
+                srcset={story.phoneImage.src}
+                width={story.phoneImage.width}
+                height={story.phoneImage.height}
+              />
+              <Image
+                src={story.image}
+                alt={story.alternativeText}
+                widths={[720, 1080, 1440, 2160]}
+                sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
+                format="png"
+                loading={index === 0 ? "eager" : "lazy"}
+                decoding="async"
+                class="block h-auto w-full"
+              />
+            </picture>
           </article>
         ))
       }

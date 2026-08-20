@@ -38,6 +38,7 @@ function hasPngChunk(bytes: Buffer, expectedChunkType: string): boolean {
 
 async function verifyCaptureAssets(): Promise<void> {
   const manifestUrl = new URL("../src/content/website-capture-manifest.ts", import.meta.url);
+  let responsiveAssetCount = 0;
 
   await Promise.all(
     websiteCaptureSuite.captures.map(async (capture): Promise<void> => {
@@ -70,11 +71,40 @@ async function verifyCaptureAssets(): Promise<void> {
         sha256(bytes) === capture.websiteAssetSha256,
         `${capture.id}: SHA-256 does not match the checked-in projection`,
       );
+
+      if ("phoneAssetPath" in capture && "phoneWebsiteAssetSha256" in capture) {
+        const phoneBytes = await readFile(new URL(capture.phoneAssetPath, manifestUrl));
+        const phoneMetadata = await sharp(phoneBytes).metadata();
+        const phoneHasCanonicalSrgbChunk =
+          hasPngChunk(phoneBytes, "sRGB") && !hasPngChunk(phoneBytes, "iCCP");
+        const phoneHasCanonicalSrgbIcc =
+          hasPngChunk(phoneBytes, "iCCP") &&
+          phoneMetadata.icc !== undefined &&
+          sha256(phoneMetadata.icc) === CANONICAL_SRGB_ICC_SHA256;
+
+        assertCapture(
+          phoneBytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE),
+          `${capture.id} phone: asset is not a PNG`,
+        );
+        assertCapture(
+          phoneBytes.readUInt32BE(16) === 1280 && phoneBytes.readUInt32BE(20) === 1600,
+          `${capture.id} phone: dimensions must be 1280×1600`,
+        );
+        assertCapture(
+          phoneHasCanonicalSrgbChunk || phoneHasCanonicalSrgbIcc,
+          `${capture.id} phone: canonical sRGB profile identity is missing`,
+        );
+        assertCapture(
+          sha256(phoneBytes) === capture.phoneWebsiteAssetSha256,
+          `${capture.id} phone: SHA-256 does not match the checked-in projection`,
+        );
+        responsiveAssetCount += 1;
+      }
     }),
   );
 
   console.log(
-    `Verified ${websiteCaptureSuite.captures.length} website capture assets at ${websiteCaptureSuite.pixelSize[0]}×${websiteCaptureSuite.pixelSize[1]}.`,
+    `Verified ${websiteCaptureSuite.captures.length} website capture masters and ${responsiveAssetCount} responsive crops.`,
   );
 }
 
