@@ -7,12 +7,12 @@ BridgeWeb-specific rules. The Vite command loop lives in
 
 ## Architecture Sources
 
-- Start with [Bridge Viewer Architecture](../docs/architecture/bridge/bridge_viewer_architecture.md)
+- Start with [Bridge Viewer Architecture — System Map](../docs/architecture/bridge/bridge_viewer_architecture.md#system-map)
   for the end-to-end ownership and data-flow map.
-- [Bridge Web Runtime Architecture](../docs/architecture/bridge/bridge_web_runtime_architecture.md)
+- [Bridge Web Runtime Architecture — Runtime Topology](../docs/architecture/bridge/bridge_web_runtime_architecture.md#runtime-topology)
   is the source of truth for BridgeWeb workers, stores, demand, rendering, and
   browser proof.
-- Use [Bridge Native Runtime Architecture](../docs/architecture/bridge/bridge_native_runtime_architecture.md)
+- Use [Bridge Native Runtime Architecture — Ownership Map](../docs/architecture/bridge/bridge_native_runtime_architecture.md#ownership-map)
   when changing the WebKit, scheme, session, or protocol boundary.
 
 ## UI Components
@@ -48,6 +48,7 @@ BridgeWeb-specific rules. The Vite command loop lives in
 
 ## Git Boundaries
 
-- Production Swift/native git data prep belongs to `agentstudio-git`.
-- TypeScript git helpers are allowed only in clearly marked Vite dev-server or
-  test fixture utilities.
+Production Swift/native Git belongs to
+[agentstudio-git](../docs/architecture/state/agentstudio_git.md#agentstudio-git).
+TypeScript git helpers are allowed only in clearly marked Vite dev-server or
+test fixture utilities.

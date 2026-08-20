@@ -80,6 +80,7 @@ organization, always load command specs and directory structure together.
 | Write-owner vs derived vs SQLite row | [Atom Persistence Boundaries — Roles](docs/architecture/state/atom_persistence_boundaries.md#roles) | A `Codable` convenience type becomes both live state and the storage contract. Survey does not mean persist. |
 | Command, shortcut, tooltip, or IPC | [Command Specs And Execution Owners](docs/architecture/commands/command_specs.md#command-specs-and-execution-owners), then [Files to load](docs/architecture/commands/command_specs.md#files-to-load), [Adding a new command — decision tree](docs/architecture/commands/command_specs.md#adding-a-new-command-decision-tree), and [Exhaustive interactive and IPC projections](docs/architecture/commands/command_specs.md#exhaustive-interactive-and-ipc-projections) | You invent a button, label, icon, tooltip, shortcut, or IPC method off the spec catalog. Display hops: [Tooltips, help text, and compact control copy](docs/architecture/commands/command_specs.md#tooltips-help-text-and-compact-control-copy). |
 | Native chrome / shared UI | [Style Guide — Shared Shell Controls](docs/guides/style_guide.md#shared-shell-controls) and [App Architecture — Core Hosting Patterns](docs/architecture/hosting/appkit_swiftui_architecture.md#core-hosting-patterns) | You copy styling into a feature or put a behavior constant in `AppStyles`. |
+| Native git / `agentstudio-git` / `git` CLI | [agentstudio-git](docs/architecture/state/agentstudio_git.md#agentstudio-git) | You shell out to `git`/`wt`, treat the package as a Ghostty vendor, or duplicate Git policy in TypeScript. |
 | BridgeWeb React UI | This file, then [BridgeWeb AGENTS.md — UI Components](BridgeWeb/AGENTS.md#ui-components) | You hand-roll route-local controls instead of owned primitives. Token recipes live in [BridgeWeb Design-Token Architecture — Layer and ownership rules](docs/architecture/bridge/bridgeweb_design_token_architecture.md#layer-and-ownership-rules). The Vite loop lives in [BridgeWeb Fast UI Loop](docs/guides/agent_resources.md#bridgeweb-fast-ui-loop). |
 | Bootstrap, Vite loop, zig/Xcode, build slots | [First-Time Setup](docs/guides/agent_resources.md#first-time-setup), [BridgeWeb Fast UI Loop](docs/guides/agent_resources.md#bridgeweb-fast-ui-loop), [Xcode And Zig](docs/guides/agent_resources.md#xcode-and-zig-vendor-builds), [Swift Build-Slot Recovery](docs/guides/agent_resources.md#swift-build-slot-recovery) | You hydrate vendors by hand, rebuild the full app for Bridge UI, or collide on `.build`. |
 | Debug/beta proof launch | [Observability — Local proof launch](docs/architecture/observability/observability_and_traceability.md#local-proof-launch) | You inherit production identity, share zmx roots, or treat JSONL as proof. |
@@ -126,10 +127,8 @@ second feature needs that exact AppKit behavior.
 
 **BridgeWeb.** Follow this file first, then
 [BridgeWeb AGENTS.md — Architecture Sources](BridgeWeb/AGENTS.md#architecture-sources).
-Do not rebuild the full app for Bridge UI iteration. Native git prep uses
-`agentstudio-git`; TypeScript may shell out to `git` only in marked Vite
-dev-server or test fixture utilities. Worktrunk is retired: no `wt`/Git CLI
-data plane.
+Do not rebuild the full app for Bridge UI iteration. Native Git:
+[agentstudio-git](docs/architecture/state/agentstudio_git.md#agentstudio-git).
 
 **Commands.** Only add commands **and command displays** through the spec
 system. That means label, icon, help, tooltip, shortcut glyph, toolbar/menu
@@ -260,7 +259,7 @@ Architecture lint is stock SwiftLint plus
 `Tools/AgentStudioArchitectureLint`; do not add SwiftSyntax to the app package
 or restore repo-local `rg` architecture-lint scripts. Catalogs and diagrams:
 [Architecture Overview — How To Read](docs/architecture/README.md#how-to-read-this-index),
-[Component Architecture — Principles](docs/architecture/structure/component_architecture.md#11-architecture-principles),
+[Component Architecture — Principles](docs/architecture/structure/component_architecture.md#architecture-principles),
 project tree and target DAG in
 [Repository Root](docs/architecture/structure/directory_structure.md#repository-root)
 and [SwiftPM Module Graph](docs/architecture/structure/directory_structure.md#swiftpm-module-graph),
@@ -296,9 +295,10 @@ schedule, or admit there.
 [Contract 7](docs/architecture/runtime/pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction)
 for what must be true, then
 [EventBus admission](docs/architecture/runtime/pane_runtime_eventbus_design.md#typed-admission-before-multiplexing)
-for how the hop is built. Raw callbacks must not wake the bus or MainActor.
-Contract and equality-suppress at the source; MainActor may apply one
-already-admitted value.
+for how the hop is built. Raw callbacks must not wake the bus. Exact admitted
+facts/controls may take one thin MainActor runtime hop after Contract 7
+disposition. Contract and equality-suppress at the source; MainActor may apply
+one already-admitted value.
 
 **Sidebar row capture vs projection.** Load
 [Sidebar Data Flow](docs/architecture/state/workspace_data_architecture.md#sidebar-data-flow).

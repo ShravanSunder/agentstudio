@@ -160,8 +160,8 @@ Construction owns reuse. `agentstudio-git` owns the Git operation. Keeping
 those jobs separate prevents queue state, semantic identity, and provider code
 from collapsing into one actor.
 
-Packaged production reads must use `agentstudio-git`. TypeScript Git helpers are
-limited to Vite development and fixture construction.
+Packaged production reads must use [agentstudio-git](../state/agentstudio_git.md#agentstudio-git).
+TypeScript Git helpers are limited to Vite development and fixture construction.
 
 ## Product Transport
 

@@ -779,8 +779,8 @@ the preference-atom writes.
 
 Worktrunk integration is retired from the production app. Repo/worktree command
 rows express product intent through the command pipeline; production discovery,
-status, file, and review Git reads use the `agentstudio-git` package behind the
-owning Core, Infrastructure, or Bridge adapters. Do not add a Worktrunk service,
+status, file, and review Git reads use
+[agentstudio-git](../state/agentstudio_git.md#agentstudio-git). Do not add a Worktrunk service,
 startup phase, production `wt` subprocess, or ad hoc production Git CLI data
 plane. TypeScript Git subprocesses remain limited to documented Vite
 development and test-fixture utilities.

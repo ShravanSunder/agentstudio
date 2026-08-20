@@ -203,8 +203,8 @@ through `CoreAtomScope`, `CoreAtoms`, or `atom(\...)`.
 dictionary for snapshots, but each key has its own observable slot. A row that
 reads `worktreeEnrichment(for: worktreeId)` should wake only when that
 worktree's enrichment changes, or when it read an absent key and that same key
-later appears. Surfaces that need both branch state and PR count use
-`worktreeFacts(for:)`, which composes the two keyed lanes intentionally.
+later appears. Surfaces that need PR badges use `pullRequestFacts(for:)` keyed
+by `RepoBranchKey`, not a worktree-id count map. There is no `worktreeFacts(for:)`.
 Membership changes are tracked separately from per-key value changes.
 
 Do not expose raw observable dictionaries as hot UI contracts. Dictionary-shaped
@@ -219,7 +219,7 @@ Lint rule `agentstudio_repo_cache_keyed_reads` rejects hot
 surfaces.
 
 `RepoEnrichmentCacheAtom` is the reference implementation: repo enrichment,
-worktree enrichment, and PR counts are owned as separate `AtomFamily`
+worktree enrichment, and PR facts are owned as separate `AtomFamily`
 instances; `RepoCacheAtom` exposes keyed reads for hot consumers and snapshot
 methods for persistence/cold bulk bridges.
 

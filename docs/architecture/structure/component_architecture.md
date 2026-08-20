@@ -23,6 +23,8 @@ consumer projections. `CoreAtomScope` is the only ambient product state scope;
 there is no ambient Feature resolver or service locator. Cross-target product
 contracts use `package` access rather than broad `public` exposure.
 
+<a id="architecture-principles"></a>
+<a id="11-architecture-principles"></a>
 ### 1.1 Architecture Principles
 
 1. **Pane identity is primary** — `Pane` is the primary entity in the window system. `PaneId` (UUID v7) is the single identity used across every layer: `WorkspacePaneGraphAtom`, `WorkspacePaneAtom`, `Layout`, `ViewRegistry`, `SurfaceManager`, `SessionRuntime`, and zmx. A pane exists independently of layout position, tab, or surface and can move between tabs and layout positions while keeping identity.
@@ -148,7 +150,7 @@ Models are split across two stores. See [Workspace Data Architecture](../state/w
 | `isMainWorktree` | `Bool` | Whether this is the main checkout |
 | `stableKey` | `String` | SHA-256 of path, derived |
 
-All enrichment (branch, git status, origin, PR counts) lives in `RepoEnrichmentCacheAtom`, populated by the event bus and exposed through the composed `RepoCacheAtom` read surface. Hot consumers read `repoEnrichment(for:)`, `worktreeEnrichment(for:)`, `pullRequestCount(for:)`, or `worktreeFacts(for:)` when they genuinely need both branch state and PR count; dictionary snapshots are persistence/cold batch bridges. See [Workspace Data Architecture — Three Persistence Tiers](../state/workspace_data_architecture.md#three-persistence-tiers).
+All enrichment (branch, git status, origin, PR facts) lives in `RepoEnrichmentCacheAtom`, populated by the event bus and exposed through the composed `RepoCacheAtom` read surface. Hot consumers read `repoEnrichment(for:)`, `worktreeEnrichment(for:)`, and `pullRequestFacts(for:)`; dictionary snapshots are persistence/cold batch bridges. See [Workspace Data Architecture — Three Persistence Tiers](../state/workspace_data_architecture.md#three-persistence-tiers). Git reads that produce that enrichment use [agentstudio-git](../state/agentstudio_git.md#agentstudio-git), not `git` CLI.
 
 > **Files:** [`Core/Models/Repo.swift`](../../../Sources/AgentStudio/Core/Models/Repo.swift), [`Core/Models/Worktree.swift`](../../../Sources/AgentStudio/Core/Models/Worktree.swift)
 

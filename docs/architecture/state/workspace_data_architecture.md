@@ -269,7 +269,7 @@ FilesystemActor (raw filesystem I/O)
       ▼
 GitWorkingDirectoryProjector (local git enrichment)
   subscribes to .filesystem(.filesChanged)
-  runs: git status, git branch, git remote
+  runs: AgentStudioGitWorkingTreeStatusProvider → LibGit2AgentStudioGitLocalClient
   emits: .snapshotChanged, .branchChanged, .originChanged, .originUnavailable
          .worktreeDiscovered, .worktreeRemoved
       │
@@ -277,15 +277,14 @@ GitWorkingDirectoryProjector (local git enrichment)
       ▼
 ForgeActor (remote forge enrichment)
   subscribes to .branchChanged, .originChanged, .worktreeDiscovered
-  runs: gh pr list, GitHub API
+  runs: GitHubCLIForgeStatusProvider → `gh api graphql`
   emits: .pullRequestsChanged, .checksUpdated, .refreshFailed
       │
       │ all three post to EventBus, fan-out to:
       ▼
 WorkspaceCacheCoordinator (@MainActor, topology accumulator)
   .topology(.repoDiscovered, linkedWorktrees: .scanned):
-    → WorktreeReconciler.reconcile(existing, discovered) → (merged, delta)
-    → reconcileDiscoveredWorktrees(repoId, merged)
+    → WorkspaceMutationCoordinator.reconcileDiscoveredWorktrees → WorktreeTopologyDelta
     → cache prune for delta.removedWorktrees
     → topologyEffectHandler.topologyDidChange(delta) → WorkspaceSurfaceCoordinator
   .topology(.repoDiscovered, linkedWorktrees: .notScanned):
@@ -335,7 +334,7 @@ SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + Workspace
 | **Owns** | Local git state materialization |
 | **Scope** | Per-worktree, keyed by worktreeId |
 | **Subscribes to** | `.filesystem(.filesChanged)` from EventBus |
-| **Runs** | `git status`, `git branch`, `git remote get-url`, `git worktree list` via `@concurrent nonisolated` helpers |
+| **Runs** | `AgentStudioGitWorkingTreeStatusProvider` → `LibGit2AgentStudioGitLocalClient` (libgit2). Not `git` CLI. Package link: [agentstudio-git](agentstudio_git.md#agentstudio-git) |
 | **Produces** | `GitWorkingDirectoryEvent` envelopes on EventBus |
 | **Carries forward** | `correlationId` from source `.filesChanged` event |
 | **Admission** | Demand-gated to visible, active-pane, active-in-app, or explicit requests; bounded slots reserve capacity for the active pane and oldest stale demanded work |
@@ -359,44 +358,42 @@ that work, and an explicit request may admit it immediately.
 | **Owns** | Remote forge API interaction (PR status, checks, reviews) |
 | **Scope** | Per-repo, keyed by repoId + remoteURL |
 | **Subscribes to** | `.gitWorkingDirectory(.branchChanged)`, `.originChanged`, `.worktreeDiscovered` from EventBus |
-| **Runs** | `gh pr list`, GitHub REST API via `@concurrent nonisolated` helpers |
+| **Runs** | `GitHubCLIForgeStatusProvider` → `gh api graphql` (not `gh pr list`) via `@concurrent nonisolated` helpers |
 | **Self-driven** | One reschedulable next-eligibility deadline for demanded repositories; no fleet-wide periodic poll |
 | **Command-plane** | `refresh(repo:)` after git push |
 | **Admission** | Current demand, freshness, provider backoff, and generation gate one provider call per repo; overlapping eligible triggers retain one latest-scope follow-up |
 | **Recovery** | Per-repo failure backoff is policy-derived and cancelled on unregister/shutdown |
-| **Publication** | Successful count maps publish only when they differ from the last successfully published map |
+| **Publication** | Successful `ForgeEvent.pullRequestsChanged` publishes only when `factsByBranch` differs from the last accepted map |
 | **Produces** | `ForgeEvent` envelopes on EventBus |
 | **Does not** | Scan filesystem, run git commands, discover repos, mutate canonical store |
 
 #### WorkspaceCacheCoordinator
 
-Single topology accumulator with three internal method groups. For topology events with `LinkedWorktreeInfo`, uses `WorktreeReconciler` (pure function) to compute a `WorktreeTopologyDelta`, then delegates ordered effects to an injected `TopologyEffectHandler`.
+Single topology accumulator. For scanned discovery, `WorkspaceMutationCoordinator.reconcileDiscoveredWorktrees` (in `RepositoryWorktreeReconciliation.swift`) computes a `WorktreeTopologyDelta`, then the coordinator delegates ordered effects to an injected `TopologyEffectHandler`. There is no `WorktreeReconciler` type.
 
 ```
-handleTopology_*    — CANONICAL mutations (shared RepositoryTopologyAtom via WorkspaceStore)
-  Events: .topology(.repoDiscovered), .topology(.repoRemoved),
-          .worktreeDiscovered, .worktreeRemoved
-  Touches: RepositoryTopologyAtom through the WorkspaceStore reference
-           (register/unregister repos+worktrees)
+handleTopology(_ envelope: SystemEnvelope)
+  — CANONICAL mutations (RepositoryTopologyAtom via WorkspaceStore.mutationCoordinator)
+  Events: .topology(.repoDiscovered / .reposDiscovered / .repoRemoved),
+          .worktreeRegistered, .worktreeUnregistered
   For .repoDiscovered with .scanned(linkedPaths):
-    → WorktreeReconciler.reconcile(existing, discovered) → (merged, delta)
-    → store.reconcileDiscoveredWorktrees(repoId, merged)
+    → mutationCoordinator.reconcileDiscoveredWorktrees(...) → WorktreeTopologyDelta
     → cache prune for delta.removedWorktrees (coordinator owns repoCache)
     → topologyEffectHandler.topologyDidChange(delta) → WorkspaceSurfaceCoordinator
   For .repoDiscovered with .notScanned:
-    → register/reassociate repo only, skip reconciliation (boot replay)
+    → register/reassociate repo only, skip scanned reconciliation (boot replay)
 
-handleEnrichment_*  — DERIVED cache writes (RepoEnrichmentCacheAtom through RepoCacheAtom)
+Enrichment handlers — DERIVED cache writes (RepoEnrichmentCacheAtom through RepoCacheAtom)
   Events: .snapshotChanged, .branchChanged, .originChanged, .originUnavailable,
           .pullRequestsChanged, .checksUpdated
   Touches: repo enrichment cache only; entity recency has separate direct owners
 
-syncScope_*         — ACTOR registration management
+Scope sync — ACTOR registration management
   Operations: register/unregister worktrees with FilesystemActor, ForgeActor
   Called from topology handlers as needed
 ```
 
-Method naming convention makes responsibility explicit. If coordinator grows too large, method groups become natural extraction points. Does not run git/network commands or access filesystem directly.
+Does not run git/network commands or access filesystem directly.
 
 ### Filesystem Effect Admission And Projection
 
@@ -553,22 +550,24 @@ Branch display: `WorktreeEnrichment.branch` from cache, falling back to `"detach
 
 ### App Boot (implemented)
 
-Boot is driven by `WorkspaceBootSequence` ([`App/Boot/WorkspaceBootSequence.swift`](../../../Sources/AgentStudio/App/Boot/WorkspaceBootSequence.swift)), which defines ordered steps executed synchronously on the main actor:
+Boot is driven by `WorkspaceBootSequence` ([`App/Boot/WorkspaceBootSequence.swift`](../../../Sources/AgentStudio/App/Boot/WorkspaceBootSequence.swift)). Presentation prerequisites run first (sync or async). Post-presentation steps run **async** and must not be treated as one blocking list.
 
 ```
-WorkspaceBootStep (in order):
-  1. prepareDatabases         → prepare core + local; fatal core stops boot, local may default
-  2. loadCanonicalStore       → consume prepared core and hydrate repos/worktrees/panes/tabs
-  3. establishRuntimeBus      → create the minimum runtime hosts for shell presentation
-  4. loadCacheStore           → hydrate application/workspace recency, cache, and sidebar groups
-  5. loadUIStore              → hydrate window/sidebar UI, settings, and inbox local slices
-  6. startFilesystemActor     → start FilesystemActor
-  7. startGitProjector        → start GitWorkingDirectoryProjector
-  8. startForgeActor          → start ForgeActor
-  9. startCacheCoordinator    → subscribe WorkspaceCacheCoordinator to the bus
- 10. triggerInitialTopologySync → replay persisted topology through ordinary events
- 11. armPersistenceObservation → observe only after every local owner finishes hydration
- 12. readyForReactiveSidebar  → mark secondary-state hydration scheduled
+Presentation (shell may not appear until these finish):
+  1. prepareDatabases
+  2. loadCanonicalStore
+  3. establishRuntimeBus
+
+Post-presentation (async, after the composition-backed shell is visible):
+  4. loadCacheStore
+  5. loadUIStore
+  6. startFilesystemActor
+  7. startGitProjector
+  8. startForgeActor
+  9. startCacheCoordinator
+ 10. armPersistenceObservation   ← before topology replay
+ 11. triggerInitialTopologySync
+ 12. readyForReactiveSidebar
 ```
 
 Database preparation is cached for the launch. Local recovery is exactly
@@ -621,15 +620,15 @@ Boot replay uses the same `.repoDiscovered` event and same coordinator code path
 2. FSEvents fires → FilesystemActor detects .git/HEAD change
    → emits .filesChanged (contains .git internal changes)
 3. GitWorkingDirectoryProjector:
-   → runs git status → detects branch changed
+   → AgentStudioGit status read → detects branch changed
    → emits .branchChanged(wt-1, repo-A, from: "feat-1", to: "feat-2")
    → emits .snapshotChanged(new snapshot)
 4. ForgeActor subscribes to .branchChanged (via bus fan-out):
    → updates repo-A membership and requests refresh through demand admission
    → starts immediately only when demanded and stale/missing
-   → gh pr list for new branch
+   → `gh api graphql` for the repo
    → emits .pullRequestsChanged
-5. CacheCoordinator writes all to cache store (gets branchChanged + prCountsChanged from bus)
+5. CacheCoordinator writes enrichment to RepoCacheAtom (branch + pullRequestFacts)
 6. Sidebar: branch chip updates, PR badge updates
 ```
 
@@ -748,8 +747,8 @@ The event bus is a **notification mechanism** — runtime actors produce facts, 
 func handleAddFolderRequested(path: URL) async {
     let rootURL = path.standardizedFileURL
 
-    // 2. Persist the watched path (direct store mutation)
-    store.addWatchedPath(rootURL)
+    // 2. Persist the watched path
+    _ = store.mutationCoordinator.addWatchedPath(rootURL)
 
     // 3. Call the focused watched-folder command surface.
     // Do not depend on the concrete FilesystemGitPipeline type here.
@@ -765,26 +764,10 @@ func handleAddFolderRequested(path: URL) async {
     }
 }
 
-// 5. WorkspaceCacheCoordinator's bus subscription picks up topology facts.
-// WorkspaceStore forwards these calls to its shared RepositoryTopologyAtom:
-func handleTopology(_ event: TopologyEvent) {
-    switch event {
-    case .repoDiscovered(let repoPath, _):
-        let incomingStableKey = StableKey.fromPath(repoPath)
-        let existingRepo = workspaceStore.repos.first {
-            $0.repoPath == repoPath || $0.stableKey == incomingStableKey
-        }
-        if let repo = existingRepo {
-            if repoCache.repoEnrichmentByRepoId[repo.id] == nil {
-                repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
-            }
-        } else {
-            let repo = workspaceStore.addRepo(at: repoPath)
-            repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
-        }
-    }
-}
-
+// 5. WorkspaceCacheCoordinator.handleTopology(_ envelope: SystemEnvelope)
+//    reads TopologyEvent from the system envelope. Repo identity lives on
+//    RepositoryTopologyAtom via WorkspaceMutationCoordinator — there is no
+//    WorkspaceStore.repos / addRepo.
 // 6. Later, GitWorkingDirectoryProjector emits .snapshotChanged, .branchChanged
 // 7. WorkspaceCacheCoordinator writes enrichment to RepoCacheAtom
 // 8. Sidebar re-renders via @Observable
@@ -886,13 +869,13 @@ LAYER              COMPONENT                        OWNS
 Fact Producer      FilesystemActor                  Observing filesystem, emitting raw facts
 Publication        EventBus                         Match fact topics; replay and delivery diagnostics
 Accumulator        WorkspaceCacheCoordinator         Interpreting facts, sequencing effects
-Reconciler         WorktreeReconciler (pure func)   Identity preservation, diff computation
+Reconciler         WorkspaceMutationCoordinator     WorktreeTopologyDelta in RepositoryWorktreeReconciliation.swift
 State              WorkspaceStore                   Canonical truth, mutation methods
 Effects            TopologyEffectHandler             Ordered follow-on work (WorkspaceSurfaceCoordinator)
 Reader             Sidebar                          Rendering truth via @Observable
 ```
 
-**Why not pure pub/sub for topology:** Multiple bus subscribers independently inferring what changed from raw events is fragile — ordering implicit, diffs rediscovered, cleanup ad hoc. The accumulator pattern ensures one interpreter, one diff (via `WorktreeReconciler`), one ordered effect chain (via `TopologyEffectHandler`).
+**Why not pure pub/sub for topology:** Multiple bus subscribers independently inferring what changed from raw events is fragile — ordering implicit, diffs rediscovered, cleanup ad hoc. The accumulator pattern ensures one interpreter, one diff (`WorktreeTopologyDelta`), one ordered effect chain (via `TopologyEffectHandler`).
 
 **Why the bus still exists for topology:** Independent consumers (ForgeActor, NotificationReducer) subscribe to raw topology facts on the bus. They react independently, don't depend on store state, and don't need ordering guarantees. The bus serves notification; the handler serves sequencing.
 

@@ -236,7 +236,7 @@ The current app layout is hybrid:
   observable view models, not atoms or global stores.
 - `Infrastructure/` owns domain-agnostic utilities and external integrations.
 
-Use [Directory Structure & Module Boundaries](../architecture/structure/directory_structure.md) as the placement source of truth.
+Use [Directory Structure — Decision Process](../architecture/structure/directory_structure.md#decision-process-where-does-this-file-go) as the placement source of truth. Organization trees and the compiled DAG: [Source And Target Structure](../architecture/structure/directory_structure.md#source-and-target-structure).
 
 ### Zig Build System
 Ghostty and zmx are built by `mise run setup` in the primary worktree or an

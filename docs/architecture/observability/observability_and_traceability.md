@@ -280,7 +280,7 @@ another debug worktree. Debug observability bundles also remove URL-handler
 registration so they cannot claim production `agentstudio://` callbacks or
 deep links. Do not copy production or beta state into this root unless a test
 plan explicitly calls for it. The generated debug bundle, logs, traces, and
-zmx root live under `~/.agentstudio-db/<code>` rather than repo [`tmp/`](../../tmp) so
+zmx root live under `~/.agentstudio-db/<code>` rather than a repo `tmp/` tree so
 autonomous debug runs do not need to read their runnable app from
 `~/Documents`.
 

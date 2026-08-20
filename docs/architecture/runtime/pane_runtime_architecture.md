@@ -44,7 +44,8 @@ one already-admitted value on MainActor.
 | File | Owns |
 | --- | --- |
 | [`PaneRuntime.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntime.swift) | Runtime protocol: `handleCommand`, `subscribe()`, lifecycle, replay, shutdown |
-| [`RuntimeEnvelope.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelope.swift) / [`RuntimeEnvelopeCore.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift) | 3-tier envelope: `SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope` |
+| [`RuntimeEnvelope.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelope.swift) | Comment pointer only — types are not in this file |
+| [`RuntimeEnvelopeCore.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift) | 3-tier envelope: `SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope` |
 | [`PaneRuntimeCommand.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeCommand.swift) | Inbound runtime command vocabulary |
 | [`PaneRuntimeEvent.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift) | Pane-scoped event taxonomy |
 | [`EventBus.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventBus.swift) | Fan-out transport: named policy subscriptions, fact-topic interest, replay diagnostics |

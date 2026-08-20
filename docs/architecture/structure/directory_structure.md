@@ -179,7 +179,7 @@ AgentStudioCore ──► AgentStudioSharedComponents
                 └─► AgentStudioInfrastructure
 
 AgentStudioSharedComponents ──► AgentStudioInfrastructure
-AgentStudioInfrastructure     ──► no product module
+AgentStudioInfrastructure     ──► AgentStudioGit (external package; see [agentstudio-git](../state/agentstudio_git.md#agentstudio-git))
 ```
 
 There are no sibling Feature dependencies. App is the only product target that
