@@ -1303,11 +1303,28 @@ struct PluginContext: Sendable {
 - Plugin versioning and compatibility
 - Forge adapter protocol (how ForgeActor dispatches to plugin-provided forge implementations)
 
-## Implementation Migration Inventory
+## Historical Migration Ledger
 
-Current codebase patterns that need migration to align with this design. Audited from [`Sources/AgentStudio/`](../../Sources/AgentStudio).
+The EventBus, production subscriber migration, FilesystemActor, ForgeActor,
+consumer-side coalescing, bounded replay, delivery diagnostics, and fact-topic
+interest matching are **shipped**. Do not re-open a NotificationCenter command
+bus.
 
-### What's already clean
+**Remaining on current source (2026-08-19):** eight `NotificationCenter`
+references, all AppKit/UI observers in
+[`RepoExplorerView+VisibleRows.swift`](../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+VisibleRows.swift)
+and
+[`TerminalSurfaceScrollView.swift`](../../Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift).
+They are not the historical ~38 command/event dispatch calls below.
+
+The table that follows is a **pre-hardening inventory**. It is not remaining
+work. `RPCRouter` is retired; product-scheme control dispatch lives in
+[`BridgeProductSchemeControlDispatcher.swift`](../../Sources/AgentStudio/Features/Bridge/Transport/BridgeProductSchemeControlDispatcher.swift).
+
+Deferred container and plugin integration remain future capability. See
+[Plugin Integration Model](#plugin-integration-model-deferred).
+
+### What's already clean (keep)
 
 - **No `Task.detached`** in production code
 - **No `MainActor.run`** in production code
@@ -1316,9 +1333,9 @@ Current codebase patterns that need migration to align with this design. Audited
 - **SQLite file I/O** is isolated behind `WorkspaceSQLiteDatastore` and repositories (not `@MainActor`)
 - **C callback patterns** correctly use `@Sendable` trampolines + `Task { @MainActor in }`
 
-### Phase 1: Core — NotificationCenter → typed EventBus
+### Historical Phase 1: NotificationCenter → typed EventBus
 
-**~38 NotificationCenter calls** across the codebase form the current command/event dispatch system. These are the primary migration target.
+**Historical (~38 NotificationCenter calls).** Already migrated. Do not restore.
 
 | Historical File | Historical Pattern | Historical Events | Severity |
 |------|---------|--------|----------|
@@ -1343,9 +1360,9 @@ NotificationCenter.default.post(name: .selectTabById, userInfo: ["tabId": tabId]
 await bus.post(PaneEventEnvelope(source: .system(.builtin(.coordinator)), event: .lifecycle(.tabSwitched(tabId))))
 ```
 
-### Phase 1: Core — JSON encoding off MainActor
+### Historical Phase 1: JSON encoding off MainActor
 
-**RPCRouter** is retired. Product-scheme control dispatch lives in [`BridgeProductSchemeControlDispatcher.swift`](../../Sources/AgentStudio/Features/Bridge/Transport/BridgeProductSchemeControlDispatcher.swift). Do not add a new `RPCRouter.swift`.
+**RPCRouter** is retired. Product-scheme control dispatch lives in [`BridgeProductSchemeControlDispatcher.swift`](../../Sources/AgentStudio/Features/Bridge/Transport/BridgeProductSchemeControlDispatcher.swift). Do not add a new `RPCRouter.swift`. The line-range decode work below is historical and must not be reopened against a missing file.
 
 | Method | Line | Work | Target |
 |--------|------|------|--------|
@@ -1355,11 +1372,11 @@ await bus.post(PaneEventEnvelope(source: .system(.builtin(.coordinator)), event:
 
 These methods don't need MainActor isolation — they take immutable input and return parsed results. Making them `nonisolated` is the simplest fix; `@concurrent nonisolated` if profiling shows >1ms per call.
 
-### Phase 2: UI — Combine bridge patterns
+### Historical Phase 2: UI — Combine bridge patterns
 
-3 `.onReceive(NotificationCenter.default.publisher(...))` in [`App/Windows/MainSplitViewController.swift`](../../Sources/AgentStudio/App/Windows/MainSplitViewController.swift) (lines 395-404). These bridge NotificationCenter to SwiftUI. They can migrate to EventBus subscriptions or direct store method calls when Phase 1 completes.
+Historical note: `.onReceive(NotificationCenter.default.publisher(...))` in MainSplitViewController. AppKit lifecycle now uses `ApplicationLifecycleMonitor`. Do not restore a NotificationCenter command path.
 
-### Phase 3: Polish — URLHistoryService JSON I/O
+### Historical Phase 3: Polish — URLHistoryService JSON I/O
 
 4 `JSONEncoder`/`JSONDecoder` calls in [`URLHistoryService.swift`](../../Sources/AgentStudio/Features/Webview/URLHistoryService.swift) (lines 167-192). Low frequency, not on critical path. Can offload to `nonisolated` or `@concurrent nonisolated` for consistency.
 

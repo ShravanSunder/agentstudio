@@ -494,9 +494,26 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
 
 > **Files:** [`App/Panes/ViewRegistry.swift`](../../Sources/AgentStudio/App/Panes/ViewRegistry.swift), [`App/Panes/Hosting/PaneLeafContainer.swift`](../../Sources/AgentStudio/App/Panes/Hosting/PaneLeafContainer.swift), [`Core/Views/Panes/SplitContainerDropCaptureOverlay.swift`](../../Sources/AgentStudio/Core/Views/Panes/SplitContainerDropCaptureOverlay.swift)
 
-### 3.6 WorkspaceSurfaceCoordinator
+### 3.6 Coordinators
 
-The `WorkspaceSurfaceCoordinator` is the canonical orchestration boundary for action execution and model↔view↔surface coordination. It owns no domain state and performs only sequencing.
+Coordinators sequence operations. They own no domain state and contain no
+domain logic. If a method `if` decides *what* to do with domain data, that
+logic does not belong there.
+
+| Owner | File | Job |
+|-------|------|-----|
+| `WorkspaceSurfaceCoordinator` | [`App/Coordination/WorkspaceSurfaceCoordinator.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift) | App composition: action execution, model↔view↔surface, runtime dispatch, topology effects |
+| `WorkspaceCacheCoordinator` | [`App/Coordination/WorkspaceCacheCoordinator.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceCacheCoordinator.swift) | Event-bus consumer; enrichment/cache apply and topology-effect handoff |
+| `WorkspacePreparedContentMountCoordinator` | [`App/Coordination/WorkspacePreparedContentMountCoordinator.swift`](../../Sources/AgentStudio/App/Coordination/WorkspacePreparedContentMountCoordinator.swift) | Joins independently scheduled terminal and nonterminal startup mount lanes |
+| `WorkspaceMutationCoordinator` | [`Core/State/MainActor/Coordination/WorkspaceMutationCoordinator.swift`](../../Sources/AgentStudio/Core/State/MainActor/Coordination/WorkspaceMutationCoordinator.swift) | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
+
+Do not invent a fifth coordinator for a job one of these already owns. WSC
+extensions live under [`App/Coordination/`](../../Sources/AgentStudio/App/Coordination); do not treat a six-file
+list as the catalog.
+
+#### WorkspaceSurfaceCoordinator
+
+The `WorkspaceSurfaceCoordinator` is the canonical App orchestration boundary for action execution and model↔view↔surface coordination.
 
 - Coordinates `WorkspaceStore`, `SessionRuntime`, `SurfaceManager`, and `ViewRegistry`.
 - Owns the `RuntimeRegistry`, subscribes to the `EventBus`, feeds the `NotificationReducer`, and dispatches `PaneRuntimeCommand`s to individual runtimes.
@@ -504,16 +521,20 @@ The `WorkspaceSurfaceCoordinator` is the canonical orchestration boundary for ac
 - Manages undo sequencing with deterministic restore/reattach behavior.
 - Conforms to `TopologyEffectHandler` for orphan pane detection and filesystem root sync after topology changes.
 
-**Extensions** — The coordinator is split across six extensions by responsibility:
+**Responsibility groups** — WSC is split across extensions under
+[`App/Coordination/`](../../Sources/AgentStudio/App/Coordination). Group by job, then open the matching
+`WorkspaceSurfaceCoordinator+*.swift` file. Do not copy a fixed file count.
 
-| Extension | File | Role |
-|-----------|------|------|
-| `+ActionExecution` | [`WorkspaceSurfaceCoordinator+ActionExecution.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift) | `execute(WorkspaceActionCommand)`, view creation helpers, undo close/restore, terminal tab creation |
-| `+ViewLifecycle` | [`WorkspaceSurfaceCoordinator+ViewLifecycle.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift) | `createViewForContent`, `createView(for:worktree:repo:)`, `teardownView`, `restoreAllViews`, `restoreViewsForActiveTabIfNeeded` |
-| `+TerminalPlaceholders` | [`WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift) | Deferred view creation using current geometry, placeholder registration for zmx panes awaiting bounds |
-| `+RuntimeDispatch` | [`WorkspaceSurfaceCoordinator+RuntimeDispatch.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift) | `dispatchRuntimeCommand` to `RuntimeRegistry` with target resolution |
-| `+FilesystemSource` | [`WorkspaceSurfaceCoordinator+FilesystemSource.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift) | Filesystem root sync, worktree activity tracking, `FilesystemGitPipeline` registration |
-| `+Undo` | [`WorkspaceSurfaceCoordinator+Undo.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift) | `undoCloseTab()`, undo stack management, pane/tab close snapshot restore |
+| Group | Representative files | Role |
+|-------|----------------------|------|
+| Action execution | [`+ActionExecution.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift) | `execute(WorkspaceActionCommand)`, view creation helpers |
+| View lifecycle | [`+ViewLifecycle.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift) | create/teardown/restore views for pane content |
+| Terminal placeholders and mounting | [`+TerminalPlaceholders.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift), [`+TerminalContentMounting.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+TerminalContentMounting.swift), [`+TerminalRuntimeBootstrap.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+TerminalRuntimeBootstrap.swift) | Deferred geometry, placeholder publication, terminal runtime bootstrap |
+| Nonterminal mounting | [`+NonterminalContentMounting.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+NonterminalContentMounting.swift) | Bridge/webview/editor mount admission |
+| Runtime dispatch | [`+RuntimeDispatch.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift) | `dispatchRuntimeCommand` to `RuntimeRegistry` |
+| Filesystem | [`+FilesystemSource.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift) | Filesystem root sync, `FilesystemGitPipeline` |
+| Undo and moves | [`+Undo.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift), [`+CrossTabPaneMove.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+CrossTabPaneMove.swift) | Close snapshots, restore, cross-tab moves |
+| Bridge | [`+BridgeLifecycle.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+BridgeLifecycle.swift) and sibling `+Bridge*.swift` files | Bridge lifecycle, activity, review opening, metadata repair |
 
 **Two action layers flow through the coordinator:**
 - **Workspace actions** (`WorkspaceActionCommand` from [`Core/Actions/`](../../Sources/AgentStudio/Core/Actions)): workspace structure mutations (selectTab, closePane, insertPane, etc.) → resolved by `WorkspaceCommandResolver`, validated by `WorkspaceCommandValidator`, executed against `WorkspaceStore`.
@@ -1059,6 +1080,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | [`App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift) | Pane close undo support |
 | [`App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift) | NSView lifecycle orchestration for panes |
 | [`App/Coordination/WorkspaceCacheCoordinator.swift`](../../Sources/AgentStudio/App/Coordination/WorkspaceCacheCoordinator.swift) | Event bus consumer; updates enrichment/cache stores |
+| [`App/Coordination/WorkspacePreparedContentMountCoordinator.swift`](../../Sources/AgentStudio/App/Coordination/WorkspacePreparedContentMountCoordinator.swift) | Joins terminal and nonterminal startup mount lanes |
 | [`App/Commands/AppCommand+IPCProjection.swift`](../../Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift) | Independent exhaustive IPC companion contracts and public command-list DTO projection |
 | [`App/Windows/MainWindowController.swift`](../../Sources/AgentStudio/App/Windows/MainWindowController.swift) | Primary window management |
 | [`App/Windows/MainSplitViewController.swift`](../../Sources/AgentStudio/App/Windows/MainSplitViewController.swift) | Split view: sidebar + terminal panes |

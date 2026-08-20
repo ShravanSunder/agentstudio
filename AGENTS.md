@@ -238,8 +238,16 @@ boundary:
 *published* from `@MainActor @Observable` atoms; that mark is the publication
 owner, not a license to derive, admit, or own SQL there.
 Shared Core state is actor-bound in `CoreAtoms` through the one ambient
-`CoreAtomScope`. Feature-owned mutable state is never ambient. Two coordinators
-handle cross-slice sequencing. `AtomRegistry` is App-only composition, never an
+`CoreAtomScope`. Feature-owned mutable state is never ambient. Named
+coordinators sequence across stores and do not own domain logic:
+[`WorkspaceSurfaceCoordinator`](Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift)
+(model↔view↔surface),
+[`WorkspaceCacheCoordinator`](Sources/AgentStudio/App/Coordination/WorkspaceCacheCoordinator.swift)
+(bus → cache/topology effects),
+[`WorkspacePreparedContentMountCoordinator`](Sources/AgentStudio/App/Coordination/WorkspacePreparedContentMountCoordinator.swift)
+(startup mount join),
+[`WorkspaceMutationCoordinator`](Sources/AgentStudio/Core/State/MainActor/Coordination/WorkspaceMutationCoordinator.swift)
+(cross-atom workspace mutations). `AtomRegistry` is App-only composition, never an
 ambient lookup. `Infrastructure/AtomLib` owns only generic primitives.
 Architecture lint is stock SwiftLint plus
 `Tools/AgentStudioArchitectureLint`; do not add SwiftSyntax to the app package

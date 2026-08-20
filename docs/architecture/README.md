@@ -12,6 +12,10 @@ and tests. Architecture source paths are markdown links to the tree; if a path
 is not clickable, treat it as stale and open Directory Structure or the owning
 doc's file table instead.
 
+Current owners and historical/background docs are listed separately in
+[Document Index](#document-index). Do not treat a self-disclaimed or idea
+document as current authority.
+
 `AGENTS.md` owns the 5-line everyday proof ladder; this index names which proof
 doc to open ([Observability And Traceability — Proof Model](observability_and_traceability.md#proof-model),
 [Style Guide — Shared Shell Controls](../guides/style_guide.md#shared-shell-controls), and the other rows below).
@@ -27,7 +31,7 @@ doc to open ([Observability And Traceability — Proof Model](observability_and_
 | Is this app state, runtime state, or persisted state? | [Atom Persistence Boundaries — Lifecycle Lanes](atom_persistence_boundaries.md#lifecycle-lanes) | You persist a runtime/presentation atom, or you leave a durable field unsaved. | [`Core/State/MainActor/Atoms/`](../../Sources/AgentStudio/Core/State/MainActor/Atoms), persistence wrappers |
 | Is this write-owner atom / derived read model / SQLite row? | [Atom Persistence Boundaries — Roles](atom_persistence_boundaries.md#roles) | A `Codable` convenience type becomes both live atom state and the SQLite contract. | Atom types vs `*Row` projections vs derived `Pane`/`Tab` readers |
 | Workspace command vs pane runtime command vs bus fact vs AppKit lifecycle? | [Mutation Flow](#mutation-flow) in this index; then [Pane Runtime EventBus Design — Admission And Hop Shape](pane_runtime_eventbus_design.md#admission-and-hop-shape) and [Commands and Shortcuts — Command planes](commands_and_shortcuts.md#command-planes) | You route a command through the bus, or you bounce AppKit lifecycle through `WorkspaceActionCommand`. | `WorkspaceActionCommand`, `PaneRuntimeCommand`, `PaneRuntimeEventBus`, `ApplicationLifecycleMonitor` |
-| How do pane/runtime commands and facts move? | [Pane Runtime Architecture — Three Data Flow Planes](pane_runtime_architecture.md#three-data-flow-planes) and [Pane Runtime EventBus Design — TL;DR](pane_runtime_eventbus_design.md#tl-dr) | You infer hop shape from `@MainActor` annotations and wake MainActor for raw samples. | [`Core/RuntimeEventSystem/`](../../Sources/AgentStudio/Core/RuntimeEventSystem), [`App/Coordination/`](../../Sources/AgentStudio/App/Coordination) |
+| How do pane/runtime commands and facts move? | [Pane Runtime Architecture — Three Data Flow Planes](pane_runtime_architecture.md#three-data-flow-planes) and [Pane Runtime EventBus Design — TL;DR](pane_runtime_eventbus_design.md#tldr) | You infer hop shape from `@MainActor` annotations and wake MainActor for raw samples. | [`Core/RuntimeEventSystem/`](../../Sources/AgentStudio/Core/RuntimeEventSystem), [`App/Coordination/`](../../Sources/AgentStudio/App/Coordination) |
 | What may run on MainActor vs off-main? | [Pane Runtime EventBus Design — Admission And Hop Shape](pane_runtime_eventbus_design.md#admission-and-hop-shape) | A `@MainActor` type becomes permission to derive, schedule, or admit there. | Terminal drain/projector, `EagerDerivedAtom`, `FilesystemProjectionIndex` |
 | Where are high-rate source signals admitted, contracted, and projected? | [Pane Runtime Architecture — Contract 7](pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction) and [Pane Runtime EventBus Design — Typed Admission](pane_runtime_eventbus_design.md#typed-admission-before-multiplexing); for filesystem effects, [Workspace Data Architecture — Filesystem Effect Admission](workspace_data_architecture.md#filesystem-effect-admission-and-projection) | Raw callbacks wake the bus or MainActor; you skip source admission. | Terminal source routing/projectors and `FilesystemProjectionIndex` |
 | How should expensive derived facts react to product demand without polling or stale publication? | [Demand-Driven Derived-State Refresh — Selection Rule](demand_driven_derived_state_refresh.md#selection-rule) | Debounce/throttle is treated as a classification; the wrong mechanism silently drops ordering, scope, or currentness. | The concrete observer, admission owner, executor, publication path, and keyed read model |
@@ -229,32 +233,42 @@ AppKit/macOS lifecycle ingress → ApplicationLifecycleMonitor → AppLifecycleA
 
 ## Document Index
 
-Each document owns a specific concern. No two documents are authoritative for the same topic. When in doubt about where something belongs, the ownership column determines the home.
+**Current owners** below are the architecture catalog. No two current owners
+are authoritative for the same topic. Historical and idea documents are listed
+after the table; they are not current authority even when they still contain
+useful background.
 
 | Document | Ownership | Covers |
 |----------|-----------|--------|
-| [Component Architecture](component_architecture.md) | Structural overview — how components compose | Data model (pane, tab, layout, session), service layer, command bar, persistence format, store boundaries, coordinator role, invariants |
+| [Component Architecture](component_architecture.md) | Structural overview — how components compose | Data model (pane, tab, layout, session), service layer, named coordinators, persistence format, store boundaries, invariants |
 | [Workspace Data Architecture](workspace_data_architecture.md) | Workspace-level data — repos, worktrees, enrichment | Three-tier persistence, canonical vs enrichment models, enrichment pipeline, topology reconciliation, typed filesystem/Git pane-projection admission, affected-key effects, sidebar data flow, ordering/replay contracts |
 | [Demand-Driven Derived-State Refresh](demand_driven_derived_state_refresh.md) | Generic classify-first vocabulary for expensive derived facts | Selection rule, nine-stage loop, bounded outcome telemetry, R-INV suppression/deferral gates, and drift discipline |
 | [Atom Persistence Boundaries](atom_persistence_boundaries.md) | Atom-to-SQLite ownership model | Write-owner atom rules, current lifecycle lanes, derived read models, current row projections, runtime-only surfaces, and ownership map |
-| [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane-level runtime contracts | Pane runtime contracts (C1-C16), typed Ghostty source admission and bounded contraction (C7), event envelopes, per-pane event taxonomy, adapter/runtime/coordinator layers, attach and restart contracts, command dispatch, and source/sink/projection vocabulary |
-| [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | EventBus threading and coordination | Concrete admission-to-coordination mechanics, actor fan-out, boundary actors, compact MainActor application, semantic projection, connection patterns, and Swift 6.2 threading model |
-| [Window System Design](window_system_design.md) | Window/tab/pane structural model | Window/tab/pane/drawer data model, dynamic views, arrangements, orphaned pane pool, ownership invariants |
+| [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane-level runtime contracts | Pane runtime contracts (C1-C16), typed Ghostty source admission and bounded contraction (C7), event envelopes, per-pane event taxonomy, adapter/runtime/coordinator layers, attach and restart contracts, command dispatch, and source/sink/projection vocabulary. Verify locked pseudo-code against [`PaneRuntime.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntime.swift). |
+| [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | EventBus threading and coordination | Concrete admission-to-coordination mechanics, actor fan-out, boundary actors, compact MainActor application, semantic projection, connection patterns, and Swift 6.2 threading model. Shipped adoption is current; the migration inventory is historical. |
 | [Session Lifecycle](session_lifecycle.md) | Pane identity and session backend lifecycle | Pane identity contract, creation, close, undo, restore, runtime status, zmx backend |
 | [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Zmx-specific attach and sizing | Deferred attach sequencing, geometry readiness, restart reconcile policy, zmx restore/sizing test coverage |
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface management | Surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell | AppKit hosting model, controllers, command bar panel, event handling |
 | [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Shared command identity, independent exhaustive interactive/IPC projections, typed surfaces and targeting, capability and execution, shortcut routing, and tooltip projection |
-| [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic control | SwiftPM target split, socket/JSON-RPC foundation, auth, permission grants, protocol ports, CLI/smoke client, and the boundary between app IPC and internal zmx IPC |
-| [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Remote zmx daemons and fork strategy | SSH tunnel architecture (Option C), security model, connection lifecycle, case for forking zmx |
+| [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic control | SwiftPM target split, socket/JSON-RPC foundation, auth, permission grants, protocol ports, CLI/smoke client, app composition, zmx separation, and lint-rule ownership boundaries |
 | [Directory Structure](directory_structure.md) | Module, test, and file-placement boundaries | Repo-root tree, [`Sources/AgentStudio/`](../../Sources/AgentStudio) tree, compiled SwiftPM graph, package visibility, Core vs Features decision process, import rule, paired tests, executable integration ownership |
-| [Architecture Lint Inventory](architecture_lint_inventory.md) | Architecture lint enforcement map | SwiftLint rule IDs, former shell-script coverage, blocking/report-only/test/review classifications |
-| [AgentStudio IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic-control boundaries | Public contract, AppIPC port, app composition, zmx separation, and lint-rule ownership boundaries |
+| [Architecture Lint Inventory](architecture_lint_inventory.md) | Architecture lint enforcement map | Live SwiftSyntax rule IDs must match [`ArchitectureRule.swift`](../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Core/ArchitectureRule.swift); stock SwiftLint plus blocking/report-only/test/review classifications |
 | [Bridge Viewer Architecture](bridge_viewer_architecture.md) | End-to-end Bridge Viewer ownership | Product boundaries, native/web split, source-to-paint lifecycle, viewer modes, freshness, and proof routing |
 | [Bridge Product Transport Architecture](bridge_product_transport_architecture.md) | Bridge native/web product transport | Command, metadata, content, demand, application-protocol, and placement boundaries |
 | [Bridge Native Runtime Architecture](bridge_native_runtime_architecture.md) | Swift/WebKit Bridge runtime | Shared construction, `agentstudio-git`, Git scheduling, pane publication, transport, activity, and teardown |
 | [Bridge Web Runtime Architecture](bridge_web_runtime_architecture.md) | BridgeWeb runtime | One comm worker per pane, separate File/Review state, demand, cache, Pierre/Shiki rendering, suspension, and reconvergence |
-| [JTBD & Requirements](jtbd_and_requirements.md) | Product requirements | Jobs to be done, pain points, and requirements for the dynamic window system |
+
+### Historical And Background
+
+These files remain in the tree for motivation or early design. They are **not**
+current owners. Verify every claim against a current owner and source.
+
+| Document | Status | Live owner instead |
+|----------|--------|--------------------|
+| [Window System Design](window_system_design.md) | Self-disclaimed outdated; internal drawer-lifecycle contradiction | [Component Architecture](component_architecture.md), [Session Lifecycle](session_lifecycle.md), [App Architecture](appkit_swiftui_architecture.md) |
+| [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Forward-looking fork/SSH ideas; not shipped | [Zmx Restore and Sizing](zmx_restore_and_sizing.md), [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) |
+| [JTBD & Requirements](jtbd_and_requirements.md) | Product motivation | Current owners above for implementation |
 
 ## Related
 

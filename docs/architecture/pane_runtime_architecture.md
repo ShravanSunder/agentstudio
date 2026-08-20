@@ -8,7 +8,14 @@ The current system translates Ghostty callbacks into a typed, exhaustive source-
 
 This document defines the pane runtime communication architecture: how panes of all types produce events, receive commands, and coordinate through the workspace.
 
-> **Implementation status note:** This document includes both shipped contracts and forward-defined target contracts. For the EventBus coordination design (actor fan-out, boundary actors, data flow per contract), see [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md).
+> **How to read this document:** Shipped contracts are current. Locked
+> pseudo-code is illustrative until it matches
+> [`PaneRuntime.swift`](../../Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntime.swift)
+> (`subscribe() -> AsyncStream<RuntimeEnvelope>`). Ticket-branch status and the
+> migration ledger are historical provenance, not the current worktree.
+> `PaneEventEnvelope` does not exist; use `RuntimeEnvelope`. `RPCRouter` is
+> retired. For EventBus mechanics, see
+> [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md).
 
 ### Jobs This Architecture Solves
 
@@ -734,6 +741,11 @@ Quick reference: which direction each contract's data flows and which actor boun
 
 ## Locked Contracts
 
+Live protocol, envelope, and registry types live under
+[`Core/RuntimeEventSystem/`](../../Sources/AgentStudio/Core/RuntimeEventSystem).
+The Swift blocks below are contract sketches. If they disagree with source,
+source wins.
+
 ### Contract Vocabulary
 
 Every contract has a **role** keyword that describes its relationship to the event system:
@@ -773,9 +785,9 @@ Sources are categorized by scope. Topology sources use `SystemEnvelope`; worktre
 /// Every pane transport type (terminal, bridge, webview, swift) conforms to this.
 /// Coordinator only knows this protocol — never pane-type-specific types.
 ///
-/// One instance per pane. All instances share @MainActor.
-/// Adapters (GhosttyAdapter, RPCRouter, WebKit delegate) route events
-/// to the correct runtime instance by surface/view/pane ID.
+/// One instance per pane. Publication is @MainActor.
+/// Terminal Ghostty callbacks contract off-main; Bridge scheme dispatch lives
+/// in BridgeProductSchemeControlDispatcher, not RPCRouter.
 ///
 /// Runtime produces envelopes (not raw events) — routing identity
 /// (EventSource) and sequencing (seq) are set by the runtime itself.
@@ -797,28 +809,20 @@ protocol PaneRuntime: AnyObject {
     func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult
 
     /// Subscribe to live coordination events as envelopes.
-    /// Envelope carries source identity, sequencing, and event payload.
-    func subscribe() -> AsyncStream<PaneEventEnvelope>
+    func subscribe() -> AsyncStream<RuntimeEnvelope>
 
     /// Graceful shutdown. Returns unfinished command IDs.
     func shutdown(timeout: Duration) async -> [UUID]
 }
-
-struct PaneId: Hashable, Codable, Sendable {
-    let uuid: UUID
-}
-typealias WorktreeId = UUID
 ```
 
 > Identity canonical: `PaneId` is the primary identity and backend session names
 > are derived identities. See
 > [Session Lifecycle — Identity Contract (Canonical)](session_lifecycle.md#identity-contract-canonical).
 >
-> **Current Code Status (LUNA-343 branch):**
-> - `PaneRuntime` now includes replay wiring via `eventsSince(seq:)`.
-> - `PaneMetadata` now includes rich identity fields (`contentType`, `executionBackend`, `createdAt`, `repoId`, `worktreeId`, `parentFolder`, `checkoutRef`).
-> - `PaneId` is now a first-class value type (`struct`) with UUIDv7-backed generation and strict canonical decoding.
-> - Persisted runtime contracts now decode canonical fields only (no legacy schema fallback).
+> **Historical landing note (LUNA-343):** replay wiring, rich `PaneMetadata`,
+> and canonical `PaneId` decoding landed. Do not treat this as the current
+> branch name.
 
 #### Supporting Types
 
@@ -2570,9 +2574,9 @@ func submit(_ envelope: PaneEventEnvelope) {
 
 > **Role:** Sink. Consumes `PaneEventEnvelope` from the coordination stream and stores them in a bounded ring buffer for late-joining consumers. Terminal consumer — does not produce events back onto the stream.
 >
-> **Current Code Status (LUNA-342 branch):**
-> - `EventReplayBuffer` now includes `Config` (`maxEvents`, `maxBytes`, `ttl`), `ReplayResult`, stale eviction, and gap detection.
-> - `PaneRuntime.eventsSince(seq:)` is wired and used by runtime implementations.
+> **Historical landing note (LUNA-342):** `EventReplayBuffer` config, replay
+> result, stale eviction, and `PaneRuntime.eventsSince(seq:)` are shipped. This
+> is not the current branch name.
 
 ```swift
 /// Bounded event ring buffer per EventSource for late-joining consumers.
@@ -2989,13 +2993,16 @@ The historical codebase used `NotificationCenter` and `DispatchQueue.main.async`
 | `NSWorkspace.shared.notificationCenter` (volume mount, screen changes) | System-level notifications — no benefit from typed events |
 | Any Combine usage in third-party dependencies | Out of our control |
 
-### Migration Order
+### Historical Migration Order
+
+Ticket order below is provenance. Terminal, Bridge, Webview, and Swift pane
+runtimes exist in current source. Do not plan LUNA-325/295/324 as unstarted
+work from this ledger.
 
 1. **LUNA-327 (done):** `@Observable` migration, `private(set)` stores, `WorkspaceSurfaceCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
-2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration. `.swiftLanguageMode(.v6)` enforced, all `isolated deinit` migrations complete, `MainActor.assumeIsolated` removed from Sources, C callback trampolines partially migrated (`wakeup_cb` done), existential Sendable constraints added. SwiftLint concurrency rules added (44 violations marking LUNA-325 scope).
-3. **LUNA-325 (in progress):** `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`, and runtime command dispatch scaffolding are landed. Migrated split/tab action families are now routed through typed runtime events (no dual-path NotificationCenter posts for migrated actions). Remaining full-contract parity is tracked through the LUNA-325/LUNA-345 closure gate.
-4. **LUNA-295 (attach orchestration):** Build attach readiness policies and visibility-tier scheduling. Consumes the event stream infrastructure from LUNA-325.
-5. **LUNA-324 (restart reconcile):** Build startup anchor reconciliation, non-destructive runtime-only classification, and post-restore health monitoring (Contract 5b).
+2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration.
+3. **LUNA-325 (landed as runtime plane):** `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`, and typed runtime command dispatch exist. Remaining full-contract parity is not "build these types from scratch."
+4. **LUNA-295 / LUNA-324:** Attach and restart-reconcile policy live in this document as contracts; check current restore/attach code before treating them as unbuilt.
 
 ### Migration Invariant
 
@@ -3015,7 +3022,7 @@ Structural guarantees that hold across all contracts. Each invariant is enforced
 
 *Enforced by:* Code review + contract tests asserting no `paneId`/`worktreeId` routing fields in event enum cases.
 
-**A2. One runtime instance per pane. One adapter instance per backend technology.** `RuntimeRegistry` enforces uniqueness on `register()` by rejecting duplicate pane registrations and preserving the first runtime. Adapters (`GhosttyAdapter` for terminal, `RPCRouter` for bridge, WebKit delegate for webview) route by surface/view/pane ID to the correct runtime instance. `GhosttyAdapter` is a shared singleton; bridge and webview adapters are per-pane (owned by their controllers). No pane ever has two runtimes; no runtime ever serves two panes.
+**A2. One runtime instance per pane. One adapter instance per backend technology.** `RuntimeRegistry` enforces uniqueness on `register()` by rejecting duplicate pane registrations and preserving the first runtime. Adapters (`GhosttyAdapter` for terminal, Bridge product-scheme dispatch for bridge, WebKit delegate for webview) route by surface/view/pane ID to the correct runtime instance. `GhosttyAdapter` is a shared singleton; bridge and webview adapters are per-pane (owned by their controllers). No pane ever has two runtimes; no runtime ever serves two panes.
 
 *Enforced by:* `RuntimeRegistry.register()` result (`inserted` vs `duplicateRejected`) with duplicate rejection logging. Violation response = reject replacement and preserve existing runtime mapping.
 
@@ -3131,19 +3138,20 @@ You **accept** the discipline of classifying every event kind (critical vs lossy
 
 ---
 
-## Relationship to Other Work
+## Historical Relationship To Tickets
 
-| Ticket | Relationship | Contracts Owned |
-|--------|-------------|-----------------|
-| **LUNA-295** (Pane Attach Orchestration) | Attach readiness policies, visibility-tier scheduling, anti-flicker. Consumes event stream from LUNA-325. | Contract 5a (Attach Readiness), Contract 12a (Visibility-Tier Scheduling), LUNA-295 attach lifecycle diagram |
-| **LUNA-324** (Restart Reconcile) | zmx session reconcile on app launch, non-destructive startup classification, health monitoring, and future background janitor boundary. | Contract 5b (Restart Reconcile Policy) |
-| **LUNA-325** (Bridge Pattern + Surface State Refactor) | Implements terminal runtime + Ghostty adapter + GhosttyEvent enum + surface registry. Primary implementation ticket. | Contract 1, 2, 3, 4, 7, 7a, 8, 10, 11, 12, 14 |
-| **LUNA-326** (Native Scrollbar) | Consumes the terminal runtime contract. Scrollbar behavior binds to `TerminalRuntime.scrollbarState` via @Observable. Does not invent new transport. | None (consumer only) |
-| **LUNA-327** (State Ownership + Observable Migration) | The current branch. Establishes @Observable store pattern, WorkspaceSurfaceCoordinator consolidation, `private(set)` unidirectional flow, and `DispatchQueue.main.async` → `MainActor` migration. | D1, D5, Swift 6 invariants, Migration section |
-| **LUNA-342** (Contract Freeze) | Freeze gate — all design decisions, contracts, and invariants locked. No implementation. | All invariants (A1-A15), Swift 6 invariants (1-9), envelope/source shape |
-| **LUNA-344** (Deferred Contracts) | Implements deferred contracts: workflow engine, terminal process RPC, pane filesystem context. | Contract 13, 15, 16 |
-| **LUNA-345** (Architecture Completion Gate) | Integration checkpoint — verifies all runtime conformers, system sources, and deferred contracts are complete. | None (gate only) |
-| **LUNA-349** (Non-Terminal Runtimes + FS Watcher) | Implements BridgeRuntime, WebviewRuntime, SwiftPaneRuntime as PaneRuntime conformers. Extracts runtime from BridgePaneController. Implements Contract 6 FSEvents watcher. | D1 (runtime taxonomy), D5 (view/controller/runtime layering), D9 (system sources), Contract 6 |
+This table is ticket provenance, not the current branch. This worktree is not
+LUNA-327. Terminal, Bridge, Webview, and Swift pane runtimes exist.
+
+| Ticket | Historical relationship | Contracts named |
+|--------|-------------------------|-----------------|
+| **LUNA-295** (Pane Attach Orchestration) | Attach readiness policies, visibility-tier scheduling | Contract 5a, Contract 12a |
+| **LUNA-324** (Restart Reconcile) | zmx session reconcile on app launch | Contract 5b |
+| **LUNA-325** (Bridge Pattern + Surface State Refactor) | Terminal runtime + Ghostty adapter | Contract 1, 2, 3, 4, 7, 7a, 8, 10, 11, 12, 14 |
+| **LUNA-327** (State Ownership + Observable Migration) | Historical `@Observable` / coordinator consolidation | D1, D5, Swift 6 invariants |
+| **LUNA-342** (Contract Freeze) | Historical freeze gate | Invariants A1-A15 |
+| **LUNA-344** (Deferred Contracts) | Workflow engine, process RPC (still deferred unless source shows otherwise) | Contract 13, 15 |
+| **LUNA-349** (Non-Terminal Runtimes + FS Watcher) | Historical delivery of Bridge/Webview/Swift runtimes | D1, D5, D9, Contract 6 |
 
 ---
 
