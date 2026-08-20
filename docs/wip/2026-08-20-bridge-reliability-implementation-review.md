@@ -1,6 +1,6 @@
 # Bridge Reliability Implementation Review — 2026-08-20 (validated)
 
-- Scope: implemented fixes for the Bridge latest-generation-operations correction on branch `bridge-review-design-2026-08-14`, commit range `581d79276..bbaba693c` (13 fix/test commits) plus the uncommitted working tree (current truth).
+- Scope: implemented fixes for the Bridge latest-generation-operations correction on branch `bridge-review-design-2026-08-14`, commit range `581d79276..bbaba693c` (13 fix/test commits) plus the independently reviewed 62-entry working-tree snapshot.
 - Governing basis: ready canonical [implementation plan](../../tmp/plan-workflows/2026-08-19-pr1-bridge-lifecycle-reliability-v5.md) + remediated [specification](../specs/2026-08-18-bridge-latest-generation-operations/2026-08-18-specification.md) + [program design](../specs/2026-08-18-bridge-latest-generation-operations/2026-08-18-program-design.md) (both remediated 2026-08-19) + [design review closure](./2026-08-18-bridge-latest-generation-operations-review-comments.md).
 - Method: four independent fresh-context review lanes (native refresh; annotation communication plane; web File/Review/Markdown lifecycle; terminals/queues/custody) + one evidence scout (test inventory, TS unit run, implementer receipts) + parent verification of every finding marked ✅ below against working-tree source. Read-only review; nothing was changed.
 - Result: **findings — 1 critical, 7 high, 10 medium, several low.** Convergence machinery landed well and is genuinely tested; **recovery paths and two wire cutovers did not land**, one web-side epoch defect actively breaks render receipts in production, and worker replacement does not re-anchor surviving main-display freshness or replay current surface intent.
@@ -127,10 +127,10 @@
 - L4: fire-and-forget `demand.acquire` failure silently drops a session's demand (threads omitted, no indicator) (`worktree-annotation-surface-client.ts:284-319`).
 - L5: `waitForSnapshot` waiters hang until dispose if the projection permanently stops converging.
 - L6: actor capture race classified retryable-failure instead of stale — transient flash (`WorktreeAnnotationServiceActor.swift:163-167`).
-- L7: control mux head-of-line blocking (one slow native control response delays subsequent opens/cancels; bounded, latency-only).
+- L7, rejected as a defect: control-mux serialization is intentional sequence ownership under the current requirements. One slow native control response can delay subsequent opens/cancels, but the bounded serialization itself violates no current obligation.
 - L8: `fileContentPreparationGenerationByItemId` grows unbounded per distinct item (worktree-size-bounded in practice).
 - H7: worker replacement restarts derivation epochs near 1 while main freshness and current intent survive. Replacement neither re-anchors the main display stores to the new worker instance nor replays already-accepted mode/selection/viewport/query intent. Lower-epoch replacement patches are rejected, and current render jobs cannot settle until unrelated derivation resets exceed the predecessor epoch.
-- Observation for annotation lane owners: in review full-file items, a sourceRole:'file' thread passes the adapter's path check and renders file-anchored lines against review-head content with no placement re-validation — unreachable if the projection query is truly surface-filtered (commit 5cbc6985d); confirm.
+- Rejected as unreachable: Review source capture filters File-role requirements before placement, so the adapter's permissive side mapping cannot currently render a File-role placement on the Review surface.
 
 ## Verified-GOOD — do not re-litigate
 
@@ -178,7 +178,7 @@
 | 17 | Branch/source/viewer switching | MOSTLY GOOD — M1/M2 failure-path holes; H6 switch-back drop |
 | 18 | Ordering/dedup/atomic install | GOOD ✅ (monotonic revisions; atomic content installs) with M4 File-manifest window |
 | 19 | Resource cleanup / zero orphans | GOOD ✅ (idempotent, memoized retirement) except M10/L8 |
-| 20 | Test-pyramid & real-runtime proof | INCOMPLETE — 1 red unit test; six named scenario gaps; e2e/browser/Swift not run here |
+| 20 | Test-pyramid & real-runtime proof | INCOMPLETE — the current TS unit suite is green; six named scenario gaps remain; e2e/browser/Swift were not run in this review |
 
 ## Recommended remediation order
 

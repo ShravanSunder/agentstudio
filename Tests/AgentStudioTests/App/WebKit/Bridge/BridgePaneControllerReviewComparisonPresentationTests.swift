@@ -80,6 +80,7 @@ extension WebKitSerializedTests {
 
             #expect(!didAdopt)
             #expect(!controller.productAdmissionGate.diagnosticSnapshot.isOpen)
+            #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .closed)
         }
 
         @Test("contribution load publishes pending then exact settled snapshot identity")
