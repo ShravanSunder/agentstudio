@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "ASTRO_TELEMETRY_DISABLED=1 astro build",
+    "build": "ASTRO_TELEMETRY_DISABLED=1 astro build && node --experimental-strip-types scripts/stage-cloudflare-build-config.ts",
     "check": "pnpm run lint && pnpm run fmt:check && pnpm run typecheck && pnpm run verify:captures && pnpm run test:unit",
     "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev --host 127.0.0.1",
     "fmt": "oxfmt .",
@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "0.9.10",
+    "@cloudflare/vite-plugin": "^1.53.0",
     "@playwright/test": "1.62.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "26.1.1",
@@ -29,6 +30,7 @@
     "sharp": "0.35.3",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
+    "vite": "8.2.1",
     "vitest": "4.1.10"
   },
   "engines": {
