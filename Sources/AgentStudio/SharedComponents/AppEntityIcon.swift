@@ -10,7 +10,7 @@ package enum AppEntityIcon: Equatable {
 
     enum SystemSymbol: String, Equatable {
         case building2 = "building.2"
-        case rectangleSplit2x1 = "rectangle.split.2x1"
+        case squareSplit2x1 = "square.split.2x1"
         case squareStackFill = "square.stack.fill"
         case tray
     }
@@ -38,7 +38,7 @@ package enum AppEntityIcon: Equatable {
         case .checkout(_, let isMain):
             return .octicon(isMain ? .starFill : .gitWorktree)
         case .pane, .paneGroup:
-            return .system(.rectangleSplit2x1)
+            return .system(.squareSplit2x1)
         case .tab, .tabGroup:
             return .system(.squareStackFill)
         case .workspace:

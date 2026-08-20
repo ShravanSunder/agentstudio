@@ -235,6 +235,7 @@ struct DrawerPanel: View {
             useDrawerFramePreference: true,
             isInactivePersistentTab: false,
             paneInboxPresentation: paneInboxPresentation,
+            paneNotePresentation: nil,
             onOpenPaneGitHub: onOpenPaneGitHub,
             notificationCountForWorktree: notificationCountForWorktree,
             workspaceWindowId: workspaceWindowId,

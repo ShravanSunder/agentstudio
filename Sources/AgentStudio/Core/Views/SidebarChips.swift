@@ -7,6 +7,7 @@ import SwiftUI
 package enum SidebarPullRequestChipSpec {
     package static let icon: SidebarChip.Icon = .octicon("octicon-git-pull-request")
 
+    @MainActor
     package static func chip(count: Int, octiconLoader: OcticonLoader) -> SidebarChip {
         SidebarChip(
             icon: icon,
@@ -14,6 +15,120 @@ package enum SidebarPullRequestChipSpec {
             text: "\(count)",
             style: .accent(AppStyles.Shell.Sidebar.checkoutDefaultAccentColor)
         )
+    }
+}
+
+package struct SidebarGitStatusChips: View {
+    package let branchStatus: GitBranchStatus
+    package let octiconLoader: OcticonLoader
+
+    package init(branchStatus: GitBranchStatus, octiconLoader: OcticonLoader) {
+        self.branchStatus = branchStatus
+        self.octiconLoader = octiconLoader
+    }
+
+    package static func diffDetail(
+        branchStatus: GitBranchStatus
+    ) -> SidebarDiffChip.WorkingTreeDetail? {
+        SidebarDiffChip.workingTreeDetail(
+            isDirty: branchStatus.isDirty,
+            linesAdded: branchStatus.linesAdded,
+            linesDeleted: branchStatus.linesDeleted,
+            untrackedFileCount: branchStatus.untrackedFileCount
+        )
+    }
+
+    package static func showsSync(branchStatus: GitBranchStatus) -> Bool {
+        switch branchStatus.syncState {
+        case .ahead(let count), .behind(let count): count > 0
+        case .diverged(let ahead, let behind): ahead > 0 || behind > 0
+        case .synced, .noUpstream, .unknown: false
+        }
+    }
+
+    package static func hasContent(branchStatus: GitBranchStatus) -> Bool {
+        showsPendingPullRequestFacts(branchStatus: branchStatus)
+            || (branchStatus.prCount ?? 0) > 0 && !branchStatus.pullRequestDataUnavailable
+            || diffDetail(branchStatus: branchStatus) != nil
+            || showsSync(branchStatus: branchStatus)
+    }
+
+    package static func showsPendingPullRequestFacts(branchStatus: GitBranchStatus) -> Bool {
+        branchStatus.pullRequestIsLoading
+            && !branchStatus.pullRequestDataUnavailable
+    }
+
+    private var syncCounts: (ahead: String, behind: String) {
+        switch branchStatus.syncState {
+        case .synced: ("0", "0")
+        case .ahead(let count): ("\(count)", "0")
+        case .behind(let count): ("0", "\(count)")
+        case .diverged(let ahead, let behind): ("\(ahead)", "\(behind)")
+        case .noUpstream: ("-", "-")
+        case .unknown: ("?", "?")
+        }
+    }
+
+    package var body: some View {
+        HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+            if let prCount = branchStatus.prCount,
+                prCount > 0,
+                !branchStatus.pullRequestDataUnavailable
+            {
+                SidebarPullRequestChipSpec.chip(count: prCount, octiconLoader: octiconLoader)
+            }
+
+            if let diffDetail = Self.diffDetail(branchStatus: branchStatus) {
+                SidebarDiffChip(octiconLoader: octiconLoader, detail: diffDetail)
+            }
+
+            if Self.showsSync(branchStatus: branchStatus) {
+                SidebarStatusSyncChip(
+                    octiconLoader: octiconLoader,
+                    aheadText: syncCounts.ahead,
+                    behindText: syncCounts.behind,
+                    hasSyncSignal: true
+                )
+            }
+        }
+    }
+
+}
+
+package struct SidebarPendingPullRequestIndicator: View {
+    package init() {}
+
+    package var body: some View {
+        Image(systemName: SystemSymbol.circleDotted.rawValue)
+            .font(.system(size: AppStyles.Shell.Sidebar.chipIconSize, weight: .medium))
+            .foregroundStyle(.secondary)
+            .symbolEffect(
+                .variableColor.iterative,
+                options: .repeating.speed(AppStyles.Shell.Sidebar.pendingFactsSymbolEffectSpeed)
+            )
+            .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
+            .fixedSize(horizontal: true, vertical: true)
+            .accessibilityLabel("Refreshing pull request status")
+    }
+}
+
+extension View {
+    package func sidebarPendingPullRequestIndicator(isVisible: Bool) -> some View {
+        frame(minHeight: isVisible ? AppStyles.Shell.Sidebar.chipLineHeight : nil)
+            .overlay(alignment: .leading) {
+                if isVisible {
+                    SidebarPendingPullRequestIndicator()
+                        .frame(
+                            width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
+                            alignment: .trailing
+                        )
+                        .offset(
+                            x:
+                                -(AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
+                                + AppStyles.Shell.Sidebar.groupIconTitleSpacing)
+                        )
+                }
+            }
     }
 }
 
@@ -84,7 +199,7 @@ package struct SidebarChip: View {
             text == nil
                 ? AppStyles.Shell.Sidebar.chipIconOnlyHorizontalPadding : AppStyles.Shell.Sidebar.chipHorizontalPadding
         )
-        .padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)
+        .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
         .background(
             Capsule()
                 .fill(Color.white.opacity(AppStyles.Shell.Sidebar.chipBackgroundOpacity))
@@ -146,7 +261,7 @@ package struct SidebarStatusSyncChip: View {
         .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .medium).monospacedDigit())
         .lineLimit(1)
         .padding(.horizontal, AppStyles.Shell.Sidebar.chipHorizontalPadding)
-        .padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)
+        .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
         .background(
             Capsule()
                 .fill(Color.white.opacity(AppStyles.Shell.Sidebar.chipBackgroundOpacity))
@@ -239,7 +354,7 @@ package struct SidebarDiffChip: View {
         .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .medium).monospacedDigit())
         .lineLimit(1)
         .padding(.horizontal, AppStyles.Shell.Sidebar.chipHorizontalPadding)
-        .padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)
+        .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
         .background(
             Capsule()
                 .fill(Color.white.opacity(AppStyles.Shell.Sidebar.chipBackgroundOpacity))

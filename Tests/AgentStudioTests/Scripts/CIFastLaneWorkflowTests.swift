@@ -253,8 +253,8 @@ struct CIFastLaneWorkflowTests {
         #expect(!benchmarkStep.contains("No benchmark threshold lines emitted"))
     }
 
-    @Test("fast lane bounds Swift Testing case concurrency after cold prebuild")
-    func fastLaneBoundsSwiftTestingCaseConcurrencyAfterColdPrebuild() throws {
+    @Test("fast lane uses native Swift Testing concurrency after cold prebuild")
+    func fastLaneUsesNativeSwiftTestingConcurrencyAfterColdPrebuild() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
         let benchmarkWorkflow = try String(
             contentsOfFile: ".github/workflows/benchmarks.yml",
@@ -262,6 +262,10 @@ struct CIFastLaneWorkflowTests {
         )
         let swiftTestTaskScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
         let testHelperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let outputFilterScript = try String(
+            contentsOfFile: "scripts/filter-known-linker-warnings.sh",
+            encoding: .utf8
+        )
         let fastLaneStep = try workflowStep(named: "Test fast lane", in: ciWorkflow)
         let webKitLaneStep = try workflowStep(named: "Test WebKit lane", in: ciWorkflow)
         let largeLaneStep = try workflowStep(
@@ -288,7 +292,7 @@ struct CIFastLaneWorkflowTests {
         #expect(!fastLaneStep.contains("SWIFT_TEST_WORKERS"))
         #expect(fastLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
         #expect(fastLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
-        #expect(fastLaneStep.contains("SWIFT_TEST_NUM_WORKERS: \"1\""))
+        #expect(!fastLaneStep.contains("SWIFT_TEST_NUM_WORKERS"))
         #expect(fastLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(!fastLaneStep.contains("XCB_EXTRA_ARGS"))
         #expect(fastLaneStep.contains("run: mise run --skip-deps --raw test:swift:fast"))
@@ -321,8 +325,10 @@ struct CIFastLaneWorkflowTests {
         #expect(nonSerializedRunner.contains("--skip WebKitSerializedTests"))
         #expect(nonSerializedRunner.contains("--skip E2ESerializedTests"))
         #expect(nonSerializedRunner.contains("--skip ZmxE2ETests"))
-        #expect(fastRunner.contains("--parallel"))
-        #expect(fastRunner.contains("--num-workers \"$SWIFT_TEST_NUM_WORKERS\""))
+        #expect(fastRunner.contains("native-concurrent fast non-WebKit suites"))
+        #expect(!fastRunner.contains("\n    --parallel"))
+        #expect(!fastRunner.contains("--num-workers"))
+        #expect(outputFilterScript.contains("/usr/bin/iconv -f UTF-8 -t UTF-8 -c"))
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(!testHelperScript.contains("app_ipc_live_socket_suite_filters"))
         #expect(!fastRunner.contains("serial App IPC service live socket suites"))
@@ -378,7 +384,8 @@ struct CIFastLaneWorkflowTests {
         #expect(ciLargeLaneStep.contains("SWIFT_TEST_NUM_WORKERS: \"4\""))
         #expect(ciLargeLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(ciLargeLaneStep.contains("run: mise run --skip-deps --raw test:swift:large"))
-        #expect(aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS=1 run_fast_non_webkit_swift_tests"))
+        #expect(aggregateLaneMode.contains("run_fast_non_webkit_swift_tests"))
+        #expect(!aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS=4 run_fast_non_webkit_swift_tests"))
         #expect(aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS=4 run_large_non_webkit_swift_tests"))
         #expect(aggregateLaneMode.contains("run_fast_non_webkit_swift_tests"))
         #expect(aggregateLaneMode.contains("run_large_non_webkit_swift_tests"))
@@ -432,6 +439,26 @@ struct CIFastLaneWorkflowTests {
         )
     }
 
+    @Test("Swift output filter normalizes UTF-8 and preserves actionable diagnostics")
+    func swiftOutputFilterNormalizesUTF8AndPreservesActionableDiagnostics() throws {
+        let filteredOutput = try runBash(
+            "printf $'ok\\xffbad\\nlibghostty-fat.a(ext.o) _ImGuiStyle_ImGuiStyle\\nreal diagnostic\\n'"
+                + " | bash scripts/filter-known-linker-warnings.sh"
+        )
+
+        #expect(filteredOutput == "okbad\nreal diagnostic\n")
+    }
+
+    @Test("Swift failure scanner preserves failure detection across invalid UTF-8")
+    func swiftFailureScannerPreservesFailureDetectionAcrossInvalidUTF8() throws {
+        let scannerStatus = try runBashStatus(
+            "source scripts/swift-test-helpers.sh; "
+                + "swift_test_output_has_failures <(printf $'ok\\xffrecorded an issue\\n')"
+        )
+
+        #expect(scannerStatus == 0)
+    }
+
     @Test("aggregate lane isolates executor-sensitive and AppKit-global tests")
     func aggregateLaneIsolatesExecutorSensitiveAndAppKitGlobalTests() throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
@@ -439,12 +466,33 @@ struct CIFastLaneWorkflowTests {
             named: "aggregate_serial_non_webkit_filter_pattern",
             in: helperScript
         )
+        let serializedSuitePattern = try shellFunction(
+            named: "serialized_main_actor_suite_pattern",
+            in: helperScript
+        )
         let aggregateRunner = try shellFunction(
             named: "run_aggregate_serial_non_webkit_swift_tests",
             in: helperScript
         )
+        let aggregateBatchWaiter = try shellFunction(
+            named: "wait_for_process_global_suite_batch",
+            in: helperScript
+        )
         let fullRunner = try shellFunction(named: "run_non_serialized_swift_tests", in: helperScript)
         let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
+        let discoveredSuiteFilters = try runBash(
+            "LOG_PREFIX=test TIMEOUT_SECONDS=60 PREBUILD_TIMEOUT_SECONDS=60 BUILD_PATH=.build-agent-1 "
+                + "bash -c 'source scripts/swift-test-helpers.sh; aggregate_serial_non_webkit_suite_filters'"
+        )
+        let webKitSuiteFilters = try runBash(
+            "source scripts/swift-test-helpers.sh; webkit_suite_filters"
+        )
+        let discoveredSuiteNames = Set(discoveredSuiteFilters.split(separator: "\n").map(String.init))
+        let webKitLeafSuiteNames = Set(
+            webKitSuiteFilters.split(separator: "\n").compactMap { filter in
+                filter.split(separator: "/").dropFirst().first.map(String.init)
+            }
+        )
 
         for suiteName in [
             "EagerDerivedAtomTests",
@@ -455,13 +503,47 @@ struct CIFastLaneWorkflowTests {
             "TabBarAffectedItemTelemetryTests",
             "MainSplitViewControllerSidebarStateTests",
             "FlatTabStripContainerAllMinimizedTests",
+            "InboxNotificationRouterTests",
+            "BackgroundFactApplyGovernorTests",
+            "TerminalPaneMountViewExitBehaviorTests",
+            "TerminalActivityProjectorTests",
+            "GitWorkingDirectoryProjectorTests",
+            "WorkspaceStoreTests",
+            "WorkspaceComparisonIntentProcessRestartTests",
         ] {
-            #expect(aggregateFilter.contains(suiteName))
+            #expect(discoveredSuiteFilters.contains("\(suiteName)\n"))
         }
+        #expect(serializedSuitePattern.contains("@MainActor"))
+        #expect(aggregateFilter.contains("aggregate_serial_non_webkit_suite_filters"))
+        #expect(discoveredSuiteFilters.contains("URLHistoryServiceTests\n"))
+        #expect(discoveredSuiteFilters.contains("OcticonLoaderTests\n"))
+        #expect(discoveredSuiteFilters.contains("TerminalActivityProjectorTests\n"))
+        #expect(discoveredSuiteFilters.contains("GitWorkingDirectoryProjectorTests\n"))
+        #expect(!discoveredSuiteFilters.contains("BridgePaneControllerTests\n"))
+        #expect(!discoveredSuiteFilters.contains("FilesystemGitPipelineIntegrationTests\n"))
+        #expect(!discoveredSuiteFilters.contains("FilesystemSourceE2ETests\n"))
+        #expect(
+            discoveredSuiteNames.isDisjoint(with: webKitLeafSuiteNames),
+            "Process-global non-WebKit discovery must exclude every suite owned by the WebKit lane"
+        )
         #expect(fullRunner.contains("--skip \"$(aggregate_serial_non_webkit_filter_pattern)\""))
         #expect(fullRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
-        #expect(aggregateRunner.contains("serial aggregate-only non-WebKit suites"))
-        #expect(aggregateRunner.contains("--filter \"$(aggregate_serial_non_webkit_filter_pattern)\""))
+        #expect(aggregateRunner.contains("while IFS= read -r aggregate_serial_suite_filter"))
+        #expect(aggregateRunner.contains("local process_global_concurrency=4"))
+        #expect(aggregateRunner.contains("process_global_batch_pids+=(\"$!\")"))
+        #expect(aggregateRunner.contains("wait_for_process_global_suite_batch"))
+        #expect(
+            aggregateRunner.contains(
+                "isolated process-global non-WebKit suite: $aggregate_serial_suite_filter"
+            )
+        )
+        #expect(aggregateRunner.contains("--filter \"$aggregate_serial_suite_filter\""))
+        #expect(aggregateRunner.contains("\"$swift_testing_helper\" --test-bundle-path \"$swift_test_bundle\""))
+        #expect(aggregateRunner.contains("DYLD_FRAMEWORK_PATH=\"$testing_framework_path\""))
+        #expect(aggregateRunner.contains("--testing-library swift-testing"))
+        #expect(aggregateRunner.contains("done < <(aggregate_serial_non_webkit_suite_filters)"))
+        #expect(aggregateBatchWaiter.contains("if ! wait \"$suite_process_pid\""))
+        #expect(aggregateBatchWaiter.contains("return \"$batch_status\""))
         #expect(
             fastRunner.contains(
                 "--skip \"GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)\""
@@ -469,6 +551,55 @@ struct CIFastLaneWorkflowTests {
         )
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
+    }
+
+    @Test("serialized suite discovery respects formatted declaration boundaries")
+    func serializedSuiteDiscoveryRespectsFormattedDeclarationBoundaries() throws {
+        let mainActorAttribute = "@Main" + "Actor"
+        let suiteAttribute = "@Su" + "ite"
+        let serializedTrait = ".serial" + "ized"
+        let mainActorFirstSource = """
+            \(mainActorAttribute)
+            \(suiteAttribute)(
+                "Correct suite",
+                \(serializedTrait),
+                .timeLimit(.minutes(1))
+            )
+            private struct CorrectSuiteThatMustBeIsolated {
+                static let fixture = makeFixture()
+                struct WronglyCapturedNestedType {}
+            }
+            """
+        let suiteFirstSource = """
+            \(suiteAttribute)(
+                "Suite first",
+                \(serializedTrait)
+            )
+            \(mainActorAttribute)
+            package final class SuiteFirstClassThatMustBeIsolated {}
+            """
+        let traitPrefixSource = """
+            \(mainActorAttribute)
+            \(suiteAttribute)(\(serializedTrait)IfSupported)
+            private struct NotActuallySerialized {}
+            """
+
+        let mainActorFirstMatches = try discoveredSuiteNames(
+            annotationOrder: "main-actor-first",
+            source: mainActorFirstSource
+        )
+        let suiteFirstMatches = try discoveredSuiteNames(
+            annotationOrder: "suite-first",
+            source: suiteFirstSource
+        )
+        let traitPrefixMatches = try discoveredSuiteNames(
+            annotationOrder: "main-actor-first",
+            source: traitPrefixSource
+        )
+
+        #expect(mainActorFirstMatches == "CorrectSuiteThatMustBeIsolated\n")
+        #expect(suiteFirstMatches == "SuiteFirstClassThatMustBeIsolated\n")
+        #expect(traitPrefixMatches.isEmpty)
     }
 
     @Test("real zmx lifecycle proof stays in its dedicated E2E lane")
@@ -570,6 +701,14 @@ struct CIFastLaneWorkflowTests {
         return try namedBlock(startingWith: marker, endingBefore: "\n[tasks.", in: config)
     }
 
+    private func discoveredSuiteNames(annotationOrder: String, source: String) throws -> String {
+        try runBash(
+            "source scripts/swift-test-helpers.sh; "
+                + "serialized_main_actor_suite_names_from_stdin \(annotationOrder)",
+            standardInput: source
+        )
+    }
+
     private func namedBlock(startingWith marker: String, endingBefore terminator: String, in text: String) throws
         -> String
     {
@@ -585,16 +724,22 @@ struct CIFastLaneWorkflowTests {
     }
 }
 
-private func runBash(_ command: String) throws -> String {
+private func runBash(_ command: String, standardInput: String? = nil) throws -> String {
     let process = Process()
     let output = Pipe()
+    let input = standardInput.map { _ in Pipe() }
     process.executableURL = URL(fileURLWithPath: "/bin/bash")
     process.arguments = ["-c", command]
     process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    process.standardInput = input
     process.standardOutput = output
     process.standardError = output
 
     try process.run()
+    if let standardInput, let input {
+        input.fileHandleForWriting.write(Data(standardInput.utf8))
+        try input.fileHandleForWriting.close()
+    }
     process.waitUntilExit()
     let data = output.fileHandleForReading.readDataToEndOfFile()
     let renderedOutput = try #require(String(bytes: data, encoding: .utf8))

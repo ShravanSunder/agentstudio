@@ -17,6 +17,10 @@ package enum AppPolicies {
 
     package enum EntityRecency {
         package static let maximumRetainedEntityCountPerKind: Int = 15
+        package static let strongBlueDuration: TimeInterval = 10 * 60
+        package static let mediumBlueDuration: TimeInterval = 60 * 60
+        package static let mutedBlueDuration: TimeInterval = 12 * 60 * 60
+        package static let faintBlueDuration: TimeInterval = 24 * 60 * 60
     }
 
     package enum SidebarProjection {

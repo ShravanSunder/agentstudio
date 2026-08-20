@@ -92,6 +92,7 @@ struct RenameWrappingTextField: NSViewRepresentable {
     @Binding var isFocused: Bool
     let onCommit: () -> Void
     let onCancel: () -> Void
+    var allowsNewlines = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -103,6 +104,7 @@ struct RenameWrappingTextField: NSViewRepresentable {
             coordinator: context.coordinator
         )
         container.updateText(text)
+        container.allowsNewlines = allowsNewlines
 
         Task { @MainActor [weak container] in
             guard let container else { return }
@@ -117,6 +119,7 @@ struct RenameWrappingTextField: NSViewRepresentable {
         nsView.coordinator = context.coordinator
         nsView.placeholder = placeholder
         nsView.updateText(text)
+        nsView.allowsNewlines = allowsNewlines
     }
 
     final class Coordinator {
@@ -140,6 +143,11 @@ final class RenameWrappingTextFieldContainer: NSView {
     var placeholder: String {
         get { placeholderLabel.stringValue }
         set { placeholderLabel.stringValue = newValue }
+    }
+
+    var allowsNewlines: Bool {
+        get { textView.allowsNewlines }
+        set { textView.allowsNewlines = newValue }
     }
 
     init(placeholder: String, coordinator: RenameWrappingTextField.Coordinator) {
@@ -271,6 +279,7 @@ final class RenameWrappingTextView: NSTextView {
     var onCommit: (() -> Void)?
     var onCancel: (() -> Void)?
     var onFocusChanged: ((Bool) -> Void)?
+    var allowsNewlines = false
 
     override func becomeFirstResponder() -> Bool {
         let didBecomeFirstResponder = super.becomeFirstResponder()
@@ -297,11 +306,19 @@ final class RenameWrappingTextView: NSTextView {
     }
 
     override func insertNewline(_ sender: Any?) {
-        onCommit?()
+        if allowsNewlines {
+            super.insertNewline(sender)
+        } else {
+            onCommit?()
+        }
     }
 
     override func insertNewlineIgnoringFieldEditor(_ sender: Any?) {
-        onCommit?()
+        if allowsNewlines {
+            super.insertNewlineIgnoringFieldEditor(sender)
+        } else {
+            onCommit?()
+        }
     }
 
     override func cancelOperation(_ sender: Any?) {
@@ -323,6 +340,9 @@ final class RenameWrappingTextView: NSTextView {
         else { return false }
 
         if RenameEditorKey.commitCharacters.contains(charactersIgnoringModifiers) {
+            if allowsNewlines, !event.modifierFlags.contains(.command) {
+                return false
+            }
             onCommit?()
             return true
         }

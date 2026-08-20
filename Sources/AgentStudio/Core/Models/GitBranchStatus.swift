@@ -13,6 +13,7 @@ package struct GitBranchStatus: Equatable, Sendable {
     package let isDirty: Bool
     package let syncState: SyncState
     package let prCount: Int?
+    package let pullRequestIsLoading: Bool
     /// True when pull request data for this row has a resolved, terminal
     /// absence: the repository has no GitHub remote, provider queries have
     /// failed past the forge honesty threshold, or this specific worktree is
@@ -29,6 +30,7 @@ package struct GitBranchStatus: Equatable, Sendable {
         isDirty: false,
         syncState: .unknown,
         prCount: nil,
+        pullRequestIsLoading: false,
         pullRequestDataUnavailable: false,
         linesAdded: 0,
         linesDeleted: 0,
@@ -39,6 +41,7 @@ package struct GitBranchStatus: Equatable, Sendable {
         isDirty: Bool,
         syncState: SyncState,
         prCount: Int?,
+        pullRequestIsLoading: Bool = false,
         pullRequestDataUnavailable: Bool = false,
         linesAdded: Int,
         linesDeleted: Int,
@@ -47,6 +50,7 @@ package struct GitBranchStatus: Equatable, Sendable {
         self.isDirty = isDirty
         self.syncState = syncState
         self.prCount = prCount
+        self.pullRequestIsLoading = pullRequestIsLoading
         self.pullRequestDataUnavailable = pullRequestDataUnavailable
         self.linesAdded = linesAdded
         self.linesDeleted = linesDeleted
@@ -56,6 +60,7 @@ package struct GitBranchStatus: Equatable, Sendable {
     package static func merge(
         worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
         pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts],
+        loadingPullRequestRepoIds: Set<UUID> = [],
         unavailablePullRequestRepoIds: Set<UUID> = []
     ) -> [UUID: Self] {
         var mergedByWorktreeId: [UUID: Self] = [:]
@@ -67,6 +72,7 @@ package struct GitBranchStatus: Equatable, Sendable {
             mergedByWorktreeId[worktreeId] = status(
                 enrichment: enrichment,
                 pullRequestFacts: pullRequestFacts,
+                pullRequestIsLoading: loadingPullRequestRepoIds.contains(enrichment.repoId),
                 pullRequestDataUnavailable: unavailablePullRequestRepoIds.contains(enrichment.repoId)
             )
         }
@@ -77,6 +83,7 @@ package struct GitBranchStatus: Equatable, Sendable {
     package static func status(
         enrichment: WorktreeEnrichment?,
         pullRequestFacts: PullRequestFacts?,
+        pullRequestIsLoading: Bool = false,
         pullRequestDataUnavailable: Bool = false
     ) -> Self {
         guard let enrichment else {
@@ -84,6 +91,7 @@ package struct GitBranchStatus: Equatable, Sendable {
                 isDirty: Self.unknown.isDirty,
                 syncState: Self.unknown.syncState,
                 prCount: pullRequestFacts?.openCount,
+                pullRequestIsLoading: pullRequestIsLoading,
                 pullRequestDataUnavailable: pullRequestDataUnavailable,
                 linesAdded: Self.unknown.linesAdded,
                 linesDeleted: Self.unknown.linesDeleted,
@@ -137,6 +145,7 @@ package struct GitBranchStatus: Equatable, Sendable {
             isDirty: isDirty,
             syncState: syncState,
             prCount: pullRequestFacts?.openCount,
+            pullRequestIsLoading: pullRequestIsLoading && !pullRequestDataUnavailable && !isDetachedHead,
             pullRequestDataUnavailable: pullRequestDataUnavailable || isDetachedHead,
             linesAdded: summary?.linesAdded ?? 0,
             linesDeleted: summary?.linesDeleted ?? 0,

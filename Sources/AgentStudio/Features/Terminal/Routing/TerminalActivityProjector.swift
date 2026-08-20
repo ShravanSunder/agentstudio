@@ -101,16 +101,6 @@ package actor TerminalActivityProjector {
         /// The last contracted output-line candidate published at this
         /// pane's previous settle, used to suppress an unchanged repeat.
         var previousLastOutputLine: String?
-        /// This pane's learned shell prompt line, re-recorded from the
-        /// trailing non-empty viewport line at every commandFinished-driven
-        /// settle (that line is by construction the shell's freshly-printed
-        /// prompt). Excluded from later last-output-line candidates so a
-        /// prompt that embeds real text — directory names, branch names —
-        /// is never mistaken for output, even across `cd`/branch changes
-        /// that alter the prompt's exact text. Scrollbar-driven settles read
-        /// this but never write it: there is no settle-boundary invariant
-        /// tying their trailing line to the prompt.
-        var promptSignature: String?
     }
 
     private let unseenQuietDuration: Duration
@@ -630,40 +620,13 @@ package actor TerminalActivityProjector {
         ])
     }
 
-    /// Reads the settle-time candidate line for `surfaceID`: fetches the raw
-    /// trailing viewport text once, optionally re-learns this pane's prompt
-    /// signature from it, contracts a candidate excluding that signature,
-    /// then applies unchanged-line suppression against the pane's previous
-    /// settle. Learning happens strictly before contraction ("learn then
-    /// contract") so even a pane's very first settle — where the trailing
-    /// line is unavoidably the prompt itself, since nothing has been learned
-    /// yet — never publishes that prompt: it becomes the signature and is
-    /// excluded in the same pass. `learnPromptSignature` is true only for
-    /// commandFinished-driven settles, where the trailing line is
-    /// guaranteed by shell-integration semantics to be the freshly-printed
-    /// prompt; scrollbar-driven settles have no such invariant and read the
-    /// pane's last-known signature without writing it. Always re-fetches
-    /// `paneStates` after the reader's MainActor hop rather than reusing a
-    /// pre-await snapshot, since the actor is reentrant across that
-    /// suspension point.
-    ///
-    /// Known one-settle degradation (F3, owner-ratified, no fix this round):
-    /// Ghostty's shell integration emits the command-end OSC sequence before
-    /// the prompt-start sequence, and before PS1 is actually painted. If a
-    /// commandFinished settle races that ordering, the trailing viewport row
-    /// can still be the just-completed command's real output rather than the
-    /// new prompt, so that output is wrongly learned as `promptSignature` and
-    /// suppressed for this one settle. This is self-correcting: the pane's
-    /// *next* commandFinished-driven settle re-learns from whatever is then
-    /// the trailing row. Once the prompt has actually painted by that point,
-    /// the signature corrects to the real prompt and the previously
-    /// misclassified output line's class recovers on the following settle.
-    /// A fix would require reading a real prompt semantic boundary (e.g. OSC
-    /// 133) instead of "the trailing row," which is out of scope here.
+    /// Reads the literal trailing non-empty viewport line and applies unchanged-line suppression.
+    /// Always re-fetches pane state after the reader's MainActor hop because the actor is reentrant
+    /// across that suspension point.
     private func resolveLastOutputLine(
         surfaceID: UUID,
         paneID: UUID,
-        learnPromptSignature: Bool
+        learnPromptSignature _: Bool
     ) async -> String? {
         guard let lastOutputLineReader else { return nil }
         let rawText = await lastOutputLineReader(surfaceID)
@@ -671,27 +634,15 @@ package actor TerminalActivityProjector {
         var state: PaneState
         if let existingState = paneStates[paneID], existingState.surfaceID == surfaceID {
             state = existingState
-        } else if learnPromptSignature {
+        } else {
             // A commandFinished-driven settle can be the first thing this pane
             // ever sees (no prior scrollbar ingestion, e.g. right after boot) —
             // still track state so the learned signature persists into later
             // settles, matching the default-state pattern `consumeAggregateState`
             // already uses for a pane's first scrollbar sample.
             state = PaneState(surfaceID: surfaceID, outputBurst: .unknown)
-        } else {
-            // Scrollbar-driven settles only run after an ingested window closes,
-            // so untracked state here means the pane was replaced/removed
-            // mid-flight; fall back to unscoped contraction with no persisted
-            // signature rather than fabricating state for a pane we no longer own.
-            return rawText.flatMap { TerminalLastOutputLineContract.contractedLastLine(fromRawViewportText: $0) }
         }
-
-        if learnPromptSignature, let rawText {
-            state.promptSignature = TerminalLastOutputLineContract.trailingNonEmptyLine(fromRawViewportText: rawText)
-        }
-        let candidate = rawText.flatMap {
-            TerminalLastOutputLineContract.contractedLastLine(fromRawViewportText: $0, excluding: state.promptSignature)
-        }
+        let candidate = rawText.flatMap(TerminalLastOutputLineContract.contractedLastLine)
         let isUnchanged = candidate == state.previousLastOutputLine
         state.previousLastOutputLine = candidate
         paneStates[paneID] = state

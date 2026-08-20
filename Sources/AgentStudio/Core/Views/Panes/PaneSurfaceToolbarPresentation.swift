@@ -23,6 +23,91 @@ package struct PaneSurfaceToolbarStatusIndicator: Equatable, Sendable {
     }
 }
 
+/// Passive Git facts rendered in pane chrome. This is intentionally a value-only presentation:
+/// the drawer observes no Git source and owns no refresh behavior. App composition resolves the
+/// already-published keyed worktree fact, then hands this immutable projection to the Core view.
+package struct PaneSurfaceGitStatusPresentation: Equatable, Sendable {
+    package let linesAdded: Int?
+    package let linesDeleted: Int?
+    package let showsUntrackedFiles: Bool
+    package let commitsAhead: Int?
+    package let commitsBehind: Int?
+    package let accessibilityLabel: String
+
+    package static func resolve(branchStatus: GitBranchStatus) -> Self? {
+        let linesAdded = positiveCount(branchStatus.linesAdded)
+        let linesDeleted = positiveCount(branchStatus.linesDeleted)
+        let showsUntrackedFiles =
+            linesAdded == nil
+            && linesDeleted == nil
+            && branchStatus.untrackedFileCount > 0
+
+        let syncCounts = nonzeroSyncCounts(branchStatus.syncState)
+        guard
+            linesAdded != nil
+                || linesDeleted != nil
+                || showsUntrackedFiles
+                || syncCounts.ahead != nil
+                || syncCounts.behind != nil
+        else { return nil }
+
+        var accessibilityParts: [String] = []
+        if let linesAdded {
+            accessibilityParts.append(countedLabel(linesAdded, singular: "line added", plural: "lines added"))
+        }
+        if let linesDeleted {
+            accessibilityParts.append(countedLabel(linesDeleted, singular: "line deleted", plural: "lines deleted"))
+        }
+        if showsUntrackedFiles {
+            accessibilityParts.append("Untracked files")
+        }
+        if let commitsAhead = syncCounts.ahead {
+            accessibilityParts.append(countedLabel(commitsAhead, singular: "commit ahead", plural: "commits ahead"))
+        }
+        if let commitsBehind = syncCounts.behind {
+            accessibilityParts.append(
+                countedLabel(commitsBehind, singular: "commit behind", plural: "commits behind")
+            )
+        }
+
+        return Self(
+            linesAdded: linesAdded,
+            linesDeleted: linesDeleted,
+            showsUntrackedFiles: showsUntrackedFiles,
+            commitsAhead: syncCounts.ahead,
+            commitsBehind: syncCounts.behind,
+            accessibilityLabel: accessibilityParts.joined(separator: ", ")
+        )
+    }
+
+    private static func positiveCount(_ count: Int) -> Int? {
+        count > 0 ? count : nil
+    }
+
+    private static func nonzeroSyncCounts(
+        _ syncState: GitBranchStatus.SyncState
+    ) -> (ahead: Int?, behind: Int?) {
+        switch syncState {
+        case .ahead(let count):
+            return (positiveCount(count), nil)
+        case .behind(let count):
+            return (nil, positiveCount(count))
+        case .diverged(let ahead, let behind):
+            return (positiveCount(ahead), positiveCount(behind))
+        case .synced, .noUpstream, .unknown:
+            return (nil, nil)
+        }
+    }
+
+    private static func countedLabel(
+        _ count: Int,
+        singular: String,
+        plural: String
+    ) -> String {
+        "\(count) \(count == 1 ? singular : plural)"
+    }
+}
+
 @MainActor
 package struct PaneSurfaceToolbarAction {
     package enum IconStatusTone: Equatable, Sendable {

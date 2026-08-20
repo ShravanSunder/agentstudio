@@ -31,8 +31,11 @@ enum DrawerEditorChooserFactory {
         paneId: UUID,
         workspaceWindowId: UUID? = nil,
         commandPresentation: DrawerToolbarCommandPresentation,
+        notePopoverPresented: Binding<Bool> = .constant(false),
+        notePopoverContent: AnyView? = nil,
         refreshInstalledTargets: @escaping @MainActor () -> [ExternalEditorTarget],
         onOpenEditor: @escaping (EditorTargetId) -> Void,
+        gitStatusPresentation: PaneSurfaceGitStatusPresentation? = nil,
         pullRequestBlockerIndicator: PaneSurfaceToolbarStatusIndicator? = nil,
         openPullRequestAction: PaneSurfaceToolbarAction? = nil
     ) -> DrawerOverlay.TrailingActions {
@@ -48,9 +51,13 @@ enum DrawerEditorChooserFactory {
                 )
             }
         return DrawerOverlay.TrailingActions(
+            editPaneNoteAction: commandPresentation.editPaneNote,
+            notePopoverPresented: notePopoverPresented,
+            notePopoverContent: notePopoverContent,
             openEditorMenuAction: commandPresentation.openEditorMenu,
             openFinderAction: commandPresentation.openFinder,
             copyPathAction: commandPresentation.copyPath,
+            gitStatusPresentation: gitStatusPresentation,
             pullRequestBlockerIndicator: pullRequestBlockerIndicator,
             openPullRequestAction: openPullRequestAction,
             editorMenuContent: AnyView(

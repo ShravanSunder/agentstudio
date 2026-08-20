@@ -56,6 +56,23 @@ hydrate submodules or invoke low-level vendor tasks directly. Use
 Ghostty/zmx vendor work or the accepted task requires changing one of those
 vendors; an ordinary setup failure does not authorize the flag.
 
+Test topology has one owner: the `mise run test:*` tasks and
+`scripts/run-swift-test-task.sh`. CI may schedule the prebuild, fast, large, and
+WebKit tasks independently, but it must call those same mise tasks rather than
+recreate raw `swift test` commands. The Swift fast lane keeps ordinary suites
+concurrent through Swift Testing itself; do not add SwiftPM `--parallel` to the
+fast inventory. Suites that share process-global state (including AppKit, MainActor
+singletons, shared datastores, or long-lived buses) must be excluded from that
+concurrent invocation. Annotate MainActor global suites with both `@MainActor`
+and `@Suite(..., .serialized)` so `aggregate_serial_non_webkit_suite_filters`
+discovers them; explicitly classified long-lived actor suites live in that same
+function. Its runner executes one suite per process with at most four processes
+concurrently against the already-built test bundle, avoiding SwiftPM's shared
+build-path lock. `@Suite(.serialized)` serializes only within one suite; it does
+not isolate that suite from other suites in the same process. Do not use SwiftPM
+`--parallel` or `--num-workers` as a substitute for process isolation: Xcode
+26.3 still runs Swift Testing through one helper process.
+
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A
 PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint
 automatically after every Edit/Write on `.swift` files.

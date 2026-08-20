@@ -48,19 +48,35 @@ struct PaneNotePopover: View {
     let currentNote: String?
     let onCommit: (String?) -> Void
     let onCancel: () -> Void
+    let owningPaneSize: CGSize?
 
     @State private var draft: PaneNotePopoverDraft
     @State private var isNoteFieldFocused = false
 
     init(
         currentNote: String?,
+        owningPaneSize: CGSize? = nil,
         onCommit: @escaping (String?) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.currentNote = currentNote
+        self.owningPaneSize = owningPaneSize
         self.onCommit = onCommit
         self.onCancel = onCancel
         _draft = State(initialValue: PaneNotePopoverDraft(currentNote: currentNote))
+    }
+
+    static func preferredSize(owningPaneSize: CGSize?) -> CGSize {
+        CGSize(
+            width: max(
+                AppStyles.Components.PaneNote.minimumWidth,
+                (owningPaneSize?.width ?? 0) * AppStyles.Components.PaneNote.paneSizeRatio
+            ),
+            height: max(
+                AppStyles.Components.PaneNote.minimumHeight,
+                (owningPaneSize?.height ?? 0) * AppStyles.Components.PaneNote.paneSizeRatio
+            )
+        )
     }
 
     var body: some View {
@@ -74,9 +90,10 @@ struct PaneNotePopover: View {
                 text: $draft.noteText,
                 isFocused: $isNoteFieldFocused,
                 onCommit: commitNote,
-                onCancel: cancelNote
+                onCancel: cancelNote,
+                allowsNewlines: true
             )
-            .frame(minHeight: 96)
+            .frame(minHeight: 96, maxHeight: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.white.opacity(AppStyles.General.Fill.subtle))
@@ -101,7 +118,7 @@ struct PaneNotePopover: View {
             }
         }
         .padding(16)
-        .frame(width: 380)
+        .frame(width: noteWidth, height: noteHeight)
         .onAppear {
             draft.reset(currentNote: currentNote)
         }
@@ -116,5 +133,13 @@ struct PaneNotePopover: View {
 
     private func cancelNote() {
         draft.cancel(onCancel: onCancel)
+    }
+
+    private var noteWidth: CGFloat {
+        Self.preferredSize(owningPaneSize: owningPaneSize).width
+    }
+
+    private var noteHeight: CGFloat {
+        Self.preferredSize(owningPaneSize: owningPaneSize).height
     }
 }
