@@ -13,9 +13,14 @@ const { beforeImage, restoredImage } = Astro.props;
 ---
 
 <div class="persistence-proof" data-persistence-proof data-enhanced="false">
-  <div class="persistence-proof__controls" role="group" aria-label="Workspace restoration">
+  <div
+    class="flex min-h-[48px] border-b border-line-strong bg-canvas"
+    role="group"
+    aria-label="Workspace restoration"
+  >
     <button
       type="button"
+      class="persistence-proof__control relative min-w-[128px] cursor-pointer border-0 border-r border-line bg-transparent px-[18px] font-mono-product text-[12px] text-ink-muted uppercase max-phone:min-w-0 max-phone:flex-[1_1_50%]"
       data-persistence-proof-button="before"
       aria-pressed="true"
       disabled
@@ -24,6 +29,7 @@ const { beforeImage, restoredImage } = Astro.props;
     </button>
     <button
       type="button"
+      class="persistence-proof__control relative min-w-[128px] cursor-pointer border-0 border-r border-line bg-transparent px-[18px] font-mono-product text-[12px] text-ink-muted uppercase max-phone:min-w-0 max-phone:flex-[1_1_50%]"
       data-persistence-proof-button="restored"
       aria-pressed="false"
       disabled
@@ -32,7 +38,7 @@ const { beforeImage, restoredImage } = Astro.props;
     </button>
   </div>
 
-  <figure data-persistence-frame="before">
+  <figure class="m-0" data-persistence-frame="before">
     <Image
       src={beforeImage}
       alt={marketingCopy.stories.persistence.beforeImageDescription}
@@ -41,9 +47,10 @@ const { beforeImage, restoredImage } = Astro.props;
       format="png"
       loading="lazy"
       decoding="async"
+      class="block h-auto w-full"
     />
   </figure>
-  <figure data-persistence-frame="restored" hidden>
+  <figure class="m-0" data-persistence-frame="restored" hidden>
     <Image
       src={restoredImage}
       alt={marketingCopy.stories.persistence.restoredImageDescription}
@@ -52,6 +59,25 @@ const { beforeImage, restoredImage } = Astro.props;
       format="png"
       loading="lazy"
       decoding="async"
+      class="block h-auto w-full"
     />
   </figure>
 </div>
+
+<style>
+  @reference "../styles/global.css";
+
+  .persistence-proof__control[aria-pressed="true"] {
+    @apply bg-active-surface text-ink;
+  }
+
+  .persistence-proof__control[aria-pressed="true"]::after {
+    position: absolute;
+    right: 16px;
+    bottom: 0;
+    left: 16px;
+    height: 2px;
+    background: var(--color-primary);
+    content: "";
+  }
+</style>

@@ -4,25 +4,89 @@ import { marketingCopy } from "@/marketing-copy";
 import InstallCommand from "./InstallCommand.astro";
 ---
 
-<section class="hero" aria-labelledby="hero-title">
-  <div class="hero__copy">
-    <p class="eyebrow">{marketingCopy.hero.eyebrow}</p>
-    <h1 id="hero-title" aria-label={marketingCopy.hero.headline}>
-      <span class="hero__headline-line">{marketingCopy.hero.headlineLead}</span>{" "}
-      <span class="hero__headline-line">
+<section
+  class="hero relative overflow-hidden px-page-inline pt-[clamp(72px,8vw,120px)] max-phone:pt-[72px]"
+  aria-labelledby="hero-title"
+>
+  <div class="relative z-[2] max-w-[1296px]">
+    <p class="eyebrow m-0 font-mono-product text-[12px] tracking-[0.12em] text-ink-faint uppercase">
+      {marketingCopy.hero.eyebrow}
+    </p>
+    <h1
+      id="hero-title"
+      class="mt-[24px] mb-[30px] max-w-[1296px] font-display text-[clamp(74px,8.5vw,128px)] leading-[0.86] font-extrabold tracking-[-0.07em] max-phone:text-[clamp(46px,12vw,68px)] max-phone:leading-[0.92] max-phone:tracking-[-0.05em]"
+      aria-label={marketingCopy.hero.headline}
+    >
+      <span class="block">{marketingCopy.hero.headlineLead}</span>{" "}
+      <span class="block">
         {marketingCopy.hero.headlineTail}
-        <span class="hero__headline-accent"> {marketingCopy.hero.headlineAccent}</span>
+        <span class="text-primary"> {marketingCopy.hero.headlineAccent}</span>
       </span>
     </h1>
-    <p class="hero__summary">{marketingCopy.hero.description}</p>
-    <div class="hero__actions">
+    <p class="m-0 max-w-[720px] text-[clamp(18px,1.7vw,24px)] leading-[1.5] text-ink-muted">
+      {marketingCopy.hero.description}
+    </p>
+    <div
+      class="hero__actions mt-action flex w-full flex-wrap items-center justify-center gap-[12px] max-phone:flex-col max-phone:items-stretch"
+    >
       <InstallCommand />
     </div>
   </div>
 
-  <div class="hero__planes" aria-hidden="true">
+  <div class="hero__planes max-site-edge:hidden" aria-hidden="true">
     <span class="hero__plane hero__plane--rear-one"></span>
     <span class="hero__plane hero__plane--rear-two"></span>
     <span class="hero__plane hero__plane--front"><span class="hero__glyph">&gt;_</span></span>
   </div>
 </section>
+
+<style>
+  .hero__planes {
+    position: absolute;
+    top: 38px;
+    right: 4%;
+    width: 300px;
+    height: 220px;
+    opacity: 0.9;
+    transform: scale(0.78);
+    transform-origin: top right;
+  }
+
+  .hero__plane {
+    position: absolute;
+    top: 48px;
+    right: 28px;
+    width: 190px;
+    height: 132px;
+    border-radius: 24px;
+    transform-origin: center;
+  }
+
+  .hero__plane--rear-one {
+    border: 2px solid rgb(239 159 118 / 72%);
+    background: rgb(17 17 27 / 56%);
+    transform: translate(-42px, -18px) rotate(-12deg);
+  }
+
+  .hero__plane--rear-two {
+    border: 2px solid rgb(239 159 118 / 82%);
+    background: rgb(21 21 32 / 68%);
+    transform: translate(-20px, 4px) rotate(7deg);
+  }
+
+  .hero__plane--front {
+    display: grid;
+    place-items: center;
+    border: 2px solid var(--color-primary);
+    background: var(--color-ground);
+  }
+
+  .hero__glyph {
+    color: var(--color-glyph);
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-size: 42px;
+    font-weight: 700;
+    letter-spacing: -0.16em;
+    transform: translateX(-0.08em);
+  }
+</style>

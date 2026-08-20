@@ -23,21 +23,32 @@ const { title, description } = Astro.props;
     <title>{title}</title>
   </head>
   <body>
-    <header class="site-header" data-site-header data-visual-state="resting">
-      <a class="brand-link" href="#top" aria-label={marketingCopy.navigation.homeLabel}>
+    <header
+      class="site-header sticky top-px z-20 mx-auto flex min-h-[72px] w-[min(calc(100%-32px),var(--container-frame))] items-center justify-between rounded-floating-shell border border-[rgb(137_180_250/24%)] px-page-inline py-[16px] max-site-edge:w-[calc(100%-2px)]"
+      data-site-header
+      data-visual-state="resting"
+    >
+      <a
+        class="brand-link inline-flex items-center gap-[12px] font-bold"
+        href="#top"
+        aria-label={marketingCopy.navigation.homeLabel}
+      >
         <img src={appLogo.src} width="32" height="32" alt="" />
         <span>{marketingCopy.productName}</span>
       </a>
-      <nav aria-label={marketingCopy.navigation.primaryLabel}>
+      <nav
+        class="flex items-center gap-[8px] text-[14px] text-ink-muted max-phone:gap-[4px]"
+        aria-label={marketingCopy.navigation.primaryLabel}
+      >
         <a
-          class="header-social-action"
+          class="header-social-action grid size-[32px] place-items-center hover:text-ink"
           href={marketingCopy.githubUrl}
           aria-label={marketingCopy.navigation.githubAction}
         >
           <GitHubMark />
         </a>
         <a
-          class="header-social-action"
+          class="header-social-action grid size-[32px] place-items-center hover:text-ink [&_.social-mark]:size-[16px]"
           href={marketingCopy.socialLinks.x.url}
           aria-label={marketingCopy.socialLinks.x.label}
         >
@@ -46,7 +57,9 @@ const { title, description } = Astro.props;
       </nav>
     </header>
     <div class="site-header-frost" aria-hidden="true"></div>
-    <div class="site-frame">
+    <div
+      class="site-frame relative z-[1] mx-auto mb-[16px] w-[min(calc(100%-32px),var(--container-frame))] overflow-visible bg-[rgb(46_48_54/97%)] max-site-edge:m-0 max-site-edge:w-full"
+    >
       <main id="top">
         <slot />
       </main>
@@ -80,3 +93,81 @@ const { title, description } = Astro.props;
     </script>
   </body>
 </html>
+
+<style>
+  .site-header {
+    background:
+      linear-gradient(135deg, rgb(137 180 250 / 7%), transparent 42%, rgb(116 199 236 / 4%)),
+      rgb(30 30 46 / 78%);
+    box-shadow:
+      0 8px 30px rgb(10 11 17 / 16%),
+      inset 0 1px rgb(255 255 255 / 7%);
+    backdrop-filter: blur(20px) saturate(120%);
+    -webkit-backdrop-filter: blur(20px) saturate(120%);
+    transition:
+      top 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      width 360ms cubic-bezier(0.22, 1, 0.36, 1),
+      min-height 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      padding 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-radius 360ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 280ms ease,
+      background-color 280ms ease,
+      box-shadow 360ms ease;
+  }
+
+  .site-header[data-visual-state="floating"] {
+    top: 16px;
+    width: min(80vw, 672px);
+    min-height: 64px;
+    padding: 12px 22px;
+    border-color: rgb(137 180 250 / 38%);
+    border-radius: var(--radius-floating-shell);
+    background:
+      linear-gradient(135deg, rgb(137 180 250 / 11%), transparent 40%, rgb(116 199 236 / 6%)),
+      rgb(30 30 46 / 88%);
+    box-shadow:
+      0 20px 46px rgb(8 9 14 / 28%),
+      0 6px 16px rgb(10 11 17 / 18%),
+      0 1px 0 rgb(137 180 250 / 8%),
+      inset 0 1px rgb(255 255 255 / 10%);
+  }
+
+  .site-header-frost {
+    position: fixed;
+    z-index: 19;
+    top: 0;
+    left: 50%;
+    width: min(80vw, 672px);
+    height: 40px;
+    pointer-events: none;
+    opacity: 0;
+    background: transparent;
+    transform: translateX(-50%);
+    backdrop-filter: blur(8px) saturate(120%);
+    -webkit-backdrop-filter: blur(8px) saturate(120%);
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 8px,
+      #000 calc(100% - 8px),
+      transparent 100%
+    );
+    transition: opacity 240ms ease;
+  }
+
+  .site-header[data-visual-state="floating"] + .site-header-frost {
+    opacity: 1;
+  }
+
+  @media (max-width: 620px) {
+    .site-header[data-visual-state="floating"] {
+      padding-inline: 18px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .site-header {
+      transition: none;
+    }
+  }
+</style>

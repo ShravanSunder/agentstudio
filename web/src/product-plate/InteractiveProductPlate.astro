@@ -6,16 +6,29 @@ import { marketingCopy } from "@/marketing-copy";
 import { productPlateStories } from "./product-plate-fixture";
 ---
 
-<section id="workspace" class="product-story" aria-labelledby="workspace-title">
-  <div class="section-heading">
-    <p class="eyebrow">{marketingCopy.switcher.eyebrow}</p>
-    <h2 id="workspace-title">{marketingCopy.switcher.headline}</h2>
-    <p>{marketingCopy.switcher.description}</p>
+<section id="workspace" class="px-page-inline pt-section" aria-labelledby="workspace-title">
+  <div class="section-heading mb-content max-w-[900px]">
+    <p class="eyebrow m-0 font-mono-product text-[12px] tracking-[0.12em] text-ink-faint uppercase">
+      {marketingCopy.switcher.eyebrow}
+    </p>
+    <h2
+      id="workspace-title"
+      class="mt-[14px] mb-[20px] font-display text-[clamp(48px,6.4vw,94px)] leading-[0.92] font-extrabold tracking-[-0.06em]"
+    >
+      {marketingCopy.switcher.headline}
+    </h2>
+    <p class="m-0 max-w-[700px] text-[19px] leading-[1.55] text-ink-muted">
+      {marketingCopy.switcher.description}
+    </p>
   </div>
 
-  <div class="product-plate" data-product-plate data-enhanced="false">
+  <div
+    class="product-plate grid grid-cols-[280px_minmax(0,1fr)] overflow-clip rounded-product border border-line-strong bg-product-ground max-product-stacked:grid-cols-1"
+    data-product-plate
+    data-enhanced="false"
+  >
     <div
-      class="product-plate__selectors"
+      class="product-plate__selectors border-r border-line-strong bg-canvas max-product-stacked:flex max-product-stacked:overflow-x-auto max-product-stacked:border-r-0 max-product-stacked:border-b"
       data-product-plate-selectors
       aria-label={marketingCopy.switcher.accessibilityLabel}
     >
@@ -26,21 +39,26 @@ import { productPlateStories } from "./product-plate-fixture";
             data-product-plate-selector={story.id}
             disabled
             tabindex="-1"
-            class:list={["product-plate__selector", { "is-default": index === 0 }]}
+            class:list={[
+              "product-plate__selector grid w-full grid-cols-[34px_minmax(0,1fr)] border-0 border-b border-line bg-transparent px-[20px] py-[clamp(7.5px,calc(1.25vw-10.5px),9.5px)] text-left text-ink-muted max-product-stacked:min-h-[118px] max-product-stacked:[flex:0_0_190px] max-product-stacked:border-r max-product-stacked:border-b-0",
+              { "is-default": index === 0 },
+            ]}
           >
-            <span>{String(index + 1).padStart(2, "0")}</span>
-            <strong>{story.label}</strong>
-            <small>{story.description}</small>
+            <span class="row-span-2 font-mono-product text-[12px] text-ink-faint">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <strong class="text-[16px] text-inherit">{story.label}</strong>
+            <small class="mt-[7px] leading-[1.4] text-ink-faint">{story.description}</small>
           </button>
         ))
       }
     </div>
 
-    <div class="product-plate__panels">
+    <div class="product-plate__panels min-w-0 bg-product-ground">
       {
         productPlateStories.map((story, index) => (
           <article
-            class="product-plate__panel"
+            class="product-plate__panel overflow-clip rounded-none border-0 bg-product-ground"
             data-product-plate-panel={story.id}
             hidden={index !== 0}
           >
@@ -52,6 +70,7 @@ import { productPlateStories } from "./product-plate-fixture";
               format="png"
               loading={index === 0 ? "eager" : "lazy"}
               decoding="async"
+              class="block h-auto w-full"
             />
           </article>
         ))
@@ -75,3 +94,67 @@ import { productPlateStories } from "./product-plate-fixture";
     initializePersistenceProof(persistenceProofRoot);
   }
 </script>
+
+<style>
+  @reference "../styles/global.css";
+
+  .product-plate[data-enhanced="true"] .product-plate__selector {
+    @apply cursor-pointer;
+  }
+
+  .product-plate__selector[aria-selected="true"],
+  .product-plate__selector.is-default:disabled {
+    @apply bg-active-surface text-ink;
+    box-shadow: inset 4px 0 var(--color-primary);
+  }
+
+  .product-plate__selector[aria-selected="true"] small,
+  .product-plate__selector.is-default:disabled small {
+    @apply text-ink-muted;
+  }
+
+  .product-plate__selector[aria-selected="true"] span,
+  .product-plate__selector.is-default:disabled span {
+    @apply text-primary;
+  }
+
+  .product-plate__selectors {
+    scrollbar-width: none;
+  }
+
+  .product-plate__selectors::-webkit-scrollbar {
+    display: none;
+  }
+
+  .product-plate__panel {
+    animation: product-panel-enter 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .product-plate__panel[hidden] {
+    display: none;
+  }
+
+  @media (max-width: 1350px) {
+    .product-plate__selector[aria-selected="true"],
+    .product-plate__selector.is-default:disabled {
+      box-shadow: inset 0 -4px var(--color-primary);
+    }
+  }
+
+  @keyframes product-panel-enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .product-plate__panel {
+      animation: none;
+    }
+  }
+</style>

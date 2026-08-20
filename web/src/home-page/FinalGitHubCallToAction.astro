@@ -3,9 +3,21 @@ import appLogo from "@/assets/brand/app-logo-transparent.svg";
 import { marketingCopy } from "@/marketing-copy";
 ---
 
-<section class="final-cta" aria-labelledby="final-cta-title">
+<section
+  class="final-cta grid min-h-[700px] justify-items-center gap-y-[24px] px-page-inline py-[clamp(80px,7vw,112px)] text-center"
+  aria-labelledby="final-cta-title"
+>
   <img src={appLogo.src} width="88" height="88" alt="" />
-  <h2 id="final-cta-title">{marketingCopy.productName}</h2>
-  <p>{marketingCopy.finalCallToAction.description}</p>
-  <p class="final-cta__traits">{marketingCopy.finalCallToAction.traits}</p>
+  <h2
+    id="final-cta-title"
+    class="m-0 font-display text-[clamp(72px,10vw,140px)] leading-[0.92] font-extrabold tracking-[-0.06em]"
+  >
+    {marketingCopy.productName}
+  </h2>
+  <p class="m-0 max-w-[700px] text-[19px] leading-[1.55] text-ink-muted">
+    {marketingCopy.finalCallToAction.description}
+  </p>
+  <p class="m-0 font-mono-product text-[13px] tracking-[0.05em] text-ink-faint">
+    {marketingCopy.finalCallToAction.traits}
+  </p>
 </section>
