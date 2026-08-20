@@ -159,14 +159,61 @@ describe('worktree annotation surface command rendezvous', () => {
 		await expect(pending).rejects.toThrow('Annotation surface client is disposed.');
 		expect(harness.client.getSnapshot().commandOutcomes).toEqual([]);
 	});
+
+	test('bounds unmatched accept, outcome, and degraded-failure correlations', async () => {
+		const harness = createSurfaceClientHarness([
+			'worker-accepted-0',
+			'worker-accepted-1',
+			'worker-failure-0',
+			'worker-failure-1',
+		]);
+		for (let index = 0; index < 129; index += 1) {
+			harness.publish({
+				direction: 'serverWorkerToMain',
+				kind: 'annotationCommandAccepted',
+				outcome: {
+					requestId: `product-orphan-${index.toString()}`,
+					sessionId: null,
+					status: { kind: 'committed' },
+					surface: 'file',
+				},
+				productRequestId: `product-orphan-${index.toString()}`,
+				requestId: `worker-accepted-${index.toString()}`,
+				surface: 'fileView',
+				transferDescriptors: [],
+				wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			});
+			harness.publish({
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				message: `orphan failure ${index.toString()}`,
+				requestId: `worker-failure-${index.toString()}`,
+				status: 'degraded',
+				transferDescriptors: [],
+				wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			});
+		}
+
+		const evictedAccepted = harness.client.execute({ kind: 'session.discover' });
+		const retainedAccepted = harness.client.execute({ kind: 'session.discover' });
+		const evictedFailure = harness.client.execute({ kind: 'session.discover' });
+		const retainedFailure = harness.client.execute({ kind: 'session.discover' });
+
+		await expect(retainedAccepted).resolves.toMatchObject({ requestId: 'product-orphan-1' });
+		await expect(retainedFailure).rejects.toThrow('orphan failure 1');
+		harness.client.dispose();
+		await expect(evictedAccepted).rejects.toThrow('Annotation surface client is disposed.');
+		await expect(evictedFailure).rejects.toThrow('Annotation surface client is disposed.');
+	});
 });
 
-function createSurfaceClientHarness(): {
+function createSurfaceClientHarness(workerRequestIds: readonly string[] = ['worker-save-1']): {
 	readonly client: ReturnType<typeof createWorktreeAnnotationSurfaceClient>;
 	readonly publish: (message: BridgeWorkerServerToMainMessage) => void;
 	readonly sentCommands: Array<Parameters<BridgePaneSurfaceClient['send']>[0]>;
 } {
 	let listener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
+	let nextWorkerRequestIndex = 0;
 	const sentCommands: Parameters<BridgePaneSurfaceClient['send']>[0][] = [];
 	const surfaceClient = {
 		lifecycle: createBridgeWorkerRpcLifecycleStore(),
@@ -178,7 +225,9 @@ function createSurfaceClientHarness(): {
 		renderStore: createBridgeMainRenderSnapshotStore(),
 		send: (command): string => {
 			sentCommands.push(command);
-			return 'worker-save-1';
+			const requestId = workerRequestIds[nextWorkerRequestIndex];
+			nextWorkerRequestIndex += 1;
+			return requestId ?? `worker-save-${nextWorkerRequestIndex.toString()}`;
 		},
 		subscribeMessages: (
 			nextListener: (message: BridgeWorkerServerToMainMessage) => void,

@@ -13,6 +13,7 @@ import {
 } from './worktree-annotation-projection-store.js';
 
 const noopUnsubscribe = (): void => {};
+const maximumRetainedOrphanCorrelationCount = 128;
 export {
 	emptyWorktreeAnnotationProjectionSnapshot,
 	WorktreeAnnotationProjectionStore,
@@ -97,7 +98,7 @@ export function createWorktreeAnnotationSurfaceClient(
 		if (outcome.status.kind === 'history') {
 			projectionStore.replaceOutputHistory(outcome.status.summaries);
 		}
-		outcomesByProductRequestId.set(outcome.requestId, outcome);
+		retainBoundedOrphanCorrelation(outcomesByProductRequestId, outcome.requestId, outcome);
 		const workerRequestId = pendingWorkerRequestIdByProductRequestId.get(outcome.requestId);
 		if (workerRequestId === undefined) return;
 		const pendingCommand = pendingCommandsByWorkerRequestId.get(workerRequestId);
@@ -111,7 +112,11 @@ export function createWorktreeAnnotationSurfaceClient(
 	const acceptProductRequest = (workerRequestId: string, productRequestId: string): void => {
 		const pendingCommand = pendingCommandsByWorkerRequestId.get(workerRequestId);
 		if (pendingCommand === undefined) {
-			acceptedProductRequestIdByWorkerRequestId.set(workerRequestId, productRequestId);
+			retainBoundedOrphanCorrelation(
+				acceptedProductRequestIdByWorkerRequestId,
+				workerRequestId,
+				productRequestId,
+			);
 			return;
 		}
 		pendingCommand.productRequestId = productRequestId;
@@ -130,7 +135,7 @@ export function createWorktreeAnnotationSurfaceClient(
 			pendingOutputInspection === undefined &&
 			pendingCandidateQuery === undefined
 		) {
-			degradedFailureByWorkerRequestId.set(workerRequestId, error);
+			retainBoundedOrphanCorrelation(degradedFailureByWorkerRequestId, workerRequestId, error);
 			return;
 		}
 		if (pendingCommand !== undefined) {
@@ -361,6 +366,17 @@ export function createWorktreeAnnotationSurfaceClient(
 		subscribe: projectionStore.subscribe,
 		waitForSnapshot,
 	};
+}
+
+function retainBoundedOrphanCorrelation<TKey, TValue>(
+	map: Map<TKey, TValue>,
+	key: TKey,
+	value: TValue,
+): void {
+	map.set(key, value);
+	if (map.size <= maximumRetainedOrphanCorrelationCount) return;
+	const oldestKey = map.keys().next().value;
+	if (oldestKey !== undefined) map.delete(oldestKey);
 }
 
 function currentSurfaceEpoch(surfaceClient: BridgePaneSurfaceClient): number {
