@@ -15,6 +15,7 @@ import {
 	createWorktreeAnnotationOutputSelection,
 	type WorktreeAnnotationOutputSelection,
 } from './worktree-annotation-output-selection.js';
+import type { WorktreeAnnotationShareScope } from './worktree-annotation-share-mode.js';
 
 export type WorktreeAnnotationEditorState =
 	| { readonly editToken: string; readonly kind: 'message'; readonly messageId: string }
@@ -47,6 +48,10 @@ export type WorktreeAnnotationThreadExpansion =
 			readonly threadId: string;
 	  };
 
+export type WorktreeAnnotationShareMode =
+	| { readonly kind: 'closed' }
+	| { readonly kind: 'open'; readonly scope: WorktreeAnnotationShareScope };
+
 export interface WorktreeAnnotationSavedRangeIdentity {
 	readonly itemId: string;
 	readonly range: WorktreeAnnotationRange;
@@ -57,17 +62,21 @@ export interface WorktreeAnnotationInteractionController {
 	readonly activeThreadId: string | null;
 	readonly activateSavedThread: (identity: WorktreeAnnotationSavedRangeIdentity) => void;
 	readonly clearRangePresentation: () => void;
+	readonly closeShareMode: () => void;
 	readonly collapseThread: () => Promise<void>;
 	readonly exitThreadEditor: () => Promise<void>;
 	readonly expandThread: (threadId: string, invoker: HTMLElement) => void;
 	readonly finishThreadEditor: () => void;
 	readonly handleCommentBlur: (nextTarget: EventTarget | null) => void;
 	readonly outputSelection: WorktreeAnnotationOutputSelection;
+	readonly openShareMode: () => void;
 	readonly pierreRangePresentation: WorktreeAnnotationPierreRangePresentation;
 	readonly registerThreadEditorExit: (exitEditor: () => Promise<void>) => () => void;
 	readonly resolveThreadFocus: () => HTMLElement | null;
 	readonly setOutputSelection: (selection: WorktreeAnnotationOutputSelection) => void;
 	readonly setPendingRange: (itemId: string, range: WorktreeAnnotationRange) => void;
+	readonly setShareScope: (scope: WorktreeAnnotationShareScope) => void;
+	readonly shareMode: WorktreeAnnotationShareMode;
 	readonly startMessageEdit: (threadId: string, messageId: string, invoker: HTMLElement) => void;
 	readonly startReply: (threadId: string, invoker: HTMLElement) => void;
 	readonly threadExpansion: WorktreeAnnotationThreadExpansion;
@@ -87,6 +96,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 	const [outputSelection, setOutputSelection] = useState<WorktreeAnnotationOutputSelection>(
 		createWorktreeAnnotationOutputSelection,
 	);
+	const [shareMode, setShareMode] = useState<WorktreeAnnotationShareMode>({ kind: 'closed' });
 	const threadEditorExitRef = useRef<(() => Promise<void>) | null>(null);
 
 	const activateSavedThread = useCallback(
@@ -101,6 +111,17 @@ export function WorktreeAnnotationInteractionProvider(props: {
 	const clearRangePresentation = useCallback((): void => {
 		setPierreRangePresentation((currentPresentation) =>
 			currentPresentation.kind === 'none' ? currentPresentation : { kind: 'none' },
+		);
+	}, []);
+	const openShareMode = useCallback((): void => {
+		setShareMode({ kind: 'open', scope: 'new' });
+	}, []);
+	const closeShareMode = useCallback((): void => {
+		setShareMode({ kind: 'closed' });
+	}, []);
+	const setShareScope = useCallback((scope: WorktreeAnnotationShareScope): void => {
+		setShareMode((currentMode) =>
+			currentMode.kind === 'closed' ? currentMode : { kind: 'open', scope },
 		);
 	}, []);
 	const expandThread = useCallback((threadId: string, invoker: HTMLElement): void => {
@@ -243,17 +264,21 @@ export function WorktreeAnnotationInteractionProvider(props: {
 						: null,
 			activateSavedThread,
 			clearRangePresentation,
+			closeShareMode,
 			collapseThread,
 			exitThreadEditor,
 			expandThread,
 			finishThreadEditor,
 			handleCommentBlur,
 			outputSelection,
+			openShareMode,
 			pierreRangePresentation,
 			registerThreadEditorExit,
 			resolveThreadFocus,
 			setOutputSelection,
 			setPendingRange,
+			setShareScope,
+			shareMode,
 			startMessageEdit,
 			startReply,
 			threadExpansion,
@@ -261,16 +286,20 @@ export function WorktreeAnnotationInteractionProvider(props: {
 		[
 			activateSavedThread,
 			clearRangePresentation,
+			closeShareMode,
 			collapseThread,
 			exitThreadEditor,
 			expandThread,
 			finishThreadEditor,
 			handleCommentBlur,
 			outputSelection,
+			openShareMode,
 			pierreRangePresentation,
 			registerThreadEditorExit,
 			resolveThreadFocus,
 			setPendingRange,
+			setShareScope,
+			shareMode,
 			startMessageEdit,
 			startReply,
 			threadExpansion,
