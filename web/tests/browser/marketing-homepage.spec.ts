@@ -5,7 +5,7 @@ const productStoryCases = [
   { id: "pane-drawer", accessibleName: /Pane drawer/ },
   { id: "quick-find", accessibleName: /Quick Find/ },
   { id: "review", accessibleName: /Review/ },
-  { id: "persistent-workspace", accessibleName: /Persistent terminal sessions/ },
+  { id: "git-context", accessibleName: /Git context/ },
 ] as const;
 
 const verificationViewports = [
@@ -109,10 +109,10 @@ test("renders the claim-first homepage and switches product stories", async ({ p
     "true",
   );
 
-  await page.getByRole("tab", { name: /Persistent terminal sessions/ }).click();
-  const persistencePanel = page.getByRole("tabpanel", {
-    name: /Persistent terminal sessions/,
-  });
+  await page.getByRole("tab", { name: /Git context/ }).click();
+  await expect(page.getByRole("tabpanel", { name: /Git context/ })).toBeVisible();
+
+  const persistencePanel = page.locator(".feature-detail").first();
   const beforeFrameButton = persistencePanel.getByRole("button", { name: "Before close" });
   const restoredFrameButton = persistencePanel.getByRole("button", { name: "Restored" });
   await expect(beforeFrameButton).toHaveAttribute("aria-pressed", "true");
@@ -122,12 +122,13 @@ test("renders the claim-first homepage and switches product stories", async ({ p
 
   const beforeFrameGeometry = await persistencePanel.evaluate((panel) => {
     const image = panel.querySelector('[data-persistence-frame="before"] img');
+    const media = panel.querySelector(".feature-detail__media");
 
-    if (!(image instanceof HTMLImageElement)) {
-      throw new Error("Before persistence frame is missing");
+    if (!(image instanceof HTMLImageElement) || !(media instanceof HTMLElement)) {
+      throw new Error("Before persistence frame or media boundary is missing");
     }
 
-    const panelBounds = panel.getBoundingClientRect();
+    const panelBounds = media.getBoundingClientRect();
     const imageBounds = image.getBoundingClientRect();
     return {
       widthDifference: Math.abs(panelBounds.width - imageBounds.width),
@@ -206,18 +207,6 @@ for (const viewport of verificationViewports) {
         )
         .toBeGreaterThan(0);
 
-      if (productStory.id === "persistent-workspace") {
-        await selectedPanel.getByRole("button", { name: "Restored" }).click();
-        await expect
-          .poll(() =>
-            productImages
-              .last()
-              .evaluate((image) => (image instanceof HTMLImageElement ? image.naturalWidth : 0)),
-          )
-          .toBeGreaterThan(0);
-        await selectedPanel.getByRole("button", { name: "Before close" }).click();
-      }
-
       const imageGeometry = await productImages.evaluateAll((images) =>
         images.map((image) => {
           if (!(image instanceof HTMLImageElement)) {
@@ -246,7 +235,7 @@ for (const viewport of verificationViewports) {
         }),
       );
 
-      expect(imageGeometry.length).toBe(productStory.id === "persistent-workspace" ? 2 : 1);
+      expect(imageGeometry.length).toBe(1);
       expect(imageGeometry.filter((image) => image.renderedWidth > 0)).toHaveLength(1);
       for (const image of imageGeometry) {
         expect(image.naturalWidth).toBeGreaterThan(0);
@@ -262,21 +251,6 @@ for (const viewport of verificationViewports) {
             ),
           ).toBeLessThan(0.01);
         }
-      }
-
-      if (productStory.id === "persistent-workspace") {
-        const beforeFrame = selectedPanel.locator('[data-persistence-frame="before"]');
-        const restoredFrame = selectedPanel.locator('[data-persistence-frame="restored"]');
-        await expect(beforeFrame).toBeVisible();
-        await expect(restoredFrame).toBeHidden();
-
-        await selectedPanel.getByRole("button", { name: "Restored" }).click();
-        await expect(beforeFrame).toBeHidden();
-        await expect(restoredFrame).toBeVisible();
-
-        await selectedPanel.getByRole("button", { name: "Before close" }).click();
-        await expect(beforeFrame).toBeVisible();
-        await expect(restoredFrame).toBeHidden();
       }
 
       const documentWidths = await page.evaluate(() => ({
@@ -476,5 +450,6 @@ test("contains phone composition within the document viewport", async ({ page })
   }));
 
   expect(documentWidths.scrollWidth).toBeLessThanOrEqual(documentWidths.clientWidth);
-  await expect(page.getByRole("tab", { name: /Persistent terminal sessions/ })).toBeAttached();
+  await expect(page.getByRole("tab", { name: /Git context/ })).toBeAttached();
+  await expect(page.getByRole("button", { name: "Before close" })).toBeAttached();
 });

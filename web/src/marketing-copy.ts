@@ -44,6 +44,12 @@ export const marketingCopy = {
       imageDescription:
         "A readable unified CI workflow diff and Changed Files tree beside Claude Code in the matching worktree for pull request 313, with the global repository sidebar hidden.",
     },
+    gitContext: {
+      label: "Git context",
+      description: "Keep branch, change counts, and ahead or behind status beside each pane.",
+      imageDescription:
+        "Agent Studio grouped by repository with Codex and Claude panes beside branch, changed-line, and ahead or behind Git status.",
+    },
     persistence: {
       label: "Persistent terminal sessions",
       description:

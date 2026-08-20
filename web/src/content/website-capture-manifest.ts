@@ -3,6 +3,7 @@ export type WebsiteCaptureId =
   | "pane-drawer"
   | "quick-find"
   | "review"
+  | "git-context"
   | "persistent-before"
   | "persistent-restored";
 
@@ -119,6 +120,20 @@ export const websiteCaptureSuite = {
       sourceSha256: "9f29a173039e04f1946523e25481f97403ff625a3f77774df4518864677655da",
       normalizedMasterSha256: "fcbb61927148a093b75cdaebae57d6f6cd329338a01e5d5d9bcfc3e21418f9ec",
       websiteAssetSha256: "fcbb61927148a093b75cdaebae57d6f6cd329338a01e5d5d9bcfc3e21418f9ec",
+      focusRegion: null,
+      focusRadiusPixels: null,
+      focusRail: false,
+      settledAtSeconds: 1,
+    },
+    {
+      id: "git-context",
+      assetPath: "../assets/captures/git-pull-request-context.png",
+      alternativeText:
+        "Agent Studio grouped by repository with Codex and Claude panes beside branch, changed-line, and ahead or behind Git status.",
+      processGeneration: "A",
+      sourceSha256: "8eab0a39bacb1f86a3e6e8f15855ca08a57f736f323ccf1c100b1bb1013b7e74",
+      normalizedMasterSha256: "ca8e6f1b85fb722fedadd7020efd77a93fcdbeb0961ffb0489d1611862a753c4",
+      websiteAssetSha256: "ca8e6f1b85fb722fedadd7020efd77a93fcdbeb0961ffb0489d1611862a753c4",
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,

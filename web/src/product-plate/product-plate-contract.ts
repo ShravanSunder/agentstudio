@@ -3,7 +3,7 @@ export const productPlateStoryIds = [
   "pane-drawer",
   "quick-find",
   "review",
-  "persistent-workspace",
+  "git-context",
 ] as const;
 
 export type ProductPlateStoryId = (typeof productPlateStoryIds)[number];

@@ -86,12 +86,16 @@ open row here.
       scrolling, that same element contracts into a centered floating pill.
       The footer is a complete dark-glass box using the floating header's exact
       24px radius.
-- [ ] Correct product-selector color semantics. Inactive story numbers use a
+- [x] Correct product-selector color semantics. Inactive story numbers use a
       muted neutral; the selected story number and selection rail use primary
       blue `#89b4fa`. Reserve peach `#ef9f76` for intentional parallel,
       related, or background context rather than applying it to every index.
       Click all five states and verify the selected/inactive hierarchy at
       desktop and phone widths.
+- [x] Remove every empty product-panel region beneath showcase media. Exercise
+      all five selected states at `1600`, `1440`, `1360`, `1350`, `1200`, and
+      `390px`; the visible image bottom must equal its owning panel bottom
+      within one CSS pixel.
 - [ ] Replace the numbered secondary-feature accordion with restrained
       Herdr-inspired rows: human-readable explanation on the left and one
       relevant visual proof on the right. Remove the repeated `01`–`04`

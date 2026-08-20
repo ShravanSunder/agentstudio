@@ -33,7 +33,7 @@ describe("product plate state", () => {
 
     expect(previousState).toEqual({
       kind: "active",
-      selectedStoryId: "persistent-workspace",
+      selectedStoryId: "git-context",
     });
     expect(reduceProductPlateState(previousState, { kind: "move", direction: "next" })).toEqual({
       kind: "active",
@@ -52,7 +52,7 @@ describe("product plate state", () => {
     ).toEqual({ kind: "active", selectedStoryId: "parallel-work" });
     expect(
       reduceProductPlateState(selectedReviewState, { kind: "move", direction: "last" }),
-    ).toEqual({ kind: "active", selectedStoryId: "persistent-workspace" });
+    ).toEqual({ kind: "active", selectedStoryId: "git-context" });
   });
 
   it("rolls back to an honest static state", () => {

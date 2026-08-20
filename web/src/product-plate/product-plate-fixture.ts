@@ -1,9 +1,8 @@
 import type { ImageMetadata } from "astro";
 
+import gitContextImage from "@/assets/captures/git-pull-request-context.png";
 import paneDrawerImage from "@/assets/captures/pane-drawer.png";
 import parallelWorkImage from "@/assets/captures/parallel-work.png";
-import persistentBeforeImage from "@/assets/captures/persistent-before.png";
-import persistentRestoredImage from "@/assets/captures/persistent-restored.png";
 import quickFindImage from "@/assets/captures/quick-find.png";
 import reviewImage from "@/assets/captures/review.png";
 import { marketingCopy } from "@/marketing-copy";
@@ -12,23 +11,14 @@ import type { ProductPlateStoryId } from "./product-plate-contract";
 
 interface SingleImageStory {
   readonly kind: "single-image";
-  readonly id: Exclude<ProductPlateStoryId, "persistent-workspace">;
+  readonly id: ProductPlateStoryId;
   readonly label: string;
   readonly description: string;
   readonly image: ImageMetadata;
   readonly alternativeText: string;
 }
 
-export interface PersistenceComparisonStory {
-  readonly kind: "persistence-comparison";
-  readonly id: "persistent-workspace";
-  readonly label: string;
-  readonly description: string;
-  readonly beforeImage: ImageMetadata;
-  readonly restoredImage: ImageMetadata;
-}
-
-export type ProductPlateStory = SingleImageStory | PersistenceComparisonStory;
+export type ProductPlateStory = SingleImageStory;
 
 export const productPlateStories = [
   {
@@ -64,11 +54,11 @@ export const productPlateStories = [
     alternativeText: marketingCopy.stories.review.imageDescription,
   },
   {
-    kind: "persistence-comparison",
-    id: "persistent-workspace",
-    label: marketingCopy.stories.persistence.label,
-    description: marketingCopy.stories.persistence.description,
-    beforeImage: persistentBeforeImage,
-    restoredImage: persistentRestoredImage,
+    kind: "single-image",
+    id: "git-context",
+    label: marketingCopy.stories.gitContext.label,
+    description: marketingCopy.stories.gitContext.description,
+    image: gitContextImage,
+    alternativeText: marketingCopy.stories.gitContext.imageDescription,
   },
 ] as const satisfies readonly ProductPlateStory[];

@@ -3,7 +3,6 @@ import { Image } from "astro:assets";
 
 import { marketingCopy } from "@/marketing-copy";
 
-import PersistenceProof from "./PersistenceProof.astro";
 import { productPlateStories } from "./product-plate-fixture";
 ---
 
@@ -45,22 +44,15 @@ import { productPlateStories } from "./product-plate-fixture";
             data-product-plate-panel={story.id}
             hidden={index !== 0}
           >
-            {story.kind === "single-image" ? (
-              <Image
-                src={story.image}
-                alt={story.alternativeText}
-                widths={[720, 1080, 1440, 2160]}
-                sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
-                format="png"
-                loading={index === 0 ? "eager" : "lazy"}
-                decoding="async"
-              />
-            ) : (
-              <PersistenceProof
-                beforeImage={story.beforeImage}
-                restoredImage={story.restoredImage}
-              />
-            )}
+            <Image
+              src={story.image}
+              alt={story.alternativeText}
+              widths={[720, 1080, 1440, 2160]}
+              sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
+              format="png"
+              loading={index === 0 ? "eager" : "lazy"}
+              decoding="async"
+            />
           </article>
         ))
       }
