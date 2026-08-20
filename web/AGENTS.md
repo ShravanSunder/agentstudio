@@ -31,7 +31,7 @@ The current Agent Studio README and the governing website specifications remain 
 
 - Astro owns page composition, static HTML, metadata, and the default component boundary.
 - All authored application logic and executable JavaScript/TypeScript toolchain configuration is TypeScript. Do not add `.js`, `.jsx`, or `.mjs` application/configuration source files. Declarative JSON/YAML manifests, lockfiles, structured data, CSS, and CI/deployment workflows remain allowed.
-- Tailwind CSS v4 owns general responsive layout and utility composition. Semantic CSS owns brand tokens, product-plate geometry, and campaign-specific visual behavior.
+- Tailwind CSS v4 utilities are the default for layout, spacing, sizing, typography, color, borders, radii, and responsive variants. Use component-scoped CSS only for semantic state selectors, pseudo-elements, animation, or art-directed geometry that is clearer than utilities.
 - The first release builds static output for Cloudflare Pages. Do not add `@astrojs/cloudflare`, `@cloudflare/vite-plugin`, a Worker entry point, server rendering, bindings, or runtime APIs without revised governing requirements and design.
 - `BridgeWeb/` is an adjacent toolchain reference, not a website runtime dependency. Do not import Bridge transport, native app state, workers, telemetry, generated resources, or product controllers into `web/`.
 
@@ -139,7 +139,10 @@ Preserve the existing `web/images/` paths because the root README references the
 - `#409CFF` denotes current, focused, selected, or interactive state.
 - `#EF9F76` denotes parallel, related, or background work.
 - `#74C7EC` is a scarce logo or glyph detail.
-- Use Tailwind v4 `@theme` for tokens that should create utilities and `:root` variables for semantic values that should not.
+- Keep `web/src/styles/global.css` limited to the Tailwind import, utility-generating `@theme` tokens, and true document-wide base behavior. Do not return component layout or component breakpoints to the global stylesheet.
+- Put ordinary styling directly in complete, statically discoverable utility strings in the owning Astro markup. Do not construct Tailwind class names dynamically.
+- In scoped component CSS, use `@reference "../styles/global.css"` with the correct relative path before `@apply`. Use `@apply` to express standard utility groups behind meaningful state selectors such as `[aria-selected]`, `[data-*]`, or `:disabled`; do not use it to hide an entire component's ordinary layout behind a custom class.
+- Use ordinary CSS declarations for pseudo-elements, keyframes, browser-specific properties, and complex geometry when utilities would make the behavior harder to read.
 - Derive marketing geometry from the canonical icon's softened overlapping
   planes. Use a restrained radius system for the shell, product frame, and
   controls; do not turn the page into rounded-card or pill UI. Preserve native
