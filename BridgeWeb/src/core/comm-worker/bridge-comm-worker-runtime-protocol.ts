@@ -684,6 +684,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
 				reviewDemandScheduling.updateWorkerDerivationEpoch(workerDerivationEpoch);
 				const receipt = reviewMetadataApplicator.apply(event, workerDerivationEpoch);
+				productController?.setReviewAnnotationProjectionGeneration(
+					activeReviewSourceIdentity?.reviewGeneration ?? null,
+				);
 				publishUpdatingChrome();
 				return receipt;
 			},
@@ -794,10 +797,8 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				parsedMessage.data.update.mode === 'file' && activeSource?.protocol === 'worktree-file',
 				activeSource?.protocol === 'worktree-file' ? activeSource.generation : null,
 			);
-			productController?.setAnnotationProjectionSurfaceActive(
-				'review',
-				parsedMessage.data.update.mode === 'review' && activeSource?.protocol === 'review',
-				activeSource?.protocol === 'review' ? activeSource.generation : null,
+			productController?.setReviewAnnotationProjectionActive(
+				parsedMessage.data.update.mode === 'review',
 			);
 			if (activeViewerMode === parsedMessage.data.update.mode) {
 				publishUpdatingChrome();

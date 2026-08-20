@@ -171,6 +171,16 @@ export class BridgeCommWorkerProductController {
 		this.#publishAnnotationProjectionDemand(surface);
 	}
 
+	setReviewAnnotationProjectionActive(active: boolean): void {
+		this.#annotationSurfaceActive.review = active;
+		this.#publishAnnotationProjectionDemand('review');
+	}
+
+	setReviewAnnotationProjectionGeneration(sourceGeneration: number | null): void {
+		this.#annotationSourceGeneration.review = sourceGeneration;
+		this.#publishAnnotationProjectionDemand('review');
+	}
+
 	retryAnnotationProjection(surface: 'file' | 'review'): void {
 		this.#annotationProjectionBySurface[surface].retry();
 	}

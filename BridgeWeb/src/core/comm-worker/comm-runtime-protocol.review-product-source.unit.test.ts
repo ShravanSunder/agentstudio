@@ -13,11 +13,81 @@ import {
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
-import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
+import {
+	BridgeProductBoundedAsyncQueue,
+	createBridgeProductDeferred,
+} from './bridge-product-async-queue.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+import type { BridgeProductWorktreeAnnotationEvent } from './bridge-product-worktree-annotation-contracts.js';
 
 describe('Bridge comm worker Review product source projection', () => {
+	test('activates Review annotation projection from accepted metadata without a fabricated active source', async () => {
+		// Arrange
+		const calledMethods: string[] = [];
+		const reviewAnnotationEvents =
+			new BridgeProductBoundedAsyncQueue<BridgeProductWorktreeAnnotationEvent>(8);
+		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(64);
+		const reviewProjectionSourceGenerations: number[] = [];
+		const reviewProjectionQueryStarted = createBridgeProductDeferred<void>();
+		const subscribedKinds: string[] = [];
+		const reviewAnnotationSubscription: BridgeProductSubscription<'review.annotations'> = {
+			cancel: async (): Promise<void> => {},
+			events: reviewAnnotationEvents,
+			subscriptionId: 'review-annotations-no-fabricated-source',
+			subscriptionKind: 'review.annotations',
+			update: async (): Promise<void> => {},
+		};
+		const reviewMetadataSubscription: BridgeProductSubscription<'review.metadata'> = {
+			cancel: async (): Promise<void> => {},
+			events: reviewMetadataEvents,
+			subscriptionId: 'review-metadata-no-fabricated-source',
+			subscriptionKind: 'review.metadata',
+			update: async (): Promise<void> => {},
+		};
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			productTransport: makeReviewProductTransport({
+				calledMethods,
+				onCalledMethod: (method, request): void => {
+					if (method === 'review.annotations.projection.query') {
+						if (
+							typeof request !== 'object' ||
+							request === null ||
+							!('sourceGeneration' in request) ||
+							typeof request.sourceGeneration !== 'number'
+						) {
+							throw new Error('Review annotation query requires an exact source generation.');
+						}
+						reviewProjectionSourceGenerations.push(request.sourceGeneration);
+						reviewProjectionQueryStarted.resolve();
+					}
+				},
+				reviewAnnotationSubscription,
+				reviewSubscription: reviewMetadataSubscription,
+				subscribedKinds,
+			}),
+		});
+
+		// Act
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'annotation-metadata-source');
+		reviewAnnotationEvents.push({
+			eventKind: 'snapshot.required',
+			sourceGeneration: 0,
+			worktreeId: 'worktree-1',
+		});
+		reviewMetadataEvents.push(reviewSnapshotEvent);
+		await reviewProjectionQueryStarted.promise;
+
+		// Assert
+		expect(calledMethods).toContain('review.annotations.projection.query');
+		expect(reviewProjectionSourceGenerations).toEqual([reviewSnapshotEvent.generation]);
+	});
+
 	test('projects typed Review subscription snapshots into worker-owned source truth', async () => {
 		const events = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
