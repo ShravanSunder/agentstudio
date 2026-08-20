@@ -546,7 +546,7 @@ Specification.
 
 Pierre keeps selected source lines on its selection paint. A selected annotation
 row uses Pierre's normal selection computation with both selection mix weights
-raised to 78%, producing a darker related tint over `--diffs-annotation-bg`
+raised to 86%, producing a darker related tint over `--diffs-annotation-bg`
 without a React-owned backing surface. Output inclusion remains inside the More
 popover's Review output flow rather than occupying the timeline.
 

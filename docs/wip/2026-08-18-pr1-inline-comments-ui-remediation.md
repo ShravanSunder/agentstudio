@@ -624,7 +624,7 @@ Current inline-shell receipt, 2026-08-20:
   `Mixed inclusion` status, quiet non-circular toolbar actions, 4 px message
   gap, and a neutral timeline rail;
 - Pierre contrast correction: selected source lines retain their normal paint
-  while the selected annotation row uses Pierre's darker 78% relationship tint;
+  while the selected annotation row uses Pierre's darker 86% relationship tint;
 - message rail geometry: three 24 px buttons use 2 px gaps and remain fully
   inside the 80 px card with 3 px top / 1 px bottom clearance;
 - File-to-Review adapter correction: File-origin threads map to the Review head

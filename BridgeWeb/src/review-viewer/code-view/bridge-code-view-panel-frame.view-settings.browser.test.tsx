@@ -11,8 +11,8 @@ import { BridgeCodeViewPanelFrame } from './bridge-code-view-panel-frame.js';
 describe('BridgeCodeViewPanelFrame View Settings', () => {
 	test('uses a restrained darker selection tint for focused annotation rows', () => {
 		expect(bridgeCodeViewOptions.unsafeCSS).toContain('[data-line-annotation][data-selected-line]');
-		expect(bridgeCodeViewOptions.unsafeCSS).toContain('--mix-selection-light: 78%');
-		expect(bridgeCodeViewOptions.unsafeCSS).toContain('--mix-selection-dark: 78%');
+		expect(bridgeCodeViewOptions.unsafeCSS).toContain('--mix-selection-light: 86%');
+		expect(bridgeCodeViewOptions.unsafeCSS).toContain('--mix-selection-dark: 86%');
 		expect(bridgeCodeViewOptions.unsafeCSS).not.toContain(
 			'--diffs-line-bg: var(--diffs-annotation-bg)',
 		);
