@@ -47,9 +47,10 @@ override these results.
       grounded in the current README and product-marketing context.
 - [x] Capture a replacement full-screen Review source from the installed Beta
       at native `1280x800` points and `2560x1600` Retina pixels. The global
-      Agent Studio sidebar is hidden; the unified diff, complete Review toolbar,
-      and Review Changed Files tree are visible. Source SHA-256:
-      `a387c2d17450d0a4999874861ccddb90d497761c1df6fcb4e907b057f60556ec`.
+      Agent Studio sidebar is hidden; the continuous AGENTS.md diff, complete
+      Review toolbar, and complete Changed Files tree are visible. Source
+      SHA-256:
+      `d47a107954f01c7caa1934599c1a0484e038835c5b0e6bce1ce36ec022910819`.
 - [x] Capture a replacement Quick Find source from the same installed Beta
       geometry. The global sidebar is hidden; the native sheet, recent
       repositories, and `> cmd · $ pane · # repo` scope legend are visible;
@@ -59,43 +60,53 @@ override these results.
 - [x] Accept a focused Quick Find phone derivative from the untouched master.
       It retains the complete native sheet and narrow parent context. SHA-256:
       `991a51e4ce862f596736451f4a3b25d0ecfb94b5e83c7887abbb95ade9bbd848`.
-- [x] Reject both attempted Review phone crops. Each either amputates too much
-      diff evidence or cuts claim-bearing content at the crop edge. Review
-      requires a larger phone presentation or a different source composition;
-      stronger masking is not an acceptable rescue.
+- [x] Replace the rejected Review center crops with a right-anchored crop that
+      keeps the complete Changed Files tree and adjacent diff context. Parallel,
+      Drawer, and Git/PR use clean left-anchored crops around one complete
+      relationship; Quick Find keeps its centered complete-sheet crop. Phone
+      copy narrows to the evidence each crop preserves.
 - [x] Reject extra treatment on Quick Find because the native sheet already
       supplies the correct focus hierarchy. Reject extra Review dimming because
       it does not materially improve the already-focused source.
-- [ ] Capture replacement Parallel work, Pane drawer, and Git/PR sources from
+- [x] Capture replacement Parallel work, Pane drawer, and Git/PR sources from
       the owner-prepared Beta workspace after native UI control is available.
-      Parallel must show real agent work and All Panes; Drawer must hide the
-      global sidebar and remain compact; Git/PR must show By Repo and an actual
-      readable pull request.
+      Parallel shows All Panes with already-running Antigravity and Codex.
+      Drawer hides the global sidebar and uses one compact attached Git-status
+      terminal. Git/PR filters By Repo to the PR-linked worktree and shows
+      explicit PR 201 beside branch context.
 - [x] Inspect every owner-prepared Beta tab through Computer Use before capture.
       Reject `lots of terminals` for generic shells and empty regions. Reject
       `codex` for authentication warnings, a failed resume, and unrelated chat.
-      Keep `skills changes` and `agent-studio · main` as useful Review context.
+      Keep `skills changes` as purpose-made Review context. Clear the existing
+      Codex pane's visible terminal buffer without prompting or restarting it,
+      then move that already-running pane beside Antigravity.
 - [x] Verify the installed Beta's current sidebar evidence through Computer
       Use. All Panes exposes Antigravity, Codex, shell, and Review panes, while
-      By Repo exposes real branch, changed-line, and ahead or behind state.
-      The current prepared tabs do not show two clean named-agent panes or an
-      explicit pull request identity, so Parallel and Git/PR remain rejected.
+      By Repo exposes real branch, changed-line, ahead or behind, and PR state.
+      PR 201 was verified against GitHub before its terminal and native PR
+      control were admitted as evidence.
 - [x] Open the existing agent-studio drawer with the global sidebar hidden and
-      reject it before capture. Its native fixed-width panel covers most of the
-      workspace at the persisted maximum height. Computer Use can activate the
-      drawer but cannot address its unexposed eight-point resize handle on the
-      secondary display while multiple installed apps share the Beta bundle
-      identifier. Do not capture the oversized state or bypass UI control by
-      editing app preferences.
-- [ ] Adopt images, alt text, and capture-manifest provenance only after all
+      reject the persisted maximum-height state. Set the documented native
+      `drawerHeightRatio` to `0.35` from the focused existing drawer terminal,
+      repopulate it with concise real Git status, and accept only the resulting
+      compact state.
+- [x] Adopt images, responsive crops, alt text, and per-capture manifest
+      provenance only after all
       five replacement sources pass as one suite. Mixed old/new provenance is
       not accepted.
+- [x] Obtain independent source, copy, desktop-render, phone-crop, and
+      phone-render acceptance. Pass 5 accepted all five stories and the
+      campaign as `READY FOR OWNER REVIEW` with no remaining slideshow-quality
+      correction.
 - [ ] Render all five accepted states at desktop and phone sizes, obtain owner
-      approval, then run the complete release proof.
+      approval, then run the complete release proof. Local production desktop
+      and phone rendering, 36 browser tests, capture audits, build, and
+      site-origin console inspection pass; owner approval and deployment remain
+      open.
 
-Current result: `NOT ACCEPTED`. Review and Quick Find have accepted temporary
-source candidates. The repository still serves the rejected image suite until
-the complete replacement set can cut over atomically.
+Current result: `READY FOR OWNER REVIEW`. The repository serves the atomic
+five-image replacement locally with five responsive phone assets. Deployment
+remains blocked on owner approval and the release SOP.
 
 ### 2026-08-20 current owner review: screenshot and frame quality
 

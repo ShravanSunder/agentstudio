@@ -62,7 +62,7 @@ export const websiteCaptureSuite = {
     renderer: "Native macOS",
     compositorVersion: "Peekaboo 4.2.2 exact-window Retina capture",
     exportCompositor:
-      "FFmpeg 9.0.1 localized privacy blur and lossless phone folds; Sharp 0.35.3 sRGB conversion and phone crops",
+      "FFmpeg 9.0.1 localized privacy blur; Sharp 0.35.3 sRGB conversion and phone crops",
     focalPixelPolicy:
       "Native app and sheet pixels remain unchanged except for a bounded blur over the Antigravity account email in Parallel and Drawer",
     contextualScrim: "Native Agent Studio treatment only",
@@ -75,7 +75,7 @@ export const websiteCaptureSuite = {
       assetPath: "../assets/captures/parallel-work.png",
       phoneAssetPath: "../assets/captures/parallel-work-phone.png",
       alternativeText:
-        "Agent Studio All Panes with Antigravity in agent-studio on main and Codex in agent-vm on master.",
+        "Agent Studio All Panes with agent-vm and agentstudio context beside Antigravity and Codex.",
       source: {
         productRevision: "0.0.90-beta.30 (151)",
         fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
@@ -86,7 +86,7 @@ export const websiteCaptureSuite = {
       sourceSha256: "3bb2606b47aac09c038c3a1384b5677f09303968a25b3ec57dc0dd7944001c9a",
       normalizedMasterSha256: "79eae201fb1e4a145f308797aca8729a96df1011aa934bd43f10ed4817fbdec2",
       websiteAssetSha256: "79eae201fb1e4a145f308797aca8729a96df1011aa934bd43f10ed4817fbdec2",
-      phoneWebsiteAssetSha256: "10862c04865b7dc686ca36c2eedfac11bc353cf2317ed20892ba5c95a21d8f4c",
+      phoneWebsiteAssetSha256: "d5a6d6ab015958f06764c38dfb43adfa54e50aa203a17f0d7d993156dbc3f502",
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,
@@ -141,7 +141,7 @@ export const websiteCaptureSuite = {
       assetPath: "../assets/captures/review.png",
       phoneAssetPath: "../assets/captures/review-phone.png",
       alternativeText:
-        "Agent Studio Review showing a continuous AGENTS.md diff beside its Changed Files tree, with the global sidebar hidden.",
+        "Agent Studio Review showing an AGENTS.md diff and its Changed Files tree, with the global sidebar hidden.",
       source: {
         productRevision: "0.0.90-beta.30 (151)",
         fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
@@ -152,7 +152,7 @@ export const websiteCaptureSuite = {
       sourceSha256: "d47a107954f01c7caa1934599c1a0484e038835c5b0e6bce1ce36ec022910819",
       normalizedMasterSha256: "f7bc1eac1dfed42332ca1c556592fde6fc492c5cc10dd179c6906e53c03d670c",
       websiteAssetSha256: "f7bc1eac1dfed42332ca1c556592fde6fc492c5cc10dd179c6906e53c03d670c",
-      phoneWebsiteAssetSha256: "a062398bb598531768de781442628ab32d2b81ed516fe0c0dc1f4e7e330df512",
+      phoneWebsiteAssetSha256: "64394dcaa32e87db5ccdee42c93726f986d7d019025c443fd89d2be9ef129f02",
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,

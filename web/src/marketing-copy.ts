@@ -20,9 +20,9 @@ export const marketingCopy = {
     parallelWork: {
       label: "Parallel work",
       description: "See which repository, worktree, branch, and directory each agent is using.",
-      phoneDescription: "See All Panes and both agent contexts at a glance.",
+      phoneDescription: "See every agent's repository and branch in All Panes.",
       imageDescription:
-        "Agent Studio All Panes with Antigravity in agent-studio on main and Codex in agent-vm on master.",
+        "Agent Studio All Panes with agent-vm and agentstudio context beside Antigravity and Codex.",
     },
     paneDrawer: {
       label: "Pane drawer",
@@ -41,9 +41,9 @@ export const marketingCopy = {
     review: {
       label: "Review",
       description: "Review every changed file in one continuous diff with its file tree beside it.",
-      phoneDescription: "Inspect the diff and changed-files tree together.",
+      phoneDescription: "Browse changed files while the diff stays visible.",
       imageDescription:
-        "Agent Studio Review showing a continuous AGENTS.md diff beside its Changed Files tree, with the global sidebar hidden.",
+        "Agent Studio Review showing an AGENTS.md diff and its Changed Files tree, with the global sidebar hidden.",
     },
     gitContext: {
       label: "Git and PR context",
