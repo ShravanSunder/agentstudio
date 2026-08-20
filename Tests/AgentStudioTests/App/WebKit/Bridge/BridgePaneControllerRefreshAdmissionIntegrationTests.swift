@@ -511,6 +511,50 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         await fixture.finish()
     }
 
+    @Test("late stale File publication cannot mutate after its successor")
+    func lateStaleFilePublicationCannotMutateAfterSuccessor() async throws {
+        // Arrange
+        let publicationGate = RefreshAdmissionCancellationIgnoringProducerGate()
+        let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            fileChangesetPublicationGate: publicationGate
+        )
+        try await fixture.loadInitialReviewPackage()
+        let generation10 = fixture.makeChangeset(
+            paths: ["Sources/App/Generation10.swift"],
+            batchSequence: 45
+        )
+        let generation11 = fixture.makeChangeset(
+            paths: ["Sources/App/Generation11.swift"],
+            batchSequence: 46
+        )
+
+        // Act — generation 10 ignores cancellation while generation 11 becomes current.
+        await fixture.controller.handleWorktreeProductInvalidation(.filesChanged(generation10))
+        await publicationGate.waitUntilStartedCount(1)
+        await fixture.controller.handleWorktreeProductInvalidation(.filesChanged(generation11))
+        await publicationGate.waitUntilStartedCount(2)
+
+        // Act — the current successor publishes first, then the stale predecessor drains late.
+        publicationGate.releaseLatest()
+        await fixture.fileMetadataSource.waitForChangesetPublishCount(1)
+        let successorPublications = await fixture.fileMetadataSource.publishedChangesets()
+        let successorChangeset = try #require(successorPublications.first)
+        #expect(successorPublications.count == 1)
+        #expect(successorChangeset.batchSeq == generation11.batchSeq)
+        #expect(Set(successorChangeset.paths) == Set(generation10.paths + generation11.paths))
+        publicationGate.releaseFirst()
+        #expect(await waitForRetiringFileRefreshTasksToDrain(fixture.controller))
+        await waitForRefreshAdmissionIdle(fixture.controller)
+
+        // Assert — stale generation 10 may clean up, but cannot mutate after generation 11.
+        let finalPublications = await fixture.fileMetadataSource.publishedChangesets()
+        let finalChangeset = try #require(finalPublications.first)
+        #expect(finalPublications.count == 1)
+        #expect(finalChangeset.batchSeq == generation11.batchSeq)
+        #expect(Set(finalChangeset.paths) == Set(generation10.paths + generation11.paths))
+        await fixture.finish()
+    }
+
     @Test("newest Review starts before a cancellation-ignoring predecessor returns")
     func newestReviewStartsBeforeCancellationIgnoringPredecessorReturns() async throws {
         // Arrange

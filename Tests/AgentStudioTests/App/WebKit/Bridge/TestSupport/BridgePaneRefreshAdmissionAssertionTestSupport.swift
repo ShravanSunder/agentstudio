@@ -63,6 +63,20 @@ func waitForRetiringReviewRefreshTasksToDrain(
 }
 
 @MainActor
+func waitForRetiringFileRefreshTasksToDrain(
+    _ controller: BridgePaneController,
+    maxTurns: Int = 2000
+) async -> Bool {
+    for _ in 0..<maxTurns {
+        if controller.retiringFileRefreshTaskById.isEmpty {
+            return true
+        }
+        await Task.yield()
+    }
+    return false
+}
+
+@MainActor
 func waitForRefreshAdmissionIdle(
     _ controller: BridgePaneController,
     maxTurns: Int = 2000

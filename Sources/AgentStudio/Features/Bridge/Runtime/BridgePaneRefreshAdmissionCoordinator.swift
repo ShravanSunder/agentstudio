@@ -50,7 +50,9 @@ struct BridgePaneRefreshWorkAdmission: Sendable {
 ///
 /// The MainActor coordinator remains the sole activity writer. Product actors
 /// may only acquire and validate tokens through this source; they cannot mint or
-/// change pane activity.
+/// change pane activity. Catch-up reservations additionally bind their token to
+/// one File or Review authority generation, while generic content admissions
+/// remain activity-only.
 struct BridgePaneRefreshWorkAdmissionSource: Sendable {
     fileprivate let gate: BridgePaneRefreshWorkAdmissionGate
 
@@ -263,6 +265,10 @@ final class BridgePaneRefreshAdmissionCoordinator {
         let invalidationGeneration = nextDirtyGeneration
         if fileChangeset != nil || latestFileStatus != nil {
             authorityGenerationByLane[.file] = nextAuthorityGeneration
+            workAdmissionGate.updateAuthority(
+                for: .file,
+                generation: nextAuthorityGeneration
+            )
             if supersedeActiveReservation(for: .file) {
                 supersededLanes.insert(.file)
             }
@@ -276,6 +282,10 @@ final class BridgePaneRefreshAdmissionCoordinator {
         }
         if requiresReviewRefresh {
             authorityGenerationByLane[.review] = nextAuthorityGeneration
+            workAdmissionGate.updateAuthority(
+                for: .review,
+                generation: nextAuthorityGeneration
+            )
             if supersedeActiveReservation(for: .review) {
                 supersededLanes.insert(.review)
             }
@@ -336,6 +346,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
         let previousPresentation = productPresentationSnapshot
         nextAuthorityGeneration &+= 1
         authorityGenerationByLane[lane] = nextAuthorityGeneration
+        workAdmissionGate.updateAuthority(for: lane, generation: nextAuthorityGeneration)
         _ = supersedeActiveReservation(for: lane)
         advancePresentationRevisionIfNeeded(from: previousPresentation)
         return nextAuthorityGeneration
@@ -416,14 +427,21 @@ final class BridgePaneRefreshAdmissionCoordinator {
     private func reserveCatchUpIfPossible(
         for lane: BridgePaneRefreshLane
     ) -> BridgePaneRefreshCatchUpReservation? {
+        let authorityGeneration = authorityGenerationByLane[lane, default: 0]
         guard activeRefreshPassByLane[lane] == nil,
             let dirtyFact = dirtyFactByLane[lane],
-            let activityAdmission = workAdmissionGate.acquire(validity: .foregroundOnly)
+            let activityAdmission = workAdmissionGate.acquire(
+                validity: .foregroundOnly,
+                authorityFence: .init(
+                    lane: lane,
+                    generation: authorityGeneration
+                )
+            )
         else { return nil }
         dirtyFactByLane[lane] = nil
         let reservation = BridgePaneRefreshCatchUpReservation(
             id: UUIDv7.generate(),
-            authorityGeneration: authorityGenerationByLane[lane, default: 0],
+            authorityGeneration: authorityGeneration,
             dirtyGeneration: dirtyFact.generation,
             lanes: [lane],
             fileChangeset: dirtyFact.fileChangeset,
@@ -552,6 +570,12 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
         let identity: Identity
         let epoch: UInt64
         let validity: Validity
+        let authorityFence: AuthorityFence?
+    }
+
+    fileprivate struct AuthorityFence: Sendable {
+        let lane: BridgePaneRefreshLane
+        let generation: UInt64
     }
 
     private struct InvalidationHandler {
@@ -568,6 +592,7 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
     private var activity: BridgePaneActivity
     private var foregroundEpoch: UInt64 = 0
     private var reviewContinuationEpoch: UInt64 = 0
+    private var authorityGenerationByLane: [BridgePaneRefreshLane: UInt64] = [:]
     private var invalidationHandlerById: [UUID: InvalidationHandler] = [:]
 
     init(initialActivity: BridgePaneActivity) {
@@ -578,9 +603,20 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
         lock.withLock { DiagnosticSnapshot(epoch: foregroundEpoch) }
     }
 
-    func acquire(validity: Validity) -> BridgePaneRefreshWorkAdmission? {
+    func acquire(
+        validity: Validity,
+        authorityFence: AuthorityFence? = nil
+    ) -> BridgePaneRefreshWorkAdmission? {
         lock.withLock {
             guard activity == .foreground else { return nil }
+            if let authorityFence {
+                guard
+                    authorityGenerationByLane[authorityFence.lane, default: 0]
+                        == authorityFence.generation
+                else {
+                    return nil
+                }
+            }
             return BridgePaneRefreshWorkAdmission(
                 gate: self,
                 token: Token(
@@ -588,9 +624,23 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
                     epoch: validity == .foregroundOnly
                         ? foregroundEpoch
                         : reviewContinuationEpoch,
-                    validity: validity
+                    validity: validity,
+                    authorityFence: authorityFence
                 )
             )
+        }
+    }
+
+    func updateAuthority(
+        for lane: BridgePaneRefreshLane,
+        generation: UInt64
+    ) {
+        let invalidationHandlers: [@Sendable () -> Void] = lock.withLock {
+            authorityGenerationByLane[lane] = generation
+            return takeInvalidationHandlersInvalidatedByCurrentState()
+        }
+        for invalidationHandler in invalidationHandlers {
+            invalidationHandler()
         }
     }
 
@@ -602,7 +652,7 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
             if nextActivity == .dormant {
                 reviewContinuationEpoch &+= 1
             }
-            return takeInvalidationHandlersInvalidatedByCurrentActivity()
+            return takeInvalidationHandlersInvalidatedByCurrentState()
         }
         for invalidationHandler in invalidationHandlers {
             invalidationHandler()
@@ -615,7 +665,7 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
             activity = .closed
             foregroundEpoch &+= 1
             reviewContinuationEpoch &+= 1
-            return takeInvalidationHandlersInvalidatedByCurrentActivity()
+            return takeInvalidationHandlersInvalidatedByCurrentState()
         }
         for invalidationHandler in invalidationHandlers {
             invalidationHandler()
@@ -655,6 +705,12 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
 
     private func isValid(_ token: Token) -> Bool {
         guard token.identity === identity else { return false }
+        if let authorityFence = token.authorityFence,
+            authorityGenerationByLane[authorityFence.lane, default: 0]
+                != authorityFence.generation
+        {
+            return false
+        }
         switch token.validity {
         case .foregroundOnly:
             return activity == .foreground && token.epoch == foregroundEpoch
@@ -664,7 +720,7 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
         }
     }
 
-    private func takeInvalidationHandlersInvalidatedByCurrentActivity() -> [@Sendable () -> Void] {
+    private func takeInvalidationHandlersInvalidatedByCurrentState() -> [@Sendable () -> Void] {
         let invalidatedHandlerIds = invalidationHandlerById.compactMap { handlerId, registration in
             isValid(registration.token) ? nil : handlerId
         }

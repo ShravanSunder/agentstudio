@@ -8,6 +8,7 @@ import Testing
 
 actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataProducing {
     private let failsChangesetPublication: Bool
+    private let changesetPublicationGate: RefreshAdmissionCancellationIgnoringProducerGate?
     private let metadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate?
     private var changesets: [FileChangeset] = []
     private var statuses: [GitWorkingTreeStatus] = []
@@ -21,9 +22,11 @@ actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataP
 
     init(
         failsChangesetPublication: Bool = false,
+        changesetPublicationGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
         metadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil
     ) {
         self.failsChangesetPublication = failsChangesetPublication
+        self.changesetPublicationGate = changesetPublicationGate
         self.metadataProducerGate = metadataProducerGate
     }
 
@@ -67,6 +70,7 @@ actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataP
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async throws -> [BridgePaneProductFileMetadataEmission] {
         changesetPublishAttempts += 1
+        await changesetPublicationGate?.holdIgnoringCancellation()
         if failsChangesetPublication {
             throw RefreshAdmissionInjectedFileMetadataFailure.changesetPublication
         }
@@ -130,13 +134,18 @@ actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataP
 }
 
 final class RefreshAdmissionCancellationIgnoringProducerGate: @unchecked Sendable {
+    private struct StartedWaiter {
+        let expectedCount: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private struct State {
         var cancellationRequested = false
         var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
         var isReleased = false
         var releaseContinuations: [CheckedContinuation<Void, Never>] = []
-        var started = false
-        var startWaiters: [CheckedContinuation<Void, Never>] = []
+        var startedCount = 0
+        var startWaiters: [StartedWaiter] = []
     }
 
     private let lock = NSLock()
@@ -146,14 +155,23 @@ final class RefreshAdmissionCancellationIgnoringProducerGate: @unchecked Sendabl
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 let outcome = lock.withLock { () -> (Bool, [CheckedContinuation<Void, Never>]) in
-                    state.started = true
-                    let startWaiters = state.startWaiters
-                    state.startWaiters.removeAll()
+                    state.startedCount += 1
+                    let currentStartedCount = state.startedCount
+                    var pendingStartWaiters: [StartedWaiter] = []
+                    var satisfiedStartWaiters: [CheckedContinuation<Void, Never>] = []
+                    for waiter in state.startWaiters {
+                        if currentStartedCount >= waiter.expectedCount {
+                            satisfiedStartWaiters.append(waiter.continuation)
+                        } else {
+                            pendingStartWaiters.append(waiter)
+                        }
+                    }
+                    state.startWaiters = pendingStartWaiters
                     if state.isReleased {
-                        return (true, startWaiters)
+                        return (true, satisfiedStartWaiters)
                     }
                     state.releaseContinuations.append(continuation)
-                    return (false, startWaiters)
+                    return (false, satisfiedStartWaiters)
                 }
                 for waiter in outcome.1 { waiter.resume() }
                 if outcome.0 { continuation.resume() }
@@ -164,10 +182,16 @@ final class RefreshAdmissionCancellationIgnoringProducerGate: @unchecked Sendabl
     }
 
     func waitUntilStarted() async {
+        await waitUntilStartedCount(1)
+    }
+
+    func waitUntilStartedCount(_ expectedCount: Int) async {
         await withCheckedContinuation { continuation in
             let shouldResume = lock.withLock {
-                guard !state.started else { return true }
-                state.startWaiters.append(continuation)
+                guard state.startedCount < expectedCount else { return true }
+                state.startWaiters.append(
+                    StartedWaiter(expectedCount: expectedCount, continuation: continuation)
+                )
                 return false
             }
             if shouldResume { continuation.resume() }
@@ -193,6 +217,21 @@ final class RefreshAdmissionCancellationIgnoringProducerGate: @unchecked Sendabl
             return continuations
         }
         for continuation in continuations { continuation.resume() }
+    }
+
+    func releaseFirst() {
+        let continuation: CheckedContinuation<Void, Never>? = lock.withLock {
+            guard !state.releaseContinuations.isEmpty else { return nil }
+            return state.releaseContinuations.removeFirst()
+        }
+        continuation?.resume()
+    }
+
+    func releaseLatest() {
+        let continuation = lock.withLock {
+            state.releaseContinuations.popLast()
+        }
+        continuation?.resume()
     }
 
     private func recordCancellationRequest() {

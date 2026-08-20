@@ -127,6 +127,7 @@ func makeRefreshAdmissionIntegrationFixture(
     failsChangesetPublication: Bool = false,
     failsReviewReservation: Bool = false,
     failsReviewDelivery: Bool = false,
+    fileChangesetPublicationGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
     fileMetadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
     reviewMetadataReservationGate: RefreshAdmissionReviewReservationGate? = nil
 ) async throws -> RefreshAdmissionIntegrationFixture {
@@ -153,6 +154,7 @@ func makeRefreshAdmissionIntegrationFixture(
     )
     let fileMetadataSource = RefreshAdmissionTrackingFileMetadataSource(
         failsChangesetPublication: failsChangesetPublication,
+        changesetPublicationGate: fileChangesetPublicationGate,
         metadataProducerGate: fileMetadataProducerGate
     )
     let reviewMetadataSource = RefreshAdmissionGatedReviewMetadataSource(
