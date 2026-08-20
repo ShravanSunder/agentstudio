@@ -10,7 +10,7 @@ The local development site remains `http://127.0.0.1:4321/`.
 
 - The canonical Agent Studio README owns shipped claims, product terminology, install commands, and feature wording.
 - The website headline is the owner-approved shorter promise `Stay oriented
-  without losing context.`
+without losing context.`
 - `Organized parallelism` introduces the interactive product switcher. It is not decorative screenshot chrome.
 - Decorative labels such as `Real Agent Studio capture`, `One workspace · Five product stories`, and `product surface` are removed.
 - The header contains Agent Studio identity and the GitHub link only. In-page `Workspace` and `Review` links are removed.
@@ -71,6 +71,22 @@ override these results.
       Parallel must show real agent work and All Panes; Drawer must hide the
       global sidebar and remain compact; Git/PR must show By Repo and an actual
       readable pull request.
+- [x] Inspect every owner-prepared Beta tab through Computer Use before capture.
+      Reject `lots of terminals` for generic shells and empty regions. Reject
+      `codex` for authentication warnings, a failed resume, and unrelated chat.
+      Keep `skills changes` and `agent-studio · main` as useful Review context.
+- [x] Verify the installed Beta's current sidebar evidence through Computer
+      Use. All Panes exposes Antigravity, Codex, shell, and Review panes, while
+      By Repo exposes real branch, changed-line, and ahead or behind state.
+      The current prepared tabs do not show two clean named-agent panes or an
+      explicit pull request identity, so Parallel and Git/PR remain rejected.
+- [x] Open the existing agent-studio drawer with the global sidebar hidden and
+      reject it before capture. Its native fixed-width panel covers most of the
+      workspace at the persisted maximum height. Computer Use can activate the
+      drawer but cannot address its unexposed eight-point resize handle on the
+      secondary display while multiple installed apps share the Beta bundle
+      identifier. Do not capture the oversized state or bypass UI control by
+      editing app preferences.
 - [ ] Adopt images, alt text, and capture-manifest provenance only after all
       five replacement sources pass as one suite. Mixed old/new provenance is
       not accepted.
@@ -196,7 +212,7 @@ Current implementation evidence:
   `ca8e6f1b85fb722fedadd7020efd77a93fcdbeb0961ffb0489d1611862a753c4`.
 - Pane drawer now hides the global sidebar, retains two existing agent panes,
   and shows one compact attached drawer with real `git status --short
-  --branch` output. The source SHA-256 is
+--branch` output. The source SHA-256 is
   `bf30f15de6c1c533db3ee9257c2b09e3d8aed9cde721c36681436c7f8ca33860`;
   the normalized website asset SHA-256 is
   `45bc035952b4bcc0d5784612b2fb467fdcf2473550cf10fac901474c0896b879`.
@@ -297,34 +313,34 @@ Current recovery evidence:
   magnified corners of every source.
 
 - [x] Make the clickable explainer the first product proof and remove the
-  standalone hero screenshot.
+      standalone hero screenshot.
 - [x] Keep Parallel work selected by default so its replacement capture is the
-  first product image.
+      first product image.
 - [x] Replace the rejected four-pane suite with one consistent two- or
-  three-pane suite at a smaller 16:10 capture size.
+      three-pane suite at a smaller 16:10 capture size.
 - [x] Rebuild every focus treatment from the new measured UI boundaries.
 - [x] Replace repeated gutter pane stamps with a restrained real grid pattern.
 - [x] Use the official GitHub mark for the remaining header action.
 - [x] Remove the redundant GitHub action from the final CTA.
 - [x] Remove the redundant GitHub action from the hero and center the Homebrew
-  install/Copy surface beneath the product description.
+      install/Copy surface beneath the product description.
 - [x] Use the darker Ghostty pane ground and clean alignment for install/Copy.
 - [x] Art-direct `Stay oriented without losing context.` as a deliberate
-  two-line desktop lockup and tighten the spacing before Organized parallelism.
+      two-line desktop lockup and tighten the spacing before Organized parallelism.
 - [x] Replace the footer text with the Agent Studio icon on the left and
-  official GitHub/X icon links on the right.
+      official GitHub/X icon links on the right.
 - [x] Point footer GitHub to `https://github.com/shravansunder` and footer X to
-  `https://x.com/shravansunder`.
+      `https://x.com/shravansunder`.
 - [x] Give Claude Opus and Cursor Grok the same final rubric and require two
-  assignment-bound review receipts.
+      assignment-bound review receipts.
 - [x] Require every copy-writing or copy-review subagent to read the complete
-  project-local `ai-copywriter` skill and record the coverage in its receipt.
+      project-local `ai-copywriter` skill and record the coverage in its receipt.
 - [x] Re-run all automated, pixel, and live visual proof against the replacement
-  assets before claiming completion.
+      assets before claiming completion.
 - [x] Fetch and follow Cloudflare's current agent setup instructions from
-  `https://developers.cloudflare.com/agent-setup/prompt.md` only after UI/media
-  acceptance, then deploy the static `web/dist` artifact through the logged-in
-  Cloudflare account and verify the live URL.
+      `https://developers.cloudflare.com/agent-setup/prompt.md` only after UI/media
+      acceptance, then deploy the static `web/dist` artifact through the logged-in
+      Cloudflare account and verify the live URL.
 
 ### Copywriting skill
 
@@ -334,11 +350,11 @@ Current recovery evidence:
 - [x] Add website routing constraints to `web/AGENTS.md`.
 - [x] Add media routing constraints to Agent Studio Media `AGENTS.md`.
 - [x] Restore and verify byte-identical project-local skill copies. The website
-  formatter had changed Markdown and JSON layout inside the installed skill;
-  `.agents` is now excluded from Oxfmt and the two skill trees compare cleanly.
+      formatter had changed Markdown and JSON layout inside the installed skill;
+      `.agents` is now excluded from Oxfmt and the two skill trees compare cleanly.
 - [x] Bind the complete-skill receipt gate to the shared final-review rubric and
-  re-dispatch current copy reviewers under that gate. Geometry-only operators
-  must state that they did not write or judge copy.
+      re-dispatch current copy reviewers under that gate. Geometry-only operators
+      must state that they did not write or judge copy.
 
 The owner-level checkbox above remains open until the final Claude Opus and
 Cursor Grok receipts each identify the exact project-local skill path and
@@ -501,7 +517,7 @@ was embedded in the already-running executable.
 
 - [x] Accept six replacement native captures from the current 2560x1600 suite.
 - [x] Reject and remove the complete legacy image chain from live website,
-  HyperFrames master/output, snapshot, and temporary source locations.
+      HyperFrames master/output, snapshot, and temporary source locations.
 - [x] Accept a clean Parallel Work source before capturing any other state.
 - [x] Inspect each accepted untouched capture and record the actual UX-surface bounds.
 - [x] Quick Find: fit the focus treatment to the command surface and its native radius.
@@ -593,25 +609,25 @@ Current 2560x1600 capture acceptance:
 ### Owner visual corrections after live review
 
 - [x] Replace the purple selector fill with Ghostty charcoal and retain only
-  the blue active rail.
+      the blue active rail.
 - [x] Remove the horizontal gap between the selector rail and product image.
 - [x] Preserve screenshot alpha so rounded capture corners never flatten white.
 - [x] Apply one deliberate 40/80/40 content, section, and content spacing rhythm.
 - [x] Keep Homebrew installation only in the hero.
 - [x] Put one official-mark GitHub button in the closing lockup.
 - [x] Prove the footer shows the Agent Studio icon at left and visible GitHub/X
-  icons aligned at the far right.
+      icons aligned at the far right.
 - [x] Re-run desktop/mobile screenshots, interaction checks, Cloudflare build,
-  deployment, and live verification before closing these corrections.
+      deployment, and live verification before closing these corrections.
 
 - [x] Run Astro/type-aware Oxlint/Oxfmt with zero errors and warnings.
 - [x] Run Vitest state-machine tests.
 - [x] Re-run Playwright desktop/mobile, JavaScript-disabled, keyboard, and
-  overflow tests after the replacement stills land.
+      overflow tests after the replacement stills land.
 - [x] Run HyperFrames check with zero errors and warnings against the rebuilt
-  2560x1600 still pipeline.
+      2560x1600 still pipeline.
 - [x] Capture replacement desktop and phone screenshots for visual acceptance;
-  the existing review screenshots show the superseded page.
+      the existing review screenshots show the superseded page.
 - [x] Keep the dev server live for owner review.
 
 Details and proof:
