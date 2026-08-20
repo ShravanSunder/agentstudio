@@ -75,6 +75,17 @@ generation and selection. The target retains that pattern without a global
 scheduler and extends it to the missing pre-descriptor interval, where current
 Loading has no operation terminal today.
 
+### Current development-backend gap
+
+The Swift development backend currently resolves `--seed-worktree` into Core
+topology, initial Git reads, and one `BridgeDevelopmentProductHost`. It starts
+the HTTP application and persistence observation, but it does not compose the
+Core `FilesystemActor`, `GitWorkingDirectoryProjector`, worktree registration,
+or an event consumer that routes File/Review invalidations. Its host also owns
+the refresh admission state but not the packaged controller's refresh task
+scheduler. The result is a static request-serving harness rather than the
+production-equivalent fast loop required by R-BLO-016.
+
 ### Degree of constraint
 
 This is compatibility- and legacy-ownership-bound:
@@ -93,6 +104,7 @@ This is compatibility- and legacy-ownership-bound:
 | Keep serial task gates; add timeouts/watchdogs | smallest code delta | successor still depends on obsolete task lifetime; timeout reports failure but does not create safe current authority or late-publish fencing | any cancellation-ignoring operation strands a newer intent |
 | One global Bridge operation framework | uniform state and telemetry | centralizes feature policy, duplicates existing epochs/leases, and becomes a shallow coordination layer every owner must bypass or overconfigure | File/Review/annotation owners still need distinct identity and recovery rules |
 | Small common lifecycle contract plus feature-owned machines | consistent authority/terminal semantics while preserving owners | requires explicit state machines and current-to-proposed cutover in several owners | two features cannot express the contract without contradictory semantics |
+| Copy app refresh/watcher loops into the development server | quick local parity | two lifecycle implementations drift; tests can prove the copy rather than production semantics | any app fix must be repeated in the development executable |
 
 Selected direction: the small common contract plus feature-owned machines.
 
@@ -176,6 +188,138 @@ Telemetry projects only the safe owner-local fields required for correlation.
 | Review content/render | worker derivation epoch + publication/source identity + item/render generation + receipt identity |
 | annotation projection | surface demand generation + File/Review source generation + snapshot ID + query generation |
 | command | pane/session admission + request/correlation sequence + request ID + expected durable revisions |
+
+## Production-equivalent development backend
+
+### Shared Core worktree observation
+
+The development-server composition directly composes the existing
+package-visible Core `FilesystemActor` and `GitWorkingDirectoryProjector` on a
+dedicated `EventBus<RuntimeEnvelope>`, using their production clients and
+`AppPolicies`. It does not import or move the App-owned
+`FilesystemGitPipeline`, whose additional Forge, fleet, and watched-folder
+composition remains App-specific. Reuse is at the production actor and policy
+boundary, so no watcher, coalescer, or Git projection behavior is copied.
+
+```mermaid
+flowchart LR
+    Seed[Exact seeded worktree] --> Observe[Core worktree filesystem/Git observation]
+    Observe -->|filesChanged| Route[Development worktree invalidation router]
+    Observe -->|snapshotChanged| Route
+    Route --> Refresh[Bridge File refresh driver plus host-owned Review refresh]
+    Refresh --> Metadata[Metadata coordinator / product session]
+    Metadata --> Worker[Comm worker]
+    Worker --> UI[Vite React / Pierre]
+```
+
+`BridgeDevelopmentSeededWorktreeObservation` subscribes before registration
+and accepts only envelopes whose repo/worktree identities match the configured
+source. It routes `filesystem.filesChanged` and
+`gitWorkingDirectory.snapshotChanged` to the host and ignores unrelated event
+families. It has no repository discovery, watched-folder, Forge,
+workspace-fleet, or App-shell role.
+
+The FSEvent client and `FilesystemActor.register` gain a narrow typed
+registration result. The development composition reports ready only after the
+exact root is active; failed registration rolls back the actor root and fails
+startup. Unexpected ingress completion or another detected observation
+terminal is delivered to the observation service, which stops current claims
+and drives explicit degraded/unavailable settlement rather than silent stale
+state. No health polling or wall-clock watchdog is added.
+
+Startup installs the critical event consumer before registration, starts the
+Git projector before the filesystem actor, registers the exact identity, and
+marks that worktree active and active-pane in both actors. This gives the
+development pane the same foreground admission/cadence as the packaged pane;
+registration alone is not treated as continuing demand.
+
+For each admitted `filesChanged` or `snapshotChanged` envelope, the development
+router first invalidates the exact `BridgeWorktreeProductConstructionCoordinator`
+worktree epoch, then records the normalized File/Review invalidation. File work
+runs through the shared driver; an affected Review lane is handed to the
+development host. Advancing construction freshness before either preparation
+starts prevents File and Review from reacquiring artifacts under the old epoch.
+
+One development-runtime lifecycle owner replaces the current independent host
+shutdown service. Shutdown stops event admission, unregisters the worktree,
+cancels and awaits the routing task, closes and drains the refresh driver and
+product host, shuts down the filesystem actor and Git projector, then flushes
+Core persistence. Repeated shutdown is idempotent; no concurrently running
+service may race a late observation callback against host retirement.
+
+### Shared Bridge File refresh driver
+
+`BridgePaneWorktreeRefreshDriver` becomes the feature-owned File effect and task
+lifecycle owner used by both `BridgePaneController` and
+`BridgeDevelopmentProductHost`. `BridgePaneRefreshAdmissionCoordinator`
+remains the MainActor authority/dirty-state owner. The driver owns active and
+retiring File refresh tasks, bounded retry execution, explicit File retry,
+serialized presentation publication, and reset-recovery rendezvous. It records
+the normalized File/Review dirty fact and returns the affected lanes; each host
+retains its existing Review construction, comparison-generation, and commit
+owner. This shares the duplicated File policy without forcing structurally
+different Review implementations behind a shallow generic executor.
+
+```text
+BridgePaneController ───────┐
+                            ├─► BridgePaneWorktreeRefreshDriver
+BridgeDevelopmentProductHost┘       │
+                                    ├─► refresh admission coordinator
+                                    ├─► File metadata publication
+                                    ├─► affected Review-lane fact to host
+                                    └─► pane presentation publication
+```
+
+The runtime interface is behavioral:
+
+- `record(invalidation)` advances lane authority, schedules File work, and
+  returns affected lanes for host-owned Review scheduling;
+- `applyActivity` suspends/resumes through the existing admission contract;
+- `retryUnavailableFile` admits a new File attempt only from retained
+  unavailable state;
+- `recordStreamReset(operation, sourceAtReset)` parks restored dirty File facts without spending
+  retry or publishing unavailable;
+- `recordFileSourceAccepted(source)` records the latest exact File source;
+  a strictly newer matching subscription generation joins reset with restored
+  dirty state and schedules exactly one replay;
+- `closeAndDrain` rejects new work, invalidates authority, and drains owned
+  tasks.
+
+No route, Atom, persistence record, polling loop, or global operation manager
+is added.
+
+### Development source-triggered Review continuation
+
+The development host gains one worktree-invalidation Review operation alongside
+its existing bootstrap and explicit comparison-update paths. When the shared
+driver reports an affected Review lane, the host advances its Review authority
+generation, retires the older Review task, resolves the current comparison
+target, and prepares through the existing Review pipeline, shared-construction
+binder, and publication coordinator. Commit requires the captured Review fence;
+late predecessors clean only. Failure/stale settlement updates the admission
+coordinator while retaining the last complete publication.
+
+```mermaid
+sequenceDiagram
+    participant Route as Development invalidation router
+    participant Driver as Shared File driver / admission
+    participant Host as Development Review owner
+    participant Build as Review pipeline / shared construction
+    participant Commit as Publication coordinator
+
+    Route->>Route: invalidate exact construction epoch
+    Route->>Driver: normalized invalidation 10
+    Driver-->>Host: Review lane affected at authority 10
+    Host->>Build: prepare current target under fence 10
+    Route->>Driver: normalized invalidation 11/12
+    Driver-->>Host: Review lane affected at authority 12
+    Host->>Host: retire 10; admit 12
+    Host->>Build: prepare 12
+    Build-->>Host: late candidate 10
+    Host-->>Build: stale / cleanup only
+    Build-->>Host: candidate 12
+    Host->>Commit: commit if Review fence 12 remains current
+```
 
 ## Replaceable finite-operation lifecycle
 
@@ -348,6 +492,12 @@ before applying retry policy:
 | current metadata settles without a usable descriptor | failed, non-retryable; surface unavailable | new source/demand or explicit retry required |
 | descriptor/cursor/request-authority/page/digest/schema/integrity mismatch | failed, non-retryable | unchanged input is not retried |
 | unsupported content or wire value | failed, non-retryable | unchanged input is not retried |
+
+Queue reset is not a retryable File-refresh failure. It is a transport
+replacement terminal: retained File dirty facts park under the captured source
+identity, the replacement stream opens its File source, and the matching two-fact
+rendezvous schedules one replay without consuming the automatic retry budget
+or exposing unavailable.
 
 ## Exact command and read convergence
 
@@ -609,6 +759,30 @@ sequenceDiagram
     Producer->>Worker: still-current exact navigation intent
 ```
 
+File refresh adds one internal native handoff to that sequence. A File operation
+captures the latest accepted `BridgeProductFileSourceIdentity`. When queue reset
+rejects an ordinary File emission, the driver parks the operation and captured
+source identity. Successful opening of a File metadata source already reports
+its exact source identity through the existing accepted-source observer. A
+matching repo/worktree/root source whose `subscriptionGeneration` is strictly
+newer releases the rendezvous. Source identity plus current product admission
+prevents an old source-open callback from waking newer dirty work.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Refreshing
+    Refreshing --> AwaitingReplacement: queue reset / dirty restored
+    AwaitingReplacement --> AwaitingReplacement: duplicate or foreign source open
+    AwaitingReplacement --> Replaying: matching source open + dirty retained + current admission
+    Replaying --> Current: current replay succeeds
+    Replaying --> Unavailable: ordinary classified failure policy settles
+    AwaitingReplacement --> Closed: host closes
+```
+
+Reset observation and source acceptance may complete in either order. The
+refresh driver records both facts and consumes their matching identity once; it
+does not rely on callback timing.
+
 The pane metadata coordinator retains newest pane presentation and exact
 navigation until acknowledged/settled. Queue reset is not recorded as successful
 application of the dropped ordinary frame. Increasing capacity is not the
@@ -714,6 +888,9 @@ to the successor.
 | annotation notification arrives before presentation source generation | query attempt terminates stale; convergence operation awaits current source; presentation generation starts successor without consuming retry | no transient unavailable flash or retry of a known-stale fence |
 | annotation producer emit fails | coordinator receives failure, retires delivery, reopens or publishes unavailable | no dead active subscription |
 | metadata queue fills | emit `metadataStreamError(.resyncRequired, retryable: true)`, retire, reopen, replay latest | no nonterminal overflow substitute or invented metadata-reset frame |
+| File frame queue reset while dirty work remains | restore dirty facts; park the operation with its accepted source identity; a strictly newer matching File source joins and replays once without retry/unavailable | no silently stale File tree/status and no same-stream retry |
+| development seeded worktree changes | production Core actors emit typed facts; exact worktree is active/active-pane; development router invalidates construction freshness before shared File driver and host-owned Review refresh converge | development loop exercises foreground production semantics and one freshness epoch rather than static initial state |
+| development observation start/runtime failure | typed registration failure prevents ready/HTTP start; a detected ingress terminal moves affected surfaces degraded/unavailable with last complete, then ordered shutdown drains every owner | no unconditional-health false green or silent stale development proof |
 | page 0/1/2 | validate previous ordinal separately from first immutable fields | valid three-page snapshot installs |
 | response encoder gains field | exhaustiveness gate fails until scanner and TS vectors agree | native never rejects its own valid current response |
 | command success; projection fails | command remains succeeded; projection unavailable with last complete | persistence truth is not read convergence |
@@ -725,6 +902,9 @@ to the successor.
 | Behavior | Current edge | Target edge | Status |
 | --- | --- | --- | --- |
 | native invalidation | invalidation → one combined dirty fact/pass/task | invalidation → independent File/Review authority generations, File coverage aggregate, and current operations | changed |
+| development worktree input | seed topology and initial reads only | subscribe before registration; register exact seed; mark active/active-pane; invalidate construction epoch before typed events reach shared File driver and host-owned Review refresh | changed |
+| development Review invalidation | bootstrap/explicit comparison updates only | affected Review lane supersedes prior task, resolves current target, reuses existing pipeline/construction/publication, and commits under current Review fence | added |
+| refresh task lifecycle | packaged controller privately schedules; development host has admission state but no File scheduler | shared Bridge File refresh driver owns File scheduling/settlement for both hosts; each host retains Review preparation/commit | changed |
 | native successor | active task blocks reservation | current authority advances, old queued admission is removed or running work cleans asynchronously, newest starts/queues under bounded capacity | changed |
 | File/Review commit | File publication precedes Review completion inside combined pass | progressive current-fence File emissions with successor re-coverage plus immutable/atomic Review publication | changed |
 | initial/retained Review load | pane-wide `activeReviewRefreshTask` also gates package load/resync | Review-lane operation under Review generation; File lane independent | changed |
@@ -736,6 +916,7 @@ to the successor.
 | projection failure | generic health; store remains available; stale fence is undifferentiated | retryable/non-retryable failure classification drives unavailable/retry; stale fence remains refreshing under named successor | changed |
 | protocol producer task | annotation child catches and retires silently; other producer supervision is implicit | File/Review metadata, pane-presentation, annotation notification, and finite content producers report terminal to their supervisor | changed |
 | metadata overflow | pane-presentation/navigation overflow builders emit ordinary frames | existing terminal `metadataStreamError(.resyncRequired, retryable: true)` + replay latest retained state | changed |
+| File overflow recovery | reset restores dirty then parks forever until accidental trigger | reset operation/source identity + strictly newer accepted File source join and re-admit retained dirty exactly once | changed |
 | finite content route | command descriptor + content frames | same physical route and authority | intentionally unchanged |
 | File descriptor wait/content replacement | selection publishes Loading; descriptor-pending emits no terminal; replacement uses abort + generation fence | selection admits File-content operation; descriptor wait is preparing; producer terminal/selection/source/content/render provide exact terminals | changed |
 | render receipt | source/receipt fenced | same fence plus explicit current operation terminal correlation | strengthened |
@@ -818,6 +999,7 @@ terminal, duration, and count labels.
 | R-BLO-013 | service observer aggregation and query controller | real two-pane service/session | narrow coalescence, reset supersession, both panes converge |
 | R-BLO-014 | correlated telemetry lifecycle | real debug/stable producer and Victoria | H1/H2/H3 stage assignment and missing-terminal diagnostic |
 | R-BLO-015 | architecture boundaries and full product journeys | real native/worker/File/Review/annotation paths | no Atom/second route/parallel authority; existing behavior preserved |
+| R-BLO-016 | production Core filesystem/Git actors, active/active-pane admission, construction freshness invalidation, exact development router, shared File driver, and host-owned Review continuation | real seeded worktree, production actors, development HTTP/Vite/worker path | source edit, status/branch 10/11/12, overload/reopen, registration rejection, detected ingress terminal, and deterministic shutdown converge without fixture injection |
 
 Unit/fake tests may prove local transitions. They do not clear native-to-worker,
 two-pane, overload/reconnect, Swift-to-browser time, packaged render, or OTEL
@@ -841,6 +1023,9 @@ The cutover is one hard lifecycle change with no compatibility shim:
    vocabulary derives from the exhaustive contract registry;
 8. existing three routes, SQLite schema/domain meaning, Git/source owners,
    construction capacity, File/Review presentation, and PR1 UI remain.
+9. the packaged controller and development host cut over together to the shared
+   File refresh driver; the development backend registers its exact seeded
+   worktree with the production Core filesystem/Git actors before reporting ready.
 
 There is no dual writer or dual transport phase. Rollback is source rollback
 before release; no new durable lifecycle state requires data migration.
@@ -859,6 +1044,7 @@ before release; no new durable lifecycle state requires data migration.
 | R-BLO-013 | scoped service notifications and per-observer coalescence |
 | R-BLO-014 | correlated lifecycle telemetry and missing-terminal diagnostic |
 | R-BLO-015 | existing owner/route preservation and architecture enforcement |
+| R-BLO-016 | production Core filesystem/Git actors, exact foreground development routing, construction freshness ordering, shared Bridge File driver, source-triggered Review continuation, lifecycle failure settlement, and real backend/Vite convergence |
 
 ## Forbidden edges
 

@@ -328,6 +328,28 @@ parallel source of truth.
 
 Basis: BLO-U11, BLO-U12.
 
+### R-BLO-016 — Development backend observes the seeded worktree
+
+When launched with an exact seeded worktree, the Swift development backend
+MUST establish continuous filesystem and Git observation for that worktree
+before it reports the product host ready. Source-file changes, Git status
+changes, and branch/source changes MUST produce the same typed File and Review
+invalidation behavior, latest-generation authority, retry/unavailable policy,
+stream-reset recovery, and retained-state replay required of the packaged app.
+
+The backend MUST stop accepting observation facts during shutdown, unregister
+the seeded worktree, and drain its observation, refresh, and product-session
+owners before exit. Startup registration failure and any detected runtime
+observation terminal MUST be explicit; the backend MUST NOT continue presenting
+silently stale File or Review state as current.
+
+The backend watches only its configured seeded worktree. It MUST reuse the
+production Core observation and Bridge refresh semantics; a polling loop,
+fixture-only event injector, copied refresh scheduler, or second transport is
+not a conforming implementation.
+
+Basis: BLO-U1, BLO-U3, BLO-U4, BLO-U6, BLO-U10, BLO-U11, BLO-U13.
+
 ## Observable state relationships
 
 ```text
@@ -376,6 +398,8 @@ presentation.
 | render receipt stale | stale terminal; cannot clear or commit current render |
 | timestamp unit unknown | reject or classify invalid; never display a guessed instant |
 | restart | no in-flight operation is assumed successful; durable truth is queried and current streams bootstrap anew |
+| seeded development worktree changes | File and Review converge through the same typed invalidation and refresh contract as the packaged app |
+| development observation cannot start or emits a detected terminal | startup/runtime failure is explicit; silently stale state is never presented as current |
 
 ## Compatibility and cutover
 
@@ -394,6 +418,8 @@ remain unchanged.
 - No requirement that independent File and Review work serialize together.
 - No license to broaden metadata into bulk content.
 - No new user-facing operation-history UI.
+- No development-backend repository-fleet discovery or watched-folder product
+  behavior beyond the exact configured seeded worktree.
 
 ## Proof obligations
 
@@ -409,3 +435,4 @@ remain unchanged.
 | R-BLO-013 | two-observer/two-pane convergence with scoped/coalesced invalidations and reset bootstrap |
 | R-BLO-014 | fresh marker-scoped stable/debug operational transcript joining every named stage |
 | R-BLO-015 | architecture/static enforcement plus real File/Review/annotation regression journeys |
+| R-BLO-016 | real Swift development backend plus Vite: reject failed exact-root registration before ready; mutate files and Git state and observe File/Review convergence; saturate/reset/reopen; inject a detected observation terminal and observe degraded/unavailable last-complete state; inspect deterministic shutdown residue |

@@ -217,6 +217,19 @@ reviewer action or source change
 - Authority: authorized.
 - Priority: must.
 
+### BLO-U13 — The development backend exercises the real worktree lifecycle
+
+- Affected class: Agent Studio developer and operator.
+- Need: When the Swift development backend is launched for an exact seeded
+  worktree, edits, Git status changes, branch/source changes, overload, stream
+  replacement, and recovery must drive the same File and Review refresh
+  behavior as the packaged app.
+- Why: The development backend plus Vite is the required fast proof loop. A
+  backend that only seeds initial identity and Git reads can pass static-load
+  tests while remaining blind to the failures the loop is meant to expose.
+- Authority: authorized.
+- Priority: must.
+
 ## Goal boundary
 
 - Primary outcome: Bridge remains current, usable, and diagnosable under rapid
@@ -234,6 +247,10 @@ reviewer action or source change
 - Acceptable proof: deterministic state/interleaving tests, real native/worker
   integration, real two-pane convergence, development backend plus Vite,
   packaged WKWebView interaction, and marker-scoped operational evidence.
+- Development-backend boundary: observe and route only the exact worktree
+  supplied by its launch configuration. Repository-fleet discovery, watched
+  folder management, and unrelated application-shell behavior remain outside
+  the development backend.
 
 ## Non-goals
 
@@ -246,3 +263,6 @@ reviewer action or source change
 - Persisting in-flight operation history across app restart.
 - Guaranteeing that cooperative physical cancellation completes immediately.
 - Replacing the existing command, metadata, or content physical routes.
+- Building a polling, fixture-only, or copied development-backend refresh path
+  instead of composing the production Core observation and Bridge refresh
+  owners.
