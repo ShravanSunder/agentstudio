@@ -1,4 +1,15 @@
-# Agent Studio website visual verification SOP
+# Agent Studio website release and visual verification SOP
+
+**Status:** mandatory release gate
+
+**Owner:** Agent Studio maintainer
+
+**Applies to:** website source, copy, styling, product captures, generated
+assets, deployment packaging, launch assets, Cloudflare production, and
+post-launch operation
+
+**Result vocabulary:** `READY FOR OWNER REVIEW`, `APPROVED FOR RELEASE`,
+`RELEASED AND VERIFIED`, or `NOT VERIFIED`
 
 ## Purpose
 
@@ -7,9 +18,360 @@ development, styling, product imagery, responsive behavior, and Cloudflare
 deployment. It prevents a default state, automated test, or one screenshot from
 being generalized into a claim that the whole website is correct.
 
-No website visual task is complete until every affected state is opened,
-inspected, captured, and compared in the environments and viewports required by
-this document.
+No website visual task or public release is complete until every affected state
+is opened, inspected, captured, and compared in the environments and viewports
+required by this document. Public release also requires product truth,
+activation-path, distribution, monitoring, rollback, and post-launch gates.
+
+## Release principles
+
+1. **Build once, prove the artifact, release that artifact.** A release record
+   binds source commit, lockfile, build environment, emitted assets, Cloudflare
+   version, and evidence. Rebuilding during approval creates a different
+   candidate.
+2. **One passing state proves one state.** Every interactive state, breakpoint,
+   and environment has independent evidence.
+3. **Pixels and semantics are separate contracts.** Screenshot equality does
+   not prove keyboard access, roles, focus, loading stability, or truthful
+   product claims.
+4. **DOM presence is not visibility.** Controls must have visible nonzero bounds
+   in the browser used for release verification.
+5. **Product evidence must show the product's category.** Agent Studio launch
+   images need recognizable coding agents and organized parallel work, not
+   generic terminals.
+6. **Promotion is reversible.** The last known-good Cloudflare version and a
+   tested rollback command exist before public promotion.
+7. **Release continues after deployment.** Monitoring, response, feedback
+   classification, and the post-launch review are part of the release.
+
+## Release classes
+
+Classify the change before creating evidence. Higher classes include all lower
+class gates.
+
+| Class | Examples | Required scope |
+| --- | --- | --- |
+| V0 local iteration | copy spacing, local CSS experiment | affected local states and widths; no deployment |
+| V1 website correction | styling, responsive behavior, footer/header, one product state | full local matrix, browser tests, Cloudflare dry run, affected remote matrix |
+| V2 campaign asset release | new screenshots, product-state narrative, hero loop, OG image | all six source assets, all five selector states, local and remote contact sheets, metadata/share-preview QA |
+| V3 public product launch | homepage and campaign published to external channels | every technical and visual gate, channel readiness, monitoring, rollback, launch-day operations, post-launch review |
+
+If classification is uncertain, use the higher class.
+
+## Release authority and responsibilities
+
+| Responsibility | Owner | Required evidence |
+| --- | --- | --- |
+| Product claims and shipped behavior | Agent Studio source/README owner | current source revision and claim mapping |
+| Positioning, audience, proof, conversion action | product-marketing context owner | reviewed `agent-studio-media/.agents/product-marketing.md` version |
+| Capture fixture and app identity | capture owner | bundle, executable, PID, data root, window ID, source revision |
+| Website implementation | website implementer | source commit, tests, build, local evidence |
+| Visual campaign quality | human owner | contact-sheet and normal-viewport approval |
+| Cloudflare promotion | release owner | dry run, candidate manifest, version ID, rollback target |
+| Launch-day response | named maintainer | monitoring window, incident route, channel response assignment |
+
+The implementer cannot self-approve campaign quality by citing automated tests.
+The owner cannot waive a failed integrity, accessibility, or production-runtime
+gate without recording the exception and accepting the release risk.
+
+## Product and positioning gate
+
+Before a V2 or V3 release, read the current product-marketing context in Agent
+Studio Media and confirm:
+
+- one-line product category and target user are still accurate;
+- the hero promise matches the actual problem and shipped product;
+- the primary conversion action is singular and works end to end;
+- every feature claim maps to a current source anchor and visual proof;
+- objections raised by the website are answered by evidence, not adjectives;
+- no unapproved customer, performance, adoption, security, compatibility,
+  pricing, or productivity claim appears;
+- terms such as pane, drawer, Review, Quick Find, worktree, active, and
+  persistent match current product meaning;
+- the campaign shows Claude Code, Codex, and Agy as required by the owner, or
+  records why a named agent is not applicable to a specific state.
+
+Unknown metrics remain unknown. Do not manufacture proof to complete a launch
+checklist.
+
+## Release identity and artifact manifest
+
+Create a release record before final verification:
+
+```text
+release-id: <date>-<short-name>
+release-class: V0 | V1 | V2 | V3
+source-commit: <full SHA>
+agent-studio-source: <full SHA used for claims/captures>
+lockfile-sha256: <digest>
+node-version: <exact>
+pnpm-version: <exact>
+astro-version: <exact>
+cloudflare-cli-version: <exact>
+browser-family-and-version: <exact>
+os-and-architecture: <exact>
+build-command: <exact>
+artifact-directory: <path>
+artifact-manifest-sha256: <digest>
+candidate-cloudflare-version: <ID or pending>
+last-known-good-version: <ID>
+evidence-directory: <path>
+owner-approval: pending | approved
+```
+
+Generate an artifact manifest containing every emitted file's relative path,
+byte size, media type, and SHA-256. Confirm that built HTML references emitted
+asset names in that manifest. Never substitute a new build after approval.
+
+## Release gate overview
+
+| Gate | Decision | Blocks release when |
+| --- | --- | --- |
+| G0 scope and ledger | requirements are complete and traceable | an owner correction or affected state is missing |
+| G1 product truth | claims, audience, terminology, and conversion match current product | a claim is unsupported or named-agent proof is absent |
+| G2 capture and asset integrity | sources, generated formats, alpha, dimensions, hashes, and corners pass | any asset is stale, unreadable, empty, cropped, or visually corrupt |
+| G3 page and state visual QA | every state/viewport passes local production review | any state is inferred, omitted, inconsistent, or visually rejected |
+| G4 accessibility and interaction | semantics, keyboard, focus, reduced motion, and fallback pass | a critical flow is inaccessible or state identity is ambiguous |
+| G5 performance and stability | assets, Core Web Vitals budget, layout shifts, console, and network pass | launch experience is unstable or critical assets fail |
+| G6 launch surface readiness | metadata, links, install path, docs, GitHub, support, and channel assets pass | discovery or activation leads to missing, stale, or misleading content |
+| G7 immutable Cloudflare candidate | dry run, artifact manifest, candidate ID, and rollback target are recorded | promoted output differs from tested output or rollback is unknown |
+| G8 production verification | remote state matrix, asset integrity, logs, caches, and browsers pass | local/remote parity fails or production reports errors |
+| G9 owner release approval | contact sheets and release packet are accepted | campaign quality or residual risk is not accepted |
+| G10 post-launch closure | monitoring and feedback review complete | incidents or repeated confusion remain untriaged |
+
+## Pre-launch surface readiness
+
+For V2 and V3 releases, verify the complete public path rather than only the
+homepage component tree.
+
+### Message and activation
+
+- A new visitor can identify the target user, category, problem, and outcome
+  from the first viewport.
+- The hero has one primary conversion action. For the current site this is the
+  Homebrew install path; GitHub is secondary.
+- Copying the install command produces the exact current README commands.
+- Test install or activation from a clean supported machine or record why that
+  end-to-end path is outside the website release scope.
+- Requirements and compatibility are visible before the user commits.
+- The GitHub destination, repository visibility, README, releases, and install
+  instructions are current.
+
+### Metadata and sharing
+
+- title and meta description are correct;
+- canonical URL is present and resolves to the production hostname;
+- favicon and app icons load;
+- Open Graph and social-card title, description, image, dimensions, and alt text
+  are current;
+- X, LinkedIn, Slack, Discord, iMessage/email, and Product Hunt previews are
+  captured when those channels are in the launch plan;
+- robots, sitemap, and structured data are present when required by the
+  approved site architecture;
+- no preview references localhost, a worktree, a temporary asset, or an old
+  deployment hostname.
+
+### Link and navigation integrity
+
+- logo/home, install, GitHub, X, documentation, privacy/support, and campaign
+  URLs resolve with expected status and destination;
+- no orphan public page exists;
+- redirects and trailing-slash policy are consistent;
+- external links use descriptive accessible names;
+- browser cosmetic filtering does not hide required navigation or profile
+  links.
+
+### Asset ownership
+
+Every launch asset has an owner, source revision, status, and destination:
+
+| Asset | Owner | Required proof |
+| --- | --- | --- |
+| Website screenshots | capture and website owners | source/master/output lineage plus state matrix |
+| Launch film and cuts | video owner | approved brief, storyboard, preview, render, duration, captions/audio |
+| OG/social cards | design owner | platform previews and text-safe crops |
+| README images | repository owner | unchanged references or coordinated update |
+| Product Hunt assets | launch owner | listing order, thumbnail readability, video/GIF fallback |
+| Launch copy | marketing owner | product-context and copy-skill review |
+| Support/FAQ/known issues | maintainer | current answers and escalation route |
+
+## Accessibility release gate
+
+Automated accessibility checks are a floor. Manually verify:
+
+- semantic heading and landmark order;
+- keyboard access to install, header, all five product selectors, closing
+  GitHub action, and footer profile links;
+- visible focus that is not clipped or hidden by the sticky header;
+- tablist names, roles, selected state, roving focus, Home/End, arrow-key
+  behavior, and panel relationships;
+- JavaScript-disabled default-state fallback;
+- useful alternative text for each product state and empty alt for decoration;
+- text, focus, control, and non-text contrast against WCAG 2.2 AA targets;
+- 200% zoom and narrow reflow without lost content or two-dimensional page
+  scrolling;
+- reduced motion without missing information;
+- no interaction that requires hover, drag, animation, or pointer precision;
+- touch target sizes and phone selector reachability;
+- accessible error/status announcement for install-copy failure and success.
+
+Store an ARIA snapshot for the page shell and product plate. An unchanged ARIA
+snapshot does not waive a visible accessibility defect.
+
+## Performance and loading-stability gate
+
+Define budgets before V3 launch and record results for cold and warm loads:
+
+- Core Web Vitals targets for LCP, INP, and CLS;
+- HTML, CSS, JavaScript, image, and video transfer budgets;
+- no unexpected post-ready layout-shift entry;
+- explicit intrinsic width/height or aspect ratio for visual media;
+- required fonts loaded before visual baseline capture;
+- first product proof prioritized; hidden/below-fold states loaded without
+  blocking the first viewport;
+- no failed image, font, script, source map, or metadata request;
+- no uncaught exception, unhandled rejection, site-origin console error, or
+  unexplained warning;
+- no third-party script blocks the hero, install action, or product switcher;
+- slow-network and cache-cold checks preserve usable copy and primary actions.
+
+Record layout-shift attribution when CLS changes. A correct final screenshot
+does not waive a visibly unstable load.
+
+## Launch channel readiness
+
+Use the installed launch skill's owned/rented/borrowed model. Every selected
+channel has an owner, asset, URL, publishing time, tracking code, response plan,
+and measurable job.
+
+### Owned
+
+- website and install path;
+- GitHub repository, README, release/changelog, and discussions/issues policy;
+- email/newsletter or community when currently owned;
+- documentation, support, FAQ, and known-issues surface.
+
+### Rented
+
+- X, LinkedIn, Reddit, Hacker News, Product Hunt, YouTube, or launch directories
+  selected because Agent Studio's audience is present there;
+- platform-specific copy and media rather than one duplicated post;
+- UTM/source attribution through installation or activation where possible;
+- requests for visits, trials, and feedback, never artificial votes or
+  engagement.
+
+### Borrowed
+
+- maintainers, partners, integrations, technical communities, newsletters,
+  podcasts, and reviewers with permission to participate;
+- accurate briefing material and embargo/publish timing where applicable;
+- a path from borrowed attention back to owned product and documentation.
+
+Do not add a channel merely because a generic launch checklist names it.
+Unselected channels are marked `not planned`, not left ambiguously unchecked.
+
+## Launch phases
+
+### Internal candidate
+
+- team/friendly-user walkthrough;
+- core install and first-use flow works;
+- campaign assets are still private;
+- blocking product, copy, and support gaps are logged.
+
+### Controlled preview
+
+- external users can access a real supported build;
+- preview website and assets are shareable to the controlled audience;
+- feedback route and response owner are active;
+- no public launch claim is made.
+
+### Release candidate
+
+- G0 through G7 pass;
+- launch assets and channel packets are frozen;
+- release manifest and last-known-good Cloudflare version are recorded;
+- launch-day staffing and rollback triggers are confirmed.
+
+### Public launch
+
+- owner authorizes promotion;
+- exact tested candidate becomes production;
+- channel posts link to the verified production URL;
+- monitoring and response window begins immediately.
+
+## Launch-day operations
+
+Record a named owner and check cadence for:
+
+- website and asset status;
+- DNS, TLS, redirects, cache behavior, and Cloudflare errors;
+- install command copies, GitHub visits, repository availability, release
+  downloads, and first-use activation where measurable;
+- unexpected 4xx/5xx responses and client errors;
+- Product Hunt and community questions when those channels are selected;
+- support, known issues, and repeated objections;
+- traffic anomalies and abusive or misleading posts;
+- public status/incident communication when required.
+
+Define rollback triggers before launch. Minimum triggers include broken primary
+CTA, missing product imagery, remote/local visual mismatch, widespread asset
+404s, unexpected 5xx responses, uncaught runtime errors, or a browser hiding a
+required conversion/navigation control.
+
+During the launch window, freeze unrelated production changes unless they fix
+an active incident.
+
+## Rollback procedure
+
+Before promotion:
+
+1. Record the last known-good Cloudflare version ID.
+2. Confirm it remains rollback-eligible.
+3. Record the exact rollback command or dashboard operation.
+4. Verify the old version does not depend on removed resources or bindings.
+5. Assign rollback authority.
+
+On rollback:
+
+1. Preserve the failed version and evidence.
+2. Promote the known-good version.
+3. Verify production status, visuals, assets, and logs.
+4. Notify affected channels if users saw the failure.
+5. Open a failure record before attempting another release.
+
+## Post-launch closure
+
+### First hour
+
+- verify production from an independent browser and network;
+- inspect real-time logs and critical routes;
+- confirm the primary CTA and all campaign assets;
+- answer technical questions and record repeated confusion.
+
+### First 24 hours
+
+- classify feedback into product bug, website bug, install/onboarding friction,
+  missing capability, positioning confusion, pricing/compatibility objection,
+  and feature request;
+- publish known issues and immediate fixes when necessary;
+- compare channel traffic with successful activation, not visits alone.
+
+### 48-hour review
+
+- rank findings by frequency, severity, and strategic value;
+- update copy, screenshots, FAQ, docs, or onboarding when questions repeat;
+- contact users who failed installation or activation when a contact route
+  exists;
+- decide whether another launch communication is warranted.
+
+### Seven-day review
+
+- compare stated launch goals with measured outcomes;
+- review incidents, rollback events, conversion, activation, retention signals,
+  and qualitative feedback;
+- record what to repeat, stop, and change;
+- choose the next meaningful launch moment rather than extending launch noise.
 
 ## Current blocked assumptions
 
@@ -331,8 +693,14 @@ Do not use screenshots from a prior commit or deployment version.
 
 The receipt must state:
 
+- release ID and release class;
 - exact source commit;
+- product-marketing context version;
+- Agent Studio source revision used for claims and captures;
+- build environment and lockfile digest;
+- artifact manifest path and digest;
 - Cloudflare version when deployed;
+- last known-good Cloudflare version and rollback route;
 - exact browser and environment;
 - every viewport checked;
 - every product state clicked locally and remotely;
@@ -341,8 +709,26 @@ The receipt must state:
 - geometry measurements;
 - corner/alpha result for every image;
 - named agent evidence present in each applicable state;
+- accessibility, performance, metadata, link, and activation-path results;
+- selected owned, rented, and borrowed channels with owners;
+- launch monitoring window and named responder;
+- post-launch review status;
 - accepted failures: none;
 - remaining blockers, if any.
+
+Use this decision block verbatim:
+
+```text
+Release decision: NOT VERIFIED | READY FOR OWNER REVIEW | APPROVED FOR RELEASE | RELEASED AND VERIFIED
+Open gates: <gate IDs or none>
+Accepted exceptions: <none or explicit owner-approved risks>
+Source commit: <full SHA>
+Artifact manifest: <path and SHA-256>
+Candidate/production version: <Cloudflare version ID>
+Last known good: <Cloudflare version ID>
+Owner decision: pending | approved
+Post-launch closure: pending | complete | not applicable
+```
 
 ## Stop conditions
 
@@ -361,3 +747,45 @@ Do not claim completion when any of these is true:
 
 The correct result in these cases is `NOT VERIFIED`, with the failed state and
 evidence named explicitly.
+
+## References
+
+### Project-local marketing frameworks
+
+- Agent Studio Media `.agents/skills/product-marketing/SKILL.md`, pinned from
+  `coreyhaines31/marketingskills` at
+  `c6ea12834be62bdc4180a1385f6455cde84ae60c`
+- Agent Studio Media `.agents/skills/launch/SKILL.md`, same pin
+- Agent Studio Media `.agents/skills/site-architecture/SKILL.md`, same pin
+- Agent Studio Media `.agents/product-marketing.md`
+- Agent Studio Media
+  `tmp/research-workflows/2026-08-20-website-release-sop/research-ledger.md`
+
+### Primary online guidance
+
+- Playwright visual comparisons:
+  https://playwright.dev/docs/test-snapshots
+- Playwright screenshots:
+  https://playwright.dev/docs/screenshots
+- Playwright ARIA snapshots:
+  https://playwright.dev/docs/aria-snapshots
+- Playwright diagnostic UI:
+  https://playwright.dev/docs/test-ui-mode
+- WCAG 2.2 quick reference:
+  https://www.w3.org/WAI/WCAG22/quickref/
+- web.dev layout instability:
+  https://web.dev/articles/fixing-layout-instability
+- Cloudflare versions and deployments:
+  https://developers.cloudflare.com/workers/versions-and-deployments/
+- Cloudflare rollback:
+  https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/
+- Cloudflare real-time logs:
+  https://developers.cloudflare.com/workers/observability/logs/real-time-logs/
+- Cloudflare retained logs:
+  https://developers.cloudflare.com/workers/observability/logs/
+- Product Hunt launch guide:
+  https://www.producthunt.com/launch
+- Product Hunt launch preparation:
+  https://www.producthunt.com/launch/preparing-for-launch
+- Product Hunt product-fit guidance:
+  https://www.producthunt.com/launch/how-product-hunt-works

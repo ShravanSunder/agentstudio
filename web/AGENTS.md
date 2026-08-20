@@ -11,7 +11,7 @@ Read these before changing the website's structure, behavior, or stack:
 - [Program Design](../docs/specs/2026-08-17-marketing-site/2026-08-17-marketing-site-program-design.md)
 - [Visual Design](../docs/specs/2026-08-17-marketing-site/2026-08-17-marketing-site-visual-design.md)
 - [Static Design Board](../docs/specs/2026-08-17-marketing-site/website-design-board.html)
-- [Mandatory visual verification SOP](../docs/wip/2026-08-20-website-visual-verification-sop.md)
+- [Mandatory website release and visual verification SOP](../docs/wip/2026-08-20-website-visual-verification-sop.md)
 
 The current product README, semantic app theme, and canonical icon own product claims and brand evidence. Files under `web/images/` remain README/reference assets. Website product imagery comes from the approved WebsiteCaptureSuite. Herdr is prior art for hierarchy and a clickable product plate, not a source for Agent Studio copy, colors, fixtures, or accessibility behavior.
 
