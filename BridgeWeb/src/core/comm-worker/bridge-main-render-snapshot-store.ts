@@ -185,6 +185,7 @@ export interface BridgeMainRenderSnapshotStore {
 	readonly getReviewTreeRowAtIndex: (
 		treeRowIndex: number,
 	) => BridgeMainReviewTreeDisplayRow | null | undefined;
+	readonly prepareForWorkerReplacement: () => void;
 	readonly subscribe: (listener: () => void) => () => void;
 	readonly subscribeReviewAvailability: (itemId: string, listener: () => void) => () => void;
 	readonly subscribeReviewCatalog: (listener: () => void) => () => void;
@@ -285,6 +286,15 @@ export function createBridgeMainRenderSnapshotStore(
 		},
 		getSnapshot: (): BridgeMainRenderSnapshot => snapshot,
 		getServerSnapshot: (): BridgeMainRenderSnapshot => snapshot,
+		prepareForWorkerReplacement: (): void => {
+			if (isDisposed) return;
+			const fileDisplayState = fileDisplayPatchApplier.prepareForWorkerReplacement();
+			publish({
+				...snapshot,
+				...fileDisplayState,
+				reviewDisplayFreshness: null,
+			});
+		},
 		getReviewAvailabilitySnapshot: (
 			itemId,
 		): BridgeWorkerContentAvailabilityPatchPayload | undefined =>

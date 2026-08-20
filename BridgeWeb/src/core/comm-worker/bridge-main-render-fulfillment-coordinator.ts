@@ -63,6 +63,7 @@ export interface BridgeMainRenderFulfillmentCoordinator {
 	readonly dispose: () => void;
 	readonly isBoundFinalItem: (item: BridgeMainRenderPublicationItem) => boolean;
 	readonly markPublicationQueued: (publication: BridgeMainRenderPublication) => void;
+	readonly retireWorkerInstance: () => void;
 	readonly observePostRender: (
 		props: BridgeMainRenderReadback & {
 			readonly contextItem: BridgeMainRenderPublicationItem;
@@ -365,6 +366,17 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 			}
 			entry.queuedSubmissionObserved = true;
 			publishQueuedDispositionWhenReady(entry);
+		},
+		retireWorkerInstance: (): void => {
+			if (isDisposed) return;
+			for (const entry of pendingByPierreItemId.values()) cancelPendingFrame(entry);
+			pendingByPierreItemId.clear();
+			for (const frameHandle of retainedPaintValidationFramesByFinalItem.values()) {
+				cancelFrame(frameHandle);
+			}
+			retainedPaintValidationFramesByFinalItem.clear();
+			retainedPaintedEvidenceByFinalItem = new WeakMap();
+			terminalPublicationIdentityKeys.clear();
 		},
 		observePostRender: (observeProps): void => {
 			if (isDisposed || observeProps.phase === 'unmount') return;

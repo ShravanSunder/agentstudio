@@ -24,6 +24,7 @@ import { bridgePaneCommWorkerInstallSchema } from './bridge-product-session-cont
 import type {
 	BridgeWorkerFileDisplayPatchEvent,
 	BridgeWorkerMainToServerMessage,
+	BridgeWorkerReviewDisplayPatchEvent,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerRpcCommandInput } from './bridge-worker-rpc-client.js';
@@ -278,6 +279,119 @@ describe('Bridge pane runtime', () => {
 			unsubscribe();
 			runtime.dispose();
 		}
+	});
+
+	test('re-anchors retained File freshness and replays current intent after replacement readiness', async () => {
+		// Arrange
+		const { createBridgePaneRuntime } = await loadBridgePaneRuntimeModule();
+		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
+		let publishWorkerMessages:
+			| ((messages: readonly BridgeWorkerServerToMainMessage[]) => void)
+			| undefined;
+		let requestReplacement: ((reason: 'workerReplacement') => void) | undefined;
+		const session: BridgePaneSessionPort = {
+			createDispatcher: (props): BridgePaneCommWorkerDispatcher => {
+				publishWorkerMessages = props.publishWorkerMessages;
+				return {
+					dispatch: (message): void => {
+						dispatchedMessages.push(message);
+					},
+					dispose: vi.fn(),
+				};
+			},
+			dispose: vi.fn(),
+			installNativeBootstrap: vi.fn(),
+			setNativeBootstrapRequester: (requester): void => {
+				requestReplacement = requester;
+			},
+		};
+		const runtime = createBridgePaneRuntime({
+			sessionFactory: (): BridgePaneSessionPort => session,
+		});
+		const replacementRequests: string[] = [];
+		runtime.setNativeBootstrapRequester((reason): void => {
+			replacementRequests.push(reason);
+		});
+		runtime.installNativeBootstrap(makeNativeBootstrap('worker-instance-before-replacement'));
+		const fileClient = runtime.surfaceClient('fileView');
+		const reviewClient = runtime.surfaceClient('review');
+		fileClient.renderStore.applyFileDisplayPatchEvent(
+			makeFileStatusPatchEvent({ epoch: 2, sequence: 2, state: 'stale' }),
+		);
+		reviewClient.renderStore.applyReviewDisplayPatchEvent(
+			makeReviewSourceFailurePatchEvent({ epoch: 2, sequence: 2 }),
+		);
+		runtime.paneClient.send({
+			command: 'activeViewerModeUpdate',
+			epoch: 7,
+			update: {
+				activeSource: {
+					generation: 2,
+					protocol: 'worktree-file',
+					streamId: 'file-stream-before-replacement',
+				},
+				mode: 'file',
+				nativeSelectionRequestId: null,
+				sequence: 1,
+				sessionId: 'viewer-mode-session',
+			},
+		});
+		fileClient.send(makeFileCommandInput());
+		fileClient.send({
+			command: 'select',
+			epoch: 2,
+			selectedItemId: 'file-item-before-replacement',
+			selectedSource: 'user',
+			surface: 'fileView',
+		});
+		reviewClient.send({
+			command: 'select',
+			epoch: 3,
+			selectedItemId: 'review-item-before-replacement',
+			selectedSource: 'user',
+			surface: 'review',
+		});
+		dispatchedMessages.length = 0;
+
+		// Act
+		requestReplacement?.('workerReplacement');
+		fileClient.send({
+			command: 'select',
+			epoch: 3,
+			selectedItemId: 'file-item-during-replacement',
+			selectedSource: 'user',
+			surface: 'fileView',
+		});
+		runtime.installNativeBootstrap(makeNativeBootstrap('worker-instance-after-replacement'));
+		publishWorkerMessages?.([makePaneRuntimeReadyHealth('pane-runtime-bootstrap')]);
+
+		// Assert
+		expect(replacementRequests).toEqual(['workerReplacement']);
+		expect(fileClient.renderStore.getSnapshot().fileDisplayFreshness).toBeNull();
+		expect(reviewClient.renderStore.getSnapshot().reviewDisplayFreshness).toBeNull();
+		expect(dispatchedMessages.map((message) => message.command)).toEqual([
+			'select',
+			'activeViewerModeUpdate',
+			'fileQueryUpdate',
+			'select',
+		]);
+		expect(dispatchedMessages[0]).toMatchObject({
+			selectedItemId: 'file-item-during-replacement',
+			surface: 'fileView',
+		});
+		expect(dispatchedMessages[3]).toMatchObject({
+			selectedItemId: 'review-item-before-replacement',
+			surface: 'review',
+		});
+		fileClient.renderStore.applyFileDisplayPatchEvent(
+			makeFileStatusPatchEvent({ epoch: 1, sequence: 1, state: 'stale' }),
+		);
+		reviewClient.renderStore.applyReviewDisplayPatchEvent(
+			makeReviewSourceFailurePatchEvent({ epoch: 1, sequence: 1 }),
+		);
+		expect(fileClient.renderStore.getSnapshot().fileDisplayFreshness?.epoch).toBe(1);
+		expect(reviewClient.renderStore.getSnapshot().reviewDisplayFreshness?.epoch).toBe(1);
+		runtime.dispose();
 	});
 
 	test('records accepted and rejected native bootstrap install attempts without authority identity', async () => {
@@ -783,6 +897,29 @@ function makeFileStatusPatchEvent(props: {
 		projectionRevision: props.sequence,
 		sequence: props.sequence,
 		surface: 'fileView',
+		transferDescriptors: [],
+		wireVersion: 1,
+	};
+}
+
+function makeReviewSourceFailurePatchEvent(props: {
+	readonly epoch: number;
+	readonly sequence: number;
+}): BridgeWorkerReviewDisplayPatchEvent {
+	return {
+		direction: 'serverWorkerToMain',
+		epoch: props.epoch,
+		kind: 'reviewDisplayPatch',
+		patches: [
+			{
+				operation: 'failed',
+				payload: { error: 'metadataUnavailable', status: 'failed' },
+				slice: 'reviewSource',
+			},
+		],
+		projectionRevision: props.sequence,
+		sequence: props.sequence,
+		surface: 'review',
 		transferDescriptors: [],
 		wireVersion: 1,
 	};

@@ -4,6 +4,7 @@ import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-te
 import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerFileDisplayResyncCommand,
+	encodeBridgeWorkerRenderDispositionCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
@@ -28,6 +29,7 @@ import type {
 	BridgeWorkerFilePierreRenderJobEvent,
 	BridgeWorkerFileRenderPatchEvent,
 } from './bridge-worker-contracts.js';
+import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
 import {
 	drainFilePreparationUntilIdle,
 	fileProductTestSource as source,
@@ -425,6 +427,45 @@ describe('Bridge comm worker File product runtime', () => {
 			surface: 'file',
 			workerDerivationEpoch: 1,
 		});
+		const fileRenderPublication = postedMessages.find(
+			(
+				posted,
+			): posted is typeof posted & { readonly message: BridgeWorkerFilePierreRenderJobEvent } =>
+				posted.message.kind === 'filePierreRenderJob',
+		)?.message;
+		if (fileRenderPublication === undefined) {
+			throw new Error('Expected the selected File render publication.');
+		}
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				epoch: 2,
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+				requestId: 'request-advance-file-intent-after-publication',
+				surface: 'fileView',
+				visibleItemIds: ['file-1'],
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerRenderDispositionCommand({
+				epoch: fileRenderPublication.workerDerivationEpoch,
+				receipt: bridgeWorkerRenderDispositionReceiptSchema.parse({
+					...fileRenderPublication.renderReceiptIdentity,
+					disposition: 'queued',
+					kind: 'render.disposition',
+					receivedAtMilliseconds: 0,
+				}),
+				requestId: 'request-production-stamped-file-queued',
+			}),
+		);
+		expect(
+			postedMessages.find(
+				({ message }) =>
+					message.kind === 'health' &&
+					message.requestId === 'request-production-stamped-file-queued',
+			)?.message,
+		).toMatchObject({ status: 'ready' });
 	});
 
 	test('does not replay completed File preparation when native foreground returns to Review', async () => {

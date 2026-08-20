@@ -48,6 +48,27 @@ afterEach((): void => {
 });
 
 describe('Bridge comm worker runtime render fulfillment', () => {
+	test('admits a production-stamped Review disposition after intent advances beyond derivation', async () => {
+		// Arrange
+		const harness = await createReviewRenderPublicationHarness();
+		const publication = harness.publication;
+		expect(reviewIntentEpoch).toBeGreaterThan(publication.workerDerivationEpoch);
+
+		// Act
+		dispatchDisposition(harness, {
+			disposition: 'queued',
+			epoch: publication.workerDerivationEpoch,
+			identity: publication.renderReceiptIdentity,
+			requestId: 'request-production-stamped-queued',
+		});
+
+		// Assert
+		expectHealthForRequest(
+			harness.postedMessages,
+			'request-production-stamped-queued',
+		).toMatchObject({ status: 'ready' });
+	});
+
 	test('keeps Review ready, published, queued, and applied intermediate until matching painted residency', async () => {
 		// Arrange
 		const harness = await createReviewRenderPublicationHarness();
@@ -561,13 +582,14 @@ function dispatchDisposition(
 	harness: Pick<ReviewRenderPublicationHarness, 'dispatch'>,
 	props: {
 		readonly disposition: Extract<BridgeWorkerRenderDisposition, 'queued' | 'applied' | 'painted'>;
+		readonly epoch?: number;
 		readonly identity: BridgeWorkerRenderReceiptIdentity;
 		readonly requestId: string;
 	},
 ): void {
 	harness.dispatch.message(
 		encodeBridgeWorkerRenderDispositionCommand({
-			epoch: reviewIntentEpoch,
+			epoch: props.epoch ?? reviewIntentEpoch,
 			receipt: makeDispositionReceipt(props),
 			requestId: props.requestId,
 		}),

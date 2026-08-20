@@ -1,4 +1,5 @@
 import {
+	bridgeCommWorkerCommandUsesIntentEpochAdmission,
 	bridgeCommWorkerIntentEpochDomain,
 	rejectStaleOrReplayedBridgeWorkerCommand,
 	type BridgeCommWorkerIntentEpochDomain,
@@ -318,29 +319,31 @@ export function createBridgeCommWorkerCommandHandler(
 			const intentEpochDomain = bridgeCommWorkerIntentEpochDomain(message);
 			const currentIntentEpoch = currentIntentEpochByDomain[intentEpochDomain];
 			const seenRequestIds = seenRequestIdsByIntentEpochDomain[intentEpochDomain];
-			if (message.epoch > currentIntentEpoch) {
-				seenRequestIds.clear();
-			}
 			const commandStore =
 				intentEpochDomain === 'fileView' || intentEpochDomain === 'fileAnnotation'
 					? fileViewStore
 					: reviewStore;
-			const rejection = rejectStaleOrReplayedBridgeWorkerCommand({
-				currentEpoch: currentIntentEpoch,
-				message,
-				seenRequestIds,
-			});
-			if (rejection !== null) {
-				return [rejection];
-			}
-			seenRequestIds.add(message.requestId);
-			if (seenRequestIds.size > bridgeCommWorkerRecentRequestCapacityPerDomain) {
-				const oldestRequestId = seenRequestIds.values().next().value;
-				if (oldestRequestId !== undefined) {
-					seenRequestIds.delete(oldestRequestId);
+			if (bridgeCommWorkerCommandUsesIntentEpochAdmission(message)) {
+				if (message.epoch > currentIntentEpoch) {
+					seenRequestIds.clear();
 				}
+				const rejection = rejectStaleOrReplayedBridgeWorkerCommand({
+					currentEpoch: currentIntentEpoch,
+					message,
+					seenRequestIds,
+				});
+				if (rejection !== null) {
+					return [rejection];
+				}
+				seenRequestIds.add(message.requestId);
+				if (seenRequestIds.size > bridgeCommWorkerRecentRequestCapacityPerDomain) {
+					const oldestRequestId = seenRequestIds.values().next().value;
+					if (oldestRequestId !== undefined) {
+						seenRequestIds.delete(oldestRequestId);
+					}
+				}
+				currentIntentEpochByDomain[intentEpochDomain] = Math.max(currentIntentEpoch, message.epoch);
 			}
-			currentIntentEpochByDomain[intentEpochDomain] = Math.max(currentIntentEpoch, message.epoch);
 			return handleBridgeWorkerCommand({
 				createSequence,
 				message,

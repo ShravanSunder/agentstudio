@@ -48,6 +48,12 @@ export function bridgeCommWorkerIntentEpochDomain(
 	}
 }
 
+export function bridgeCommWorkerCommandUsesIntentEpochAdmission(
+	message: BridgeWorkerMainToServerMessage,
+): boolean {
+	return message.command !== 'renderDisposition';
+}
+
 interface RejectStaleOrReplayedBridgeWorkerCommandProps {
 	readonly currentEpoch: number;
 	readonly message: BridgeWorkerMainToServerMessage;
