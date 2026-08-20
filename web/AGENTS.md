@@ -11,6 +11,7 @@ Read these before changing the website's structure, behavior, or stack:
 - [Program Design](../docs/specs/2026-08-17-marketing-site/2026-08-17-marketing-site-program-design.md)
 - [Visual Design](../docs/specs/2026-08-17-marketing-site/2026-08-17-marketing-site-visual-design.md)
 - [Static Design Board](../docs/specs/2026-08-17-marketing-site/website-design-board.html)
+- [Mandatory visual verification SOP](../docs/wip/2026-08-20-website-visual-verification-sop.md)
 
 The current product README, semantic app theme, and canonical icon own product claims and brand evidence. Files under `web/images/` remain README/reference assets. Website product imagery comes from the approved WebsiteCaptureSuite. Herdr is prior art for hierarchy and a clickable product plate, not a source for Agent Studio copy, colors, fixtures, or accessibility behavior.
 
@@ -77,7 +78,11 @@ If the answers do not make one direction clear, return to the Program Design rat
 - Exactly one selector and one panel are current at a time. Unknown state identifiers preserve the last valid state.
 - Ambient timers and status activity are illustrative presentation only. Stop them while hidden and when reduced motion is requested.
 - If controller complexity crosses the React threshold above, migrate this one boundary to a React island; do not add a parallel controller path.
-- Persistent workspace is one static split panel with labeled Before close and Restored frames. Do not add nested state, autoplay, or simulated live restoration.
+- Persistent workspace must present Before close and Restored evidence at a
+  readable scale and fill the product plate without a dead region. Do not
+  preserve a static split when it makes both images small or leaves the lower
+  half empty. The replacement presentation pattern requires owner-approved
+  design before implementation; do not add autoplay or simulated restoration.
 
 ## Product proof
 
@@ -145,6 +150,11 @@ Preserve the existing `web/images/` paths because the root README references the
 - Maintain WCAG AA contrast for rendered text and controls.
 
 ## Verification boundary
+
+Follow the mandatory visual verification SOP for every website styling,
+product-image, responsive-layout, or deployment change. Verification must open
+all five product states locally and on the deployed site; the default state
+never proves the suite.
 
 Website work is incomplete until the changed scope has evidence for:
 
