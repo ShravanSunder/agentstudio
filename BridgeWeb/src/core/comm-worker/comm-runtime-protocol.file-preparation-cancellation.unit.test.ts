@@ -37,6 +37,27 @@ interface PendingContentAttempt {
 }
 
 describe('Bridge comm worker selected File preparation cancellation', () => {
+	test('settles descriptor preparation unavailable when the current File refresh ends without a descriptor', async () => {
+		// Arrange
+		const harness = await createPendingFilePreparationHarness({
+			includeDescriptor: false,
+			initialRefreshingLanes: ['file'],
+		});
+		expect(harness.attempts).toHaveLength(0);
+
+		// Act
+		harness.publishPresentation(2, 'foreground', []);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		expect(fileAvailabilityPatches(harness.postedMessages)).toContainEqual(
+			expect.objectContaining({
+				itemId: 'file-1',
+				payload: { reason: 'descriptor_missing', state: 'unavailable' },
+			}),
+		);
+	});
+
 	test('keeps the selected load alive across identity-equivalent descriptor replay', async () => {
 		const harness = await createPendingFilePreparationHarness();
 
@@ -203,6 +224,49 @@ describe('Bridge comm worker selected File preparation cancellation', () => {
 		expect(harness.attempts).toHaveLength(1);
 		expect(fileRenderJobs(harness.postedMessages)).toHaveLength(0);
 	});
+
+	test('resumes the retained selected File request after Review returns to File', async () => {
+		// Arrange
+		const harness = await createPendingFilePreparationHarness();
+		expect(harness.attempts).toHaveLength(1);
+
+		// Act: switch away while content is in flight, then return without reselecting.
+		harness.dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 2,
+				requestId: 'request-review-mode-suspends-selected-file',
+				update: {
+					activeSource: null,
+					mode: 'review',
+					nativeSelectionRequestId: null,
+					sequence: 2,
+					sessionId: 'review-mode-suspends-selected-file-session',
+				},
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		harness.dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 3,
+				requestId: 'request-file-mode-resumes-selected-file',
+				update: {
+					activeSource: null,
+					mode: 'file',
+					nativeSelectionRequestId: null,
+					sequence: 3,
+					sessionId: 'review-mode-suspends-selected-file-session',
+				},
+			}),
+		);
+		await drainUntilAttemptCount(harness, 2);
+
+		// Assert
+		expect(harness.abortCount()).toBe(1);
+		expect(harness.attempts.map(({ descriptorId }) => descriptorId)).toEqual([
+			'descriptor-file-1',
+			'descriptor-file-1',
+		]);
+	});
 });
 
 interface PendingFilePreparationHarness {
@@ -214,11 +278,17 @@ interface PendingFilePreparationHarness {
 	readonly publishPresentation: (
 		presentationRevision: number,
 		nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
+		refreshingLanes?: BridgeProductPanePresentationFrame['refreshingLanes'],
 	) => void;
 	readonly scheduledDrains: BridgeCommWorkerPreparationDrain[];
 }
 
-async function createPendingFilePreparationHarness(): Promise<PendingFilePreparationHarness> {
+async function createPendingFilePreparationHarness(
+	props: {
+		readonly includeDescriptor?: boolean;
+		readonly initialRefreshingLanes?: BridgeProductPanePresentationFrame['refreshingLanes'];
+	} = {},
+): Promise<PendingFilePreparationHarness> {
 	const events = new BridgeProductBoundedAsyncQueue<
 		BridgeProductSubscriptionEvent<'file.metadata'>
 	>(64);
@@ -317,13 +387,16 @@ async function createPendingFilePreparationHarness(): Promise<PendingFilePrepara
 	const publishPresentation = (
 		presentationRevision: number,
 		nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
+		refreshingLanes: BridgeProductPanePresentationFrame['refreshingLanes'] = [],
 	): void => {
 		if (panePresentationSink === null) {
 			throw new Error('Expected Bridge pane presentation sink registration.');
 		}
-		panePresentationSink(makePanePresentationFrame(presentationRevision, nativeActivity));
+		panePresentationSink(
+			makePanePresentationFrame(presentationRevision, nativeActivity, refreshingLanes),
+		);
 	};
-	publishPresentation(1, 'foreground');
+	publishPresentation(1, 'foreground', props.initialRefreshingLanes ?? []);
 	dispatch.message(
 		encodeBridgeWorkerSelectCommand({
 			epoch: 1,
@@ -336,7 +409,7 @@ async function createPendingFilePreparationHarness(): Promise<PendingFilePrepara
 	await flushBridgeWorkerRuntimeContinuations();
 	events.push({ eventKind: 'file.sourceAccepted', source });
 	events.push(fileTreeWindowEvent());
-	events.push(fileDescriptorReadyEvent());
+	if (props.includeDescriptor !== false) events.push(fileDescriptorReadyEvent());
 	await flushBridgeWorkerRuntimeContinuations();
 	const harness = {
 		abortCount: (): number => observedAbortCount,
@@ -347,7 +420,7 @@ async function createPendingFilePreparationHarness(): Promise<PendingFilePrepara
 		publishPresentation,
 		scheduledDrains,
 	} satisfies PendingFilePreparationHarness;
-	await drainUntilAttemptCount(harness, 1);
+	if (props.includeDescriptor !== false) await drainUntilAttemptCount(harness, 1);
 	return harness;
 }
 
@@ -512,6 +585,7 @@ async function* emptyFrames(): AsyncIterable<never> {}
 function makePanePresentationFrame(
 	presentationRevision: number,
 	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
+	refreshingLanes: BridgeProductPanePresentationFrame['refreshingLanes'],
 ): BridgeProductPanePresentationFrame {
 	return {
 		presentationRevision,
@@ -519,7 +593,7 @@ function makePanePresentationFrame(
 		metadataStreamId: 'metadata-stream-file-preparation-cancellation',
 		nativeActivity,
 		paneSessionId: 'pane-session-file-preparation-cancellation',
-		refreshingLanes: [],
+		refreshingLanes,
 		reviewComparison: null,
 		streamSequence: presentationRevision,
 		wireVersion: 2,

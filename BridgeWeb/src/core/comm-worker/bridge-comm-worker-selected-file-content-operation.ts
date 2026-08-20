@@ -1,5 +1,15 @@
+import type { BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest } from './bridge-comm-worker-command-handler-contracts.js';
+import type { BridgeCommWorkerFileViewRuntimeSource } from './bridge-comm-worker-file-view-runtime-source.js';
 import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
-import type { BridgeWorkerSlicePatchEvent } from './bridge-worker-contracts.js';
+import {
+	isBridgeWorkerFileViewContentMetadata,
+	type BridgeWorkerFileRenderPatchEvent,
+	type BridgeWorkerSlicePatchEvent,
+} from './bridge-worker-contracts.js';
+import {
+	bridgeWorkerFileRenderPatchesFromSlicePatchEvent,
+	prepareBridgeWorkerFileRenderPatchEvent,
+} from './bridge-worker-file-view-content-ready.js';
 import type {
 	BridgeWorkerRenderDispositionReceipt,
 	BridgeWorkerRenderReceiptIdentity,
@@ -159,6 +169,63 @@ export function settleAcceptedSelectedFileRenderDisposition(props: {
 			epoch: props.store.getState().selectedEpoch,
 			sequence: props.createSequence(),
 		}),
+	};
+}
+
+export function settleSelectedFileDescriptorWaitAtMetadataTerminal(props: {
+	readonly activeWorkerDerivationEpoch: number | null;
+	readonly controller: BridgeCommWorkerSelectedFileContentOperationController;
+	readonly createSequence: () => number;
+	readonly fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
+	readonly request: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest | null;
+}): { readonly settled: boolean; readonly terminalPatch: BridgeWorkerFileRenderPatchEvent | null } {
+	const admittedOperation = props.controller.current;
+	const request = props.request;
+	if (
+		admittedOperation === null ||
+		admittedOperation.phase !== 'preparingDescriptor' ||
+		request === null ||
+		request.itemId !== admittedOperation.itemId ||
+		request.store.getState().selectedId !== admittedOperation.itemId
+	) {
+		return { settled: false, terminalPatch: null };
+	}
+	const operation =
+		admittedOperation.workerDerivationEpoch === null && props.activeWorkerDerivationEpoch !== null
+			? props.controller.bindSource({
+					generation: admittedOperation.generation,
+					workerDerivationEpoch: props.activeWorkerDerivationEpoch,
+				})
+			: admittedOperation;
+	if (operation === null || operation.workerDerivationEpoch === null) {
+		return { settled: false, terminalPatch: null };
+	}
+	const metadata = request.store.getState().contentMetadataByItemId.get(operation.itemId) ?? null;
+	const contentRequest = props.fileViewRuntimeSource.contentRequestsByItemId?.get(operation.itemId);
+	if (isBridgeWorkerFileViewContentMetadata(metadata) && contentRequest !== undefined) {
+		return { settled: false, terminalPatch: null };
+	}
+	if (!props.controller.settle(operation.generation)) {
+		return { settled: false, terminalPatch: null };
+	}
+	request.store.actions.applyContentTerminalAvailability({
+		itemId: operation.itemId,
+		reason: 'descriptor_missing',
+		sourceEpoch: request.store.getState().selectedEpoch,
+		state: 'unavailable',
+	});
+	const publicationSequence = props.createSequence();
+	const slicePatch = request.store.actions.takePendingSlicePatchEvent({
+		epoch: request.store.getState().selectedEpoch,
+		sequence: publicationSequence,
+	});
+	return {
+		settled: true,
+		terminalPatch: prepareBridgeWorkerFileRenderPatchEvent({
+			patches: bridgeWorkerFileRenderPatchesFromSlicePatchEvent(slicePatch),
+			publicationSequence,
+			workerDerivationEpoch: operation.workerDerivationEpoch,
+		}).message,
 	};
 }
 

@@ -27,3 +27,13 @@ export function bridgeCommWorkerProductControlFailureMessage(props: {
 }): string {
 	return `Bridge comm worker failed to forward ${props.command.method}.`;
 }
+
+export function publishBridgeCommWorkerPostCommitFailureBestEffort(
+	publishFailure: () => void,
+): void {
+	try {
+		publishFailure();
+	} catch {
+		// A closed main port cannot invalidate already committed worker authority.
+	}
+}

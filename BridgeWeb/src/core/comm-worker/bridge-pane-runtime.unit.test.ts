@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // oxlint-disable unicorn/require-post-message-target-origin -- MessagePort postMessage does not accept target origins.
 
+import { createWorktreeAnnotationSurfaceClient } from '../../worktree-annotations/worktree-annotation-surface-client.js';
 import {
 	createBridgeMainRenderSnapshotStore,
 	type BridgeMainRenderSnapshotStore,
@@ -315,6 +316,7 @@ describe('Bridge pane runtime', () => {
 		runtime.installNativeBootstrap(makeNativeBootstrap('worker-instance-before-replacement'));
 		const fileClient = runtime.surfaceClient('fileView');
 		const reviewClient = runtime.surfaceClient('review');
+		const annotationClient = createWorktreeAnnotationSurfaceClient(fileClient);
 		fileClient.renderStore.applyFileDisplayPatchEvent(
 			makeFileStatusPatchEvent({ epoch: 2, sequence: 2, state: 'stale' }),
 		);
@@ -351,6 +353,15 @@ describe('Bridge pane runtime', () => {
 			selectedSource: 'user',
 			surface: 'review',
 		});
+		const pendingInspection = annotationClient.inspectOutput(
+			'00000000-0000-7000-8000-000000000001',
+		);
+		const pendingInspectionRequest = Object.values(
+			fileClient.lifecycle.getSnapshot().requestsById,
+		).find((request) => request.command === 'annotationOutputInspect');
+		if (pendingInspectionRequest === undefined) {
+			throw new Error('Expected a pending annotation output inspection request.');
+		}
 		dispatchedMessages.length = 0;
 
 		// Act
@@ -367,6 +378,10 @@ describe('Bridge pane runtime', () => {
 
 		// Assert
 		expect(replacementRequests).toEqual(['workerReplacement']);
+		expect(
+			fileClient.lifecycle.getSnapshot().requestsById[pendingInspectionRequest.requestId],
+		).toMatchObject({ state: 'failed' });
+		await expect(pendingInspection).rejects.toThrow(/worker.*replaced/iu);
 		expect(fileClient.renderStore.getSnapshot().fileDisplayFreshness).toBeNull();
 		expect(reviewClient.renderStore.getSnapshot().reviewDisplayFreshness).toBeNull();
 		expect(dispatchedMessages.map((message) => message.command)).toEqual([
@@ -391,6 +406,7 @@ describe('Bridge pane runtime', () => {
 		);
 		expect(fileClient.renderStore.getSnapshot().fileDisplayFreshness?.epoch).toBe(1);
 		expect(reviewClient.renderStore.getSnapshot().reviewDisplayFreshness?.epoch).toBe(1);
+		annotationClient.dispose();
 		runtime.dispose();
 	});
 

@@ -142,6 +142,23 @@ export function createBridgePaneRuntime(
 		}
 	};
 
+	const failPendingRequestsForWorkerReplacement = (): void => {
+		const pendingRequests = Object.values(lifecycleStore.getSnapshot().requestsById).filter(
+			(request) => request.state === 'pending',
+		);
+		for (const request of pendingRequests) {
+			rpcClients.get(request.surface)?.receive({
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				message: 'Bridge comm worker was replaced before request settlement.',
+				requestId: request.requestId,
+				status: 'degraded',
+				transferDescriptors: [],
+				wireVersion: 1,
+			});
+		}
+	};
+
 	const publishDiagnosticSnapshot = (): void => {
 		try {
 			recordDiagnosticSnapshot({
@@ -303,6 +320,7 @@ export function createBridgePaneRuntime(
 			session.setNativeBootstrapRequester((reason): void => {
 				if (isDisposed) return;
 				nativeBootstrapReplacementRequested = true;
+				failPendingRequestsForWorkerReplacement();
 				pendingReplacementReplayEntryByKey = new Map(currentReplacementReplayEntryByKey);
 				latestFileDisplayEpoch = 0;
 				for (const renderStore of renderStores) renderStore.prepareForWorkerReplacement();
