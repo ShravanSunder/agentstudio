@@ -18,6 +18,13 @@ development, styling, product imagery, responsive behavior, and Cloudflare
 deployment. It prevents a default state, automated test, or one screenshot from
 being generalized into a claim that the whole website is correct.
 
+Use the
+[website update quality SOP](2026-08-20-website-update-quality-sop.md) first.
+That procedure governs how each candidate is understood, defined, inspected,
+rejected or accepted, and integrated while the update is being made. This
+document begins after those quality gates pass and owns release-candidate,
+deployment, and post-launch proof.
+
 No website visual task or public release is complete until every affected state
 is opened, inspected, captured, and compared in the environments and viewports
 required by this document. Public release also requires product truth,

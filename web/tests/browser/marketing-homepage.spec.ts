@@ -26,9 +26,9 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   expect(
     await page.locator("body").evaluate((body) => getComputedStyle(body).backgroundImage),
   ).toBe("none");
-  await expect(page.getByRole("link", { name: "GitHub", exact: true })).toHaveCount(2);
+  await expect(page.getByRole("link", { name: "GitHub", exact: true })).toHaveCount(1);
   await expect(page.locator(".site-header .header-social-action")).toHaveCount(2);
-  await expect(page.locator(".final-cta .github-action")).toHaveCount(1);
+  await expect(page.locator(".final-cta .github-action")).toHaveCount(0);
   await expect(page.locator(".hero__actions a")).toHaveCount(0);
   await expect(page.locator("[data-install-command-root]")).toHaveCount(1);
   await expect(page.getByRole("link", { name: "Shravan Sunder on X" })).toBeVisible();

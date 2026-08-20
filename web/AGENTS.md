@@ -11,6 +11,7 @@ Read these before changing the website's structure, behavior, or stack:
 - [Program Design](../docs/specs/2026-08-17-marketing-site/2026-08-17-marketing-site-program-design.md)
 - [Visual Design](../docs/specs/2026-08-17-marketing-site/2026-08-17-marketing-site-visual-design.md)
 - [Static Design Board](../docs/specs/2026-08-17-marketing-site/website-design-board.html)
+- [Mandatory website update quality SOP](../docs/wip/2026-08-20-website-update-quality-sop.md)
 - [Mandatory website release and visual verification SOP](../docs/wip/2026-08-20-website-visual-verification-sop.md)
 
 The current product README, semantic app theme, and canonical icon own product claims and brand evidence. Files under `web/images/` remain README/reference assets. Website product imagery comes from the approved WebsiteCaptureSuite. Herdr is prior art for hierarchy and a clickable product plate, not a source for Agent Studio copy, colors, fixtures, or accessibility behavior.
@@ -156,10 +157,12 @@ Preserve the existing `web/images/` paths because the root README references the
 
 ## Verification boundary
 
-Follow the mandatory visual verification SOP for every website styling,
-product-image, responsive-layout, or deployment change. Verification must open
-all five product states locally and on the deployed site; the default state
-never proves the suite.
+Follow the mandatory website update quality SOP while making every visual,
+copy, layout, interaction, responsive, metadata, or campaign change. It is the
+ordered admission gate for each candidate and the complete update. Follow the
+release and visual verification SOP after owner acceptance when deployment is
+in scope. Verification must open all five product states locally and on the
+deployed site; the default state never proves the suite.
 
 Website work is incomplete until the changed scope has evidence for:
 
