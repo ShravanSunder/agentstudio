@@ -351,7 +351,7 @@ Current 2560x1600 capture acceptance:
 - [x] Put one official-mark GitHub button in the closing lockup.
 - [x] Prove the footer shows the Agent Studio icon at left and visible GitHub/X
   icons aligned at the far right.
-- [ ] Re-run desktop/mobile screenshots, interaction checks, Cloudflare build,
+- [x] Re-run desktop/mobile screenshots, interaction checks, Cloudflare build,
   deployment, and live verification before closing these corrections.
 
 - [x] Run Astro/type-aware Oxlint/Oxfmt with zero errors and warnings.
@@ -409,6 +409,16 @@ Details and proof:
   proof confirms the headline, default Parallel work state, drawer switching
   without URL mutation, loaded product media, one GitHub link, no Astro toolbar,
   no document overflow, and zero site-origin console warnings or errors.
+- Live owner-correction proof (2026-08-20): Cloudflare version
+  `7bdfb2f8-9b46-462e-8774-24654ee4f98d` preserves the 40/80/40 desktop and
+  32/64/32 phone rhythm, charcoal selection, edge-to-edge image geometry, and
+  alpha PNG corners. Brave Shields had hidden the conventional
+  `footer-socials` wrapper only on the remote origin; renaming it to the neutral
+  `footer-profile-links` wrapper and using the plain accessibility label
+  `Shravan Sunder profile links` removes that cosmetic-filter collision. Final
+  remote Brave proof shows both 18x18 GitHub/X footer icons aligned right, one
+  hero install control, one closing GitHub button, no document overflow, and
+  zero site-origin console warnings or errors.
 
 ## Evidence retained
 
