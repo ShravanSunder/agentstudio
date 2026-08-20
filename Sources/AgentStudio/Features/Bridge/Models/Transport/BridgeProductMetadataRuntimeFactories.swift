@@ -358,6 +358,7 @@ extension BridgeProductPanePresentationFrame {
             codingPath: []
         )
         self.frameIdentity = .init(correlation: stream, streamSequence: streamSequence)
+        self.fileRefreshFailure = snapshot.fileRefreshFailure
         self.presentationRevision = snapshot.presentationRevision
         self.nativeActivity = snapshot.nativeActivity
         self.refreshingLanes = snapshot.refreshingLanes.sorted { $0.rawValue < $1.rawValue }

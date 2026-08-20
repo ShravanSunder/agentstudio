@@ -72,6 +72,11 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
         let callbackContextPtr: UnsafeMutableRawPointer
     }
 
+    private enum RegistrationCreationOutcome {
+        case observing(StreamRegistration)
+        case unavailable(FSEventStreamRegistrationUnavailableReason)
+    }
+
     private static let callback: FSEventStreamCallback = { _, clientContextInfo, eventCount, eventPaths, _, _ in
         guard let clientContextInfo else { return }
 
@@ -117,45 +122,48 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
         ingressBuffer.consumeCoarseRefreshDebt()
     }
 
-    package func register(worktreeId: UUID, repoId _: UUID, rootPath: URL) {
+    package func register(
+        worktreeId: UUID,
+        repoId _: UUID,
+        rootPath: URL
+    ) -> FSEventStreamRegistrationOutcome {
         let canonicalRootPath = rootPath.standardizedFileURL.resolvingSymlinksInPath()
 
-        var registrationToTearDown: StreamRegistration?
         lifecycleLock.lock()
         if hasShutdown {
             lifecycleLock.unlock()
-            return
+            return .unavailable(.clientShutdown)
         }
         if let existing = streamByWorktreeId[worktreeId] {
             if existing.rootPath == canonicalRootPath {
                 lifecycleLock.unlock()
-                return
+                return .observing
             }
-            streamByWorktreeId.removeValue(forKey: worktreeId)
-            registrationToTearDown = existing
         }
         lifecycleLock.unlock()
 
-        if let registrationToTearDown {
-            Self.teardown(registrationToTearDown)
+        let registration: StreamRegistration
+        switch makeRegistration(worktreeId: worktreeId, rootPath: canonicalRootPath) {
+        case .observing(let createdRegistration):
+            registration = createdRegistration
+        case .unavailable(let reason):
+            return .unavailable(reason)
         }
 
-        guard let registration = makeRegistration(worktreeId: worktreeId, rootPath: canonicalRootPath) else {
-            return
-        }
-
+        let replacedRegistration: StreamRegistration?
         lifecycleLock.lock()
         if hasShutdown {
             lifecycleLock.unlock()
             Self.teardown(registration)
-            return
+            return .unavailable(.clientShutdown)
         }
-        if let existing = streamByWorktreeId.updateValue(registration, forKey: worktreeId) {
-            lifecycleLock.unlock()
-            Self.teardown(existing)
-            return
-        }
+        replacedRegistration = streamByWorktreeId.updateValue(registration, forKey: worktreeId)
         lifecycleLock.unlock()
+
+        if let replacedRegistration {
+            Self.teardown(replacedRegistration)
+        }
+        return .observing
     }
 
     package func unregister(worktreeId: UUID) {
@@ -187,7 +195,10 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
         ingressBuffer.finish()
     }
 
-    private func makeRegistration(worktreeId: UUID, rootPath: URL) -> StreamRegistration? {
+    private func makeRegistration(
+        worktreeId: UUID,
+        rootPath: URL
+    ) -> RegistrationCreationOutcome {
         let callbackContext = CallbackContext(client: self, worktreeId: worktreeId)
         let callbackContextPtr = Unmanaged.passRetained(callbackContext).toOpaque()
         var streamContext = FSEventStreamContext(
@@ -216,7 +227,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
             )
         else {
             Unmanaged<CallbackContext>.fromOpaque(callbackContextPtr).release()
-            return nil
+            return .unavailable(.streamCreationFailed)
         }
 
         let queue = DispatchQueue(
@@ -228,14 +239,16 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
             FSEventStreamInvalidate(stream)
             FSEventStreamRelease(stream)
             Unmanaged<CallbackContext>.fromOpaque(callbackContextPtr).release()
-            return nil
+            return .unavailable(.streamStartFailed)
         }
 
-        return StreamRegistration(
-            rootPath: rootPath,
-            stream: stream,
-            queue: queue,
-            callbackContextPtr: callbackContextPtr
+        return .observing(
+            StreamRegistration(
+                rootPath: rootPath,
+                stream: stream,
+                queue: queue,
+                callbackContextPtr: callbackContextPtr
+            )
         )
     }
 

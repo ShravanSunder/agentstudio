@@ -20,6 +20,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             BridgeProductReviewComparisonUpdateRequest,
             BridgeProductAdmissionContext
         ) async -> Void
+    let applyFileRefreshRetry: @MainActor @Sendable (BridgeProductAdmissionContext) async -> Void
     let applyWorktreeAnnotationCommand:
         @MainActor @Sendable (
             BridgeProductWorktreeAnnotationCommandRequest,
@@ -82,6 +83,8 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 BridgeProductReviewComparisonUpdateRequest,
                 BridgeProductAdmissionContext
             ) async -> Void = { _, _ in },
+        applyFileRefreshRetry:
+            @escaping @MainActor @Sendable (BridgeProductAdmissionContext) async -> Void = { _ in },
         applyWorktreeAnnotationCommand:
             @escaping @MainActor @Sendable (
                 BridgeProductWorktreeAnnotationCommandRequest,
@@ -143,6 +146,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         self.refreshWorkAdmissionSource = refreshWorkAdmissionSource
         self.reviewContentSource = reviewContentSource
         self.applyActiveViewerModeUpdate = applyActiveViewerModeUpdate
+        self.applyFileRefreshRetry = applyFileRefreshRetry
         self.applyReviewComparisonUpdate = applyReviewComparisonUpdate
         self.applyWorktreeAnnotationCommand = applyWorktreeAnnotationCommand
         self.queryWorktreeAnnotationOutputCandidates = queryWorktreeAnnotationOutputCandidates
@@ -271,6 +275,8 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 correlating: request,
                 result: .fileSourceCurrent(await fileMetadataSource.currentSource())
             )
+        case .fileRefreshRetry:
+            return try .callCompleted(correlating: request, result: .fileRefreshRetry)
         case .fileActiveViewerModeUpdate:
             return try .callCompleted(correlating: request, result: .fileActiveViewerModeUpdate)
         case .reviewActiveViewerModeUpdate:

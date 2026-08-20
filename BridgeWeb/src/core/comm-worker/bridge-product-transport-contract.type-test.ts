@@ -144,6 +144,7 @@ const surfaceByCallKind = {
 	'file.annotations.projection.query': 'file',
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
+	'file.refresh.retry': 'file',
 	'review.activeViewerMode.update': 'review',
 	'review.comparison.update': 'review',
 	'review.comparisonTargets.query': 'review',

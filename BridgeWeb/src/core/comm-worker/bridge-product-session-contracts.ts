@@ -396,6 +396,14 @@ const bridgeProductMetadataFrameIdentityShape = {
 	workerInstanceId: bridgeProductIdentifierSchema,
 } as const;
 
+export const bridgeProductFileRefreshFailureSchema = z.discriminatedUnion('failureKind', [
+	z.object({ failureKind: z.literal('fileRefreshFailed'), retryable: z.literal(false) }).strict(),
+	z
+		.object({ failureKind: z.literal('fileSourceUnavailable'), retryable: z.literal(true) })
+		.strict(),
+	z.object({ failureKind: z.literal('producerRejected'), retryable: z.literal(false) }).strict(),
+]);
+
 const bridgeProductSubscriptionFrameIdentityShape = {
 	cursor: bridgeProductOpaqueReferenceSchema.nullable(),
 	interestRevision: bridgeProductNonnegativeSequenceSchema,
@@ -458,6 +466,7 @@ const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', 
 	z
 		.object({
 			...bridgeProductMetadataFrameIdentityShape,
+			fileRefreshFailure: bridgeProductFileRefreshFailureSchema.nullable(),
 			kind: z.literal('pane.presentation'),
 			nativeActivity: z.enum(['foreground', 'loadedHidden', 'dormant', 'closed']),
 			presentationRevision: bridgeProductPositiveSequenceSchema,

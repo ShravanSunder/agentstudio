@@ -11,6 +11,7 @@ import {
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
+import { publishBridgeCommWorkerUpdatingChrome } from './bridge-comm-worker-updating-chrome.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type { BridgeProductReviewComparisonTargetsContentDescriptor } from './bridge-product-content-contracts.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
@@ -25,9 +26,59 @@ import type {
 import type {
 	BridgeWorkerPanelChromePatchPayload,
 	BridgeWorkerServerToMainMessage,
+	BridgeWorkerServerToMainWireMessage,
 } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker updating panel chrome', () => {
+	test('projects typed File refresh failure into retained unavailable chrome', () => {
+		// Arrange
+		const published: BridgeWorkerServerToMainWireMessage[] = [];
+
+		// Act
+		publishBridgeCommWorkerUpdatingChrome({
+			activeFileWorkerDerivationEpoch: 7,
+			activeReviewSourceIdentity: null,
+			activeReviewWorkerDerivationEpoch: null,
+			activeViewerMode: 'file',
+			createSequence: (): number => 11,
+			previousPublicationIdentity: undefined,
+			previousReviewComparison: null,
+			presentation: {
+				fileRefreshFailure: { failureKind: 'fileSourceUnavailable', retryable: true },
+				nativeActivity: 'foreground',
+				presentationRevision: 3,
+				refreshingLanes: [],
+				reviewComparison: null,
+				workAdmissionGeneration: 1,
+			},
+			publish: (message): void => {
+				published.push(message);
+			},
+			surface: 'file',
+			telemetryClient: undefined,
+		});
+
+		// Assert
+		expect(published).toContainEqual(
+			expect.objectContaining({
+				kind: 'fileRenderPatch',
+				patches: [
+					{
+						operation: 'upsert',
+						payload: {
+							fileRefreshFailure: {
+								failureKind: 'fileSourceUnavailable',
+								retryable: true,
+							},
+							message: 'Files unavailable',
+						},
+						slice: 'panelChrome',
+					},
+				],
+			}),
+		);
+	});
+
 	test('preserves a settled comparison-target query when native foreground is lost', async () => {
 		// Arrange — retaining the completed request id makes foreground loss publish a false failure.
 		const fileEvents = new BridgeProductBoundedAsyncQueue<
@@ -277,7 +328,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 				{
 					kind: 'fileRenderPatch',
 					operation: 'upsert',
-					payload: { isLoading: true, message: 'Updating files…' },
+					payload: { fileRefreshFailure: null, isLoading: true, message: 'Updating files…' },
 					surface: 'file',
 				},
 				{
@@ -289,7 +340,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 			]),
 		);
 		expect(panelChromeStateAfterPublications(fileModePublications)).toEqual({
-			file: { isLoading: true, message: 'Updating files…' },
+			file: { fileRefreshFailure: null, isLoading: true, message: 'Updating files…' },
 			review: null,
 		});
 
@@ -473,6 +524,7 @@ function createPanePresentationTestTransport(props: {
 			}
 			panePresentationSink({
 				...publication,
+				fileRefreshFailure: null,
 				kind: 'pane.presentation',
 				metadataStreamId: 'metadata-stream-updating-chrome',
 				paneSessionId: 'pane-session-updating-chrome',

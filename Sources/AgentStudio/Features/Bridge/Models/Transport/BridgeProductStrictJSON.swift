@@ -263,6 +263,7 @@ enum BridgeProductStrictJSON {
             "receipt",
             "readiness",
             "refreshingLanes",
+            "fileRefreshFailure",
             "removeItemIds",
             "removePathScope",
             "removePaths",

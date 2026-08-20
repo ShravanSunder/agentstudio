@@ -8,6 +8,7 @@ import Testing
 
 actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataProducing {
     private let failsChangesetPublication: Bool
+    private var retryableChangesetFailuresRemaining: Int
     private let changesetPublicationGate: RefreshAdmissionCancellationIgnoringProducerGate?
     private let metadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate?
     private var changesets: [FileChangeset] = []
@@ -22,10 +23,12 @@ actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataP
 
     init(
         failsChangesetPublication: Bool = false,
+        retryableChangesetFailureCount: Int = 0,
         changesetPublicationGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
         metadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil
     ) {
         self.failsChangesetPublication = failsChangesetPublication
+        self.retryableChangesetFailuresRemaining = retryableChangesetFailureCount
         self.changesetPublicationGate = changesetPublicationGate
         self.metadataProducerGate = metadataProducerGate
     }
@@ -71,6 +74,10 @@ actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataP
     ) async throws -> [BridgePaneProductFileMetadataEmission] {
         changesetPublishAttempts += 1
         await changesetPublicationGate?.holdIgnoringCancellation()
+        if retryableChangesetFailuresRemaining > 0 {
+            retryableChangesetFailuresRemaining -= 1
+            throw BridgePaneProductFileMetadataSourceError.unavailableAuthority
+        }
         if failsChangesetPublication {
             throw RefreshAdmissionInjectedFileMetadataFailure.changesetPublication
         }

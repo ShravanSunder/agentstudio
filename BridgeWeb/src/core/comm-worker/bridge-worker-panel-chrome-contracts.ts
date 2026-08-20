@@ -1,9 +1,13 @@
 import { z } from 'zod';
 
-import { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-session-contracts.js';
+import {
+	bridgeProductFileRefreshFailureSchema,
+	bridgeProductReviewComparisonPresentationSchema,
+} from './bridge-product-session-contracts.js';
 
 export const bridgeWorkerPanelChromePatchPayloadSchema = z
 	.object({
+		fileRefreshFailure: bridgeProductFileRefreshFailureSchema.nullable().optional(),
 		isLoading: z.boolean().optional(),
 		message: z.string().min(1).nullable().optional(),
 		reviewComparison: bridgeProductReviewComparisonPresentationSchema.nullable().optional(),

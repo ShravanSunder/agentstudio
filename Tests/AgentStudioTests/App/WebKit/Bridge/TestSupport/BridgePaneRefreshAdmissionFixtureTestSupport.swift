@@ -125,6 +125,7 @@ struct RefreshAdmissionIntegrationFixture {
 func makeRefreshAdmissionIntegrationFixture(
     comparisonGate: BridgeComparisonGate? = nil,
     failsChangesetPublication: Bool = false,
+    retryableChangesetFailureCount: Int = 0,
     failsReviewReservation: Bool = false,
     failsReviewDelivery: Bool = false,
     fileChangesetPublicationGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
@@ -154,6 +155,7 @@ func makeRefreshAdmissionIntegrationFixture(
     )
     let fileMetadataSource = RefreshAdmissionTrackingFileMetadataSource(
         failsChangesetPublication: failsChangesetPublication,
+        retryableChangesetFailureCount: retryableChangesetFailureCount,
         changesetPublicationGate: fileChangesetPublicationGate,
         metadataProducerGate: fileMetadataProducerGate
     )

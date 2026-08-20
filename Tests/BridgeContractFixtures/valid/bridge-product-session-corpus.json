@@ -493,6 +493,19 @@
         "method": "review.comparisonTargets.query",
         "request": {}
       }
+    },
+    {
+      "kind": "product.call",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 2,
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-file-refresh-retry-1",
+      "requestSequence": 10,
+      "call": {
+        "method": "file.refresh.retry",
+        "request": {}
+      }
     }
   ],
   "controlResponses": [
@@ -612,6 +625,18 @@
           }
         }
       }
+    },
+    {
+      "kind": "call.completed",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-file-refresh-retry-1",
+      "requestSequence": 10,
+      "call": {
+        "method": "file.refresh.retry",
+        "result": null
+      }
     }
   ],
   "metadataStreamRequests": [
@@ -659,6 +684,7 @@
       "streamSequence": 1,
       "presentationRevision": 1,
       "nativeActivity": "foreground",
+      "fileRefreshFailure": null,
       "reviewComparison": {
         "activeTarget": {
           "basis": "commonCommit",
@@ -694,6 +720,10 @@
       "streamSequence": 2,
       "presentationRevision": 2,
       "nativeActivity": "loadedHidden",
+      "fileRefreshFailure": {
+        "failureKind": "fileSourceUnavailable",
+        "retryable": true
+      },
       "reviewComparison": null,
       "refreshingLanes": []
     },
@@ -706,6 +736,7 @@
       "streamSequence": 3,
       "presentationRevision": 3,
       "nativeActivity": "dormant",
+      "fileRefreshFailure": null,
       "reviewComparison": null,
       "refreshingLanes": []
     },
@@ -718,6 +749,7 @@
       "streamSequence": 4,
       "presentationRevision": 4,
       "nativeActivity": "closed",
+      "fileRefreshFailure": null,
       "reviewComparison": null,
       "refreshingLanes": []
     },

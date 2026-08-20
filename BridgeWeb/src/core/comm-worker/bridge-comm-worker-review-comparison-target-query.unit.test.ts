@@ -156,6 +156,7 @@ function makePanePresentationFrame(
 	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
 ): BridgeProductPanePresentationFrame {
 	return {
+		fileRefreshFailure: null,
 		kind: 'pane.presentation',
 		metadataStreamId: 'metadata-stream-query-unit-test',
 		nativeActivity,

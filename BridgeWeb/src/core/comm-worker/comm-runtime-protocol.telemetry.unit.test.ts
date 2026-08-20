@@ -351,6 +351,7 @@ function makeTelemetryReviewProductTransport(props: {
 			sink: (frame: BridgeProductPanePresentationFrame) => void,
 		): void => {
 			sink({
+				fileRefreshFailure: null,
 				presentationRevision: 1,
 				kind: 'pane.presentation',
 				metadataStreamId: 'telemetry-review-metadata-stream',

@@ -682,6 +682,7 @@ struct BridgePaneReviewComparisonPresentation: Codable, Equatable, Sendable {
 
 struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case fileRefreshFailure
         case kind
         case nativeActivity
         case presentationRevision
@@ -690,6 +691,7 @@ struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
     }
 
     let frameIdentity: BridgeProductMetadataFrameIdentity
+    let fileRefreshFailure: BridgePaneProductFileRefreshFailure?
     let nativeActivity: BridgePaneActivity
     let presentationRevision: Int
     let refreshingLanes: [BridgePaneRefreshLane]
@@ -711,6 +713,12 @@ struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
             )
         }
         self.nativeActivity = try container.decode(BridgePaneActivity.self, forKey: .nativeActivity)
+        self.fileRefreshFailure = try BridgeProductContractDecoding.decodeRequiredNullable(
+            BridgePaneProductFileRefreshFailure.self,
+            forKey: .fileRefreshFailure,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         self.presentationRevision = try container.decode(Int.self, forKey: .presentationRevision)
         self.refreshingLanes = try container.decode(
             [BridgePaneRefreshLane].self,
@@ -748,6 +756,7 @@ struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
         try frameIdentity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode("pane.presentation", forKey: .kind)
+        try container.encode(fileRefreshFailure, forKey: .fileRefreshFailure)
         try container.encode(nativeActivity, forKey: .nativeActivity)
         try container.encode(presentationRevision, forKey: .presentationRevision)
         try container.encode(refreshingLanes, forKey: .refreshingLanes)

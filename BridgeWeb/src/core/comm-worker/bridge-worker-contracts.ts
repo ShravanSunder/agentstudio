@@ -38,6 +38,7 @@ import {
 	bridgeWorkerFileDisplayPatchSchema,
 } from './bridge-worker-file-display-patch-contracts.js';
 import { bridgeWorkerFileQuerySchema } from './bridge-worker-file-query-contracts.js';
+import { bridgeWorkerFileRefreshRetryCommandSchema } from './bridge-worker-file-refresh-contracts.js';
 import { bridgeWorkerPanelChromePatchSchema } from './bridge-worker-panel-chrome-contracts.js';
 import {
 	bridgeWorkerDemandRankSchema,
@@ -74,7 +75,6 @@ export {
 export type {
 	BridgeWorkerReviewComparisonTargetsQueryCancelCommand,
 	BridgeWorkerReviewComparisonTargetsQueryCommand,
-	BridgeWorkerReviewComparisonTargetsQueryEvent,
 } from './bridge-worker-review-comparison-target-query-contracts.js';
 
 export { BRIDGE_WORKER_WIRE_VERSION } from './bridge-worker-wire-base-contracts.js';
@@ -99,7 +99,6 @@ export {
 } from './bridge-worker-wire-base-contracts.js';
 export type { BridgeWorkerTransferDescriptor } from './bridge-worker-wire-base-contracts.js';
 export { bridgeWorkerAnnotationProjectionConvergenceEventSchema } from './bridge-worker-annotation-contracts.js';
-export type { BridgeWorkerAnnotationProjectionRetryCommand } from './bridge-worker-annotation-contracts.js';
 export const bridgeWorkerSelectCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
 		command: z.literal('select'),
@@ -373,6 +372,7 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewProjectionUpdateCommandSchema,
 	bridgeWorkerFileQueryUpdateCommandSchema,
+	bridgeWorkerFileRefreshRetryCommandSchema,
 	bridgeWorkerFileDisplayResyncCommandSchema,
 	bridgeWorkerRenderDispositionCommandSchema,
 ]);

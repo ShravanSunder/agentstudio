@@ -59,6 +59,7 @@ package enum AppPolicies {
     }
 
     package enum Bridge {
+        package static let fileRefreshMaximumAutomaticRetryCount: Int = 1
         /// Command outcomes are correlation aids for active annotation editors,
         /// not durable history. Keep a bounded window in the projection Atom.
         package static let worktreeAnnotationMaximumRetainedCommandOutcomes: Int = 128

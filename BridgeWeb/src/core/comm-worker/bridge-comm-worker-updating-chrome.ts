@@ -55,14 +55,17 @@ export function publishBridgeCommWorkerUpdatingChrome(props: {
 				? props.previousReviewComparison
 				: props.presentation.reviewComparison
 			: null;
+	const fileRefreshFailure =
+		props.surface === 'file' ? props.presentation.fileRefreshFailure : null;
 	const publicationIdentity = JSON.stringify([
 		workerDerivationEpoch,
 		isUpdating ? 'updating' : 'idle',
+		...(props.surface === 'file' ? [fileRefreshFailure] : []),
 		projectedReviewComparison,
 	]);
 	if (props.previousPublicationIdentity === publicationIdentity) return null;
 	const patch =
-		isUpdating || projectedReviewComparison !== null
+		isUpdating || fileRefreshFailure !== null || projectedReviewComparison !== null
 			? {
 					operation: 'upsert' as const,
 					payload: {
@@ -70,6 +73,12 @@ export function publishBridgeCommWorkerUpdatingChrome(props: {
 							? {
 									isLoading: true,
 									message: props.surface === 'file' ? 'Updating files…' : 'Updating review…',
+								}
+							: {}),
+						...(props.surface === 'file'
+							? {
+									fileRefreshFailure,
+									...(fileRefreshFailure === null ? {} : { message: 'Files unavailable' }),
 								}
 							: {}),
 						...(props.surface === 'review' ? { reviewComparison: projectedReviewComparison } : {}),

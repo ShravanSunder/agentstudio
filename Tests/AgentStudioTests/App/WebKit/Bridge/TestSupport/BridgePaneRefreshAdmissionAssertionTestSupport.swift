@@ -68,7 +68,7 @@ func waitForRetiringFileRefreshTasksToDrain(
     maxTurns: Int = 2000
 ) async -> Bool {
     for _ in 0..<maxTurns {
-        if controller.retiringFileRefreshTaskById.isEmpty {
+        if !controller.worktreeRefreshDriver.hasRetiringFileOperations {
             return true
         }
         await Task.yield()
@@ -103,6 +103,18 @@ func waitForActiveReviewRefreshTaskToFinish(
         await Task.yield()
     }
     Issue.record("Expected active Bridge Review refresh task to finish")
+}
+
+@MainActor
+func waitForActiveFileRefreshTaskToFinish(
+    _ controller: BridgePaneController,
+    maxTurns: Int = 2000
+) async {
+    for _ in 0..<maxTurns {
+        if !controller.worktreeRefreshDriver.hasActiveFileOperation { return }
+        await Task.yield()
+    }
+    Issue.record("Expected active Bridge File refresh task to finish")
 }
 
 @MainActor

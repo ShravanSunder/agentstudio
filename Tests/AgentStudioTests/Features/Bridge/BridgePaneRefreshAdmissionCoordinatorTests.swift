@@ -7,6 +7,81 @@ import Testing
 @Suite("Bridge pane refresh admission coordinator")
 @MainActor
 struct BridgePaneRefreshAdmissionCoordinatorTests {
+    @Test("explicit File retry cannot bypass stream-reset recovery without unavailable state")
+    func explicitFileRetryRequiresUnavailableState() {
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        coordinator.recordInvalidation(
+            fileChangeset: makeFileChangeset(
+                paths: ["Sources/App/StreamReset.swift"],
+                batchSequence: 63
+            ),
+            requiresReviewRefresh: false
+        )
+
+        #expect(!coordinator.beginExplicitFileRefreshRetry())
+        #expect(coordinator.diagnosticSnapshot.dirtyFact != nil)
+        #expect(coordinator.productPresentationSnapshot.fileRefreshFailure == nil)
+    }
+
+    @Test("explicit File retry advances authority and clears retained failure")
+    func explicitFileRetryAdvancesAuthorityAndClearsRetainedFailure() throws {
+        // Arrange
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        coordinator.recordInvalidation(
+            fileChangeset: makeFileChangeset(
+                paths: ["Sources/App/Retry.swift"],
+                batchSequence: 64
+            ),
+            requiresReviewRefresh: false
+        )
+        let failedReservation = try #require(
+            coordinator.reserveForegroundRefreshPass(for: .file)
+        )
+        coordinator.completeRefreshPass(failedReservation, outcome: .failed)
+        coordinator.recordFileRefreshFailure(
+            .init(failureKind: .fileSourceUnavailable)
+        )
+
+        // Act
+        let retryBegan = coordinator.beginExplicitFileRefreshRetry()
+        let retryReservation = try #require(
+            coordinator.reserveForegroundRefreshPass(for: .file)
+        )
+
+        // Assert
+        #expect(retryBegan)
+        #expect(retryReservation.authorityGeneration > failedReservation.authorityGeneration)
+        #expect(retryReservation.filePaths == ["Sources/App/Retry.swift"])
+        #expect(coordinator.productPresentationSnapshot.fileRefreshFailure == nil)
+    }
+
+    @Test("new File invalidation clears retained refresh failure and admits current dirty work")
+    func newFileInvalidationClearsRetainedRefreshFailureAndAdmitsCurrentDirtyWork() throws {
+        // Arrange
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        coordinator.recordFileRefreshFailure(
+            .init(failureKind: .fileSourceUnavailable)
+        )
+        let unavailableRevision = coordinator.productPresentationSnapshot.presentationRevision
+
+        // Act
+        coordinator.recordInvalidation(
+            fileChangeset: makeFileChangeset(
+                paths: ["Sources/App/Recovered.swift"],
+                batchSequence: 65
+            ),
+            requiresReviewRefresh: false
+        )
+        let reservation = try #require(coordinator.reserveForegroundRefreshPass(for: .file))
+
+        // Assert
+        let presentation = coordinator.productPresentationSnapshot
+        #expect(presentation.fileRefreshFailure == nil)
+        #expect(presentation.presentationRevision > unavailableRevision)
+        #expect(presentation.refreshingLanes == [.file])
+        #expect(reservation.filePaths == ["Sources/App/Recovered.swift"])
+    }
+
     @Test("only the pending comparison attempt is current for publication")
     func onlyPendingComparisonAttemptIsCurrentForPublication() {
         // Arrange

@@ -7,6 +7,7 @@ export type BridgeCommWorkerRefreshingLane =
 
 export interface BridgeCommWorkerPanePresentationSnapshot {
 	readonly nativeActivity: BridgeCommWorkerNativePaneActivity;
+	readonly fileRefreshFailure: BridgeProductPanePresentationFrame['fileRefreshFailure'];
 	readonly presentationRevision: number;
 	readonly refreshingLanes: readonly BridgeCommWorkerRefreshingLane[];
 	readonly reviewComparison: BridgeProductPanePresentationFrame['reviewComparison'];
@@ -25,6 +26,7 @@ export interface BridgeCommWorkerPanePresentationApplyResult {
 
 export class BridgeCommWorkerPanePresentationAuthority {
 	#nativeActivity: BridgeCommWorkerNativePaneActivity = 'dormant';
+	#fileRefreshFailure: BridgeProductPanePresentationFrame['fileRefreshFailure'] = null;
 	#presentationRevision = 0;
 	#reviewComparisonRevision = 0;
 	#refreshingLanes: readonly BridgeCommWorkerRefreshingLane[] = [];
@@ -38,6 +40,7 @@ export class BridgeCommWorkerPanePresentationAuthority {
 
 	get snapshot(): BridgeCommWorkerPanePresentationSnapshot {
 		return Object.freeze({
+			fileRefreshFailure: this.#fileRefreshFailure,
 			nativeActivity: this.#nativeActivity,
 			presentationRevision: Math.max(this.#presentationRevision, this.#reviewComparisonRevision),
 			refreshingLanes: Object.freeze([...this.#refreshingLanes]),
@@ -84,6 +87,7 @@ export class BridgeCommWorkerPanePresentationAuthority {
 		this.#nativeActivity = frame.nativeActivity;
 		this.#presentationRevision = frame.presentationRevision;
 		this.#refreshingLanes = Object.freeze([...frame.refreshingLanes]);
+		this.#fileRefreshFailure = immutableFileRefreshFailure(frame.fileRefreshFailure);
 		this.reconcileReviewComparison(frame.presentationRevision, frame.reviewComparison);
 
 		return {
@@ -120,10 +124,17 @@ export class BridgeCommWorkerPanePresentationAuthority {
 	#matchesCurrentFrameActivity(frame: BridgeProductPanePresentationFrame): boolean {
 		return (
 			frame.nativeActivity === this.#nativeActivity &&
+			JSON.stringify(frame.fileRefreshFailure) === JSON.stringify(this.#fileRefreshFailure) &&
 			frame.refreshingLanes.length === this.#refreshingLanes.length &&
 			frame.refreshingLanes.every((lane, index) => lane === this.#refreshingLanes[index])
 		);
 	}
+}
+
+function immutableFileRefreshFailure(
+	failure: BridgeProductPanePresentationFrame['fileRefreshFailure'],
+): BridgeProductPanePresentationFrame['fileRefreshFailure'] {
+	return failure === null ? null : Object.freeze({ ...failure });
 }
 
 function immutableReviewComparison(

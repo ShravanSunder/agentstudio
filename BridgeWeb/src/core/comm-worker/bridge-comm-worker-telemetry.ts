@@ -41,6 +41,7 @@ export type BridgeCommWorkerTelemetryCommand =
 	| 'annotationProjectionRetry'
 	| 'fileDisplayResync'
 	| 'fileQueryUpdate'
+	| 'fileRefreshRetry'
 	| 'fileSourceDiscovery'
 	| 'hover'
 	| 'markFileViewed'

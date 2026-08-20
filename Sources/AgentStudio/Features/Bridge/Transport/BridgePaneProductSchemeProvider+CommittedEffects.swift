@@ -63,6 +63,8 @@ extension BridgePaneProductSchemeProvider {
                 break
             case .fileSourceCurrent:
                 break
+            case .fileRefreshRetry:
+                await applyFileRefreshRetry(productAdmission)
             case .fileActiveViewerModeUpdate, .reviewActiveViewerModeUpdate:
                 await applyActiveViewerModeUpdate(
                     committedProductCall,

@@ -123,6 +123,7 @@ export function makeFilePanePresentationFrame(
 	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
 ): BridgeProductPanePresentationFrame {
 	return {
+		fileRefreshFailure: null,
 		presentationRevision,
 		kind: 'pane.presentation',
 		metadataStreamId: 'file-product-test-metadata-stream',

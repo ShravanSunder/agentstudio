@@ -15,6 +15,7 @@ describe('Bridge comm worker pane presentation authority', () => {
 		expect(authority.admitsWork).toBe(false);
 		expect(authority.workSignal.aborted).toBe(true);
 		expect(snapshot).toEqual({
+			fileRefreshFailure: null,
 			presentationRevision: 0,
 			nativeActivity: 'dormant',
 			refreshingLanes: [],
@@ -129,6 +130,7 @@ describe('Bridge comm worker pane presentation authority', () => {
 		expect(authority.admitsWork).toBe(false);
 		expect(authority.workSignal.aborted).toBe(true);
 		expect(authority.snapshot).toEqual({
+			fileRefreshFailure: null,
 			presentationRevision: 2,
 			nativeActivity: 'loadedHidden',
 			refreshingLanes: ['file'],
@@ -245,6 +247,28 @@ describe('Bridge comm worker pane presentation authority', () => {
 			true,
 		);
 	});
+
+	test('installs a typed File failure and clears it only from a newer presentation', () => {
+		// Arrange
+		const authority = new BridgeCommWorkerPanePresentationAuthority();
+		const failure = { failureKind: 'fileSourceUnavailable', retryable: true } as const;
+
+		// Act
+		authority.apply(makePanePresentationFrame(1, 'foreground', [], null, failure));
+
+		// Assert
+		expect(authority.snapshot.fileRefreshFailure).toEqual(failure);
+		expect(() =>
+			authority.apply(makePanePresentationFrame(1, 'foreground', [], null, null)),
+		).toThrow('Bridge pane presentation revision was reused with changed state.');
+		expect(authority.snapshot.fileRefreshFailure).toEqual(failure);
+
+		// Act
+		authority.apply(makePanePresentationFrame(2, 'foreground'));
+
+		// Assert
+		expect(authority.snapshot.fileRefreshFailure).toBeNull();
+	});
 });
 
 function makePanePresentationFrame(
@@ -252,8 +276,10 @@ function makePanePresentationFrame(
 	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
 	refreshingLanes: BridgeProductPanePresentationFrame['refreshingLanes'] = [],
 	reviewComparison: BridgeProductPanePresentationFrame['reviewComparison'] = null,
+	fileRefreshFailure: BridgeProductPanePresentationFrame['fileRefreshFailure'] = null,
 ): BridgeProductPanePresentationFrame {
 	return {
+		fileRefreshFailure,
 		kind: 'pane.presentation',
 		metadataStreamId: 'metadata-stream-pane-presentation-unit-test',
 		nativeActivity,

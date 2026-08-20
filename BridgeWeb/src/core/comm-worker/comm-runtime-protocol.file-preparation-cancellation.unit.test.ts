@@ -642,6 +642,7 @@ function makePanePresentationFrame(
 	refreshingLanes: BridgeProductPanePresentationFrame['refreshingLanes'],
 ): BridgeProductPanePresentationFrame {
 	return {
+		fileRefreshFailure: null,
 		presentationRevision,
 		kind: 'pane.presentation',
 		metadataStreamId: 'metadata-stream-file-preparation-cancellation',

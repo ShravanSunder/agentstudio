@@ -29,6 +29,8 @@ export { bridgeProductWorktreeAnnotationOutputInspectResultSchema } from './brid
 export { bridgeProductReviewComparisonTargetSchema } from './bridge-product-review-comparison-contracts.js';
 
 export const bridgeProductFileSourceCurrentRequestSchema = z.object({}).strict();
+export const bridgeProductFileRefreshRetryRequestSchema = z.object({}).strict();
+export const bridgeProductFileRefreshRetryResultSchema = z.null();
 export const bridgeProductFileSourceCurrentResultSchema = z.discriminatedUnion('status', [
 	z
 		.object({
@@ -337,6 +339,11 @@ export type BridgeProductCallRegistry = {
 		readonly result: z.infer<typeof bridgeProductFileSourceCurrentResultSchema>;
 		readonly surface: 'file';
 	};
+	readonly 'file.refresh.retry': {
+		readonly request: z.infer<typeof bridgeProductFileRefreshRetryRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductFileRefreshRetryResultSchema>;
+		readonly surface: 'file';
+	};
 	readonly 'file.activeViewerMode.update': {
 		readonly request: z.infer<typeof bridgeProductFileActiveViewerModeUpdateRequestSchema>;
 		readonly result: z.infer<typeof bridgeProductActiveViewerModeUpdateResultSchema>;
@@ -409,6 +416,7 @@ const bridgeProductSurfaceByCallKind = {
 	'file.annotations.projection.query': 'file',
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
+	'file.refresh.retry': 'file',
 	'review.activeViewerMode.update': 'review',
 	'review.comparison.update': 'review',
 	'review.comparisonTargets.query': 'review',
@@ -461,6 +469,12 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('file.source.current'),
 			request: bridgeProductFileSourceCurrentRequestSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('file.refresh.retry'),
+			request: bridgeProductFileRefreshRetryRequestSchema,
 		})
 		.strict(),
 	z
@@ -566,6 +580,12 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('file.source.current'),
 			result: bridgeProductFileSourceCurrentResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('file.refresh.retry'),
+			result: bridgeProductFileRefreshRetryResultSchema,
 		})
 		.strict(),
 	z

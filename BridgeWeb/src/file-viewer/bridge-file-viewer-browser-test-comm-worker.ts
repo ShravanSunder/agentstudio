@@ -555,6 +555,7 @@ function createBrowserTestProductTransport(props: {
 			// This fixture models an already active native File pane. Activity-suppression
 			// tests use their own transports so dormant and hidden admission remain explicit.
 			sink({
+				fileRefreshFailure: null,
 				presentationRevision: 1,
 				kind: 'pane.presentation',
 				metadataStreamId: 'browser-file-test-metadata-stream',

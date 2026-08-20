@@ -137,12 +137,44 @@ package actor FilesystemActor {
     }
 
     package func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
+        _ = await registerForObservation(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath
+        )
+    }
+
+    package func registerForObservation(
+        worktreeId: UUID,
+        repoId: UUID,
+        rootPath: URL
+    ) async -> FSEventStreamRegistrationOutcome {
+        guard !hasShutdown else {
+            return .unavailable(.clientShutdown)
+        }
         startIngressTaskIfNeeded()
 
         let canonicalRootPath = FilesystemRootOwnership.canonicalRootPath(for: rootPath)
+        if let existing = roots[worktreeId],
+            existing.repoId == repoId,
+            existing.canonicalRootPath == canonicalRootPath
+        {
+            return .observing
+        }
         let pathFilter = await FilesystemPathFilter.loadOffExecutor(forRootPath: rootPath)
 
+        guard !hasShutdown else {
+            return .unavailable(.clientShutdown)
+        }
         let existing = roots[worktreeId]
+        let registrationOutcome = fseventStreamClient.register(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath
+        )
+        guard registrationOutcome == .observing else {
+            return registrationOutcome
+        }
         roots[worktreeId] = RootState(
             repoId: repoId,
             rootPath: rootPath,
@@ -152,7 +184,6 @@ package actor FilesystemActor {
             pathFilter: pathFilter
         )
         pendingChangesByWorktreeId[worktreeId] = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
-        fseventStreamClient.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await emitFilesystemEvent(
             worktreeId: worktreeId,
             repoId: repoId,
@@ -160,6 +191,7 @@ package actor FilesystemActor {
             rootPathHint: rootPath,
             event: .worktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         )
+        return .observing
     }
 
     package func unregister(worktreeId: UUID) async {

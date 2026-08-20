@@ -25,6 +25,7 @@ package actor BridgeDevelopmentProductHost {
     let productProvider: BridgePaneProductSchemeProvider
     private let productSessionOwner: BridgePaneProductSessionOwner
     let refreshAdmissionCoordinator: BridgePaneRefreshAdmissionCoordinator
+    let worktreeRefreshDriver: BridgePaneWorktreeRefreshDriver
     private let repoId: UUID
     private let reviewedSubjectLabel: String?
     private let reviewContentLoaderCache: BridgeReviewContentLoaderCache
@@ -137,6 +138,36 @@ package actor BridgeDevelopmentProductHost {
         self.productProvider = productPreparation.productProvider
         self.productSessionOwner = productPreparation.productSessionOwner
         self.refreshAdmissionCoordinator = productPreparation.refreshAdmissionCoordinator
+        let preparedProductProvider = productPreparation.productProvider
+        let preparedProductAdmissionGate = productPreparation.productAdmissionGate
+        self.worktreeRefreshDriver = await MainActor.run {
+            BridgePaneWorktreeRefreshDriver(
+                coordinator: productPreparation.refreshAdmissionCoordinator,
+                acquireProductAdmission: {
+                    preparedProductAdmissionGate.acquire()
+                },
+                publishFileChangeset: { changeset, productAdmission, foregroundWorkAdmission in
+                    await preparedProductProvider.publishFileChangeset(
+                        changeset,
+                        productAdmission: productAdmission,
+                        foregroundWorkAdmission: foregroundWorkAdmission
+                    )
+                },
+                publishFileStatus: { status, productAdmission, foregroundWorkAdmission in
+                    await preparedProductProvider.publishFileStatus(
+                        status,
+                        productAdmission: productAdmission,
+                        foregroundWorkAdmission: foregroundWorkAdmission
+                    )
+                },
+                publishPresentation: { snapshot, traceContext in
+                    await preparedProductProvider.publishPanePresentation(
+                        snapshot,
+                        traceContext: traceContext
+                    )
+                }
+            )
+        }
         self.repoId = repoId
         self.reviewedSubjectLabel = source.reviewedSubjectLabel
         self.reviewContentLoaderCache = productPreparation.reviewContentLoaderCache
@@ -232,6 +263,7 @@ package actor BridgeDevelopmentProductHost {
             refreshAdmissionCoordinator.close()
             productAdmissionGate.close()
         }
+        await worktreeRefreshDriver.closeAndDrain()
         let publicationDrain = await MainActor.run {
             reviewPublicationCoordinator.close()
         }
@@ -629,8 +661,15 @@ package actor BridgeDevelopmentProductHost {
             committedCallTarget.host = self
         }
         await fileMetadataSource.setSourceAcceptedObserver { [weak self] source in
-            await self?.publishFileNavigationIfNeeded(source)
+            await self?.recordAcceptedFileSource(source)
         }
+    }
+
+    private func recordAcceptedFileSource(
+        _ source: BridgeProductFileSourceIdentity
+    ) async {
+        await worktreeRefreshDriver.recordFileSourceAccepted(source)
+        await publishFileNavigationIfNeeded(source)
     }
 
     private static func validatedFilesystemSource(
@@ -698,5 +737,19 @@ final class BridgeDevelopmentProductCommittedCallTarget {
             request,
             productAdmission: productAdmission
         )
+    }
+
+    func applyFileRefreshRetry(productAdmission: BridgeProductAdmissionContext) async {
+        guard (productAdmission.withValidAdmission { true }) == true else { return }
+        await host?.retryUnavailableFileRefresh()
+    }
+}
+
+extension BridgeDevelopmentProductHost {
+    func retryUnavailableFileRefresh() async {
+        guard !isShutdown else { return }
+        await MainActor.run {
+            worktreeRefreshDriver.retryUnavailableFileRefresh()
+        }
     }
 }

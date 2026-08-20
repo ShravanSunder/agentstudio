@@ -230,6 +230,8 @@ export class BridgeCommWorkerProductController {
 
 	async sendProductControl(command: BridgeProductControlCommand): Promise<unknown> {
 		switch (command.method) {
+			case 'file.refresh.retry':
+				return await this.#productTransport.call('file.refresh.retry', {});
 			case 'file.annotations.command':
 				return await this.#sendAnnotationCommand('file', command.params.operation);
 			case 'review.annotations.command':

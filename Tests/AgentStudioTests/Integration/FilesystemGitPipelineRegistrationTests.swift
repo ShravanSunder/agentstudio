@@ -280,7 +280,13 @@ private final class SilentFSEventStreamClient: FSEventStreamClient, @unchecked S
         []
     }
 
-    func register(worktreeId _: UUID, repoId _: UUID, rootPath _: URL) {}
+    func register(
+        worktreeId _: UUID,
+        repoId _: UUID,
+        rootPath _: URL
+    ) -> FSEventStreamRegistrationOutcome {
+        .observing
+    }
 
     func unregister(worktreeId _: UUID) {}
 

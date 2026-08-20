@@ -35,18 +35,21 @@ extension BridgePaneController {
                     requiresReviewRefresh: true
                 )
             }
-            retireActiveFileRefreshTask()
+            worktreeRefreshDriver.retireActiveFileOperation()
             retireActiveReviewRefreshTask()
         }
         return productActivityTransition
+    }
+
+    package func retryUnavailableFileRefresh() {
+        worktreeRefreshDriver.retryUnavailableFileRefresh()
     }
 
     private func scheduleProductActivityTransition(
         _ activity: BridgePaneActivity
     ) -> Task<Void, Never>? {
         guard let productSchemeProvider else { return nil }
-        let snapshot = refreshAdmissionCoordinator.productPresentationSnapshot
-        return scheduleProductPresentationTransition {
+        return worktreeRefreshDriver.schedulePresentationTransition { snapshot in
             if activity == .foreground {
                 await productSchemeProvider.resumeForegroundWork()
                 await productSchemeProvider.publishPanePresentation(snapshot)
@@ -60,29 +63,7 @@ extension BridgePaneController {
     func scheduleProductPresentationPublication(
         traceContext: BridgeTraceContext? = nil
     ) -> Task<Void, Never>? {
-        guard let productSchemeProvider else { return nil }
-        let snapshot = refreshAdmissionCoordinator.productPresentationSnapshot
-        return scheduleProductPresentationTransition {
-            await productSchemeProvider.publishPanePresentation(snapshot, traceContext: traceContext)
-        }
-    }
-
-    private func scheduleProductPresentationTransition(
-        _ operation: @escaping @MainActor @Sendable () async -> Void
-    ) -> Task<Void, Never> {
-        productPresentationTransitionGeneration &+= 1
-        let transitionGeneration = productPresentationTransitionGeneration
-        let precedingTransition = productPresentationTransitionTail
-        let transition = Task { @MainActor [weak self] in
-            await precedingTransition?.value
-            await operation()
-            guard let self,
-                self.productPresentationTransitionGeneration == transitionGeneration
-            else { return }
-            self.productPresentationTransitionTail = nil
-        }
-        productPresentationTransitionTail = transition
-        return transition
+        worktreeRefreshDriver.schedulePresentationPublication(traceContext: traceContext)
     }
 
     package func handleWorktreeProductInvalidation(
@@ -105,29 +86,28 @@ extension BridgePaneController {
                 matchesPaneWorktree || admitsCrossWorktreeContributionRefresh
             else { return }
             reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded()
-            refreshAdmissionCoordinator.recordInvalidation(
+            let affectedLanes = worktreeRefreshDriver.recordInvalidation(
                 fileChangeset: matchesPaneWorktree ? changeset : nil,
                 requiresReviewRefresh: true
             )
-            affectsFileLane = matchesPaneWorktree
-            affectsReviewLane = true
+            affectsFileLane = affectedLanes.contains(.file)
+            affectsReviewLane = affectedLanes.contains(.review)
         case .statusChanged(let status):
             reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded()
-            refreshAdmissionCoordinator.recordInvalidation(
+            let affectedLanes = worktreeRefreshDriver.recordInvalidation(
                 fileChangeset: nil,
                 latestFileStatus: status,
                 requiresReviewRefresh: true
             )
-            affectsFileLane = true
-            affectsReviewLane = true
-        }
-        if affectsFileLane {
-            retireActiveFileRefreshTask()
+            affectsFileLane = affectedLanes.contains(.file)
+            affectsReviewLane = affectedLanes.contains(.review)
         }
         if affectsReviewLane {
             retireActiveReviewRefreshTask()
         }
-        scheduleWorktreeProductCatchUpIfPossible()
+        if affectsFileLane || affectsReviewLane {
+            scheduleWorktreeProductCatchUpIfPossible()
+        }
     }
 
     private func reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded() {
@@ -145,44 +125,8 @@ extension BridgePaneController {
     }
 
     func scheduleWorktreeProductCatchUpIfPossible() {
-        scheduleFileCatchUpIfPossible()
+        worktreeRefreshDriver.scheduleFileCatchUpIfPossible()
         scheduleReviewCatchUpIfPossible()
-    }
-
-    private func scheduleFileCatchUpIfPossible() {
-        guard activeFileRefreshTask == nil,
-            let firstReservation = refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .file)
-        else { return }
-
-        _ = scheduleProductPresentationPublication()
-        let taskId = UUIDv7.generate()
-        activeFileRefreshTaskId = taskId
-        activeFileRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            var reservation: BridgePaneRefreshCatchUpReservation? = firstReservation
-            var finalOutcome = BridgePaneRefreshCatchUpOutcome.stale
-            while let currentReservation = reservation, !Task.isCancelled {
-                let outcome = await self.performFileCatchUp(currentReservation)
-                finalOutcome = outcome
-                self.refreshAdmissionCoordinator.completeRefreshPass(
-                    currentReservation,
-                    outcome: outcome
-                )
-                reservation =
-                    outcome == .succeeded
-                    ? self.refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .file)
-                    : nil
-                _ = self.scheduleProductPresentationPublication()
-                guard outcome == .succeeded else { break }
-            }
-            self.retiringFileRefreshTaskById.removeValue(forKey: taskId)
-            guard self.activeFileRefreshTaskId == taskId else { return }
-            self.activeFileRefreshTask = nil
-            self.activeFileRefreshTaskId = nil
-            if finalOutcome != .failed {
-                self.scheduleFileCatchUpIfPossible()
-            }
-        }
     }
 
     private func scheduleReviewCatchUpIfPossible() {
@@ -222,16 +166,6 @@ extension BridgePaneController {
         }
     }
 
-    func retireActiveFileRefreshTask() {
-        guard let taskId = activeFileRefreshTaskId,
-            let task = activeFileRefreshTask
-        else { return }
-        task.cancel()
-        retiringFileRefreshTaskById[taskId] = task
-        activeFileRefreshTask = nil
-        activeFileRefreshTaskId = nil
-    }
-
     func retireActiveReviewRefreshTask() {
         if let productAdmission = productAdmissionGate.acquire() {
             reviewPublicationCoordinator.supersedePendingPublication(
@@ -245,43 +179,6 @@ extension BridgePaneController {
         retiringReviewRefreshTaskById[taskId] = task
         activeReviewRefreshTask = nil
         activeReviewRefreshTaskId = nil
-    }
-
-    private func performFileCatchUp(
-        _ reservation: BridgePaneRefreshCatchUpReservation
-    ) async -> BridgePaneRefreshCatchUpOutcome {
-        guard reservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
-            let productAdmission = productAdmissionGate.acquire()
-        else { return .stale }
-
-        var fileRefreshFailed = false
-        if let changeset = reservation.fileChangeset {
-            let disposition = await productSchemeProvider?.publishFileChangeset(
-                changeset,
-                productAdmission: productAdmission,
-                foregroundWorkAdmission: reservation.foregroundWorkAdmission
-            )
-            guard disposition != .stale,
-                reservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                !Task.isCancelled
-            else { return .stale }
-            fileRefreshFailed = fileRefreshFailed || disposition == .failed
-        }
-
-        if let status = reservation.latestFileStatus {
-            let disposition = await productSchemeProvider?.publishFileStatus(
-                status,
-                productAdmission: productAdmission,
-                foregroundWorkAdmission: reservation.foregroundWorkAdmission
-            )
-            guard disposition != .stale,
-                reservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                !Task.isCancelled
-            else { return .stale }
-            fileRefreshFailed = fileRefreshFailed || disposition == .failed
-        }
-
-        return fileRefreshFailed ? .failed : .succeeded
     }
 
     private func performReviewCatchUp(

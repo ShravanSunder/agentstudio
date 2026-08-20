@@ -12,6 +12,7 @@ export function makeReviewPanePresentationFrame(
 	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
 ): BridgeProductPanePresentationFrame {
 	return {
+		fileRefreshFailure: null,
 		presentationRevision,
 		kind: 'pane.presentation',
 		metadataStreamId: 'metadata-stream-review-pane-suppression',

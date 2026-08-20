@@ -773,6 +773,119 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(retainedDirtyFact?.latestBatchSequence == 62)
         #expect(retainedDirtyFact?.requiresReviewRefresh == false)
         #expect(snapshot.activeRefreshPass == nil)
+        #expect(snapshot.fileRefreshFailure?.retryable == false)
+        await fixture.finish()
+    }
+
+    @Test("retryable File publication failure retries once and converges")
+    func retryableFilePublicationFailureRetriesOnceAndConverges() async throws {
+        let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            retryableChangesetFailureCount: 1
+        )
+        try await fixture.loadInitialReviewPackage()
+
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/Transient.swift"],
+                    batchSequence: 63
+                )
+            )
+        )
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+
+        let snapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot
+        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 2)
+        #expect(await fixture.fileMetadataSource.publishedChangesets().count == 1)
+        #expect(snapshot.dirtyFact == nil)
+        #expect(snapshot.fileRefreshFailure == nil)
+        await fixture.finish()
+    }
+
+    @Test("second retryable File publication failure becomes unavailable")
+    func secondRetryableFilePublicationFailureBecomesUnavailable() async throws {
+        let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            retryableChangesetFailureCount: 2
+        )
+        try await fixture.loadInitialReviewPackage()
+
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/Unavailable.swift"],
+                    batchSequence: 64
+                )
+            )
+        )
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+
+        let snapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot
+        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 2)
+        #expect(snapshot.dirtyFact?.latestBatchSequence == 64)
+        #expect(snapshot.fileRefreshFailure?.retryable == true)
+        await fixture.finish()
+    }
+
+    @Test("new File invalidation recovers unavailable refresh")
+    func newFileInvalidationRecoversUnavailableRefresh() async throws {
+        let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            retryableChangesetFailureCount: 2
+        )
+        try await fixture.loadInitialReviewPackage()
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/Unavailable.swift"],
+                    batchSequence: 65
+                )
+            )
+        )
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+        #expect(fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot.fileRefreshFailure != nil)
+
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/Recovered.swift"],
+                    batchSequence: 66
+                )
+            )
+        )
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+
+        let snapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot
+        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 3)
+        #expect(await fixture.fileMetadataSource.publishedChangesets().count == 1)
+        #expect(snapshot.dirtyFact == nil)
+        #expect(snapshot.fileRefreshFailure == nil)
+        await fixture.finish()
+    }
+
+    @Test("explicit File retry recovers retained unavailable refresh")
+    func explicitFileRetryRecoversRetainedUnavailableRefresh() async throws {
+        let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            retryableChangesetFailureCount: 2
+        )
+        try await fixture.loadInitialReviewPackage()
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/ExplicitRetry.swift"],
+                    batchSequence: 67
+                )
+            )
+        )
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+        #expect(fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot.fileRefreshFailure != nil)
+
+        fixture.controller.retryUnavailableFileRefresh()
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+
+        let snapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot
+        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 3)
+        #expect(await fixture.fileMetadataSource.publishedChangesets().count == 1)
+        #expect(snapshot.dirtyFact == nil)
+        #expect(snapshot.fileRefreshFailure == nil)
         await fixture.finish()
     }
 

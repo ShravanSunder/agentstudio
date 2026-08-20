@@ -44,37 +44,6 @@ struct BridgeProductSessionDependencyInput {
     let reviewComparisonTargetProjection: BridgeReviewComparisonTargetProjection
 }
 
-struct BridgeSchemeHandlerRegistrationInput {
-    let paneId: UUID
-    let appRootURL: URL
-    let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
-    let productSessionRouter: BridgeProductSchemeSessionRouter
-}
-
-package struct BridgePaneTelemetrySessionDependencies: Sendable {
-    let installation: BridgeTelemetrySessionInstallation
-    let owner: BridgePaneTelemetrySessionOwner
-}
-
-package struct BridgePaneProductSessionDependencies {
-    let installation: BridgeProductSessionInstallation
-    let owner: BridgePaneProductSessionOwner
-    let committedCallTarget: BridgePaneProductCommittedCallTarget?
-    let productProvider: BridgePaneProductSchemeProvider?
-
-    init(
-        installation: BridgeProductSessionInstallation,
-        owner: BridgePaneProductSessionOwner,
-        committedCallTarget: BridgePaneProductCommittedCallTarget? = nil,
-        productProvider: BridgePaneProductSchemeProvider? = nil
-    ) {
-        self.installation = installation
-        self.owner = owner
-        self.committedCallTarget = committedCallTarget
-        self.productProvider = productProvider
-    }
-}
-
 @MainActor
 final class BridgePaneProductCommittedCallTarget {
     private let productAdmissionGate: BridgeProductAdmissionGate
@@ -97,7 +66,7 @@ final class BridgePaneProductCommittedCallTarget {
             .fileAnnotationsOutputCandidatesQuery, .fileAnnotationsProjectionQuery,
             .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
             .reviewAnnotationsOutputCandidatesQuery, .reviewAnnotationsProjectionQuery,
-            .fileSourceCurrent:
+            .fileSourceCurrent, .fileRefreshRetry:
             return
         case .fileActiveViewerModeUpdate(let request):
             mode = .file
@@ -127,6 +96,11 @@ final class BridgePaneProductCommittedCallTarget {
             nativeSelectionRequestId: update.nativeSelectionRequestId,
             productCorrelation: correlation
         )
+    }
+
+    func applyFileRefreshRetry(productAdmission: BridgeProductAdmissionContext) async {
+        guard (productAdmission.withValidAdmission { true }) == true else { return }
+        controller?.retryUnavailableFileRefresh()
     }
 
     func applyReviewIntakeReady(
@@ -500,7 +474,8 @@ extension BridgePaneController {
     ) -> BridgePaneProductSessionDependencies {
         let productAdmissionGate = BridgeProductAdmissionGate()
         let committedCallTarget = makeCommittedCallTarget(productAdmissionGate)
-        let fileMetadataSource = makeFileMetadataSource(input)
+        let fileSourceComposition = makeFileSourceComposition(input)
+        let fileMetadataSource = fileSourceComposition.source
         let reviewContentSource = makeReviewContentSource(input)
         let annotationSource = makeWorktreeAnnotationSource(input)
         let annotationProjectionSource = makeWorktreeAnnotationProjectionSource(
@@ -552,6 +527,7 @@ extension BridgePaneController {
                 )
             },
             applyReviewComparisonUpdate: committedCallTarget.applyReviewComparisonUpdate,
+            applyFileRefreshRetry: committedCallTarget.applyFileRefreshRetry,
             applyWorktreeAnnotationCommand: makeWorktreeAnnotationCommandHandler(
                 input,
                 fileMetadataSource: fileMetadataSource
@@ -591,12 +567,30 @@ extension BridgePaneController {
                 telemetryRecorder: input.telemetryRecorder
             ),
             committedCallTarget: committedCallTarget,
+            fileSourceAcceptanceRelay: fileSourceComposition.acceptanceRelay,
             productProvider: provider
         )
     }
 
-    private static func makeFileMetadataSource(
+    private static func makeFileSourceComposition(
         _ input: BridgeProductSessionDependencyInput
+    ) -> (
+        source: any BridgePaneProductFileMetadataProducing,
+        acceptanceRelay: BridgePaneFileSourceAcceptanceRelay
+    ) {
+        let acceptanceRelay = BridgePaneFileSourceAcceptanceRelay()
+        let source = makeFileMetadataSource(
+            input,
+            sourceAcceptedObserver: { acceptedSource in
+                await acceptanceRelay.accept(acceptedSource)
+            }
+        )
+        return (source, acceptanceRelay)
+    }
+
+    private static func makeFileMetadataSource(
+        _ input: BridgeProductSessionDependencyInput,
+        sourceAcceptedObserver: @escaping BridgePaneProductFileSourceAcceptedObserver
     ) -> any BridgePaneProductFileMetadataProducing {
         guard
             let authority = makeProductFileSourceAuthority(
@@ -611,7 +605,8 @@ extension BridgePaneController {
         return BridgePaneProductFileMetadataSource(
             authority: authority,
             gitReadContext: gitReadContext,
-            constructionCoordinator: constructionCoordinator
+            constructionCoordinator: constructionCoordinator,
+            sourceAcceptedObserver: sourceAcceptedObserver
         )
     }
 

@@ -486,6 +486,7 @@ function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKin
 				throw new Error('Bridge product File source call returned a cross-wired result.');
 			}
 			return call.result;
+		case 'file.refresh.retry':
 		case 'file.activeViewerMode.update':
 		case 'review.activeViewerMode.update':
 		case 'review.comparison.update':

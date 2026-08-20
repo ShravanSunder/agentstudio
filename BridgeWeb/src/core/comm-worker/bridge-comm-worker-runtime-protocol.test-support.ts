@@ -222,6 +222,7 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 			// This shared fixture models an already active Review pane. Hidden/dormant admission tests
 			// install their own transport so suppression remains explicit and independently proven.
 			sink({
+				fileRefreshFailure: null,
 				presentationRevision: 1,
 				kind: 'pane.presentation',
 				metadataStreamId: 'review-product-test-metadata-stream',

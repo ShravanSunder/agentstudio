@@ -63,6 +63,7 @@ export interface BridgeFileViewerRenderSnapshotController {
 		readonly lastVisibleIndex: number;
 		readonly visibleItemIds: readonly string[];
 	}) => void;
+	readonly retryUnavailableFileRefresh: () => void;
 	readonly fileDisplaySnapshot: Pick<
 		BridgeMainRenderSnapshot,
 		'fileDisplayFreshness' | 'fileItemById' | 'fileQuerySlice' | 'fileStatusSlice' | 'fileTreeSlice'
@@ -197,6 +198,12 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 		},
 		[fileViewClient],
 	);
+	const retryUnavailableFileRefresh = useCallback((): void => {
+		fileViewClient.send({
+			command: 'fileRefreshRetry',
+			epoch: nextBridgeFileViewerWorkerEpoch(workerEpochRef),
+		});
+	}, [fileViewClient]);
 	const selectedCodeViewItem = selectedBridgeFileViewerCodeViewItemForSnapshot({
 		renderSnapshot,
 		selection: props.selection,
@@ -218,6 +225,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			dispatchFileViewQueryFact,
 			dispatchSelectedFileViewContentRequest,
 			dispatchVisibleFileViewViewportFact,
+			retryUnavailableFileRefresh,
 			fileDisplaySnapshot: {
 				fileDisplayFreshness: renderSnapshot.fileDisplayFreshness,
 				fileItemById: renderSnapshot.fileItemById,
@@ -236,6 +244,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			dispatchSelectedFileViewContentRequest,
 			dispatchFileViewQueryFact,
 			dispatchVisibleFileViewViewportFact,
+			retryUnavailableFileRefresh,
 			renderSnapshotStore.completeFileQueryTransaction,
 			renderSnapshotStore.fileTreePatchStream,
 			fileViewClient.renderFulfillmentCoordinator,

@@ -58,6 +58,13 @@ const bridgeProductControlReviewComparisonUpdateCommandSchema = z
 	})
 	.strict();
 
+const bridgeProductControlFileRefreshRetryCommandSchema = z
+	.object({
+		method: z.literal('file.refresh.retry'),
+		params: z.object({}).strict(),
+	})
+	.strict();
+
 const bridgeProductControlReviewComparisonTargetsQueryCommandSchema = z
 	.object({
 		method: z.literal('review.comparisonTargets.query'),
@@ -73,6 +80,7 @@ const bridgeProductControlIntakeReadyCommandSchema = z
 	.strict();
 
 export const bridgeProductControlCommandSchema = z.discriminatedUnion('method', [
+	bridgeProductControlFileRefreshRetryCommandSchema,
 	bridgeProductControlWorktreeAnnotationCommandSchema,
 	bridgeProductControlMarkFileViewedCommandSchema,
 	bridgeProductControlReviewComparisonUpdateCommandSchema,

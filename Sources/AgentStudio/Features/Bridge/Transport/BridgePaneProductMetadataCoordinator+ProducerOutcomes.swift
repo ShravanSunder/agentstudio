@@ -1,10 +1,84 @@
 import Foundation
 
+enum BridgePaneProductFileRefreshFailureKind: String, Codable, CaseIterable, Sendable {
+    case fileRefreshFailed
+    case fileSourceUnavailable
+    case producerRejected
+
+    var retryable: Bool {
+        self == .fileSourceUnavailable
+    }
+}
+
+struct BridgePaneProductFileRefreshFailure: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case failureKind
+        case retryable
+    }
+
+    let failureKind: BridgePaneProductFileRefreshFailureKind
+    let retryable: Bool
+
+    init(failureKind: BridgePaneProductFileRefreshFailureKind) {
+        self.failureKind = failureKind
+        self.retryable = failureKind.retryable
+    }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "File refresh failure"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let failureKind = try container.decode(
+            BridgePaneProductFileRefreshFailureKind.self,
+            forKey: .failureKind
+        )
+        let retryable = try container.decode(Bool.self, forKey: .retryable)
+        guard retryable == failureKind.retryable else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "File refresh retryability must match its failure kind",
+                codingPath: decoder.codingPath
+            )
+        }
+        self.init(failureKind: failureKind)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(failureKind, forKey: .failureKind)
+        try container.encode(retryable, forKey: .retryable)
+    }
+}
+
 enum BridgePaneProductFileRefreshPublicationDisposition: Equatable, Sendable {
     case applied
     case notRequired
-    case failed
+    case failed(BridgePaneProductFileRefreshFailure)
     case stale
+    case streamResetRequired
+}
+
+extension BridgePaneProductMetadataCoordinator {
+    static func fileRefreshDisposition(
+        for error: any Error
+    ) -> BridgePaneProductFileRefreshPublicationDisposition {
+        if error is BridgePaneProductFileMetadataSourceError {
+            return .failed(.init(failureKind: .fileSourceUnavailable))
+        }
+        if let coordinatorError = error as? BridgePaneProductMetadataCoordinatorError {
+            switch coordinatorError {
+            case .producerQueueReset:
+                return .streamResetRequired
+            case .foregroundWorkInvalidated:
+                return .stale
+            case .producerRejected:
+                return .failed(.init(failureKind: .producerRejected))
+            }
+        }
+        return .failed(.init(failureKind: .fileRefreshFailed))
+    }
 }
 
 extension BridgePaneProductMetadataCoordinator {

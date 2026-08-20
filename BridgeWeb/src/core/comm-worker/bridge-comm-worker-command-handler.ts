@@ -522,6 +522,7 @@ function handleBridgeWorkerCommand(
 			props.retryAnnotationProjection?.(props.message.surface === 'fileView' ? 'file' : 'review');
 			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
 		case 'markFileViewed':
+		case 'fileRefreshRetry':
 		case 'annotationCommand':
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':

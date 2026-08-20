@@ -6,6 +6,11 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 	message: BridgeWorkerMainToServerMessage,
 ): { readonly command: BridgeProductControlCommand; readonly requestId: string } | null {
 	switch (message.command) {
+		case 'fileRefreshRetry':
+			return {
+				command: { method: 'file.refresh.retry', params: {} },
+				requestId: message.requestId,
+			};
 		case 'annotationCommand':
 			return {
 				command: {
@@ -95,6 +100,7 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 		case 'viewport':
 		case 'fileQueryUpdate':
 		case 'fileDisplayResync':
+		case 'fileRefreshRetry':
 		case 'hover':
 		case 'reviewInvalidate':
 		case 'reviewProjectionUpdate':

@@ -654,7 +654,9 @@ extension BridgePaneProductMetadataCoordinator {
             }
             return .applied
         } catch {
-            return foregroundWorkAdmission.withValidAdmission({ true }) == nil ? .stale : .failed
+            return foregroundWorkAdmission.withValidAdmission({ true }) == nil
+                ? .stale
+                : Self.fileRefreshDisposition(for: error)
         }
     }
 
@@ -676,7 +678,9 @@ extension BridgePaneProductMetadataCoordinator {
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
         } catch {
-            return foregroundWorkAdmission.withValidAdmission({ true }) == nil ? .stale : .failed
+            return foregroundWorkAdmission.withValidAdmission({ true }) == nil
+                ? .stale
+                : Self.fileRefreshDisposition(for: error)
         }
         guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .stale }
         guard !emissions.isEmpty else { return .notRequired }
@@ -698,7 +702,9 @@ extension BridgePaneProductMetadataCoordinator {
             }
             return .applied
         } catch {
-            return foregroundWorkAdmission.withValidAdmission({ true }) == nil ? .stale : .failed
+            return foregroundWorkAdmission.withValidAdmission({ true }) == nil
+                ? .stale
+                : Self.fileRefreshDisposition(for: error)
         }
     }
 }

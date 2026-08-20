@@ -48,6 +48,7 @@ private struct BridgeDevelopmentProductProviderDependencies {
             BridgeProductReviewComparisonUpdateRequest,
             BridgeProductAdmissionContext
         ) async -> Void
+    let applyFileRefreshRetry: @MainActor @Sendable (BridgeProductAdmissionContext) async -> Void
     let fileMetadataSource: BridgePaneProductFileMetadataSource
     let initialPresentation: BridgePaneProductPresentationSnapshot
     let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
@@ -123,6 +124,7 @@ extension BridgeDevelopmentProductHost {
                         productAdmission: productAdmission
                     )
                 },
+                applyFileRefreshRetry: committedCallTarget.applyFileRefreshRetry,
                 fileMetadataSource: fileMetadataSource,
                 initialPresentation: initialPresentation,
                 refreshWorkAdmissionSource: refreshWorkAdmissionSource,
@@ -249,6 +251,7 @@ extension BridgeDevelopmentProductHost {
             },
             markReviewItemViewed: { _, _ in },
             applyReviewComparisonUpdate: dependencies.applyReviewComparisonUpdate,
+            applyFileRefreshRetry: dependencies.applyFileRefreshRetry,
             applyWorktreeAnnotationCommand: dependencies.applyWorktreeAnnotationCommand,
             queryWorktreeAnnotationOutputCandidates: dependencies.queryWorktreeAnnotationOutputCandidates,
             authorizeReviewComparisonTargets:
