@@ -382,8 +382,8 @@ These are separable responsibilities, not an implementation sequence.
 
 - Current Repo projection boundary: `Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerProjectionWorker.swift`
 - Current Inbox projection boundary: `Sources/AgentStudio/Features/InboxNotification/Models/InboxNotificationListProjectionWorker.swift`
-- Current hybrid UI architecture: `docs/architecture/appkit_swiftui_architecture.md`
-- Current observability proof contract: `docs/architecture/observability_and_traceability.md`
+- Current hybrid UI architecture: `docs/architecture/hosting/appkit_swiftui_architecture.md`
+- Current observability proof contract: `docs/architecture/observability/observability_and_traceability.md`
 - Apple, Demystify SwiftUI performance: https://developer.apple.com/videos/play/wwdc2023/10160/
 - Apple, What's new in SwiftUI: https://developer.apple.com/videos/play/wwdc2025/256/
 - Apple, Optimize SwiftUI performance with Instruments: https://developer.apple.com/videos/play/wwdc2025/306/

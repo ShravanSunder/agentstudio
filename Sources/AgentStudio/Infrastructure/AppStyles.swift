@@ -1,6 +1,6 @@
 // Native design-system source of truth. Keep its convention-based correlation with
 // BridgeWeb/src/app/bridge-app.css aligned through
-// docs/architecture/bridgeweb_design_token_architecture.md.
+// docs/architecture/bridge/bridgeweb_design_token_architecture.md.
 
 import SwiftUI
 

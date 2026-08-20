@@ -404,9 +404,9 @@ AgentStudioCore, AgentStudioCommandBar, AgentStudio app composition.
 **Files:**
 
 - Modify:
-  `docs/architecture/commands_and_shortcuts.md`
+  `docs/architecture/commands/command_specs.md`
 - Modify:
-  `docs/architecture/component_architecture.md`
+  `docs/architecture/structure/component_architecture.md`
 - Modify:
   `docs/architecture/README.md`
 - Modify:

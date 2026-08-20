@@ -347,7 +347,7 @@ authorized Requirements.
 Current implementation evidence was refreshed against `origin/main` commit
 `f7a01132f9ac5d02981e00856750936f80acb61f`. Governing boundaries remain:
 
-- [Atom and persistence boundaries](../../architecture/atom_persistence_boundaries.md)
+- [Atom and persistence boundaries](../../architecture/state/atom_persistence_boundaries.md)
 - [Performance evidence boundaries](../2026-07-10-agentstudio-performance-boundaries/agentstudio-performance-boundaries.md)
 - [Persistence ownership hard cut](../2026-07-21-persistence-ownership-hard-cut/2026-07-21-persistence-ownership-hard-cut.md)
 - [Core atom scope and Feature injection](../2026-07-25-core-atom-scope-feature-injection/2026-07-25-core-atom-scope-feature-injection.md)

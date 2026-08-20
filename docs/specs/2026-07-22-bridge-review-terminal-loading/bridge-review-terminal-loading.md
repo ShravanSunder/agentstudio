@@ -498,8 +498,8 @@ Rejected. Repository state and worker sessions can change. Explicit intake/resyn
 ## Source Anchors
 
 - `docs/specs/2026-06-20-review-pane-control-surface.md:84`
-- `docs/architecture/bridge_native_runtime_architecture.md:10`
-- `docs/architecture/bridge_web_runtime_architecture.md:31`
+- `docs/architecture/bridge/bridge_native_runtime_architecture.md:10`
+- `docs/architecture/bridge/bridge_web_runtime_architecture.md:31`
 - `Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+BridgeReviewOpening.swift:219`
 - `Sources/AgentStudio/Features/Bridge/State/BridgePaneState.swift:51`
 - `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/AgentStudioGitBridgeReviewDataClient+GitIO.swift:6`

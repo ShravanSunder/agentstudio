@@ -333,7 +333,7 @@ OTLP output remains debug/proof-oriented and must stay source-scrubbed.
 ## Incoming Dependency
 
 PR #188 (`agent-studio.tooltip-source-contract`) updates command and tooltip
-source contracts, including `docs/architecture/commands_and_shortcuts.md`.
+source contracts, including `docs/architecture/commands/command_specs.md`.
 Implementation must merge main after that PR lands and reconcile this spec with
 the new command-source model before adding Review command specs.
 

@@ -3,7 +3,7 @@
 > **PARTIALLY SUPERSEDED.** Environment/root-isolation observations remain
 > debugging evidence. Any startup identity reconciliation, stored-anchor
 > hydration/adoption, fallback, or boot persistence described below is obsolete;
-> see [Session Lifecycle Architecture](../architecture/session_lifecycle.md).
+> see [Session Lifecycle Architecture](../architecture/runtime/session_lifecycle.md).
 
 Active investigation into how `ZMX_DIR` / `ZMX_SESSION` env vars leak between Agent Studio instances and out into user process trees, and whether scrubbing them at the AS-boot boundary is safe. This doc captures what we know, what we tried, and what remains unexplained.
 

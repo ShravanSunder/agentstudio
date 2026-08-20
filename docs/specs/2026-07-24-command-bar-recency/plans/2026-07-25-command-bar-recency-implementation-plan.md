@@ -371,11 +371,11 @@ Current code and the accepted design drive documentation.
 | --- | --- |
 | `AGENTS.md` | Name real `RepositoryTopologyAtom` and file; describe global topology/enrichment/application recency versus workspace pane/layout/sidebar/pane recency. |
 | `docs/architecture/README.md` | Correct atom vocabulary, data map, and topology/store ownership. |
-| `docs/architecture/component_architecture.md` | Correct prose, Mermaid, field tables, and file map. |
-| `docs/architecture/atom_persistence_boundaries.md` | Remove live recent-target ownership; document both entity-recency owners and separate command history. |
-| `docs/architecture/workspace_data_architecture.md` | Describe app-root `local.sqlite`, global topology, workspace partition semantics, and the hard cut. |
-| `docs/architecture/appkit_swiftui_architecture.md` | Update only if Command Bar projection/activation/presentation ownership is stale. |
-| `docs/architecture/commands_and_shortcuts.md` | Document root groups, query transition, activation, and breadcrumbs. |
+| `docs/architecture/structure/component_architecture.md` | Correct prose, Mermaid, field tables, and file map. |
+| `docs/architecture/state/atom_persistence_boundaries.md` | Remove live recent-target ownership; document both entity-recency owners and separate command history. |
+| `docs/architecture/state/workspace_data_architecture.md` | Describe app-root `local.sqlite`, global topology, workspace partition semantics, and the hard cut. |
+| `docs/architecture/hosting/appkit_swiftui_architecture.md` | Update only if Command Bar projection/activation/presentation ownership is stale. |
+| `docs/architecture/commands/command_specs.md` | Document root groups, query transition, activation, and breadcrumbs. |
 | session/pane-runtime docs already dirty | Audit only for direct false ownership claims; preserve user WIP and do not redesign sessions. |
 | `docs/superpowers/specs/sqlite/*` | Classify superseded/historical SQLite designs and remove current-authority links; preserve historical bodies. |
 
