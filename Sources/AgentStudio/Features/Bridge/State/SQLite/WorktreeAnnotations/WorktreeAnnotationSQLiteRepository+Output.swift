@@ -19,7 +19,41 @@ extension WorktreeAnnotationSQLiteRepository {
         let destinationPath: String?
         let repeatedFromAttemptID: WorktreeAnnotationOutputAttemptID?
         let selectedMessages: [OutputMessageSelection]
+        let expectedSessionRevision: Int?
+        let expectedProjectionRevision: Int?
         let now: Date
+
+        init(
+            attemptID: WorktreeAnnotationOutputAttemptID,
+            sessionID: WorktreeAnnotationSessionID,
+            outputKind: WorktreeAnnotationOutputKind,
+            formatVersion: Int,
+            contentType: String,
+            canonicalSnapshot: WorktreeAnnotationBatchSnapshot,
+            exactBytes: Data,
+            markdownPresentation: WorktreeAnnotationMarkdownPresentationContext?,
+            destinationPath: String?,
+            repeatedFromAttemptID: WorktreeAnnotationOutputAttemptID?,
+            selectedMessages: [OutputMessageSelection],
+            expectedSessionRevision: Int? = nil,
+            expectedProjectionRevision: Int? = nil,
+            now: Date
+        ) {
+            self.attemptID = attemptID
+            self.sessionID = sessionID
+            self.outputKind = outputKind
+            self.formatVersion = formatVersion
+            self.contentType = contentType
+            self.canonicalSnapshot = canonicalSnapshot
+            self.exactBytes = exactBytes
+            self.markdownPresentation = markdownPresentation
+            self.destinationPath = destinationPath
+            self.repeatedFromAttemptID = repeatedFromAttemptID
+            self.selectedMessages = selectedMessages
+            self.expectedSessionRevision = expectedSessionRevision
+            self.expectedProjectionRevision = expectedProjectionRevision
+            self.now = now
+        }
     }
 
     struct OutputAttemptMembership: Equatable, Sendable {
@@ -105,18 +139,24 @@ extension WorktreeAnnotationSQLiteRepository {
         snapshotJSONString: String
     ) throws -> PreparedOutput {
         guard
-            try Int.fetchOne(
+            let currentSessionRevision = try Int.fetchOne(
                 database,
-                sql: "SELECT COUNT(*) FROM annotation_session WHERE id = ?",
+                sql: "SELECT semantic_revision FROM annotation_session WHERE id = ?",
                 arguments: [props.sessionID.databaseValue]
-            ) == 1
+            )
         else {
             throw WorktreeAnnotationRepositoryError.notFound
+        }
+        if let expectedSessionRevision = props.expectedSessionRevision,
+            currentSessionRevision != expectedSessionRevision
+        {
+            throw WorktreeAnnotationRepositoryError.conflict(
+                currentRevision: currentSessionRevision
+            )
         }
         try ensureNoPreparedOutputAttempt(database, sessionID: props.sessionID)
         try validateCanonicalSnapshotAgainstDurableState(database, props: props)
         for selection in props.selectedMessages {
-            try ensureMessageEditable(database, messageID: selection.messageID)
             guard
                 try Int.fetchOne(
                     database,
@@ -333,7 +373,12 @@ extension WorktreeAnnotationSQLiteRepository {
                 sql: "UPDATE annotation_output_attempt SET state = 'succeeded', updated_at = ? WHERE id = ?",
                 arguments: [now.timeIntervalSince1970, attemptID.databaseValue]
             )
-            try lockOutputMessages(database, attemptID: attemptID, now: now)
+            try markOutputMessagesHandled(
+                database,
+                attemptID: attemptID,
+                sessionID: current.attempt.sessionID,
+                now: now
+            )
             return try loadPreparedOutput(database, attemptID: attemptID)
         }
     }
@@ -350,7 +395,14 @@ extension WorktreeAnnotationSQLiteRepository {
             )
             let changedCount = database.changesCount
             for attemptID in preparedAttemptIDs {
-                try lockOutputMessages(database, attemptID: try decodeIdentity(attemptID), now: now)
+                let typedAttemptID: WorktreeAnnotationOutputAttemptID = try decodeIdentity(attemptID)
+                let sessionID = try requireOutputAttemptSessionID(database, attemptID: typedAttemptID)
+                try lockOutputMessages(
+                    database,
+                    attemptID: typedAttemptID,
+                    sessionID: sessionID,
+                    now: now
+                )
             }
             return changedCount
         }
@@ -374,7 +426,12 @@ extension WorktreeAnnotationSQLiteRepository {
                     """,
                 arguments: [cleanupError, now.timeIntervalSince1970, attemptID.databaseValue]
             )
-            try lockOutputMessages(database, attemptID: attemptID, now: now)
+            try lockOutputMessages(
+                database,
+                attemptID: attemptID,
+                sessionID: current.attempt.sessionID,
+                now: now
+            )
             return try loadPreparedOutput(database, attemptID: attemptID)
         }
     }
@@ -390,9 +447,18 @@ extension WorktreeAnnotationSQLiteRepository {
                 sql: """
                     SELECT attempt.id, attempt.output_kind, attempt.state,
                            attempt.repeated_from_attempt_id, attempt.created_at, attempt.updated_at,
-                           COUNT(membership.message_id) AS message_count
+                           COUNT(membership.message_id) AS message_count,
+                           MAX(
+                               CASE
+                                   WHEN attempt.state = 'succeeded'
+                                    AND message.handled = 1
+                                    AND message.saved_revision = membership.expected_saved_revision
+                                   THEN 1 ELSE 0
+                               END
+                           ) AS can_mark_not_handled
                     FROM annotation_output_attempt attempt
                     JOIN annotation_output_attempt_message membership ON membership.attempt_id = attempt.id
+                    JOIN annotation_message message ON message.id = membership.message_id
                     WHERE attempt.session_id = ? AND attempt.state != 'cancelled'
                     GROUP BY attempt.id
                     ORDER BY attempt.created_at DESC, attempt.id DESC
@@ -407,10 +473,60 @@ extension WorktreeAnnotationSQLiteRepository {
                     state: decodeRawValue(row["state"] as String),
                     messageCount: row["message_count"],
                     repeatedFromAttemptID: try (row["repeated_from_attempt_id"] as String?).map(decodeIdentity),
+                    canMarkNotHandled: row["can_mark_not_handled"],
                     createdAt: Date(timeIntervalSince1970: row["created_at"]),
                     updatedAt: Date(timeIntervalSince1970: row["updated_at"])
                 )
             }
+        }
+    }
+
+    func clearOutputHandled(
+        attemptID: WorktreeAnnotationOutputAttemptID,
+        expectedSessionRevision: Int,
+        now: Date
+    ) throws -> WorktreeAnnotationSessionDetail {
+        try databaseWriter.write { database in
+            guard
+                let attempt = try Row.fetchOne(
+                    database,
+                    sql: "SELECT session_id, state FROM annotation_output_attempt WHERE id = ?",
+                    arguments: [attemptID.databaseValue]
+                )
+            else {
+                throw WorktreeAnnotationRepositoryError.notFound
+            }
+            let sessionID: WorktreeAnnotationSessionID = try decodeIdentity(
+                attempt["session_id"] as String
+            )
+            guard
+                (attempt["state"] as String) == WorktreeAnnotationOutputAttemptState.succeeded.rawValue
+            else {
+                throw WorktreeAnnotationRepositoryError.invalidState
+            }
+            try validateSessionRevision(
+                database,
+                sessionID: sessionID,
+                expectedRevision: expectedSessionRevision
+            )
+            try database.execute(
+                sql: """
+                    UPDATE annotation_message AS message
+                    SET handled = 0, semantic_revision = semantic_revision + 1, updated_at = ?
+                    WHERE handled = 1 AND EXISTS (
+                        SELECT 1
+                        FROM annotation_output_attempt_message membership
+                        WHERE membership.attempt_id = ?
+                          AND membership.message_id = message.id
+                          AND membership.expected_saved_revision = message.saved_revision
+                    )
+                    """,
+                arguments: [now.timeIntervalSince1970, attemptID.databaseValue]
+            )
+            if database.changesCount > 0 {
+                try advanceSession(database, sessionID: sessionID, now: now)
+            }
+            return try loadSessionDetail(database, sessionID: sessionID)
         }
     }
 
@@ -553,6 +669,7 @@ extension WorktreeAnnotationSQLiteRepository {
     private func lockOutputMessages(
         _ database: Database,
         attemptID: WorktreeAnnotationOutputAttemptID,
+        sessionID: WorktreeAnnotationSessionID,
         now: Date
     ) throws {
         try database.execute(
@@ -565,6 +682,51 @@ extension WorktreeAnnotationSQLiteRepository {
                 """,
             arguments: [now.timeIntervalSince1970, attemptID.databaseValue]
         )
+        if database.changesCount > 0 {
+            try advanceSession(database, sessionID: sessionID, now: now)
+        }
+    }
+
+    private func markOutputMessagesHandled(
+        _ database: Database,
+        attemptID: WorktreeAnnotationOutputAttemptID,
+        sessionID: WorktreeAnnotationSessionID,
+        now: Date
+    ) throws {
+        try database.execute(
+            sql: """
+                UPDATE annotation_message AS message
+                SET status = 'locked', handled = 1,
+                    semantic_revision = semantic_revision + 1, updated_at = ?
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM annotation_output_attempt_message membership
+                    WHERE membership.attempt_id = ?
+                      AND membership.message_id = message.id
+                      AND membership.expected_saved_revision = message.saved_revision
+                ) AND (status != 'locked' OR handled = 0)
+                """,
+            arguments: [now.timeIntervalSince1970, attemptID.databaseValue]
+        )
+        if database.changesCount > 0 {
+            try advanceSession(database, sessionID: sessionID, now: now)
+        }
+    }
+
+    private func requireOutputAttemptSessionID(
+        _ database: Database,
+        attemptID: WorktreeAnnotationOutputAttemptID
+    ) throws -> WorktreeAnnotationSessionID {
+        guard
+            let rawSessionID = try String.fetchOne(
+                database,
+                sql: "SELECT session_id FROM annotation_output_attempt WHERE id = ?",
+                arguments: [attemptID.databaseValue]
+            )
+        else {
+            throw WorktreeAnnotationRepositoryError.notFound
+        }
+        return try decodeIdentity(rawSessionID)
     }
 
     private static func unixMilliseconds(_ date: Date) -> Int64 {

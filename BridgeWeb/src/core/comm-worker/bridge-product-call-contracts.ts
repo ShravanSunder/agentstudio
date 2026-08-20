@@ -14,8 +14,6 @@ import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-
 import { bridgeProductFileSourceConfigurationSchema } from './bridge-product-subscription-contracts.js';
 import { bridgeProductWorktreeAnnotationCommandOutcomeSchema } from './bridge-product-worktree-annotation-contracts.js';
 import {
-	bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
-	bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema,
 	bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
 	bridgeProductWorktreeAnnotationOutputInspectResultSchema,
 } from './bridge-product-worktree-annotation-output-contracts.js';
@@ -134,17 +132,6 @@ const bridgeProductWorktreeAnnotationOriginSchema = z
 	.refine((origin) => origin.endLine >= origin.startLine, {
 		message: 'Annotation endLine cannot precede startLine.',
 	});
-const bridgeProductWorktreeAnnotationMessageIdChunkSchema = z
-	.array(bridgeProductWorktreeAnnotationIdSchema)
-	.min(1)
-	.max(64)
-	.refine((messageIds) => new Set(messageIds).size === messageIds.length, {
-		message: 'Annotation output selection cannot repeat a message identity.',
-	});
-const bridgeProductWorktreeAnnotationOutputSelectionModeSchema = z.enum([
-	'explicit',
-	'allEligible',
-]);
 export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('session.discover') }).strict(),
 	z
@@ -239,33 +226,22 @@ export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUni
 		.strict(),
 	z
 		.object({
-			kind: z.literal('output.selection.begin'),
-			outputKind: z.enum(['clipboardMarkdown', 'jsonFile']),
-			selectionMode: bridgeProductWorktreeAnnotationOutputSelectionModeSchema,
-			sessionId: bridgeProductWorktreeAnnotationIdSchema,
-			transferId: bridgeProductIdentifierSchema,
+			attemptId: bridgeProductWorktreeAnnotationIdSchema,
+			expectedSessionRevision: z.number().int().nonnegative(),
+			kind: z.literal('output.handled.clear'),
 		})
 		.strict(),
 	z
 		.object({
-			kind: z.literal('output.selection.chunk'),
-			messageIds: bridgeProductWorktreeAnnotationMessageIdChunkSchema,
-			ordinal: z.number().int().nonnegative(),
-			selectionMode: bridgeProductWorktreeAnnotationOutputSelectionModeSchema,
+			displayedProjectionRevision: z.number().int().nonnegative(),
+			expectedSessionRevision: z.number().int().nonnegative(),
+			kind: z.literal('output.scope.commit'),
+			outputKind: z.enum(['clipboardMarkdown', 'jsonFile']),
+			scope: z.enum(['new', 'all']),
 			sessionId: bridgeProductWorktreeAnnotationIdSchema,
-			transferId: bridgeProductIdentifierSchema,
+			sourceGeneration: z.number().int().nonnegative(),
 		})
 		.strict(),
-	...(['output.selection.commit', 'output.selection.cancel'] as const).map((kind) =>
-		z
-			.object({
-				kind: z.literal(kind),
-				selectionMode: bridgeProductWorktreeAnnotationOutputSelectionModeSchema,
-				sessionId: bridgeProductWorktreeAnnotationIdSchema,
-				transferId: bridgeProductIdentifierSchema,
-			})
-			.strict(),
-	),
 	z
 		.object({
 			kind: z.literal('output.history'),
@@ -320,13 +296,6 @@ export type BridgeProductCallRegistry = {
 	readonly 'file.annotations.output.inspect': {
 		readonly request: z.infer<typeof bridgeProductWorktreeAnnotationOutputInspectRequestSchema>;
 		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationOutputInspectResultSchema>;
-		readonly surface: 'file';
-	};
-	readonly 'file.annotations.output.candidates.query': {
-		readonly request: z.infer<
-			typeof bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema
-		>;
-		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationOutputCandidatePageSchema>;
 		readonly surface: 'file';
 	};
 	readonly 'file.annotations.projection.query': {
@@ -389,13 +358,6 @@ export type BridgeProductCallRegistry = {
 		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationOutputInspectResultSchema>;
 		readonly surface: 'review';
 	};
-	readonly 'review.annotations.output.candidates.query': {
-		readonly request: z.infer<
-			typeof bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema
-		>;
-		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationOutputCandidatePageSchema>;
-		readonly surface: 'review';
-	};
 	readonly 'review.annotations.projection.query': {
 		readonly request: z.infer<typeof bridgeProductAnnotationProjectionQueryRequestSchema>;
 		readonly result: z.infer<typeof bridgeProductAnnotationProjectionQueryResultSchema>;
@@ -412,7 +374,6 @@ export type BridgeProductCallResult<TCallKind extends BridgeProductCallKind> =
 const bridgeProductSurfaceByCallKind = {
 	'file.annotations.command': 'file',
 	'file.annotations.output.inspect': 'file',
-	'file.annotations.output.candidates.query': 'file',
 	'file.annotations.projection.query': 'file',
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
@@ -425,7 +386,6 @@ const bridgeProductSurfaceByCallKind = {
 	'review.publication.applied': 'review',
 	'review.annotations.command': 'review',
 	'review.annotations.output.inspect': 'review',
-	'review.annotations.output.candidates.query': 'review',
 	'review.annotations.projection.query': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
@@ -445,12 +405,6 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 				(request) => request.surface === 'file',
 				{ message: 'File annotation projection query must remain File-surface bound.' },
 			),
-		})
-		.strict(),
-	z
-		.object({
-			method: z.literal('file.annotations.output.candidates.query'),
-			request: bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema,
 		})
 		.strict(),
 	z
@@ -533,12 +487,6 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 		.strict(),
 	z
 		.object({
-			method: z.literal('review.annotations.output.candidates.query'),
-			request: bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema,
-		})
-		.strict(),
-	z
-		.object({
 			method: z.literal('review.annotations.projection.query'),
 			request: bridgeProductAnnotationProjectionQueryRequestSchema.refine(
 				(request) => request.surface === 'review',
@@ -556,12 +504,6 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 				(result) => result.descriptor.surface === 'file',
 				{ message: 'File annotation projection descriptor must remain File-surface bound.' },
 			),
-		})
-		.strict(),
-	z
-		.object({
-			method: z.literal('file.annotations.output.candidates.query'),
-			result: bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
 		})
 		.strict(),
 	z
@@ -640,12 +582,6 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.annotations.output.inspect'),
 			result: bridgeProductReviewAnnotationOutputInspectResultSchema,
-		})
-		.strict(),
-	z
-		.object({
-			method: z.literal('review.annotations.output.candidates.query'),
-			result: bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
 		})
 		.strict(),
 	z

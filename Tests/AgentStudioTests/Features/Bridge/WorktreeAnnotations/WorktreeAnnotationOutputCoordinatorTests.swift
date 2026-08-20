@@ -351,6 +351,7 @@ private func makeCoordinatorSessionDetail(
                         savedBody: "Preserve behavior",
                         savedRevision: 1,
                         draft: nil,
+                        handled: false,
                         status: .editable
                     )
                 ]

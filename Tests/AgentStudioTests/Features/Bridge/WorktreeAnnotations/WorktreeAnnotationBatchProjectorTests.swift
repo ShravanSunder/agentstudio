@@ -184,6 +184,7 @@ private func makeBatchFixture() -> BatchFixture {
             savedBody: specification.body,
             savedRevision: 1,
             draft: nil,
+            handled: false,
             status: .editable
         )
         details.append(.init(thread: thread, messages: [message]))

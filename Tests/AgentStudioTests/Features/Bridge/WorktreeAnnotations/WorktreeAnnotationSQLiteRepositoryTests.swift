@@ -366,6 +366,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         #expect(savedRoot.savedBody == "Root draft")
         #expect(savedRoot.savedRevision == 1)
         #expect(savedRoot.draft == nil)
+        #expect(savedRoot.handled == false)
 
         detail = try repository.flushDraft(
             .init(
@@ -773,22 +774,115 @@ private func verifyFinalizedOutputLocksSavedMessage(
     )
     #expect(finalized == repeatedFinalization)
     #expect(finalized.attempt.state == .succeeded)
+    let finalizedDetail = try repository.fetchSessionDetail(sessionID: detail.session.id)
+    let outputMessage = finalizedDetail.threads.first?.messages.first
+    #expect(outputMessage?.status == .locked)
+    #expect(outputMessage?.handled == true)
     #expect(
-        try repository.fetchSessionDetail(sessionID: detail.session.id).threads.first?.messages.first?.status
-            == .locked)
+        try repository.fetchOutputHistory(sessionID: detail.session.id, limit: 10)
+            .first?.canMarkNotHandled == true
+    )
+    #expect(
+        throws: WorktreeAnnotationRepositoryError.conflict(
+            currentRevision: finalizedDetail.session.semanticRevision
+        )
+    ) {
+        try repository.clearOutputHandled(
+            attemptID: attempt.attempt.id,
+            expectedSessionRevision: finalizedDetail.session.semanticRevision - 1,
+            now: Date(timeIntervalSince1970: 9)
+        )
+    }
+    let clearedDetail = try repository.clearOutputHandled(
+        attemptID: attempt.attempt.id,
+        expectedSessionRevision: finalizedDetail.session.semanticRevision,
+        now: Date(timeIntervalSince1970: 9)
+    )
+    #expect(clearedDetail.threads.first?.messages.first?.handled == false)
+    #expect(clearedDetail.threads.first?.messages.first?.status == .locked)
+    #expect(
+        try repository.fetchOutputHistory(sessionID: detail.session.id, limit: 10)
+            .first?.canMarkNotHandled == false
+    )
+    #expect(
+        try repository.inspectOutputAttempt(attemptID: attempt.attempt.id) == finalized
+    )
+    let rehandledDetail = try verifyLaterSuccessHandlesClearedRevision(
+        repository: repository,
+        clearedDetail: clearedDetail,
+        savedMessage: savedMessage,
+        savedRevision: savedRevision,
+        priorAttemptID: attempt.attempt.id,
+        markdownPresentation: markdownPresentation
+    )
     #expect(throws: WorktreeAnnotationRepositoryError.messageLocked) {
         try repository.flushDraft(
             .init(
                 sessionID: detail.session.id,
                 messageID: savedMessage.id,
                 editToken: "editor-after-output",
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedSessionRevision: rehandledDetail.session.semanticRevision,
                 expectedDraftRevision: nil,
                 body: "Must be a new reply",
-                now: Date(timeIntervalSince1970: 9)
+                now: Date(timeIntervalSince1970: 13)
             )
         )
     }
+}
+
+private func verifyLaterSuccessHandlesClearedRevision(
+    repository: WorktreeAnnotationSQLiteRepository,
+    clearedDetail: WorktreeAnnotationSessionDetail,
+    savedMessage: WorktreeAnnotationMessage,
+    savedRevision: Int,
+    priorAttemptID: WorktreeAnnotationOutputAttemptID,
+    markdownPresentation: WorktreeAnnotationMarkdownPresentationContext
+) throws -> WorktreeAnnotationSessionDetail {
+    let repeatedClearDetail = try repository.clearOutputHandled(
+        attemptID: priorAttemptID,
+        expectedSessionRevision: clearedDetail.session.semanticRevision,
+        now: Date(timeIntervalSince1970: 10)
+    )
+    #expect(repeatedClearDetail.session.semanticRevision == clearedDetail.session.semanticRevision)
+    let repeatedAttemptID = WorktreeAnnotationOutputAttemptID.generate()
+    let repeatedSnapshot = try makeOutputSnapshot(
+        attemptID: repeatedAttemptID,
+        detail: clearedDetail,
+        messageID: savedMessage.id,
+        savedRevision: savedRevision,
+        createdAt: Date(timeIntervalSince1970: 11)
+    )
+    let repeatedBytes = WorktreeAnnotationBatchProjector.markdownData(
+        for: repeatedSnapshot,
+        presentation: markdownPresentation
+    )
+    _ = try repository.prepareOutput(
+        .init(
+            attemptID: repeatedAttemptID,
+            sessionID: clearedDetail.session.id,
+            outputKind: .clipboardMarkdown,
+            formatVersion: 1,
+            contentType: "text/markdown; charset=utf-8",
+            canonicalSnapshot: repeatedSnapshot,
+            exactBytes: repeatedBytes,
+            markdownPresentation: markdownPresentation,
+            destinationPath: nil,
+            repeatedFromAttemptID: nil,
+            selectedMessages: [
+                .init(messageID: savedMessage.id, expectedSavedRevision: savedRevision)
+            ],
+            expectedSessionRevision: repeatedClearDetail.session.semanticRevision,
+            now: Date(timeIntervalSince1970: 11)
+        )
+    )
+    _ = try repository.finalizeOutputAttempt(
+        attemptID: repeatedAttemptID,
+        eventKind: .copied,
+        now: Date(timeIntervalSince1970: 12)
+    )
+    let rehandledDetail = try repository.fetchSessionDetail(sessionID: clearedDetail.session.id)
+    #expect(rehandledDetail.threads.first?.messages.first?.handled == true)
+    return rehandledDetail
 }
 
 private func makeRepository() throws -> WorktreeAnnotationSQLiteRepository {

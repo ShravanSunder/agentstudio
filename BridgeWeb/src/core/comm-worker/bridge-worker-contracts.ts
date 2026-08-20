@@ -27,8 +27,6 @@ import {
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationCommandSchema,
 	bridgeWorkerAnnotationOutputInspectCommandSchema,
-	bridgeWorkerAnnotationOutputCandidatesPageEventSchema,
-	bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
 	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
 	bridgeWorkerAnnotationProjectionRetryCommandSchema,
@@ -356,7 +354,6 @@ export const bridgeWorkerFileViewContentMetadataSchema = z
 export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('command', [
 	bridgeWorkerAnnotationCommandSchema,
 	bridgeWorkerAnnotationOutputInspectCommandSchema,
-	bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema,
 	bridgeWorkerAnnotationProjectionRetryCommandSchema,
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
@@ -916,7 +913,6 @@ function validateBridgeWorkerPierreRenderPublicationIdentity(
 export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind', [
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
-	bridgeWorkerAnnotationOutputCandidatesPageEventSchema,
 	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
 	bridgeWorkerHealthEventSchema,
 	bridgeWorkerSlicePatchEventSchema,
@@ -934,7 +930,6 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('kind', [
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
-	bridgeWorkerAnnotationOutputCandidatesPageEventSchema,
 	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
 	bridgeWorkerHealthEventSchema,
 	bridgeWorkerSlicePatchEventSchema,

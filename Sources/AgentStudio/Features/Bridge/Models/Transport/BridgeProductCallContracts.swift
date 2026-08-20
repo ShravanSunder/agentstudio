@@ -378,7 +378,6 @@ struct BridgeProductActiveViewerModeUpdateRequest: Codable, Equatable, Sendable 
 enum BridgeProductCallRequest: Codable, Equatable, Sendable {
     case fileAnnotationsCommand(BridgeProductWorktreeAnnotationCommandRequest)
     case fileAnnotationsOutputInspect(BridgeProductAnnotationOutputInspectRequest)
-    case fileAnnotationsOutputCandidatesQuery(BridgeProductAnnotationCandidateQuery)
     case fileAnnotationsProjectionQuery(BridgeProductAnnotationProjectionQueryRequest)
     case fileSourceCurrent(BridgeProductFileSourceCurrentRequest)
     case fileRefreshRetry(BridgeProductFileRefreshRetryRequest)
@@ -391,7 +390,6 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
     case reviewPublicationApplied(BridgeProductReviewPublicationAppliedRequest)
     case reviewAnnotationsCommand(BridgeProductWorktreeAnnotationCommandRequest)
     case reviewAnnotationsOutputInspect(BridgeProductAnnotationOutputInspectRequest)
-    case reviewAnnotationsOutputCandidatesQuery(BridgeProductAnnotationCandidateQuery)
     case reviewAnnotationsProjectionQuery(BridgeProductAnnotationProjectionQueryRequest)
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
@@ -403,7 +401,6 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         switch self {
         case .fileAnnotationsCommand: "file.annotations.command"
         case .fileAnnotationsOutputInspect: "file.annotations.output.inspect"
-        case .fileAnnotationsOutputCandidatesQuery: "file.annotations.output.candidates.query"
         case .fileAnnotationsProjectionQuery: "file.annotations.projection.query"
         case .fileSourceCurrent: "file.source.current"
         case .fileRefreshRetry: "file.refresh.retry"
@@ -416,14 +413,13 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         case .reviewPublicationApplied: "review.publication.applied"
         case .reviewAnnotationsCommand: "review.annotations.command"
         case .reviewAnnotationsOutputInspect: "review.annotations.output.inspect"
-        case .reviewAnnotationsOutputCandidatesQuery: "review.annotations.output.candidates.query"
         case .reviewAnnotationsProjectionQuery: "review.annotations.projection.query"
         }
     }
 
     var surface: BridgeProductSurface {
         switch self {
-        case .fileAnnotationsCommand, .fileAnnotationsOutputInspect, .fileAnnotationsOutputCandidatesQuery,
+        case .fileAnnotationsCommand, .fileAnnotationsOutputInspect,
             .fileAnnotationsProjectionQuery,
             .fileSourceCurrent,
             .fileRefreshRetry,
@@ -432,7 +428,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewComparisonTargetsQuery, .reviewIntakeReady,
             .reviewMarkFileViewed,
             .reviewPublicationApplied, .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
-            .reviewAnnotationsOutputCandidatesQuery, .reviewAnnotationsProjectionQuery:
+            .reviewAnnotationsProjectionQuery:
             .review
         }
     }
@@ -471,13 +467,6 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
             return .fileAnnotationsOutputInspect(
                 try container.decode(
                     BridgeProductAnnotationOutputInspectRequest.self,
-                    forKey: .request
-                )
-            )
-        case "file.annotations.output.candidates.query":
-            return .fileAnnotationsOutputCandidatesQuery(
-                try container.decode(
-                    BridgeProductAnnotationCandidateQuery.self,
                     forKey: .request
                 )
             )
@@ -563,13 +552,6 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
                     forKey: .request
                 )
             )
-        case "review.annotations.output.candidates.query":
-            return .reviewAnnotationsOutputCandidatesQuery(
-                try container.decode(
-                    BridgeProductAnnotationCandidateQuery.self,
-                    forKey: .request
-                )
-            )
         case "review.annotations.projection.query":
             let request = try container.decode(
                 BridgeProductAnnotationProjectionQueryRequest.self,
@@ -607,9 +589,6 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         case .fileAnnotationsOutputInspect(let request),
             .reviewAnnotationsOutputInspect(let request):
             try container.encode(request, forKey: .request)
-        case .fileAnnotationsOutputCandidatesQuery(let request),
-            .reviewAnnotationsOutputCandidatesQuery(let request):
-            try container.encode(request, forKey: .request)
         case .fileAnnotationsProjectionQuery(let request),
             .reviewAnnotationsProjectionQuery(let request):
             try container.encode(request, forKey: .request)
@@ -637,7 +616,6 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
 enum BridgeProductCallResult: Codable, Equatable, Sendable {
     case fileAnnotationsCommand(BridgeProductWorktreeAnnotationCommandResult)
     case fileAnnotationsOutputInspect(BridgeProductWorktreeAnnotationOutputInspectResult)
-    case fileAnnotationsOutputCandidatesQuery(BridgeProductAnnotationCandidatePageDTO)
     case fileAnnotationsProjectionQuery(BridgeProductAnnotationProjectionQueryResult)
     case fileSourceCurrent(BridgeProductFileSourceCurrentResult)
     case fileRefreshRetry
@@ -650,7 +628,6 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
     case reviewPublicationApplied
     case reviewAnnotationsCommand(BridgeProductWorktreeAnnotationCommandResult)
     case reviewAnnotationsOutputInspect(BridgeProductWorktreeAnnotationOutputInspectResult)
-    case reviewAnnotationsOutputCandidatesQuery(BridgeProductAnnotationCandidatePageDTO)
     case reviewAnnotationsProjectionQuery(BridgeProductAnnotationProjectionQueryResult)
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
@@ -662,7 +639,6 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         switch self {
         case .fileAnnotationsCommand: "file.annotations.command"
         case .fileAnnotationsOutputInspect: "file.annotations.output.inspect"
-        case .fileAnnotationsOutputCandidatesQuery: "file.annotations.output.candidates.query"
         case .fileAnnotationsProjectionQuery: "file.annotations.projection.query"
         case .fileSourceCurrent: "file.source.current"
         case .fileRefreshRetry: "file.refresh.retry"
@@ -675,14 +651,13 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         case .reviewPublicationApplied: "review.publication.applied"
         case .reviewAnnotationsCommand: "review.annotations.command"
         case .reviewAnnotationsOutputInspect: "review.annotations.output.inspect"
-        case .reviewAnnotationsOutputCandidatesQuery: "review.annotations.output.candidates.query"
         case .reviewAnnotationsProjectionQuery: "review.annotations.projection.query"
         }
     }
 
     var surface: BridgeProductSurface {
         switch self {
-        case .fileAnnotationsCommand, .fileAnnotationsOutputInspect, .fileAnnotationsOutputCandidatesQuery,
+        case .fileAnnotationsCommand, .fileAnnotationsOutputInspect,
             .fileAnnotationsProjectionQuery,
             .fileSourceCurrent,
             .fileRefreshRetry,
@@ -691,7 +666,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewComparisonTargetsQuery, .reviewIntakeReady,
             .reviewMarkFileViewed,
             .reviewPublicationApplied, .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
-            .reviewAnnotationsOutputCandidatesQuery, .reviewAnnotationsProjectionQuery:
+            .reviewAnnotationsProjectionQuery:
             .review
         }
     }
@@ -726,13 +701,6 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         case "file.annotations.output.inspect":
             return .fileAnnotationsOutputInspect(
                 try Self.decodeOutputInspection(from: container, surface: .file, decoder: decoder)
-            )
-        case "file.annotations.output.candidates.query":
-            return .fileAnnotationsOutputCandidatesQuery(
-                try container.decode(
-                    BridgeProductAnnotationCandidatePageDTO.self,
-                    forKey: .result
-                )
             )
         case "file.annotations.projection.query":
             return .fileAnnotationsProjectionQuery(
@@ -817,13 +785,6 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
             return .reviewAnnotationsOutputInspect(
                 try Self.decodeOutputInspection(from: container, surface: .review, decoder: decoder)
             )
-        case "review.annotations.output.candidates.query":
-            return .reviewAnnotationsOutputCandidatesQuery(
-                try container.decode(
-                    BridgeProductAnnotationCandidatePageDTO.self,
-                    forKey: .result
-                )
-            )
         case "review.annotations.projection.query":
             return .reviewAnnotationsProjectionQuery(
                 try Self.decodeProjectionQuery(from: container, surface: .review, decoder: decoder)
@@ -889,9 +850,6 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
             try container.encode(result, forKey: .result)
         case .fileAnnotationsOutputInspect(let result),
             .reviewAnnotationsOutputInspect(let result):
-            try container.encode(result, forKey: .result)
-        case .fileAnnotationsOutputCandidatesQuery(let result),
-            .reviewAnnotationsOutputCandidatesQuery(let result):
             try container.encode(result, forKey: .result)
         case .fileAnnotationsProjectionQuery(let result),
             .reviewAnnotationsProjectionQuery(let result):

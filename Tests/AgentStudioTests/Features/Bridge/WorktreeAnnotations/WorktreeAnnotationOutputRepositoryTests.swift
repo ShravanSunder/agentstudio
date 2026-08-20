@@ -238,79 +238,66 @@ struct WorktreeAnnotationOutputRepositoryTests {
         #expect(history.first?.attemptID == repeated.attempt.id)
         #expect(history.first?.state == .unknown)
         #expect(history.first?.messageCount == 1)
+        #expect(history.first?.canMarkNotHandled == false)
         #expect(history.first?.attemptID != cancelled.attempt.id)
     }
 
-    @Test("candidate pages are revision-fenced, bounded, and distinguish same-thread messages")
-    func candidatePagesAreBoundedAndRevisionFenced() throws {
+    @Test("finalization failure locks exact membership without handling or an output event")
+    func finalizationFailureLocksWithoutHandling() throws {
         let fixture = try makeOutputRepositoryFixture()
-        let threadID = try #require(fixture.detail.threads.first?.thread.id)
-        var detail = try fixture.repository.createReplyDraft(
-            .init(
-                sessionID: fixture.detail.session.id,
-                threadID: threadID,
-                expectedSessionRevision: fixture.detail.session.semanticRevision,
-                body: "## Second request\n\nUse a separate owner.",
-                editToken: "reply-candidate",
+        let prepared = try fixture.repository.prepareOutput(fixture.prepareProps())
+
+        let failed = try fixture.repository.markOutputAttemptFinalizationFailed(
+            attemptID: prepared.attempt.id,
+            cleanupError: "forced finalization failure",
+            now: Date(timeIntervalSince1970: 4)
+        )
+
+        let message = try #require(
+            fixture.repository.fetchSessionDetail(sessionID: fixture.detail.session.id)
+                .threads.first?.messages.first
+        )
+        #expect(failed.attempt.state == .finalizationFailed)
+        #expect(failed.event == nil)
+        #expect(message.status == .locked)
+        #expect(message.handled == false)
+        #expect(
+            try fixture.repository.fetchOutputHistory(sessionID: fixture.detail.session.id, limit: 10)
+                .first?.canMarkNotHandled == false
+        )
+    }
+
+    @Test("unknown recovery locks exact membership without handling or replay evidence")
+    func unknownRecoveryLocksWithoutHandling() throws {
+        let fixture = try makeOutputRepositoryFixture()
+        let prepared = try fixture.repository.prepareOutput(fixture.prepareProps())
+
+        #expect(
+            try fixture.repository.markPreparedOutputAttemptsUnknown(
                 now: Date(timeIntervalSince1970: 4)
-            )
-        )
-        let reply = try #require(detail.threads.first?.messages.last)
-        detail = try fixture.repository.saveDraft(
-            .init(
-                sessionID: detail.session.id,
-                messageID: reply.id,
-                editToken: "reply-candidate",
-                expectedSessionRevision: detail.session.semanticRevision,
-                expectedDraftRevision: try #require(reply.draft?.draftRevision),
-                now: Date(timeIntervalSince1970: 5)
-            )
-        )
-
-        let first = try fixture.repository.fetchOutputCandidates(
-            sessionID: detail.session.id,
-            expectedSessionRevision: detail.session.semanticRevision,
-            cursor: nil,
-            limit: 1
-        )
-        let firstCursor = try #require(first.nextCursor)
-        let second = try fixture.repository.fetchOutputCandidates(
-            sessionID: detail.session.id,
-            expectedSessionRevision: detail.session.semanticRevision,
-            cursor: firstCursor,
-            limit: 1
-        )
-
-        #expect(first.eligibleMessageCount == 2)
-        #expect(first.candidates.count == 1)
-        #expect(second.candidates.count == 1)
-        #expect(first.candidates[0].threadID == second.candidates[0].threadID)
-        #expect(first.candidates[0].flatOrdinal == 0)
-        #expect(second.candidates[0].flatOrdinal == 1)
-        #expect(first.candidates[0].savedBodyPrefix != second.candidates[0].savedBodyPrefix)
-        #expect(second.nextCursor == nil)
-
-        _ = try fixture.repository.createReplyDraft(
-            .init(
-                sessionID: detail.session.id,
-                threadID: threadID,
-                expectedSessionRevision: detail.session.semanticRevision,
-                body: "Newly ineligible draft",
-                editToken: "reply-stale",
-                now: Date(timeIntervalSince1970: 6)
-            )
+            ) == 1
         )
         #expect(
-            throws: WorktreeAnnotationRepositoryError.conflict(currentRevision: detail.session.semanticRevision + 1)
-        ) {
-            try fixture.repository.fetchOutputCandidates(
-                sessionID: detail.session.id,
-                expectedSessionRevision: detail.session.semanticRevision,
-                cursor: nil,
-                limit: 1
-            )
-        }
+            try fixture.repository.markPreparedOutputAttemptsUnknown(
+                now: Date(timeIntervalSince1970: 5)
+            ) == 0
+        )
+
+        let recovered = try fixture.repository.inspectOutputAttempt(attemptID: prepared.attempt.id)
+        let message = try #require(
+            fixture.repository.fetchSessionDetail(sessionID: fixture.detail.session.id)
+                .threads.first?.messages.first
+        )
+        #expect(recovered.attempt.state == .unknown)
+        #expect(recovered.event == nil)
+        #expect(message.status == .locked)
+        #expect(message.handled == false)
+        #expect(
+            try fixture.repository.fetchOutputHistory(sessionID: fixture.detail.session.id, limit: 10)
+                .first?.canMarkNotHandled == false
+        )
     }
+
 }
 
 private struct OutputRepositoryFixture {

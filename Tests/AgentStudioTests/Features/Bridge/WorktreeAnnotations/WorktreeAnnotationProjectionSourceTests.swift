@@ -383,6 +383,7 @@ private func projectionDetail(
             savedBody: body,
             savedRevision: 1,
             draft: nil,
+            handled: false,
             status: .editable
         )
     }

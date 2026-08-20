@@ -516,7 +516,6 @@ function handleBridgeWorkerCommand(
 					: { scheduleDemandExecution: props.scheduleDemandExecution }),
 			});
 		case 'annotationOutputInspect':
-		case 'annotationOutputCandidatesQuery':
 			return [];
 		case 'annotationProjectionRetry':
 			props.retryAnnotationProjection?.(props.message.surface === 'fileView' ? 'file' : 'review');

@@ -355,48 +355,33 @@ struct WorktreeAnnotationTransportAdapterTests {
         defer { try? FileManager.default.removeItem(at: harness.root) }
         let savedFixture = try await prepareSavedOutputCommandFixture(harness: harness)
         let sessionID = savedFixture.sessionID
-        let savedMessage = savedFixture.message
         let outputCorrelation = try makeAnnotationCorrelation(requestID: "annotation-output-prepare")
+        let projection = try await harness.store.captureProjection(
+            worktreeID: "worktree-1",
+            demandedSessionIDs: [sessionID]
+        )
+        let sessionRevision = try #require(projection.repositorySnapshot.details.first?.session.semanticRevision)
 
         // Act
-        let transferID = "annotation-output-transfer-1"
-        var exactOutcome: BridgeProductWorktreeAnnotationCommandOutcomeDTO?
-        for (requestID, operation) in [
-            (
-                "annotation-output-begin",
+        let exactOutcome = await harness.adapter.apply(
+            try decodeAnnotationCommand(
                 """
-                { "kind": "output.selection.begin", "outputKind": "clipboardMarkdown",
-                  "selectionMode": "explicit", "sessionId": "\(sessionID.rawValue.uuidString.lowercased())",
-                  "transferId": "\(transferID)" }
-                """
-            ),
-            (
-                "annotation-output-chunk",
-                """
-                { "kind": "output.selection.chunk",
-                  "messageIds": ["\(savedMessage.id.rawValue.uuidString.lowercased())"], "ordinal": 0,
-                  "selectionMode": "explicit", "sessionId": "\(sessionID.rawValue.uuidString.lowercased())",
-                  "transferId": "\(transferID)" }
+                { "operation": {
+                  "displayedProjectionRevision": \(projection.revision),
+                  "expectedSessionRevision": \(sessionRevision),
+                  "kind": "output.scope.commit", "outputKind": "clipboardMarkdown",
+                  "scope": "new", "sessionId": "\(sessionID.rawValue.uuidString.lowercased())",
+                  "sourceGeneration": 7
+                } }
                 """
             ),
-            (
-                outputCorrelation.requestId,
-                """
-                { "kind": "output.selection.commit", "selectionMode": "explicit",
-                  "sessionId": "\(sessionID.rawValue.uuidString.lowercased())", "transferId": "\(transferID)" }
-                """
-            ),
-        ] {
-            exactOutcome = await harness.adapter.apply(
-                try decodeAnnotationCommand("{ \"operation\": \(operation) }"),
-                surface: .file,
-                correlation: try makeAnnotationCorrelation(requestID: requestID),
-                productAdmission: harness.productAdmission
-            )
-        }
+            surface: .file,
+            correlation: outputCorrelation,
+            productAdmission: harness.productAdmission
+        )
 
         // Assert
-        let outcome = try #require(exactOutcome)
+        let outcome = exactOutcome
         guard case .output(.succeeded(let summary)) = outcome.status else {
             Issue.record("Expected typed successful output outcome, got \(outcome.status)")
             return
@@ -415,10 +400,37 @@ struct WorktreeAnnotationTransportAdapterTests {
         #expect(persistedOutput.attempt.exactBytes == effectRequest.exactBytes)
         #expect(effectText.contains("Sources/Example.swift"))
         #expect(effectText.contains("Location: lines 2–3"))
+        let handledDetail = try await persistedDetail(sessionID: sessionID, harness: harness)
+        #expect(handledDetail.threads.first?.messages.first?.handled == true)
+        #expect(handledDetail.threads.first?.messages.first?.status == .locked)
+
+        let clearOutcome = await harness.adapter.apply(
+            try decodeAnnotationCommand(
+                """
+                { "operation": {
+                  "attemptId": "\(summary.attemptId.uuidString.lowercased())",
+                  "expectedSessionRevision": \(handledDetail.session.semanticRevision),
+                  "kind": "output.handled.clear"
+                } }
+                """
+            ),
+            surface: .file,
+            correlation: try makeAnnotationCorrelation(requestID: "annotation-output-unhandle"),
+            productAdmission: harness.productAdmission
+        )
+        #expect(clearOutcome.status == .committed)
+        #expect(await outputEffect.requests.count == 1)
+        let clearedDetail = try await persistedDetail(sessionID: sessionID, harness: harness)
+        #expect(clearedDetail.threads.first?.messages.first?.handled == false)
+        #expect(clearedDetail.threads.first?.messages.first?.status == .locked)
+        #expect(
+            try await harness.store.fetchOutputHistory(sessionID: sessionID, limit: 10)
+                .first?.canMarkNotHandled == false
+        )
     }
 
-    @Test("130 eligible messages preserve the middle 65 through explicit and complementary all-eligible transfers")
-    func arbitraryOutputSelectionPreservesCanonicalMembership() async throws {
+    @Test("New and All output complete saved-message scopes without selection chunks")
+    func outputScopesPreserveCanonicalMembership() async throws {
         let outputEffect = TransportTestOutputEffect(outcome: .failed("proof effect"))
         let harness = try await makeTransportAdapterHarness(outputEffect: outputEffect)
         defer { try? FileManager.default.removeItem(at: harness.root) }
@@ -451,31 +463,71 @@ struct WorktreeAnnotationTransportAdapterTests {
         }
         let orderedMessageIDs = try #require(detail.threads.first).messages.map(\.id)
         #expect(orderedMessageIDs.count == 130)
-        let middle = Array(orderedMessageIDs[32..<97])
-        let complement = orderedMessageIDs.filter { !Set(middle).contains($0) }
-
-        try await executeOutputTransfer(
+        try await executeOutputScope(
             harness: harness,
-            messageIDs: middle,
-            mode: .explicit,
+            scope: .new,
             sessionID: detail.session.id,
-            transferID: "middle-explicit"
+            requestID: "new-scope"
         )
-        try await executeOutputTransfer(
+        try await executeOutputScope(
             harness: harness,
-            messageIDs: complement,
-            mode: .allEligible,
+            scope: .all,
             sessionID: detail.session.id,
-            transferID: "complement-excluded"
+            requestID: "all-scope"
         )
 
         let requests = await outputEffect.requests
         #expect(requests.count == 2)
         for request in requests {
             let snapshot = try WorktreeAnnotationBatchProjector.decodeJSON(request.exactBytes)
-            #expect(snapshot.entries.map(\.messageID) == middle)
-            #expect(snapshot.entries.map(\.batchOrdinal) == Array(0..<65))
+            #expect(snapshot.entries.map(\.messageID) == orderedMessageIDs)
+            #expect(snapshot.entries.map(\.batchOrdinal) == Array(0..<130))
         }
+    }
+
+    @Test("stale displayed output scope conflicts without an effect or durable transition")
+    func staleDisplayedOutputScopeHasNoEffect() async throws {
+        let outputEffect = TransportTestOutputEffect(outcome: .succeeded)
+        let harness = try await makeTransportAdapterHarness(outputEffect: outputEffect)
+        defer { try? FileManager.default.removeItem(at: harness.root) }
+        let savedFixture = try await prepareSavedOutputCommandFixture(harness: harness)
+        let projection = try await harness.store.captureProjection(
+            worktreeID: "worktree-1",
+            demandedSessionIDs: [savedFixture.sessionID]
+        )
+        let sessionRevision = try #require(
+            projection.repositorySnapshot.details.first?.session.semanticRevision
+        )
+
+        let outcome = await harness.adapter.apply(
+            try decodeAnnotationCommand(
+                """
+                { "operation": {
+                  "displayedProjectionRevision": \(projection.revision + 1),
+                  "expectedSessionRevision": \(sessionRevision),
+                  "kind": "output.scope.commit", "outputKind": "clipboardMarkdown",
+                  "scope": "new",
+                  "sessionId": "\(savedFixture.sessionID.rawValue.uuidString.lowercased())",
+                  "sourceGeneration": 7
+                } }
+                """
+            ),
+            surface: .file,
+            correlation: try makeAnnotationCorrelation(requestID: "stale-output-scope"),
+            productAdmission: harness.productAdmission
+        )
+
+        #expect(outcome.status == .failed(.conflict))
+        #expect(await outputEffect.requests.isEmpty)
+        #expect(
+            try await harness.store.fetchOutputHistory(
+                sessionID: savedFixture.sessionID,
+                limit: 10
+            ).isEmpty
+        )
+        let persisted = try await persistedDetail(sessionID: savedFixture.sessionID, harness: harness)
+        #expect(persisted.threads.first?.messages.first?.status == .editable)
+        #expect(persisted.threads.first?.messages.first?.handled == false)
     }
 }
 
@@ -527,46 +579,36 @@ private func prepareSavedOutputCommandFixture(
 }
 
 @MainActor
-private func executeOutputTransfer(
+private func executeOutputScope(
     harness: WorktreeAnnotationTransportAdapterHarness,
-    messageIDs: [WorktreeAnnotationMessageID],
-    mode: BridgeProductWorktreeAnnotationOperation.OutputSelectionMode,
+    scope: BridgeProductWorktreeAnnotationOperation.OutputScope,
     sessionID: WorktreeAnnotationSessionID,
-    transferID: String
+    requestID: String
 ) async throws {
     let sessionIDString = sessionID.rawValue.uuidString.lowercased()
-    let outputKind = "jsonFile"
-    let operations: [String] =
-        [
+    let projection = try await harness.store.captureProjection(
+        worktreeID: "worktree-1",
+        demandedSessionIDs: [sessionID]
+    )
+    let sessionRevision = try #require(
+        projection.repositorySnapshot.details.first?.session.semanticRevision
+    )
+    _ = await harness.adapter.apply(
+        try decodeAnnotationCommand(
             """
-            { "kind": "output.selection.begin", "outputKind": "\(outputKind)",
-              "selectionMode": "\(mode.rawValue)", "sessionId": "\(sessionIDString)",
-              "transferId": "\(transferID)" }
+            { "operation": {
+              "displayedProjectionRevision": \(projection.revision),
+              "expectedSessionRevision": \(sessionRevision),
+              "kind": "output.scope.commit", "outputKind": "jsonFile",
+              "scope": "\(scope.rawValue)", "sessionId": "\(sessionIDString)",
+              "sourceGeneration": 7
+            } }
             """
-        ]
-        + stride(from: 0, to: messageIDs.count, by: 64).enumerated().map { ordinal, offset in
-            let ids = messageIDs[offset..<min(offset + 64, messageIDs.count)]
-                .map { "\"\($0.rawValue.uuidString.lowercased())\"" }
-                .joined(separator: ",")
-            return """
-                { "kind": "output.selection.chunk", "messageIds": [\(ids)], "ordinal": \(ordinal),
-                  "selectionMode": "\(mode.rawValue)", "sessionId": "\(sessionIDString)",
-                  "transferId": "\(transferID)" }
-                """
-        } + [
-            """
-            { "kind": "output.selection.commit", "selectionMode": "\(mode.rawValue)",
-              "sessionId": "\(sessionIDString)", "transferId": "\(transferID)" }
-            """
-        ]
-    for (index, operation) in operations.enumerated() {
-        _ = await harness.adapter.apply(
-            try decodeAnnotationCommand("{ \"operation\": \(operation) }"),
-            surface: .file,
-            correlation: try makeAnnotationCorrelation(requestID: "\(transferID)-\(index)"),
-            productAdmission: harness.productAdmission
-        )
-    }
+        ),
+        surface: .file,
+        correlation: try makeAnnotationCorrelation(requestID: requestID),
+        productAdmission: harness.productAdmission
+    )
 }
 
 private struct TransportOutputHistoryFixture {
@@ -602,6 +644,10 @@ private func prepareTransportOutputHistoryFixture(
         worktreeLabel: "worktree-1",
         comparisonLabel: nil
     )
+    let projection = try await harness.store.captureProjection(
+        worktreeID: "worktree-1",
+        demandedSessionIDs: [savedMessage.detail.session.id]
+    )
     _ = try await harness.store.prepareOutput(
         .init(
             attemptID: attemptID,
@@ -618,6 +664,8 @@ private func prepareTransportOutputHistoryFixture(
             destinationPath: nil,
             repeatedFromAttemptID: nil,
             selectedMessages: selectedMessages,
+            expectedSessionRevision: savedMessage.detail.session.semanticRevision,
+            expectedProjectionRevision: projection.revision,
             now: Date(timeIntervalSince1970: 102)
         )
     )
@@ -763,7 +811,8 @@ private func makeTransportAdapterHarness(
                     )
                 ])
             )
-        }
+        },
+        currentSourceGeneration: { _, _ in 7 }
     )
     let outputCoordinator = outputEffect.map {
         WorktreeAnnotationOutputCoordinatorActor(

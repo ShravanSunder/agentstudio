@@ -79,6 +79,12 @@ package enum WorkspaceLocalMigrations {
                 try database.execute(sql: statement)
             }
         }
+        migrator.registerMigration("006_add_worktree_annotation_message_handled") { database in
+            try database.execute(
+                sql:
+                    "ALTER TABLE annotation_message ADD COLUMN handled INTEGER NOT NULL DEFAULT 0 CHECK (handled IN (0, 1))"
+            )
+        }
         return migrator
     }
 

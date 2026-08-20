@@ -1,4 +1,3 @@
-import { runBridgeCommWorkerAnnotationOutputCandidatesQuery } from './bridge-comm-worker-annotation-output-candidates-query.js';
 import { runBridgeCommWorkerAnnotationOutputInspection } from './bridge-comm-worker-annotation-output-inspection.js';
 import {
 	bridgeCommWorkerAnnotationCommandAcceptedEvent,
@@ -888,16 +887,6 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					port.postMessage(inspection.message, [...inspection.transferList]);
 				},
 				productTransport,
-				signal: panePresentationAuthority.workSignal,
-				timeoutMilliseconds: productControlTimeoutMilliseconds,
-			});
-		}
-		if (parsedMessage.data.command === 'annotationOutputCandidatesQuery' && messages.length === 0) {
-			runBridgeCommWorkerAnnotationOutputCandidatesQuery({
-				command: parsedMessage.data,
-				productTransport,
-				publishFailure: (failure): void => port.postMessage(failure),
-				publishPage: (page): void => port.postMessage(page),
 				signal: panePresentationAuthority.workSignal,
 				timeoutMilliseconds: productControlTimeoutMilliseconds,
 			});

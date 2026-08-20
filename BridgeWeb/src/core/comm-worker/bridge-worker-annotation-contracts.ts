@@ -6,8 +6,6 @@ import { bridgeProductIdentifierSchema } from './bridge-product-contract-primiti
 import { bridgeProductWorktreeAnnotationCommandOutcomeSchema } from './bridge-product-worktree-annotation-contracts.js';
 import {
 	bridgeProductAnnotationOutputContentDescriptorSchema,
-	bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
-	bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema,
 	bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
 } from './bridge-product-worktree-annotation-output-contracts.js';
 import {
@@ -32,15 +30,6 @@ export const bridgeWorkerAnnotationOutputInspectCommandSchema = bridgeWorkerMain
 		surface: bridgeWorkerInteractionSurfaceSchema,
 	})
 	.strict();
-
-export const bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema =
-	bridgeWorkerMainToServerBaseSchema
-		.extend({
-			command: z.literal('annotationOutputCandidatesQuery'),
-			query: bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema,
-			surface: bridgeWorkerInteractionSurfaceSchema,
-		})
-		.strict();
 
 export const bridgeWorkerAnnotationProjectionRetryCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
@@ -124,31 +113,15 @@ export const bridgeWorkerAnnotationOutputInspectionEventSchema = bridgeWorkerSer
 		}
 	});
 
-export const bridgeWorkerAnnotationOutputCandidatesPageEventSchema =
-	bridgeWorkerServerToMainBaseSchema
-		.extend({
-			kind: z.literal('annotationOutputCandidatesPage'),
-			page: bridgeProductWorktreeAnnotationOutputCandidatePageSchema,
-			requestId: bridgeWorkerRequestIdSchema,
-			surface: bridgeWorkerInteractionSurfaceSchema,
-		})
-		.strict();
-
 export type BridgeWorkerAnnotationCommand = z.infer<typeof bridgeWorkerAnnotationCommandSchema>;
 export type BridgeWorkerAnnotationOutputInspectCommand = z.infer<
 	typeof bridgeWorkerAnnotationOutputInspectCommandSchema
->;
-export type BridgeWorkerAnnotationOutputCandidatesQueryCommand = z.infer<
-	typeof bridgeWorkerAnnotationOutputCandidatesQueryCommandSchema
 >;
 export type BridgeWorkerAnnotationProjectionRetryCommand = z.infer<
 	typeof bridgeWorkerAnnotationProjectionRetryCommandSchema
 >;
 export type BridgeWorkerAnnotationOutputInspectionEvent = z.infer<
 	typeof bridgeWorkerAnnotationOutputInspectionEventSchema
->;
-export type BridgeWorkerAnnotationOutputCandidatesPageEvent = z.infer<
-	typeof bridgeWorkerAnnotationOutputCandidatesPageEventSchema
 >;
 export type BridgeWorkerAnnotationCommandAcceptedEvent = z.infer<
 	typeof bridgeWorkerAnnotationCommandAcceptedEventSchema

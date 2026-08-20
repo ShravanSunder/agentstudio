@@ -63,9 +63,9 @@ final class BridgePaneProductCommittedCallTarget {
         let update: BridgeProductActiveViewerModeUpdateRequest
         switch call {
         case .fileAnnotationsCommand, .fileAnnotationsOutputInspect,
-            .fileAnnotationsOutputCandidatesQuery, .fileAnnotationsProjectionQuery,
+            .fileAnnotationsProjectionQuery,
             .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
-            .reviewAnnotationsOutputCandidatesQuery, .reviewAnnotationsProjectionQuery,
+            .reviewAnnotationsProjectionQuery,
             .fileSourceCurrent, .fileRefreshRetry:
             return
         case .fileActiveViewerModeUpdate(let request):
@@ -532,9 +532,6 @@ extension BridgePaneController {
                 input,
                 fileMetadataSource: fileMetadataSource
             ),
-            queryWorktreeAnnotationOutputCandidates: makeWorktreeAnnotationOutputCandidateQueryHandler(
-                input
-            ),
             authorizeReviewComparisonTargets: makeReviewComparisonTargetsAuthorization(input),
             reviewComparisonTargetCatalogProducer: BridgeReviewComparisonTargetCatalogProducer(
                 reviewSourceProvider: input.reviewSourceProvider,
@@ -727,39 +724,6 @@ extension BridgePaneController {
                 surface: surface,
                 correlation: correlation,
                 productAdmission: productAdmission
-            )
-        }
-    }
-
-    private static func makeWorktreeAnnotationOutputCandidateQueryHandler(
-        _ input: BridgeProductSessionDependencyInput
-    )
-        -> @MainActor @Sendable (
-            BridgeProductAnnotationCandidateQuery,
-            BridgeProductSurface,
-            [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
-        ) async throws -> WorktreeAnnotationOutputCandidatePage
-    {
-        guard let store = input.worktreeAnnotationStore else {
-            return { _, _, _ in throw WorktreeAnnotationServiceError.unavailable }
-        }
-        return { request, _, placements in
-            let cursor: WorktreeAnnotationOutputCandidateCursor? =
-                switch request.cursor {
-                case .start:
-                    nil
-                case .after(let flatOrdinal, let messageID):
-                    .init(
-                        flatOrdinal: flatOrdinal,
-                        messageID: .init(rawValue: messageID)
-                    )
-                }
-            return try await store.fetchOutputCandidates(
-                sessionID: .init(rawValue: request.sessionId),
-                expectedSessionRevision: request.expectedSessionRevision,
-                cursor: cursor,
-                limit: request.limit,
-                placementsByThreadID: placements
             )
         }
     }

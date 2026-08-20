@@ -96,34 +96,4 @@ extension BridgeDevelopmentProductHost {
         }
     }
 
-    @MainActor
-    static func makeWorktreeAnnotationOutputCandidateQueryHandler(
-        _ dependencies: WorktreeAnnotationCommandHandlerDependencies
-    )
-        -> @MainActor @Sendable (
-            BridgeProductAnnotationCandidateQuery,
-            BridgeProductSurface,
-            [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
-        ) async throws -> WorktreeAnnotationOutputCandidatePage
-    {
-        guard let store = dependencies.store else {
-            return { _, _, _ in throw WorktreeAnnotationServiceError.unavailable }
-        }
-        return { request, _, placements in
-            let cursor: WorktreeAnnotationOutputCandidateCursor? =
-                switch request.cursor {
-                case .start:
-                    nil
-                case .after(let flatOrdinal, let messageID):
-                    .init(flatOrdinal: flatOrdinal, messageID: .init(rawValue: messageID))
-                }
-            return try await store.fetchOutputCandidates(
-                sessionID: .init(rawValue: request.sessionId),
-                expectedSessionRevision: request.expectedSessionRevision,
-                cursor: cursor,
-                limit: request.limit,
-                placementsByThreadID: placements
-            )
-        }
-    }
 }

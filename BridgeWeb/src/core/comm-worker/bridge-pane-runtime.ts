@@ -365,7 +365,6 @@ function bridgePaneReplacementReplayIdentity(
 		case 'metadataInterestUpdate':
 			return { key: `review:interest:${command.request.lane}`, priority: 50 };
 		case 'annotationCommand':
-		case 'annotationOutputCandidatesQuery':
 		case 'annotationOutputInspect':
 		case 'annotationProjectionRetry':
 		case 'fileDisplayResync':

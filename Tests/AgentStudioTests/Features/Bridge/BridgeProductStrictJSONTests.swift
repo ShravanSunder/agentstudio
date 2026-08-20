@@ -126,6 +126,26 @@ struct BridgeProductStrictJSONTests {
         )
     }
 
+    @Test("strict product decoding accepts encoded annotation handled members")
+    func acceptsEncodedAnnotationHandledMembers() throws {
+        let detail = try makeCommittedDetail()
+        let thread = try #require(detail.threads.first?.thread)
+        let message = try #require(detail.threads.first?.messages.first)
+        let value = try BridgeProductWorktreeAnnotationMessageEntry(
+            message: message,
+            session: detail.session,
+            thread: thread
+        )
+        let encoded = try JSONEncoder().encode(value)
+
+        #expect(
+            try BridgeProductStrictJSON.decode(
+                BridgeProductWorktreeAnnotationMessageEntry.self,
+                from: encoded
+            ) == value
+        )
+    }
+
     private func fixtureCorpus() throws -> StrictJSONCorpus {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let fixtureURL = projectRoot.appending(

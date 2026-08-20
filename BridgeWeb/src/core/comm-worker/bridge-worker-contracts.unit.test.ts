@@ -168,56 +168,6 @@ describe('BridgeWorkerContracts', () => {
 		}
 	});
 
-	test('carries a strict bounded annotation output candidate query outside projection events', () => {
-		const command = {
-			command: 'annotationOutputCandidatesQuery',
-			direction: 'mainToServerWorker',
-			epoch: 3,
-			kind: 'command',
-			query: {
-				cursor: { kind: 'start' },
-				expectedSessionRevision: 4,
-				limit: 16,
-				sessionId: '00000000-0000-7000-8000-000000000011',
-			},
-			requestId: 'annotation-output-candidates-request-1',
-			surface: 'review',
-			transferDescriptors: [],
-			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-		} as const;
-		const page = {
-			direction: 'serverWorkerToMain',
-			kind: 'annotationOutputCandidatesPage',
-			page: {
-				candidates: [],
-				eligibleMessageCount: 0,
-				eligibleWithoutInlinePlacementCount: 0,
-				nextCursor: null,
-				sessionId: command.query.sessionId,
-				sessionRevision: 4,
-			},
-			requestId: command.requestId,
-			surface: command.surface,
-			transferDescriptors: [],
-			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-		} as const;
-
-		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
-		expect(bridgeWorkerServerToMainMessageSchema.parse(page)).toEqual(page);
-		expect(
-			bridgeWorkerMainToServerMessageSchema.safeParse({
-				...command,
-				query: { ...command.query, limit: 17 },
-			}).success,
-		).toBe(false);
-		expect(
-			bridgeWorkerServerToMainMessageSchema.safeParse({
-				...page,
-				page: { ...page.page, unexpected: true },
-			}).success,
-		).toBe(false);
-	});
-
 	test('requires selection identity and source to be cleared together', () => {
 		// Arrange
 		const selectionCommand = {

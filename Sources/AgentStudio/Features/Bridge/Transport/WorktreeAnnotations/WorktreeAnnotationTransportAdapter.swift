@@ -34,6 +34,43 @@ struct WorktreeAnnotationSourceResolver: Sendable {
             BridgeProductAdmissionContext,
             [WorktreeAnnotationSourceRefreshRequirement]
         ) async throws -> WorktreeAnnotationSourceRefreshCapture
+    let currentSourceGeneration:
+        @Sendable (
+            BridgeProductSurface,
+            BridgeProductAdmissionContext
+        ) async throws -> Int
+
+    init(
+        capture:
+            @escaping @Sendable (
+                BridgeProductWorktreeAnnotationOrigin,
+                BridgeProductSurface,
+                BridgeProductAdmissionContext
+            ) async throws -> WorktreeAnnotationCapturedSource,
+        currentFingerprint:
+            @escaping @Sendable (
+                BridgeProductSurface,
+                BridgeProductAdmissionContext
+            ) async throws -> WorktreeAnnotationSourceFingerprint,
+        refresh:
+            @escaping @Sendable (
+                BridgeProductSurface,
+                BridgeProductAdmissionContext,
+                [WorktreeAnnotationSourceRefreshRequirement]
+            ) async throws -> WorktreeAnnotationSourceRefreshCapture,
+        currentSourceGeneration:
+            @escaping @Sendable (
+                BridgeProductSurface,
+                BridgeProductAdmissionContext
+            ) async throws -> Int = { _, _ in
+                throw WorktreeAnnotationSourceResolutionError.unavailable
+            }
+    ) {
+        self.capture = capture
+        self.currentFingerprint = currentFingerprint
+        self.refresh = refresh
+        self.currentSourceGeneration = currentSourceGeneration
+    }
 
     static let unavailable = Self(
         capture: { _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable },
@@ -84,8 +121,6 @@ final class WorktreeAnnotationTransportAdapter {
     let sourceResolver: WorktreeAnnotationSourceResolver
     let store: WorktreeAnnotationServiceActor
     private let worktreeID: String
-    private let outputSelectionAssembler = WorktreeAnnotationOutputSelectionAssembler()
-    private var activeProductSessionID: String?
     private var demandGenerationByKey: [WorktreeAnnotationTransportDemandKey: WorktreeAnnotationDemandGeneration] = [:]
 
     init(
@@ -116,12 +151,6 @@ final class WorktreeAnnotationTransportAdapter {
         correlation: BridgeProductControlCorrelation,
         productAdmission: BridgeProductAdmissionContext
     ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO {
-        if let activeProductSessionID,
-            activeProductSessionID != correlation.workerInstanceId
-        {
-            outputSelectionAssembler.disconnect(productSessionID: activeProductSessionID)
-        }
-        activeProductSessionID = correlation.workerInstanceId
         do {
             let applied = try await applyCommand(
                 request.operation,
@@ -169,17 +198,20 @@ final class WorktreeAnnotationTransportAdapter {
                 limit: AppPolicies.Bridge.worktreeAnnotationMaximumOutputHistorySummaries
             )
             return .init(sessionID: sessionID, status: .history(history), receipt: nil)
-        case .outputSelectionCommit(let body):
-            let selection = try outputSelectionAssembler.commit(
-                body,
-                productSessionID: ownerGeneration
-            )
+        case .outputScopeCommit(let body):
             let output = try await executeOutputPreparation(
-                selection,
+                body,
                 surface: surface,
                 productAdmission: productAdmission
             )
             return .init(sessionID: output.summary?.sessionID, status: .output(output), receipt: nil)
+        case .outputHandledClear(let body):
+            let detail = try await store.clearOutputHandled(
+                attemptID: .init(rawValue: body.attemptId),
+                expectedSessionRevision: body.expectedSessionRevision,
+                now: now()
+            )
+            return .init(sessionID: detail.session.id, status: .committed, receipt: nil)
         case .repeatOutput(let attemptID):
             let output = try await executeOutputRepeat(attemptID: .init(rawValue: attemptID))
             return .init(sessionID: output.summary?.sessionID, status: .output(output), receipt: nil)
@@ -295,16 +327,9 @@ final class WorktreeAnnotationTransportAdapter {
             return try await chooseContinuity(body, surface: surface, productAdmission: productAdmission)
         case .refreshSource(let body):
             return try await refreshSource(body, surface: surface, productAdmission: productAdmission)
-        case .outputSelectionBegin(let body):
-            try outputSelectionAssembler.begin(body, productSessionID: ownerGeneration)
-            return .init(rawValue: body.sessionId)
-        case .outputSelectionChunk(let body):
-            try outputSelectionAssembler.append(body, productSessionID: ownerGeneration)
-            return .init(rawValue: body.sessionId)
-        case .outputSelectionCancel(let body):
-            try outputSelectionAssembler.cancel(body, productSessionID: ownerGeneration)
-            return .init(rawValue: body.sessionId)
-        case .outputSelectionCommit:
+        case .outputScopeCommit:
+            throw WorktreeAnnotationTransportAdapterError.outputUnavailable
+        case .outputHandledClear:
             throw WorktreeAnnotationTransportAdapterError.outputUnavailable
         case .outputHistory(let sessionID):
             let typedSessionID = WorktreeAnnotationSessionID(rawValue: sessionID)
@@ -612,13 +637,9 @@ final class WorktreeAnnotationTransportAdapter {
             .init(rawValue: body.sessionId)
         case .refreshSource(let body):
             .init(rawValue: body.sessionId)
-        case .outputSelectionBegin(let body):
+        case .outputScopeCommit(let body):
             .init(rawValue: body.sessionId)
-        case .outputSelectionChunk(let body):
-            .init(rawValue: body.sessionId)
-        case .outputSelectionCommit(let body), .outputSelectionCancel(let body):
-            .init(rawValue: body.sessionId)
-        case .acknowledgeRecovery, .createRoot, .discoverSessions, .repeatOutput:
+        case .acknowledgeRecovery, .createRoot, .discoverSessions, .outputHandledClear, .repeatOutput:
             nil
         }
     }
@@ -653,8 +674,6 @@ final class WorktreeAnnotationTransportAdapter {
             case .messageReceiptUnavailable: .unexpected
             case .outputUnavailable: .outputUnavailable
             }
-        } else if error is WorktreeAnnotationOutputSelectionAssemblerError {
-            .outputUnavailable
         } else {
             .unexpected
         }

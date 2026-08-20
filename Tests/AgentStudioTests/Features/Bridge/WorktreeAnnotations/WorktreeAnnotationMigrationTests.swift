@@ -7,19 +7,6 @@ import Testing
 
 @Suite("WorktreeAnnotationMigrationTests")
 struct WorktreeAnnotationMigrationTests {
-    @Test("output candidate SQL binds product enum values instead of owning their vocabulary")
-    func outputCandidateSQLBindsProductEnumValues() throws {
-        let projectRoot = try #require(String(#filePath).components(separatedBy: "/Tests/").first)
-        let sourceURL = URL(fileURLWithPath: projectRoot).appending(
-            path:
-                "Sources/AgentStudio/Features/Bridge/State/SQLite/WorktreeAnnotations/WorktreeAnnotationSQLiteRepository+OutputCandidates.swift"
-        )
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-
-        #expect(!source.contains("message.status = 'editable'"))
-        #expect(source.contains("WorktreeAnnotationMessageStatus.editable.rawValue"))
-    }
-
     @Test("local migration creates the complete annotation authority schema")
     func localMigrationCreatesCompleteAnnotationAuthoritySchema() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
@@ -55,10 +42,10 @@ struct WorktreeAnnotationMigrationTests {
 
         try WorkspaceLocalMigrations.migrate(databaseQueue)
 
-        let messageColumns = try databaseQueue.read { database in
+        let messageColumnRows = try databaseQueue.read { database in
             try Row.fetchAll(database, sql: "PRAGMA table_info(annotation_message)")
-                .map { row in row["name"] as String }
         }
+        let messageColumns = messageColumnRows.map { row in row["name"] as String }
         let membershipColumns = try databaseQueue.read { database in
             try Row.fetchAll(database, sql: "PRAGMA table_info(annotation_output_attempt_message)")
                 .map { row in row["name"] as String }
@@ -67,6 +54,12 @@ struct WorktreeAnnotationMigrationTests {
         #expect(messageColumns.contains("saved_body"))
         #expect(messageColumns.contains("saved_revision"))
         #expect(messageColumns.contains("status"))
+        #expect(messageColumns.contains("handled"))
+        let handledColumn = try #require(
+            messageColumnRows.first { row in row["name"] as String == "handled" }
+        )
+        #expect(handledColumn["notnull"] as Int == 1)
+        #expect(handledColumn["dflt_value"] as String? == "0")
         #expect(membershipColumns.contains("expected_saved_revision"))
         #expect(!membershipColumns.contains("message_version_id"))
     }
@@ -149,6 +142,61 @@ struct WorktreeAnnotationMigrationTests {
                 arguments: [recoveryId]
             )
         }
+    }
+
+    @Test("handled migration preserves existing messages as New")
+    func handledMigrationPreservesExistingMessagesAsNew() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "005_create_worktree_annotation_schema"
+        )
+        let sessionId = UUIDv7.generate().uuidString
+        let threadId = UUIDv7.generate().uuidString
+        let messageId = UUIDv7.generate().uuidString
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO annotation_session(
+                        id, repository_id, worktree_id, originating_workspace_id,
+                        lifecycle, source_relationship, accepted_source_fingerprint_json,
+                        semantic_revision, created_at, updated_at, completed_at
+                    ) VALUES (?, 'repository', 'worktree', NULL, 'living',
+                        'applicable', '{}', 0, 1, 1, NULL)
+                    """,
+                arguments: [sessionId]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO annotation_thread(
+                        id, session_id, scope, resolution, origin_json, created_ordinal,
+                        semantic_revision, created_at, updated_at, resolved_at
+                    ) VALUES (?, ?, 'located', 'open', '{}', 0, 0, 1, 1, NULL)
+                    """,
+                arguments: [threadId, sessionId]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO annotation_message(
+                        id, thread_id, ordinal, author_kind, saved_body,
+                        saved_body_utf8_bytes, saved_revision, status,
+                        semantic_revision, created_at, updated_at
+                    ) VALUES (?, ?, 0, 'human', 'saved', 5, 1, 'editable', 0, 1, 1)
+                    """,
+                arguments: [messageId, threadId]
+            )
+        }
+
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        let handled = try databaseQueue.read { database in
+            try Bool.fetchOne(
+                database,
+                sql: "SELECT handled FROM annotation_message WHERE id = ?",
+                arguments: [messageId]
+            )
+        }
+        #expect(handled == false)
     }
 
     @Test("session discovery is indexed by worktree lineage without workspace partitioning")

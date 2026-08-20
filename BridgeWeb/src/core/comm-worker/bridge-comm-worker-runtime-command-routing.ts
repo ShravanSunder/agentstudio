@@ -67,7 +67,6 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 				requestId: message.requestId,
 			};
 		case 'reviewComparisonTargetsQueryCancel':
-		case 'annotationOutputCandidatesQuery':
 		case 'annotationOutputInspect':
 		case 'annotationProjectionRetry':
 		case 'hover':
@@ -91,7 +90,6 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 ): BridgeCommWorkerTelemetryLane {
 	switch (message.command) {
 		case 'annotationCommand':
-		case 'annotationOutputCandidatesQuery':
 		case 'annotationOutputInspect':
 		case 'annotationProjectionRetry':
 			return 'selected';

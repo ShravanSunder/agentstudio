@@ -78,6 +78,7 @@ describe('Bridge product worktree annotation contracts', () => {
 			sessionId: lowercaseSessionId,
 			sessionRevision: 3,
 			status: 'editable',
+			handled: false,
 			threadId,
 		} as const;
 		const neverSavedDraft = {
@@ -114,6 +115,7 @@ describe('Bridge product worktree annotation contracts', () => {
 			{ ...savedMessage, createdAtUnixMilliseconds: undefined },
 			{ ...savedMessage, createdAtUnixMilliseconds: undefined, createdAt: 1 },
 			{ ...savedMessage, savedRevision: undefined },
+			{ ...savedMessage, handled: undefined },
 		] as const) {
 			expect(bridgeProductWorktreeAnnotationMessageEntrySchema.safeParse(rejected).success).toBe(
 				false,
@@ -124,6 +126,7 @@ describe('Bridge product worktree annotation contracts', () => {
 	test('decodes explicit Unix-millisecond output-history timestamps', () => {
 		const wireSummary = {
 			attemptId: '01890abc-def0-7abc-8def-012345678903',
+			canMarkNotHandled: true,
 			createdAtUnixMilliseconds: 1_700_000_000_000,
 			messageCount: 1,
 			outputKind: 'clipboard_markdown',
@@ -135,6 +138,7 @@ describe('Bridge product worktree annotation contracts', () => {
 
 		expect(bridgeProductWorktreeAnnotationOutputHistorySummarySchema.parse(wireSummary)).toEqual({
 			attemptId: wireSummary.attemptId,
+			canMarkNotHandled: true,
 			createdAt: wireSummary.createdAtUnixMilliseconds,
 			messageCount: 1,
 			outputKind: 'clipboard_markdown',

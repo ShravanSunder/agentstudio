@@ -320,7 +320,8 @@ struct WorktreeAnnotationSQLiteRepository {
                 sql: """
                     UPDATE annotation_message
                     SET saved_body = ?, saved_body_utf8_bytes = ?,
-                        saved_revision = COALESCE(saved_revision, 0) + 1
+                        saved_revision = COALESCE(saved_revision, 0) + 1,
+                        handled = 0
                     WHERE id = ?
                     """,
                 arguments: [

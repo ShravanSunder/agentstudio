@@ -161,6 +161,7 @@ struct WorktreeAnnotationMessage: Equatable, Sendable {
     let savedBody: String?
     let savedRevision: Int?
     let draft: WorktreeAnnotationDraft?
+    let handled: Bool
     let status: WorktreeAnnotationMessageStatus
 }
 
@@ -204,6 +205,7 @@ struct WorktreeAnnotationOutputHistorySummary: Equatable, Sendable {
     let state: WorktreeAnnotationOutputAttemptState
     let messageCount: Int
     let repeatedFromAttemptID: WorktreeAnnotationOutputAttemptID?
+    let canMarkNotHandled: Bool
     let createdAt: Date
     let updatedAt: Date
 }

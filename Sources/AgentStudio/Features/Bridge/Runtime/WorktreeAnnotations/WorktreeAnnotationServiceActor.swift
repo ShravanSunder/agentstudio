@@ -388,6 +388,9 @@ package actor WorktreeAnnotationServiceActor {
         _ props: WorktreeAnnotationSQLiteRepository.PrepareOutputProps
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput {
         try requireMutationAllowed()
+        guard props.expectedProjectionRevision == projectionRevision else {
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
+        }
         let committed = try await repositoryAccess.prepareOutput(props)
         publishSnapshotRequired(worktreeID: committed.sessionDetail.session.worktreeID)
         return committed.preparedOutput
@@ -405,6 +408,27 @@ package actor WorktreeAnnotationServiceActor {
     ) async throws -> WorktreeAnnotationSessionDetail {
         try requireAvailableForReads()
         return try await repositoryAccess.fetchSessionDetail(sessionID: sessionID)
+    }
+
+    func outputSessionDetail(
+        sessionID: WorktreeAnnotationSessionID,
+        expectedSessionRevision: Int,
+        expectedProjectionRevision: Int
+    ) async throws -> WorktreeAnnotationSessionDetail {
+        try requireAvailableForReads()
+        guard projectionRevision == expectedProjectionRevision else {
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
+        }
+        let detail = try await repositoryAccess.fetchSessionDetail(sessionID: sessionID)
+        guard projectionRevision == expectedProjectionRevision else {
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
+        }
+        guard detail.session.semanticRevision == expectedSessionRevision else {
+            throw WorktreeAnnotationRepositoryError.conflict(
+                currentRevision: detail.session.semanticRevision
+            )
+        }
+        return detail
     }
 
     @discardableResult
@@ -497,6 +521,20 @@ package actor WorktreeAnnotationServiceActor {
             sessionID: sessionID,
             limit: min(limit, AppPolicies.Bridge.worktreeAnnotationMaximumOutputHistorySummaries)
         )
+    }
+
+    func clearOutputHandled(
+        attemptID: WorktreeAnnotationOutputAttemptID,
+        expectedSessionRevision: Int,
+        now: Date
+    ) async throws -> WorktreeAnnotationSessionDetail {
+        try await publishCommittedMutation {
+            try await repositoryAccess.clearOutputHandled(
+                attemptID: attemptID,
+                expectedSessionRevision: expectedSessionRevision,
+                now: now
+            )
+        }
     }
 
     func markPreparedOutputAttemptsUnknown(now: Date) async throws -> Int {

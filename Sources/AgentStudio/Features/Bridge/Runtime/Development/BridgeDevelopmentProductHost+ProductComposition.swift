@@ -37,12 +37,6 @@ private struct BridgeDevelopmentProductProviderDependencies {
             BridgeProductControlCorrelation,
             BridgeProductAdmissionContext
         ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO
-    let queryWorktreeAnnotationOutputCandidates:
-        @MainActor @Sendable (
-            BridgeProductAnnotationCandidateQuery,
-            BridgeProductSurface,
-            [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
-        ) async throws -> WorktreeAnnotationOutputCandidatePage
     let applyReviewComparisonUpdate:
         @MainActor @Sendable (
             BridgeProductReviewComparisonUpdateRequest,
@@ -101,9 +95,6 @@ extension BridgeDevelopmentProductHost {
         let annotationCommandHandler = await MainActor.run {
             makeWorktreeAnnotationCommandHandler(annotationHandlerDependencies)
         }
-        let annotationCandidateQueryHandler = await MainActor.run {
-            makeWorktreeAnnotationOutputCandidateQueryHandler(annotationHandlerDependencies)
-        }
         let productProvider = makeProductProvider(
             dependencies: BridgeDevelopmentProductProviderDependencies(
                 annotationOutputSource: BridgePaneProductWorktreeAnnotationOutputSource(
@@ -117,7 +108,6 @@ extension BridgeDevelopmentProductHost {
                     worktreeID: input.source.worktreeID.uuidString.lowercased()
                 ),
                 applyWorktreeAnnotationCommand: annotationCommandHandler,
-                queryWorktreeAnnotationOutputCandidates: annotationCandidateQueryHandler,
                 applyReviewComparisonUpdate: { request, productAdmission in
                     await committedCallTarget.applyReviewComparisonUpdate(
                         request,
@@ -253,7 +243,6 @@ extension BridgeDevelopmentProductHost {
             applyReviewComparisonUpdate: dependencies.applyReviewComparisonUpdate,
             applyFileRefreshRetry: dependencies.applyFileRefreshRetry,
             applyWorktreeAnnotationCommand: dependencies.applyWorktreeAnnotationCommand,
-            queryWorktreeAnnotationOutputCandidates: dependencies.queryWorktreeAnnotationOutputCandidates,
             authorizeReviewComparisonTargets:
                 BridgePaneProductComparisonTargetQuerySource.makeAuthorization(
                     targetProjection: dependencies.reviewComparisonTargetProjection,

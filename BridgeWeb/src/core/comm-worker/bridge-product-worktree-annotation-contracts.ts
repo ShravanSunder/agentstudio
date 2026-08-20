@@ -60,6 +60,7 @@ const annotationOutputCommandOutcomeSchema = z.discriminatedUnion('kind', [
 export const bridgeProductWorktreeAnnotationOutputHistorySummarySchema = z
 	.object({
 		attemptId: bridgeProductReviewPublicationIdSchema,
+		canMarkNotHandled: z.boolean(),
 		createdAtUnixMilliseconds: annotationUnixMillisecondsSchema,
 		messageCount: bridgeProductNonnegativeSequenceSchema.positive(),
 		outputKind: z.enum(['clipboard_markdown', 'json_file']),
@@ -69,6 +70,15 @@ export const bridgeProductWorktreeAnnotationOutputHistorySummarySchema = z
 		updatedAtUnixMilliseconds: annotationUnixMillisecondsSchema,
 	})
 	.strict()
+	.superRefine((summary, context) => {
+		if (summary.state !== 'succeeded' && summary.canMarkNotHandled) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Only successful output history can be marked not handled.',
+				path: ['canMarkNotHandled'],
+			});
+		}
+	})
 	.transform(({ createdAtUnixMilliseconds, updatedAtUnixMilliseconds, ...summary }) => ({
 		...summary,
 		createdAt: createdAtUnixMilliseconds,
@@ -167,6 +177,7 @@ const annotationMessageDraftSchema = z
 const annotationMessageEntryShape = {
 	authorKind: z.literal('human'),
 	draft: annotationMessageDraftSchema.nullable(),
+	handled: z.boolean(),
 	messageId: bridgeProductReviewPublicationIdSchema,
 	messageRevision: bridgeProductNonnegativeSequenceSchema,
 	ordinal: bridgeProductNonnegativeSequenceSchema,

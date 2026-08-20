@@ -39,6 +39,30 @@ struct WorktreeAnnotationOutputRequest: Sendable {
     let sessionLabel: String
     let worktreeLabel: String
     let comparisonLabel: String?
+    let expectedSessionRevision: Int
+    let expectedProjectionRevision: Int
+
+    init(
+        outputKind: WorktreeAnnotationOutputKind,
+        sessionDetail: WorktreeAnnotationSessionDetail,
+        selectedMessages: [WorktreeAnnotationSQLiteRepository.OutputMessageSelection],
+        placementsByThreadID: [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection],
+        sessionLabel: String,
+        worktreeLabel: String,
+        comparisonLabel: String?,
+        expectedSessionRevision: Int = 0,
+        expectedProjectionRevision: Int = 0
+    ) {
+        self.outputKind = outputKind
+        self.sessionDetail = sessionDetail
+        self.selectedMessages = selectedMessages
+        self.placementsByThreadID = placementsByThreadID
+        self.sessionLabel = sessionLabel
+        self.worktreeLabel = worktreeLabel
+        self.comparisonLabel = comparisonLabel
+        self.expectedSessionRevision = expectedSessionRevision
+        self.expectedProjectionRevision = expectedProjectionRevision
+    }
 }
 
 struct WorktreeAnnotationOutputLabels: Equatable, Sendable {
@@ -270,6 +294,8 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
                 destinationPath: destinationPath,
                 repeatedFromAttemptID: nil,
                 selectedMessages: orderedSelection,
+                expectedSessionRevision: request.expectedSessionRevision,
+                expectedProjectionRevision: request.expectedProjectionRevision,
                 now: createdAt
             )
         )

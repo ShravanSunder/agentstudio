@@ -37,7 +37,6 @@ export type BridgeCommWorkerTelemetryCommand =
 	| 'activeViewerModeUpdate'
 	| 'annotationCommand'
 	| 'annotationOutputInspect'
-	| 'annotationOutputCandidatesQuery'
 	| 'annotationProjectionRetry'
 	| 'fileDisplayResync'
 	| 'fileQueryUpdate'

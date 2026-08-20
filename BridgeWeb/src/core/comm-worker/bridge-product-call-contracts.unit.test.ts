@@ -160,32 +160,15 @@ describe('Bridge product call contracts', () => {
 			},
 			{ kind: 'source.refresh', sessionId, sourceEpoch: 5 },
 			{
-				kind: 'output.selection.begin',
+				displayedProjectionRevision: 9,
+				expectedSessionRevision: 4,
+				kind: 'output.scope.commit',
 				outputKind: 'clipboardMarkdown',
-				selectionMode: 'explicit',
+				scope: 'new',
 				sessionId,
-				transferId: 'transfer-1',
+				sourceGeneration: 7,
 			},
-			{
-				kind: 'output.selection.chunk',
-				messageIds: [messageId],
-				ordinal: 0,
-				selectionMode: 'explicit',
-				sessionId,
-				transferId: 'transfer-1',
-			},
-			{
-				kind: 'output.selection.commit',
-				selectionMode: 'explicit',
-				sessionId,
-				transferId: 'transfer-1',
-			},
-			{
-				kind: 'output.selection.cancel',
-				selectionMode: 'allEligible',
-				sessionId,
-				transferId: 'transfer-2',
-			},
+			{ attemptId, expectedSessionRevision: 4, kind: 'output.handled.clear' },
 			{ kind: 'output.history', sessionId },
 			{ attemptId, kind: 'output.repeat' },
 			{ kind: 'recovery.acknowledge' },
@@ -203,11 +186,26 @@ describe('Bridge product call contracts', () => {
 		for (const operation of [
 			{ attemptId, kind: 'output.inspect' },
 			{
+				kind: 'output.selection.begin',
+				outputKind: 'clipboardMarkdown',
+				selectionMode: 'explicit',
+				sessionId,
+				transferId: 'transfer-1',
+			},
+			{
 				confirmsUnresolvedWork: true,
 				expectedOpenThreadCount: 2,
 				expectedSessionRevision: 4,
 				kind: 'session.lifecycle.set',
 				lifecycle: 'completed',
+				sessionId,
+			},
+			{
+				displayedProjectionRevision: 9,
+				expectedSessionRevision: 4,
+				kind: 'output.scope.commit',
+				outputKind: 'clipboardMarkdown',
+				scope: 'new',
 				sessionId,
 			},
 			{
@@ -288,10 +286,7 @@ describe('Bridge product call contracts', () => {
 			state: 'eligible',
 			threadId: '00000000-0000-7000-8000-000000000012',
 		} as const;
-		for (const method of [
-			'file.annotations.output.candidates.query',
-			'review.annotations.output.candidates.query',
-		] as const) {
+		for (const method of [] as const) {
 			const request = {
 				method,
 				request: {

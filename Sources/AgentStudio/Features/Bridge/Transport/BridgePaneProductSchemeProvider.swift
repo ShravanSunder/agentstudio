@@ -28,12 +28,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             BridgeProductControlCorrelation,
             BridgeProductAdmissionContext
         ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO
-    let queryWorktreeAnnotationOutputCandidates:
-        @MainActor @Sendable (
-            BridgeProductAnnotationCandidateQuery,
-            BridgeProductSurface,
-            [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
-        ) async throws -> WorktreeAnnotationOutputCandidatePage
     private let annotationOutputSource: BridgePaneProductWorktreeAnnotationOutputSource
     let annotationProjectionSource: BridgeAnnotationProjectionSource
     private let authorizeReviewComparisonTargets:
@@ -101,14 +95,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                     )
                 )
             },
-        queryWorktreeAnnotationOutputCandidates:
-            @escaping @MainActor @Sendable (
-                BridgeProductAnnotationCandidateQuery,
-                BridgeProductSurface,
-                [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
-            ) async throws -> WorktreeAnnotationOutputCandidatePage = { _, _, _ in
-                throw WorktreeAnnotationServiceError.unavailable
-            },
         authorizeReviewComparisonTargets:
             @escaping @Sendable () async ->
             BridgeProductReviewComparisonTargetsAuthorization? = { nil },
@@ -149,7 +135,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         self.applyFileRefreshRetry = applyFileRefreshRetry
         self.applyReviewComparisonUpdate = applyReviewComparisonUpdate
         self.applyWorktreeAnnotationCommand = applyWorktreeAnnotationCommand
-        self.queryWorktreeAnnotationOutputCandidates = queryWorktreeAnnotationOutputCandidates
         self.authorizeReviewComparisonTargets = authorizeReviewComparisonTargets
         self.reviewComparisonTargetCatalogProducer = reviewComparisonTargetCatalogProducer
         self.comparisonTargetCatalogTraceRecorder = comparisonTargetCatalogTraceRecorder
@@ -249,26 +234,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 call: callRequest.call,
                 inspectionRequest: inspectionRequest,
                 request: request
-            )
-        case .fileAnnotationsOutputCandidatesQuery(let queryRequest):
-            guard let productAdmission else {
-                return try annotationOutputUnavailableError(for: request)
-            }
-            return try await annotationOutputCandidateQueryResponse(
-                queryRequest: queryRequest,
-                surface: .file,
-                request: request,
-                productAdmission: productAdmission
-            )
-        case .reviewAnnotationsOutputCandidatesQuery(let queryRequest):
-            guard let productAdmission else {
-                return try annotationOutputUnavailableError(for: request)
-            }
-            return try await annotationOutputCandidateQueryResponse(
-                queryRequest: queryRequest,
-                surface: .review,
-                request: request,
-                productAdmission: productAdmission
             )
         case .fileSourceCurrent:
             return try .callCompleted(
@@ -394,34 +359,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             case .review:
                 .reviewAnnotationsOutputInspect(.init(descriptor: descriptor))
             }
-        return try .callCompleted(correlating: request, result: result)
-    }
-
-    private func annotationOutputCandidateQueryResponse(
-        queryRequest: BridgeProductAnnotationCandidateQuery,
-        surface: BridgeProductSurface,
-        request: BridgeProductControlRequest,
-        productAdmission: BridgeProductAdmissionContext
-    ) async throws -> BridgeProductControlResponse {
-        let page: WorktreeAnnotationOutputCandidatePage
-        do {
-            let placements = try await annotationProjectionSource.placementsForOutput(
-                sessionID: .init(rawValue: queryRequest.sessionId),
-                surface: surface,
-                productAdmission: productAdmission
-            )
-            page = try await queryWorktreeAnnotationOutputCandidates(
-                queryRequest,
-                surface,
-                placements
-            )
-        } catch {
-            return try annotationOutputUnavailableError(for: request)
-        }
-        let result: BridgeProductCallResult =
-            surface == .file
-            ? .fileAnnotationsOutputCandidatesQuery(.init(page))
-            : .reviewAnnotationsOutputCandidatesQuery(.init(page))
         return try .callCompleted(correlating: request, result: result)
     }
 

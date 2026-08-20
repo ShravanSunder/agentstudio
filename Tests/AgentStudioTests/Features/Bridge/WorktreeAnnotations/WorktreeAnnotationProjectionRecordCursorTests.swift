@@ -64,6 +64,7 @@ struct WorktreeAnnotationProjectionRecordCursorTests {
             return
         }
         #expect(messageRecord.message.savedBody == maximumBody)
+        #expect(messageRecord.message.handled == false)
     }
 
     @Test("header excludes command outcomes and output history")
@@ -277,6 +278,7 @@ private func makeProjectionCapture(messageBodies: [String]) -> BridgeProductAnno
             savedBody: body,
             savedRevision: 1,
             draft: nil,
+            handled: false,
             status: .editable
         )
     }

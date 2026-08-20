@@ -91,6 +91,23 @@ enum WorktreeAnnotationSourceCapture {
                         productAdmission: productAdmission
                     )
                 }
+            },
+            currentSourceGeneration: { surface, productAdmission in
+                switch surface {
+                case .file:
+                    return try await fileMetadataSource.currentWorktreeAnnotationSourceGeneration(
+                        productAdmission: productAdmission
+                    )
+                case .review:
+                    guard
+                        let publication =
+                            await reviewPublicationCoordinator
+                            .committedPublicationForReplay(productAdmission: productAdmission)
+                    else {
+                        throw WorktreeAnnotationSourceResolutionError.unavailable
+                    }
+                    return publication.package.reviewGeneration.rawValue
+                }
             }
         )
     }

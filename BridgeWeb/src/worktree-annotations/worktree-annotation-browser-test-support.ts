@@ -820,6 +820,7 @@ export function annotationMessage(props: {
 		authorKind: 'human',
 		createdAt: props.ordinal ?? 0,
 		draft: null,
+		handled: false,
 		messageId: props.messageId,
 		messageRevision: 1,
 		ordinal: props.ordinal ?? 0,

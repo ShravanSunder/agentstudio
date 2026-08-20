@@ -60,12 +60,11 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
         sessionID: WorktreeAnnotationSessionID,
         limit: Int
     ) async throws -> [WorktreeAnnotationOutputHistorySummary]
-    func fetchOutputCandidates(
-        sessionID: WorktreeAnnotationSessionID,
+    func clearOutputHandled(
+        attemptID: WorktreeAnnotationOutputAttemptID,
         expectedSessionRevision: Int,
-        cursor: WorktreeAnnotationOutputCandidateCursor?,
-        limit: Int
-    ) async throws -> WorktreeAnnotationRepositoryOutputCandidatePage
+        now: Date
+    ) async throws -> WorktreeAnnotationSessionDetail
     func markPreparedOutputAttemptsUnknown(now: Date) async throws -> Int
     func fetchUnacknowledgedRecoveryProvenance() async throws
         -> WorktreeAnnotationRecoveryProvenance?
@@ -134,15 +133,15 @@ extension WorktreeAnnotationRepositoryAccess {
         throw WorktreeAnnotationRepositoryError.invalidState
     }
 
-    func fetchOutputCandidates(
-        sessionID: WorktreeAnnotationSessionID,
+    func clearOutputHandled(
+        attemptID: WorktreeAnnotationOutputAttemptID,
         expectedSessionRevision: Int,
-        cursor: WorktreeAnnotationOutputCandidateCursor?,
-        limit: Int
-    ) async throws -> WorktreeAnnotationRepositoryOutputCandidatePage {
-        _ = (sessionID, expectedSessionRevision, cursor, limit)
+        now: Date
+    ) async throws -> WorktreeAnnotationSessionDetail {
+        _ = (attemptID, expectedSessionRevision, now)
         throw WorktreeAnnotationRepositoryError.invalidState
     }
+
 }
 
 struct WorktreeAnnotationRepositoryProjectionSnapshot: Equatable, Sendable {
@@ -372,18 +371,16 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
         try await restore { try $0.fetchOutputHistory(sessionID: sessionID, limit: limit) }
     }
 
-    func fetchOutputCandidates(
-        sessionID: WorktreeAnnotationSessionID,
+    func clearOutputHandled(
+        attemptID: WorktreeAnnotationOutputAttemptID,
         expectedSessionRevision: Int,
-        cursor: WorktreeAnnotationOutputCandidateCursor?,
-        limit: Int
-    ) async throws -> WorktreeAnnotationRepositoryOutputCandidatePage {
-        try await restore {
-            try $0.fetchOutputCandidates(
-                sessionID: sessionID,
+        now: Date
+    ) async throws -> WorktreeAnnotationSessionDetail {
+        try await mutate {
+            try $0.clearOutputHandled(
+                attemptID: attemptID,
                 expectedSessionRevision: expectedSessionRevision,
-                cursor: cursor,
-                limit: limit
+                now: now
             )
         }
     }

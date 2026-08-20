@@ -65,8 +65,7 @@ enum WorktreeAnnotationBatchProjector {
                 guard let expectedSavedRevision = selectionByMessageID[message.id] else { continue }
                 guard message.savedRevision == expectedSavedRevision,
                     let savedBody = message.savedBody,
-                    message.draft == nil,
-                    message.status == .editable
+                    message.draft == nil
                 else {
                     throw WorktreeAnnotationBatchProjectorError.savedMessageNotFound
                 }

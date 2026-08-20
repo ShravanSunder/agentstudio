@@ -2,15 +2,25 @@ import Foundation
 
 extension WorktreeAnnotationTransportAdapter {
     func executeOutputPreparation(
-        _ assembled: WorktreeAnnotationAssembledOutputSelection,
+        _ body: BridgeProductWorktreeAnnotationOperation.OutputScopeCommitBody,
         surface: BridgeProductSurface,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationOutputCommandOutcome {
         guard let outputCoordinator, let outputLabels else {
             throw WorktreeAnnotationTransportAdapterError.outputUnavailable
         }
-        let sessionID = WorktreeAnnotationSessionID(rawValue: assembled.sessionID)
-        let sessionDetail = try await store.outputSessionDetail(sessionID: sessionID)
+        let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
+        let sessionDetail = try await store.outputSessionDetail(
+            sessionID: sessionID,
+            expectedSessionRevision: body.expectedSessionRevision,
+            expectedProjectionRevision: body.displayedProjectionRevision
+        )
+        guard
+            try await sourceResolver.currentSourceGeneration(surface, productAdmission)
+                == body.sourceGeneration
+        else {
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
+        }
         let sourceSnapshot = WorktreeAnnotationServiceActor.sourceRefreshSnapshot(
             from: sessionDetail
         )
@@ -29,29 +39,25 @@ extension WorktreeAnnotationTransportAdapter {
                 material: sourceCapture.material
             )
         )
+        guard
+            try await sourceResolver.currentSourceGeneration(surface, productAdmission)
+                == body.sourceGeneration
+        else {
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
+        }
         let outputKind: WorktreeAnnotationOutputKind =
-            switch assembled.outputKind {
+            switch body.outputKind {
             case .clipboardMarkdown: .clipboardMarkdown
             case .jsonFile: .jsonFile
             }
-        let eligibleMessages = sessionDetail.threads.flatMap(\.messages).filter {
-            $0.savedBody != nil && $0.savedRevision != nil && $0.draft == nil && $0.status == .editable
-        }
-        let selectedMessages: [WorktreeAnnotationMessage]
-        switch assembled.selection {
-        case .explicit(let messageIds):
-            let selectedIDs = Set(messageIds.map(WorktreeAnnotationMessageID.init(rawValue:)))
-            selectedMessages = eligibleMessages.filter { selectedIDs.contains($0.id) }
-            guard selectedMessages.count == selectedIDs.count else {
-                throw WorktreeAnnotationRepositoryError.invalidState
+        let selectedMessages = sessionDetail.threads.flatMap(\.messages).filter { message in
+            guard message.savedBody != nil, message.savedRevision != nil, message.draft == nil else {
+                return false
             }
-        case .allEligible(let excludedMessageIds):
-            let excludedIDs = Set(excludedMessageIds.map(WorktreeAnnotationMessageID.init(rawValue:)))
-            let knownIDs = Set(sessionDetail.threads.flatMap(\.messages).map(\.id))
-            guard excludedIDs.isSubset(of: knownIDs) else {
-                throw WorktreeAnnotationRepositoryError.notFound
+            switch body.scope {
+            case .new: return !message.handled
+            case .all: return true
             }
-            selectedMessages = eligibleMessages.filter { !excludedIDs.contains($0.id) }
         }
         guard !selectedMessages.isEmpty else { throw WorktreeAnnotationRepositoryError.emptySelection }
         let comparisonLabel =
@@ -72,7 +78,9 @@ extension WorktreeAnnotationTransportAdapter {
                 placementsByThreadID: sourceEvaluation.placements,
                 sessionLabel: outputLabels.sessionLabel,
                 worktreeLabel: outputLabels.worktreeLabel,
-                comparisonLabel: comparisonLabel
+                comparisonLabel: comparisonLabel,
+                expectedSessionRevision: body.expectedSessionRevision,
+                expectedProjectionRevision: body.displayedProjectionRevision
             )
         )
         return result.commandOutcome

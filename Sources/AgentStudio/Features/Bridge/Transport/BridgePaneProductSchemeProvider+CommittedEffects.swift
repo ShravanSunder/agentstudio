@@ -58,7 +58,6 @@ extension BridgePaneProductSchemeProvider {
             case .fileAnnotationsCommand, .reviewAnnotationsCommand:
                 break
             case .fileAnnotationsOutputInspect, .reviewAnnotationsOutputInspect,
-                .fileAnnotationsOutputCandidatesQuery, .reviewAnnotationsOutputCandidatesQuery,
                 .fileAnnotationsProjectionQuery, .reviewAnnotationsProjectionQuery:
                 break
             case .fileSourceCurrent:

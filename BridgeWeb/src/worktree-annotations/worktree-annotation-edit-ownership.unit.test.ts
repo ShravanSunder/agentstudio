@@ -159,6 +159,7 @@ function messageWithDraft(activeEditToken: string | null): WorktreeAnnotationMes
 		authorKind: 'human',
 		createdAt: 1,
 		draft: { activeEditToken, body: 'Draft body', revision: 1 },
+		handled: false,
 		messageId: '00000000-0000-7000-8000-000000000031',
 		messageRevision: 1,
 		ordinal: 0,

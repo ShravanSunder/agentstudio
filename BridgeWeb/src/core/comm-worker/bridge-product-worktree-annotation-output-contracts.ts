@@ -2,64 +2,11 @@ import { z } from 'zod';
 
 import {
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
-	bridgeProductDisplayPathSchema,
 	bridgeProductIdentifierSchema,
-	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductPositiveSequenceSchema,
 	bridgeProductSha256Schema,
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
-
-export const bridgeProductWorktreeAnnotationOutputCandidateCursorSchema = z
-	.object({
-		flatOrdinal: bridgeProductNonnegativeSequenceSchema,
-		kind: z.literal('after'),
-		messageId: bridgeProductReviewPublicationIdSchema,
-	})
-	.strict();
-
-export const bridgeProductWorktreeAnnotationOutputCandidateSchema = z
-	.object({
-		authoredAt: z.number().finite(),
-		endLine: bridgeProductNonnegativeSequenceSchema.positive(),
-		excerpt: z.string().max(512),
-		flatOrdinal: bridgeProductNonnegativeSequenceSchema,
-		location: z.enum(['current', 'original']),
-		messageId: bridgeProductReviewPublicationIdSchema,
-		path: bridgeProductDisplayPathSchema,
-		placement: z.enum(['exact', 'relocated', 'outdated', 'unavailable']),
-		state: z.literal('eligible'),
-		startLine: bridgeProductNonnegativeSequenceSchema.positive(),
-		threadId: bridgeProductReviewPublicationIdSchema,
-	})
-	.strict()
-	.refine((candidate) => candidate.endLine >= candidate.startLine, {
-		message: 'Annotation output candidate endLine cannot precede startLine.',
-		path: ['endLine'],
-	});
-
-export const bridgeProductWorktreeAnnotationOutputCandidatePageSchema = z
-	.object({
-		candidates: z.array(bridgeProductWorktreeAnnotationOutputCandidateSchema).max(16).readonly(),
-		eligibleMessageCount: bridgeProductNonnegativeSequenceSchema,
-		eligibleWithoutInlinePlacementCount: bridgeProductNonnegativeSequenceSchema,
-		nextCursor: bridgeProductWorktreeAnnotationOutputCandidateCursorSchema.nullable(),
-		sessionId: bridgeProductReviewPublicationIdSchema,
-		sessionRevision: bridgeProductNonnegativeSequenceSchema,
-	})
-	.strict();
-
-export const bridgeProductWorktreeAnnotationOutputCandidateQueryRequestSchema = z
-	.object({
-		cursor: z.discriminatedUnion('kind', [
-			z.object({ kind: z.literal('start') }).strict(),
-			bridgeProductWorktreeAnnotationOutputCandidateCursorSchema,
-		]),
-		expectedSessionRevision: bridgeProductNonnegativeSequenceSchema,
-		limit: z.number().int().min(1).max(16),
-		sessionId: bridgeProductReviewPublicationIdSchema,
-	})
-	.strict();
 
 const bridgeProductAnnotationOutputDescriptorBaseShape = {
 	attemptId: bridgeProductReviewPublicationIdSchema,

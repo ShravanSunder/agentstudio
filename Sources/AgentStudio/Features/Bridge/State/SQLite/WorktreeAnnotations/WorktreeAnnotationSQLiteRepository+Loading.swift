@@ -479,6 +479,7 @@ extension WorktreeAnnotationSQLiteRepository {
             savedBody: savedBody,
             savedRevision: savedRevision,
             draft: draft,
+            handled: row["handled"],
             status: decodeRawValue(row["status"] as String)
         )
     }

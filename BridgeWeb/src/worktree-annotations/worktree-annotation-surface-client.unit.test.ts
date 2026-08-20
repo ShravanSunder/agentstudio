@@ -291,6 +291,7 @@ function projectionSnapshot(
 						authorKind: 'human',
 						createdAt: 2,
 						draft: null,
+						handled: false,
 						messageId,
 						messageRevision: 1,
 						ordinal: 0,
