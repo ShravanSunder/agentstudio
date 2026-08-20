@@ -180,15 +180,15 @@
 | 19 | Resource cleanup / zero orphans | GOOD ✅ (idempotent, memoized retirement) except M10/L8 |
 | 20 | Test-pyramid & real-runtime proof | INCOMPLETE — the current TS unit suite is green; six named scenario gaps remain; e2e/browser/Swift were not run in this review |
 
-## Recommended remediation order
+## Correction groups and implementation order
 
-1. **C1 + H7** (epoch domains and worker replacement) — fix render-disposition admission, make replacement an explicit main-visible re-anchor boundary, and replay current surface intent. Include production-shaped epochs and old-worker-epoch-2 → replacement-epoch-1 proof.
-2. **H1 + H6 + H2** — the three remaining "stuck Loading/Saving forever" owners (worker-crash settlement; suspension resume; descriptor-absent terminal).
-3. **H3 + M5 + M7** — the recovery half: subscription reopen owner, wire the retry path + UI affordance, settle stale-awaits on producer death.
-4. **H4** — timestamp cutover (small, mechanical, user-visible wrongness today).
-5. **M1–M4** — native failure-path holes (File unavailable state + retry policy; sticky comparison terminal; gate-closed loop; File emission fence).
-6. Reconcile or implement the deferred cutovers (F8 registry, R-BLO-013 vocabulary, snapshot-keyed reservations, R-BLO-014 telemetry) — either land them or amend the spec/PD so artifacts and code agree.
-7. Close the proof gaps (save-during-projection-failure, worker replacement, branch switch, descriptor-wait matrix, restart) and get the full suite green before PR readiness.
+1. **Epoch and replacement correctness — C1 + H7.** Correct render-receipt admission, re-anchor a replacement worker instance, and replay current surface intent. Prove an old worker at epoch 2 cannot block a replacement worker starting at epoch 1.
+2. **Missing terminal outcomes — H1 + H2 + H6 + M7.** Settle worker death, descriptor absence, lost File receipt, suspension, and producer death while a successor is awaited.
+3. **Recovery ownership — H3 + M1 + M5.** Give subscription reopen one owner, allow one bounded automatic retry only for a real retryable production failure, expose explicit retry for retained unavailable state, and make failure-to-unavailable transitions finite.
+4. **Native latest-generation holes — M2 + M3 + M4.** Fence File emissions, prevent stale Review failure from becoming sticky, close the gate-closed MainActor loop, and recover failed File refresh without letting obsolete work publish.
+5. **Last-complete presentation — M9.** Preserve and continue showing retained File, Review, and Markdown content during replacement instead of hiding or discarding it.
+6. **Required wire cutovers — H4 + F8 + M8 + L2.** Use Unix milliseconds, scoped notification vocabulary, an exhaustive strict registry, total snapshot bounds, and bounded snapshot reservations.
+7. **Correlated lifecycle evidence — R-BLO-014 plus proof gaps.** Add operation/stage terminals sufficient to attribute stuck states, then close the real save-during-projection-failure, worker-replacement, branch-switch, descriptor-wait, overflow, and restart scenarios before PR readiness.
 
 ## Coverage limits
 
