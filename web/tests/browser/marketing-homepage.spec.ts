@@ -168,10 +168,16 @@ test("keeps the static product plate honest without JavaScript", async ({ browse
 
   const selectors = page.locator("[data-product-plate-selector]");
   await expect(selectors).toHaveCount(5);
+  const carouselActions = page.locator("[data-product-plate-previous], [data-product-plate-next]");
+  await expect(carouselActions).toHaveCount(2);
   const allSelectorsDisabled = await selectors.evaluateAll((buttons) =>
     buttons.every((button) => button instanceof HTMLButtonElement && button.disabled),
   );
+  const allCarouselActionsDisabled = await carouselActions.evaluateAll((buttons) =>
+    buttons.every((button) => button instanceof HTMLButtonElement && button.disabled),
+  );
   expect(allSelectorsDisabled).toBe(true);
+  expect(allCarouselActionsDisabled).toBe(true);
   await expect(page.locator('[data-product-plate-panel="parallel-work"]')).toBeVisible();
   await expect(page.locator('[data-product-plate-panel="review"]')).toBeHidden();
   await expect(page.locator("[data-product-plate-selectors]")).not.toHaveAttribute(
@@ -180,6 +186,83 @@ test("keeps the static product plate honest without JavaScript", async ({ browse
   );
 
   await context.close();
+});
+
+test("synchronizes collapsed product-story text and imagery as one carousel", async ({ page }) => {
+  await page.setViewportSize({ width: 1158, height: 900 });
+  await page.goto("/");
+
+  const previousStory = page.getByRole("button", { name: "Previous workspace view" });
+  const nextStory = page.getByRole("button", { name: "Next workspace view" });
+  const selectorViewport = page.locator("[data-product-plate-selectors]");
+
+  await expect(previousStory).toBeVisible();
+  await expect(previousStory).toBeEnabled();
+  await expect(nextStory).toBeVisible();
+  await expect(nextStory).toBeEnabled();
+
+  const collapsedGeometry = await selectorViewport.evaluate((selectors) => {
+    const selectorBounds = selectors.getBoundingClientRect();
+    const selectorStageBounds = selectors.parentElement?.getBoundingClientRect();
+    const selectedImageBounds = document
+      .querySelector("[data-product-plate-panel]:not([hidden]) img")
+      ?.getBoundingClientRect();
+    const storyBounds = [...selectors.querySelectorAll("[data-product-plate-selector]")].map(
+      (story) => story.getBoundingClientRect(),
+    );
+
+    if (selectorStageBounds === undefined || selectedImageBounds === undefined) {
+      throw new Error("Collapsed carousel is missing its stage or selected image");
+    }
+
+    return {
+      imageGap: selectedImageBounds.top - selectorStageBounds.bottom,
+      overflowX: getComputedStyle(selectors).overflowX,
+      selectorWidth: selectorBounds.width,
+      storyWidths: storyBounds.map((story) => story.width),
+      storyOffsets: storyBounds.map((story) => story.left - selectorBounds.left),
+    };
+  });
+
+  expect(collapsedGeometry.overflowX).toBe("auto");
+  expect(collapsedGeometry.imageGap).toBeLessThanOrEqual(1);
+  expect(
+    collapsedGeometry.storyWidths.every(
+      (storyWidth) => Math.abs(storyWidth - collapsedGeometry.selectorWidth) <= 1,
+    ),
+  ).toBe(true);
+  expect(collapsedGeometry.storyOffsets[0]).toBeCloseTo(0, 0);
+  expect(collapsedGeometry.storyOffsets[1]).toBeCloseTo(collapsedGeometry.selectorWidth, 0);
+
+  await nextStory.click();
+  await expect(page.locator('[data-product-plate-selector="pane-drawer"]')).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.locator('[data-product-plate-panel="pane-drawer"]')).toBeVisible();
+  await expect
+    .poll(() => selectorViewport.evaluate((selectors) => selectors.scrollLeft))
+    .toBeCloseTo(collapsedGeometry.selectorWidth, 0);
+
+  await selectorViewport.evaluate((selectors) => {
+    selectors.scrollLeft = selectors.clientWidth * 2;
+    selectors.dispatchEvent(new Event("scrollend"));
+  });
+  await expect(page.locator('[data-product-plate-selector="quick-find"]')).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.locator('[data-product-plate-panel="quick-find"]')).toBeVisible();
+
+  await previousStory.click();
+  await expect(page.locator('[data-product-plate-selector="pane-drawer"]')).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await expect(previousStory).toBeHidden();
+  await expect(nextStory).toBeHidden();
 });
 
 for (const viewport of verificationViewports) {

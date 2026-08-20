@@ -28,30 +28,61 @@ import { productPlateStories } from "./product-plate-fixture";
     data-enhanced="false"
   >
     <div
-      class="product-plate__selectors border-r border-line-strong bg-canvas max-product-stacked:flex max-product-stacked:overflow-x-auto max-product-stacked:border-r-0 max-product-stacked:border-b"
-      data-product-plate-selectors
-      aria-label={marketingCopy.switcher.accessibilityLabel}
+      class="product-plate__selector-stage contents max-product-stacked:relative max-product-stacked:grid max-product-stacked:grid-cols-[52px_minmax(0,1fr)_52px] max-phone:grid-cols-[42px_minmax(0,1fr)_42px]"
     >
-      {
-        productPlateStories.map((story, index) => (
-          <button
-            type="button"
-            data-product-plate-selector={story.id}
-            disabled
-            tabindex="-1"
-            class:list={[
-              "product-plate__selector grid w-full grid-cols-[34px_minmax(0,1fr)] border-0 border-b border-line bg-transparent px-[20px] py-[clamp(7.5px,calc(1.25vw-10.5px),9.5px)] text-left text-ink-muted max-product-stacked:min-h-[118px] max-product-stacked:[flex:0_0_190px] max-product-stacked:border-r max-product-stacked:border-b-0",
-              { "is-default": index === 0 },
-            ]}
-          >
-            <span class="row-span-2 font-mono-product text-[12px] text-ink-faint">
-              {String(index + 1).padStart(2, "0")}
-            </span>
-            <strong class="text-[16px] text-inherit">{story.label}</strong>
-            <small class="mt-[7px] leading-[1.4] text-ink-faint">{story.description}</small>
-          </button>
-        ))
-      }
+      <button
+        type="button"
+        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-canvas text-[24px] text-primary disabled:cursor-default disabled:text-ink-faint max-product-stacked:grid"
+        data-product-plate-previous
+        aria-label="Previous workspace view"
+        aria-controls="product-plate-story-selector"
+        disabled
+      >
+        <span aria-hidden="true">←</span>
+      </button>
+
+      <div
+        id="product-plate-story-selector"
+        class="product-plate__selectors border-r border-line-strong bg-canvas max-product-stacked:flex max-product-stacked:overflow-x-auto max-product-stacked:scroll-smooth max-product-stacked:border-r-0 max-product-stacked:[scroll-snap-type:x_mandatory]"
+        data-product-plate-selectors
+        aria-label={marketingCopy.switcher.accessibilityLabel}
+      >
+        {
+          productPlateStories.map((story, index) => (
+            <button
+              type="button"
+              data-product-plate-selector={story.id}
+              disabled
+              tabindex="-1"
+              class:list={[
+                "product-plate__selector grid w-full grid-cols-[34px_minmax(0,1fr)] border-0 border-b border-line bg-transparent px-[20px] py-[clamp(7.5px,calc(1.25vw-10.5px),9.5px)] text-left text-ink-muted max-product-stacked:min-h-[164px] max-product-stacked:[flex:0_0_100%] max-product-stacked:[scroll-snap-align:start] max-product-stacked:grid-cols-[44px_minmax(0,1fr)] max-product-stacked:border-0 max-product-stacked:px-[clamp(24px,4vw,48px)] max-product-stacked:py-[24px] max-phone:min-h-[210px] max-phone:px-[18px]",
+                { "is-default": index === 0 },
+              ]}
+            >
+              <span class="row-span-2 font-mono-product text-[12px] text-ink-faint max-product-stacked:text-[14px]">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <strong class="text-[16px] text-inherit max-product-stacked:text-[clamp(22px,2.4vw,30px)]">
+                {story.label}
+              </strong>
+              <small class="mt-[7px] max-w-[760px] leading-[1.4] text-ink-faint max-product-stacked:text-[17px] max-phone:text-[16px]">
+                {story.description}
+              </small>
+            </button>
+          ))
+        }
+      </div>
+
+      <button
+        type="button"
+        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-canvas text-[24px] text-primary disabled:cursor-default disabled:text-ink-faint max-product-stacked:grid"
+        data-product-plate-next
+        aria-label="Next workspace view"
+        aria-controls="product-plate-story-selector"
+        disabled
+      >
+        <span aria-hidden="true">→</span>
+      </button>
     </div>
 
     <div class="product-plate__panels min-w-0 bg-product-ground">
@@ -126,6 +157,10 @@ import { productPlateStories } from "./product-plate-fixture";
     display: none;
   }
 
+  .product-plate__carousel-action:not(:disabled):hover {
+    @apply bg-active-surface;
+  }
+
   .product-plate__panel {
     animation: product-panel-enter 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
@@ -135,6 +170,18 @@ import { productPlateStories } from "./product-plate-fixture";
   }
 
   @media (max-width: 1350px) {
+    .product-plate__selector-stage::after {
+      position: absolute;
+      z-index: 1;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 1px;
+      pointer-events: none;
+      background: var(--color-line-strong);
+      content: "";
+    }
+
     .product-plate__selector[aria-selected="true"],
     .product-plate__selector.is-default:disabled {
       box-shadow: inset 0 -4px var(--color-primary);
@@ -153,6 +200,10 @@ import { productPlateStories } from "./product-plate-fixture";
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .product-plate__selectors {
+      scroll-behavior: auto;
+    }
+
     .product-plate__panel {
       animation: none;
     }
