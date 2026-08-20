@@ -1,0 +1,57 @@
+---
+import { Image } from "astro:assets";
+
+import parallelWorkImage from "@/assets/captures/parallel-work.png";
+import persistentBeforeImage from "@/assets/captures/persistent-before.png";
+import persistentRestoredImage from "@/assets/captures/persistent-restored.png";
+import reviewImage from "@/assets/captures/review.png";
+import { marketingCopy } from "@/marketing-copy";
+import PersistenceProof from "@/product-plate/PersistenceProof.astro";
+
+const mediaByFeatureId = {
+  arrangements: persistentRestoredImage,
+  "pane-types": reviewImage,
+  "agent-agnostic": parallelWorkImage,
+} as const;
+---
+
+<section class="feature-details" aria-labelledby="feature-details-title">
+  <div class="section-heading">
+    <p class="eyebrow">{marketingCopy.featureDetails.eyebrow}</p>
+    <h2 id="feature-details-title">{marketingCopy.featureDetails.headline}</h2>
+    <p>{marketingCopy.featureDetails.description}</p>
+  </div>
+
+  <div class="feature-details__list">
+    {
+      marketingCopy.featureDetails.items.map((item) => (
+        <article class="feature-detail">
+          <div class="feature-detail__copy">
+            <h3>{item.title}</h3>
+            <p class="feature-detail__summary">{item.summary}</p>
+            <p>{item.detail}</p>
+          </div>
+
+          <div class="feature-detail__media">
+            {item.id === "persistence" ? (
+              <PersistenceProof
+                beforeImage={persistentBeforeImage}
+                restoredImage={persistentRestoredImage}
+              />
+            ) : (
+              <Image
+                src={mediaByFeatureId[item.id]}
+                alt={item.imageDescription}
+                widths={[720, 1080, 1440, 2160]}
+                sizes="(max-width: 900px) 100vw, 62vw"
+                format="png"
+                loading="lazy"
+                decoding="async"
+              />
+            )}
+          </div>
+        </article>
+      ))
+    }
+  </div>
+</section>

@@ -39,6 +39,7 @@ MarketingSite
 │   ├── DemoStateSelector
 │   ├── DemoPanels
 │   └── DemoController
+├── ExpandableFeatureDetails
 └── FinalInstallCallToAction
 ```
 
@@ -62,15 +63,13 @@ Owns the explanatory fixture as a unit. DemoStateSelector and DemoPanels are Ast
 
 ### WebsiteCaptureSuite
 
-Owns six frozen 2560×1600 sRGB capture masters and their manifest: Parallel
-work, Pane drawer, Quick Find, Review, Persistent before, and Persistent
-restored. One stable capture lineage, source revision, built executable, bundle
+Owns five frozen 2560×1600 sRGB primary capture masters and their manifest:
+Parallel work, Pane drawer, Quick Find, Review, and Git/PR context. One stable
+capture lineage, source revision, built executable, bundle
 identifier, isolated data root, fixture identity, and 1280×800 window contract
 produces the suite. Every state uses two or three readable primary panes. One
 capture operator follows one approved shot matrix and may not change lineage,
 geometry, fixture content, or visual design while recording.
-
-The first five masters, including `persistent-before.png`, belong to process generation A with a verified PID and window identity. The operator closes only generation A through its verified identity, relaunches the same bundle and isolated data root, then verifies the new PID and window identity as process generation B. Before any restored-state action, generation B produces an untouched proof capture. Only after internal state equivalence is recorded may the verified window be normalized to the fixed capture bounds for `persistent-restored.png`. No PID, window identifier, or accessibility snapshot crosses the restart boundary.
 
 Sky owns semantic control of the verified dedicated debug app. Peekaboo resolves a current CoreGraphics window ID from the verified PID and owns window-ID-targeted lossless Retina capture plus source verification. ColorSync owns deterministic conversion from the captured display ICC profile to the canonical sRGB IEC61966-2.1 master without resizing. A shared HyperFrames FocusIsolation composition consumes only that master and owns campaign emphasis and settled still export. It renders one untouched master plus uniform contextual-scrim segments outside the per-story product-shaped focus region. Astro consumes approved exported assets; it does not reproduce the focus treatment independently.
 
@@ -79,6 +78,15 @@ WebsiteCaptureSuite is an asset-production boundary, not runtime state. It chang
 ### Brand styles
 
 Website semantic tokens are consumed from VerifiedProductProjection. Tailwind `@theme` variables expose layout utilities; ordinary CSS variables own values that must not create utilities. Marketing component CSS owns the product plate and stacked-plane treatments that are too semantic for utility-only expression.
+
+### ExpandableFeatureDetails
+
+Owns the supporting shipped-capability explanations that need more context than
+one primary still. It renders native `<details>`/`<summary>` disclosures so
+collapsed headings, expanded state, keyboard operation, and no-JavaScript
+behavior have one browser-owned semantic path. Persistence is the first
+required row. Optional approved media is ordinary build-time content and never
+creates a second client-state controller.
 
 ## Ownership and dependency direction
 
@@ -103,6 +111,8 @@ Allowed dependencies:
 - pages, styles, and media components consume VerifiedProductProjection rather than parsing current owner files or historical README screenshots;
 - Astro components depend on typed content/fixture data and semantic styles;
 - DemoController depends only on the demo's DOM contract and typed fixture identifiers;
+- ExpandableFeatureDetails depends only on approved shipped-detail content and
+  optional verified media; it does not depend on DemoController state;
 - tests may drive the built public surface and observe semantic state;
 - deployment consumes only static output.
 
@@ -169,11 +179,14 @@ DemoController owns one transient state:
 | `pane-drawer` | Select Pane drawer | Main pane and attached drawer | Select another valid state |
 | `quick-find` | Select Quick Find | Command bar scopes | Select another valid state |
 | `review` | Select Review | Agent terminal and continuous diff | Select another valid state |
-| `persistent-workspace` | Select Persistent workspace | Before/after restored arrangement | Select another valid state |
+| `git-pull-request-context` | Select Git/PR context | Repository sidebar, Git state, pull request, and related work surface | Select another valid state |
 
 Illegal transitions do not exist between valid states because every selection is a direct replacement. Unknown state identifiers are rejected without changing the last valid state. Page unload disposes listeners and transient timers; reload returns to `parallel-work`.
 
-The Persistent workspace panel is one pre-authored split composition containing `persistent-before.png` and `persistent-restored.png`, simultaneously visible and explicitly labeled Before close and Restored. Both images come from the same fixture and geometry. It has no nested selector, timer-driven state transition, automatic playback, or implied live attachment. Selecting Persistent workspace performs only the same one-state panel replacement as every other demo state.
+Expandable feature disclosures are independent browser-owned state. Opening a
+detail row does not change the selected product story, URL, storage, or another
+row. Persistence proof media, when approved, lives inside its disclosure rather
+than adding another DemoController state.
 
 Ambient motion is derived presentation, not state. It starts only when visible and permitted by motion preferences, and stops when the demo leaves the viewport, the document becomes hidden, or reduced motion is requested.
 
@@ -193,6 +206,15 @@ visitor click or keyboard activation
 ```
 
 The controller returns by visible and programmatic selection state. Invalid input returns by preserving the previous valid screen.
+
+### Expanding a supporting feature detail
+
+```text
+visitor activates summary
+  ──► browser toggles the owning native details element
+  ──► inline explanation and optional approved media become visible
+  ◄── no DemoController, URL, storage, network, or native-app effect
+```
 
 ### Loading the page
 
@@ -270,6 +292,7 @@ Rollback selects the preceding successful static Pages deployment. No website da
 | R11 | SiteShell, components, semantic styles, controllers | Multiple viewport, keyboard, assistive technology, reduced motion | Real supported browsers |
 | R13 | Cloudflare Pages deployment | Pull-request preview and production artifact | Real Cloudflare environment |
 | R14 | VerifiedProductProjection and promotion verifier | Projection-to-owner comparison before deployment | Real repository owners, checked-in projection identities, and immutable video provenance |
+| R15 | ExpandableFeatureDetails and native disclosure elements | Collapsed and expanded inline detail at desktop and phone widths | Real HTML disclosure semantics and approved shipped-detail content |
 
 Structural invariants use these enforcement classes:
 

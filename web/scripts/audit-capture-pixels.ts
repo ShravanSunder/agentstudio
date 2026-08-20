@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import sharp from "sharp";
@@ -17,6 +18,14 @@ interface CapturePixelFailure {
 }
 
 const PNG_SIGNATURE_LENGTH = 8;
+const CORNER_SAMPLE_SIZE_PIXELS = 32;
+const BRIGHT_FRINGE_CHANNEL_THRESHOLD = 220;
+const CANONICAL_SRGB_ICC_SHA256 =
+  "c56e1685d888f5edb92fe07f2750f387f8fe8e91b32ff8fb0b56bfbbb9458353";
+
+function sha256(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
 
 function pngChunkTypes(bytes: Buffer): ReadonlySet<string> {
   const chunkTypes = new Set<string>();
@@ -52,6 +61,7 @@ async function capturePixelFailures(props: {
 }): Promise<readonly CapturePixelFailure[]> {
   const bytes = await readFile(props.assetUrl);
   const chunkTypes = pngChunkTypes(bytes);
+  const metadata = await sharp(bytes).metadata();
   const { data: pixels, info } = await sharp(bytes)
     .ensureAlpha()
     .raw()
@@ -64,10 +74,15 @@ async function capturePixelFailures(props: {
   if (info.height !== websiteCaptureSuite.pixelSize[1]) {
     failures.push({ captureId: props.captureId, message: `height is ${info.height}` });
   }
-  if (!chunkTypes.has("sRGB") || chunkTypes.has("iCCP")) {
+  const hasCanonicalSrgbChunk = chunkTypes.has("sRGB") && !chunkTypes.has("iCCP");
+  const hasCanonicalSrgbIcc =
+    chunkTypes.has("iCCP") &&
+    metadata.icc !== undefined &&
+    sha256(metadata.icc) === CANONICAL_SRGB_ICC_SHA256;
+  if (!hasCanonicalSrgbChunk && !hasCanonicalSrgbIcc) {
     failures.push({
       captureId: props.captureId,
-      message: "PNG is not normalized to the canonical sRGB chunk",
+      message: "PNG does not contain the canonical sRGB chunk or reviewed sRGB ICC payload",
     });
   }
 
@@ -83,6 +98,58 @@ async function capturePixelFailures(props: {
       failures.push({
         captureId: props.captureId,
         message: `corner ${cornerIndex + 1} is opaque RGBA(${corner.red}, ${corner.green}, ${corner.blue}, ${corner.alpha})`,
+      });
+    }
+  }
+
+  const cornerSampleOrigins = [
+    { xCoordinate: 0, yCoordinate: 0 },
+    { xCoordinate: info.width - CORNER_SAMPLE_SIZE_PIXELS, yCoordinate: 0 },
+    { xCoordinate: 0, yCoordinate: info.height - CORNER_SAMPLE_SIZE_PIXELS },
+    {
+      xCoordinate: info.width - CORNER_SAMPLE_SIZE_PIXELS,
+      yCoordinate: info.height - CORNER_SAMPLE_SIZE_PIXELS,
+    },
+  ] as const;
+
+  for (const [cornerIndex, origin] of cornerSampleOrigins.entries()) {
+    let transparentPixelCount = 0;
+    let brightAntialiasingPixelCount = 0;
+
+    for (
+      let yCoordinate = origin.yCoordinate;
+      yCoordinate < origin.yCoordinate + CORNER_SAMPLE_SIZE_PIXELS;
+      yCoordinate += 1
+    ) {
+      for (
+        let xCoordinate = origin.xCoordinate;
+        xCoordinate < origin.xCoordinate + CORNER_SAMPLE_SIZE_PIXELS;
+        xCoordinate += 1
+      ) {
+        const pixel = pixelAt(pixels, info.width, xCoordinate, yCoordinate);
+        if (pixel.alpha === 0) {
+          transparentPixelCount += 1;
+        }
+        if (
+          pixel.alpha > 0 &&
+          pixel.alpha < 255 &&
+          Math.max(pixel.red, pixel.green, pixel.blue) > BRIGHT_FRINGE_CHANNEL_THRESHOLD
+        ) {
+          brightAntialiasingPixelCount += 1;
+        }
+      }
+    }
+
+    if (transparentPixelCount === 0) {
+      failures.push({
+        captureId: props.captureId,
+        message: `corner sample ${cornerIndex + 1} contains no transparent outside-window pixels`,
+      });
+    }
+    if (brightAntialiasingPixelCount > 0) {
+      failures.push({
+        captureId: props.captureId,
+        message: `corner sample ${cornerIndex + 1} contains ${brightAntialiasingPixelCount} bright partially transparent fringe pixels`,
       });
     }
   }
@@ -109,7 +176,7 @@ async function auditCapturePixels(): Promise<void> {
   }
 
   console.log(
-    `Audited ${websiteCaptureSuite.captures.length} capture assets for canonical sRGB and transparent native-window corners.`,
+    `Audited ${websiteCaptureSuite.captures.length} capture assets for canonical sRGB, transparent native-window corners, and bright alpha fringes.`,
   );
 }
 

@@ -42,7 +42,7 @@ export const marketingCopy = {
       description:
         "Agent Studio presents every changed file as one continuous, read-only diff with file-tree navigation and syntax highlighting.",
       imageDescription:
-        "A CI workflow diff and Changed Files tree beside Claude Code in the matching worktree for pull request 313.",
+        "A readable unified CI workflow diff and Changed Files tree beside Claude Code in the matching worktree for pull request 313, with the global repository sidebar hidden.",
     },
     persistence: {
       label: "Persistent terminal sessions",
@@ -55,6 +55,47 @@ export const marketingCopy = {
       restoredImageDescription:
         "The same five tabs, All Panes grouping, CI workflow diff, Claude Code worktree, pull request, and terminal session after reopening.",
     },
+  },
+  featureDetails: {
+    eyebrow: "More of the workspace",
+    headline: "The work around each agent matters too.",
+    description: "Sessions, layouts, pane types, and CLI agents stay part of the same workspace.",
+    items: [
+      {
+        id: "persistence",
+        title: "Close the app. Keep the work.",
+        summary: "Terminal processes keep running while the workspace closes.",
+        detail:
+          "Reopen Agent Studio to restore tabs, panes, drawers, layouts, and visible terminal sessions instead of rebuilding the workspace by hand.",
+      },
+      {
+        id: "arrangements",
+        title: "Save the layout that fits the task.",
+        summary: "Use named arrangements, or zoom one pane when you need focus.",
+        detail:
+          "Switch between saved arrangements without stopping the work in other panes, then return to the wider workspace when you are ready.",
+        imageDescription:
+          "A restored Agent Studio workspace with its tabs, panes, Review surface, and sidebar grouping intact.",
+      },
+      {
+        id: "pane-types",
+        title: "Use more than terminal panes.",
+        summary: "Terminal, browser, Files, and Review panes share one workspace.",
+        detail:
+          "Keep source, diffs, browser context, and supporting terminals beside the task that needs them instead of opening another disconnected window.",
+        imageDescription:
+          "A terminal beside Agent Studio Review with a changed-files tree and unified diff.",
+      },
+      {
+        id: "agent-agnostic",
+        title: "Run the agents you already use.",
+        summary: "Codex, Claude Code, and other CLI agents use the same workspace model.",
+        detail:
+          "Agent Studio organizes the repository, worktree, branch, and panes around the task without requiring one agent vendor or protocol.",
+        imageDescription:
+          "Codex and Claude Code working in separate panes inside one Agent Studio workspace.",
+      },
+    ],
   },
   installation: {
     commands: ["brew tap ShravanSunder/agentstudio", "brew install --cask agent-studio"],

@@ -1,5 +1,18 @@
 import { expect, test } from "@playwright/test";
 
+const productStoryCases = [
+  { id: "parallel-work", accessibleName: /Parallel work/ },
+  { id: "pane-drawer", accessibleName: /Pane drawer/ },
+  { id: "quick-find", accessibleName: /Quick Find/ },
+  { id: "review", accessibleName: /Review/ },
+  { id: "persistent-workspace", accessibleName: /Persistent terminal sessions/ },
+] as const;
+
+const verificationViewports = [
+  { width: 1600, height: 1000 },
+  { width: 390, height: 844 },
+] as const;
+
 test("renders the claim-first homepage and switches product stories", async ({ page }) => {
   await page.goto("/");
 
@@ -10,6 +23,9 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   expect(
     await page.locator("body").evaluate((body) => getComputedStyle(body).backgroundColor),
   ).toBe("rgb(46, 48, 54)");
+  expect(
+    await page.locator("body").evaluate((body) => getComputedStyle(body).backgroundImage),
+  ).toBe("none");
   await expect(page.getByRole("link", { name: "GitHub", exact: true })).toHaveCount(2);
   await expect(page.locator(".site-header .github-action")).toHaveCount(1);
   await expect(page.locator(".final-cta .github-action")).toHaveCount(1);
@@ -166,6 +182,288 @@ test("keeps the static product plate honest without JavaScript", async ({ browse
   );
 
   await context.close();
+});
+
+for (const viewport of verificationViewports) {
+  for (const productStory of productStoryCases) {
+    test(`loads and fits ${productStory.id} at ${viewport.width}x${viewport.height}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(viewport);
+      await page.goto("/");
+      await page.getByRole("tab", { name: productStory.accessibleName }).click();
+
+      const selectedPanel = page.locator(`[data-product-plate-panel="${productStory.id}"]`);
+      await expect(selectedPanel).toBeVisible();
+      await expect(page.locator("[data-product-plate-panel]:not([hidden])")).toHaveCount(1);
+
+      const productImages = selectedPanel.locator("img");
+      await expect
+        .poll(() =>
+          productImages
+            .first()
+            .evaluate((image) => (image instanceof HTMLImageElement ? image.naturalWidth : 0)),
+        )
+        .toBeGreaterThan(0);
+
+      if (productStory.id === "persistent-workspace") {
+        await selectedPanel.getByRole("button", { name: "Restored" }).click();
+        await expect
+          .poll(() =>
+            productImages
+              .last()
+              .evaluate((image) => (image instanceof HTMLImageElement ? image.naturalWidth : 0)),
+          )
+          .toBeGreaterThan(0);
+        await selectedPanel.getByRole("button", { name: "Before close" }).click();
+      }
+
+      const imageGeometry = await productImages.evaluateAll((images) =>
+        images.map((image) => {
+          if (!(image instanceof HTMLImageElement)) {
+            throw new Error("Product proof contains a non-image media element");
+          }
+
+          const imageBounds = image.getBoundingClientRect();
+          const panelBounds = image.closest("[data-product-plate-panel]")?.getBoundingClientRect();
+          if (panelBounds === undefined) {
+            throw new Error("Product proof image is not owned by a product panel");
+          }
+
+          return {
+            naturalWidth: image.naturalWidth,
+            naturalHeight: image.naturalHeight,
+            renderedWidth: imageBounds.width,
+            renderedHeight: imageBounds.height,
+            unusedPanelRegionBelow: panelBounds.bottom - imageBounds.bottom,
+            containedHorizontally:
+              imageBounds.left >= panelBounds.left - 1 &&
+              imageBounds.right <= panelBounds.right + 1,
+            containedVertically:
+              imageBounds.top >= panelBounds.top - 1 &&
+              imageBounds.bottom <= panelBounds.bottom + 1,
+          };
+        }),
+      );
+
+      expect(imageGeometry.length).toBe(productStory.id === "persistent-workspace" ? 2 : 1);
+      expect(imageGeometry.filter((image) => image.renderedWidth > 0)).toHaveLength(1);
+      for (const image of imageGeometry) {
+        expect(image.naturalWidth).toBeGreaterThan(0);
+        expect(image.naturalHeight).toBeGreaterThan(0);
+        if (image.renderedWidth > 0) {
+          expect(image.renderedHeight).toBeGreaterThan(0);
+          expect(image.containedHorizontally).toBe(true);
+          expect(image.containedVertically).toBe(true);
+          expect(image.unusedPanelRegionBelow).toBeLessThanOrEqual(1);
+          expect(
+            Math.abs(
+              image.renderedWidth / image.renderedHeight - image.naturalWidth / image.naturalHeight,
+            ),
+          ).toBeLessThan(0.01);
+        }
+      }
+
+      if (productStory.id === "persistent-workspace") {
+        const beforeFrame = selectedPanel.locator('[data-persistence-frame="before"]');
+        const restoredFrame = selectedPanel.locator('[data-persistence-frame="restored"]');
+        await expect(beforeFrame).toBeVisible();
+        await expect(restoredFrame).toBeHidden();
+
+        await selectedPanel.getByRole("button", { name: "Restored" }).click();
+        await expect(beforeFrame).toBeHidden();
+        await expect(restoredFrame).toBeVisible();
+
+        await selectedPanel.getByRole("button", { name: "Before close" }).click();
+        await expect(beforeFrame).toBeVisible();
+        await expect(restoredFrame).toBeHidden();
+      }
+
+      const documentWidths = await page.evaluate(() => ({
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      }));
+      expect(documentWidths.scrollWidth).toBeLessThanOrEqual(documentWidths.clientWidth);
+    });
+  }
+}
+
+test("uses product focus color for the selected story and neutral inactive indices", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const selectedIndex = page.locator('.product-plate__selector[aria-selected="true"] span');
+  const inactiveIndices = page.locator('.product-plate__selector[aria-selected="false"] span');
+
+  expect(await selectedIndex.evaluate((index) => getComputedStyle(index).color)).toBe(
+    "rgb(137, 180, 250)",
+  );
+  expect(
+    await inactiveIndices.evaluateAll((indices) => [
+      ...new Set(indices.map((index) => getComputedStyle(index).color)),
+    ]),
+  ).toEqual(["rgb(155, 161, 173)"]);
+
+  await page.getByRole("tab", { name: /Review/ }).click();
+  await expect(page.getByRole("tab", { name: /Review/ })).toHaveAttribute("aria-selected", "true");
+  expect(await selectedIndex.evaluate((index) => getComputedStyle(index).color)).toBe(
+    "rgb(137, 180, 250)",
+  );
+});
+
+test("presents supporting features as text and product media without numbered disclosures", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const featureDetails = page.locator(".feature-detail");
+  await expect(featureDetails).toHaveCount(4);
+  await expect(page.locator(".feature-detail__number")).toHaveCount(0);
+  await expect(page.locator(".feature-detail details, .feature-detail summary")).toHaveCount(0);
+  await expect(page.locator(".feature-detail__media")).toHaveCount(4);
+  await expect(page.locator(".feature-detail__media img")).toHaveCount(5);
+
+  const featureGeometry = await featureDetails.evaluateAll((features) =>
+    features.map((feature) => {
+      const copy = feature.querySelector(".feature-detail__copy");
+      const media = feature.querySelector(".feature-detail__media");
+      if (!(copy instanceof HTMLElement) || !(media instanceof HTMLElement)) {
+        throw new Error("Supporting feature is missing copy or media");
+      }
+
+      const copyBounds = copy.getBoundingClientRect();
+      const mediaBounds = media.getBoundingClientRect();
+      return {
+        copyWidth: copyBounds.width,
+        mediaWidth: mediaBounds.width,
+        mediaFollowsCopy:
+          mediaBounds.left >= copyBounds.right || mediaBounds.top >= copyBounds.bottom,
+      };
+    }),
+  );
+
+  for (const geometry of featureGeometry) {
+    expect(geometry.copyWidth).toBeGreaterThan(0);
+    expect(geometry.mediaWidth).toBeGreaterThan(0);
+    expect(geometry.mediaFollowsCopy).toBe(true);
+  }
+});
+
+test("separates the showcase and follow-up with spacing instead of a duplicate rule", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto("/");
+
+  const transitionGeometry = await page.evaluate(() => {
+    const productPlate = document.querySelector(".product-plate");
+    const featureHeading = document.querySelector(".feature-details .section-heading");
+    const finalCallToAction = document.querySelector(".final-cta");
+    if (
+      !(productPlate instanceof HTMLElement) ||
+      !(featureHeading instanceof HTMLElement) ||
+      !(finalCallToAction instanceof HTMLElement)
+    ) {
+      throw new Error("Homepage transition surfaces are incomplete");
+    }
+
+    return {
+      showcaseToDetailsGap:
+        featureHeading.getBoundingClientRect().top - productPlate.getBoundingClientRect().bottom,
+      finalCallToActionBorderTopWidth: getComputedStyle(finalCallToAction).borderTopWidth,
+    };
+  });
+
+  expect(transitionGeometry.showcaseToDetailsGap).toBeGreaterThanOrEqual(80);
+  expect(transitionGeometry.finalCallToActionBorderTopWidth).toBe("0px");
+});
+
+test("morphs the boxed header into a floating glass pill and matches the footer radius", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto("/");
+
+  const restingGeometry = await page.evaluate(() => {
+    const header = document.querySelector(".site-header");
+    const main = document.querySelector(".site-frame > main");
+    const footer = document.querySelector(".site-footer");
+    if (
+      !(header instanceof HTMLElement) ||
+      !(main instanceof HTMLElement) ||
+      !(footer instanceof HTMLElement)
+    ) {
+      throw new Error("Site shell surfaces are incomplete");
+    }
+
+    const headerStyle = getComputedStyle(header);
+    const mainStyle = getComputedStyle(main);
+    const footerStyle = getComputedStyle(footer);
+    return {
+      headerState: header.dataset["visualState"],
+      header: {
+        top: headerStyle.borderTopWidth,
+        right: headerStyle.borderRightWidth,
+        bottom: headerStyle.borderBottomWidth,
+        left: headerStyle.borderLeftWidth,
+        radius: headerStyle.borderRadius,
+        width: header.getBoundingClientRect().width,
+      },
+      main: {
+        right: mainStyle.borderRightWidth,
+        left: mainStyle.borderLeftWidth,
+      },
+      footer: {
+        top: footerStyle.borderTopWidth,
+        right: footerStyle.borderRightWidth,
+        bottom: footerStyle.borderBottomWidth,
+        left: footerStyle.borderLeftWidth,
+        radius: footerStyle.borderRadius,
+      },
+    };
+  });
+
+  expect(restingGeometry.headerState).toBe("resting");
+  expect(restingGeometry.header).toMatchObject({
+    top: "1px",
+    right: "1px",
+    bottom: "1px",
+    left: "1px",
+  });
+  expect(restingGeometry.header.width).toBeGreaterThan(1300);
+  expect(restingGeometry.main).toEqual({ right: "0px", left: "0px" });
+  expect(restingGeometry.footer).toMatchObject({
+    top: "1px",
+    right: "1px",
+    bottom: "1px",
+    left: "1px",
+  });
+
+  await page.evaluate(() => window.scrollTo({ top: 500, behavior: "instant" }));
+  const siteHeader = page.locator(".site-header");
+  await expect(siteHeader).toHaveAttribute("data-visual-state", "floating");
+  await expect(siteHeader).toHaveCSS("width", "540px");
+
+  const floatingGeometry = await siteHeader.evaluate((header) => {
+    const headerStyle = getComputedStyle(header);
+    const bounds = header.getBoundingClientRect();
+    return {
+      width: bounds.width,
+      top: bounds.top,
+      radius: headerStyle.borderRadius,
+      backgroundColor: headerStyle.backgroundColor,
+      backdropFilter: headerStyle.backdropFilter,
+      boxShadow: headerStyle.boxShadow,
+    };
+  });
+
+  expect(floatingGeometry.width).toBeLessThanOrEqual(560);
+  expect(floatingGeometry.top).toBeGreaterThanOrEqual(10);
+  expect(floatingGeometry.radius).toBe(restingGeometry.footer.radius);
+  expect(floatingGeometry.backgroundColor).not.toBe("rgb(46, 48, 54)");
+  expect(floatingGeometry.backdropFilter).not.toBe("none");
+  expect(floatingGeometry.boxShadow).not.toBe("none");
 });
 
 test("contains phone composition within the document viewport", async ({ page }) => {

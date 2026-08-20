@@ -56,7 +56,10 @@ import { productPlateStories } from "./product-plate-fixture";
                 decoding="async"
               />
             ) : (
-              <PersistenceProof story={story} />
+              <PersistenceProof
+                beforeImage={story.beforeImage}
+                restoredImage={story.restoredImage}
+              />
             )}
           </article>
         ))

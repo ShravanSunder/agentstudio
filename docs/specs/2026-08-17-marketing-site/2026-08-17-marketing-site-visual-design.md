@@ -35,16 +35,19 @@ The page uses one 1440px maximum-width framed chassis. The background may contin
 
 - Full-width 16:10 stage directly after the hero.
 - 280px desktop selector rail and one dominant image panel.
-- Selector states: Parallel work, Pane drawer, Quick Find, Review, Persistent workspace.
-- Each state displays one manifest-verified website capture master. Persistent workspace displays a matching two-image split.
+- Selector states: Parallel work, Pane drawer, Quick Find, Review, and Git/PR context.
+- Each state displays one manifest-verified website capture master.
 - The plate may include a small state label and one sentence outside the image. It does not place explanatory badges over the application UI.
 - Selection uses blue focus; inactive/parallel state markers may use peach.
 
 ### After the explainer
 
 The clickable plate owns Parallel work, Pane drawer, Quick Find, Review, and
-Persistent terminal sessions. The final install call to action follows it
-directly. No editorial proof sections repeat the same images or copy below it.
+Git/pull-request context. A compact expandable feature list follows it.
+Persistence is the first required disclosure because restoration needs a
+sequence and explanation rather than another single screenshot tab. Additional
+rows may cover owner-approved shipped details without repeating the five main
+states. The final install call to action follows the disclosure list.
 
 ### Final call to action
 
@@ -125,7 +128,9 @@ Every master uses the same:
 
 - debug application build and source revision;
 - bundle identifier, executable identity, isolated data root, and fixture identity;
-- window position, size, scale, theme, toolbar, sidebar width, and app appearance;
+- window position, size, scale, theme, toolbar, and app appearance;
+- state-specific Agent Studio sidebar visibility and width from the required
+  master contract;
 - repository/worktree names and ordering;
 - pane arrangement and terminal font scale;
 - terminal density, prompt hygiene, and product content tone;
@@ -160,8 +165,10 @@ The treatment emphasizes ownership without pretending that the dimmed state is a
 
 #### `parallel-work.png`
 
-- Sidebar exposes one main checkout and multiple understandable worktrees.
-- Three or four panes show distinct agent/tool contexts.
+- The Agent Studio Pane/All Panes sidebar is visible.
+- Two or three panes show distinct named-agent contexts.
+- Real pane notes, activity, Git, and recency context may appear naturally in
+  the pane sidebar; they are supporting evidence rather than added callouts.
 - One pane is clearly focused through current product selection treatment.
 - Background panes remain legible and visibly parallel.
 - Focal region: full window; no crop may remove the sidebar-to-pane relationship.
@@ -170,6 +177,7 @@ The treatment emphasizes ownership without pretending that the dimmed state is a
 #### `pane-drawer.png`
 
 - Same fixture and arrangement family.
+- The global Agent Studio sidebar is hidden.
 - One primary agent pane is selected.
 - Its drawer is open with shell/build/review/browser context visibly attached.
 - Main pane and drawer ownership remain readable together.
@@ -179,6 +187,8 @@ The treatment emphasizes ownership without pretending that the dimmed state is a
 #### `quick-find.png`
 
 - Same fixture behind the command surface.
+- The global Agent Studio sidebar is hidden so it does not compete with Quick
+  Find as the active navigation surface.
 - Command-P is open with the repository/worktree scope selected.
 - Result rows show believable current fixture names and open-pane context.
 - The `#`, `$`, and `>` scope model is visible without filling the frame with instructions.
@@ -188,30 +198,29 @@ The treatment emphasizes ownership without pretending that the dimmed state is a
 #### `review.png`
 
 - Same fixture worktree and agent context.
+- The global Agent Studio sidebar is hidden.
 - Agent terminal remains visible beside Review.
-- File tree and a modest, readable continuous diff are visible.
+- Review's Changed Files tree remains fully visible whenever Review is shown.
+- A modest, readable unified diff is visible; a narrow side-by-side diff is not
+  accepted for this website capture.
 - Diff content contains no secrets, personal paths, generated noise, or roadmap-only UI.
 - Focal region: terminal-to-file-tree-to-diff relationship.
 - Emphasis derivative: one contiguous stepped mask preserves the terminal-to-file-tree-to-diff reading path; it must not spotlight the diff alone.
 
-#### `persistent-before.png`
+#### `git-pull-request-context.png`
 
-- Same fixture arrangement with one open drawer and visible terminal sessions.
-- Captured immediately before closing the dedicated debug process.
-- Focal region: complete window geometry.
-- Emphasis derivative: the complete arrangement remains at full value because it is one half of a matched persistence comparison.
-
-#### `persistent-restored.png`
-
-- Same fixture after normal close/reopen restoration.
-- Before any UI action, an untouched proof capture records the restored window geometry, selected tab, pane arrangement, drawer, and visible sessions.
-- Selected tab, pane arrangement, drawer membership/expanded state, and visible sessions match the before image closely.
-- A product-owned restored-window-size difference is recorded as an allowed
-  delta, then the verified window is normalized back to 1280×800 points without
-  changing internal workspace state for the website master.
-- Other product-owned restored differences require an explicit allowlist; capture drift is not allowed.
-- Focal region: complete window geometry.
-- Emphasis derivative: the complete arrangement remains at full value and uses the same treatment as `persistent-before.png`.
+- The Agent Studio repository sidebar is visible.
+- Exactly two agent/terminal panes are visible beside it.
+- Review and Files are not shown; their viewer story belongs to the dedicated
+  Review capture, where the global sidebar is hidden.
+- One understandable repository and a small number of real worktrees remain
+  readable.
+- Branch, dirty state, ahead/behind state, pull-request context, and related
+  pane ownership are real app-owned evidence.
+- The frame avoids duplicating the Parallel work composition: repository and
+  Git/PR context are the subject, while agent panes provide supporting context.
+- Focal region: repository sidebar through the related active pane or PR
+  surface.
 
 ### Derivatives
 
@@ -224,9 +233,11 @@ Derivatives are generated from masters, not recaptured.
   - Pane drawer: normalized focal box `(x: 0.23, y: 0.27, width: 0.72, height: 0.72)`.
   - Quick Find: normalized focal box `(x: 0.16, y: 0.10, width: 0.68, height: 0.68)`.
   - Review: normalized focal box `(x: 0.22, y: 0.18, width: 0.74, height: 0.74)`.
-  - Persistent workspace: full before/restored masters in a vertical two-frame comparison.
+  - Git/PR context: art-directed detail preserving the repository sidebar and
+    related active work surface.
 - If an approved capture cannot preserve its named UX claim with the locked focal box, return to Visual Design; do not improvise during capture or implementation.
-- Persistence derivatives preserve both entire before/restored frames.
+- Persistence media, when added to the expandable details, preserves the
+  complete before/restored sequence and is not reused as a primary plate state.
 - Every derivative records output dimensions and SHA-256 in the product projection.
 - HyperFrames is the deterministic derivative renderer for focus isolation and campaign crops; Astro may perform delivery-format optimization from those approved outputs.
 
@@ -236,7 +247,6 @@ Desktop:
 
 - Selector rail remains left of the image.
 - One image panel is exposed at a time.
-- Persistent workspace replaces the single panel with a balanced two-frame split.
 - State label and explanation live outside the capture.
 
 Mobile:
@@ -299,8 +309,8 @@ The design board shows, at minimum:
 2. desktop page overview;
 3. desktop hero/video poster;
 4. each of the five image-plate states;
-5. each of the four long-form screenshot treatments;
-6. persistence split and final call to action;
+5. the expandable feature-list treatment, including persistence;
+6. the final call to action;
 7. mobile hero and mobile image plate;
 8. capture-master matrix with focal regions and status.
 

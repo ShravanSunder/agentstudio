@@ -4,7 +4,7 @@ Requirements authority: [2026-08-17-marketing-site-requirements.md](2026-08-17-m
 
 ## Observable product contract
 
-The marketing site is a statically delivered public homepage. It must communicate one promise: Agent Studio lets developers run more coding agents while staying oriented across repositories, worktrees, panes, attached tools, navigation, review, and persistent sessions.
+The marketing site is a statically delivered public homepage. It must communicate one promise: Agent Studio lets developers run more coding agents while staying oriented across repositories, worktrees, panes, attached tools, navigation, Git/pull-request state, review, and persistent sessions.
 
 The page must remain useful as HTML before client behavior runs. Client TypeScript enhances bounded controls; it does not own the page's primary content or make the product story disappear when unavailable.
 
@@ -13,9 +13,12 @@ The page must remain useful as HTML before client behavior runs. Client TypeScri
 1. The visitor sees the product name, category, campaign promise, short explanation, install action, GitHub action, and recognizable Agent Studio product proof in the first viewport.
 2. The visitor can watch a short silent product loop or receive its representative poster when autoplay is inappropriate or unavailable.
 3. The visitor can operate a clickable Agent Studio workspace and inspect five shipped product stories.
-4. The visitor reaches a final installation and GitHub invitation immediately
-   after the explainer, without repeated feature sections or a contradictory
-   visual system.
+4. The visitor can expand a restrained follow-up feature list for persistence
+   and other approved supporting details without replaying the five primary
+   stories.
+5. The visitor reaches a final installation and GitHub invitation after that
+   detail list, without repeated feature sections or a contradictory visual
+   system.
 
 ## Page composition requirements
 
@@ -51,9 +54,10 @@ The page MUST provide two proof modes without making them compete at equal visua
    until a shared silent website loop is ready;
 2. an interactive product-faithful workspace after the hero.
 
-The interactive workspace MUST contain the complete five-story product
-explanation. The page MUST NOT repeat those stories as long-form sections below
-the workspace.
+The interactive workspace MUST contain the five primary screenshot stories. A
+single expandable feature list MAY follow it for persistence and other approved
+supporting details. That list MUST NOT repeat the five primary stories as
+long-form sections.
 
 Basis: U2, U3.
 
@@ -73,11 +77,11 @@ The interactive workspace MUST offer exactly these initial product stories:
 
 | State | Purpose-made capture | Current claim demonstrated |
 | --- | --- | --- |
-| Parallel work | Wide workspace with multiple agent panes, repository/worktree context, and one clear focus | Parallel work stays separate but visible |
-| Pane drawer | The same fixture with one main pane and related tools visibly attached beneath it | One unit of work keeps its context in its drawer |
-| Quick Find navigation | The same fixture with Command-P and repository/worktree, pane/tab, and command scopes | Visitors understand keyboard-first navigation |
-| Review | The same fixture with agent terminal beside file tree and continuous diff | Review stays beside the work that produced it |
-| Persistent workspace | Two matching captures of the same fixture: Before close and Restored | Closing the app does not tear down persistent work |
+| Parallel work | Wide workspace with multiple named agent panes and the Agent Studio Pane/All Panes sidebar | Parallel work stays separate but visible; pane notes and activity provide real orientation context |
+| Pane drawer | The same fixture with the global Agent Studio sidebar hidden and one main pane plus related tools visibly attached beneath it | One unit of work keeps its context in its drawer |
+| Quick Find navigation | The same fixture with the global Agent Studio sidebar hidden and Command-P showing one meaningful scope | Visitors understand keyboard-first navigation without a competing navigation surface |
+| Review | The same fixture with the global Agent Studio sidebar hidden, agent terminal beside the always-visible Review Changed Files tree, and a readable unified diff | Review stays beside the work that produced it |
+| Git and pull-request context | The same fixture with the Agent Studio repository sidebar showing real worktree, branch, dirty/ahead/behind, and pull-request context beside two agent/terminal panes; Review and Files are not shown | Repository and pull-request state stays attached to the work instead of becoming another place to hunt |
 
 The default state MUST be Parallel work. Selecting a state MUST change only the plate's displayed workspace and selection semantics; it MUST NOT navigate the page, change the browser URL, run commands, access local files, or imply a live connection.
 
@@ -107,17 +111,19 @@ The clickable product plate MUST contain these capture-backed stories:
 | Pane drawer | `pane-drawer.png` |
 | Quick Find navigation | `quick-find.png` |
 | Review | `review.png` |
+| Git and pull-request context | `git-pull-request-context.png` |
 
-Persistent terminal sessions use `persistent-before.png` and
-`persistent-restored.png` in the same plate. No state adds a long-form section
-below the explainer. The existing repository-relative README image locations
-MUST remain valid but MUST NOT be substituted for a missing website capture.
+Persistent terminal sessions no longer occupy a plate state. They move to the
+expandable feature list governed by R15. The existing repository-relative
+README image locations MUST remain valid but MUST NOT be substituted for a
+missing website capture.
 
-Every capture master MUST be an sRGB IEC61966-2.1 PNG at 2560×1600 pixels,
-representing a 1280×800-point Agent Studio window at 2× scale. All six masters
+Every primary capture master MUST be an sRGB IEC61966-2.1 PNG at 2560×1600 pixels,
+representing a 1280×800-point Agent Studio window at 2× scale. All five masters
 MUST use the same approved debug build, isolated fixture data root, app theme,
-window chrome, sidebar width, typography scale, two- or three-pane density,
-capture method, and deterministic color-normalization path. Four narrow panes,
+window chrome, typography scale, two- or three-pane density, capture method,
+and deterministic color-normalization path. Sidebar visibility MUST follow the
+state-specific contract in R5 rather than being forced to match across states. Four narrow panes,
 large empty pane fields, cursor, desktop background, notifications, personal
 paths, tokens, and unrelated apps MUST be absent.
 
@@ -146,6 +152,27 @@ The site MUST use the current Agent Studio semantic theme and canonical stacked-
 The site MUST NOT use Herdr's lilac palette, ram identity, terminal fixtures, or copy. Marketing geometry may borrow its large typography, constrained frame, rails, and product-first hierarchy.
 
 Basis: U8.
+
+### R15 — Expandable feature details
+
+A restrained expandable feature list MUST follow the interactive workspace and
+precede the final call to action. Persistent terminal sessions MUST appear in
+this list rather than as one of the five primary screenshot states. Additional
+rows MAY cover other owner-approved shipped capabilities that do not duplicate
+the primary stories.
+
+Each row MUST expose a short human-readable heading and plain description while
+collapsed. Activating the row MUST reveal its details inline without navigating
+away. Expanded content MAY include a focused approved image or silent clip when
+that media adds proof; decorative placeholder media is forbidden.
+
+The list MUST use native or equivalently complete disclosure semantics, remain
+understandable before client enhancement, expose expanded/collapsed state to
+assistive technology, and support keyboard operation. It MUST NOT autoplay,
+open every row by default, or become a card grid that competes with the primary
+product showcase.
+
+Basis: U2, U3, U5, U8.
 
 ### R10 — TypeScript boundary
 
@@ -219,3 +246,4 @@ Basis: U8.
 | R8 | Automated browser behavior plus link/clipboard observation | Install and GitHub actions, success and failure paths |
 | R13 | Release/runtime evidence | Pull-request preview and production static deployment |
 | R14 | Source inspection | Claim/asset owner comparison at release boundary |
+| R15 | Automated browser behavior plus manual visual evidence | Disclosure semantics, inline expansion, non-duplicative content, and responsive layout |

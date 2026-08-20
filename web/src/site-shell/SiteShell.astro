@@ -24,7 +24,7 @@ const { title, description } = Astro.props;
   </head>
   <body>
     <div class="site-frame">
-      <header class="site-header">
+      <header class="site-header" data-site-header data-visual-state="resting">
         <a class="brand-link" href="#top" aria-label={marketingCopy.navigation.homeLabel}>
           <img src={appLogo.src} width="32" height="32" alt="" />
           <span>{marketingCopy.productName}</span>
@@ -54,5 +54,32 @@ const { title, description } = Astro.props;
         </nav>
       </footer>
     </div>
+    <script>
+      const floatingHeaderScrollThreshold = 32;
+      const siteHeader = document.querySelector<HTMLElement>("[data-site-header]");
+
+      if (siteHeader !== null) {
+        let pendingAnimationFrame: number | undefined;
+
+        const synchronizeHeaderVisualState = (): void => {
+          siteHeader.dataset["visualState"] =
+            window.scrollY > floatingHeaderScrollThreshold ? "floating" : "resting";
+        };
+
+        const scheduleHeaderVisualStateUpdate = (): void => {
+          if (pendingAnimationFrame !== undefined) {
+            return;
+          }
+
+          pendingAnimationFrame = window.requestAnimationFrame((): void => {
+            pendingAnimationFrame = undefined;
+            synchronizeHeaderVisualState();
+          });
+        };
+
+        synchronizeHeaderVisualState();
+        window.addEventListener("scroll", scheduleHeaderVisualStateUpdate, { passive: true });
+      }
+    </script>
   </body>
 </html>

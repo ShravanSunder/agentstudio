@@ -64,7 +64,7 @@ Operators need a deterministic static build, pull-request previews, and a produc
 | --- | --- | --- | --- | --- |
 | U1 | A prospective developer can identify the product, intended user, and core outcome from the first viewport. | The category and value must be understood before feature detail. | Must | Product owner |
 | U2 | A prospective developer can inspect product-faithful behavior rather than relying only on marketing copy. | Agent Studio's spatial organization is easier to understand by interaction and real imagery. | Must | Product owner |
-| U3 | A prospective developer can evaluate parallel work, pane drawers, navigation, Review, and persistent workspace behavior without leaving the page through one visually consistent, purpose-made capture suite. | These capabilities collectively prove organized parallelism; inconsistent historical screenshots would weaken the spatial story. | Must | Product owner and current README |
+| U3 | A prospective developer can evaluate parallel work, pane drawers, navigation, Review, and Git/pull-request context without leaving the page through one visually consistent, purpose-made capture suite, then inspect persistence and other shipped details in a quieter expandable follow-up. | The primary states must each read clearly in one still; sequence-dependent and supporting capabilities need more room without weakening the main spatial story. | Must | Product owner and current README |
 | U4 | A visitor can reach the supported Homebrew installation path and GitHub repository without ambiguity. | Interest must convert into an executable next step. | Must | Product owner and current README |
 | U5 | Keyboard, assistive-technology, reduced-motion, and narrow-screen users receive an equivalent understandable product story. | Product proof cannot depend on pointer-only or involuntary motion. | Must | Product owner and platform accessibility expectations |
 | U6 | Maintainers author website behavior in TypeScript and reuse the repository's established frontend quality standards where they fit. | A second untyped or unrelated frontend culture would raise maintenance cost. | Must | Product owner |
@@ -79,9 +79,11 @@ The first release is one public marketing homepage with two complementary proof 
    imagery that may become the approved silent website loop when it is ready;
 2. a clickable, product-faithful Agent Studio workspace that switches among a bounded set of pre-authored screens;
 
-The clickable workspace owns the complete Parallel work, Pane drawer, Quick
-Find, Review, and persistence explanation. The page does not repeat those
-stories in long-form sections below it.
+The clickable workspace owns the primary Parallel work, Pane drawer, Quick
+Find, Review, and Git/pull-request context explanation. A restrained expandable
+feature list follows it and owns persistence plus any later owner-approved
+supporting details. It does not repeat the five primary stories as long-form
+sections.
 
 The website may change `web/`, website-specific package/configuration files, website build integration, and website deployment workflow. It may read or copy approved brand values and assets from their current owners. It must not change native application behavior, Bridge protocols, app persistence, or release packaging to serve the website.
 
@@ -117,7 +119,8 @@ Scope reopens if a confirmed requirement needs a live backend, authenticated sta
 - Desktop and narrow-screen visual evidence shows the complete hierarchy and readable proof surfaces.
 - Keyboard and assistive-technology evidence demonstrates complete interactive-demo navigation and selection state.
 - Reduced-motion evidence shows a poster-first hero and nonessential motion disabled.
-- Product-state evidence demonstrates every approved clickable screen and its matching current claim.
+- Product-state evidence demonstrates every approved clickable screen, the
+  required persistence disclosure, and each matching current claim.
 - Capture-manifest evidence shows every website image came from the same approved debug build, fixture, window geometry, scale, theme, and source revision.
 - Installation and GitHub actions resolve to the current supported targets.
 - A Cloudflare preview deployment serves the generated static site for a pull request.

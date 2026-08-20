@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
+import sharp from "sharp";
+
 import { websiteCaptureSuite } from "../src/content/website-capture-manifest.ts";
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const CANONICAL_SRGB_ICC_SHA256 =
+  "c56e1685d888f5edb92fe07f2750f387f8fe8e91b32ff8fb0b56bfbbb9458353";
 
 function sha256(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
@@ -39,6 +43,12 @@ async function verifyCaptureAssets(): Promise<void> {
     websiteCaptureSuite.captures.map(async (capture): Promise<void> => {
       const assetUrl = new URL(capture.assetPath, manifestUrl);
       const bytes = await readFile(assetUrl);
+      const metadata = await sharp(bytes).metadata();
+      const hasCanonicalSrgbChunk = hasPngChunk(bytes, "sRGB") && !hasPngChunk(bytes, "iCCP");
+      const hasCanonicalSrgbIcc =
+        hasPngChunk(bytes, "iCCP") &&
+        metadata.icc !== undefined &&
+        sha256(metadata.icc) === CANONICAL_SRGB_ICC_SHA256;
 
       assertCapture(
         bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE),
@@ -53,8 +63,8 @@ async function verifyCaptureAssets(): Promise<void> {
         `${capture.id}: height does not match the capture suite`,
       );
       assertCapture(
-        hasPngChunk(bytes, "iCCP") || hasPngChunk(bytes, "sRGB"),
-        `${capture.id}: canonical color-profile marker is missing`,
+        hasCanonicalSrgbChunk || hasCanonicalSrgbIcc,
+        `${capture.id}: canonical sRGB profile identity is missing`,
       );
       assertCapture(
         sha256(bytes) === capture.websiteAssetSha256,

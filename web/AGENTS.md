@@ -70,7 +70,7 @@ If the answers do not make one direction clear, return to the Program Design rat
 
 - The initial plate is an Astro-rendered fixture enhanced by one TypeScript controller.
 - Each state displays a frozen purpose-made Agent Studio capture. Do not reconstruct, redraw, or approximate app UI in HTML/CSS.
-- Its approved states are Parallel work, Pane drawer, Quick Find, Review, and Persistent workspace.
+- Its approved states are Parallel work, Pane drawer, Quick Find, Review, and Git/PR context.
 - Quick Find is the approved navigation state; do not add a duplicate repository-navigation state without a Specification change.
 - State changes are local and deterministic. They do not navigate, change the URL, persist state, call a backend, access local files, or connect to Agent Studio.
 - Use semantic buttons/tabs and panels with visible focus, keyboard operation, `aria-selected`, and explicit control/panel relationships. Do not copy Herdr's pointer-only `div` and `span` controls.
@@ -78,11 +78,13 @@ If the answers do not make one direction clear, return to the Program Design rat
 - Exactly one selector and one panel are current at a time. Unknown state identifiers preserve the last valid state.
 - Ambient timers and status activity are illustrative presentation only. Stop them while hidden and when reduced motion is requested.
 - If controller complexity crosses the React threshold above, migrate this one boundary to a React island; do not add a parallel controller path.
-- Persistent workspace must present Before close and Restored evidence at a
-  readable scale and fill the product plate without a dead region. Do not
-  preserve a static split when it makes both images small or leaves the lower
-  half empty. The replacement presentation pattern requires owner-approved
-  design before implementation; do not add autoplay or simulated restoration.
+- Parallel work shows the Pane/All Panes sidebar. Git/PR context shows the
+  repository sidebar beside two agent/terminal panes. Pane drawer, Quick Find,
+  Review, Files, Pane Zoom, and full-screen views hide the global Agent Studio
+  sidebar; Review and Files keep their own file tree visible. Git/PR must not
+  reuse Review or Files as its second pane.
+- Persistent workspace is not a product-plate state. It belongs in the
+  expandable feature-detail section after the plate.
 
 ## Product proof
 
@@ -91,7 +93,9 @@ The page uses two complementary proof surfaces:
 1. recognizable Agent Studio imagery in the hero, replaced by the approved
    silent website loop when that shared launch asset is ready;
 2. one clickable product plate that owns the complete Parallel work, Pane
-   drawer, Quick Find, Review, and Persistent terminal sessions explanation.
+   drawer, Quick Find, Review, and Git/PR context explanation;
+3. one expandable feature-detail list that begins with persistence and may add
+   other owner-approved shipped details without repeating the plate.
 
 Do not repeat those five stories in long-form sections below the plate. After
 the clickable explainer, proceed directly to the final install call to action.
@@ -107,7 +111,8 @@ Preserve the existing `web/images/` paths because the root README references the
 - Keep every campaign state to two or three readable primary panes. Four narrow
   panes and large empty pane fields fail the campaign-image contract.
 - Freeze sidebar width, toolbar/window chrome, theme, typography, pane density, fixture repositories/worktrees, terminal content, and capture method across the suite.
-- Required masters: `parallel-work.png`, `pane-drawer.png`, `quick-find.png`, `review.png`, `persistent-before.png`, and `persistent-restored.png`.
+- Required primary masters: `parallel-work.png`, `pane-drawer.png`,
+  `quick-find.png`, `review.png`, and `git-pull-request-context.png`.
 - Use a Luna xhigh operator only with an exact capture packet. Verify build, executable, bundle identifier, PID, isolated data root, and window identity before any UI action. Never attach to an existing app process.
 - The operator uses Sky only after loading `computer-use:computer-use` and targeting the dedicated bundle identifier. Peekaboo may provide control fallback with a fresh snapshot and the same PID/window boundary.
 - Use Peekaboo to resolve the current CoreGraphics window ID from the verified PID, then capture that window ID with Retina PNG output. Never rely on the generic AX window title as the sole selector. Preserve the untouched source and record its embedded ICC profile/hash; convert a copy through ColorSync to the canonical sRGB IEC61966-2.1 master without resizing.

@@ -32,6 +32,120 @@ This document is the canonical execution ledger. Progress updates must link to
 the applicable heading below. A checked box means the source change and its
 named proof both passed; editing the source alone does not complete an item.
 
+### 2026-08-20 current owner review: screenshot and frame quality
+
+This is the active checklist. Historical checked rows below do not override an
+open row here.
+
+- [ ] Reinspect all six current source assets at 100 percent, including enlarged
+      alpha/corner composites on both checkerboard and `--product-ground`.
+- [ ] Click and visually inspect all five product states at `1600x1000` and
+      `390x844` in local production and the exact deployed Cloudflare version.
+- [ ] Replace any screenshot with a white/bright corner, opaque backing,
+      double border, synthetic mask, mismatched radius, accidental crop, or
+      image-to-panel gap. Passing four exact corner pixels is necessary but not
+      sufficient.
+- [ ] Make every full app window fit the product-image boundary with all four
+      native edges visible; do not use CSS clipping, radius, `object-fit: cover`,
+      or a marketing frame to hide a bad source.
+- [ ] Reject and replace Pane drawer if the drawer overwhelms the frame, hides
+      the named agents, or contains unrelated/mostly empty output.
+- [ ] Recapture Review in unified diff mode with the global repository sidebar
+      hidden, the Review Changed Files sidebar fully visible, one readable
+      selected file, and the originating agent terminal still readable beside
+      it.
+- [ ] Keep exactly two primary panes in every showcase capture. Sidebars are
+      context surfaces, not additional panes.
+- [ ] Keep recognizable already-running agent UI visible in every primary
+      capture. Capture preparation may arrange panes but must not start, prompt,
+      interrupt, or steer an agent without a separate explicit owner handoff.
+- [ ] Apply the global-sidebar visibility matrix deliberately: Parallel shows
+      Pane/All Panes; Git/PR shows By Repo beside two agent/terminal panes;
+      Drawer, Quick Find, Review, Files, Pane Zoom, and full-screen views hide
+      the Agent Studio sidebar. Review and Files keep their own file tree.
+- [ ] Reject the Git/PR capture if it reuses Review or Files merely to fill the
+      second pane. It must show repository context beside two meaningful
+      agent/terminal panes.
+- [ ] Extend browser proof to activate and measure Parallel work, Pane drawer,
+      Quick Find, Review, Persistent terminal sessions, Before close, and
+      Restored. No default-state inference.
+- [ ] Run the project-local copy skill against every visible line only after the
+      screenshots prove their claims; do not rewrite copy to excuse weak pixels.
+- [ ] Rebuild local desktop/phone/source/corner contact sheets from the exact
+      post-fix commit and reject the suite if one state fails.
+- [x] Remove the unexplained full-width divider between the product showcase
+      and the following content; section spacing owns that transition.
+- [x] Verify the product showcase ends with exactly one visible boundary. Reject
+      any deployed state showing the rounded plate border plus a second
+      full-width section rule or empty bordered strip beneath it.
+- [x] Replace CTA-specific spacing with shared content/action/section rhythm
+      tokens; prove the hero install block has deliberate space above and below
+      at desktop and phone widths.
+- [x] Resolve header/footer shell-radius asymmetry. The resting header is a
+      complete dark-glass box without a gap above the site frame; after
+      scrolling, that same element contracts into a centered floating pill.
+      The footer is a complete dark-glass box using the floating header's exact
+      24px radius.
+- [ ] Correct product-selector color semantics. Inactive story numbers use a
+      muted neutral; the selected story number and selection rail use primary
+      blue `#89b4fa`. Reserve peach `#ef9f76` for intentional parallel,
+      related, or background context rather than applying it to every index.
+      Click all five states and verify the selected/inactive hierarchy at
+      desktop and phone widths.
+- [ ] Replace the numbered secondary-feature accordion with restrained
+      Herdr-inspired rows: human-readable explanation on the left and one
+      relevant visual proof on the right. Remove the repeated `01`–`04`
+      numbering/card pattern. Use an approved product still when a state is
+      enough; use a short silent HyperFrames loop when motion is the proof.
+      Every loop must derive from an approved current capture, fit the shared
+      media boundary, render deterministically, and provide an equivalent
+      reduced-motion still. Do not add placeholder animation or decorative
+      motion without a product claim.
+- [ ] Run format, lint, strict typecheck, capture audits, unit tests, all-state
+      browser tests, static build, and zero-warning console inspection.
+- [ ] Deploy only the accepted exact commit, then repeat the full deployed
+      walkthrough and record the Cloudflare version and rollback route.
+
+Current observed failures from the deployed 1600px walkthrough:
+
+- Pane drawer is visually dominant and covers most agent context.
+- Review uses a narrow split diff rather than the required unified diff; the
+  Review tree/diff/terminal widths do not yet meet the new owner composition.
+- Existing browser automation measures the default state and persistence but
+  does not prove every state image and boundary.
+
+Release decision remains `NOT VERIFIED` until every row above has proof.
+
+Current implementation evidence:
+
+- The shell morph passes the focused two-project Playwright contract and the
+  complete 34-case desktop/mobile browser suite. Exact 1600x1000 visual proof
+  is stored under
+  `/private/tmp/agentstudio-website-verification/current-working-tree/glass-shell/`
+  as `resting-header.png`, `floating-header.png`, and `footer.png`.
+- Review source replaced with the 2560x1600 unified-diff capture derived from
+  source SHA-256 `9f29a173039e04f1946523e25481f97403ff625a3f77774df4518864677655da`.
+  The normalized website asset SHA-256 is
+  `fcbb61927148a093b75cdaebae57d6f6cd329338a01e5d5d9bcfc3e21418f9ec`.
+- Review desktop proof passes: global Agent Studio sidebar hidden, Review file
+  tree visible, unified diff readable, existing Claude start screen visible,
+  no double section divider. Evidence:
+  `/private/tmp/agentstudio-website-verification/current-working-tree/local-development/1600/review.png`.
+- Review phone fit passes but readability remains open: the complete image fits
+  without overflow, while internal agent/diff/file-tree text is too small at
+  the full-window 390px presentation. Evidence:
+  `/private/tmp/agentstudio-website-verification/current-working-tree/local-development/390/review.png`.
+- Git/PR capture remains open. It requires By Repo plus two existing
+  agent/terminal panes, with no Review or Files pane and no agent control.
+- Spacing/divider proof passes in the 30-case desktop/mobile browser suite:
+  the showcase-to-details gap is at least 80 pixels and the following CTA has a
+  zero-width top border. Current desktop/phone disclosure screenshots are at
+  `local-development/1600/feature-details.png` and
+  `local-development/390/feature-details.png` under the evidence root above.
+- Independent current-diff review found no P0 defects. Accepted open P1 gates:
+  Git/PR source cutover, Drawer/Quick Find sidebar recapture, Review phone
+  readability, and complete per-capture provenance/no-agent-control receipts.
+
 ## Owner visual rejection and reopened acceptance
 
 The 2026-08-18 owner review rejects the previous visual acceptance. The

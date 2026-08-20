@@ -1,15 +1,15 @@
 ---
 import { Image } from "astro:assets";
+import type { ImageMetadata } from "astro";
 
 import { marketingCopy } from "@/marketing-copy";
 
-import type { PersistenceComparisonStory } from "./product-plate-fixture";
-
 interface Props {
-  readonly story: PersistenceComparisonStory;
+  readonly beforeImage: ImageMetadata;
+  readonly restoredImage: ImageMetadata;
 }
 
-const { story } = Astro.props;
+const { beforeImage, restoredImage } = Astro.props;
 ---
 
 <div class="persistence-proof" data-persistence-proof data-enhanced="false">
@@ -34,7 +34,7 @@ const { story } = Astro.props;
 
   <figure data-persistence-frame="before">
     <Image
-      src={story.beforeImage}
+      src={beforeImage}
       alt={marketingCopy.stories.persistence.beforeImageDescription}
       widths={[720, 1080, 1440, 2160]}
       sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
@@ -45,7 +45,7 @@ const { story } = Astro.props;
   </figure>
   <figure data-persistence-frame="restored" hidden>
     <Image
-      src={story.restoredImage}
+      src={restoredImage}
       alt={marketingCopy.stories.persistence.restoredImageDescription}
       widths={[720, 1080, 1440, 2160]}
       sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"

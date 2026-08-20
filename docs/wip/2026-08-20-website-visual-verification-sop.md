@@ -487,6 +487,24 @@ Required visible evidence:
 - simultaneous agent work that reads as distinct tasks, not two idle shells;
 - no large empty pane that dominates the frame.
 
+All primary showcase captures use exactly two primary panes. Repository, Pane,
+and Review file-tree sidebars are context surfaces and do not count as panes.
+Every primary capture keeps recognizable already-running agent UI visible; the
+capture operator may arrange existing panes but may not start, prompt,
+interrupt, or steer an agent without a separate explicit owner handoff.
+
+Global Agent Studio sidebar visibility is story-specific:
+
+- Parallel work shows Pane/All Panes;
+- Git/PR context shows By Repo beside two agent/terminal panes;
+- Pane drawer, Quick Find, Review, Files, Pane Zoom, and full-screen views hide
+  the global sidebar;
+- Review and Files keep their own viewer file tree visible.
+
+Reject a Git/PR frame that combines By Repo with Review or Files. That frame
+must prove repository/Git/PR context beside agent work rather than repeat the
+viewer story.
+
 ### Pane drawer
 
 Required visible evidence:
@@ -513,7 +531,15 @@ Required visible evidence:
 Required visible evidence:
 
 - a named agent terminal is visible beside the work it produced;
-- the Changed Files tree and selected populated diff are readable;
+- Review uses unified diff presentation for the website still; do not capture a
+  narrow side-by-side diff whose two columns make the changed lines unreadable;
+- the global repository sidebar is hidden when it takes width from the proof;
+  the Review Changed Files sidebar remains fully visible and is not clipped,
+  collapsed, or reduced to truncated filenames;
+- the Changed Files tree and selected populated unified diff are readable;
+- the originating terminal remains visible at a useful width after the Review
+  sidebar is opened; reject a composition where either the terminal or Review
+  becomes a decorative sliver;
 - the terminal-to-file-tree-to-diff relationship is clear;
 - no white or bright corner artifacts appear around the captured window;
 - the frame is not dominated by an empty terminal or unreadable truncated UI.
@@ -544,7 +570,11 @@ variant:
 - [ ] No unexplained gap between selector and image
 - [ ] Image top and bottom align with its panel
 - [ ] No white, bright, or transparent-corner flattening
+- [ ] No bright antialiasing fringe, double frame, CSS-created corner, or
+      opaque backing exposed between the native window and product ground
 - [ ] No accidental crop
+- [ ] All four native window edges and all state-critical sidebars are visible
+      unless the state owns an explicitly approved close crop
 - [ ] No large dead region
 - [ ] Text and primary UI remain readable at rendered size
 - [ ] Named agentic software is visible where the narrative requires it
@@ -591,6 +621,9 @@ image must preserve it. At each required viewport, record:
 - image and panel bounding boxes;
 - `object-fit`, `object-position`, CSS radius, overflow, and transform values;
 - whether every source edge is visible;
+- whether the active state's critical internal boundary is fully visible
+  (drawer edge, Quick Find sheet, Review Changed Files sidebar, or persistence
+  controls);
 - unused panel area above, below, left, and right of the image;
 - the rendered pixel height of the smallest text needed to understand the
   feature.
@@ -711,7 +744,14 @@ pnpm --dir web run test:browser
 Browser coverage must assert:
 
 - all five selectors exist and switch without changing the URL;
-- the selected panel image loads;
+- each of all five selectors is activated in turn, its corresponding panel is
+  the only visible panel, and every image in that panel loads;
+- Before close and Restored are both activated and each one becomes the only
+  visible persistence frame;
+- every selected image preserves its intrinsic aspect ratio, has finite
+  nonzero bounds, fits within its panel, and exposes no unintended panel gap;
+- the browser test records or snapshots the actual selected-state geometry;
+  checking Parallel work and inferring the other four states is forbidden;
 - one install control exists in the hero;
 - one closing GitHub action exists;
 - footer GitHub and X links have visible nonzero bounds;
