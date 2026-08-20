@@ -3,6 +3,11 @@ import Foundation
 package struct FSEventBatch: Sendable {
     let worktreeId: UUID
     let paths: [String]
+
+    package init(worktreeId: UUID, paths: [String]) {
+        self.worktreeId = worktreeId
+        self.paths = paths
+    }
 }
 
 package enum FSEventStreamRegistrationUnavailableReason: Sendable, Equatable {

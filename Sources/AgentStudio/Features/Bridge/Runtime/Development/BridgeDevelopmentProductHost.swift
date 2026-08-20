@@ -40,6 +40,7 @@ package actor BridgeDevelopmentProductHost {
     var nextReviewGeneration: BridgeReviewGeneration = 1
     private var publishedFileNavigation: FileNavigationPublication?
     private let worktreeId: UUID
+    private let worktreeRoot: URL
 
     package init(
         source: BridgeDevelopmentProductSource,
@@ -183,6 +184,7 @@ package actor BridgeDevelopmentProductHost {
             productSessionOwner: productPreparation.productSessionOwner
         )
         self.worktreeId = source.worktreeID
+        self.worktreeRoot = source.worktreeRoot
         await connectProductCallbacks(
             committedCallTarget: productPreparation.committedCallTarget,
             fileMetadataSource: productPreparation.fileMetadataSource
@@ -248,6 +250,36 @@ package actor BridgeDevelopmentProductHost {
         schemeHandler.reply(for: request)
     }
 
+    package func handleObservedWorktreeInvalidation(
+        _ invalidation: BridgePaneWorktreeProductInvalidation
+    ) async {
+        guard !isShutdown else { return }
+        switch invalidation {
+        case .filesChanged(let changeset):
+            guard changeset.repoId == repoId,
+                changeset.worktreeId == worktreeId,
+                changeset.rootPath.standardizedFileURL.resolvingSymlinksInPath()
+                    == worktreeRoot.standardizedFileURL.resolvingSymlinksInPath()
+            else { return }
+            _ = await constructionCoordinator.invalidate(
+                worktree: worktreeConstructionIdentity
+            )
+            _ = await worktreeRefreshDriver.recordInvalidation(
+                fileChangeset: changeset,
+                requiresReviewRefresh: true
+            )
+        case .statusChanged(let status):
+            _ = await constructionCoordinator.invalidate(
+                worktree: worktreeConstructionIdentity
+            )
+            _ = await worktreeRefreshDriver.recordInvalidation(
+                fileChangeset: nil,
+                latestFileStatus: status,
+                requiresReviewRefresh: true
+            )
+        }
+    }
+
     package func shutdown() async {
         guard !isShutdown else { return }
         isShutdown = true
@@ -274,6 +306,14 @@ package actor BridgeDevelopmentProductHost {
         await publicationDrain.releaseAndWait()
         await constructionCoordinator.shutdown()
         await gitReadScheduler.shutdown()
+    }
+
+    private var worktreeConstructionIdentity: BridgeWorktreeIdentityKey {
+        BridgeWorktreeIdentityKey(
+            repoIdentity: repoId.uuidString,
+            worktreeIdentity: worktreeId.uuidString,
+            stableRootIdentity: StableKey.fromPath(worktreeRoot)
+        )
     }
 
     private func validateBootstrapTransition(

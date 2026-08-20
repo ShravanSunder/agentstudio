@@ -2,7 +2,6 @@ import AgentStudioBridge
 import Foundation
 import HTTPTypes
 import Hummingbird
-import ServiceLifecycle
 import WebKit
 
 enum BridgeDevelopmentHTTPApplication {
@@ -108,15 +107,6 @@ enum BridgeDevelopmentHTTPApplication {
             headers: [.contentType: "application/octet-stream"],
             body: .init(byteBuffer: ByteBuffer(bytes: delivery))
         )
-    }
-}
-
-struct BridgeDevelopmentProductHostShutdownService: Service {
-    let host: BridgeDevelopmentProductHost
-
-    func run() async throws {
-        try? await gracefulShutdown()
-        await host.shutdown()
     }
 }
 

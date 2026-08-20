@@ -194,7 +194,7 @@ package struct GitWorkingTreeSummary: Sendable, Equatable {
 package struct GitWorkingTreeSnapshot: Sendable, Equatable {
     package let worktreeId: UUID
     package let repoId: UUID
-    let rootPath: URL
+    package let rootPath: URL
     package let summary: GitWorkingTreeSummary
     package let branch: String?
 
