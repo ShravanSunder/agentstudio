@@ -7,7 +7,7 @@ import {
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 
-const annotationDateSchema = z.number().finite();
+const annotationUnixMillisecondsSchema = bridgeProductNonnegativeSequenceSchema;
 
 const annotationOutputResultSummarySchema = z
 	.object({
@@ -60,15 +60,20 @@ const annotationOutputCommandOutcomeSchema = z.discriminatedUnion('kind', [
 export const bridgeProductWorktreeAnnotationOutputHistorySummarySchema = z
 	.object({
 		attemptId: bridgeProductReviewPublicationIdSchema,
-		createdAt: annotationDateSchema,
+		createdAtUnixMilliseconds: annotationUnixMillisecondsSchema,
 		messageCount: bridgeProductNonnegativeSequenceSchema.positive(),
 		outputKind: z.enum(['clipboard_markdown', 'json_file']),
 		repeatedFromAttemptId: bridgeProductReviewPublicationIdSchema.nullable(),
 		sessionId: bridgeProductReviewPublicationIdSchema,
 		state: z.enum(['prepared', 'succeeded', 'unknown', 'finalization_failed']),
-		updatedAt: annotationDateSchema,
+		updatedAtUnixMilliseconds: annotationUnixMillisecondsSchema,
 	})
-	.strict();
+	.strict()
+	.transform(({ createdAtUnixMilliseconds, updatedAtUnixMilliseconds, ...summary }) => ({
+		...summary,
+		createdAt: createdAtUnixMilliseconds,
+		updatedAt: updatedAtUnixMilliseconds,
+	}));
 
 const annotationCommandOutcomeStatusSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('committed') }).strict(),
@@ -159,21 +164,22 @@ const annotationMessageDraftSchema = z
 	})
 	.strict();
 
-export const bridgeProductWorktreeAnnotationMessageEntrySchema = z
-	.object({
-		authorKind: z.literal('human'),
-		createdAt: annotationDateSchema,
-		draft: annotationMessageDraftSchema.nullable(),
-		messageId: bridgeProductReviewPublicationIdSchema,
-		messageRevision: bridgeProductNonnegativeSequenceSchema,
-		ordinal: bridgeProductNonnegativeSequenceSchema,
-		savedBody: annotationMessageBodySchema.nullable(),
-		savedRevision: bridgeProductNonnegativeSequenceSchema.positive().nullable(),
-		sessionId: bridgeProductReviewPublicationIdSchema,
-		sessionRevision: bridgeProductNonnegativeSequenceSchema,
-		status: z.enum(['editable', 'locked']),
-		threadId: bridgeProductReviewPublicationIdSchema,
-	})
+const annotationMessageEntryShape = {
+	authorKind: z.literal('human'),
+	draft: annotationMessageDraftSchema.nullable(),
+	messageId: bridgeProductReviewPublicationIdSchema,
+	messageRevision: bridgeProductNonnegativeSequenceSchema,
+	ordinal: bridgeProductNonnegativeSequenceSchema,
+	savedBody: annotationMessageBodySchema.nullable(),
+	savedRevision: bridgeProductNonnegativeSequenceSchema.positive().nullable(),
+	sessionId: bridgeProductReviewPublicationIdSchema,
+	sessionRevision: bridgeProductNonnegativeSequenceSchema,
+	status: z.enum(['editable', 'locked']),
+	threadId: bridgeProductReviewPublicationIdSchema,
+} as const;
+
+export const bridgeProductWorktreeAnnotationDecodedMessageEntrySchema = z
+	.object({ ...annotationMessageEntryShape, createdAt: annotationUnixMillisecondsSchema })
 	.strict()
 	.superRefine((message, context) => {
 		if ((message.savedBody === null) !== (message.savedRevision === null)) {
@@ -205,6 +211,18 @@ export const bridgeProductWorktreeAnnotationMessageEntrySchema = z
 			});
 		}
 	});
+
+export const bridgeProductWorktreeAnnotationMessageEntrySchema = z
+	.object({
+		...annotationMessageEntryShape,
+		createdAtUnixMilliseconds: annotationUnixMillisecondsSchema,
+	})
+	.strict()
+	.transform(({ createdAtUnixMilliseconds, ...message }) => ({
+		...message,
+		createdAt: createdAtUnixMilliseconds,
+	}))
+	.pipe(bridgeProductWorktreeAnnotationDecodedMessageEntrySchema);
 
 export const bridgeProductWorktreeAnnotationEventSchema = z
 	.object({

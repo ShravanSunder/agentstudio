@@ -8,21 +8,24 @@ import {
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 import { parseBridgeProductStrictJSON } from './bridge-product-strict-json.js';
-import { bridgeProductWorktreeAnnotationMessageEntrySchema } from './bridge-product-worktree-annotation-contracts.js';
+import {
+	bridgeProductWorktreeAnnotationDecodedMessageEntrySchema,
+	bridgeProductWorktreeAnnotationMessageEntrySchema,
+} from './bridge-product-worktree-annotation-contracts.js';
 
-const annotationProjectionDateSchema = z.number().finite();
+const annotationProjectionUnixMillisecondsSchema = bridgeProductNonnegativeSequenceSchema;
 
 export const bridgeWorkerAnnotationProjectionSessionSchema = z
 	.object({
-		completedAt: annotationProjectionDateSchema.nullable(),
-		createdAt: annotationProjectionDateSchema,
+		completedAt: annotationProjectionUnixMillisecondsSchema.nullable(),
+		createdAt: annotationProjectionUnixMillisecondsSchema,
 		eligibleMessageCount: bridgeProductNonnegativeSequenceSchema,
 		eligibleWithoutInlinePlacementCount: bridgeProductNonnegativeSequenceSchema,
 		lifecycle: z.enum(['living', 'completed']),
 		semanticRevision: bridgeProductNonnegativeSequenceSchema,
 		sessionId: bridgeProductReviewPublicationIdSchema,
 		sourceRelationship: z.enum(['applicable', 'uncertain', 'detached']),
-		updatedAt: annotationProjectionDateSchema,
+		updatedAt: annotationProjectionUnixMillisecondsSchema,
 	})
 	.strict()
 	.refine(
@@ -32,6 +35,34 @@ export const bridgeWorkerAnnotationProjectionSessionSchema = z
 			path: ['eligibleWithoutInlinePlacementCount'],
 		},
 	);
+
+const bridgeWorkerAnnotationProjectionSessionWireSchema = z
+	.object({
+		completedAtUnixMilliseconds: annotationProjectionUnixMillisecondsSchema.nullable(),
+		createdAtUnixMilliseconds: annotationProjectionUnixMillisecondsSchema,
+		eligibleMessageCount: bridgeProductNonnegativeSequenceSchema,
+		eligibleWithoutInlinePlacementCount: bridgeProductNonnegativeSequenceSchema,
+		lifecycle: z.enum(['living', 'completed']),
+		semanticRevision: bridgeProductNonnegativeSequenceSchema,
+		sessionId: bridgeProductReviewPublicationIdSchema,
+		sourceRelationship: z.enum(['applicable', 'uncertain', 'detached']),
+		updatedAtUnixMilliseconds: annotationProjectionUnixMillisecondsSchema,
+	})
+	.strict()
+	.transform(
+		({
+			completedAtUnixMilliseconds,
+			createdAtUnixMilliseconds,
+			updatedAtUnixMilliseconds,
+			...session
+		}) => ({
+			...session,
+			completedAt: completedAtUnixMilliseconds,
+			createdAt: createdAtUnixMilliseconds,
+			updatedAt: updatedAtUnixMilliseconds,
+		}),
+	)
+	.pipe(bridgeWorkerAnnotationProjectionSessionSchema);
 
 export const bridgeWorkerAnnotationProjectionThreadContextSchema = z
 	.object({
@@ -59,7 +90,7 @@ export const bridgeWorkerAnnotationProjectionHeaderSchema = z
 		expectedThreadCount: bridgeProductNonnegativeSequenceSchema,
 		projectionRevision: bridgeProductNonnegativeSequenceSchema,
 		recoveryStatus: z.enum(['available', 'recovered_degraded', 'unavailable']),
-		sessions: z.array(bridgeWorkerAnnotationProjectionSessionSchema).max(128).readonly(),
+		sessions: z.array(bridgeWorkerAnnotationProjectionSessionWireSchema).max(128).readonly(),
 		sourceGeneration: bridgeProductNonnegativeSequenceSchema,
 		worktreeId: bridgeProductIdentifierSchema,
 	})
@@ -100,13 +131,14 @@ const bridgeWorkerAnnotationProjectionRecordSchema = z.discriminatedUnion('kind'
 export const bridgeWorkerAnnotationProjectionThreadSchema = z
 	.object({
 		context: bridgeWorkerAnnotationProjectionThreadContextSchema,
-		messages: z.array(bridgeProductWorktreeAnnotationMessageEntrySchema).min(1).readonly(),
+		messages: z.array(bridgeProductWorktreeAnnotationDecodedMessageEntrySchema).min(1).readonly(),
 	})
 	.strict();
 
 export const bridgeWorkerAnnotationProjectionSnapshotSchema = z
 	.object({
 		...bridgeWorkerAnnotationProjectionHeaderSchema.shape,
+		sessions: z.array(bridgeWorkerAnnotationProjectionSessionSchema).max(128).readonly(),
 		threads: z.array(bridgeWorkerAnnotationProjectionThreadSchema).readonly(),
 	})
 	.strict();

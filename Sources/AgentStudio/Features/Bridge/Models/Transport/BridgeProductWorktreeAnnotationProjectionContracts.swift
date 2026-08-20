@@ -1,5 +1,13 @@
 import Foundation
 
+private func annotationUnixMilliseconds(_ date: Date) -> Int64 {
+    Int64((date.timeIntervalSince1970 * 1000).rounded(.towardZero))
+}
+
+private func annotationDateFromUnixMilliseconds(_ unixMilliseconds: Int64) -> Date {
+    Date(timeIntervalSince1970: TimeInterval(unixMilliseconds) / 1000)
+}
+
 enum BridgeProductWorktreeAnnotationProjectionError: Error, Equatable {
     case messageEntryExceedsMaximum
     case singletonFrameExceedsMaximum
@@ -8,15 +16,15 @@ enum BridgeProductWorktreeAnnotationProjectionError: Error, Equatable {
 
 struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
-        case completedAt
-        case createdAt
+        case completedAtUnixMilliseconds
+        case createdAtUnixMilliseconds
         case eligibleMessageCount
         case eligibleWithoutInlinePlacementCount
         case lifecycle
         case semanticRevision
         case sessionId
         case sourceRelationship
-        case updatedAt
+        case updatedAtUnixMilliseconds
     }
 
     let completedAt: Date?
@@ -49,12 +57,14 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
         try rejectAnnotationProjectionUnknownKeys(decoder, keys: CodingKeys.allCases)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         completedAt = try BridgeProductContractDecoding.decodeRequiredNullable(
-            Date.self,
-            forKey: .completedAt,
+            Int64.self,
+            forKey: .completedAtUnixMilliseconds,
             from: container,
             codingPath: decoder.codingPath
+        ).map(annotationDateFromUnixMilliseconds)
+        createdAt = annotationDateFromUnixMilliseconds(
+            try container.decode(Int64.self, forKey: .createdAtUnixMilliseconds)
         )
-        createdAt = try container.decode(Date.self, forKey: .createdAt)
         eligibleMessageCount = try container.decode(Int.self, forKey: .eligibleMessageCount)
         eligibleWithoutInlinePlacementCount = try container.decode(
             Int.self,
@@ -67,7 +77,9 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
             WorktreeAnnotationSourceRelationship.self,
             forKey: .sourceRelationship
         )
-        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        updatedAt = annotationDateFromUnixMilliseconds(
+            try container.decode(Int64.self, forKey: .updatedAtUnixMilliseconds)
+        )
         guard eligibleMessageCount >= 0,
             eligibleWithoutInlinePlacementCount >= 0,
             eligibleWithoutInlinePlacementCount <= eligibleMessageCount
@@ -81,8 +93,14 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(completedAt, forKey: .completedAt)
-        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(
+            completedAt.map(annotationUnixMilliseconds),
+            forKey: .completedAtUnixMilliseconds
+        )
+        try container.encode(
+            annotationUnixMilliseconds(createdAt),
+            forKey: .createdAtUnixMilliseconds
+        )
         try container.encode(eligibleMessageCount, forKey: .eligibleMessageCount)
         try container.encode(
             eligibleWithoutInlinePlacementCount,
@@ -95,7 +113,10 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
             forKey: .sessionId
         )
         try container.encode(sourceRelationship, forKey: .sourceRelationship)
-        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(
+            annotationUnixMilliseconds(updatedAt),
+            forKey: .updatedAtUnixMilliseconds
+        )
     }
 }
 
@@ -353,13 +374,13 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
 struct BridgeProductAnnotationOutputHistoryDTO: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case attemptId
-        case createdAt
+        case createdAtUnixMilliseconds
         case messageCount
         case outputKind
         case repeatedFromAttemptId
         case sessionId
         case state
-        case updatedAt
+        case updatedAtUnixMilliseconds
     }
 
     let attemptId: UUID
@@ -386,7 +407,9 @@ struct BridgeProductAnnotationOutputHistoryDTO: Codable, Equatable, Sendable {
         try rejectAnnotationProjectionUnknownKeys(decoder, keys: CodingKeys.allCases)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         attemptId = try container.decode(UUID.self, forKey: .attemptId)
-        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        createdAt = annotationDateFromUnixMilliseconds(
+            try container.decode(Int64.self, forKey: .createdAtUnixMilliseconds)
+        )
         messageCount = try container.decode(Int.self, forKey: .messageCount)
         outputKind = try container.decode(WorktreeAnnotationOutputKind.self, forKey: .outputKind)
         repeatedFromAttemptId = try BridgeProductContractDecoding.decodeRequiredNullable(
@@ -397,7 +420,9 @@ struct BridgeProductAnnotationOutputHistoryDTO: Codable, Equatable, Sendable {
         )
         sessionId = try container.decode(UUID.self, forKey: .sessionId)
         state = try container.decode(WorktreeAnnotationOutputAttemptState.self, forKey: .state)
-        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        updatedAt = annotationDateFromUnixMilliseconds(
+            try container.decode(Int64.self, forKey: .updatedAtUnixMilliseconds)
+        )
         guard messageCount > 0 else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Annotation output history message count must be positive",
@@ -412,7 +437,10 @@ struct BridgeProductAnnotationOutputHistoryDTO: Codable, Equatable, Sendable {
             BridgeProductReviewPublicationIdContract.encode(attemptId),
             forKey: .attemptId
         )
-        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(
+            annotationUnixMilliseconds(createdAt),
+            forKey: .createdAtUnixMilliseconds
+        )
         try container.encode(messageCount, forKey: .messageCount)
         try container.encode(outputKind, forKey: .outputKind)
         try container.encode(
@@ -424,7 +452,10 @@ struct BridgeProductAnnotationOutputHistoryDTO: Codable, Equatable, Sendable {
             forKey: .sessionId
         )
         try container.encode(state, forKey: .state)
-        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(
+            annotationUnixMilliseconds(updatedAt),
+            forKey: .updatedAtUnixMilliseconds
+        )
     }
 }
 
@@ -552,7 +583,7 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case authorKind
-        case createdAt
+        case createdAtUnixMilliseconds
         case draft
         case messageId
         case messageRevision
@@ -614,7 +645,9 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
                 codingPath: decoder.codingPath
             )
         }
-        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        createdAt = annotationDateFromUnixMilliseconds(
+            try container.decode(Int64.self, forKey: .createdAtUnixMilliseconds)
+        )
         draft = try BridgeProductContractDecoding.decodeRequiredNullable(
             DraftEntry.self,
             forKey: .draft,
@@ -656,7 +689,10 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(authorKind, forKey: .authorKind)
-        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(
+            annotationUnixMilliseconds(createdAt),
+            forKey: .createdAtUnixMilliseconds
+        )
         try container.encode(draft, forKey: .draft)
         try container.encode(
             BridgeProductReviewPublicationIdContract.encode(messageId),

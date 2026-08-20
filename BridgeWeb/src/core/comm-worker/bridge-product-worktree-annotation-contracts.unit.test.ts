@@ -4,6 +4,7 @@ import {
 	bridgeProductWorktreeAnnotationCommandOutcomeSchema,
 	bridgeProductWorktreeAnnotationEventSchema,
 	bridgeProductWorktreeAnnotationMessageEntrySchema,
+	bridgeProductWorktreeAnnotationOutputHistorySummarySchema,
 } from './bridge-product-worktree-annotation-contracts.js';
 
 const lowercaseSessionId = '01890abc-def0-7abc-8def-0123456789ab';
@@ -70,7 +71,7 @@ describe('Bridge product worktree annotation contracts', () => {
 		const threadId = '01890abc-def0-7abc-8def-012345678902';
 		const baseMessage = {
 			authorKind: 'human',
-			createdAt: 1,
+			createdAtUnixMilliseconds: 1,
 			messageId,
 			messageRevision: 2,
 			ordinal: 0,
@@ -97,7 +98,11 @@ describe('Bridge product worktree annotation contracts', () => {
 		} as const;
 
 		for (const message of [neverSavedDraft, savedMessage, savedMessageWithEmptyDraft]) {
-			expect(bridgeProductWorktreeAnnotationMessageEntrySchema.parse(message)).toEqual(message);
+			const { createdAtUnixMilliseconds, ...messageWithoutWireTimestamp } = message;
+			expect(bridgeProductWorktreeAnnotationMessageEntrySchema.parse(message)).toEqual({
+				...messageWithoutWireTimestamp,
+				createdAt: createdAtUnixMilliseconds,
+			});
 		}
 		for (const rejected of [
 			{ ...baseMessage, draft: null, savedBody: null, savedRevision: null },
@@ -106,12 +111,44 @@ describe('Bridge product worktree annotation contracts', () => {
 			{ ...neverSavedDraft, draft: { ...neverSavedDraft.draft, body: '   ' } },
 			{ ...savedMessage, status: 'provisional' },
 			{ ...savedMessage, readiness: 'saved' },
-			{ ...savedMessage, createdAt: undefined },
+			{ ...savedMessage, createdAtUnixMilliseconds: undefined },
+			{ ...savedMessage, createdAtUnixMilliseconds: undefined, createdAt: 1 },
 			{ ...savedMessage, savedRevision: undefined },
 		] as const) {
 			expect(bridgeProductWorktreeAnnotationMessageEntrySchema.safeParse(rejected).success).toBe(
 				false,
 			);
 		}
+	});
+
+	test('decodes explicit Unix-millisecond output-history timestamps', () => {
+		const wireSummary = {
+			attemptId: '01890abc-def0-7abc-8def-012345678903',
+			createdAtUnixMilliseconds: 1_700_000_000_000,
+			messageCount: 1,
+			outputKind: 'clipboard_markdown',
+			repeatedFromAttemptId: null,
+			sessionId: lowercaseSessionId,
+			state: 'succeeded',
+			updatedAtUnixMilliseconds: 1_700_000_000_001,
+		} as const;
+
+		expect(bridgeProductWorktreeAnnotationOutputHistorySummarySchema.parse(wireSummary)).toEqual({
+			attemptId: wireSummary.attemptId,
+			createdAt: wireSummary.createdAtUnixMilliseconds,
+			messageCount: 1,
+			outputKind: 'clipboard_markdown',
+			repeatedFromAttemptId: null,
+			sessionId: lowercaseSessionId,
+			state: 'succeeded',
+			updatedAt: wireSummary.updatedAtUnixMilliseconds,
+		});
+		expect(
+			bridgeProductWorktreeAnnotationOutputHistorySummarySchema.safeParse({
+				...wireSummary,
+				createdAtUnixMilliseconds: undefined,
+				createdAt: wireSummary.createdAtUnixMilliseconds,
+			}).success,
+		).toBe(false);
 	});
 });

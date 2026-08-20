@@ -444,15 +444,15 @@ async function makeProjectionPages(
 			recoveryStatus: 'available',
 			sessions: [
 				{
-					completedAt: null,
-					createdAt: 1,
+					completedAtUnixMilliseconds: null,
+					createdAtUnixMilliseconds: 1,
 					eligibleMessageCount: messageCount,
 					eligibleWithoutInlinePlacementCount: 0,
 					lifecycle: 'living',
 					semanticRevision: sourceGeneration,
 					sessionId,
 					sourceRelationship: 'applicable',
-					updatedAt: 2,
+					updatedAtUnixMilliseconds: 2,
 				},
 			],
 			sourceGeneration,
@@ -480,7 +480,7 @@ async function makeProjectionPages(
 					},
 					message: {
 						authorKind: 'human',
-						createdAt: ordinal + 3,
+						createdAtUnixMilliseconds: ordinal + 3,
 						draft: null,
 						messageId: uuidv7(ordinal + 100),
 						messageRevision: 1,

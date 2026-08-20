@@ -84,6 +84,28 @@ struct WorktreeAnnotationProjectionRecordCursorTests {
         #expect(!encoded.contains("outputHistory"))
     }
 
+    @Test("projection timestamps use explicit Unix-millisecond wire members")
+    func projectionTimestampsUseUnixMilliseconds() throws {
+        // Arrange
+        let analysis = try BridgeProductAnnotationProjectionRecordAnalysis(
+            capture: makeProjectionCapture(messageBodies: ["body"])
+        )
+        var cursor = try analysis.makePageCursor(pageOrdinal: 0)
+
+        // Act
+        let encoded = try collectBatches(cursor: &cursor)
+            .compactMap { String(data: $0, encoding: .utf8) }
+            .joined()
+
+        // Assert
+        #expect(encoded.contains(#""createdAtUnixMilliseconds":978307300000"#))
+        #expect(encoded.contains(#""updatedAtUnixMilliseconds":978307300000"#))
+        #expect(encoded.contains(#""completedAtUnixMilliseconds":null"#))
+        #expect(!encoded.contains(#""createdAt":"#))
+        #expect(!encoded.contains(#""updatedAt":"#))
+        #expect(!encoded.contains(#""completedAt":"#))
+    }
+
     @Test("page boundaries occur only between whole records")
     func pageBoundariesOccurOnlyBetweenWholeRecords() throws {
         // Arrange
