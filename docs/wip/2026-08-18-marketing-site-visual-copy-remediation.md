@@ -71,7 +71,7 @@ remain as failure evidence until the replacement suite supersedes them.
   project-local `ai-copywriter` skill and record the coverage in its receipt.
 - [x] Re-run all automated, pixel, and live visual proof against the replacement
   assets before claiming completion.
-- [ ] Fetch and follow Cloudflare's current agent setup instructions from
+- [x] Fetch and follow Cloudflare's current agent setup instructions from
   `https://developers.cloudflare.com/agent-setup/prompt.md` only after UI/media
   acceptance, then deploy the static `web/dist` artifact through the logged-in
   Cloudflare account and verify the live URL.
@@ -384,6 +384,17 @@ Details and proof:
 - Media proof: the website-stills HyperFrames project passes its pinned check.
 - Handoff proof: the dev server remains reachable at
   `http://127.0.0.1:4321/` after the final source state is built.
+- Cloudflare proof (2026-08-20): the current official agent-setup prompt was
+  fetched; its generic MCP-install step was intentionally skipped because the
+  owner requires the authenticated `cf` CLI and previously removed those MCP
+  registrations. `cf build` produced the Build Output Specification, the
+  prebuilt dry run read 26 static assets with no bindings, and production
+  deployed Worker `agent-studio-web` version
+  `20835c79-23f5-41a3-b15d-54c8c4a87366` at
+  `https://agent-studio-web.askluna.workers.dev`. Live 1440px and 390px browser
+  proof confirms the headline, default Parallel work state, drawer switching
+  without URL mutation, loaded product media, one GitHub link, no Astro toolbar,
+  no document overflow, and zero site-origin console warnings or errors.
 
 ## Evidence retained
 
