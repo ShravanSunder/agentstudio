@@ -121,10 +121,37 @@ a:focus-visible {
     linear-gradient(135deg, rgb(137 180 250 / 11%), transparent 40%, rgb(116 199 236 / 6%)),
     rgb(30 30 46 / 88%);
   box-shadow:
-    0 30px 68px rgb(8 9 14 / 44%),
-    0 10px 26px rgb(10 11 17 / 32%),
-    0 2px 0 rgb(137 180 250 / 10%),
-    inset 0 1px rgb(255 255 255 / 12%);
+    0 20px 46px rgb(8 9 14 / 28%),
+    0 6px 16px rgb(10 11 17 / 18%),
+    0 1px 0 rgb(137 180 250 / 8%),
+    inset 0 1px rgb(255 255 255 / 10%);
+}
+
+.site-header-frost {
+  position: fixed;
+  z-index: 19;
+  top: 0;
+  left: 50%;
+  width: min(80vw, 672px);
+  height: 40px;
+  pointer-events: none;
+  opacity: 0;
+  background: transparent;
+  transform: translateX(-50%);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 8px,
+    #000 calc(100% - 8px),
+    transparent 100%
+  );
+  transition: opacity 240ms ease;
+}
+
+.site-header[data-visual-state="floating"] + .site-header-frost {
+  opacity: 1;
 }
 
 .brand-link {
@@ -137,7 +164,7 @@ a:focus-visible {
 .site-header nav {
   display: flex;
   align-items: center;
-  gap: 28px;
+  gap: 8px;
   color: var(--ink-muted);
   font-size: 14px;
 }
@@ -148,9 +175,14 @@ a:focus-visible {
 
 .header-social-action {
   display: inline-grid;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   place-items: center;
+}
+
+.header-social-action .social-mark {
+  width: 16px;
+  height: 16px;
 }
 
 .github-action {
@@ -654,7 +686,7 @@ a:focus-visible {
   }
 
   .site-header nav {
-    gap: 12px;
+    gap: 4px;
   }
 
   .site-header[data-visual-state="floating"] {

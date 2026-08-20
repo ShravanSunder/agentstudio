@@ -354,6 +354,33 @@ test("morphs the frame-width header into a max-w-2xl floating glass pill", async
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.goto("/");
 
+  const headerActions = page.locator(".site-header .header-social-action");
+  await expect(headerActions).toHaveCount(2);
+  expect(
+    await headerActions.evaluateAll((actions) =>
+      actions.map((action) => {
+        const actionBounds = action.getBoundingClientRect();
+        const iconBounds = action.querySelector("svg")?.getBoundingClientRect();
+        if (iconBounds === undefined) {
+          throw new Error("Header action is missing its icon");
+        }
+
+        return {
+          actionWidth: actionBounds.width,
+          actionHeight: actionBounds.height,
+          iconWidth: iconBounds.width,
+          iconHeight: iconBounds.height,
+        };
+      }),
+    ),
+  ).toEqual([
+    { actionWidth: 32, actionHeight: 32, iconWidth: 18, iconHeight: 18 },
+    { actionWidth: 32, actionHeight: 32, iconWidth: 16, iconHeight: 16 },
+  ]);
+
+  const headerFrost = page.locator(".site-header-frost");
+  await expect(headerFrost).toHaveCSS("opacity", "0");
+
   const restingGeometry = await page.evaluate(() => {
     const header = document.querySelector(".site-header");
     const frame = document.querySelector(".site-frame");
@@ -421,6 +448,7 @@ test("morphs the frame-width header into a max-w-2xl floating glass pill", async
   await expect(siteHeader).toHaveAttribute("data-visual-state", "floating");
   await expect(siteHeader).toHaveCSS("width", "672px");
   await expect(siteHeader).toHaveCSS("border-radius", "24px");
+  await expect(headerFrost).toHaveCSS("opacity", "1");
 
   const floatingGeometry = await siteHeader.evaluate((header) => {
     const headerStyle = getComputedStyle(header);
@@ -441,6 +469,39 @@ test("morphs the frame-width header into a max-w-2xl floating glass pill", async
   expect(floatingGeometry.backgroundColor).not.toBe("rgb(46, 48, 54)");
   expect(floatingGeometry.backdropFilter).not.toBe("none");
   expect(floatingGeometry.boxShadow).not.toBe("none");
+
+  const frostGeometry = await page.evaluate(() => {
+    const header = document.querySelector(".site-header");
+    const frost = document.querySelector(".site-header-frost");
+    if (!(header instanceof HTMLElement) || !(frost instanceof HTMLElement)) {
+      throw new Error("Floating header frost surfaces are incomplete");
+    }
+
+    const headerBounds = header.getBoundingClientRect();
+    const frostBounds = frost.getBoundingClientRect();
+    const headerStyle = getComputedStyle(header);
+    const frostStyle = getComputedStyle(frost);
+    return {
+      sameLeft: frostBounds.left === headerBounds.left,
+      sameRight: frostBounds.right === headerBounds.right,
+      frostTop: frostBounds.top,
+      frostBottom: frostBounds.bottom,
+      headerTop: headerBounds.top,
+      headerTopRadius: Number(headerStyle.borderTopLeftRadius.replace("px", "")),
+      backgroundColor: frostStyle.backgroundColor,
+      backdropFilter: frostStyle.backdropFilter,
+      maskImage: frostStyle.maskImage,
+    };
+  });
+
+  expect(frostGeometry.sameLeft).toBe(true);
+  expect(frostGeometry.sameRight).toBe(true);
+  expect(frostGeometry.frostTop).toBe(0);
+  expect(frostGeometry.headerTop).toBe(16);
+  expect(frostGeometry.frostBottom).toBe(frostGeometry.headerTop + frostGeometry.headerTopRadius);
+  expect(frostGeometry.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  expect(frostGeometry.backdropFilter).toBe("blur(8px) saturate(1.2)");
+  expect(frostGeometry.maskImage).toContain("rgb(0, 0, 0) 8px");
 });
 
 test("contains phone composition within the document viewport", async ({ page }) => {
