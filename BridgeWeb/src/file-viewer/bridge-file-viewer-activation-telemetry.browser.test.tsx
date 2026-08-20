@@ -153,18 +153,20 @@ describe('Bridge File activation telemetry', () => {
 		expect(await waitForBridgeViewerTreeItemButton('src/context-switcher-ready.ts')).not.toBeNull();
 		const activationStartedAtPerfNow = performance.now();
 
-		await rerender(
-			<BridgeFileViewerApp
-				activationCause="context_switcher"
-				activationSequence={3}
-				activationStartedAtPerfNow={activationStartedAtPerfNow}
-				autoOpenInitialFile={true}
-				initialMetadataEvents={initialMetadataEvents}
-				isActive={true}
-				telemetryRecorder={telemetryRecorder}
-				fileProductSession={fileProductSession}
-			/>,
-		);
+		await actUpdate(async () => {
+			await rerender(
+				<BridgeFileViewerApp
+					activationCause="context_switcher"
+					activationSequence={3}
+					activationStartedAtPerfNow={activationStartedAtPerfNow}
+					autoOpenInitialFile={true}
+					initialMetadataEvents={initialMetadataEvents}
+					isActive={true}
+					telemetryRecorder={telemetryRecorder}
+					fileProductSession={fileProductSession}
+				/>,
+			);
+		});
 
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('contextSwitcherReady');

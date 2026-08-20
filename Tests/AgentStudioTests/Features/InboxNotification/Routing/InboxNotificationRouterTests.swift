@@ -420,8 +420,8 @@ struct InboxNotificationRouterTests {
 
         await Task.yield()
         makeWindowKey(fixture.windowLifecycle)
-        await fixture.router.flushTraceRecords()
-        await assertEventuallyMain("focus gain should write a pane attention trace") {
+        await assertEventuallyAsync("focus gain should write a pane attention trace") {
+            await fixture.router.flushTraceRecords()
             guard let outputFileURL = traceRuntime.outputFileURL else { return false }
             return (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"inbox.focusGainedObservedPane\"") == true

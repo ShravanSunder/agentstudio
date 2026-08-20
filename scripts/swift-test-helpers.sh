@@ -43,19 +43,64 @@ large_serial_non_webkit_filter_pattern() {
   echo "${patterns[*]}"
 }
 
+serialized_main_actor_suite_pattern() {
+  local annotation_order="$1"
+  local declaration_modifiers='(?:(?:public|package|internal|fileprivate|private|open|final|indirect|nonisolated(?:\(unsafe\))?)\s+)*'
+  local type_declaration_keywords='(?:class|struct|actor|enum|protocol|extension|typealias)'
+  local declaration_boundary="${declaration_modifiers}${type_declaration_keywords}\\s"
+  local suite_type_declaration="${declaration_modifiers}(?:class|struct)\\s+"
+  local suite_arguments="(?:(?!\\n\\s*(?:@[A-Za-z]|${declaration_boundary}))[\\s\\S])*?"
+  local suite_annotation="@Suite\\(${suite_arguments}\\.serialized\\b${suite_arguments}\\)"
+
+  case "$annotation_order" in
+    main-actor-first)
+      printf '%s\n' "@MainActor\\s*\\n\\s*${suite_annotation}\\s*\\n\\s*${suite_type_declaration}([A-Za-z0-9_]+)"
+      ;;
+    suite-first)
+      printf '%s\n' "${suite_annotation}\\s*\\n\\s*@MainActor\\s*\\n\\s*${suite_type_declaration}([A-Za-z0-9_]+)"
+      ;;
+    *)
+      echo "Unknown serialized suite annotation order: $annotation_order" >&2
+      return 2
+      ;;
+  esac
+}
+
+aggregate_serial_non_webkit_suite_filters() {
+  # Permit formatted multiline Suite arguments, but never cross into the next
+  # attribute or type declaration while searching for the serialized trait.
+  local main_actor_before_suite_pattern
+  main_actor_before_suite_pattern="$(serialized_main_actor_suite_pattern main-actor-first)"
+  local suite_before_main_actor_pattern
+  suite_before_main_actor_pattern="$(serialized_main_actor_suite_pattern suite-first)"
+  local webkit_leaf_suite_pattern
+  webkit_leaf_suite_pattern="$(webkit_leaf_suite_filters | /usr/bin/paste -sd'|' -)"
+  local excluded_suite_pattern="GlobalPreferencesBootstrapBenchmarkTests|E2E|Zmx|$webkit_leaf_suite_pattern|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)"
+
+  {
+    rg --no-heading -U --pcre2 -o --replace '$1' \
+      "$main_actor_before_suite_pattern" Tests/AgentStudioTests -g '*.swift'
+    rg --no-heading -U --pcre2 -o --replace '$1' \
+      "$suite_before_main_actor_pattern" Tests/AgentStudioTests -g '*.swift'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Features/Terminal/State/TerminalActivityProjectorTests.swift' \
+      'TerminalActivityProjectorTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorTests.swift' \
+      'GitWorkingDirectoryProjectorTests'
+  } | while IFS=: read -r source_file suite_name; do
+    case "$source_file" in
+      *"/App/WebKit/"*) continue ;;
+    esac
+    if printf '%s\n' "$suite_name" | grep -Eq "$excluded_suite_pattern"; then
+      continue
+    fi
+    printf '%s\n' "$suite_name"
+  done | sort -u
+}
+
 aggregate_serial_non_webkit_filter_pattern() {
-  local patterns=(
-    EagerDerivedAtomTests
-    EagerDerivedAtomFamilyTests
-    TerminalActivationSchedulerTests
-    TabBarAdapterTests
-    TabBarAdapterMaterializationTests
-    TabBarAffectedItemTelemetryTests
-    MainSplitViewControllerSidebarStateTests
-    FlatTabStripContainerAllMinimizedTests
-  )
-  local IFS="|"
-  echo "${patterns[*]}"
+  aggregate_serial_non_webkit_suite_filters | /usr/bin/paste -sd'|' -
 }
 
 fast_serial_process_filter_pattern() {
@@ -80,12 +125,71 @@ prebuild_swift_tests() {
 }
 
 run_aggregate_serial_non_webkit_swift_tests() {
-  run_swift_with_timeout \
-    "serial aggregate-only non-WebKit suites" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-    --filter "$(aggregate_serial_non_webkit_filter_pattern)" \
-    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+  local process_global_concurrency=4
+  local swift_test_bundle
+  swift_test_bundle="$(swift_testing_bundle_path)"
+  local swift_testing_helper
+  swift_testing_helper="$(swift_testing_helper_path)"
+  local testing_framework_path
+  testing_framework_path="$(swift_testing_framework_path)"
+  local aggregate_serial_suite_filter
+  local -a process_global_batch_pids=()
+  while IFS= read -r aggregate_serial_suite_filter; do
+    [ -n "$aggregate_serial_suite_filter" ] || continue
+    (
+      run_swift_with_timeout \
+        "isolated process-global non-WebKit suite: $aggregate_serial_suite_filter" \
+        "$TIMEOUT_SECONDS" \
+        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" \
+        DYLD_FRAMEWORK_PATH="$testing_framework_path" \
+        "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
+        --filter "$aggregate_serial_suite_filter" \
+        "$swift_test_bundle" --testing-library swift-testing
+    ) &
+    process_global_batch_pids+=("$!")
+
+    if [ "${#process_global_batch_pids[@]}" -eq "$process_global_concurrency" ]; then
+      wait_for_process_global_suite_batch "${process_global_batch_pids[@]}" || return $?
+      process_global_batch_pids=()
+    fi
+  done < <(aggregate_serial_non_webkit_suite_filters)
+
+  if [ "${#process_global_batch_pids[@]}" -gt 0 ]; then
+    wait_for_process_global_suite_batch "${process_global_batch_pids[@]}"
+  fi
+}
+
+swift_testing_bundle_path() {
+  local test_bundle
+  test_bundle="$(find "$BUILD_PATH" -type f -path '*/debug/AgentStudioPackageTests.xctest/Contents/MacOS/AgentStudioPackageTests' -print -quit)"
+  if [ -z "$test_bundle" ]; then
+    echo "Swift Testing bundle not found under $BUILD_PATH" >&2
+    return 1
+  fi
+  printf '%s\n' "$test_bundle"
+}
+
+swift_testing_helper_path() {
+  local swift_executable
+  swift_executable="$(xcrun --find swift)"
+  printf '%s/libexec/swift/pm/swiftpm-testing-helper\n' "$(dirname "$(dirname "$swift_executable")")"
+}
+
+swift_testing_framework_path() {
+  local platform_path
+  platform_path="$(xcrun --sdk macosx --show-sdk-platform-path)"
+  printf '%s/Developer/Library/Frameworks\n' "$platform_path"
+}
+
+wait_for_process_global_suite_batch() {
+  local suite_process_pid
+  local batch_status=0
+  for suite_process_pid in "$@"; do
+    if ! wait "$suite_process_pid"; then
+      batch_status=1
+    fi
+  done
+  return "$batch_status"
 }
 
 run_non_serialized_swift_tests() {
@@ -111,29 +215,18 @@ run_non_serialized_swift_tests() {
 }
 
 run_fast_non_webkit_swift_tests() {
-  if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
-    local parallel_args=(--parallel)
-    if [ -n "${SWIFT_TEST_NUM_WORKERS:-}" ]; then
-      parallel_args+=(--num-workers "$SWIFT_TEST_NUM_WORKERS")
-    fi
-    run_swift_with_timeout \
-      "parallel fast non-WebKit suites" \
-      "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      "${parallel_args[@]}" \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip "GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)" --build-path "$BUILD_PATH"
+  # Swift Testing provides in-process case concurrency. SwiftPM's --parallel
+  # harness wraps the entire Testing library in one helper process on Xcode
+  # 26.3 and can deadlock its event stream under the fast inventory's volume.
+  run_swift_with_timeout \
+    "native-concurrent fast non-WebKit suites" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
+    --skip "GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)" --build-path "$BUILD_PATH"
 
-    run_aggregate_serial_non_webkit_swift_tests
-    run_fast_serial_process_swift_tests
-  else
-    run_swift_with_timeout \
-      "serial fast non-WebKit suites" \
-      "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip "GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
-  fi
+  run_aggregate_serial_non_webkit_swift_tests
+  run_fast_serial_process_swift_tests
 }
 
 run_large_non_webkit_swift_tests() {
@@ -203,6 +296,10 @@ WebKitSerializedTests/BridgeWebKitSpikeTests
 WebKitSerializedTests/WebviewPaneControllerTests
 WebKitSerializedTests/PreparedNonterminalContentMountTests
 EOF
+}
+
+webkit_leaf_suite_filters() {
+  webkit_suite_filters | awk -F/ 'NF >= 2 { print $2 }' | sort -u
 }
 
 run_webkit_suites() {
@@ -324,9 +421,12 @@ run_swift_with_timeout() {
 swift_test_output_has_failures() {
   local output_file="$1"
 
-  grep -Eq \
-    '(^|[[:space:]])(✘|✖)[[:space:]]|recorded an issue|failed after [0-9.]+ seconds with [0-9]+ issue\(s\)|Test run with .* failed after|No matching test cases were run' \
-    "$output_file"
+  (
+    set -o pipefail
+    /usr/bin/iconv -f UTF-8 -t UTF-8 -c <"$output_file" |
+      grep -Eq \
+        '(^|[[:space:]])(✘|✖)[[:space:]]|recorded an issue|failed after [0-9.]+ seconds with [0-9]+ issue\(s\)|Test run with .* failed after|No matching test cases were run'
+  )
 }
 
 print_timeout_process_diagnostics() {
