@@ -7,32 +7,32 @@ import { productPlateStories } from "./product-plate-fixture";
 ---
 
 <section id="workspace" class="px-page-inline pt-section" aria-labelledby="workspace-title">
-  <div class="section-heading mb-content max-w-[900px]">
-    <p class="eyebrow m-0 font-mono-product text-[12px] tracking-[0.12em] text-ink-faint uppercase">
+  <div class="section-heading mb-content max-w-section-heading">
+    <p class="eyebrow m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase">
       {marketingCopy.switcher.eyebrow}
     </p>
     <h2
       id="workspace-title"
-      class="mt-[14px] mb-[20px] font-display text-[clamp(48px,6.4vw,94px)] leading-[0.92] font-extrabold tracking-[-0.06em]"
+      class="mt-3.5 mb-5 font-display text-section-title font-extrabold"
     >
       {marketingCopy.switcher.headline}
     </h2>
-    <p class="m-0 max-w-[700px] text-[19px] leading-[1.55] text-ink-muted">
+    <p class="m-0 max-w-copy text-marketing-body text-ink-muted">
       {marketingCopy.switcher.description}
     </p>
   </div>
 
   <div
-    class="product-plate grid grid-cols-[280px_minmax(0,1fr)] overflow-clip rounded-product border border-line-strong bg-product-ground max-product-stacked:grid-cols-1"
+    class="product-plate grid grid-cols-[280px_minmax(0,1fr)] overflow-clip rounded-product border border-line-strong bg-product-ground max-site-edge:grid-cols-1"
     data-product-plate
     data-enhanced="false"
   >
     <div
-      class="product-plate__selector-stage contents max-product-stacked:relative max-product-stacked:grid max-product-stacked:grid-cols-[52px_minmax(0,1fr)_52px] max-phone:grid-cols-[42px_minmax(0,1fr)_42px]"
+      class="product-plate__selector-stage contents max-site-edge:relative max-site-edge:grid max-site-edge:grid-cols-[52px_minmax(0,1fr)_52px] max-phone:grid-cols-[40px_minmax(0,1fr)_40px]"
     >
       <button
         type="button"
-        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-canvas text-[24px] text-primary disabled:cursor-default disabled:text-ink-faint max-product-stacked:grid"
+        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-canvas text-[24px] text-primary disabled:cursor-default disabled:text-ink-faint max-site-edge:grid max-site-edge:text-ink max-phone:text-[20px]"
         data-product-plate-previous
         aria-label="Previous workspace view"
         aria-controls="product-plate-story-selector"
@@ -43,7 +43,7 @@ import { productPlateStories } from "./product-plate-fixture";
 
       <div
         id="product-plate-story-selector"
-        class="product-plate__selectors border-r border-line-strong bg-canvas max-product-stacked:flex max-product-stacked:overflow-x-auto max-product-stacked:scroll-smooth max-product-stacked:border-r-0 max-product-stacked:[scroll-snap-type:x_mandatory]"
+        class="product-plate__selectors border-r border-line-strong bg-canvas max-site-edge:flex max-site-edge:snap-x max-site-edge:snap-mandatory max-site-edge:overflow-x-auto max-site-edge:scroll-smooth max-site-edge:border-r-0"
         data-product-plate-selectors
         aria-label={marketingCopy.switcher.accessibilityLabel}
       >
@@ -55,19 +55,21 @@ import { productPlateStories } from "./product-plate-fixture";
               disabled
               tabindex="-1"
               class:list={[
-                "product-plate__selector grid w-full grid-cols-[34px_minmax(0,1fr)] border-0 border-b border-line bg-transparent px-[20px] py-[clamp(7.5px,calc(1.25vw-10.5px),9.5px)] text-left text-ink-muted max-product-stacked:min-h-[164px] max-product-stacked:[flex:0_0_100%] max-product-stacked:[scroll-snap-align:start] max-product-stacked:grid-cols-[44px_minmax(0,1fr)] max-product-stacked:border-0 max-product-stacked:px-[clamp(24px,4vw,48px)] max-product-stacked:py-[24px] max-phone:min-h-[210px] max-phone:px-[18px]",
+                "product-plate__selector relative grid w-full grid-cols-[34px_minmax(0,1fr)] border-0 border-b border-line bg-transparent px-5 py-[clamp(7.5px,calc(1.25vw-10.5px),9.5px)] text-left text-ink-muted max-site-edge:flex max-site-edge:min-h-22 max-site-edge:shrink-0 max-site-edge:grow-0 max-site-edge:snap-start max-site-edge:basis-full max-site-edge:items-center max-site-edge:justify-center max-site-edge:gap-3 max-site-edge:border-0 max-site-edge:px-[clamp(24px,4vw,48px)] max-site-edge:py-4.5 max-phone:min-h-19 max-phone:gap-2.5 max-phone:px-4.5 max-phone:py-3.5 max-phone:text-center",
                 { "is-default": index === 0 },
               ]}
             >
-              <span class="row-span-2 font-mono-product text-[12px] text-ink-faint max-product-stacked:text-[14px]">
+              <span
+                class="row-span-2 font-mono-product text-[12px] text-ink-faint max-site-edge:text-[13px] max-phone:text-[11px]"
+                data-product-plate-index
+              >
                 {String(index + 1).padStart(2, "0")}
               </span>
-              <strong class="text-[16px] text-inherit max-product-stacked:text-[clamp(22px,2.4vw,30px)]">
+              <strong class="text-[16px] text-inherit max-site-edge:text-[20px] max-site-edge:leading-tight max-phone:text-[18px]">
                 {story.label}
               </strong>
-              <small class="mt-[7px] max-w-[760px] leading-[1.4] text-ink-faint max-product-stacked:text-[17px] max-phone:text-[16px]">
-                <span class="max-phone:hidden">{story.description}</span>
-                <span class="hidden max-phone:inline">{story.phoneDescription}</span>
+              <small class="mt-1.75 max-w-[760px] leading-[1.4] text-ink-faint max-site-edge:hidden">
+                <span>{story.description}</span>
               </small>
             </button>
           ))
@@ -76,7 +78,7 @@ import { productPlateStories } from "./product-plate-fixture";
 
       <button
         type="button"
-        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-canvas text-[24px] text-primary disabled:cursor-default disabled:text-ink-faint max-product-stacked:grid"
+        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-canvas text-[24px] text-primary disabled:cursor-default disabled:text-ink-faint max-site-edge:grid max-site-edge:text-ink max-phone:text-[20px]"
         data-product-plate-next
         aria-label="Next workspace view"
         aria-controls="product-plate-story-selector"
@@ -95,12 +97,6 @@ import { productPlateStories } from "./product-plate-fixture";
             hidden={index !== 0}
           >
             <picture class="block">
-              <source
-                media="(max-width: 520px)"
-                srcset={story.phoneImage.src}
-                width={story.phoneImage.width}
-                height={story.phoneImage.height}
-              />
               <Image
                 src={story.image}
                 alt={story.alternativeText}
@@ -112,6 +108,12 @@ import { productPlateStories } from "./product-plate-fixture";
                 class="block h-auto w-full"
               />
             </picture>
+            <p
+              class="product-plate__responsive-caption m-0 hidden border-t border-line bg-canvas px-[clamp(20px,4vw,48px)] py-5 text-[17px] leading-[1.45] text-ink-muted max-site-edge:block max-phone:px-5 max-phone:py-4 max-phone:text-[15px]"
+              data-product-plate-caption={story.id}
+            >
+              {story.phoneDescription}
+            </p>
           </article>
         ))
       }
@@ -145,7 +147,12 @@ import { productPlateStories } from "./product-plate-fixture";
   .product-plate__selector[aria-selected="true"],
   .product-plate__selector.is-default:disabled {
     @apply bg-active-surface text-ink;
-    box-shadow: inset 4px 0 var(--color-primary);
+  }
+
+  .product-plate__selector[aria-selected="true"]::before,
+  .product-plate__selector.is-default:disabled::before {
+    @apply absolute inset-y-3 left-0 w-1 rounded-full bg-primary;
+    content: "";
   }
 
   .product-plate__selector[aria-selected="true"] small,
@@ -153,9 +160,9 @@ import { productPlateStories } from "./product-plate-fixture";
     @apply text-ink-muted;
   }
 
-  .product-plate__selector[aria-selected="true"] span,
-  .product-plate__selector.is-default:disabled span {
-    @apply text-primary;
+  .product-plate__selector[aria-selected="true"] [data-product-plate-index],
+  .product-plate__selector.is-default:disabled [data-product-plate-index] {
+    @apply text-ink;
   }
 
   .product-plate__selectors {
@@ -178,22 +185,20 @@ import { productPlateStories } from "./product-plate-fixture";
     display: none;
   }
 
-  @media (max-width: 1350px) {
+  @media (width < 56.25rem) {
     .product-plate__selector-stage::after {
-      position: absolute;
-      z-index: 1;
-      right: 0;
-      bottom: 0;
-      left: 0;
-      height: 1px;
-      pointer-events: none;
-      background: var(--color-line-strong);
+      @apply pointer-events-none absolute right-0 bottom-0 left-0 z-[1] h-px bg-line-strong;
       content: "";
     }
 
     .product-plate__selector[aria-selected="true"],
     .product-plate__selector.is-default:disabled {
-      box-shadow: inset 0 -4px var(--color-primary);
+      @apply bg-active-surface text-ink;
+    }
+
+    .product-plate__selector[aria-selected="true"]::before,
+    .product-plate__selector.is-default:disabled::before {
+      @apply inset-y-0 rounded-none;
     }
   }
 

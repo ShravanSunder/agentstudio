@@ -20,35 +20,35 @@ export const marketingCopy = {
     parallelWork: {
       label: "Parallel work",
       description: "See which repository, worktree, branch, and directory each agent is using.",
-      phoneDescription: "See every agent's repository and branch in All Panes.",
+      phoneDescription: "See every agent's repo and branch.",
       imageDescription:
         "Agent Studio All Panes with agent-vm and agentstudio context beside Antigravity and Codex.",
     },
     paneDrawer: {
       label: "Pane drawer",
       description: "Keep related terminals and tools attached to the agent that needs them.",
-      phoneDescription: "Keep a task's Git terminal attached in its drawer.",
+      phoneDescription: "Keep a Git terminal with its task.",
       imageDescription:
         "A Git-status drawer attached beneath Antigravity with the global sidebar hidden.",
     },
     quickFind: {
       label: "Quick Find",
       description: "Press Cmd+P to jump to a repository, pane, or command.",
-      phoneDescription: "Jump to a repository, pane, or command with Cmd+P.",
+      phoneDescription: "Cmd+P finds repos, panes, and commands.",
       imageDescription:
         "Agent Studio Quick Find showing recent repositories and command, pane, and repository scopes with the global sidebar hidden.",
     },
     review: {
       label: "Review",
       description: "Review every changed file in one continuous diff with its file tree beside it.",
-      phoneDescription: "Browse changed files while the diff stays visible.",
+      phoneDescription: "Browse changed files beside the diff.",
       imageDescription:
         "Agent Studio Review showing an AGENTS.md diff and its Changed Files tree, with the global sidebar hidden.",
     },
     gitContext: {
       label: "Git and PR context",
       description: "See the branch, changes, and pull request beside the work.",
-      phoneDescription: "See the pull request beside its worktree and branch.",
+      phoneDescription: "See a PR beside its branch and worktree.",
       imageDescription:
         "Agent Studio filtered to workspace-local, with PR 201 and branch status beside the By Repo sidebar.",
     },

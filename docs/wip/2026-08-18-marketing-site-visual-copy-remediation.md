@@ -32,6 +32,41 @@ This document is the canonical execution ledger. Progress updates must link to
 the applicable heading below. A checked box means the source change and its
 named proof both passed; editing the source alone does not complete an item.
 
+### 2026-08-20 phone carousel hierarchy correction
+
+Owner review rejected the stacked carousel because the wide title and caption
+block dominates each slide while portrait crops remove product context. Below
+the existing 900px `site-edge` breakpoint, one compact composition owns the
+title, complete image, and caption. The desktop selector and image geometry
+remain unchanged.
+
+- [x] Replace the tall stacked selector with one compact selected-story row.
+- [x] Place the selected product image immediately after the title row at the
+      full available plate width.
+- [x] Use the complete uncropped 16:10 capture in portrait. The previously
+      accepted 4:5 phone derivatives are rejected by owner review because they
+      remove too much workspace context.
+- [x] Place exactly one matching short caption after the image.
+- [x] Use the existing active-surface plane, white index and title, white
+      arrows, and one primary-blue selection rail. The desktop rail is inset
+      from the rounded corner; the responsive rail fills the title boundary.
+- [x] Prove the responsive composition at `899x900`, the desktop rail at the
+      exact `900x900` system boundary, and all five stories at
+      `390x844`, including title, image, caption,
+      arrow navigation, no overflow, and no image/caption mismatch.
+- [x] Prove the desktop plate remains unchanged at `1600x1000` with its 280px
+      selector rail, hidden arrows, and no responsive caption.
+- [x] Obtain independent visual and copy verdicts from all ten responsive
+      renders. Visual remediation passes after aligning Tailwind, semantic CSS,
+      and the controller to strict `<900px`. Copy remediation passes after all
+      five captions were shortened to a consistent one-line phone rhythm.
+- [x] Run format, lint, strict Astro and TypeScript checks, capture verification
+      and pixel audit, 12 unit tests, 40 browser tests, static build, diff check,
+      and zero-warning local console inspection.
+
+Current result: `READY FOR OWNER REVIEW`. Deployment remains blocked on owner
+approval and the release SOP.
+
 ### 2026-08-20 installed Beta slideshow replacement pass
 
 This is the current image-and-copy lane. Earlier capture acceptance does not

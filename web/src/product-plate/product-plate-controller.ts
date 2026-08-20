@@ -165,7 +165,7 @@ export function initializeProductPlate(root: HTMLElement): ProductPlateControlle
 
   try {
     const validatedContract = validateProductPlateDom(root);
-    const collapsedLayoutQuery = window.matchMedia("(max-width: 1350px)");
+    const collapsedLayoutQuery = window.matchMedia("(width < 56.25rem)");
     const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     contract = validatedContract;
 
