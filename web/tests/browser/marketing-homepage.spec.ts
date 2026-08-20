@@ -17,6 +17,9 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   await expect(page.locator("[data-install-command-root]")).toHaveCount(1);
   await expect(page.getByRole("link", { name: "Shravan Sunder on GitHub" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Shravan Sunder on X" })).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Shravan Sunder profile links" }),
+  ).toBeVisible();
 
   const installCenterOffset = await page.locator(".hero").evaluate((hero) => {
     const actions = hero.querySelector(".hero__actions");

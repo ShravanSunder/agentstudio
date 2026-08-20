@@ -104,19 +104,19 @@ a:focus-visible {
   letter-spacing: 0.04em;
 }
 
-.footer-socials {
+.footer-profile-links {
   display: flex;
   align-items: center;
   gap: 18px;
 }
 
-.footer-socials a {
+.footer-profile-links a {
   display: inline-grid;
   place-items: center;
   color: var(--ink-muted);
 }
 
-.footer-socials a:hover {
+.footer-profile-links a:hover {
   color: var(--ink);
 }
 

@@ -68,7 +68,7 @@ export const marketingCopy = {
     githubAction: "GitHub",
   },
   socialLinks: {
-    label: "Shravan Sunder on social media",
+    label: "Shravan Sunder profile links",
     github: {
       label: "Shravan Sunder on GitHub",
       url: "https://github.com/shravansunder",
