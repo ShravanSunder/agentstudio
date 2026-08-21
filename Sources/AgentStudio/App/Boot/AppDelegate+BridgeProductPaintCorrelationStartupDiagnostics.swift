@@ -209,7 +209,7 @@ import WebKit
     @MainActor
     extension AppDelegate {
         nonisolated private static let bridgeProductPaintFixtureRelativePath = "tracked.txt"
-        nonisolated private static let bridgeProductPaintFixturePrimerRelativePath = "primer.swift"
+        nonisolated private static let bridgeProductPaintFixturePrimerRelativePath = "zz-primer.swift"
         nonisolated private static let bridgeProductPaintFixtureCanary = "bridge-product-paint-canary"
 
         func runBridgeProductPaintCorrelationDiagnostic(

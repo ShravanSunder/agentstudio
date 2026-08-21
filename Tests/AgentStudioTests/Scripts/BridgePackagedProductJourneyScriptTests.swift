@@ -65,7 +65,7 @@ struct BridgePackagedProductJourneyScriptTests {
             encoding: .utf8
         )
 
-        #expect(runnerSource.contains(#"early_relative_path="primer.swift""#))
+        #expect(runnerSource.contains(#"early_relative_path="zz-primer.swift""#))
         #expect(runnerSource.contains(#"if [ "$index" -eq 0 ]; then"#))
         #expect(runnerSource.contains("AGENTSTUDIO_BRIDGE_JOURNEY_TARGET_NAME"))
         #expect(runnerSource.contains("refs/remotes/origin/HEAD"))
