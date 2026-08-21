@@ -221,7 +221,7 @@ if [ -z "$state_app" ] || [ -z "$state_executable" ] || [ ! -x "$state_executabl
   echo "Bridge packaged journey app/executable identity is incomplete" >&2
   exit 1
 fi
-actual_executable="$($LSOF_BIN -a -p "$state_pid" -d txt -Fn 2>/dev/null | awk '/^n/ { print substr($0, 2); exit }')"
+actual_executable="$($LSOF_BIN -a -p "$state_pid" -d txt -Fn 2>/dev/null | awk '/^n/ && !found { print substr($0, 2); found = 1 }')"
 expected_executable="$(/usr/bin/python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$state_executable")"
 actual_executable="$(/usr/bin/python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$actual_executable")"
 if [ "$actual_executable" != "$expected_executable" ]; then

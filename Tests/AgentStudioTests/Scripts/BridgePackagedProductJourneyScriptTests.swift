@@ -536,6 +536,17 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(verifierSource.contains(#"if [ "$state_data_dir" != "$journey_data_root" ]; then"#))
     }
 
+    @Test("verifier consumes the full lsof stream under pipefail")
+    func verifierConsumesFullLsofStreamUnderPipefail() throws {
+        let source = try String(
+            contentsOfFile: "scripts/verify-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        #expect(!source.contains(#"awk '/^n/ { print substr($0, 2); exit }'"#))
+        #expect(source.contains(#"awk '/^n/ && !found { print substr($0, 2); found = 1 }'"#))
+    }
+
     @Test("runner disables commit signing only inside its disposable fixture")
     func runnerDisablesCommitSigningOnlyInsideDisposableFixture() throws {
         let source = try String(
