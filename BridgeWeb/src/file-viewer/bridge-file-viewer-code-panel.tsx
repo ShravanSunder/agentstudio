@@ -66,6 +66,7 @@ interface FileAnnotationAdmissionIdentity {
 }
 
 interface PendingFileAnnotationComposer extends FileAnnotationAdmissionIdentity {
+	readonly committed: boolean;
 	readonly editToken: string;
 	readonly origin: WorktreeAnnotationLocatedOrigin;
 }
@@ -205,6 +206,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			});
 			setPendingAnnotationComposer({
 				...admissionIdentity,
+				committed: false,
 				editToken: createWorktreeAnnotationEditToken(),
 				origin: fileAnnotationOriginForPierreSelection({
 					path: selectedItem.bridgeMetadata.displayPath,
@@ -278,7 +280,9 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		[admitSelectedRange],
 	);
 	useWorktreeAnnotationSelectionDismissal({
-		active: annotationRangePresentation.kind === 'pending',
+		active:
+			annotationRangePresentation.kind === 'pending' &&
+			pendingAnnotationComposer?.committed !== true,
 		clearSelection: clearAnnotationSelection,
 	});
 	const codeViewOptions = useMemo<CodeViewOptions<undefined>>(
@@ -408,6 +412,13 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 										})}
 										editToken={metadata.editToken}
 										onCancel={() => admitSelectedRange(null, '')}
+										onCommitted={() =>
+											setPendingAnnotationComposer((currentComposer) =>
+												currentComposer?.editToken === metadata.editToken
+													? { ...currentComposer, committed: true }
+													: currentComposer,
+											)
+										}
 										onSaved={() => admitSelectedRange(null, '')}
 										placeholder="Write an annotation in Markdown"
 									/>

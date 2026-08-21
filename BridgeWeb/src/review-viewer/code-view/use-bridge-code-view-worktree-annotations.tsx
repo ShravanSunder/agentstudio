@@ -94,6 +94,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			: sessionThreads;
 	}, [activeNewMessageEditTokens, activeSessionId, interaction.shareMode, projection.threads]);
 	const [pendingComposer, setPendingComposer] = useState<{
+		readonly committed: boolean;
 		readonly editToken: string;
 		readonly itemId: string;
 		readonly origin: WorktreeAnnotationLocatedOrigin;
@@ -214,6 +215,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			selectedItemIdRef.current = item.id;
 			interaction.setPendingRange(item.id, range);
 			setPendingComposer({
+				committed: false,
 				editToken: createWorktreeAnnotationEditToken(),
 				itemId: item.id,
 				origin,
@@ -270,7 +272,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 		[admitSelectedRange],
 	);
 	useWorktreeAnnotationSelectionDismissal({
-		active: rangePresentation.kind === 'pending',
+		active: rangePresentation.kind === 'pending' && pendingComposer?.committed !== true,
 		clearSelection,
 	});
 
@@ -309,6 +311,13 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 						})}
 						editToken={metadata.editToken}
 						onCancel={() => admitSelectedRange(null, null)}
+						onCommitted={() =>
+							setPendingComposer((currentComposer) =>
+								currentComposer?.editToken === metadata.editToken
+									? { ...currentComposer, committed: true }
+									: currentComposer,
+							)
+						}
 						onSaved={() => admitSelectedRange(null, null)}
 						placeholder="Write an annotation in Markdown"
 					/>

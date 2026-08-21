@@ -309,6 +309,19 @@ describe('worktree annotation Pierre range selection', () => {
 			).not.toBeNull();
 			expect(document.querySelector('[aria-label="Write an annotation in Markdown"]')).toBeNull();
 			await act(async (): Promise<void> => {
+				dispatchPointer(document.body, 'pointerdown', {
+					clientX: 4,
+					clientY: 4,
+					pointerId: 29,
+					pointerType: 'mouse',
+				});
+				await nextAnimationFrame();
+			});
+			await expect.element(rendered.getByText('Split projection Save')).toBeVisible();
+			expect(
+				document.querySelector('[data-testid="worktree-annotation-committed-pending-projection"]'),
+			).not.toBeNull();
+			await act(async (): Promise<void> => {
 				surface.publishProjectionState({
 					expectedThreadCount: 1,
 					revision: 5,

@@ -53,6 +53,7 @@ export interface WorktreeAnnotationNewMessageComposerProps {
 	readonly continueTimeline?: boolean | undefined;
 	readonly editToken?: string | undefined;
 	readonly onCancel: () => void;
+	readonly onCommitted?: (() => void) | undefined;
 	readonly onSaved: () => void;
 	readonly placement?: 'embedded' | 'standalone' | 'timeline' | undefined;
 	readonly placeholder: string;
@@ -298,6 +299,7 @@ export function WorktreeAnnotationNewMessageComposer(
 				}
 				targetMessageCursorRef.current = savedCursor;
 				setCommittedCursor(savedCursor);
+				props.onCommitted?.();
 			});
 			setSavePhase('idle');
 		} catch (error: unknown) {
