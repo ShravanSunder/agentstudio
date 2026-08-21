@@ -313,6 +313,7 @@ export class BridgeVerifierProductFileSession {
 			descriptor: descriptorEvent.availability.contentDescriptor,
 			kind: 'content.open',
 			leaseId: `verifier-file-lease-${randomUUID()}`,
+			operationCorrelationId: null,
 			paneSessionId: this.#paneSessionId,
 			wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
 			workerDerivationEpoch: 0,
