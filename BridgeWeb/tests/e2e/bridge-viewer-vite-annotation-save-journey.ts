@@ -259,13 +259,27 @@ async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<
 				const completedOperationIds = Reflect.get(operationLifecycle, 'completedOperationIds');
 				const malformed = Reflect.get(operationLifecycle, 'malformed');
 				const missingTerminals = Reflect.get(operationLifecycle, 'missingTerminals');
+				const matchingMalformed = Array.isArray(malformed)
+					? malformed.filter(
+							(entry): boolean =>
+								typeof entry === 'object' &&
+								entry !== null &&
+								Reflect.get(entry, 'operationCorrelationId') === operationId,
+						)
+					: null;
+				const matchingMissingTerminals = Array.isArray(missingTerminals)
+					? missingTerminals.filter(
+							(entry): boolean =>
+								typeof entry === 'object' &&
+								entry !== null &&
+								Reflect.get(entry, 'operationCorrelationId') === operationId,
+						)
+					: null;
 				if (
 					Array.isArray(completedOperationIds) &&
 					completedOperationIds.includes(operationId) &&
-					Array.isArray(malformed) &&
-					malformed.length === 0 &&
-					Array.isArray(missingTerminals) &&
-					missingTerminals.length === 0
+					matchingMalformed?.length === 0 &&
+					matchingMissingTerminals?.length === 0
 				) {
 					return expectedStages.length;
 				}
