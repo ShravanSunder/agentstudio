@@ -252,7 +252,11 @@ async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<
 		{ expectedStages: requiredStages, url: statusUrl },
 		{ timeout: annotationProjectionResponseTimeoutMilliseconds },
 	);
-	return await handle.jsonValue();
+	const completedStageCount = await handle.jsonValue();
+	if (completedStageCount === false) {
+		throw new Error('Annotation lifecycle telemetry completed without a stage count');
+	}
+	return completedStageCount;
 }
 
 async function verifyDurableHistoryAndUnhandle(page: Page): Promise<void> {
