@@ -12,6 +12,114 @@ import Testing
 @Suite("Bridge development annotation HTTP routing")
 struct BridgeDevelopmentAnnotationHTTPRoutingTests {
     @MainActor
+    @Test("successful annotation output returns its completed HTTP result")
+    func successfulAnnotationOutputReturnsCompletedHTTPResult() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-http-annotation-output-result"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let paneID = PaneId.generateUUIDv7().uuid
+        let dataRoot = FileManager.default.temporaryDirectory.appending(
+            path: "bridge-development-http-annotation-output-result-\(paneID.uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: dataRoot) }
+        let runtime = try await makeHTTPDevelopmentProductRuntime(
+            dataRoot: dataRoot,
+            paneID: paneID,
+            worktreeRoot: repositoryURL
+        )
+        let application = BridgeDevelopmentHTTPApplication.make(host: runtime.host)
+
+        try await application.test(.router) { client in
+            let connection = try await openHTTPProductConnection(client: client)
+            let preparation = try await prepareHTTPAnnotationAuthoring(
+                client: client,
+                runtime: runtime,
+                connection: connection
+            )
+            let createOutcome = try await executeHTTPAnnotationCommand(
+                client: client,
+                connection: connection,
+                operation: twoPaneRootCreateOperation(
+                    sourceIdentity: preparation.descriptor.descriptorId
+                ),
+                requestID: "annotation-output-result-create",
+                requestSequence: 6
+            )
+            let createReceipt = try #require(createOutcome.receipt)
+            let sessionID = try #require(createOutcome.sessionId)
+            _ = try await waitForHTTPAnnotationInvalidation(
+                client: client,
+                connection: connection,
+                recorder: preparation.metadataStream.recorder
+            )
+            let saveOutcome = try await executeHTTPAnnotationCommand(
+                client: client,
+                connection: connection,
+                operation: [
+                    "editToken": "two-pane-editor",
+                    "expectedDraftRevision": try #require(createReceipt.draftRevision),
+                    "expectedSessionRevision": createReceipt.sessionRevision,
+                    "kind": "draft.save",
+                    "messageId": createReceipt.messageId.uuidString.lowercased(),
+                    "sessionId": sessionID.uuidString.lowercased(),
+                ],
+                requestID: "annotation-output-result-save",
+                requestSequence: 7
+            )
+            #expect(saveOutcome.status == .committed)
+            _ = try await waitForHTTPAnnotationInvalidation(
+                client: client,
+                connection: connection,
+                recorder: preparation.metadataStream.recorder
+            )
+            let projection = try await fetchHTTPFileAnnotationProjection(
+                client: client,
+                host: runtime.host,
+                connection: connection,
+                demandedSessionIDs: [sessionID],
+                sourceGeneration: preparation.fileSourceGeneration,
+                requestSequence: 8
+            )
+            let savedMessage = try #require(projection.messages.first?.message)
+
+            // Act
+            let outputOutcome = try await executeHTTPAnnotationCommand(
+                client: client,
+                connection: connection,
+                operation: [
+                    "displayedProjectionRevision": projection.header.projectionRevision,
+                    "expectedSessionRevision": savedMessage.sessionRevision,
+                    "kind": "output.scope.commit",
+                    "outputKind": "clipboardMarkdown",
+                    "scope": "all",
+                    "sessionId": sessionID.uuidString.lowercased(),
+                    "sourceGeneration": preparation.fileSourceGeneration,
+                ],
+                requestID: "annotation-output-result-copy",
+                requestSequence: 9
+            )
+
+            // Assert
+            guard case .output(.succeeded(let summary)) = outputOutcome.status else {
+                Issue.record("Expected the successful output result to cross the HTTP response")
+                return
+            }
+            #expect(summary.sessionId == sessionID)
+            #expect(summary.outputKind == .clipboardMarkdown)
+            #expect(summary.messageCount == 1)
+            try await shutdownHTTPHostAndDrainMetadataStream(
+                host: runtime.host,
+                drain: preparation.metadataStream.drain
+            )
+        }
+        try await runtime.composition.shutdown()
+    }
+
+    @MainActor
     @Test("annotation mutation converges through independent pane projections")
     func annotationMutationConvergesThroughIndependentPaneProjections() async throws {
         let repositoryURL = try FilesystemTestGitRepo.create(

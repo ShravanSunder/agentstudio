@@ -73,7 +73,8 @@ describe('worktree annotation Share comments integrated surface', () => {
 				const integratedSurface = rendered
 					.getByTestId('review-or-file-header')
 					.element().parentElement;
-				if (integratedSurface === null) throw new Error('Expected the integrated Share surface root.');
+				if (integratedSurface === null)
+					throw new Error('Expected the integrated Share surface root.');
 				await page.screenshot({
 					element: integratedSurface,
 					path: '../../../tmp/bridgeweb-worktree-annotation-share-integrated.png',

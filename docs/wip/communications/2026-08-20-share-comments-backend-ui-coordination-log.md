@@ -284,3 +284,33 @@ Notes: this is a mental-model break, not an ordinary UI failure: the current UI
 correctly retained Share on its observed transport failure, while durable truth
 had already committed known success. A second All click repeated the real
 development clipboard capture, demonstrating the duplicate-effect risk.
+
+### 2026-08-20 20:35 EDT — Share output response correction
+
+State: backend-to-UI success response fixed and live-proven
+Head: `563f8a827` plus scoped uncommitted correction
+Owns: strict Swift product JSON response vocabulary, real development HTTP
+output-response regression, strict terminal-response matrix, and one stale
+comm-worker fixture fact
+Changed: added the existing output response members `destinationFilename`,
+`messageCount`, `selectionError`, `effectError`, `cleanupError`,
+`finalizationError`, and `repeatedFromAttemptId` to
+`BridgeProductStrictJSON`; added a real `output.scope.commit` HTTP regression;
+added strict coverage for every output terminal; added missing `handled: false`
+to the projection-query fixture
+Proof: the real HTTP test failed red with `request.error(code: internal)` after
+durable success, then passed green after the vocabulary fix; strict terminal
+matrix 1/1 passed; projection-query controller 13/13 passed; full BridgeWeb
+unit 278 files / 1,878 tests passed; BridgeWeb check passed; `mise run format`
+passed; `mise run lint` passed with SwiftLint 0 violations, architecture lint
+OK, and release scripts passed. Live isolated backend/Vite/Review proof observed
+`New (1)` → one Copy → Share closed → `Copied 1 comment` → toast `Mark as not
+handled`; SQLite showed exactly one succeeded attempt and one copied event. The
+toast action restored `New (1)` while the message remained locked.
+Needs from other lane: none for the response fix
+Next: commit the scoped correction, then run the remaining integrated/full
+readiness gates; the separately recorded Pierre 600px-vs-768px proof mismatch
+remains outside this backend correction
+Notes: root cause was ordinary handler response validation, not latency or a
+new system boundary: Swift encoded a valid output result, then its strict member
+vocabulary rejected the result before returning it to the frontend.

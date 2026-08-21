@@ -482,6 +482,7 @@ async function makeProjectionPages(
 						authorKind: 'human',
 						createdAtUnixMilliseconds: ordinal + 3,
 						draft: null,
+						handled: false,
 						messageId: uuidv7(ordinal + 100),
 						messageRevision: 1,
 						ordinal,
