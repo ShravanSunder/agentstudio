@@ -3,6 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
 	test: {
 		environment: 'node',
+		fileParallelism: false,
 		include: [
 			'src/**/*.e2e.test.ts',
 			'src/**/*.e2e.test.tsx',
