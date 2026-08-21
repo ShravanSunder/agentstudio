@@ -335,3 +335,39 @@ Next: resume remaining Share S4/package readiness after that independent UI
 proof blocker is resolved
 Notes: the response correction itself is complete and committed; unrelated PR2
 research files remain untracked and untouched
+
+### 2026-08-21 02:00 EDT — Decoded durable-history convergence
+
+State: decoded History fix committed, pushed, and scoped proof complete; full
+aggregate gate remains red outside the changed path
+Head: `8daaae22e` (`fix(annotations): preserve decoded output history`)
+Owns: raw-wire versus decoded annotation command-result boundary, downstream
+comm-worker/runtime-event contracts, real File/Review History E2E, and the two
+governing Program Design clarifications
+Changed: the production transport remains the only raw Swift response parser
+and timestamp transformer. Product controller, annotation runtime-event, and
+worker-event owners now validate the decoded result instead of reapplying the
+raw schema. Non-history outcome variants share one schema definition; only the
+History timestamp representation differs. The real annotation Save journeys
+now cross Copy, Share dismissal, durable History, and History unhandle.
+Proof: focused decoded contract/controller/worker 3 files / 21 tests; BridgeWeb
+check exit 0; unit 280 files / 1,886 tests; Node integration 3 files / 19 tests;
+browser integration 50 files / 263 tests with 5 established skips; real
+Vite-to-Swift E2E 2 files / 8 tests. Fresh isolated Review UI proof observed
+`New (1)` -> Copy -> Share closed/toast -> `New (0)` / `All (1)` ->
+`History (1)` -> Mark as not handled -> `New (1)`. SQLite retained
+`status=locked`, `handled=0`, the succeeded attempt, exact revision membership,
+and copied event. Files on `.gitignore` showed the Review comment under in-flow
+Other saved comments.
+Needs from other lane: none for decoded History. Branch-wide readiness still
+needs one complete `mise run test`: one aggregate attempt had a saved-range
+focus assertion that passed 2/2 immediately alone; the next cleared every
+BridgeWeb/package lane and then timed out the broad native-concurrent Swift lane
+after the repository watchdog observed 300 seconds without output.
+Next: fresh read-only implementation review of `6b841f396..8daaae22e`; do not
+change unrelated native runner or PR2 policy under this lane
+Notes: `origin/main` is contained exactly (branch 94 ahead / 0 behind). Remote
+feature branch is updated to `8daaae22e`. Both manual dev servers were stopped.
+Two 1Password signing attempts failed, so the checkpoint used the documented
+unsigned fallback with hooks enabled. Unrelated PR2 files remain untracked and
+untouched.
