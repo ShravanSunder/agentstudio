@@ -509,3 +509,25 @@ annotation stage correlation and marker-scoped proof to `plan-implementation`
 Notes: the current convergence plan omitted a frontier explicitly deferred by
 the earlier backend reliability plan; this is a plan defect, not authority to
 improvise telemetry inside remediation. PR2 research files remain untouched
+
+### 2026-08-21 18:49 EDT — Review refresh classification design closed
+
+State: three-artifact design ready after one parent-verified remediation; no
+implementation started
+Head: `0785f29cf` (`docs: define bridge review refresh classification`)
+Owns: Bridge Review same-source refresh classification and installation design
+Changed: one update pipeline retains ordinary silent installation and promoted
+display holding; displayed Review identity is now separate from native/worker
+current through a bounded prepare/confirm/abort handshake on the existing
+command route; annotations remain pinned to the installed generation; active
+plus one candidate bank is the complete presentation bound
+Proof: one independent three-artifact review produced 2 blockers, 6 important,
+and 4 minor/observation findings; Specification and Program Design received the
+single permitted remediation; parent re-read 1,098 artifact lines, verified all
+finding anchors, foundation links, whitespace, and staged diff scope; no second
+review was run
+Needs from other lane: consume the final Specification and Program Design when
+planning UI realization; no UI source file was changed here
+Next: create the repository-grounded implementation plan before code changes
+Notes: unrelated PR2 research files remain untracked and untouched; no security,
+route, persistence, polling, queue, or global-interaction expansion was added
