@@ -803,7 +803,7 @@ Use one evidence directory per source commit:
       hero.png
       parallel-work.png
       pane-drawer.png
-      quick-find.png
+      command-bar.png
       review.png
       persistent-workspace.png
       closing-lockup.png

@@ -32,11 +32,11 @@ export const marketingCopy = {
         "A Git-status drawer attached beneath Antigravity with the global sidebar hidden.",
     },
     quickFind: {
-      label: "Quick Find",
-      description: "Press Cmd+P to jump to a repository, pane, or command.",
-      phoneDescription: "Cmd+P finds repos, panes, and commands.",
+      label: "Command bar",
+      description: "Press Cmd+P to find a repository, pane, or command.",
+      phoneDescription: "Find repos, panes, and commands from the command bar.",
       imageDescription:
-        "Agent Studio Quick Find showing recent repositories and command, pane, and repository scopes with the global sidebar hidden.",
+        "Agent Studio command bar showing recent repositories and command, pane, and repository scopes with the global sidebar hidden.",
     },
     review: {
       label: "Review",

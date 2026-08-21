@@ -1,9 +1,10 @@
 import type { ImageMetadata } from "astro";
 
+import commandBarPhoneImage from "@/assets/captures/command-bar-phone.png";
+import commandBarImage from "@/assets/captures/command-bar.png";
 import gitContextImage from "@/assets/captures/git-pull-request-context.png";
 import paneDrawerImage from "@/assets/captures/pane-drawer.png";
 import parallelAgentsImage from "@/assets/captures/parallel-agents.png";
-import quickFindImage from "@/assets/captures/quick-find.png";
 import reviewImage from "@/assets/captures/review.png";
 import { marketingCopy } from "@/marketing-copy";
 
@@ -16,6 +17,7 @@ interface SingleImageStory {
   readonly description: string;
   readonly phoneDescription: string;
   readonly image: ImageMetadata;
+  readonly phoneImage?: ImageMetadata;
   readonly alternativeText: string;
 }
 
@@ -46,7 +48,8 @@ export const productPlateStories = [
     label: marketingCopy.stories.quickFind.label,
     description: marketingCopy.stories.quickFind.description,
     phoneDescription: marketingCopy.stories.quickFind.phoneDescription,
-    image: quickFindImage,
+    image: commandBarImage,
+    phoneImage: commandBarPhoneImage,
     alternativeText: marketingCopy.stories.quickFind.imageDescription,
   },
   {

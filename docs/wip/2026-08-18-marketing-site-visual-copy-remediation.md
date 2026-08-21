@@ -908,6 +908,55 @@ Evidence:
   this is not recorded as an implementation pass or failure.
 - `git diff --check`: pass.
 
+## 2026-08-21 Command bar recapture checkpoint
+
+Current result: `READY FOR OWNER REVIEW`. No deployment is authorized by this
+checkpoint.
+
+- [x] Rename the visible showcase title from `Quick Find` to `Command bar` so
+      the title names the product surface shown in the image.
+- [x] Preserve the shipped Cmd+P behavior and repository, pane, and command
+      scopes in desktop and phone copy.
+- [x] Capture the current Beta command dialog with the global sidebar hidden,
+      using its native live colors over the current workspace.
+- [x] Normalize the 2560x1600 Display P3 composite to canonical sRGB without
+      resizing and derive a centered 1280x1600 phone crop that retains the
+      complete 600x456-point dialog.
+- [x] Rename the assets to `command-bar.png` and `command-bar-phone.png` so the
+      dev image optimizer cannot serve stale pixels from the previous source.
+- [x] Select the centered phone derivative only for the Command bar state at
+      `max-width: 620px`; preserve every other slideshow state's current mobile
+      strategy.
+
+Evidence:
+
+- Beta identity: bundle `com.agentstudio.app.beta`, PID `76810`, process-start
+  identity `1787275073838643`, parent window `310825`, and command dialog
+  `384303`. The parent is 1280x800 points; the dialog is 600x456 points at a
+  measured parent-relative offset of 340x192 points. Both were captured at 2x.
+- Raw native composite SHA-256:
+  `9e82a1640b864b092ed762458ab426a2f47718a4620f256b015bb8fa7acd39c1`.
+  Canonical master SHA-256:
+  `60f6c7613a4f6f21e0ed96fcdf7e65da2ed7ecba3679dfee7120986b0edc96bc`.
+  Phone crop SHA-256:
+  `0ac22968f4024be0483cf6dac29ea4c6044090ad3841f53bce186d15f69a7344`.
+- Independent copy review passes the title, desktop description, phone caption,
+  and alt text against the current README after complete 544-line project-local
+  copywriter-skill coverage.
+- Independent visual review passes the full-resolution master, centered phone
+  crop, desktop render, and refreshed 390x844 render. The phone page loads the
+  1280x1600 derivative at 321x401.25 with the complete dialog and scopes legible.
+- `pnpm --dir web run check`: pass. Oxlint/Oxfmt pass; Astro reports 0 errors,
+  warnings, or hints; 10 masters and 6 crops verify; the pixel audit passes;
+  Vitest passes 14/14.
+- `pnpm --dir web run build`: pass with three static routes and all optimized
+  image variants.
+- Focused Playwright launch remains environment-blocked: system Chrome aborts
+  before opening the page, so its two project assertions do not execute. The
+  equivalent 390x844 behavior is manually and independently verified on the
+  polling-enabled `http://127.0.0.1:4392/` server.
+- `git diff --check`: pass.
+
 ## Evidence retained
 
 - Plain-language critique: README descriptor, value promise, product traits, mechanism, and six feature headings are the canonical copy set.

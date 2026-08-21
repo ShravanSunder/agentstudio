@@ -113,7 +113,7 @@ Preserve the existing `web/images/` paths because the root README references the
   panes and large empty pane fields fail the campaign-image contract.
 - Freeze sidebar width, toolbar/window chrome, theme, typography, pane density, fixture repositories/worktrees, terminal content, and capture method across the suite.
 - Required primary masters: `parallel-work.png`, `pane-drawer.png`,
-  `quick-find.png`, `review.png`, and `git-pull-request-context.png`.
+  `command-bar.png`, `review.png`, and `git-pull-request-context.png`.
 - Use a Luna xhigh operator only with an exact capture packet. Verify build, executable, bundle identifier, PID, isolated data root, and window identity before any UI action. Never attach to an existing app process.
 - The operator uses Sky only after loading `computer-use:computer-use` and targeting the dedicated bundle identifier. Peekaboo may provide control fallback with a fresh snapshot and the same PID/window boundary.
 - Use Peekaboo to resolve the current CoreGraphics window ID from the verified PID, then capture that window ID with Retina PNG output. Never rely on the generic AX window title as the sole selector. Preserve the untouched source and record its embedded ICC profile/hash; convert a copy through ColorSync to the canonical sRGB IEC61966-2.1 master without resizing.

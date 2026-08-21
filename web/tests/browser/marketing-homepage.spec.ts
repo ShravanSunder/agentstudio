@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 const productStoryCases = [
   { id: "parallel-work", accessibleName: /Parallel agents/ },
   { id: "pane-drawer", accessibleName: /Pane drawer/ },
-  { id: "quick-find", accessibleName: /Quick Find/ },
+  { id: "quick-find", accessibleName: /Command bar/ },
   { id: "review", accessibleName: /Review/ },
   { id: "git-context", accessibleName: /Git and PR context/ },
 ] as const;
@@ -105,7 +105,7 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   expect(page.url()).toBe(originalUrl);
 
   await page.getByRole("tab", { name: /Pane drawer/ }).press("ArrowRight");
-  await expect(page.getByRole("tab", { name: /Quick Find/ })).toHaveAttribute(
+  await expect(page.getByRole("tab", { name: /Command bar/ })).toHaveAttribute(
     "aria-selected",
     "true",
   );
@@ -424,6 +424,31 @@ test("presents the phone carousel as title, image, then matching caption", async
     imageStoryId: "pane-drawer",
     visibleCaptionCount: 1,
   });
+});
+
+test("uses the focused command-bar crop at phone width", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByRole("tab", { name: /Command bar/ }).click();
+
+  const commandBarImage = page.locator('[data-product-plate-panel="quick-find"] img');
+  await expect
+    .poll(() =>
+      commandBarImage.evaluate((image) =>
+        image instanceof HTMLImageElement
+          ? {
+              height: image.naturalHeight,
+              source: image.currentSrc,
+              width: image.naturalWidth,
+            }
+          : null,
+      ),
+    )
+    .toEqual({
+      height: 1600,
+      source: expect.stringContaining("command-bar-phone.png"),
+      width: 1280,
+    });
 });
 
 for (const viewport of verificationViewports) {

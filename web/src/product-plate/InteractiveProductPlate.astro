@@ -98,6 +98,11 @@ import { productPlateStories } from "./product-plate-fixture";
             hidden={index !== 0}
           >
             <picture class="product-plate__image-frame block p-1">
+              {
+                "phoneImage" in story && story.phoneImage !== undefined && (
+                  <source media="(max-width: 620px)" srcset={story.phoneImage.src} />
+                )
+              }
               <Image
                 src={story.image}
                 alt={story.alternativeText}
