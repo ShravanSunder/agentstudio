@@ -461,6 +461,7 @@ private func projectionContentRequest(
         "descriptor": descriptorObject,
         "kind": "content.open",
         "leaseId": "annotation-lease-1",
+        "operationCorrelationId": NSNull(),
         "paneSessionId": paneSessionID,
         "wireVersion": BridgeProductWireContract.version,
         "workerDerivationEpoch": 3,

@@ -6,7 +6,7 @@ import Foundation
 
 struct BridgeProductSchemeTranscriptFixture {
     static let expectedSHA256 =
-        "10331eb3c39f7ff25da92c8cdae394446bc7b11fb7b3be25d7bbf94260862173"
+        "a5556acd203621f3be1d48881b96a198385744cf85cb729832d3929a6688f4c3"
 
     let bytes: Data
     let root: [String: Any]

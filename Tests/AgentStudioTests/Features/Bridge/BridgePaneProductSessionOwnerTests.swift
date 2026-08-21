@@ -720,6 +720,7 @@ private func paneOwnerContentRequest(
           "workerInstanceId": "\(installation.bootstrap.workerInstanceId)",
           "contentRequestId": "content-request-\(identitySuffix)",
           "leaseId": "lease-\(identitySuffix)",
+          "operationCorrelationId": null,
           "contentKind": "file.content",
           "descriptor": {
             "contentKind": "file.content",

@@ -95,6 +95,7 @@ struct WorktreeAnnotationOutputContentLifecycleTests {
                         "descriptor": descriptor.merging(mutation) { _, replacement in replacement },
                         "kind": "content.open",
                         "leaseId": "annotation-output-lease-invalid",
+                        "operationCorrelationId": NSNull(),
                         "paneSessionId": "pane-session-1",
                         "wireVersion": 2,
                         "workerDerivationEpoch": 0,

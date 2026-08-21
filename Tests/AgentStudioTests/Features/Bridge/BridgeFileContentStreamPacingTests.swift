@@ -444,6 +444,7 @@ private func fileContentRequest(
         ],
         "kind": "content.open",
         "leaseId": "lease-\(identifier)",
+        "operationCorrelationId": NSNull(),
         "paneSessionId": "pane-session-1",
         "wireVersion": BridgeProductWireContract.version,
         "workerDerivationEpoch": 1,

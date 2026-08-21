@@ -509,6 +509,7 @@ private func fileContentRequest(
           "workerInstanceId": "worker-instance-1",
           "contentRequestId": "content-request-\(identitySuffix)",
           "leaseId": "lease-\(identitySuffix)",
+          "operationCorrelationId": null,
           "contentKind": "file.content",
           "descriptor": {
             "contentKind": "file.content",

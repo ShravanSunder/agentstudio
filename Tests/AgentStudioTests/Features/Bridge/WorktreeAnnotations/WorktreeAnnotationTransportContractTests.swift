@@ -405,6 +405,7 @@ struct WorktreeAnnotationTransportContractTests {
                     "descriptor": descriptor,
                     "kind": "content.open",
                     "leaseId": "annotation-output-lease-1",
+                    "operationCorrelationId": NSNull(),
                     "paneSessionId": "00000000-0000-7000-8000-000000000001",
                     "wireVersion": 2,
                     "workerDerivationEpoch": 0,

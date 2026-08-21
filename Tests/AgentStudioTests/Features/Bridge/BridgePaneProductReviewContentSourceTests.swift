@@ -407,6 +407,7 @@ private final class ReviewProductContentFixture {
             ],
             "kind": "content.open",
             "leaseId": "review-content-lease-1",
+            "operationCorrelationId": NSNull(),
             "paneSessionId": "pane-session-1",
             "wireVersion": BridgeProductWireContract.version,
             "workerDerivationEpoch": 1,

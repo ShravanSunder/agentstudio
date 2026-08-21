@@ -271,7 +271,7 @@ struct BridgeProductReviewComparisonContractTests {
     func panePresentationCarriesComparisonState() throws {
         // Arrange
         let presentationJSON = Data(
-            #"{"kind":"pane.presentation","wireVersion":2,"paneSessionId":"pane-session-1","workerInstanceId":"worker-instance-1","metadataStreamId":"metadata-stream-1","streamSequence":3,"fileRefreshFailure":null,"presentationRevision":9,"nativeActivity":"foreground","refreshingLanes":["review"],"reviewComparison":{"activeTarget":{"basis":"commonCommit","kind":"branch","name":"stack/base"},"attempt":{"status":"pending","reviewGeneration":8},"displayedSnapshot":{"status":"stale","packageId":"package-7","reviewGeneration":7,"revision":11},"repositoryDefaultTarget":{"branchName":"main","remoteName":"origin"}}}"#
+            #"{"kind":"pane.presentation","wireVersion":2,"paneSessionId":"pane-session-1","workerInstanceId":"worker-instance-1","metadataStreamId":"metadata-stream-1","streamSequence":3,"operationCorrelationId":null,"fileRefreshFailure":null,"presentationRevision":9,"nativeActivity":"foreground","refreshingLanes":["review"],"reviewComparison":{"activeTarget":{"basis":"commonCommit","kind":"branch","name":"stack/base"},"attempt":{"status":"pending","reviewGeneration":8},"displayedSnapshot":{"status":"stale","packageId":"package-7","reviewGeneration":7,"revision":11},"repositoryDefaultTarget":{"branchName":"main","remoteName":"origin"}}}"#
                 .utf8
         )
 
