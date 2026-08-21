@@ -32,6 +32,49 @@ This document is the canonical execution ledger. Progress updates must link to
 the applicable heading below. A checked box means the source change and its
 named proof both passed; editing the source alone does not complete an item.
 
+### 2026-08-21 detached slideshow surface experiment
+
+Current result: `APPROVED FOR RELEASE`. The owner accepted the full-row dark
+frost direction, selected-dot treatment, one-way entrance morph, and dot-free
+compact header. Deployment remains separate.
+
+- [x] Morph the existing product plate itself; do not place it inside another
+      frame. Preserve its selectors, images, captions, geometry, and interaction.
+- [x] As the plate enters the viewport, progress its lift, translucent ground,
+      restrained border, radius, and depth shadow toward the established
+      detached title-bar treatment. Hold the fully detached state while
+      scrolling downward; reverse only when the user scrolls back upward.
+- [x] Keep every product screenshot opaque and sharp. Expose glass only through
+      the desktop selector rail and responsive title, arrow, and caption chrome.
+      Do not add a separate frost or
+      blur element, decorative gutter treatment, or overlay over product pixels.
+- [x] Make the complete selected row a full-width dark frost surface with no
+      inset card, extra radius, border, or internal shadow. Keep selected copy
+      white and align one 8px primary-blue dot to the title centerline. Animate
+      the desktop dot between 20% and 80% opacity without glow or scale. Hide
+      the dot in compact mode so the selected title remains visually centered.
+- [x] Give reduced-motion visitors one static lifted surface without scroll-
+      driven translation.
+- [x] Inspect the resting, transition, and lifted states at `1600x1000`, plus
+      the complete slideshow at `899x900` and `390x844`. Reject the candidate
+      for weak separation, competing glass cards, unreadable product pixels,
+      clipping, or horizontal overflow.
+- [x] Run focused browser proof, the complete website quality suite, production
+      build, and independent visual review before requesting owner acceptance.
+
+Verification before independent review:
+
+- `pnpm --dir web run check`: type-aware Oxlint, Oxfmt, Astro/typecheck, 10
+  capture masters and 6 responsive crops, pixel audit, and 12 unit tests pass.
+- `pnpm --dir web run test:browser`: 63 passed and 1 expected skip across the
+  desktop and mobile projects.
+- `pnpm --dir web run build`: two static routes and 50 optimized image variants
+  build successfully.
+- Independent visual review `carousel-glass-visual-review-2026-08-21`: `PASS`
+  at `1600x1000` and `390x844` across Pane drawer, Quick Find, Review, scroll
+  transition, fully floating, and reduced-motion states. No material blockers;
+  reviewer workspace access remained read-only.
+
 ### 2026-08-20 phone carousel hierarchy correction
 
 Owner review rejected the stacked carousel because the wide title and caption
@@ -47,10 +90,12 @@ remain unchanged.
       accepted 4:5 phone derivatives are rejected by owner review because they
       remove too much workspace context.
 - [x] Place exactly one matching short caption after the image.
-- [x] Use the existing active-surface plane, white index and title, white
-      arrows, and one primary-blue selection rail. The desktop rail is inset
-      from the rounded corner; the responsive rail fills the title boundary.
-- [x] Prove the responsive composition at `899x900`, the desktop rail at the
+- [x] Use the existing recessed navy `bg-rear-plane-one` surface for the
+      selected title and caption surfaces with white index, title, and arrows.
+      Bright-blue rails, nested inset cards, duplicated gradients, and new
+      tokens are absent. Inactive descriptions use readable `text-ink-muted`;
+      `text-ink-faint` remains reserved for compact numeric metadata.
+- [x] Prove the responsive composition at `899x900`, the desktop selector at the
       exact `900x900` system boundary, and all five stories at
       `390x844`, including title, image, caption,
       arrow navigation, no overflow, and no image/caption mismatch.
@@ -787,7 +832,12 @@ Acceptance contract:
 - The first item under `The work around each agent matters too.` explains that
   Files and Review are useful workspace tabs, not generic non-terminal pane
   types.
-- The title is `Keep 'tabs' on your code with Files and Review.`
+- The first title is `Keep tabs on your code with Files and Review.`, with only
+  `tabs` rendered in the established primary-blue Tailwind token. The other
+  supporting titles are `Close the app. Keep your place.` and
+  `Give every pane its place.` Their body copy remains literal. The final
+  two-word phrases use Tailwind `whitespace-nowrap` so `place.` never becomes
+  an isolated punch word.
 - The image shows the Files and Review tabs, a populated changed-files tree,
   and meaningful diff content. Review is selected and the global Agent Studio
   sidebar is hidden.

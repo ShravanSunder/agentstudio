@@ -20,6 +20,7 @@ interface PhoneProductPlateComposition {
   readonly imageStoryId: string | null | undefined;
   readonly imageUsesPlateWidth: boolean;
   readonly imageUsesUncroppedMaster: boolean;
+  readonly selectedDotDisplay: string;
   readonly stageHeight: number;
   readonly titleBeforeImage: boolean;
   readonly visibleCaptionCount: number;
@@ -113,7 +114,7 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   }
   expect(plateGeometry.panelImageTopOffset).toBeLessThanOrEqual(2);
   expect(plateGeometry.panelContentBottomOffset).toBeLessThanOrEqual(2);
-  expect(plateGeometry.selectedBackground).toBe("rgb(36, 38, 43)");
+  expect(plateGeometry.selectedBackground).toBe("rgba(0, 0, 0, 0)");
 
   const originalUrl = page.url();
   await page.getByRole("tab", { name: /Pane drawer/ }).click();
@@ -130,7 +131,7 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   await expect(page.getByRole("tabpanel", { name: /Git and PR context/ })).toBeVisible();
 
   const persistencePanel = page.locator(".feature-detail").filter({
-    has: page.getByRole("heading", { name: "Close the app. Keep the work." }),
+    has: page.getByRole("heading", { name: "Close the app. Keep your place." }),
   });
   const beforeFrameButton = persistencePanel.getByRole("button", { name: "Before close" });
   const restoredFrameButton = persistencePanel.getByRole("button", { name: "Restored" });
@@ -274,12 +275,12 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
     };
   });
 
-  expect(collapsedGeometry.arrowBackgrounds).toEqual(["rgb(36, 38, 43)", "rgb(36, 38, 43)"]);
+  expect(collapsedGeometry.arrowBackgrounds).toEqual(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"]);
   expect(collapsedGeometry.descriptionDisplay).toBe("none");
   expect(collapsedGeometry.overflowX).toBe("auto");
   expect(collapsedGeometry.imageGap).toBeLessThanOrEqual(1);
   await expect(page.locator("[data-product-plate-index]")).toHaveCount(0);
-  expect(collapsedGeometry.selectedBackground).toBe("rgb(36, 38, 43)");
+  expect(collapsedGeometry.selectedBackground).toBe("rgba(0, 0, 0, 0)");
   expect(collapsedGeometry.selectorStageHeight).toBeLessThanOrEqual(64);
   expect(collapsedGeometry.titleColor).toBe("rgb(255, 255, 255)");
   expect(collapsedGeometry.titleCenterDelta).toBeLessThanOrEqual(1);
@@ -390,6 +391,10 @@ test("presents the phone carousel as title, image, then matching caption", async
       const stageBounds = stage.getBoundingClientRect();
       const imageBounds = image.getBoundingClientRect();
       const captionBounds = caption.getBoundingClientRect();
+      const selectedStory = productPlate.querySelector('[aria-selected="true"]');
+      if (!(selectedStory instanceof HTMLElement)) {
+        throw new Error("Phone product plate is missing its selected story");
+      }
 
       return {
         captionStoryId: caption.dataset["productPlateCaption"],
@@ -402,6 +407,7 @@ test("presents the phone carousel as title, image, then matching caption", async
         captionBackground: getComputedStyle(caption).backgroundColor,
         imageUsesPlateWidth: Math.abs(imageBounds.width - plateBounds.width) <= 2,
         imageUsesUncroppedMaster: Math.abs(image.naturalWidth / image.naturalHeight - 1.6) < 0.01,
+        selectedDotDisplay: getComputedStyle(selectedStory, "::after").display,
         visibleCaptionCount: visibleCaptions.length,
       };
     });
@@ -412,9 +418,10 @@ test("presents the phone carousel as title, image, then matching caption", async
     imageStoryId: "parallel-work",
     titleBeforeImage: true,
     captionAfterImage: true,
-    captionBackground: "rgb(36, 38, 43)",
+    captionBackground: "rgba(0, 0, 0, 0)",
     imageUsesPlateWidth: true,
     imageUsesUncroppedMaster: true,
+    selectedDotDisplay: "none",
     visibleCaptionCount: 1,
   });
   expect((await readPhoneComposition()).stageHeight).toBeLessThanOrEqual(96);
@@ -526,13 +533,14 @@ test("divides the desktop selector into five equal story rows", async ({ page })
   const storyRows = page.locator(".product-plate__selector");
   const storyDescriptions = storyRows.locator("[data-product-plate-description]");
 
-  await expect(selectedStory).toHaveCSS("background-color", "rgb(36, 38, 43)");
+  await expect(selectedStory).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(page.locator("[data-product-plate-index]")).toHaveCount(0);
   await expect(selectedTitle).toHaveCSS("color", "rgb(255, 255, 255)");
-  await expect(selectedStory.locator("[data-product-plate-description]")).toHaveCSS(
-    "color",
-    "rgb(255, 255, 255)",
-  );
+  expect(
+    await selectedStory
+      .locator("[data-product-plate-description]")
+      .evaluate((description) => getComputedStyle(description).color),
+  ).toContain("/ 0.85)");
   await expect(storyDescriptions).toHaveCount(5);
   expect(
     await storyDescriptions.evaluateAll((descriptions) =>
@@ -565,10 +573,11 @@ test("divides the desktop selector into five equal story rows", async ({ page })
   await expect(reviewStory).toHaveAttribute("aria-selected", "true");
   await expect(reviewStory.locator("strong")).toHaveCSS("color", "rgb(255, 255, 255)");
   await expect(reviewStory.locator("[data-product-plate-description]")).toBeVisible();
-  await expect(reviewStory.locator("[data-product-plate-description]")).toHaveCSS(
-    "color",
-    "rgb(255, 255, 255)",
-  );
+  expect(
+    await reviewStory
+      .locator("[data-product-plate-description]")
+      .evaluate((description) => getComputedStyle(description).color),
+  ).toContain("/ 0.85)");
   await expect(parallelStory.locator("[data-product-plate-description]")).toBeVisible();
   await expect(parallelStory.locator("[data-product-plate-description]")).toHaveCSS(
     "color",
@@ -576,7 +585,7 @@ test("divides the desktop selector into five equal story rows", async ({ page })
   );
 
   await page.setViewportSize({ width: 1023, height: 900 });
-  await expect(reviewStory).toHaveCSS("background-color", "rgb(36, 38, 43)");
+  await expect(reviewStory).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(reviewStory.locator("strong")).toHaveCSS("color", "rgb(255, 255, 255)");
   await expect(reviewStory.locator("[data-product-plate-description]")).toBeHidden();
 });
@@ -593,14 +602,14 @@ test("presents supporting features as text and product media without numbered di
   await expect(page.locator(".feature-detail__media")).toHaveCount(3);
   await expect(page.locator(".feature-detail__media img")).toHaveCount(5);
   await expect(featureDetails.first().getByRole("heading")).toHaveText(
-    "Keep 'tabs' on your code with Files and Review.",
+    "Keep tabs on your code with Files and Review.",
   );
   await expect(page.getByRole("heading", { name: "Run the agents you already use." })).toHaveCount(
     0,
   );
 
   const arrangementsPanel = page.locator(".feature-detail").filter({
-    has: page.getByRole("heading", { name: "Save the layout that fits the task." }),
+    has: page.getByRole("heading", { name: "Give every pane its place." }),
   });
   const savedLayoutButton = arrangementsPanel.getByRole("button", { name: "Saved layout" });
   const paneZoomButton = arrangementsPanel.getByRole("button", { name: "Pane Zoom" });
@@ -822,6 +831,124 @@ test("morphs the frame-width header into a max-w-2xl floating glass pill", async
   expect(frostGeometry.backgroundColor).toBe("rgba(0, 0, 0, 0)");
   expect(frostGeometry.backdropFilter).toBe("blur(8px) saturate(1.2)");
   expect(frostGeometry.maskImage).toContain("rgb(0, 0, 0) 8px");
+});
+
+test("lifts the slideshow on one detached glass surface", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto("/");
+
+  const showcaseSurface = page.locator("[data-showcase-surface]");
+  await expect(showcaseSurface).toHaveCount(1);
+  await expect(page.locator(".showcase-surface-frost")).toHaveCount(0);
+  await expect(showcaseSurface).toHaveAttribute("data-visual-state", "resting");
+
+  await showcaseSurface.evaluate((surface) => {
+    surface.scrollIntoView({ behavior: "instant", block: "start" });
+  });
+  await expect(showcaseSurface).toHaveAttribute("data-visual-state", "floating");
+
+  const liftedSurface = await showcaseSurface.evaluate((surface) => {
+    const surfaceStyle = getComputedStyle(surface);
+    const selectedImage = surface.querySelector("[data-product-plate-panel]:not([hidden]) img");
+    const selectorRail = surface.querySelector(".product-plate__selectors");
+    const selectedSelector = selectorRail?.querySelector('[aria-selected="true"]');
+    if (
+      !(selectedImage instanceof HTMLImageElement) ||
+      !(selectorRail instanceof HTMLElement) ||
+      !(selectedSelector instanceof HTMLElement)
+    ) {
+      throw new Error("Morphed showcase surface is missing its image or glass selector rail");
+    }
+
+    const imageBounds = selectedImage.getBoundingClientRect();
+    const selectedTitle = selectedSelector.querySelector("strong");
+    if (!(selectedTitle instanceof HTMLElement)) {
+      throw new Error("Selected showcase story is missing its title");
+    }
+    const selectedTitleBounds = selectedTitle.getBoundingClientRect();
+    const selectedSelectorBounds = selectedSelector.getBoundingClientRect();
+    const selectedGlassStyle = getComputedStyle(selectedSelector, "::before");
+    const selectedDotStyle = getComputedStyle(selectedSelector, "::after");
+    const selectedDotCenter =
+      selectedSelectorBounds.top +
+      Number.parseFloat(selectedDotStyle.top) +
+      Number.parseFloat(selectedDotStyle.width) / 2;
+    return {
+      backdropFilter: surfaceStyle.backdropFilter,
+      boxShadow: surfaceStyle.boxShadow,
+      imageWidth: imageBounds.width,
+      nestedPlateCount: surface.querySelectorAll(".product-plate").length,
+      selectedGlassBackdropFilter: selectedGlassStyle.backdropFilter,
+      selectedGlassBackgroundColor: selectedGlassStyle.backgroundColor,
+      selectedGlassBorderWidth: selectedGlassStyle.borderWidth,
+      selectedGlassInset: selectedGlassStyle.inset,
+      selectedGlassOpacity: selectedGlassStyle.opacity,
+      selectedDotAnimationName: selectedDotStyle.animationName,
+      selectedDotBackgroundColor: selectedDotStyle.backgroundColor,
+      selectedDotTitleCenterDelta: Math.abs(
+        selectedTitleBounds.top + selectedTitleBounds.height / 2 - selectedDotCenter,
+      ),
+      selectedSelectorBackground: getComputedStyle(selectedSelector).backgroundColor,
+      selectorRailBackground: getComputedStyle(selectorRail).backgroundColor,
+      surfaceOwnsPlate: surface.classList.contains("product-plate"),
+      progress: Number(surfaceStyle.getPropertyValue("--showcase-surface-progress")),
+      transform: surfaceStyle.transform,
+    };
+  });
+
+  expect(liftedSurface.backdropFilter).not.toBe("none");
+  expect(liftedSurface.boxShadow).not.toBe("none");
+  expect(liftedSurface.imageWidth).toBeGreaterThan(900);
+  expect(liftedSurface.nestedPlateCount).toBe(0);
+  expect(liftedSurface.selectedGlassBackdropFilter).not.toBe("none");
+  expect(liftedSurface.selectedGlassBackgroundColor).toBe("rgba(15, 18, 25, 0.74)");
+  expect(liftedSurface.selectedGlassBorderWidth).toBe("0px");
+  expect(liftedSurface.selectedGlassInset).toBe("0px");
+  expect(liftedSurface.selectedGlassOpacity).toBe("1");
+  expect(liftedSurface.selectedDotAnimationName).toBe("selected-dot-breathe");
+  expect(liftedSurface.selectedDotBackgroundColor).toBe("rgb(137, 180, 250)");
+  expect(liftedSurface.selectedDotTitleCenterDelta).toBeLessThanOrEqual(1);
+  expect(liftedSurface.selectedSelectorBackground).toBe("rgba(0, 0, 0, 0)");
+  expect(liftedSurface.selectorRailBackground).toBe("rgba(0, 0, 0, 0)");
+  expect(liftedSurface.surfaceOwnsPlate).toBe(true);
+  expect(liftedSurface.progress).toBeGreaterThanOrEqual(0.98);
+  expect(liftedSurface.transform).not.toBe("none");
+});
+
+test("keeps the glass slideshow surface static with reduced motion", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+
+  const showcaseSurface = page.locator("[data-showcase-surface]");
+  await expect(showcaseSurface).toHaveAttribute("data-visual-state", "floating");
+
+  const initialPresentation = await showcaseSurface.evaluate((surface) => {
+    const surfaceStyle = getComputedStyle(surface);
+    const selectedSelector = surface.querySelector('[aria-selected="true"]');
+    if (!(selectedSelector instanceof HTMLElement)) {
+      throw new Error("Reduced-motion showcase is missing its selected story");
+    }
+    const selectedDotStyle = getComputedStyle(selectedSelector, "::after");
+    return {
+      dotAnimationName: selectedDotStyle.animationName,
+      dotOpacity: selectedDotStyle.opacity,
+      progress: surfaceStyle.getPropertyValue("--showcase-surface-progress"),
+      transform: surfaceStyle.transform,
+    };
+  });
+
+  await showcaseSurface.evaluate((surface) => {
+    surface.scrollIntoView({ behavior: "instant", block: "start" });
+  });
+
+  expect(initialPresentation).toEqual({
+    dotAnimationName: "none",
+    dotOpacity: "0.8",
+    progress: "1.000",
+    transform: "none",
+  });
+  await expect(showcaseSurface).toHaveCSS("transform", "none");
 });
 
 test("contains phone composition within the document viewport", async ({ page }) => {

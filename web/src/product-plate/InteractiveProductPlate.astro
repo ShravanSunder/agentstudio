@@ -23,7 +23,9 @@ import { productPlateStories } from "./product-plate-fixture";
   </div>
 
   <div
-    class="product-plate grid grid-cols-[280px_minmax(0,1fr)] overflow-clip rounded-product border border-line bg-product-ground max-lg:grid-cols-1"
+    class="showcase-surface product-plate grid grid-cols-[280px_minmax(0,1fr)] overflow-clip rounded-product border border-line bg-product-ground max-lg:grid-cols-1"
+    data-showcase-surface
+    data-visual-state="resting"
     data-product-plate
     data-enhanced="false"
   >
@@ -32,7 +34,7 @@ import { productPlateStories } from "./product-plate-fixture";
     >
       <button
         type="button"
-        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-product-ground text-2xl text-ink-muted transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-phone:text-xl"
+        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-transparent text-2xl text-ink-muted transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-phone:text-xl"
         data-product-plate-previous
         aria-label="Previous workspace view"
         aria-controls="product-plate-story-selector"
@@ -43,7 +45,7 @@ import { productPlateStories } from "./product-plate-fixture";
 
       <div
         id="product-plate-story-selector"
-        class="product-plate__selectors flex min-h-0 flex-col border-r border-line bg-product-ground max-lg:flex-row max-lg:snap-x max-lg:snap-mandatory max-lg:overflow-x-auto max-lg:scroll-smooth max-lg:border-r-0"
+        class="product-plate__selectors flex min-h-0 flex-col border-r border-line bg-transparent max-lg:flex-row max-lg:snap-x max-lg:snap-mandatory max-lg:overflow-x-auto max-lg:scroll-smooth max-lg:border-r-0"
         data-product-plate-selectors
         aria-label={marketingCopy.switcher.accessibilityLabel}
       >
@@ -55,15 +57,15 @@ import { productPlateStories } from "./product-plate-fixture";
               disabled
               tabindex="-1"
               class:list={[
-                "product-plate__selector grid min-h-0 w-full flex-1 grid-cols-1 content-start items-start border-0 border-b border-line bg-transparent px-5 py-2.5 text-left text-ink-muted transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-lg:flex max-lg:min-h-16 max-lg:shrink-0 max-lg:grow-0 max-lg:snap-start max-lg:basis-full max-lg:items-center max-lg:justify-center max-lg:border-0 max-lg:px-[clamp(24px,4vw,48px)] max-lg:py-3 max-phone:min-h-14 max-phone:px-4.5 max-phone:py-2.5 max-phone:text-center",
+                "product-plate__selector relative isolate grid min-h-0 w-full flex-1 grid-cols-1 content-start items-start border-0 border-b border-line bg-transparent px-5 py-2.5 text-left text-ink-muted transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-lg:flex max-lg:min-h-16 max-lg:shrink-0 max-lg:grow-0 max-lg:snap-start max-lg:basis-full max-lg:items-center max-lg:justify-center max-lg:border-0 max-lg:px-[clamp(24px,4vw,48px)] max-lg:py-3 max-phone:min-h-14 max-phone:px-4.5 max-phone:py-2.5 max-phone:text-center",
                 { "is-default": index === 0 },
               ]}
             >
-              <strong class="text-lg font-bold text-inherit">
+              <strong class="relative z-[1] text-lg font-bold text-inherit">
                 {story.label}
               </strong>
               <span
-                class="mt-2 max-w-[760px] text-sm text-ink-muted max-lg:hidden"
+                class="relative z-[1] mt-2 max-w-[760px] text-sm text-ink-muted max-lg:hidden"
                 data-product-plate-description
               >
                 <span>{story.description}</span>
@@ -75,7 +77,7 @@ import { productPlateStories } from "./product-plate-fixture";
 
       <button
         type="button"
-        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-product-ground text-2xl text-ink-muted transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-phone:text-xl"
+        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-transparent text-2xl text-ink-muted transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-phone:text-xl"
         data-product-plate-next
         aria-label="Next workspace view"
         aria-controls="product-plate-story-selector"
@@ -85,11 +87,11 @@ import { productPlateStories } from "./product-plate-fixture";
       </button>
     </div>
 
-    <div class="product-plate__panels min-w-0 bg-product-ground">
+    <div class="product-plate__panels min-w-0 bg-transparent">
       {
         productPlateStories.map((story, index) => (
           <article
-            class="product-plate__panel overflow-clip rounded-none border-0 bg-product-ground"
+            class="product-plate__panel overflow-clip rounded-none border-0 bg-transparent"
             data-product-plate-panel={story.id}
             hidden={index !== 0}
           >
@@ -106,7 +108,7 @@ import { productPlateStories } from "./product-plate-fixture";
               />
             </picture>
             <p
-              class="product-plate__responsive-caption m-0 hidden border-t border-line bg-product-ground px-[clamp(20px,4vw,48px)] py-5 text-lg leading-[1.45] text-ink-muted max-lg:block max-phone:px-5 max-phone:py-4 max-phone:text-sm"
+              class="product-plate__responsive-caption m-0 hidden border-t border-line bg-transparent px-[clamp(20px,4vw,48px)] py-5 text-lg leading-[1.45] text-ink-muted max-lg:block max-phone:px-5 max-phone:py-4 max-phone:text-sm"
               data-product-plate-caption={story.id}
             >
               {story.phoneDescription}
@@ -132,18 +134,193 @@ import { productPlateStories } from "./product-plate-fixture";
   )) {
     initializePersistenceProof(persistenceProofRoot);
   }
+
+  const showcaseSurface = document.querySelector<HTMLElement>("[data-showcase-surface]");
+  if (showcaseSurface !== null) {
+    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let pendingAnimationFrame: number | undefined;
+
+    const applyShowcaseSurfaceProgress = (progress: number, shouldLift: boolean): void => {
+      const phoneLayout = window.matchMedia("(max-width: 620px)").matches;
+      const liftDistance = phoneLayout ? 12 : 24;
+      showcaseSurface.style.setProperty("--showcase-surface-progress", progress.toFixed(3));
+      showcaseSurface.style.setProperty(
+        "--showcase-surface-lift",
+        `${shouldLift ? (-liftDistance * progress).toFixed(2) : "0"}px`,
+      );
+      showcaseSurface.style.setProperty(
+        "--showcase-surface-border-color",
+        `rgb(255 255 255 / ${(0.1 + 0.08 * progress).toFixed(3)})`,
+      );
+      showcaseSurface.style.setProperty(
+        "--showcase-surface-primary-alpha",
+        (0.05 * progress).toFixed(3),
+      );
+      showcaseSurface.style.setProperty(
+        "--showcase-surface-cyan-alpha",
+        (0.02 * progress).toFixed(3),
+      );
+      showcaseSurface.style.setProperty(
+        "--showcase-surface-ground-color",
+        `rgb(${Math.round(36 - 6 * progress)} ${Math.round(38 - 8 * progress)} ${Math.round(
+          43 + 3 * progress,
+        )} / ${(1 - 0.18 * progress).toFixed(3)})`,
+      );
+      showcaseSurface.style.setProperty(
+        "--showcase-surface-shadow-alpha",
+        (0.18 * progress).toFixed(3),
+      );
+      showcaseSurface.style.setProperty(
+        "--showcase-surface-secondary-shadow-alpha",
+        (0.12 * progress).toFixed(3),
+      );
+      showcaseSurface.style.setProperty(
+        "--showcase-surface-highlight-alpha",
+        (0.08 * progress).toFixed(3),
+      );
+      showcaseSurface.style.setProperty(
+        "--showcase-surface-blur",
+        `${(18 * progress).toFixed(2)}px`,
+      );
+      showcaseSurface.style.setProperty(
+        "--showcase-surface-saturation",
+        `${(100 + 20 * progress).toFixed(2)}%`,
+      );
+      showcaseSurface.style.setProperty(
+        "--showcase-surface-radius",
+        `${(16 + (phoneLayout ? 2 : 4) * progress).toFixed(2)}px`,
+      );
+      showcaseSurface.dataset["visualState"] =
+        progress >= 0.98 ? "floating" : progress <= 0.02 ? "resting" : "transitioning";
+    };
+
+    const synchronizeShowcaseSurface = (): void => {
+      if (reducedMotionQuery.matches) {
+        applyShowcaseSurfaceProgress(1, false);
+        return;
+      }
+
+      const surfaceTop = showcaseSurface.getBoundingClientRect().top;
+      const transitionStart = window.innerHeight * 0.9;
+      const transitionEnd = window.innerHeight * 0.28;
+      const progress = Math.min(
+        1,
+        Math.max(0, (transitionStart - surfaceTop) / (transitionStart - transitionEnd)),
+      );
+      applyShowcaseSurfaceProgress(progress, true);
+    };
+
+    const scheduleShowcaseSurfaceUpdate = (): void => {
+      if (pendingAnimationFrame !== undefined) {
+        return;
+      }
+
+      pendingAnimationFrame = window.requestAnimationFrame((): void => {
+        pendingAnimationFrame = undefined;
+        synchronizeShowcaseSurface();
+      });
+    };
+
+    const disposeShowcaseSurface = (): void => {
+      if (pendingAnimationFrame !== undefined) {
+        window.cancelAnimationFrame(pendingAnimationFrame);
+      }
+      window.removeEventListener("scroll", scheduleShowcaseSurfaceUpdate);
+      window.removeEventListener("resize", scheduleShowcaseSurfaceUpdate);
+      reducedMotionQuery.removeEventListener("change", scheduleShowcaseSurfaceUpdate);
+    };
+
+    synchronizeShowcaseSurface();
+    window.addEventListener("scroll", scheduleShowcaseSurfaceUpdate, { passive: true });
+    window.addEventListener("resize", scheduleShowcaseSurfaceUpdate, { passive: true });
+    reducedMotionQuery.addEventListener("change", scheduleShowcaseSurfaceUpdate);
+    window.addEventListener("pagehide", disposeShowcaseSurface, { once: true });
+  }
 </script>
 
 <style>
   @reference "../styles/global.css";
 
+  .showcase-surface {
+    --showcase-surface-progress: 0;
+    --showcase-surface-lift: 0px;
+    --showcase-surface-border-color: rgb(255 255 255 / 10%);
+    --showcase-surface-primary-alpha: 0;
+    --showcase-surface-cyan-alpha: 0;
+    --showcase-surface-ground-color: rgb(36 38 43);
+    --showcase-surface-shadow-alpha: 0;
+    --showcase-surface-secondary-shadow-alpha: 0;
+    --showcase-surface-highlight-alpha: 0;
+    --showcase-surface-blur: 0px;
+    --showcase-surface-saturation: 100%;
+    --showcase-surface-radius: 16px;
+    border-color: var(--showcase-surface-border-color);
+    border-radius: var(--showcase-surface-radius);
+    background:
+      linear-gradient(
+        135deg,
+        rgb(137 180 250 / var(--showcase-surface-primary-alpha)),
+        transparent 40%,
+        rgb(116 199 236 / var(--showcase-surface-cyan-alpha))
+      ),
+      var(--showcase-surface-ground-color);
+    box-shadow:
+      0 20px 46px rgb(8 9 14 / var(--showcase-surface-shadow-alpha)),
+      0 6px 16px rgb(10 11 17 / var(--showcase-surface-secondary-shadow-alpha)),
+      0 1px 0 rgb(137 180 250 / var(--showcase-surface-primary-alpha)),
+      inset 0 1px rgb(255 255 255 / var(--showcase-surface-highlight-alpha));
+    transform: translate3d(0, var(--showcase-surface-lift), 0);
+    backdrop-filter: blur(var(--showcase-surface-blur))
+      saturate(var(--showcase-surface-saturation));
+    -webkit-backdrop-filter: blur(var(--showcase-surface-blur))
+      saturate(var(--showcase-surface-saturation));
+    will-change: transform;
+  }
+
   .product-plate[data-enhanced="true"] .product-plate__selector {
     @apply cursor-pointer;
   }
 
+  .product-plate__selector::before {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    background: rgb(15 18 25 / 74%);
+    backdrop-filter: blur(16px) saturate(110%);
+    -webkit-backdrop-filter: blur(16px) saturate(110%);
+    transition: opacity 150ms ease-out;
+  }
+
+  .product-plate__selector::after {
+    content: "";
+    position: absolute;
+    z-index: 2;
+    top: 21px;
+    right: 16px;
+    width: 8px;
+    height: 8px;
+    pointer-events: none;
+    border-radius: 999px;
+    opacity: 0;
+    background: var(--color-primary);
+  }
+
+  .product-plate__selector[aria-selected="true"]::before,
+  .product-plate__selector.is-default:disabled::before {
+    opacity: 1;
+  }
+
+  .product-plate__selector[aria-selected="true"]::after,
+  .product-plate__selector.is-default:disabled::after {
+    animation: selected-dot-breathe 3.2s ease-in-out infinite;
+  }
+
   .product-plate__selector[aria-selected="true"],
   .product-plate__selector.is-default:disabled {
-    @apply bg-product-ground text-ink;
+    @apply bg-transparent text-ink;
   }
 
   .product-plate__selector[aria-selected="true"] strong,
@@ -153,7 +330,7 @@ import { productPlateStories } from "./product-plate-fixture";
 
   .product-plate__selector[aria-selected="true"] [data-product-plate-description],
   .product-plate__selector.is-default:disabled [data-product-plate-description] {
-    @apply text-ink;
+    @apply text-ink/85;
   }
 
   .product-plate__selectors {
@@ -173,6 +350,10 @@ import { productPlateStories } from "./product-plate-fixture";
   }
 
   @media (width < 64rem) {
+    .product-plate__selector::after {
+      display: none;
+    }
+
     .product-plate__selector-stage::after {
       @apply pointer-events-none absolute right-0 bottom-0 left-0 z-[1] h-px bg-line;
       content: "";
@@ -180,7 +361,7 @@ import { productPlateStories } from "./product-plate-fixture";
 
     .product-plate__selector[aria-selected="true"],
     .product-plate__selector.is-default:disabled {
-      @apply bg-product-ground text-ink;
+      @apply bg-transparent text-ink;
     }
 
     .product-plate__selector[aria-selected="true"] strong,
@@ -200,7 +381,32 @@ import { productPlateStories } from "./product-plate-fixture";
     }
   }
 
+  @keyframes selected-dot-breathe {
+    0%,
+    100% {
+      opacity: 0.2;
+    }
+    50% {
+      opacity: 0.8;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
+    .showcase-surface {
+      transform: none;
+      will-change: auto;
+    }
+
+    .product-plate__selector::before {
+      transition: none;
+    }
+
+    .product-plate__selector[aria-selected="true"]::after,
+    .product-plate__selector.is-default:disabled::after {
+      animation: none;
+      opacity: 0.8;
+    }
+
     .product-plate__selectors {
       scroll-behavior: auto;
     }
