@@ -730,6 +730,7 @@ function reviewData(props: {
 		data: {
 			event: {
 				eventKind: 'review.sourceAccepted',
+				operationCorrelationId: null,
 				generation: 1,
 				packageId: 'package-1',
 				publicationId: '00000000-0000-7000-8000-000000000001',
@@ -741,6 +742,8 @@ function reviewData(props: {
 		interestRevision: 0,
 		interestSha256: props.interestHash,
 		kind: 'subscription.data',
+
+		operationCorrelationId: null,
 		sourceGeneration: 1,
 		subscriptionId: props.subscriptionId,
 		subscriptionKind: 'review.metadata',
@@ -766,6 +769,8 @@ function fileSourceAcceptedData(props: {
 		interestRevision: 0,
 		interestSha256: props.interestHash,
 		kind: 'subscription.data',
+
+		operationCorrelationId: null,
 		sourceGeneration: 1,
 		subscriptionId: props.subscriptionId,
 		subscriptionKind: 'file.metadata',

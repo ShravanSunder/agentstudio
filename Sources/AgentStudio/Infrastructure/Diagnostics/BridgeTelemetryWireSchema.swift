@@ -63,7 +63,16 @@ package enum BridgeTelemetryWireSchema {
             }
         }
         for (key, value) in numericAttributes {
-            guard allowedNumericAttributeKeys.contains(key), value.isFinite else {
+            let isSafeStageAttempt =
+                key == "agentstudio.bridge.stage.attempt"
+                && value.isFinite
+                && value >= 0
+                && value.rounded(.towardZero) == value
+                && value <= 9_007_199_254_740_991
+            guard allowedNumericAttributeKeys.contains(key),
+                value.isFinite,
+                key != "agentstudio.bridge.stage.attempt" || isSafeStageAttempt
+            else {
                 return false
             }
         }

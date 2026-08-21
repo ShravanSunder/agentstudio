@@ -6,6 +6,8 @@ enum BridgeProductContentFrameCodec {
     private static let tagByteCount = 1
     private static let contentSequenceByteCount = 4
     private static let dataOffsetByteCount = 4
+    private static let operationCorrelationDigestByteCount = 32
+    private static let operationCorrelationEnvelopeByteCount = 33
 
     static func encode(_ frame: BridgeProductContentFrame) throws -> Data {
         try validatePayload(frame.payload, for: frame.header)
@@ -60,8 +62,11 @@ enum BridgeProductContentFrameCodec {
         case .accepted(let header):
             return try encodeControlBody(BridgeProductContentAcceptedControlBody(header: header))
         case .data(let header):
-            var body = Data(capacity: dataOffsetByteCount + frame.payload.count)
+            var body = Data(
+                capacity: dataOffsetByteCount + operationCorrelationEnvelopeByteCount + frame.payload.count
+            )
             try BridgeProductFrameCodecSupport.appendUInt32BigEndian(header.offsetBytes, to: &body)
+            body.append(try operationCorrelationBytes(header.operationCorrelationID))
             body.append(frame.payload)
             return body
         case .end(let header):
@@ -89,6 +94,25 @@ enum BridgeProductContentFrameCodec {
         }
         return bodyData
     }
+
+    private static func operationCorrelationBytes(_ value: String?) throws -> Data {
+        guard let value else { return Data(repeating: 0, count: operationCorrelationEnvelopeByteCount) }
+        try BridgeProductContractDecoding.validateSHA256(value, codingPath: [])
+        var bytes = Data(capacity: operationCorrelationEnvelopeByteCount)
+        bytes.append(1)
+        var index = value.startIndex
+        for _ in 0..<operationCorrelationDigestByteCount {
+            let nextIndex = value.index(index, offsetBy: 2)
+            guard let byte = UInt8(value[index..<nextIndex], radix: 16) else {
+                throw BridgeProductFrameCodecError.invalidFrame(
+                    "Bridge product operation correlation is not lowercase SHA-256."
+                )
+            }
+            bytes.append(byte)
+            index = nextIndex
+        }
+        return bytes
+    }
 }
 
 extension BridgeProductContentHeader {
@@ -105,10 +129,12 @@ extension BridgeProductContentHeader {
 
 final class BridgeProductContentFrameEncoder {
     private let validator: BridgeProductContentStreamValidator
+    private let expectedAdmission: BridgeProductContentAdmission
     private var cleanTerminal = false
     private var poisoned = false
 
     init(expectedRequest: BridgeProductContentRequest) {
+        self.expectedAdmission = expectedRequest.admission
         self.validator = BridgeProductContentStreamValidator(expectedRequest: expectedRequest)
     }
 
@@ -119,8 +145,9 @@ final class BridgeProductContentFrameEncoder {
             )
         }
         do {
-            let terminalResult = try validator.accept(frame)
-            let encodedFrame = try BridgeProductContentFrameCodec.encode(frame)
+            let correlatedFrame = try frame.correlated(to: expectedAdmission)
+            let terminalResult = try validator.accept(correlatedFrame)
+            let encodedFrame = try BridgeProductContentFrameCodec.encode(correlatedFrame)
             cleanTerminal = terminalResult != nil
             return encodedFrame
         } catch {
@@ -143,6 +170,62 @@ final class BridgeProductContentFrameEncoder {
             )
         }
         try validator.finish()
+    }
+}
+
+extension BridgeProductContentFrame {
+    fileprivate func correlated(to admission: BridgeProductContentAdmission) throws -> Self {
+        let correlatedHeader: BridgeProductContentHeader
+        switch header {
+        case .accepted(let value):
+            correlatedHeader = .accepted(
+                .init(
+                    admission: .init(
+                        contentKind: value.identity.contentKind,
+                        contentRequestId: value.contentRequestId,
+                        declaredByteLength: value.declaredByteLength,
+                        expectedSha256: value.expectedSha256,
+                        identity: value.identity,
+                        leaseId: value.leaseId,
+                        operationCorrelationID: admission.operationCorrelationID,
+                        maximumBytes: value.maximumBytes,
+                        paneSessionId: value.paneSessionId,
+                        wireVersion: value.wireVersion,
+                        workerDerivationEpoch: value.workerDerivationEpoch,
+                        workerInstanceId: value.workerInstanceId
+                    )
+                )
+            )
+        case .data(let value):
+            correlatedHeader = try .data(
+                contentSequence: value.contentSequence,
+                offsetBytes: value.offsetBytes,
+                operationCorrelationID: admission.operationCorrelationID
+            )
+        case .end(let value):
+            correlatedHeader = try .end(
+                contentSequence: value.contentSequence,
+                endOfSource: value.endOfSource,
+                observedByteLength: value.observedByteLength,
+                observedSha256: value.observedSha256,
+                operationCorrelationID: admission.operationCorrelationID
+            )
+        case .error(let value):
+            correlatedHeader = try .error(
+                contentSequence: value.contentSequence,
+                code: value.code,
+                retryable: value.retryable,
+                safeMessage: value.safeMessage,
+                operationCorrelationID: admission.operationCorrelationID
+            )
+        case .reset(let value):
+            correlatedHeader = try .reset(
+                contentSequence: value.contentSequence,
+                reason: value.reason,
+                operationCorrelationID: admission.operationCorrelationID
+            )
+        }
+        return .init(header: correlatedHeader, payload: payload)
     }
 }
 
@@ -209,6 +292,11 @@ final class BridgeProductContentStreamValidator {
         _ frame: BridgeProductContentFrame
     ) throws -> BridgeProductContentTerminalResult? {
         try BridgeProductContentFrameCodec.validatePayload(frame.payload, for: frame.header)
+        guard frame.header.operationCorrelationID == expectedAdmission.operationCorrelationID else {
+            throw BridgeProductFrameCodecError.invalidFrame(
+                "Bridge product content operation correlation changed within one stream."
+            )
+        }
 
         guard let acceptedHeader else {
             guard case .accepted(let header) = frame.header else {

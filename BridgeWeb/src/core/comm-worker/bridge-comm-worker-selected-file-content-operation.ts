@@ -1,6 +1,7 @@
 import type { BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest } from './bridge-comm-worker-command-handler-contracts.js';
 import type { BridgeCommWorkerFileViewRuntimeSource } from './bridge-comm-worker-file-view-runtime-source.js';
 import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
+import { mintBridgeOperationCorrelationId } from './bridge-operation-correlation.js';
 import {
 	isBridgeWorkerFileViewContentMetadata,
 	type BridgeWorkerFileRenderPatchEvent,
@@ -23,6 +24,8 @@ export type BridgeSelectedFileContentOperationPhase =
 export type BridgeSelectedFileContentOperation = {
 	readonly generation: number;
 	readonly itemId: string;
+	readonly operationCorrelationId: string;
+	readonly renderStageAttempt: number;
 	readonly renderReceiptIdentity: BridgeWorkerRenderReceiptIdentity | null;
 	readonly selectionEpoch: number;
 	readonly workerDerivationEpoch: number | null;
@@ -51,7 +54,9 @@ export class BridgeCommWorkerSelectedFileContentOperationController {
 		this.currentOperation = {
 			generation: this.nextGeneration,
 			itemId: props.itemId,
+			operationCorrelationId: mintBridgeOperationCorrelationId(),
 			phase: 'preparingDescriptor',
+			renderStageAttempt: 0,
 			renderReceiptIdentity: null,
 			selectionEpoch: props.selectionEpoch,
 			workerDerivationEpoch: null,
@@ -79,7 +84,9 @@ export class BridgeCommWorkerSelectedFileContentOperationController {
 		this.currentOperation = {
 			generation: this.nextGeneration,
 			itemId: currentOperation.itemId,
+			operationCorrelationId: mintBridgeOperationCorrelationId(),
 			phase: 'preparingDescriptor',
+			renderStageAttempt: 0,
 			renderReceiptIdentity: null,
 			selectionEpoch: currentOperation.selectionEpoch,
 			workerDerivationEpoch: props.workerDerivationEpoch,
@@ -104,6 +111,11 @@ export class BridgeCommWorkerSelectedFileContentOperationController {
 		this.currentOperation = {
 			...this.currentOperation,
 			phase: 'preparingRender',
+			renderStageAttempt:
+				this.currentOperation.renderReceiptIdentity === null ||
+				this.currentOperation.renderReceiptIdentity.attemptId === props.receiptIdentity.attemptId
+					? this.currentOperation.renderStageAttempt
+					: this.currentOperation.renderStageAttempt + 1,
 			renderReceiptIdentity: Object.freeze({ ...props.receiptIdentity }),
 		};
 		return true;
@@ -236,6 +248,7 @@ function renderReceiptMatchesIdentity(
 	return (
 		receipt.attemptId === identity.attemptId &&
 		receipt.itemId === identity.itemId &&
+		receipt.operationCorrelationId === identity.operationCorrelationId &&
 		receipt.paneSessionId === identity.paneSessionId &&
 		receipt.publicationId === identity.publicationId &&
 		receipt.publicationSequence === identity.publicationSequence &&

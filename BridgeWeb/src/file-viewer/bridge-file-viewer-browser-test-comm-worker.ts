@@ -558,6 +558,8 @@ function createBrowserTestProductTransport(props: {
 				fileRefreshFailure: null,
 				presentationRevision: 1,
 				kind: 'pane.presentation',
+
+				operationCorrelationId: null,
 				metadataStreamId: 'browser-file-test-metadata-stream',
 				nativeActivity: 'foreground',
 				paneSessionId: 'browser-file-test-pane-session',

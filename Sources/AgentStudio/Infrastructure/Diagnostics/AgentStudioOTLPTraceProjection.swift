@@ -311,6 +311,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.review.publication.retained",
         "agentstudio.bridge.review.publication.superseded",
         "agentstudio.bridge.source.generation",
+        "agentstudio.bridge.stage.attempt",
         "agentstudio.bridge.anchor_restore.call.count",
         "agentstudio.bridge.anchor_restore.direct_scroll_top_write.count",
         "agentstudio.bridge.anchor_restore.synthetic_scroll.count",
@@ -833,6 +834,13 @@ extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributeValue(key: String, value: AgentStudioTraceValue)
         -> AgentStudioTraceValue?
     {
+        if key == "agentstudio.bridge.operation.id" {
+            guard case .string(let operationID) = value,
+                operationID.count == 64,
+                operationID.allSatisfy({ $0.isHexDigit && !$0.isUppercase })
+            else { return nil }
+            return .string(operationID)
+        }
         guard !isIdentifierKey(key), !isErrorKey(key) else {
             return nil
         }

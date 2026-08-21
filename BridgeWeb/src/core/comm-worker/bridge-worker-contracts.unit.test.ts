@@ -476,6 +476,7 @@ describe('BridgeWorkerContracts', () => {
 				receivedAtMilliseconds: 125,
 				attemptId: 'render-attempt-review-4-11',
 				itemId: 'item-11',
+				operationCorrelationId: null,
 				paneSessionId: 'pane-session-1',
 				publicationId: 'render-publication-review-4-11',
 				publicationSequence: 11,
@@ -495,6 +496,7 @@ describe('BridgeWorkerContracts', () => {
 		for (const requiredIdentityField of [
 			'attemptId',
 			'itemId',
+			'operationCorrelationId',
 			'paneSessionId',
 			'publicationId',
 			'publicationSequence',
@@ -552,6 +554,7 @@ describe('BridgeWorkerContracts', () => {
 		const receiptIdentity = {
 			attemptId: 'render-attempt-review-4-11',
 			itemId: 'item-11',
+			operationCorrelationId: null,
 			paneSessionId: 'pane-session-1',
 			publicationId: 'render-publication-review-4-11',
 			publicationSequence: 11,

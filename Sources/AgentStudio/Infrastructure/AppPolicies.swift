@@ -65,6 +65,10 @@ package enum AppPolicies {
 
     package enum Bridge {
         package static let fileRefreshMaximumAutomaticRetryCount: Int = 1
+        /// Observability-only custody for pairing Bridge lifecycle starts and
+        /// terminals. This never controls product work or retry behavior.
+        package static let operationLifecycleTerminalWindow: Duration = .seconds(30)
+        package static let operationLifecycleMaximumTrackedStageAttempts: Int = 4096
         /// Command outcomes are correlation aids for active annotation editors,
         /// not durable history. Keep a bounded window in the projection Atom.
         package static let worktreeAnnotationMaximumRetainedCommandOutcomes: Int = 128

@@ -49,6 +49,7 @@ export interface DispatchSelectedBridgeWorkerFileViewContentReadyProps {
 	readonly isPreparationCurrent?: () => boolean;
 	readonly onPreparationOutcome?: (outcome: BridgeWorkerFileViewContentPreparationOutcome) => void;
 	readonly openContent: BridgeWorkerFileViewContentOpen;
+	readonly operationCorrelationId: string;
 	readonly port: BridgeCommWorkerPort;
 	readonly sequence: number;
 	readonly signal?: AbortSignal;
@@ -111,6 +112,7 @@ export async function fetchSelectedBridgeWorkerFileViewContentReadyResource(
 		resource = await fetchBridgeWorkerFileViewContentResource({
 			contentRequest,
 			openContent: props.openContent,
+			operationCorrelationId: props.operationCorrelationId,
 			...(props.signal === undefined ? {} : { signal: props.signal }),
 		});
 	} catch {
@@ -168,6 +170,7 @@ export function publishSelectedBridgeWorkerFileViewContentReadyFetchResult(
 	}
 	const publication = props.store.renderFulfillmentRegistry.beginPublication({
 		job,
+		operationCorrelationId: props.operationCorrelationId,
 		publicationSequence: props.sequence,
 		workerDerivationEpoch: props.workerDerivationEpoch,
 	});

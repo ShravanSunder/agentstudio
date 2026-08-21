@@ -104,6 +104,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         let package: BridgeReviewPackage
         let publicationId: UUID
         let reviewComparison: BridgePaneReviewComparisonPresentation?
+        let operationCorrelationID: String?
     }
 
     private enum EmissionOutcome {
@@ -181,7 +182,8 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                 comparisonPresentationRevision: 1,
                 package: package,
                 publicationId: publicationId,
-                reviewComparison: nil
+                reviewComparison: nil,
+                operationCorrelationID: nil
             )
         )
         guard (productAdmission.withValidAdmission { true }) == true else {
@@ -227,7 +229,8 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                     comparisonPresentationRevision: publication.comparisonPresentationRevision,
                     package: package,
                     publicationId: reservation.publicationId,
-                    reviewComparison: publication.reviewComparison
+                    reviewComparison: publication.reviewComparison,
+                    operationCorrelationID: publication.operationCorrelationID
                 ),
                 context: context,
                 deliveryRevision: publishingDeliveryRevision,
@@ -361,7 +364,8 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             packageId: package.packageId,
             publicationId: publication.publicationId,
             revision: package.revision,
-            sourceIdentity: package.query.queryId
+            sourceIdentity: package.query.queryId,
+            operationCorrelationID: publication.operationCorrelationID
         )
     }
 
@@ -459,7 +463,8 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                     comparisonPresentationRevision: nextPublication.comparisonPresentationRevision,
                     package: nextPackage,
                     publicationId: nextPublication.publicationId,
-                    reviewComparison: nextPublication.reviewComparison
+                    reviewComparison: nextPublication.reviewComparison,
+                    operationCorrelationID: nextPublication.operationCorrelationID
                 )
             ),
             contentSources: contentSources,

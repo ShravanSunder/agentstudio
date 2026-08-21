@@ -5,6 +5,36 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPBridgeTelemetryProjectionTests {
+    @Test
+    func lifecycleProjectionKeepsOnlyScrubbedOperationIdentityAndSafeAttempt() {
+        let operationID = String(repeating: "a", count: 64)
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 775,
+                severityText: .info,
+                body: "performance.bridge.swift.annotation_lifecycle",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.bridge.operation.id": .string(operationID),
+                    "agentstudio.bridge.stage.attempt": .int(2),
+                    "agentstudio.bridge.annotation.body": .string("private body"),
+                    "agentstudio.bridge.annotation.path": .string("/private/repo"),
+                    "agentstudio.bridge.annotation.error": .string("private error"),
+                ]
+            )
+        )
+
+        #expect(projection.attributes["agentstudio.bridge.operation.id"] == .string(operationID))
+        #expect(projection.attributes["agentstudio.bridge.stage.attempt"] == .int(2))
+        #expect(projection.attributes["agentstudio.bridge.annotation.body"] == nil)
+        #expect(projection.attributes["agentstudio.bridge.annotation.path"] == nil)
+        #expect(projection.attributes["agentstudio.bridge.annotation.error"] == nil)
+    }
+
     @Test(arguments: [
         ("agentstudio.bridge.phase", "authorization"),
         ("agentstudio.bridge.phase", "reservation_claim"),

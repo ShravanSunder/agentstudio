@@ -11,6 +11,7 @@ enum BridgePaneRefreshCatchUpOutcome: Equatable, Sendable {
     case succeeded
     case failed
     case stale
+    case streamReset
 }
 
 struct BridgePaneRefreshDirtyFact: Sendable {
@@ -19,6 +20,8 @@ struct BridgePaneRefreshDirtyFact: Sendable {
     let latestFileStatus: GitWorkingTreeStatus?
     let latestBatchSequence: UInt64
     let requiresReviewRefresh: Bool
+    let operationCorrelationID: String?
+    let operationStageAttempt: Int
 
     var filePaths: [String] {
         fileChangeset?.paths ?? []
@@ -74,6 +77,8 @@ struct BridgePaneRefreshCatchUpReservation: Sendable {
     let latestFileStatus: GitWorkingTreeStatus?
     let latestBatchSequence: UInt64
     let requiresReviewRefresh: Bool
+    let operationCorrelationID: String
+    let operationStageAttempt: Int
     let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
 
     fileprivate let dirtyFact: BridgePaneRefreshDirtyFact
@@ -97,6 +102,7 @@ struct BridgePaneProductPresentationSnapshot: Equatable, Sendable {
     let presentationRevision: Int
     let refreshingLanes: Set<BridgePaneRefreshLane>
     let fileRefreshFailure: BridgePaneProductFileRefreshFailure?
+    let operationCorrelationID: String?
     let reviewComparison: BridgePaneReviewComparisonPresentation?
 
     init(
@@ -104,12 +110,14 @@ struct BridgePaneProductPresentationSnapshot: Equatable, Sendable {
         presentationRevision: Int,
         refreshingLanes: Set<BridgePaneRefreshLane>,
         fileRefreshFailure: BridgePaneProductFileRefreshFailure? = nil,
+        operationCorrelationID: String? = nil,
         reviewComparison: BridgePaneReviewComparisonPresentation?
     ) {
         self.nativeActivity = nativeActivity
         self.presentationRevision = presentationRevision
         self.refreshingLanes = refreshingLanes
         self.fileRefreshFailure = fileRefreshFailure
+        self.operationCorrelationID = operationCorrelationID
         self.reviewComparison = reviewComparison
     }
 }
@@ -163,6 +171,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
             presentationRevision: presentationRevision,
             refreshingLanes: Set(activeRefreshPassByLane.keys),
             fileRefreshFailure: fileRefreshFailure,
+            operationCorrelationID: activeRefreshPassByLane[.review]?.operationCorrelationID,
             reviewComparison: reviewComparison
         )
     }
@@ -389,7 +398,13 @@ final class BridgePaneRefreshAdmissionCoordinator {
         case .succeeded:
             if lane == .file { fileRefreshFailure = nil }
         case .failed, .stale:
-            restoreDirtyFact(reservation.dirtyFact, lane: lane)
+            restoreDirtyFact(reservation.dirtyFact, lane: lane, operationCorrelationID: nil)
+        case .streamReset:
+            restoreDirtyFact(
+                reservation.dirtyFact,
+                lane: lane,
+                operationCorrelationID: reservation.operationCorrelationID
+            )
         }
         advancePresentationRevisionIfNeeded(from: previousPresentation)
     }
@@ -454,7 +469,9 @@ final class BridgePaneRefreshAdmissionCoordinator {
                 fileChangeset: mergedFileChangeset(current: nil, incoming: fileChangeset),
                 latestFileStatus: latestFileStatus,
                 latestBatchSequence: fileChangeset?.batchSeq ?? 0,
-                requiresReviewRefresh: requiresReviewRefresh
+                requiresReviewRefresh: requiresReviewRefresh,
+                operationCorrelationID: nil,
+                operationStageAttempt: 0
             )
         }
         return BridgePaneRefreshDirtyFact(
@@ -462,7 +479,9 @@ final class BridgePaneRefreshAdmissionCoordinator {
             fileChangeset: mergedFileChangeset(current: current.fileChangeset, incoming: fileChangeset),
             latestFileStatus: latestFileStatus ?? current.latestFileStatus,
             latestBatchSequence: max(current.latestBatchSequence, fileChangeset?.batchSeq ?? 0),
-            requiresReviewRefresh: current.requiresReviewRefresh || requiresReviewRefresh
+            requiresReviewRefresh: current.requiresReviewRefresh || requiresReviewRefresh,
+            operationCorrelationID: current.operationCorrelationID,
+            operationStageAttempt: current.operationStageAttempt
         )
     }
 
@@ -490,6 +509,9 @@ final class BridgePaneRefreshAdmissionCoordinator {
             latestFileStatus: dirtyFact.latestFileStatus,
             latestBatchSequence: dirtyFact.latestBatchSequence,
             requiresReviewRefresh: dirtyFact.requiresReviewRefresh,
+            operationCorrelationID:
+                dirtyFact.operationCorrelationID ?? BridgeOperationCorrelation.mintScrubbedID(),
+            operationStageAttempt: dirtyFact.operationStageAttempt,
             foregroundWorkAdmission: activityAdmission,
             dirtyFact: dirtyFact
         )
@@ -503,7 +525,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
         let activeReservations = activeRefreshPassByLane
         activeRefreshPassByLane.removeAll()
         for (lane, reservation) in activeReservations {
-            restoreDirtyFact(reservation.dirtyFact, lane: lane)
+            restoreDirtyFact(reservation.dirtyFact, lane: lane, operationCorrelationID: nil)
         }
     }
 
@@ -511,17 +533,27 @@ final class BridgePaneRefreshAdmissionCoordinator {
         guard let reservation = activeRefreshPassByLane.removeValue(forKey: lane) else {
             return false
         }
-        restoreDirtyFact(reservation.dirtyFact, lane: lane)
+        restoreDirtyFact(reservation.dirtyFact, lane: lane, operationCorrelationID: nil)
         return true
     }
 
     private func restoreDirtyFact(
         _ restored: BridgePaneRefreshDirtyFact,
-        lane: BridgePaneRefreshLane
+        lane: BridgePaneRefreshLane,
+        operationCorrelationID: String?
     ) {
         guard activity != .closed else { return }
         guard let current = dirtyFactByLane[lane] else {
-            dirtyFactByLane[lane] = restored
+            dirtyFactByLane[lane] = BridgePaneRefreshDirtyFact(
+                generation: restored.generation,
+                fileChangeset: restored.fileChangeset,
+                latestFileStatus: restored.latestFileStatus,
+                latestBatchSequence: restored.latestBatchSequence,
+                requiresReviewRefresh: restored.requiresReviewRefresh,
+                operationCorrelationID: operationCorrelationID,
+                operationStageAttempt:
+                    operationCorrelationID == nil ? 0 : restored.operationStageAttempt + 1
+            )
             return
         }
         dirtyFactByLane[lane] = BridgePaneRefreshDirtyFact(
@@ -532,7 +564,12 @@ final class BridgePaneRefreshAdmissionCoordinator {
             ),
             latestFileStatus: current.latestFileStatus ?? restored.latestFileStatus,
             latestBatchSequence: max(current.latestBatchSequence, restored.latestBatchSequence),
-            requiresReviewRefresh: current.requiresReviewRefresh || restored.requiresReviewRefresh
+            requiresReviewRefresh: current.requiresReviewRefresh || restored.requiresReviewRefresh,
+            operationCorrelationID: current.operationCorrelationID ?? operationCorrelationID,
+            operationStageAttempt: max(
+                current.operationStageAttempt,
+                operationCorrelationID == nil ? 0 : restored.operationStageAttempt + 1
+            )
         )
     }
 
@@ -561,7 +598,9 @@ final class BridgePaneRefreshAdmissionCoordinator {
                 fileChangeset: file.fileChangeset,
                 latestFileStatus: file.latestFileStatus,
                 latestBatchSequence: file.latestBatchSequence,
-                requiresReviewRefresh: true
+                requiresReviewRefresh: true,
+                operationCorrelationID: nil,
+                operationStageAttempt: 0
             )
         }
     }

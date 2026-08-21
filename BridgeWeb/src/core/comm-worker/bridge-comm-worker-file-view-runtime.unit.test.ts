@@ -28,6 +28,7 @@ describe('Bridge comm worker File View runtime', () => {
 	test('selected File View dispatch posts lineage-bound Pierre and render publications', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
 		const openedDescriptorIds: string[] = [];
+		const openedOperationCorrelationIds: string[] = [];
 		const store = createSelectedFileViewRuntimeStore();
 		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
 		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
@@ -42,7 +43,8 @@ describe('Bridge comm worker File View runtime', () => {
 			contentRequests: [makeContentRequest('file body\n')],
 			epoch: 7,
 			itemId: 'file-1',
-			openContent: registeredContentOpen(openedDescriptorIds),
+			openContent: registeredContentOpen(openedDescriptorIds, openedOperationCorrelationIds),
+			operationCorrelationId: 'a'.repeat(64),
 			port: makePostedMessagePort(postedMessages),
 			sequence: 12,
 			store,
@@ -50,10 +52,19 @@ describe('Bridge comm worker File View runtime', () => {
 		});
 
 		expect(openedDescriptorIds).toEqual(['descriptor-file-1']);
+		expect(openedOperationCorrelationIds).toEqual(['a'.repeat(64)]);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'filePierreRenderJob',
 			'fileRenderPatch',
 		]);
+		const renderPublication = postedMessages.find(
+			(postedMessage) => postedMessage.message.kind === 'filePierreRenderJob',
+		)?.message;
+		expect(
+			renderPublication?.kind === 'filePierreRenderJob'
+				? renderPublication.renderReceiptIdentity.operationCorrelationId
+				: null,
+		).toBe('a'.repeat(64));
 		expect(postedMessages[0]?.message).toMatchObject({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
@@ -158,6 +169,7 @@ describe('Bridge comm worker File View runtime', () => {
 			epoch: 7,
 			itemId: 'file-1',
 			openContent: registeredContentOpen(),
+			operationCorrelationId: 'a'.repeat(64),
 			port: makePostedMessagePort(postedMessages),
 			sequence: 12,
 			store,
@@ -223,6 +235,7 @@ describe('Bridge comm worker File View runtime', () => {
 			epoch: 7,
 			itemId: 'file-1',
 			openContent: registeredContentOpen(),
+			operationCorrelationId: 'a'.repeat(64),
 			port: makePostedMessagePort(postedMessages),
 			sequence: 12,
 			store,
@@ -588,6 +601,7 @@ function makeDispatchProps(
 		epoch: 7,
 		itemId: 'file-1',
 		openContent: options.openContent,
+		operationCorrelationId: 'a'.repeat(64),
 		port: makePostedMessagePort(options.postedMessages),
 		sequence: 12,
 		store: options.store,
@@ -707,9 +721,11 @@ function exactTextLineCount(text: string): number {
 
 function registeredContentOpen(
 	openedDescriptorIds: string[] = [],
+	openedOperationCorrelationIds: string[] = [],
 ): BridgeWorkerFileViewContentOpen {
-	return (descriptor) => {
+	return (descriptor, _abortSignal, operationCorrelationId) => {
 		openedDescriptorIds.push(descriptor.descriptorId);
+		openedOperationCorrelationIds.push(operationCorrelationId);
 		return completedContentStream(descriptor, contentTextForDescriptor(descriptor));
 	};
 }

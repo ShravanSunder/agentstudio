@@ -348,11 +348,11 @@ struct BridgeProductContentFrameCodecTests {
 
         #expect(frames.count == 18)
         for (index, dataFrame) in frames.dropFirst().dropLast().enumerated() {
-            #expect(readUInt32BigEndian(dataFrame, offset: 0) == 1 + 4 + 4 + payloadByteCount)
+            #expect(readUInt32BigEndian(dataFrame, offset: 0) == 1 + 4 + 4 + 33 + payloadByteCount)
             #expect(dataFrame[4] == 0x02)
             #expect(readUInt32BigEndian(dataFrame, offset: 5) == index + 1)
             #expect(readUInt32BigEndian(dataFrame, offset: 9) == index * payloadByteCount)
-            #expect(dataFrame.count == 4 + 1 + 4 + 4 + payloadByteCount)
+            #expect(dataFrame.count == 4 + 1 + 4 + 4 + 33 + payloadByteCount)
         }
     }
 

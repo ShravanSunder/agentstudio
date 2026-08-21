@@ -8,12 +8,14 @@ import type { BridgeProductContentStream } from './bridge-product-transport-cont
 export type BridgeWorkerFileViewContentOpen = (
 	descriptor: BridgeProductFileContentDescriptor,
 	abortSignal: AbortSignal,
+	operationCorrelationId: string,
 ) => BridgeProductContentStream<'file.content'>;
 
 export interface FetchBridgeWorkerFileViewContentResourceProps {
 	readonly contentRequest: BridgeCommWorkerFileViewContentRequest;
 	readonly isBinary?: boolean;
 	readonly openContent: BridgeWorkerFileViewContentOpen;
+	readonly operationCorrelationId: string;
 	readonly signal?: AbortSignal;
 }
 
@@ -46,7 +48,7 @@ export async function fetchBridgeWorkerFileViewContentResource(
 		props.contentRequest.contentDescriptor,
 	);
 	const abortSignal = props.signal ?? new AbortController().signal;
-	const contentStream = props.openContent(descriptor, abortSignal);
+	const contentStream = props.openContent(descriptor, abortSignal, props.operationCorrelationId);
 	const [, terminal] = await Promise.all([
 		drainBridgeProductContentFrames(contentStream),
 		contentStream.terminal,

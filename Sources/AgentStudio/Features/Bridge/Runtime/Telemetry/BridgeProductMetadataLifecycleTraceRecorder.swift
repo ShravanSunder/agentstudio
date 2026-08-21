@@ -3,6 +3,7 @@ import Foundation
 
 protocol BridgeProductMetadataLifecycleTraceRecording: Sendable {
     func record(_ event: BridgeAnnotationLifecycleTraceEvent) async
+    func record(_ event: BridgeOperationLifecycleTraceEvent) async
     func record(_ event: BridgeProductMetadataLifecycleTraceEvent) async
     func record(_ event: BridgeProductReviewMetadataPublicationTraceEvent) async
     func record(_ event: BridgePanePresentationTraceEvent) async
@@ -10,15 +11,50 @@ protocol BridgeProductMetadataLifecycleTraceRecording: Sendable {
 
 extension BridgeProductMetadataLifecycleTraceRecording {
     func record(_: BridgeAnnotationLifecycleTraceEvent) async {}
+    func record(_: BridgeOperationLifecycleTraceEvent) async {}
     func record(_: BridgePanePresentationTraceEvent) async {}
+}
+
+struct BridgeOperationLifecycleTraceEvent: Equatable, Sendable {
+    enum Stage: String, Sendable {
+        case refreshReserved = "refresh_reserved"
+        case refreshOperationTerminal = "refresh_operation_terminal"
+        case filePrepareStarted = "file_prepare_started"
+        case filePrepareTerminal = "file_prepare_terminal"
+        case reviewPrepareStarted = "review_prepare_started"
+        case reviewPrepareTerminal = "review_prepare_terminal"
+        case refreshCommitStarted = "refresh_commit_started"
+        case refreshCommitTerminal = "refresh_commit_terminal"
+        case metadataEnqueueStarted = "metadata_enqueue_started"
+        case metadataEnqueueTerminal = "metadata_enqueue_terminal"
+        case metadataDeliveryStarted = "metadata_delivery_started"
+        case metadataDeliveryTerminal = "metadata_delivery_terminal"
+    }
+
+    enum Result: String, Sendable {
+        case cancelled
+        case failure
+        case stale
+        case started
+        case success
+    }
+
+    let operationCorrelationID: String
+    let result: Result
+    let stage: Stage
+    let stageAttempt: Int
+    let surface: BridgeProductSurface
 }
 
 struct BridgeAnnotationLifecycleTraceEvent: Equatable, Sendable {
     enum Stage: String, Sendable {
         case invalidationAdmitted = "annotation_invalidation_admitted"
-        case notificationDeliveryTerminal = "annotation_notification_delivery_terminal"
-        case projectionContentTransferStarted = "projection_content_transfer_started"
-        case projectionContentTransferTerminal = "projection_content_transfer_terminal"
+        case nativeWorkStarted = "native_annotation_work_started"
+        case nativeWorkTerminal = "native_annotation_work_terminal"
+        case notificationDeliveryStarted = "metadata_delivery_started"
+        case notificationDeliveryTerminal = "metadata_delivery_terminal"
+        case projectionContentTransferStarted = "content_transfer_started"
+        case projectionContentTransferTerminal = "content_transfer_terminal"
         case projectionQueryStarted = "projection_query_started"
         case projectionQueryTerminal = "projection_query_terminal"
     }
@@ -34,8 +70,25 @@ struct BridgeAnnotationLifecycleTraceEvent: Equatable, Sendable {
     let operationCorrelationID: String
     let result: Result
     let sourceGeneration: Int
+    let stageAttempt: Int
     let stage: Stage
-    let surface: BridgeProductSurface
+    let surface: BridgeProductSurface?
+
+    init(
+        operationCorrelationID: String,
+        result: Result,
+        sourceGeneration: Int,
+        stageAttempt: Int = 0,
+        stage: Stage,
+        surface: BridgeProductSurface?
+    ) {
+        self.operationCorrelationID = operationCorrelationID
+        self.result = result
+        self.sourceGeneration = sourceGeneration
+        self.stageAttempt = stageAttempt
+        self.stage = stage
+        self.surface = surface
+    }
 }
 
 struct BridgePanePresentationTraceEvent: Equatable, Sendable {
@@ -297,10 +350,40 @@ struct BridgeProductMetadataLifecycleTraceRecorder: BridgeProductMetadataLifecyc
                     "agentstudio.bridge.result": event.result.rawValue,
                     "agentstudio.bridge.slice": BridgeTelemetrySlice.reviewProjection.rawValue,
                     "agentstudio.bridge.transport": "swift",
+                    "agentstudio.bridge.viewer": event.surface?.rawValue ?? "all",
+                ],
+                numericAttributes: [
+                    "agentstudio.bridge.source.generation": Double(event.sourceGeneration),
+                    "agentstudio.bridge.stage.attempt": Double(event.stageAttempt),
+                ],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
+    }
+
+    func record(_ event: BridgeOperationLifecycleTraceEvent) async {
+        let protocolName = event.surface == .file ? "worktree-file" : "review"
+        let slice: BridgeTelemetrySlice = event.surface == .file ? .treePrepareInput : .reviewMetadata
+        await recorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .swift,
+                name: "performance.bridge.swift.operation_lifecycle",
+                durationMilliseconds: nil,
+                traceContext: nil,
+                stringAttributes: [
+                    "agentstudio.bridge.operation.id": event.operationCorrelationID,
+                    "agentstudio.bridge.phase": event.stage.rawValue,
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.data.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.hot.rawValue,
+                    "agentstudio.bridge.protocol": protocolName,
+                    "agentstudio.bridge.result": event.result.rawValue,
+                    "agentstudio.bridge.slice": slice.rawValue,
+                    "agentstudio.bridge.transport": "swift",
                     "agentstudio.bridge.viewer": event.surface.rawValue,
                 ],
                 numericAttributes: [
-                    "agentstudio.bridge.source.generation": Double(event.sourceGeneration)
+                    "agentstudio.bridge.stage.attempt": Double(event.stageAttempt)
                 ],
                 booleanAttributes: [:]
             ),

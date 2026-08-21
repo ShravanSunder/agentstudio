@@ -9,6 +9,42 @@ import Testing
 @MainActor
 @Suite("Worktree annotation Store")
 struct WorktreeAnnotationStoreTests {
+    @Test("coalesced observer delivery terminates the displaced correlation as stale")
+    func coalescedObserverDeliveryTerminatesDisplacedCorrelation() async throws {
+        let recorder = AnnotationServiceLifecycleTraceRecorder()
+        let service = WorktreeAnnotationServiceActor(
+            repositoryAccess: ImmediateWorktreeAnnotationAccess(detail: try makeCommittedDetail()),
+            lifecycleTraceRecorder: recorder
+        )
+        let observer = await service.registerChangeObserver(worktreeID: "worktree-1")
+        var iterator = observer.stream.makeAsyncIterator()
+        let predecessorID = String(repeating: "a", count: 64)
+        let successorID = String(repeating: "b", count: 64)
+
+        await service.publishSnapshotRequired(
+            worktreeID: "worktree-1",
+            operationCorrelationID: predecessorID
+        )
+        await service.publishSnapshotRequired(
+            worktreeID: "worktree-1",
+            operationCorrelationID: successorID
+        )
+
+        guard case .snapshotRequired(_, let deliveredID, _) = await iterator.next() else {
+            Issue.record("Expected the coalesced successor")
+            return
+        }
+        #expect(deliveredID == successorID)
+        #expect(
+            await recorder.snapshot().contains {
+                $0.operationCorrelationID == predecessorID
+                    && $0.stage == .notificationDeliveryTerminal
+                    && $0.result == .stale
+            }
+        )
+        await service.removeChangeObserver(token: observer.token)
+    }
+
     @Test("committed mutation broadcasts one coalescible invalidation to every observer")
     func committedMutationBroadcastsToEveryObserver() async throws {
         let repository = try makeAnnotationRepository()
@@ -25,8 +61,20 @@ struct WorktreeAnnotationStoreTests {
             ownerGeneration: "worker-a"
         )
 
-        #expect(await iteratorA.next() == .snapshotRequired(worktreeID: "worktree-1"))
-        #expect(await iteratorB.next() == .snapshotRequired(worktreeID: "worktree-1"))
+        let changeA = try #require(await iteratorA.next())
+        let changeB = try #require(await iteratorB.next())
+        guard case .snapshotRequired(let worktreeID, let operationCorrelationID, _) = changeA else {
+            Issue.record("Expected snapshot-required change")
+            return
+        }
+        #expect(worktreeID == "worktree-1")
+        #expect(operationCorrelationID.count == 64)
+        guard case .snapshotRequired(let worktreeIDB, let operationCorrelationIDB, _) = changeB else {
+            Issue.record("Expected second snapshot-required change")
+            return
+        }
+        #expect(worktreeIDB == worktreeID)
+        #expect(operationCorrelationIDB == operationCorrelationID)
         await service.removeChangeObserver(token: observerA.token)
         await service.removeChangeObserver(token: observerB.token)
         #expect(await service.changeObserverCount() == 0)
@@ -118,7 +166,11 @@ struct WorktreeAnnotationStoreTests {
     @Test("committed repository detail and invalidation appear only after mutation returns")
     func committedDetailAndInvalidationAppearAfterMutationReturns() async throws {
         let access = ControllableWorktreeAnnotationAccess()
-        let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
+        let traceRecorder = AnnotationServiceLifecycleTraceRecorder()
+        let store = WorktreeAnnotationServiceActor(
+            repositoryAccess: access,
+            lifecycleTraceRecorder: traceRecorder
+        )
         let props = makeCreateRootDraftProps()
         let retiredObserver = await store.registerChangeObserver(worktreeID: "worktree-1")
         var retiredIterator = retiredObserver.stream.makeAsyncIterator()
@@ -127,6 +179,8 @@ struct WorktreeAnnotationStoreTests {
 
         let mutation = Task { try await store.createRootDraft(props) }
         await access.waitForCreateRootDraft()
+        let startedEvents = await traceRecorder.snapshot()
+        #expect(startedEvents.map(\.stage) == [.nativeWorkStarted])
         await store.removeChangeObserver(token: retiredObserver.token)
         #expect(await retiredIterator.next() == nil)
 
@@ -135,7 +189,19 @@ struct WorktreeAnnotationStoreTests {
         let returnedDetail = try await mutation.value
 
         #expect(returnedDetail == committedDetail)
-        #expect(await committedIterator.next() == .snapshotRequired(worktreeID: "worktree-1"))
+        guard
+            case .snapshotRequired(let worktreeID, let operationCorrelationID, _) =
+                await committedIterator.next()
+        else {
+            Issue.record("Expected correlated committed invalidation")
+            return
+        }
+        #expect(worktreeID == "worktree-1")
+        #expect(operationCorrelationID == startedEvents.first?.operationCorrelationID)
+        #expect(
+            await traceRecorder.snapshot().map(\.stage)
+                == [.nativeWorkStarted, .nativeWorkTerminal, .notificationDeliveryStarted]
+        )
         await store.removeChangeObserver(token: committedObserver.token)
     }
 
@@ -218,15 +284,15 @@ struct WorktreeAnnotationStoreTests {
 
         await store.restoreRecoveryState()
 
-        #expect(await iterator.next() == .snapshotRequired(worktreeID: "worktree-1"))
+        #expect(isSnapshotRequired(await iterator.next(), worktreeID: "worktree-1"))
         await #expect(throws: WorktreeAnnotationServiceError.recoveryAcknowledgementRequired) {
             try await store.createRootDraft(makeCreateRootDraftProps())
         }
 
         try await store.acknowledgeRecovery(at: Date(timeIntervalSince1970: 11))
-        #expect(await iterator.next() == .snapshotRequired(worktreeID: "worktree-1"))
+        #expect(isSnapshotRequired(await iterator.next(), worktreeID: "worktree-1"))
         _ = try await store.createRootDraft(makeCreateRootDraftProps())
-        #expect(await iterator.next() == .snapshotRequired(worktreeID: "worktree-1"))
+        #expect(isSnapshotRequired(await iterator.next(), worktreeID: "worktree-1"))
         #expect(await access.mutationCount == 1)
         await store.removeChangeObserver(token: observer.token)
     }
@@ -819,4 +885,27 @@ private actor FailingHydrationWorktreeAnnotationAccess: WorktreeAnnotationReposi
     ) async throws -> WorktreeAnnotationRecoveryProvenance {
         throw WorktreeAnnotationRepositoryError.notFound
     }
+}
+
+private actor AnnotationServiceLifecycleTraceRecorder: BridgeProductMetadataLifecycleTraceRecording {
+    private var events: [BridgeAnnotationLifecycleTraceEvent] = []
+
+    func record(_ event: BridgeAnnotationLifecycleTraceEvent) {
+        events.append(event)
+    }
+
+    func record(_: BridgeProductMetadataLifecycleTraceEvent) {}
+    func record(_: BridgeProductReviewMetadataPublicationTraceEvent) {}
+
+    func snapshot() -> [BridgeAnnotationLifecycleTraceEvent] { events }
+}
+
+private func isSnapshotRequired(
+    _ change: WorktreeAnnotationChange?,
+    worktreeID: String
+) -> Bool {
+    guard case .snapshotRequired(let changedWorktreeID, let operationCorrelationID, _) = change else {
+        return false
+    }
+    return changedWorktreeID == worktreeID && operationCorrelationID.count == 64
 }

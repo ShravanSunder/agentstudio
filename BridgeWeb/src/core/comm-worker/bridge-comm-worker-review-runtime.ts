@@ -44,6 +44,7 @@ export interface DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly epoch: number;
 	readonly fetchReviewContentResource?: BridgeWorkerReviewContentResourceFetch;
 	readonly itemId: string;
+	readonly operationCorrelationId?: string | null;
 	readonly openContent?: BridgeWorkerReviewContentOpen;
 	readonly port: BridgeCommWorkerPort;
 	readonly registerResponseStartControl?: (
@@ -287,6 +288,7 @@ export function createBridgeWorkerReviewContentReadyPublication(
 					const job = requirePlannedBridgeWorkerReviewJob(plannedJob);
 					const publication = props.store.renderFulfillmentRegistry.beginPublication({
 						job,
+						operationCorrelationId: props.operationCorrelationId ?? null,
 						publicationSequence: props.sequence,
 						workerDerivationEpoch: props.workerDerivationEpoch,
 					});

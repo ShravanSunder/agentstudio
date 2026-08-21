@@ -108,6 +108,7 @@ struct BridgeReviewPreparedPublication: Equatable, Sendable {
 
 struct BridgeReviewPublicationToken: Hashable, Sendable {
     let publicationId: UUID
+    let operationCorrelationID: String?
 }
 
 struct BridgeReviewCommittedPublication: Equatable, Sendable {
@@ -117,6 +118,25 @@ struct BridgeReviewCommittedPublication: Equatable, Sendable {
     let contentHandles: [BridgeContentHandle]
     let comparisonPresentationRevision: Int
     let reviewComparison: BridgePaneReviewComparisonPresentation?
+    let operationCorrelationID: String?
+
+    init(
+        publicationId: UUID,
+        package: BridgeReviewPackage,
+        delta: BridgeReviewDelta?,
+        contentHandles: [BridgeContentHandle],
+        comparisonPresentationRevision: Int,
+        reviewComparison: BridgePaneReviewComparisonPresentation?,
+        operationCorrelationID: String? = nil
+    ) {
+        self.publicationId = publicationId
+        self.package = package
+        self.delta = delta
+        self.contentHandles = contentHandles
+        self.comparisonPresentationRevision = comparisonPresentationRevision
+        self.reviewComparison = reviewComparison
+        self.operationCorrelationID = operationCorrelationID
+    }
 }
 
 struct BridgeReviewContentAuthorityLease: Equatable, Sendable {
@@ -195,6 +215,7 @@ final class BridgeReviewPublicationCoordinator {
         let preparedPublication: BridgeReviewPreparedPublication
         let productAdmission: BridgeProductAdmissionContext
         let committedPublication: BridgeReviewCommittedPublication?
+        let operationCorrelationID: String?
     }
 
     private struct PendingPublication {
@@ -236,6 +257,7 @@ final class BridgeReviewPublicationCoordinator {
 
     func stage(
         _ preparedPublication: BridgeReviewPreparedPublication,
+        operationCorrelationID: String? = nil,
         productAdmission: BridgeProductAdmissionContext
     ) -> BridgeReviewPublicationToken? {
         guard !isClosed else {
@@ -254,14 +276,18 @@ final class BridgeReviewPublicationCoordinator {
                     floor: pendingPublication?.publication.preparedPublication.package
                 )
             else { return }
-            let token = BridgeReviewPublicationToken(publicationId: UUIDv7.generate())
+            let token = BridgeReviewPublicationToken(
+                publicationId: UUIDv7.generate(),
+                operationCorrelationID: operationCorrelationID
+            )
             releasePublication(pendingPublication?.publication)
             pendingPublication = PendingPublication(
                 publication: Publication(
                     publicationId: token.publicationId,
                     preparedPublication: preparedPublication,
                     productAdmission: productAdmission,
-                    committedPublication: nil
+                    committedPublication: nil,
+                    operationCorrelationID: operationCorrelationID
                 ),
                 predecessorPublicationId: activePublication?.publicationId
             )
@@ -357,7 +383,8 @@ final class BridgeReviewPublicationCoordinator {
                 publicationId: pendingPublication.publication.publicationId,
                 preparedPublication: pendingPublication.publication.preparedPublication,
                 productAdmission: pendingPublication.publication.productAdmission,
-                committedPublication: committedPublication
+                committedPublication: committedPublication,
+                operationCorrelationID: pendingPublication.publication.operationCorrelationID
             )
             presentCommitted(committedPublication)
             guard !isClosed else { return .closed }
@@ -703,7 +730,8 @@ final class BridgeReviewPublicationCoordinator {
             delta: publication.preparedPublication.delta,
             contentHandles: publication.preparedPublication.contentHandles,
             comparisonPresentationRevision: presentation.presentationRevision,
-            reviewComparison: presentation.reviewComparison
+            reviewComparison: presentation.reviewComparison,
+            operationCorrelationID: publication.operationCorrelationID
         )
     }
 

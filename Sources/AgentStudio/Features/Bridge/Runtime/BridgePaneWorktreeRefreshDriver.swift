@@ -29,19 +29,25 @@ final class BridgePaneWorktreeRefreshDriver {
         @Sendable (
             FileChangeset,
             BridgeProductAdmissionContext,
-            BridgePaneRefreshWorkAdmission
+            BridgePaneRefreshWorkAdmission,
+            String,
+            Int
         ) async -> BridgePaneProductFileRefreshPublicationDisposition
     typealias FileStatusPublisher =
         @Sendable (
             GitWorkingTreeStatus,
             BridgeProductAdmissionContext,
-            BridgePaneRefreshWorkAdmission
+            BridgePaneRefreshWorkAdmission,
+            String,
+            Int
         ) async -> BridgePaneProductFileRefreshPublicationDisposition
     typealias PresentationPublisher =
         @Sendable (
             BridgePaneProductPresentationSnapshot,
             BridgeTraceContext?
         ) async -> Void
+    typealias OperationLifecyclePublisher =
+        @Sendable (BridgeOperationLifecycleTraceEvent) async -> Void
 
     private enum FileCatchUpResult {
         case completed(
@@ -60,6 +66,7 @@ final class BridgePaneWorktreeRefreshDriver {
     private let publishFileChangeset: FileChangesetPublisher
     private let publishFileStatus: FileStatusPublisher
     private let publishPresentation: PresentationPublisher
+    private let publishOperationLifecycle: OperationLifecyclePublisher
     private var activeFileTask: Task<Void, Never>?
     private var activeFileTaskID: UUID?
     private var isClosed = false
@@ -74,13 +81,15 @@ final class BridgePaneWorktreeRefreshDriver {
         acquireProductAdmission: @escaping ProductAdmissionProvider,
         publishFileChangeset: @escaping FileChangesetPublisher,
         publishFileStatus: @escaping FileStatusPublisher,
-        publishPresentation: @escaping PresentationPublisher
+        publishPresentation: @escaping PresentationPublisher,
+        publishOperationLifecycle: @escaping OperationLifecyclePublisher = { _ in }
     ) {
         self.acquireProductAdmission = acquireProductAdmission
         self.coordinator = coordinator
         self.publishFileChangeset = publishFileChangeset
         self.publishFileStatus = publishFileStatus
         self.publishPresentation = publishPresentation
+        self.publishOperationLifecycle = publishOperationLifecycle
     }
 
     var hasActiveFileOperation: Bool { activeFileTask != nil }
@@ -128,7 +137,16 @@ final class BridgePaneWorktreeRefreshDriver {
             var reservation: BridgePaneRefreshCatchUpReservation? = firstReservation
             var finalOutcome = BridgePaneRefreshCatchUpOutcome.stale
             var automaticRetryCount = 0
-            while let currentReservation = reservation, !Task.isCancelled {
+            while let currentReservation = reservation {
+                await publishOperationLifecycle(
+                    .init(
+                        operationCorrelationID: currentReservation.operationCorrelationID,
+                        result: .success,
+                        stage: .refreshReserved,
+                        stageAttempt: currentReservation.operationStageAttempt,
+                        surface: .file
+                    )
+                )
                 let result = await performFileCatchUp(currentReservation)
                 let outcome: BridgePaneRefreshCatchUpOutcome
                 let failure: BridgePaneProductFileRefreshFailure?
@@ -137,19 +155,27 @@ final class BridgePaneWorktreeRefreshDriver {
                     outcome = completedOutcome
                     failure = completedFailure
                 case .streamReset(let sourceAtOperationStart):
-                    outcome = .failed
-                    failure = nil
                     if let sourceAtOperationStart {
+                        outcome = .streamReset
+                        failure = nil
                         pendingFileStreamRecovery = PendingFileStreamRecovery(
                             sourceAtReset: sourceAtOperationStart
                         )
                     } else {
-                        coordinator.recordFileRefreshFailure(
-                            .init(failureKind: .fileRefreshFailed)
-                        )
+                        outcome = .failed
+                        failure = .init(failureKind: .fileRefreshFailed)
                     }
                 }
                 finalOutcome = outcome
+                await publishOperationLifecycle(
+                    .init(
+                        operationCorrelationID: currentReservation.operationCorrelationID,
+                        result: Self.operationResult(for: outcome),
+                        stage: .refreshOperationTerminal,
+                        stageAttempt: currentReservation.operationStageAttempt,
+                        surface: .file
+                    )
+                )
                 coordinator.completeRefreshPass(
                     currentReservation,
                     outcome: outcome
@@ -284,11 +310,14 @@ final class BridgePaneWorktreeRefreshDriver {
         else { return .completed(outcome: .stale, failure: nil) }
 
         var fileRefreshFailure: BridgePaneProductFileRefreshFailure?
+        var filePrepareStageAttempt = reservation.operationStageAttempt * 2
         if let changeset = reservation.fileChangeset {
             let disposition = await publishFileChangeset(
                 changeset,
                 productAdmission,
-                reservation.foregroundWorkAdmission
+                reservation.foregroundWorkAdmission,
+                reservation.operationCorrelationID,
+                filePrepareStageAttempt
             )
             guard disposition != .stale,
                 reservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
@@ -302,13 +331,16 @@ final class BridgePaneWorktreeRefreshDriver {
             case .applied, .notRequired, .stale:
                 break
             }
+            filePrepareStageAttempt += 1
         }
 
         if let status = reservation.latestFileStatus {
             let disposition = await publishFileStatus(
                 status,
                 productAdmission,
-                reservation.foregroundWorkAdmission
+                reservation.foregroundWorkAdmission,
+                reservation.operationCorrelationID,
+                filePrepareStageAttempt
             )
             guard disposition != .stale,
                 reservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
@@ -356,6 +388,19 @@ final class BridgePaneWorktreeRefreshDriver {
         lhs.repoId == rhs.repoId
             && lhs.worktreeId == rhs.worktreeId
             && lhs.rootRevisionToken == rhs.rootRevisionToken
+    }
+
+    private static func operationResult(
+        for outcome: BridgePaneRefreshCatchUpOutcome
+    ) -> BridgeOperationLifecycleTraceEvent.Result {
+        switch outcome {
+        case .succeeded:
+            .success
+        case .failed:
+            .failure
+        case .stale, .streamReset:
+            .stale
+        }
     }
 
     private static func mergedFileRefreshFailure(

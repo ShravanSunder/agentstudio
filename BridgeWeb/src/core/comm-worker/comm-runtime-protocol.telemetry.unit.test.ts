@@ -354,6 +354,8 @@ function makeTelemetryReviewProductTransport(props: {
 				fileRefreshFailure: null,
 				presentationRevision: 1,
 				kind: 'pane.presentation',
+
+				operationCorrelationId: null,
 				metadataStreamId: 'telemetry-review-metadata-stream',
 				nativeActivity: 'foreground',
 				paneSessionId: 'telemetry-review-pane-session',
@@ -414,6 +416,7 @@ function telemetryReviewSnapshotEvent(
 			wholeByteLength: descriptor.wholeByteLength,
 		})),
 		eventKind: 'review.snapshot',
+		operationCorrelationId: null,
 		extentFacts: [
 			{ contentRole: 'base', itemId: 'item-1', lineCount: 1 },
 			{ contentRole: 'head', itemId: 'item-1', lineCount: 1 },

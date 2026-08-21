@@ -175,6 +175,7 @@ export function expectedDisposition(
 
 interface MakePublicationProps {
 	readonly itemId: string;
+	readonly operationCorrelationId?: string | null;
 	readonly publicationSequence: number;
 	readonly sourceCorrelations?: readonly BridgeWorkerRenderSourceCorrelation[];
 }
@@ -230,6 +231,9 @@ export function makeReviewPublication(
 		publicationSequence: props.publicationSequence,
 		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
 			itemId: props.itemId,
+			...(props.operationCorrelationId === undefined
+				? {}
+				: { operationCorrelationId: props.operationCorrelationId }),
 			publicationSequence: props.publicationSequence,
 			surface: 'review',
 			workerDerivationEpoch: 7,
@@ -286,6 +290,9 @@ export function makeFilePublication(
 		publicationSequence: props.publicationSequence,
 		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
 			itemId: props.itemId,
+			...(props.operationCorrelationId === undefined
+				? {}
+				: { operationCorrelationId: props.operationCorrelationId }),
 			publicationSequence: props.publicationSequence,
 			surface: 'file',
 			workerDerivationEpoch: 11,

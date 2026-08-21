@@ -9,6 +9,7 @@ import {
 	bridgeProductOpaqueReferenceSchema,
 	bridgeProductPositiveSequenceSchema,
 	bridgeProductSafeMessageSchema,
+	bridgeProductSha256Schema,
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductReviewComparisonOriginSchema } from './bridge-product-review-comparison-contracts.js';
 import { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-review-comparison-presentation-contracts.js';
@@ -218,6 +219,7 @@ export const bridgeProductReviewExtentFactSchema = z
 
 const bridgeProductReviewMetadataIdentityShape = {
 	generation: bridgeProductNonnegativeSequenceSchema,
+	operationCorrelationId: bridgeProductSha256Schema.nullable(),
 	packageId: bridgeProductIdentifierSchema,
 	publicationId: bridgeProductReviewPublicationIdSchema,
 	revision: bridgeProductNonnegativeSequenceSchema,

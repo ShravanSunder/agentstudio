@@ -419,6 +419,7 @@ const bridgeProductSubscriptionDataFrameBaseShape = {
 	...bridgeProductMetadataFrameIdentityShape,
 	...bridgeProductSubscriptionFrameIdentityShape,
 	kind: z.literal('subscription.data'),
+	operationCorrelationId: bridgeProductSha256Schema.nullable(),
 	streamSequence: bridgeProductPositiveSequenceSchema,
 	subscriptionSequence: bridgeProductPositiveSequenceSchema,
 } as const;
@@ -468,6 +469,7 @@ const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', 
 			...bridgeProductMetadataFrameIdentityShape,
 			fileRefreshFailure: bridgeProductFileRefreshFailureSchema.nullable(),
 			kind: z.literal('pane.presentation'),
+			operationCorrelationId: bridgeProductSha256Schema.nullable(),
 			nativeActivity: z.enum(['foreground', 'loadedHidden', 'dormant', 'closed']),
 			presentationRevision: bridgeProductPositiveSequenceSchema,
 			refreshingLanes: z
@@ -553,6 +555,7 @@ const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', 
 			identity: bridgeProductContentIdentitySchema,
 			kind: z.literal('content.cancelled'),
 			leaseId: bridgeProductIdentifierSchema,
+			operationCorrelationId: bridgeProductSha256Schema.nullable(),
 			streamSequence: bridgeProductPositiveSequenceSchema,
 			workerDerivationEpoch: bridgeProductNonnegativeSequenceSchema,
 		})

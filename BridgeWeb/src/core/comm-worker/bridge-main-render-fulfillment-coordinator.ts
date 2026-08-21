@@ -580,6 +580,7 @@ function bridgeMainRenderReceiptIdentityKey(identity: BridgeWorkerRenderReceiptI
 	return JSON.stringify([
 		identity.attemptId,
 		identity.itemId,
+		identity.operationCorrelationId,
 		identity.paneSessionId,
 		identity.publicationId,
 		identity.publicationSequence,

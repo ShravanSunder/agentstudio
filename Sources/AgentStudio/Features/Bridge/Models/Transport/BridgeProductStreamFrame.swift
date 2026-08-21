@@ -685,6 +685,7 @@ struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
         case fileRefreshFailure
         case kind
         case nativeActivity
+        case operationCorrelationId
         case presentationRevision
         case refreshingLanes
         case reviewComparison
@@ -693,6 +694,7 @@ struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
     let frameIdentity: BridgeProductMetadataFrameIdentity
     let fileRefreshFailure: BridgePaneProductFileRefreshFailure?
     let nativeActivity: BridgePaneActivity
+    let operationCorrelationID: String?
     let presentationRevision: Int
     let refreshingLanes: [BridgePaneRefreshLane]
     let reviewComparison: BridgePaneReviewComparisonPresentation?
@@ -713,6 +715,12 @@ struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
             )
         }
         self.nativeActivity = try container.decode(BridgePaneActivity.self, forKey: .nativeActivity)
+        self.operationCorrelationID = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .operationCorrelationId,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         self.fileRefreshFailure = try BridgeProductContractDecoding.decodeRequiredNullable(
             BridgePaneProductFileRefreshFailure.self,
             forKey: .fileRefreshFailure,
@@ -732,6 +740,12 @@ struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
         )
         self.frameIdentity = try BridgeProductMetadataFrameIdentity(from: decoder)
         try frameIdentity.validateProgressSequence(codingPath: decoder.codingPath)
+        if let operationCorrelationID {
+            try BridgeProductContractDecoding.validateSHA256(
+                operationCorrelationID,
+                codingPath: decoder.codingPath
+            )
+        }
         try BridgeProductContractDecoding.validatePositive(
             presentationRevision,
             name: "presentationRevision",
@@ -758,6 +772,7 @@ struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
         try container.encode("pane.presentation", forKey: .kind)
         try container.encode(fileRefreshFailure, forKey: .fileRefreshFailure)
         try container.encode(nativeActivity, forKey: .nativeActivity)
+        try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
         try container.encode(presentationRevision, forKey: .presentationRevision)
         try container.encode(refreshingLanes, forKey: .refreshingLanes)
         try container.encode(reviewComparison, forKey: .reviewComparison)
@@ -844,10 +859,12 @@ struct BridgeProductSubscriptionDataFrame: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case data
         case kind
+        case operationCorrelationId
     }
 
     let frameIdentity: BridgeProductMetadataFrameIdentity
     let subscriptionIdentity: BridgeProductSubscriptionFrameIdentity
+    let operationCorrelationID: String?
     let data: BridgeProductSubscriptionData
 
     init(from decoder: Decoder) throws {
@@ -860,6 +877,12 @@ struct BridgeProductSubscriptionDataFrame: Codable, Equatable, Sendable {
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.data = try container.decode(BridgeProductSubscriptionData.self, forKey: .data)
+        self.operationCorrelationID = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .operationCorrelationId,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         guard try container.decode(String.self, forKey: .kind) == "subscription.data" else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Invalid subscription.data frame kind",
@@ -870,6 +893,12 @@ struct BridgeProductSubscriptionDataFrame: Codable, Equatable, Sendable {
         self.subscriptionIdentity = try BridgeProductSubscriptionFrameIdentity(from: decoder)
         try frameIdentity.validateProgressSequence(codingPath: decoder.codingPath)
         try subscriptionIdentity.validateProgressSequence(codingPath: decoder.codingPath)
+        if let operationCorrelationID {
+            try BridgeProductContractDecoding.validateSHA256(
+                operationCorrelationID,
+                codingPath: decoder.codingPath
+            )
+        }
         guard subscriptionIdentity.subscriptionKind == data.subscriptionKind else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Bridge product subscription frame kind does not match its data",
@@ -890,5 +919,6 @@ struct BridgeProductSubscriptionDataFrame: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(data, forKey: .data)
         try container.encode("subscription.data", forKey: .kind)
+        try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
     }
 }

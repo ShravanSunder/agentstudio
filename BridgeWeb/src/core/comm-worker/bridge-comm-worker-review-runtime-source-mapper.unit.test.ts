@@ -205,6 +205,7 @@ function reviewMetadataSnapshot(
 		headEndpoint: null,
 		identity: {
 			generation: props.generation ?? 7,
+			operationCorrelationId: null,
 			packageId: 'package-1',
 			publicationId: '00000000-0000-7000-8000-000000000011',
 			sourceIdentity: 'source-1',

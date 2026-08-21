@@ -7,6 +7,8 @@ describe('Bridge product session Review comparison contract', () => {
 		const frame = {
 			fileRefreshFailure: null,
 			kind: 'pane.presentation',
+
+			operationCorrelationId: null,
 			metadataStreamId: 'metadata-stream-comparison-presentation',
 			nativeActivity: 'foreground',
 			paneSessionId: 'pane-session-1',
@@ -79,6 +81,8 @@ describe('Bridge product session Review comparison contract', () => {
 		const frame = {
 			fileRefreshFailure: null,
 			kind: 'pane.presentation',
+
+			operationCorrelationId: null,
 			metadataStreamId: 'metadata-stream-invalid-target-catalog',
 			nativeActivity: 'foreground',
 			paneSessionId: 'pane-session-1',

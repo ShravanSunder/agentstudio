@@ -16,6 +16,7 @@ describe('Bridge worker File View content fetch', () => {
 		const result = await fetchBridgeWorkerFileViewContentResource({
 			contentRequest: request,
 			openContent: completedContentOpen('hello file worker', openedDescriptorIds),
+			operationCorrelationId: 'a'.repeat(64),
 		});
 
 		// Assert
@@ -45,6 +46,7 @@ describe('Bridge worker File View content fetch', () => {
 		const result = await fetchBridgeWorkerFileViewContentResource({
 			contentRequest: makeContentRequest(originalBytes.byteLength),
 			openContent: completedByteContentOpen(originalBytes),
+			operationCorrelationId: 'a'.repeat(64),
 		});
 
 		// Assert
@@ -73,6 +75,7 @@ describe('Bridge worker File View content fetch', () => {
 				},
 				isBinary: true,
 				openContent,
+				operationCorrelationId: 'a'.repeat(64),
 			}),
 		).rejects.toThrow(/binary/i);
 		expect(openCount).toBe(0);
@@ -99,6 +102,7 @@ describe('Bridge worker File View content fetch', () => {
 						safeMessage: 'File source changed.',
 					}),
 				}),
+				operationCorrelationId: 'a'.repeat(64),
 			}),
 		).rejects.toThrow('File source changed.');
 	});

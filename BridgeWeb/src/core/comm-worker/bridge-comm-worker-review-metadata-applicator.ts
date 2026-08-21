@@ -108,6 +108,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 	readonly #publishDisplayPatches:
 		| ((publication: {
 				readonly comparisonCommit?: BridgeCommWorkerReviewComparisonCommit | undefined;
+				readonly operationCorrelationId?: string | null;
 				readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
 				readonly workerDerivationEpoch: number;
 		  }) => void)
@@ -137,6 +138,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		readonly currentWorkerDerivationEpoch: () => number;
 		readonly publishDisplayPatches?: (publication: {
 			readonly comparisonCommit?: BridgeCommWorkerReviewComparisonCommit | undefined;
+			readonly operationCorrelationId?: string | null;
 			readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
 			readonly workerDerivationEpoch: number;
 		}) => void;
@@ -768,6 +770,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		const runtimeApplicationResult = this.#applyRuntimeSource({
 			affectedItemIds: props.affectedItemIds,
 			affectedRowIds: props.affectedRowIds,
+			operationCorrelationId: props.snapshot.identity?.operationCorrelationId ?? null,
 			...(props.completeContentItemIds === undefined
 				? {}
 				: { completeContentItemIds: props.completeContentItemIds }),
@@ -794,6 +797,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 								reviewComparison: props.event.reviewComparison,
 							},
 						}),
+				operationCorrelationId: props.snapshot.identity?.operationCorrelationId ?? null,
 				patches: displayPatches,
 				workerDerivationEpoch: props.workerDerivationEpoch,
 			});

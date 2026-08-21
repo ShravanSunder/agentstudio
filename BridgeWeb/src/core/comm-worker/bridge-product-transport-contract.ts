@@ -67,6 +67,7 @@ export type BridgeProductTransport = {
 	openContent<TContentKind extends BridgeProductContentKind>(
 		descriptor: BridgeProductContentDescriptor<TContentKind>,
 		abortSignal: AbortSignal,
+		operationCorrelationId?: string | null,
 	): BridgeProductContentStream<TContentKind>;
 	subscribe<TSubscriptionArguments extends BridgeProductSubscriptionArguments>(
 		...arguments_: TSubscriptionArguments

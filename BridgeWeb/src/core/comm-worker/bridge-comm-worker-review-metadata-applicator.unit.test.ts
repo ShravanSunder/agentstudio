@@ -228,6 +228,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 				...reviewPayloadIdentity,
 				contentSources: [],
 				eventKind: 'review.delta',
+				operationCorrelationId: null,
 				fromRevision: 11,
 				operations: [
 					{ itemIds: ['item-1'], operationKind: 'removeItems' },
@@ -261,6 +262,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 		applicator.apply(
 			{
 				eventKind: 'review.sourceAccepted',
+				operationCorrelationId: null,
 				generation: 7,
 				packageId: 'package-1',
 				publicationId: '00000000-0000-7000-8000-000000000011',
@@ -333,6 +335,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 				...reviewPayloadIdentity,
 				contentSources: [],
 				eventKind: 'review.delta',
+				operationCorrelationId: null,
 				fromRevision: 11,
 				operations: [
 					{
@@ -376,6 +379,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 				...reviewPayloadIdentity,
 				contentSources: [],
 				eventKind: 'review.delta',
+				operationCorrelationId: null,
 				fromRevision: 11,
 				operations: [
 					{ itemIds: ['item-1'], operationKind: 'removeItems' },
@@ -420,6 +424,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 			{
 				...reviewPayloadIdentity,
 				eventKind: 'review.reset',
+				operationCorrelationId: null,
 				publicationId: '00000000-0000-7000-8000-000000000012',
 				reason: 'subscriptionReset',
 				revision: 12,
@@ -453,6 +458,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 					...reviewPayloadIdentity,
 					contentSources: [],
 					eventKind: 'review.delta',
+					operationCorrelationId: null,
 					fromRevision: 10,
 					operations: [],
 					presentationRevision: 12,
@@ -647,6 +653,7 @@ function reviewSnapshotEvent(): ReviewSnapshotEvent {
 		...reviewPayloadIdentity,
 		contentSources: [],
 		eventKind: 'review.snapshot',
+		operationCorrelationId: null,
 		extentFacts: [],
 		itemMetadata: [reviewItemMetadata],
 		itemWindow: { finalWindow: true, itemCount: 1, startIndex: 0, totalItemCount: 1 },
@@ -663,6 +670,7 @@ function reviewWindowEvent(): ReviewWindowEvent {
 		...reviewPayloadIdentity,
 		contentSources: [],
 		eventKind: 'review.window',
+		operationCorrelationId: null,
 		extentFacts: [],
 		itemMetadata: [reviewItemMetadata],
 		itemWindow: { finalWindow: false, itemCount: 1, startIndex: 0, totalItemCount: 1 },

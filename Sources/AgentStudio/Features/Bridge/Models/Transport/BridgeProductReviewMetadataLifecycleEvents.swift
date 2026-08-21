@@ -309,6 +309,10 @@ enum BridgeProductReviewMetadataEvent: Codable, Equatable, Sendable {
         identity.sourceIdentity
     }
 
+    var operationCorrelationID: String? {
+        identity.operationCorrelationID
+    }
+
     private var identity: BridgeProductReviewMetadataIdentity {
         switch self {
         case .sourceAccepted(let event): event.identity

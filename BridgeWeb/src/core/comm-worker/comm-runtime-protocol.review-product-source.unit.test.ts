@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import { encodeBridgeWorkerMetadataInterestUpdateCommand } from './bridge-comm-worker-protocol.js';
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
@@ -90,6 +91,8 @@ describe('Bridge comm worker Review product source projection', () => {
 	});
 
 	test('projects typed Review subscription snapshots into worker-owned source truth', async () => {
+		const operationCorrelationId = 'b'.repeat(64);
+		const telemetrySamples: BridgeTelemetrySample[] = [];
 		const events = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
 		>(64);
@@ -110,6 +113,11 @@ describe('Bridge comm worker Review product source projection', () => {
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
 			},
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'source-truth');
 
@@ -129,7 +137,7 @@ describe('Bridge comm worker Review product source projection', () => {
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(subscribedKinds).toEqual(['file.annotations', 'review.annotations', 'review.metadata']);
-		events.push(reviewSnapshotEvent);
+		events.push({ ...reviewSnapshotEvent, operationCorrelationId });
 		await flushBridgeWorkerRuntimeContinuations();
 
 		expect(scheduledDrains).toHaveLength(1);
@@ -167,6 +175,19 @@ describe('Bridge comm worker Review product source projection', () => {
 		expect(JSON.stringify(reviewDisplayEvents)).not.toMatch(
 			/"(?:capability|resourceUrl|contents|contentBody|sourceBytes)"/i,
 		);
+		const reviewLifecycleSamples = telemetrySamples.filter(
+			(sample) =>
+				sample.name === 'performance.bridge.web.operation_lifecycle' &&
+				sample.stringAttributes['agentstudio.bridge.operation.id'] === operationCorrelationId,
+		);
+		expect(
+			reviewLifecycleSamples.map((sample) => sample.stringAttributes['agentstudio.bridge.phase']),
+		).toEqual([
+			'worker_application_started',
+			'panel_chrome_publish_started',
+			'panel_chrome_publish_terminal',
+			'worker_application_terminal',
+		]);
 	});
 
 	test('publishes a ready empty Review source when the snapshot has no changed files', async () => {

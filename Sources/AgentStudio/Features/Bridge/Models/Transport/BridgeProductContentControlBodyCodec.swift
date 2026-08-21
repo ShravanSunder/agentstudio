@@ -8,6 +8,7 @@ struct BridgeProductContentAcceptedControlBody: Codable {
         case identity
         case leaseId
         case maximumBytes
+        case operationCorrelationId
         case paneSessionId
         case wireVersion
         case workerDerivationEpoch
@@ -20,6 +21,7 @@ struct BridgeProductContentAcceptedControlBody: Codable {
     let identity: BridgeProductContentIdentity
     let leaseId: String
     let maximumBytes: Int
+    let operationCorrelationID: String?
     let paneSessionId: String
     let wireVersion: Int
     let workerDerivationEpoch: Int
@@ -32,6 +34,7 @@ struct BridgeProductContentAcceptedControlBody: Codable {
         self.identity = header.identity
         self.leaseId = header.leaseId
         self.maximumBytes = header.maximumBytes
+        self.operationCorrelationID = header.frameIdentity.operationCorrelationID
         self.paneSessionId = header.paneSessionId
         self.wireVersion = header.wireVersion
         self.workerDerivationEpoch = header.workerDerivationEpoch
@@ -61,6 +64,12 @@ struct BridgeProductContentAcceptedControlBody: Codable {
         self.identity = try container.decode(BridgeProductContentIdentity.self, forKey: .identity)
         self.leaseId = try container.decode(String.self, forKey: .leaseId)
         self.maximumBytes = try container.decode(Int.self, forKey: .maximumBytes)
+        self.operationCorrelationID = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .operationCorrelationId,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         self.paneSessionId = try container.decode(String.self, forKey: .paneSessionId)
         self.wireVersion = try container.decode(Int.self, forKey: .wireVersion)
         self.workerDerivationEpoch = try container.decode(
@@ -79,6 +88,7 @@ struct BridgeProductContentAcceptedControlBody: Codable {
         try container.encode(identity, forKey: .identity)
         try container.encode(leaseId, forKey: .leaseId)
         try container.encode(maximumBytes, forKey: .maximumBytes)
+        try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
         try container.encode(paneSessionId, forKey: .paneSessionId)
         try container.encode(wireVersion, forKey: .wireVersion)
         try container.encode(workerDerivationEpoch, forKey: .workerDerivationEpoch)
@@ -111,6 +121,9 @@ struct BridgeProductContentAcceptedControlBody: Codable {
         }
         if let expectedSha256 {
             try BridgeProductContractDecoding.validateSHA256(expectedSha256, codingPath: codingPath)
+        }
+        if let operationCorrelationID {
+            try BridgeProductContractDecoding.validateSHA256(operationCorrelationID, codingPath: codingPath)
         }
         try BridgeProductContractDecoding.validateNonnegative(
             maximumBytes,
@@ -174,16 +187,19 @@ struct BridgeProductContentEndControlBody: Codable {
         case endOfSource
         case observedByteLength
         case observedSha256
+        case operationCorrelationId
     }
 
     let endOfSource: Bool
     let observedByteLength: Int
     let observedSha256: String
+    let operationCorrelationID: String?
 
     init(header: BridgeProductContentEndHeader) {
         self.endOfSource = header.endOfSource
         self.observedByteLength = header.observedByteLength
         self.observedSha256 = header.observedSha256
+        self.operationCorrelationID = header.operationCorrelationID
     }
 
     init(from decoder: Decoder) throws {
@@ -196,6 +212,12 @@ struct BridgeProductContentEndControlBody: Codable {
         self.endOfSource = try container.decode(Bool.self, forKey: .endOfSource)
         self.observedByteLength = try container.decode(Int.self, forKey: .observedByteLength)
         self.observedSha256 = try container.decode(String.self, forKey: .observedSha256)
+        self.operationCorrelationID = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .operationCorrelationId,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         try BridgeProductContractDecoding.validateNonnegative(
             observedByteLength,
             name: "observedByteLength",
@@ -211,6 +233,9 @@ struct BridgeProductContentEndControlBody: Codable {
             observedSha256,
             codingPath: decoder.codingPath
         )
+        if let operationCorrelationID {
+            try BridgeProductContractDecoding.validateSHA256(operationCorrelationID, codingPath: decoder.codingPath)
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -218,6 +243,7 @@ struct BridgeProductContentEndControlBody: Codable {
         try container.encode(endOfSource, forKey: .endOfSource)
         try container.encode(observedByteLength, forKey: .observedByteLength)
         try container.encode(observedSha256, forKey: .observedSha256)
+        try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
     }
 }
 
@@ -226,16 +252,19 @@ struct BridgeProductContentErrorControlBody: Codable {
         case code
         case retryable
         case safeMessage
+        case operationCorrelationId
     }
 
     let code: BridgeProductRequestErrorCode
     let retryable: Bool
     let safeMessage: String?
+    let operationCorrelationID: String?
 
     init(header: BridgeProductContentErrorHeader) {
         self.code = header.code
         self.retryable = header.retryable
         self.safeMessage = header.safeMessage
+        self.operationCorrelationID = header.operationCorrelationID
     }
 
     init(from decoder: Decoder) throws {
@@ -253,11 +282,20 @@ struct BridgeProductContentErrorControlBody: Codable {
             from: container,
             codingPath: decoder.codingPath
         )
+        self.operationCorrelationID = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .operationCorrelationId,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         if let safeMessage {
             try BridgeProductContractDecoding.validateSafeMessage(
                 safeMessage,
                 codingPath: decoder.codingPath
             )
+        }
+        if let operationCorrelationID {
+            try BridgeProductContractDecoding.validateSHA256(operationCorrelationID, codingPath: decoder.codingPath)
         }
     }
 
@@ -266,18 +304,22 @@ struct BridgeProductContentErrorControlBody: Codable {
         try container.encode(code, forKey: .code)
         try container.encode(retryable, forKey: .retryable)
         try container.encode(safeMessage, forKey: .safeMessage)
+        try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
     }
 }
 
 struct BridgeProductContentResetControlBody: Codable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case reason
+        case operationCorrelationId
     }
 
     let reason: BridgeProductResetReason
+    let operationCorrelationID: String?
 
     init(header: BridgeProductContentResetHeader) {
         self.reason = header.reason
+        self.operationCorrelationID = header.operationCorrelationID
     }
 
     init(from decoder: Decoder) throws {
@@ -288,11 +330,21 @@ struct BridgeProductContentResetControlBody: Codable {
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.reason = try container.decode(BridgeProductResetReason.self, forKey: .reason)
+        self.operationCorrelationID = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .operationCorrelationId,
+            from: container,
+            codingPath: decoder.codingPath
+        )
+        if let operationCorrelationID {
+            try BridgeProductContractDecoding.validateSHA256(operationCorrelationID, codingPath: decoder.codingPath)
+        }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(reason, forKey: .reason)
+        try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
     }
 }
 
@@ -302,6 +354,7 @@ extension BridgeProductContentFrameIdentity {
         self.contentSequence = 0
         self.identity = wireBody.identity
         self.leaseId = wireBody.leaseId
+        self.operationCorrelationID = wireBody.operationCorrelationID
         self.paneSessionId = wireBody.paneSessionId
         self.wireVersion = wireBody.wireVersion
         self.workerDerivationEpoch = wireBody.workerDerivationEpoch
@@ -327,6 +380,7 @@ extension BridgeProductContentEndHeader {
         self.endOfSource = wireBody.endOfSource
         self.observedByteLength = wireBody.observedByteLength
         self.observedSha256 = wireBody.observedSha256
+        self.operationCorrelationID = wireBody.operationCorrelationID
     }
 }
 
@@ -339,6 +393,7 @@ extension BridgeProductContentErrorHeader {
         self.code = wireBody.code
         self.retryable = wireBody.retryable
         self.safeMessage = wireBody.safeMessage
+        self.operationCorrelationID = wireBody.operationCorrelationID
     }
 }
 
@@ -349,5 +404,6 @@ extension BridgeProductContentResetHeader {
     ) {
         self.contentSequence = contentSequence
         self.reason = wireBody.reason
+        self.operationCorrelationID = wireBody.operationCorrelationID
     }
 }

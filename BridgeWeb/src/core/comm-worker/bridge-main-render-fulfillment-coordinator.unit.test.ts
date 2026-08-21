@@ -58,7 +58,12 @@ describe('Bridge main render fulfillment coordinator', () => {
 	test('applies one matching non-unmount post-render and paints only after matching connected frame-time readback', () => {
 		// Arrange
 		const harness = createCoordinatorHarness(100);
-		const publication = makeReviewPublication({ itemId: 'review-item-2', publicationSequence: 2 });
+		const operationCorrelationId = 'a'.repeat(64);
+		const publication = makeReviewPublication({
+			itemId: 'review-item-2',
+			operationCorrelationId,
+			publicationSequence: 2,
+		});
 		const publicationItem = publication.job.payload.item;
 		const currentItem: BridgeMainRenderPublicationItem | undefined = publicationItem;
 		const renderedItem: BridgeMainRenderedItemReadback | null = {
@@ -98,6 +103,11 @@ describe('Bridge main render fulfillment coordinator', () => {
 			expectedDisposition(publication, 'queued', 100),
 			expectedDisposition(publication, 'applied', 110),
 		]);
+		expect(
+			harness.dispositions.every(
+				(disposition) => disposition.operationCorrelationId === operationCorrelationId,
+			),
+		).toBe(true);
 		expect(harness.animationFrames.activeFrameHandles()).toEqual([1]);
 
 		// Act
@@ -112,6 +122,7 @@ describe('Bridge main render fulfillment coordinator', () => {
 			expectedDisposition(publication, 'applied', 110),
 			expectedDisposition(publication, 'painted', 120),
 		]);
+		expect(harness.dispositions.at(-1)?.operationCorrelationId).toBe(operationCorrelationId);
 		expect(harness.animationFrames.activeFrameHandles()).toEqual([]);
 	});
 

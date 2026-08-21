@@ -130,20 +130,21 @@ extension WorktreeAnnotationServiceActor {
     ) async throws -> WorktreeAnnotationSessionDetail {
         try requireMutationAllowed()
         try editOwnership.validateAvailable(token: props.editToken, ownerGeneration: ownerGeneration)
-        let committed = try await repositoryAccess.acquireEditToken(
-            .init(
-                sessionID: props.sessionID,
-                messageID: props.messageID,
-                editToken: props.editToken,
-                expectedMessageRevision: props.expectedMessageRevision,
-                expectedDraftRevision: props.expectedDraftRevision,
-                liveEditTokens: editOwnership.liveTokens,
-                now: props.now
+        return try await publishCommittedMutation {
+            let committed = try await repositoryAccess.acquireEditToken(
+                .init(
+                    sessionID: props.sessionID,
+                    messageID: props.messageID,
+                    editToken: props.editToken,
+                    expectedMessageRevision: props.expectedMessageRevision,
+                    expectedDraftRevision: props.expectedDraftRevision,
+                    liveEditTokens: editOwnership.liveTokens,
+                    now: props.now
+                )
             )
-        )
-        try editOwnership.register(token: props.editToken, ownerGeneration: ownerGeneration)
-        publishSnapshotRequired(worktreeID: committed.session.worktreeID)
-        return committed
+            try editOwnership.register(token: props.editToken, ownerGeneration: ownerGeneration)
+            return committed
+        }
     }
 
     func releaseEditToken(

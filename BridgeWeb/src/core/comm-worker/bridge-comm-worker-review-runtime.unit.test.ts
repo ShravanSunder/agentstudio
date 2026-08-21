@@ -69,6 +69,7 @@ describe('Bridge comm worker review runtime', () => {
 				return openReviewContentFromDescriptorMap(descriptor, abortSignal);
 			},
 			itemId: 'item-1',
+			operationCorrelationId: 'a'.repeat(64),
 			port,
 			renderSemantics: [makeRenderSemantics()],
 			sequence: 12,
@@ -100,6 +101,7 @@ describe('Bridge comm worker review runtime', () => {
 		}
 		expect(pierreJobMessage.renderReceiptIdentity).toMatchObject({
 			itemId: 'item-1',
+			operationCorrelationId: 'a'.repeat(64),
 			publicationSequence: 12,
 			surface: 'review',
 			workerDerivationEpoch: 7,

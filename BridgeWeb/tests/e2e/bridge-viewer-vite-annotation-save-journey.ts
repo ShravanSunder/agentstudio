@@ -210,16 +210,22 @@ export async function runAnnotationSaveJourney(props: {
 async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<number> {
 	const requiredStages = [
 		'annotation_invalidation_received',
+		'annotation_paint_started',
+		'annotation_paint_terminal',
+		'content_transfer_started',
+		'content_transfer_terminal',
+		'main_thread_install_started',
+		'main_thread_install_terminal',
 		'projection_convergence_started',
 		'projection_query_started',
-		'projection_content_transfer_terminal',
+		'projection_store_started',
+		'projection_store_terminal',
+		'projection_validation_started',
 		'projection_validation_terminal',
 		'projection_query_terminal',
 		'projection_convergence_terminal',
+		'worker_application_started',
 		'worker_application_terminal',
-		'projection_store_terminal',
-		'main_thread_install_terminal',
-		'annotation_paint_terminal',
 	] as const;
 	const statusUrl = new URL('/__bridge-dev-telemetry/status', page.url()).toString();
 	const handle = await page.waitForFunction(
@@ -229,6 +235,7 @@ async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<
 			const body: unknown = await response.json();
 			if (typeof body !== 'object' || body === null || !('recentSamples' in body)) return false;
 			const recentSamples = body.recentSamples;
+			const operationLifecycle = Reflect.get(body, 'operationLifecycle');
 			if (!Array.isArray(recentSamples)) return false;
 			const stagesByOperation = new Map<string, Set<string>>();
 			for (const sample of recentSamples) {
@@ -244,8 +251,22 @@ async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<
 				stages.add(phase);
 				stagesByOperation.set(operationId, stages);
 			}
-			for (const stages of stagesByOperation.values()) {
-				if (expectedStages.every((stage) => stages.has(stage))) return expectedStages.length;
+			for (const [operationId, stages] of stagesByOperation) {
+				if (!expectedStages.every((stage) => stages.has(stage))) continue;
+				if (typeof operationLifecycle !== 'object' || operationLifecycle === null) continue;
+				const completedOperationIds = Reflect.get(operationLifecycle, 'completedOperationIds');
+				const malformed = Reflect.get(operationLifecycle, 'malformed');
+				const missingTerminals = Reflect.get(operationLifecycle, 'missingTerminals');
+				if (
+					Array.isArray(completedOperationIds) &&
+					completedOperationIds.includes(operationId) &&
+					Array.isArray(malformed) &&
+					malformed.length === 0 &&
+					Array.isArray(missingTerminals) &&
+					missingTerminals.length === 0
+				) {
+					return expectedStages.length;
+				}
 			}
 			return false;
 		},

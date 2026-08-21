@@ -685,17 +685,14 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
             let result = constructionResult.result
             guard
-                !Task.isCancelled,
-                foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                refreshAdmissionCoordinator.isRefreshPassCurrent(reservation),
-                refreshGeneration == nextReviewGeneration,
-                reviewPublicationCoordinator.committedPublicationForReplay(
-                    productAdmission: productAdmission
-                )?.publicationId == currentPublication.publicationId,
-                productAdmission.withValidAdmission({
-                    lastReviewPackageTraceContext = packageTraceContext
-                    return true
-                }) == true
+                admitPreparedReviewPackageRefresh(
+                    currentPublication: currentPublication,
+                    refreshGeneration: refreshGeneration,
+                    foregroundWorkAdmission: foregroundWorkAdmission,
+                    productAdmission: productAdmission,
+                    reservation: reservation,
+                    packageTraceContext: packageTraceContext
+                )
             else {
                 await constructionResult.releaseArtifactPin()
                 return .stale
@@ -741,6 +738,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 load,
                 expectedReviewGeneration: refreshGeneration,
                 expectedReviewAuthorityGeneration: reservation.authorityGeneration,
+                operationCorrelationID: reservation.operationCorrelationID,
                 productAdmission: productAdmission,
                 traceContext: packageTraceContext,
                 foregroundWorkAdmission: foregroundWorkAdmission

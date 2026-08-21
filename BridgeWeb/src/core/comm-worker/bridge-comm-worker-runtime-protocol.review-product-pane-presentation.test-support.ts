@@ -15,6 +15,8 @@ export function makeReviewPanePresentationFrame(
 		fileRefreshFailure: null,
 		presentationRevision,
 		kind: 'pane.presentation',
+
+		operationCorrelationId: null,
 		metadataStreamId: 'metadata-stream-review-pane-suppression',
 		nativeActivity,
 		paneSessionId: 'pane-session-review-pane-suppression',

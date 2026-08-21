@@ -54,6 +54,7 @@ describe('Bridge worker render fulfillment registry', () => {
 		expect(publication.receiptIdentity).toEqual({
 			attemptId: 'attempt-1',
 			itemId: 'review-item-1',
+			operationCorrelationId: null,
 			paneSessionId: 'pane-session-1',
 			publicationId: 'publication-1',
 			publicationSequence: 8,

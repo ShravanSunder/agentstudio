@@ -70,6 +70,8 @@ describe('Bridge product subscription state', () => {
 					interestRevision: 0,
 					interestSha256: annotationInterestSha256,
 					kind: 'subscription.data',
+
+					operationCorrelationId: null,
 					sourceGeneration: 1,
 					subscriptionId: open.subscriptionId,
 					subscriptionKind: 'review.annotations',

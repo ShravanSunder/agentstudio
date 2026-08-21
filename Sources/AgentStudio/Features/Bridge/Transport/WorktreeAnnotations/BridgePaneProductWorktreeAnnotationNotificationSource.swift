@@ -1,5 +1,4 @@
 import AgentStudioInfrastructure
-import CryptoKit
 import Foundation
 
 actor BridgePaneAnnotationNotificationSource {
@@ -37,14 +36,25 @@ actor BridgePaneAnnotationNotificationSource {
         do {
             var sourceGeneration = 0
             let bootstrapEvent = try BridgeProductWorktreeAnnotationEvent(
-                operationCorrelationID: Self.makeOperationCorrelationID(),
+                operationCorrelationID: BridgeOperationCorrelation.mintScrubbedID(),
                 sourceGeneration: sourceGeneration,
                 worktreeID: worktreeID
             )
-            try await emitLifecycleEvent(bootstrapEvent, subscription: subscription, emit: emit)
+            try await emitLifecycleEvent(
+                bootstrapEvent,
+                deliveryAttempt: 0,
+                deliveryStartWasRecorded: false,
+                subscription: subscription,
+                emit: emit
+            )
             for await change in observer.stream {
                 try Task.checkCancellation()
-                guard case .snapshotRequired(let changedWorktreeID) = change,
+                guard
+                    case .snapshotRequired(
+                        let changedWorktreeID,
+                        let operationCorrelationID,
+                        let deliveryAttempt
+                    ) = change,
                     changedWorktreeID == worktreeID,
                     sourceGeneration < BridgeProductWireContract.maximumSafeInteger
                 else {
@@ -52,11 +62,17 @@ actor BridgePaneAnnotationNotificationSource {
                 }
                 sourceGeneration += 1
                 let event = try BridgeProductWorktreeAnnotationEvent(
-                    operationCorrelationID: Self.makeOperationCorrelationID(),
+                    operationCorrelationID: operationCorrelationID,
                     sourceGeneration: sourceGeneration,
                     worktreeID: worktreeID
                 )
-                try await emitLifecycleEvent(event, subscription: subscription, emit: emit)
+                try await emitLifecycleEvent(
+                    event,
+                    deliveryAttempt: deliveryAttempt,
+                    deliveryStartWasRecorded: true,
+                    subscription: subscription,
+                    emit: emit
+                )
             }
             await service.removeChangeObserver(token: observer.token)
         } catch {
@@ -78,28 +94,27 @@ actor BridgePaneAnnotationNotificationSource {
 
     func closeAndDrain() async {}
 
-    private static func makeOperationCorrelationID() -> String {
-        SHA256.hash(data: Data(UUIDv7.generate().uuidString.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
-    }
-
     private func emitLifecycleEvent(
         _ event: BridgeProductWorktreeAnnotationEvent,
+        deliveryAttempt: Int,
+        deliveryStartWasRecorded: Bool,
         subscription: BridgeProductSubscriptionSnapshot,
         emit: EventSink
     ) async throws {
         let surface: BridgeProductSurface =
             subscription.subscriptionKind == .fileAnnotations ? .file : .review
-        await lifecycleTraceRecorder?.record(
-            .init(
-                operationCorrelationID: event.operationCorrelationID,
-                result: .success,
-                sourceGeneration: event.sourceGeneration,
-                stage: .invalidationAdmitted,
-                surface: surface
+        if !deliveryStartWasRecorded {
+            await lifecycleTraceRecorder?.record(
+                .init(
+                    operationCorrelationID: event.operationCorrelationID,
+                    result: .started,
+                    sourceGeneration: event.sourceGeneration,
+                    stageAttempt: deliveryAttempt,
+                    stage: .notificationDeliveryStarted,
+                    surface: surface
+                )
             )
-        )
+        }
         do {
             try await emit(event)
             await lifecycleTraceRecorder?.record(
@@ -107,6 +122,7 @@ actor BridgePaneAnnotationNotificationSource {
                     operationCorrelationID: event.operationCorrelationID,
                     result: .success,
                     sourceGeneration: event.sourceGeneration,
+                    stageAttempt: deliveryAttempt,
                     stage: .notificationDeliveryTerminal,
                     surface: surface
                 )
@@ -117,6 +133,7 @@ actor BridgePaneAnnotationNotificationSource {
                     operationCorrelationID: event.operationCorrelationID,
                     result: .failure,
                     sourceGeneration: event.sourceGeneration,
+                    stageAttempt: deliveryAttempt,
                     stage: .notificationDeliveryTerminal,
                     surface: surface
                 )

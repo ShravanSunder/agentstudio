@@ -213,6 +213,7 @@ extension BridgeProductSubscriptionDataFrame {
         streamSequence: Int,
         subscription: BridgeProductSubscriptionFrameCorrelation,
         subscriptionSequence: Int,
+        operationCorrelationID: String? = nil,
         data: BridgeProductSubscriptionData
     ) throws {
         guard subscription.subscriptionKind == data.subscriptionKind else {
@@ -236,6 +237,10 @@ extension BridgeProductSubscriptionDataFrame {
             correlation: subscription,
             subscriptionSequence: subscriptionSequence
         )
+        self.operationCorrelationID = operationCorrelationID
+        if let operationCorrelationID {
+            try BridgeProductContractDecoding.validateSHA256(operationCorrelationID, codingPath: [])
+        }
         self.data = data
     }
 }
@@ -314,6 +319,7 @@ extension BridgeProductContentCancelledFrame {
         self.disposition = disposition
         self.identity = admission.identity
         self.leaseId = admission.leaseId
+        self.operationCorrelationID = admission.operationCorrelationID
         self.workerDerivationEpoch = admission.workerDerivationEpoch
     }
 }
@@ -359,6 +365,7 @@ extension BridgeProductPanePresentationFrame {
         )
         self.frameIdentity = .init(correlation: stream, streamSequence: streamSequence)
         self.fileRefreshFailure = snapshot.fileRefreshFailure
+        self.operationCorrelationID = snapshot.operationCorrelationID
         self.presentationRevision = snapshot.presentationRevision
         self.nativeActivity = snapshot.nativeActivity
         self.refreshingLanes = snapshot.refreshingLanes.sorted { $0.rawValue < $1.rawValue }
@@ -443,6 +450,7 @@ extension BridgeProductMetadataFrame {
         streamSequence: Int,
         subscription: BridgeProductSubscriptionFrameCorrelation,
         subscriptionSequence: Int,
+        operationCorrelationID: String? = nil,
         data: BridgeProductSubscriptionData
     ) throws -> Self {
         .subscriptionData(
@@ -451,6 +459,7 @@ extension BridgeProductMetadataFrame {
                 streamSequence: streamSequence,
                 subscription: subscription,
                 subscriptionSequence: subscriptionSequence,
+                operationCorrelationID: operationCorrelationID,
                 data: data
             )
         )

@@ -307,6 +307,12 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			'started',
 			sourceGeneration,
 		);
+		this.#recordLifecycle(
+			invalidation.operationCorrelationId,
+			'worker_application_started',
+			'started',
+			sourceGeneration,
+		);
 		const queryLoop = this.#runQueryAttempt(
 			attemptGeneration,
 			invalidation,
@@ -407,6 +413,12 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		| Extract<BridgeProductAnnotationProjectionQueryResult, { readonly kind: 'source_stale' }>
 	> {
 		const decoder = new BridgeCommWorkerAnnotationProjectionDecoder();
+		this.#recordLifecycle(
+			invalidation.operationCorrelationId,
+			'content_transfer_started',
+			'started',
+			sourceGeneration,
+		);
 		let cursor: string | null = null;
 		let expectedPage: BridgeProductAnnotationProjectionPageContract | null = null;
 		let previousPageOrdinal: number | null = null;
@@ -447,7 +459,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			} catch (error) {
 				this.#recordLifecycle(
 					invalidation.operationCorrelationId,
-					'projection_content_transfer_terminal',
+					'content_transfer_terminal',
 					'failure',
 					sourceGeneration,
 				);
@@ -460,11 +472,17 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		if (expectedPage === null) throw new Error('Annotation projection returned no pages.');
 		this.#recordLifecycle(
 			invalidation.operationCorrelationId,
-			'projection_content_transfer_terminal',
+			'content_transfer_terminal',
 			'success',
 			sourceGeneration,
 		);
 		try {
+			this.#recordLifecycle(
+				invalidation.operationCorrelationId,
+				'projection_validation_started',
+				'started',
+				sourceGeneration,
+			);
 			const decodedProjection = decoder.finish();
 			const snapshot = decodedProjection.snapshot;
 			if (
@@ -538,6 +556,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			recorder: this.#telemetryClient,
 			result,
 			sourceGeneration,
+			stageAttempt: this.#lastAttemptedGeneration,
 			transport: 'worker',
 			viewer: this.#surface,
 		});
@@ -581,7 +600,8 @@ export function bridgeCommWorkerAnnotationProjectionTransport(
 						{ ...request, surface: 'review' },
 						{ signal },
 					),
-		openContent: (descriptor, signal) => productTransport.openContent(descriptor, signal),
+		openContent: (descriptor, signal) =>
+			productTransport.openContent(descriptor, signal, descriptor.page.operationCorrelationId),
 		subscribe: (surface) =>
 			surface === 'file'
 				? productTransport.subscribe('file.annotations', {})

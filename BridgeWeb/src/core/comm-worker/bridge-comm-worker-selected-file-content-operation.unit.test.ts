@@ -20,6 +20,8 @@ describe('BridgeCommWorkerSelectedFileContentOperationController', () => {
 		const beganRender = controller.advance(selected.generation, 'preparingRender');
 
 		expect(selected.phase).toBe('preparingDescriptor');
+		expect(selected.operationCorrelationId).toMatch(/^[0-9a-f]{64}$/);
+		expect(descriptorContinuation.operationCorrelationId).toBe(selected.operationCorrelationId);
 		expect(descriptorContinuation.generation).toBe(selected.generation);
 		expect(beganContent).toBe(true);
 		expect(beganRender).toBe(true);
@@ -59,6 +61,8 @@ describe('BridgeCommWorkerSelectedFileContentOperationController', () => {
 		});
 		expect(successor?.generation).not.toBe(selected.generation);
 		expect(successor?.workerDerivationEpoch).toBe(8);
+		expect(successor?.operationCorrelationId).toMatch(/^[0-9a-f]{64}$/);
+		expect(successor?.operationCorrelationId).not.toBe(selected.operationCorrelationId);
 	});
 
 	test('cancels descriptor wait when selection clears', () => {
@@ -72,7 +76,7 @@ describe('BridgeCommWorkerSelectedFileContentOperationController', () => {
 	test('settles only the current item from an accepted terminal render receipt', () => {
 		const controller = new BridgeCommWorkerSelectedFileContentOperationController();
 		const current = controller.admitSelection({ itemId: 'file-1', selectionEpoch: 11 });
-		const currentReceipt = renderReceipt('current');
+		const currentReceipt = renderReceipt('current', current.operationCorrelationId);
 		controller.bindRenderReceipt({
 			generation: current.generation,
 			receiptIdentity: currentReceipt,
@@ -103,13 +107,13 @@ describe('BridgeCommWorkerSelectedFileContentOperationController', () => {
 		const predecessor = controller.admitSelection({ itemId: 'file-1', selectionEpoch: 10 });
 		controller.bindRenderReceipt({
 			generation: predecessor.generation,
-			receiptIdentity: renderReceipt('predecessor'),
+			receiptIdentity: renderReceipt('predecessor', predecessor.operationCorrelationId),
 		});
 		const successor = controller.admitSelection({ itemId: 'file-1', selectionEpoch: 11 });
 
 		expect(
 			controller.handleAcceptedRenderDisposition({
-				receipt: renderReceipt('predecessor', 'painted'),
+				receipt: renderReceipt('predecessor', predecessor.operationCorrelationId, 'painted'),
 			}),
 		).toBe('stale');
 		expect(controller.current).toEqual(successor);
@@ -125,11 +129,13 @@ describe('BridgeCommWorkerSelectedFileContentOperationController', () => {
 		store.actions.applySelectedFact({ epoch: 10, itemId: 'file-1' });
 		store.actions.applyContentReady({ contentCacheKey: 'file-content-key', itemId: 'file-1' });
 		store.actions.takePendingSlicePatchEvent({ epoch: 10, sequence: 1 });
+		const operation = controller.admitSelection({ itemId: 'file-1', selectionEpoch: 10 });
 		const receipt = bridgeWorkerRenderDispositionReceiptSchema.parse({
 			attemptId: 'attempt-id',
 			disposition: 'rejected',
 			itemId: 'file-1',
 			kind: 'render.disposition',
+			operationCorrelationId: operation.operationCorrelationId,
 			paneSessionId: 'pane-session',
 			publicationId: 'publication-id',
 			publicationSequence: 1,
@@ -142,7 +148,6 @@ describe('BridgeCommWorkerSelectedFileContentOperationController', () => {
 			workerDerivationEpoch: 1,
 			workerInstanceId: 'worker-instance',
 		});
-		const operation = controller.admitSelection({ itemId: 'file-1', selectionEpoch: 10 });
 		controller.bindRenderReceipt({
 			generation: operation.generation,
 			receiptIdentity: receipt,
@@ -173,6 +178,7 @@ describe('BridgeCommWorkerSelectedFileContentOperationController', () => {
 
 function renderReceipt(
 	identitySuffix: string,
+	operationCorrelationId: string,
 	disposition: 'queued' | 'applied' | 'painted' = 'queued',
 ): ReturnType<typeof bridgeWorkerRenderDispositionReceiptSchema.parse> {
 	return bridgeWorkerRenderDispositionReceiptSchema.parse({
@@ -180,6 +186,7 @@ function renderReceipt(
 		disposition,
 		itemId: 'file-1',
 		kind: 'render.disposition',
+		operationCorrelationId,
 		paneSessionId: 'pane-session',
 		publicationId: `publication-${identitySuffix}`,
 		publicationSequence: 1,

@@ -40,6 +40,7 @@ interface CreateBridgeCommWorkerReviewDemandSchedulingProps {
 	readonly isWorkAdmitted?: () => boolean;
 	readonly markPreparationDrainRequired: () => void;
 	readonly now?: () => number;
+	readonly operationCorrelationId?: () => string | null;
 	readonly openReviewContent?: BridgeWorkerReviewContentOpen;
 	readonly port: BridgeCommWorkerPort;
 	readonly pump: WorkerContentPreparationPump;
@@ -409,6 +410,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	const defaultWorkSignal = new AbortController().signal;
 	const isWorkAdmitted = props.isWorkAdmitted ?? bridgeCommWorkerWorkIsAdmitted;
 	const paneWorkSignal = props.workSignal ?? ((): AbortSignal => defaultWorkSignal);
+	const operationCorrelationId = props.operationCorrelationId ?? ((): null => null);
 	let surfaceActive = false;
 	let surfaceWorkLifecycle = createBridgeCommWorkerReviewSurfaceWorkLifecycle(paneWorkSignal());
 	const isReviewWorkAdmitted = (): boolean => surfaceActive && isWorkAdmitted();
@@ -475,6 +477,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 								: { openContent: props.openReviewContent }),
 							fetchReviewContentResource,
 							itemId: admission.itemId,
+							operationCorrelationId: operationCorrelationId(),
 							port: props.port,
 							pump: props.pump,
 							renderSemantics: reviewRuntimeSource.renderSemantics,
@@ -500,6 +503,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 							isDemandCurrent: (): boolean =>
 								!admission.signal.aborted && currentMembershipByItemId.has(admission.itemId),
 							itemId: admission.itemId,
+							operationCorrelationId: operationCorrelationId(),
 							port: props.port,
 							preparationRank: member.role,
 							pump: props.pump,

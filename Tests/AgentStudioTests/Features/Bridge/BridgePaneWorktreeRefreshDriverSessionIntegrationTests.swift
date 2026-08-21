@@ -36,14 +36,16 @@ struct BridgeWorktreeRefreshSessionTests {
         let driver = BridgePaneWorktreeRefreshDriver(
             coordinator: coordinator,
             acquireProductAdmission: { harness.productAdmission.context },
-            publishFileChangeset: { changeset, productAdmission, foregroundWorkAdmission in
+            publishFileChangeset: { changeset, admission, work, correlationID, attempt in
                 await publisher.publish(
                     changeset,
-                    productAdmission: productAdmission,
-                    foregroundWorkAdmission: foregroundWorkAdmission
+                    productAdmission: admission,
+                    foregroundWorkAdmission: work,
+                    operationCorrelationID: correlationID,
+                    operationStageAttempt: attempt
                 )
             },
-            publishFileStatus: { _, _, _ in .notRequired },
+            publishFileStatus: { _, _, _, _, _ in .notRequired },
             publishPresentation: { _, _ in }
         )
         driver.recordFileSourceAccepted(try sessionIntegrationFileSource(generation: 1))
@@ -101,6 +103,11 @@ struct BridgeWorktreeRefreshSessionTests {
         #expect(resync.reconciliation.map(\.dispositionName) == ["reopenRequired"])
         #expect(!driver.hasPendingFileStreamRecovery)
         #expect(await publisher.attemptCount == 2)
+        let operationCorrelationIDs = await publisher.operationCorrelationIDs
+        #expect(operationCorrelationIDs.count == 2)
+        #expect(operationCorrelationIDs[0] == operationCorrelationIDs[1])
+        #expect(await publisher.operationStageAttempts == [0, 2])
+        #expect(replayData.operationCorrelationID == operationCorrelationIDs[1])
         #expect(coordinator.diagnosticSnapshot.dirtyFact == nil)
         await driver.closeAndDrain()
         try await harness.closeProducer(secondMetadataLease)
@@ -112,6 +119,8 @@ private actor BridgeRefreshDriverSessionPublisher {
     private let subscriptionId: String
     private var attemptWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private(set) var attemptCount = 0
+    private(set) var operationCorrelationIDs: [String] = []
+    private(set) var operationStageAttempts: [Int] = []
 
     init(session: BridgeProductSession, subscriptionId: String) {
         self.session = session
@@ -121,9 +130,13 @@ private actor BridgeRefreshDriverSessionPublisher {
     func publish(
         _: FileChangeset,
         productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        operationCorrelationID: String,
+        operationStageAttempt: Int
     ) async -> BridgePaneProductFileRefreshPublicationDisposition {
         attemptCount += 1
+        operationCorrelationIDs.append(operationCorrelationID)
+        operationStageAttempts.append(operationStageAttempt)
         resumeAttemptWaiters()
         let emissionCount = attemptCount == 1 ? 3 : 1
         do {
@@ -131,6 +144,7 @@ private actor BridgeRefreshDriverSessionPublisher {
                 let result = try await session.enqueueSubscriptionData(
                     subscriptionId: subscriptionId,
                     data: .fileMetadata(try coordinatorSourceAcceptedEvent()),
+                    operationCorrelationID: operationCorrelationID,
                     productAdmission: productAdmission,
                     foregroundWorkAdmission: foregroundWorkAdmission
                 )

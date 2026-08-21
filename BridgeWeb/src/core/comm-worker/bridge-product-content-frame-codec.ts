@@ -31,6 +31,9 @@ const bridgeProductContentFramePrefixByteLength = 9;
 const bridgeProductContentFrameLengthPrefixByteLength = 4;
 const bridgeProductContentFrameSequenceByteLength = 4;
 const bridgeProductContentDataOffsetByteLength = 4;
+const bridgeProductContentCorrelationByteLength = 32;
+const bridgeProductContentCorrelationEnvelopeByteLength =
+	1 + bridgeProductContentCorrelationByteLength;
 
 const bridgeProductContentFrameTagByKind = {
 	'content.accepted': 0x01,
@@ -79,6 +82,7 @@ export class BridgeProductContentFrameEncoder {
 	#encodeValidated(frame: BridgeProductContentFrame): Uint8Array {
 		const header = bridgeProductContentHeaderSchema.parse(frame.header);
 		validateBridgeProductContentFramePayload(header, frame.payload);
+		validateBridgeProductContentFrameCorrelation(header, this.#expectedRequest);
 		const payload = Uint8Array.from(frame.payload);
 
 		if (!this.#accepted) {
@@ -131,6 +135,7 @@ function encodeBridgeProductContentFrameBytes(
 		1 +
 		bridgeProductContentFrameSequenceByteLength +
 		(header.kind === 'content.data' ? bridgeProductContentDataOffsetByteLength : 0) +
+		(header.kind === 'content.data' ? bridgeProductContentCorrelationEnvelopeByteLength : 0) +
 		bodyBytes.byteLength +
 		payload.byteLength;
 	if (frameByteLength > BRIDGE_PRODUCT_MAXIMUM_CONTENT_FRAME_BYTES) {
@@ -147,6 +152,11 @@ function encodeBridgeProductContentFrameBytes(
 	if (header.kind === 'content.data') {
 		frameView.setUint32(bodyOffset, header.offsetBytes, false);
 		bodyOffset += bridgeProductContentDataOffsetByteLength;
+		encodedFrame.set(
+			encodeBridgeProductContentCorrelation(header.operationCorrelationId),
+			bodyOffset,
+		);
+		bodyOffset += bridgeProductContentCorrelationEnvelopeByteLength;
 	} else {
 		encodedFrame.set(bodyBytes, bodyOffset);
 		bodyOffset += bodyBytes.byteLength;
@@ -168,6 +178,7 @@ function encodeBridgeProductContentTagBody(header: BridgeProductContentHeader): 
 					expectedSha256: header.expectedSha256,
 					identity: header.identity,
 					leaseId: header.leaseId,
+					operationCorrelationId: header.operationCorrelationId,
 					maximumBytes: header.maximumBytes,
 					paneSessionId: header.paneSessionId,
 					wireVersion: header.wireVersion,
@@ -177,17 +188,22 @@ function encodeBridgeProductContentTagBody(header: BridgeProductContentHeader): 
 			case 'content.end':
 				return bridgeProductContentEndBodySchema.parse({
 					endOfSource: header.endOfSource,
+					operationCorrelationId: header.operationCorrelationId,
 					observedByteLength: header.observedByteLength,
 					observedSha256: header.observedSha256,
 				});
 			case 'content.error':
 				return bridgeProductContentErrorBodySchema.parse({
 					code: header.code,
+					operationCorrelationId: header.operationCorrelationId,
 					retryable: header.retryable,
 					safeMessage: header.safeMessage,
 				});
 			case 'content.reset':
-				return bridgeProductContentResetBodySchema.parse({ reason: header.reason });
+				return bridgeProductContentResetBodySchema.parse({
+					operationCorrelationId: header.operationCorrelationId,
+					reason: header.reason,
+				});
 		}
 		throw new Error('Bridge product data frames do not carry JSON control bodies.');
 	})();
@@ -248,6 +264,7 @@ export class BridgeProductContentStreamValidator<
 	): Promise<BridgeProductContentTerminal<TContentKind> | null> {
 		const header = bridgeProductContentHeaderSchema.parse(frame.header);
 		validateBridgeProductContentFramePayload(header, frame.payload);
+		validateBridgeProductContentFrameCorrelation(header, this.#expectedRequest);
 		const payload = Uint8Array.from(frame.payload);
 		if (this.#acceptedHeader === null) {
 			if (header.kind !== 'content.accepted') {
@@ -401,6 +418,7 @@ function validateBridgeProductAcceptedHeaderAgainstRequest(
 	if (
 		header.contentRequestId !== expectedRequest.contentRequestId ||
 		header.leaseId !== expectedRequest.leaseId ||
+		header.operationCorrelationId !== expectedRequest.operationCorrelationId ||
 		header.paneSessionId !== expectedRequest.paneSessionId ||
 		header.workerDerivationEpoch !== expectedRequest.workerDerivationEpoch ||
 		header.workerInstanceId !== expectedRequest.workerInstanceId ||
@@ -423,6 +441,28 @@ function validateBridgeProductAcceptedHeaderAgainstRequest(
 	if (header.declaredByteLength !== null && header.declaredByteLength > header.maximumBytes) {
 		throw new Error('Bridge product content declared length exceeds its maximum.');
 	}
+}
+
+function validateBridgeProductContentFrameCorrelation(
+	header: BridgeProductContentHeader,
+	expectedRequest: BridgeProductContentRequest,
+): void {
+	if (header.operationCorrelationId !== expectedRequest.operationCorrelationId) {
+		throw new Error('Bridge product content frame correlation does not match its issued request.');
+	}
+}
+
+function encodeBridgeProductContentCorrelation(operationCorrelationId: string | null): Uint8Array {
+	const encoded = new Uint8Array(bridgeProductContentCorrelationEnvelopeByteLength);
+	if (operationCorrelationId === null) return encoded;
+	encoded[0] = 1;
+	for (let index = 0; index < bridgeProductContentCorrelationByteLength; index += 1) {
+		encoded[index + 1] = Number.parseInt(
+			operationCorrelationId.slice(index * 2, index * 2 + 2),
+			16,
+		);
+	}
+	return encoded;
 }
 
 function bridgeProductDeclaredExactFactsForRequest(expectedRequest: BridgeProductContentRequest): {

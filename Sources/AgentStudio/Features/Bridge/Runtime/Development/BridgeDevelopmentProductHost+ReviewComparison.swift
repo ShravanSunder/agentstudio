@@ -136,10 +136,39 @@ extension BridgeDevelopmentProductHost {
         activeReviewComparisonTaskGeneration = reviewGeneration
         activeReviewComparisonTask = Task { [weak self] in
             guard let self else { return }
+            await self.productProvider.recordOperationLifecycle(
+                operationCorrelationID: reservation.operationCorrelationID,
+                result: .success,
+                stage: .refreshReserved,
+                stageAttempt: reservation.operationStageAttempt,
+                surface: .review
+            )
+            await self.productProvider.recordOperationLifecycle(
+                operationCorrelationID: reservation.operationCorrelationID,
+                result: .started,
+                stage: .reviewPrepareStarted,
+                stageAttempt: reservation.operationStageAttempt,
+                surface: .review
+            )
             let outcome = await self.runReviewComparisonPublication(
                 target: target,
                 reviewGeneration: reviewGeneration,
+                operationCorrelationID: reservation.operationCorrelationID,
                 productAdmission: self.productAdmission
+            )
+            await self.productProvider.recordOperationLifecycle(
+                operationCorrelationID: reservation.operationCorrelationID,
+                result: Self.operationResult(for: outcome),
+                stage: .reviewPrepareTerminal,
+                stageAttempt: reservation.operationStageAttempt,
+                surface: .review
+            )
+            await self.productProvider.recordOperationLifecycle(
+                operationCorrelationID: reservation.operationCorrelationID,
+                result: Self.operationResult(for: outcome),
+                stage: .refreshOperationTerminal,
+                stageAttempt: reservation.operationStageAttempt,
+                surface: .review
             )
             await MainActor.run {
                 self.refreshAdmissionCoordinator.completeRefreshPass(
@@ -165,6 +194,7 @@ extension BridgeDevelopmentProductHost {
     private func runReviewComparisonPublication(
         target: WorkspaceReviewContributionTarget,
         reviewGeneration: BridgeReviewGeneration,
+        operationCorrelationID: String? = nil,
         productAdmission: BridgeProductAdmissionContext
     ) async -> BridgePaneRefreshCatchUpOutcome {
         guard !Task.isCancelled else {
@@ -195,7 +225,8 @@ extension BridgeDevelopmentProductHost {
             try await publishPreparedReviewComparison(
                 preparedPublication,
                 productAdmission: productAdmission,
-                foregroundWorkAdmission: foregroundWorkAdmission
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                operationCorrelationID: operationCorrelationID
             )
             return Task.isCancelled ? .stale : .succeeded
         } catch {
@@ -260,10 +291,24 @@ extension BridgeDevelopmentProductHost {
         activeReviewComparisonTaskGeneration = nil
     }
 
+    private static func operationResult(
+        for outcome: BridgePaneRefreshCatchUpOutcome
+    ) -> BridgeOperationLifecycleTraceEvent.Result {
+        switch outcome {
+        case .succeeded:
+            .success
+        case .failed:
+            .failure
+        case .stale, .streamReset:
+            .stale
+        }
+    }
+
     private func publishPreparedReviewComparison(
         _ preparedPublication: BridgeReviewPreparedPublication,
         productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        operationCorrelationID: String?
     ) async throws {
         if Task.isCancelled {
             await preparedPublication.artifactPin?.releaseAndWait()
@@ -278,6 +323,7 @@ extension BridgeDevelopmentProductHost {
         let stagedToken = await MainActor.run {
             reviewPublicationCoordinator.stage(
                 preparedPublication,
+                operationCorrelationID: operationCorrelationID,
                 productAdmission: productAdmission
             )
         }

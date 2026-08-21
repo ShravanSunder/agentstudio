@@ -256,6 +256,7 @@ export class TestContentProductServer {
 			identity: bridgeProductContentIdentityFromDescriptor(request.descriptor),
 			leaseId: request.leaseId,
 			maximumBytes: request.descriptor.maximumBytes,
+			operationCorrelationId: request.operationCorrelationId,
 			paneSessionId: request.paneSessionId,
 			wireVersion: request.wireVersion,
 			workerDerivationEpoch: request.workerDerivationEpoch,
@@ -277,11 +278,17 @@ export class TestContentProductServer {
 			Uint8Array.from(
 				concatenateBytes(
 					encodeMinimalControlFrame(0x01, 0, acceptedBody),
-					encodeMinimalDataFrame(1, 0, Uint8Array.from([97, 98, 99])),
+					encodeMinimalDataFrame(
+						1,
+						0,
+						Uint8Array.from([97, 98, 99]),
+						request.operationCorrelationId,
+					),
 					encodeMinimalControlFrame(0x03, 2, {
 						endOfSource: true,
 						observedByteLength: 3,
 						observedSha256: abcSha256,
+						operationCorrelationId: request.operationCorrelationId,
 					}),
 				),
 			).buffer,

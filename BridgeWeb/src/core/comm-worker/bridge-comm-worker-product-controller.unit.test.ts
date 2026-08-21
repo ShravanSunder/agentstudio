@@ -23,96 +23,6 @@ const source = {
 } as const;
 
 describe('Bridge comm worker product controller', () => {
-	test('opens paired annotation projections once and returns native command correlation', async () => {
-		const fileEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.annotations'>
-		>(8);
-		const reviewEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.annotations'>
-		>(8);
-		const subscribedKinds: string[] = [];
-		const calledMethods: string[] = [];
-		const fileSubscription: BridgeProductSubscription<'file.annotations'> = {
-			cancel: async (): Promise<void> => {},
-			events: fileEvents,
-			subscriptionId: 'file-annotations-1',
-			subscriptionKind: 'file.annotations',
-			update: async (): Promise<void> => {},
-		};
-		const reviewSubscription: BridgeProductSubscription<'review.annotations'> = {
-			cancel: async (): Promise<void> => {},
-			events: reviewEvents,
-			subscriptionId: 'review-annotations-1',
-			subscriptionKind: 'review.annotations',
-			update: async (): Promise<void> => {},
-		};
-		const productTransport = {
-			...unusedProductTransport(),
-			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The test double intentionally implements only annotation call variants exercised below.
-			call: (async (method: string): Promise<unknown> => {
-				calledMethods.push(method);
-				return {
-					kind: 'completed',
-					outcome: {
-						requestId: `${method}-request-1`,
-						sessionId: null,
-						status: { kind: 'committed' },
-						surface: method === 'file.annotations.command' ? 'file' : 'review',
-					},
-				};
-			}) as BridgeProductTransportSession['call'],
-			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The test double intentionally implements only paired annotation subscriptions.
-			subscribe: ((subscriptionKind: string): unknown => {
-				subscribedKinds.push(subscriptionKind);
-				return subscriptionKind === 'file.annotations' ? fileSubscription : reviewSubscription;
-			}) as BridgeProductTransportSession['subscribe'],
-		} satisfies BridgeProductTransportSession;
-		const controller = new BridgeCommWorkerProductController({
-			onFileMetadataEvent: (): void => {},
-			productTransport,
-		});
-		const projectionEvent = {
-			eventKind: 'snapshot.required',
-			operationCorrelationId: 'a'.repeat(64),
-			sourceGeneration: 1,
-			worktreeId: 'worktree-1',
-		} as const;
-
-		controller.ensureAnnotationSubscriptions();
-		controller.ensureAnnotationSubscriptions();
-		fileEvents.push(projectionEvent);
-		reviewEvents.push(projectionEvent);
-		const fileResult = await controller.sendProductControl({
-			method: 'file.annotations.command',
-			params: { operation: { kind: 'session.discover' } },
-		});
-		const reviewResult = await controller.sendProductControl({
-			method: 'review.annotations.command',
-			params: { operation: { kind: 'session.discover' } },
-		});
-		await Promise.resolve();
-		expect(subscribedKinds).toEqual(['file.annotations', 'review.annotations']);
-		expect(calledMethods).toEqual(['file.annotations.command', 'review.annotations.command']);
-		expect(fileResult).toEqual({
-			kind: 'completed',
-			outcome: {
-				requestId: 'file.annotations.command-request-1',
-				sessionId: null,
-				status: { kind: 'committed' },
-				surface: 'file',
-			},
-		});
-		expect(reviewResult).toEqual({
-			kind: 'completed',
-			outcome: {
-				requestId: 'review.annotations.command-request-1',
-				sessionId: null,
-				status: { kind: 'committed' },
-				surface: 'review',
-			},
-		});
-	});
-
 	test('opens one Review metadata subscription and reconciles lane interests in the comm worker', async () => {
 		// Arrange
 		const events = new BridgeProductBoundedAsyncQueue<
@@ -176,6 +86,7 @@ describe('Bridge comm worker product controller', () => {
 		});
 		const sourceAcceptedEvent = {
 			eventKind: 'review.sourceAccepted',
+			operationCorrelationId: null,
 			generation: 7,
 			packageId: 'package-1',
 			publicationId: '00000000-0000-7000-8000-000000000011',
@@ -314,6 +225,7 @@ describe('Bridge comm worker product controller', () => {
 
 		firstEvents.push({
 			eventKind: 'review.sourceAccepted',
+			operationCorrelationId: null,
 			generation: 7,
 			packageId: 'package-1',
 			publicationId: '00000000-0000-7000-8000-000000000011',
@@ -368,6 +280,7 @@ describe('Bridge comm worker product controller', () => {
 
 		events.push({
 			eventKind: 'review.sourceAccepted',
+			operationCorrelationId: null,
 			generation: 7,
 			packageId: 'package-1',
 			publicationId,
@@ -463,6 +376,7 @@ describe('Bridge comm worker product controller', () => {
 
 		firstReviewEvents.push({
 			eventKind: 'review.sourceAccepted',
+			operationCorrelationId: null,
 			generation: 7,
 			packageId: 'package-1',
 			publicationId,
@@ -474,6 +388,7 @@ describe('Bridge comm worker product controller', () => {
 		await fileEventObserved.promise;
 		replayReviewEvents.push({
 			eventKind: 'review.sourceAccepted',
+			operationCorrelationId: null,
 			generation: 7,
 			packageId: 'package-1',
 			publicationId,

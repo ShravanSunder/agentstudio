@@ -95,6 +95,15 @@ export function WorktreeAnnotationSurfaceProvider(
 			return undefined;
 		const operationCorrelationId = projection.operationCorrelationId;
 		const sourceGeneration = projection.sourceGeneration;
+		recordWorktreeAnnotationLifecycleTelemetry({
+			operationCorrelationId,
+			phase: 'annotation_paint_started',
+			recorder: props.telemetryRecorder,
+			result: 'started',
+			sourceGeneration,
+			transport: 'local',
+			viewer: props.surfaceClient.surface === 'fileView' ? 'file' : 'review',
+		});
 		let terminalRecorded = false;
 		const frame = requestAnimationFrame((): void => {
 			terminalRecorded = true;

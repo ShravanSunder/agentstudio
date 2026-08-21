@@ -129,6 +129,32 @@ struct BridgePaneProductReviewMetadataSourceTests {
         }
     }
 
+    @Test("admitted Review publication carries its scrubbed operation correlation on every event")
+    func admittedReviewPublicationCarriesOperationCorrelation() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let package = makeReviewPackage(itemCount: 2)
+        let operationCorrelationID = String(repeating: "d", count: 64)
+        let source = BridgePaneProductReviewMetadataSource()
+        let collector = ReviewMetadataEventCollector()
+        try await source.open(
+            subscription: try reviewSubscription(),
+            productAdmission: productAdmission.context
+        ) { event, _ in
+            try await collector.append(event)
+        }
+
+        _ = try await deliverReviewPackage(
+            package,
+            operationCorrelationID: operationCorrelationID,
+            through: source,
+            productAdmission: productAdmission.context
+        )
+
+        let events = await collector.events
+        #expect(!events.isEmpty)
+        #expect(events.allSatisfy { $0.operationCorrelationID == operationCorrelationID })
+    }
+
     @Test("diff statistics do not publish unverified full-content extent facts")
     func omitsUnverifiedExtentFacts() async throws {
         // Arrange
@@ -950,37 +976,4 @@ private func replacingReviewItem(
         contentRoles: previous.contentRoles
     )
     return replacingReviewPackage(package, revision: revision, itemsById: itemsById)
-}
-
-private func reviewItemWithDiffStatistics(
-    _ item: BridgeReviewItemDescriptor,
-    additions: Int,
-    deletions: Int
-) -> BridgeReviewItemDescriptor {
-    BridgeReviewItemDescriptor(
-        itemId: item.itemId,
-        itemKind: item.itemKind,
-        itemVersion: item.itemVersion,
-        basePath: item.basePath,
-        headPath: item.headPath,
-        changeKind: item.changeKind,
-        fileClass: item.fileClass,
-        language: item.language,
-        extension: item.extension,
-        sizeBytes: item.sizeBytes,
-        baseContentHash: item.baseContentHash,
-        headContentHash: item.headContentHash,
-        contentHashAlgorithm: item.contentHashAlgorithm,
-        additions: additions,
-        deletions: deletions,
-        isHiddenByDefault: item.isHiddenByDefault,
-        hiddenReason: item.hiddenReason,
-        reviewPriority: item.reviewPriority,
-        contentRoles: item.contentRoles,
-        cacheKey: item.cacheKey,
-        provenance: item.provenance,
-        annotationSummary: item.annotationSummary,
-        reviewState: item.reviewState,
-        collapsed: item.collapsed
-    )
 }

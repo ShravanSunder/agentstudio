@@ -102,6 +102,7 @@ extension BridgePaneProductMetadataCoordinator {
         let result = try await session.enqueueSubscriptionData(
             subscriptionId: subscriptionId,
             data: data,
+            operationCorrelationID: event.operationCorrelationID,
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission
         )
@@ -188,6 +189,7 @@ extension BridgePaneProductMetadataCoordinator {
     static func enqueue(
         event: BridgeProductFileMetadataEvent,
         subscriptionId: String,
+        operationCorrelationID: String? = nil,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         session: BridgeProductSession
@@ -195,6 +197,7 @@ extension BridgePaneProductMetadataCoordinator {
         let result = try await session.enqueueSubscriptionData(
             subscriptionId: subscriptionId,
             data: .fileMetadata(event),
+            operationCorrelationID: operationCorrelationID,
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission
         )
@@ -221,6 +224,7 @@ extension BridgePaneProductMetadataCoordinator {
         let result = try await session.enqueueSubscriptionData(
             subscriptionId: subscriptionId,
             data: .reviewMetadata(event),
+            operationCorrelationID: event.operationCorrelationID,
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission
         )

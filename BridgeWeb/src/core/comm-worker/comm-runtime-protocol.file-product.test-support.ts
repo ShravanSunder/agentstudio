@@ -126,6 +126,8 @@ export function makeFilePanePresentationFrame(
 		fileRefreshFailure: null,
 		presentationRevision,
 		kind: 'pane.presentation',
+
+		operationCorrelationId: null,
 		metadataStreamId: 'file-product-test-metadata-stream',
 		nativeActivity,
 		paneSessionId: 'file-product-test-pane-session',

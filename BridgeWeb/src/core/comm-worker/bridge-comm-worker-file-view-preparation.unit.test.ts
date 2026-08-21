@@ -396,6 +396,7 @@ function makePreparationProps(options: MakePreparationPropsOptions): {
 	readonly epoch: number;
 	readonly itemId: string;
 	readonly openContent: BridgeWorkerFileViewContentOpen;
+	readonly operationCorrelationId: string;
 	readonly port: BridgeCommWorkerPort;
 	readonly pump: ReturnType<typeof createWorkerContentPreparationPump>;
 	readonly requestPreparationDrain?: () => void;
@@ -414,6 +415,7 @@ function makePreparationProps(options: MakePreparationPropsOptions): {
 		epoch: 7,
 		itemId: options.itemId ?? 'file-1',
 		openContent: options.openContent ?? unexpectedContentOpen,
+		operationCorrelationId: 'a'.repeat(64),
 		port: makePostedMessagePort(options.postedMessages),
 		pump: options.pump,
 		...(options.requestPreparationDrain === undefined

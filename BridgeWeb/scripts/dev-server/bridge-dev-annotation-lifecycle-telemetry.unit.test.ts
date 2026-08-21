@@ -36,7 +36,10 @@ function annotationLifecycleSample(operationCorrelationId: string): BridgeTeleme
 			'agentstudio.bridge.transport': 'local',
 			'agentstudio.bridge.viewer': 'review',
 		},
-		numericAttributes: { 'agentstudio.bridge.source.generation': 7 },
+		numericAttributes: {
+			'agentstudio.bridge.source.generation': 7,
+			'agentstudio.bridge.stage.attempt': 0,
+		},
 		booleanAttributes: {},
 	};
 }

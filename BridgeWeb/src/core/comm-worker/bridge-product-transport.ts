@@ -267,10 +267,12 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	openContent<TContentKind extends BridgeProductContentKind>(
 		descriptor: BridgeProductContentDescriptor<TContentKind>,
 		abortSignal: AbortSignal,
+		operationCorrelationId?: string | null,
 	): BridgeProductContentStream<TContentKind>;
 	openContent(
 		descriptor: BridgeProductContentDescriptor<BridgeProductContentKind>,
 		abortSignal: AbortSignal,
+		operationCorrelationId: string | null = null,
 	): BridgeProductContentStream<BridgeProductContentKind> {
 		const parsedDescriptor = bridgeProductContentDescriptorSchema.parse(descriptor);
 		const contentRequestId = this.#createIdentifier('content-request');
@@ -280,6 +282,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			descriptor: parsedDescriptor,
 			kind: 'content.open',
 			leaseId: this.#createIdentifier('lease'),
+			operationCorrelationId,
 			paneSessionId: this.#authority.bootstrap.paneSessionId,
 			wireVersion: this.#authority.bootstrap.wireVersion,
 			workerDerivationEpoch: this.workerDerivationEpoch(

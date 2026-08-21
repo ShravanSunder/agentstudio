@@ -15,18 +15,10 @@ struct BridgePaneWorktreeRefreshDriverTests {
         let probe = BridgePaneWorktreeRefreshDriverProbe(
             dispositions: [.notRequired]
         )
-        let driver = BridgePaneWorktreeRefreshDriver(
+        let driver = makeRefreshDriver(
             coordinator: coordinator,
-            acquireProductAdmission: { productAdmission.context },
-            publishFileChangeset: { changeset, admission, foregroundWork in
-                await probe.publishChangeset(changeset, admission, foregroundWork)
-            },
-            publishFileStatus: { status, admission, foregroundWork in
-                await probe.publishStatus(status, admission, foregroundWork)
-            },
-            publishPresentation: { snapshot, traceContext in
-                await probe.publishPresentation(snapshot, traceContext)
-            }
+            productAdmission: productAdmission,
+            probe: probe
         )
 
         // Act
@@ -58,18 +50,10 @@ struct BridgePaneWorktreeRefreshDriverTests {
                 .notRequired,
             ]
         )
-        let driver = BridgePaneWorktreeRefreshDriver(
+        let driver = makeRefreshDriver(
             coordinator: coordinator,
-            acquireProductAdmission: { productAdmission.context },
-            publishFileChangeset: { changeset, admission, foregroundWork in
-                await probe.publishChangeset(changeset, admission, foregroundWork)
-            },
-            publishFileStatus: { status, admission, foregroundWork in
-                await probe.publishStatus(status, admission, foregroundWork)
-            },
-            publishPresentation: { snapshot, traceContext in
-                await probe.publishPresentation(snapshot, traceContext)
-            }
+            productAdmission: productAdmission,
+            probe: probe
         )
 
         // Act
@@ -127,6 +111,20 @@ struct BridgePaneWorktreeRefreshDriverTests {
         // Assert
         #expect(!driver.hasPendingFileStreamRecovery)
         #expect(await probe.changesetAttemptCount == 2)
+        let operationCorrelationIDs = await probe.operationCorrelationIDs
+        #expect(operationCorrelationIDs.count == 2)
+        #expect(operationCorrelationIDs[0] == operationCorrelationIDs[1])
+        #expect(await probe.operationStageAttempts == [0, 2])
+        let lifecycleEvents = await probe.operationLifecycleEvents
+        #expect(
+            lifecycleEvents.map(\.stage) == [
+                .refreshReserved,
+                .refreshOperationTerminal,
+                .refreshReserved,
+                .refreshOperationTerminal,
+            ])
+        #expect(lifecycleEvents.map(\.stageAttempt) == [0, 0, 1, 1])
+        #expect(lifecycleEvents.map(\.result) == [.success, .stale, .success, .success])
         #expect(coordinator.diagnosticSnapshot.dirtyFact == nil)
         #expect(coordinator.productPresentationSnapshot.fileRefreshFailure == nil)
         await driver.closeAndDrain()
@@ -321,6 +319,9 @@ private actor BridgePaneWorktreeRefreshDriverProbe {
     private var changesetAttemptWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private(set) var changesetAttemptCount = 0
     private(set) var changesets: [FileChangeset] = []
+    private(set) var operationCorrelationIDs: [String] = []
+    private(set) var operationStageAttempts: [Int] = []
+    private(set) var operationLifecycleEvents: [BridgeOperationLifecycleTraceEvent] = []
     private(set) var presentations: [BridgePaneProductPresentationSnapshot] = []
 
     init(
@@ -334,10 +335,14 @@ private actor BridgePaneWorktreeRefreshDriverProbe {
     func publishChangeset(
         _ changeset: FileChangeset,
         _: BridgeProductAdmissionContext,
-        _: BridgePaneRefreshWorkAdmission
+        _: BridgePaneRefreshWorkAdmission,
+        operationCorrelationID: String,
+        operationStageAttempt: Int
     ) async -> BridgePaneProductFileRefreshPublicationDisposition {
         changesetAttemptCount += 1
         changesets.append(changeset)
+        operationCorrelationIDs.append(operationCorrelationID)
+        operationStageAttempts.append(operationStageAttempt)
         resumeChangesetAttemptWaiters()
         if blocksFirstChangesetAttempt, changesetAttemptCount == 1 {
             return await withCheckedContinuation { continuation in
@@ -358,7 +363,9 @@ private actor BridgePaneWorktreeRefreshDriverProbe {
     func publishStatus(
         _: GitWorkingTreeStatus,
         _: BridgeProductAdmissionContext,
-        _: BridgePaneRefreshWorkAdmission
+        _: BridgePaneRefreshWorkAdmission,
+        operationCorrelationID _: String,
+        operationStageAttempt _: Int
     ) -> BridgePaneProductFileRefreshPublicationDisposition {
         .notRequired
     }
@@ -368,6 +375,10 @@ private actor BridgePaneWorktreeRefreshDriverProbe {
         _: BridgeTraceContext?
     ) {
         presentations.append(snapshot)
+    }
+
+    func publishOperationLifecycle(_ event: BridgeOperationLifecycleTraceEvent) {
+        operationLifecycleEvents.append(event)
     }
 
     func waitForChangesetAttemptCount(_ expectedCount: Int) async {
@@ -399,14 +410,29 @@ private func makeRefreshDriver(
     BridgePaneWorktreeRefreshDriver(
         coordinator: coordinator,
         acquireProductAdmission: { productAdmission.context },
-        publishFileChangeset: { changeset, admission, foregroundWork in
-            await probe.publishChangeset(changeset, admission, foregroundWork)
+        publishFileChangeset: { changeset, admission, work, correlationID, attempt in
+            await probe.publishChangeset(
+                changeset,
+                admission,
+                work,
+                operationCorrelationID: correlationID,
+                operationStageAttempt: attempt
+            )
         },
-        publishFileStatus: { status, admission, foregroundWork in
-            await probe.publishStatus(status, admission, foregroundWork)
+        publishFileStatus: { status, admission, work, correlationID, attempt in
+            await probe.publishStatus(
+                status,
+                admission,
+                work,
+                operationCorrelationID: correlationID,
+                operationStageAttempt: attempt
+            )
         },
         publishPresentation: { snapshot, traceContext in
             await probe.publishPresentation(snapshot, traceContext)
+        },
+        publishOperationLifecycle: { event in
+            await probe.publishOperationLifecycle(event)
         }
     )
 }

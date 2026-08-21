@@ -9,7 +9,12 @@ import type { BridgeWorkerReviewDisplayPatch } from './bridge-worker-contracts.j
 
 type ReviewMetadataIdentity = Pick<
 	BridgeProductReviewMetadataEvent,
-	'generation' | 'packageId' | 'publicationId' | 'revision' | 'sourceIdentity'
+	| 'generation'
+	| 'operationCorrelationId'
+	| 'packageId'
+	| 'publicationId'
+	| 'revision'
+	| 'sourceIdentity'
 >;
 type ReviewSnapshotEvent = Extract<
 	BridgeProductReviewMetadataEvent,
@@ -88,6 +93,7 @@ export function reviewIdentity(
 ): ReviewMetadataIdentity {
 	return {
 		generation,
+		operationCorrelationId: null,
 		packageId: `package-${label}`,
 		publicationId: reviewPublicationId(revision),
 		revision,
@@ -100,6 +106,7 @@ export function reviewReset(identity: ReviewMetadataIdentity): BridgeProductRevi
 		...identity,
 		comparisonOrigin: reviewComparisonOrigin,
 		eventKind: 'review.reset',
+		operationCorrelationId: null,
 		reason: 'sourceChanged',
 		reviewedSubjectLabel: 'feature/review-comments',
 	};
@@ -123,6 +130,7 @@ export function reviewSnapshot(
 		baseEndpoint: reviewEndpoint('base', 'gitRef'),
 		comparisonOrigin: reviewComparisonOrigin,
 		eventKind: 'review.snapshot',
+		operationCorrelationId: null,
 		headEndpoint: reviewEndpoint('head', 'workingTree'),
 		query: reviewQuery(),
 		reviewedSubjectLabel: 'feature/review-comments',
@@ -139,6 +147,7 @@ export function reviewWindow(
 	return {
 		...reviewPayload(identity, itemId, startIndex, totalItemCount, finalWindow),
 		eventKind: 'review.window',
+		operationCorrelationId: null,
 	};
 }
 
@@ -150,6 +159,7 @@ export function reviewDelta(
 		...identity,
 		contentSources: [],
 		eventKind: 'review.delta',
+		operationCorrelationId: null,
 		fromRevision: identity.revision,
 		operations: [],
 		presentationRevision: toRevision,
@@ -169,6 +179,7 @@ export function reviewInvalidated(identity: ReviewMetadataIdentity): ReviewInval
 	return {
 		...identity,
 		eventKind: 'review.invalidated',
+		operationCorrelationId: null,
 		itemIds: [],
 		pathHints: [],
 		reason: 'watchEvent',

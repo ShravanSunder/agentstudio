@@ -6,6 +6,12 @@ import Testing
 
 @Suite(.serialized)
 final class AppPoliciesBridgeTests {
+    @Test("Bridge lifecycle diagnostics use a bounded observability-only window")
+    func bridgeLifecycleDiagnosticsUseBoundedPolicy() {
+        #expect(AppPolicies.Bridge.operationLifecycleTerminalWindow == .seconds(30))
+        #expect(AppPolicies.Bridge.operationLifecycleMaximumTrackedStageAttempts == 4096)
+    }
+
     @Test("Bridge content byte cache uses the approved 16 MiB per-item safety cap")
     func bridgeContentByteCacheUsesApprovedPerItemSafetyCap() {
         #expect(AppPolicies.Bridge.contentMaxBytesPerItem == 16 * 1024 * 1024)

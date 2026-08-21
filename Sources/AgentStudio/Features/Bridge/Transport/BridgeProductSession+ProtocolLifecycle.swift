@@ -48,6 +48,7 @@ extension BridgeProductSession {
     func enqueueSubscriptionData(
         subscriptionId: String,
         data: BridgeProductSubscriptionData,
+        operationCorrelationID: String? = nil,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) throws -> BridgeProductProducerEnqueueResult {
@@ -73,6 +74,7 @@ extension BridgeProductSession {
                                 streamSequence: streamSequence,
                                 subscription: dataCorrelation,
                                 subscriptionSequence: subscriptionSequence,
+                                operationCorrelationID: operationCorrelationID,
                                 data: data
                             )
                         )

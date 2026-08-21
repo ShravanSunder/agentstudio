@@ -526,6 +526,8 @@ function createPanePresentationTestTransport(props: {
 				...publication,
 				fileRefreshFailure: null,
 				kind: 'pane.presentation',
+
+				operationCorrelationId: null,
 				metadataStreamId: 'metadata-stream-updating-chrome',
 				paneSessionId: 'pane-session-updating-chrome',
 				reviewComparison: publication.reviewComparison ?? null,
@@ -642,6 +644,7 @@ const currentFileSourceConfiguration = {
 
 const reviewSourceAcceptedEvent = {
 	eventKind: 'review.sourceAccepted',
+	operationCorrelationId: null,
 	generation: 1,
 	packageId: 'review-package-updating-chrome',
 	publicationId: '00000000-0000-7000-8000-000000000011',

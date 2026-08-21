@@ -158,6 +158,8 @@ function makePanePresentationFrame(
 	return {
 		fileRefreshFailure: null,
 		kind: 'pane.presentation',
+
+		operationCorrelationId: null,
 		metadataStreamId: 'metadata-stream-query-unit-test',
 		nativeActivity,
 		paneSessionId: 'pane-session-query-unit-test',

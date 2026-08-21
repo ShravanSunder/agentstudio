@@ -225,6 +225,8 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 				fileRefreshFailure: null,
 				presentationRevision: 1,
 				kind: 'pane.presentation',
+
+				operationCorrelationId: null,
 				metadataStreamId: 'review-product-test-metadata-stream',
 				nativeActivity: 'foreground',
 				paneSessionId: 'review-product-test-pane-session',
@@ -380,6 +382,7 @@ function reviewProductSnapshotFromRuntimeSource(
 		},
 		contentSources,
 		eventKind: 'review.snapshot',
+		operationCorrelationId: null,
 		extentFacts,
 		generation,
 		headEndpoint: {
@@ -526,6 +529,7 @@ function reviewProductDeltaBetweenSnapshots(
 	return bridgeProductReviewMetadataEventSchema.parse({
 		contentSources: changedContentSources,
 		eventKind: 'review.delta',
+		operationCorrelationId: null,
 		fromRevision: previousSnapshot.revision,
 		generation: nextSnapshot.generation,
 		operations,

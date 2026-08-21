@@ -121,6 +121,7 @@ const feasibilityContentRequest = {
 	},
 	kind: 'content.open',
 	leaseId: 's2a-content-lease',
+	operationCorrelationId: null,
 	paneSessionId: 's2a-pane-session',
 	wireVersion: 2,
 	workerDerivationEpoch: 1,

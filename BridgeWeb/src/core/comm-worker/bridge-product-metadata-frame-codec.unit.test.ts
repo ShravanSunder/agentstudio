@@ -125,6 +125,8 @@ describe('Bridge product metadata frame decoder', () => {
 				interestRevision: 0,
 				interestSha256: annotationInterestSha256,
 				kind: 'subscription.data',
+
+				operationCorrelationId: null,
 				sourceGeneration: 1,
 				streamSequence: 1,
 				subscriptionId: 'file-annotations-subscription',
@@ -142,6 +144,8 @@ describe('Bridge product metadata frame decoder', () => {
 				interestRevision: 0,
 				interestSha256: annotationInterestSha256,
 				kind: 'subscription.data',
+
+				operationCorrelationId: null,
 				sourceGeneration: 1,
 				streamSequence: 2,
 				subscriptionId: 'review-annotations-subscription',
@@ -263,6 +267,8 @@ describe('Bridge product metadata frame decoder', () => {
 				interestRevision: 0,
 				interestSha256: fileInterestSha256,
 				kind: 'subscription.data',
+
+				operationCorrelationId: null,
 				sourceGeneration: 11,
 				streamSequence: 4,
 				subscriptionId: 'file-subscription-epoch-2',
@@ -276,6 +282,7 @@ describe('Bridge product metadata frame decoder', () => {
 				data: {
 					event: {
 						eventKind: 'review.sourceAccepted',
+						operationCorrelationId: null,
 						generation: 7,
 						packageId: 'review-package-1',
 						publicationId: '00000000-0000-7000-8000-000000000001',
@@ -287,6 +294,8 @@ describe('Bridge product metadata frame decoder', () => {
 				interestRevision: 0,
 				interestSha256: reviewInterestSha256,
 				kind: 'subscription.data',
+
+				operationCorrelationId: null,
 				sourceGeneration: 7,
 				streamSequence: 5,
 				subscriptionId: 'review-subscription-epoch-7',

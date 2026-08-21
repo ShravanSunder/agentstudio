@@ -9,6 +9,7 @@ import type { BridgeWorkerServerToMainMessage } from './bridge-worker-contracts.
 export interface BridgeCommWorkerReviewMetadataApplication {
 	readonly affectedItemIds: readonly string[];
 	readonly affectedRowIds: readonly string[];
+	readonly operationCorrelationId?: string | null;
 	readonly completeContentItemIds?: readonly string[];
 	readonly completeRowIds?: readonly string[];
 	readonly projectionRevision: number;

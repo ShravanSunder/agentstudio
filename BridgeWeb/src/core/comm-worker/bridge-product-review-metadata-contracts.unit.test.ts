@@ -10,6 +10,7 @@ import { bridgeProductMetadataFrameSchema } from './bridge-product-session-contr
 
 const reviewSourceIdentity = {
 	eventKind: 'review.sourceAccepted',
+	operationCorrelationId: null,
 	generation: 7,
 	packageId: 'review-package-1',
 	publicationId: '00000000-0000-7000-8000-000000000011',
@@ -106,6 +107,7 @@ describe('Bridge product Review metadata contracts', () => {
 			},
 			contentSources: [reviewContentSource],
 			eventKind: 'review.snapshot',
+			operationCorrelationId: null,
 			extentFacts: [{ contentRole: 'head', itemId: 'review-item-1', lineCount: 3 }],
 			headEndpoint: {
 				createdAtUnixMilliseconds: 2,
@@ -273,6 +275,7 @@ describe('Bridge product Review metadata contracts', () => {
 			bridgeProductReviewMetadataEventSchema.parse({
 				contentSources: snapshot.contentSources,
 				eventKind: 'review.window',
+				operationCorrelationId: null,
 				extentFacts: snapshot.extentFacts,
 				generation: snapshot.generation,
 				itemMetadata: snapshot.itemMetadata,
@@ -303,6 +306,7 @@ describe('Bridge product Review metadata contracts', () => {
 				...reviewSourceIdentity,
 				contentSources: [],
 				eventKind: 'review.delta',
+				operationCorrelationId: null,
 				fromRevision: 10,
 				operations: [
 					{
@@ -323,6 +327,7 @@ describe('Bridge product Review metadata contracts', () => {
 				...reviewSourceIdentity,
 				contentSources: [],
 				eventKind: 'review.delta',
+				operationCorrelationId: null,
 				fromRevision: 10,
 				operations: [
 					{
@@ -339,6 +344,7 @@ describe('Bridge product Review metadata contracts', () => {
 				...reviewSourceIdentity,
 				comparisonOrigin: snapshot.comparisonOrigin,
 				eventKind: 'review.reset',
+				operationCorrelationId: null,
 				reason: 'sourceChanged',
 				reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
 			}),
@@ -362,6 +368,8 @@ describe('Bridge product Review metadata contracts', () => {
 			interestRevision: 1,
 			interestSha256: 'a'.repeat(64),
 			kind: 'subscription.data',
+
+			operationCorrelationId: null,
 			metadataStreamId: 'metadata-stream-1',
 			paneSessionId: 'pane-session-1',
 			sourceGeneration: 7,
@@ -399,6 +407,7 @@ describe('Bridge product Review metadata contracts', () => {
 			bridgeProductReviewMetadataEventSchema.parse({
 				...reviewSourceIdentity,
 				eventKind: 'review.snapshot',
+				operationCorrelationId: null,
 				resourceUrl: 'agentstudio://resource/review/content/legacy',
 				selectedItemId: 'review-item-1',
 			}),

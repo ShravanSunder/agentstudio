@@ -297,32 +297,25 @@ package final class BridgePaneController {
     ) -> BridgePaneWorktreeRefreshDriver {
         let productProvider = productSessionDependencies.productProvider
         let productAdmissionGate = productSessionDependencies.owner.productAdmissionGate
+        let publishFileChangeset =
+            productProvider?.publishFileChangeset ?? rejectUnavailableBridgeFileChangeset
+        let publishFileStatus =
+            productProvider?.publishFileStatus ?? rejectUnavailableBridgeFileStatus
         return BridgePaneWorktreeRefreshDriver(
             coordinator: coordinator,
             acquireProductAdmission: {
                 productAdmissionGate.acquire()
             },
-            publishFileChangeset: { changeset, productAdmission, foregroundWorkAdmission in
-                guard let productProvider else { return .notRequired }
-                return await productProvider.publishFileChangeset(
-                    changeset,
-                    productAdmission: productAdmission,
-                    foregroundWorkAdmission: foregroundWorkAdmission
-                )
-            },
-            publishFileStatus: { status, productAdmission, foregroundWorkAdmission in
-                guard let productProvider else { return .notRequired }
-                return await productProvider.publishFileStatus(
-                    status,
-                    productAdmission: productAdmission,
-                    foregroundWorkAdmission: foregroundWorkAdmission
-                )
-            },
+            publishFileChangeset: publishFileChangeset,
+            publishFileStatus: publishFileStatus,
             publishPresentation: { snapshot, traceContext in
                 await productProvider?.publishPanePresentation(
                     snapshot,
                     traceContext: traceContext
                 )
+            },
+            publishOperationLifecycle: { event in
+                await productProvider?.recordOperationLifecycle(event)
             }
         )
     }
@@ -782,6 +775,26 @@ package final class BridgePaneController {
         }
     }
 
+}
+
+private func rejectUnavailableBridgeFileChangeset(
+    _: FileChangeset,
+    _: BridgeProductAdmissionContext,
+    _: BridgePaneRefreshWorkAdmission,
+    _: String,
+    _: Int
+) async -> BridgePaneProductFileRefreshPublicationDisposition {
+    .notRequired
+}
+
+private func rejectUnavailableBridgeFileStatus(
+    _: GitWorkingTreeStatus,
+    _: BridgeProductAdmissionContext,
+    _: BridgePaneRefreshWorkAdmission,
+    _: String,
+    _: Int
+) async -> BridgePaneProductFileRefreshPublicationDisposition {
+    .notRequired
 }
 
 extension BridgePaneController {

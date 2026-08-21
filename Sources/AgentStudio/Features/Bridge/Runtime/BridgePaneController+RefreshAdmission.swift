@@ -19,6 +19,27 @@ package enum BridgePaneWorktreeProductInvalidation: Sendable {
 
 @MainActor
 extension BridgePaneController {
+    func admitPreparedReviewPackageRefresh(
+        currentPublication: BridgeReviewCommittedPublication,
+        refreshGeneration: BridgeReviewGeneration,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        productAdmission: BridgeProductAdmissionContext,
+        reservation: BridgePaneRefreshCatchUpReservation,
+        packageTraceContext: BridgeTraceContext?
+    ) -> Bool {
+        !Task.isCancelled
+            && foregroundWorkAdmission.withValidAdmission({ true }) == true
+            && refreshAdmissionCoordinator.isRefreshPassCurrent(reservation)
+            && refreshGeneration == nextReviewGeneration
+            && reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )?.publicationId == currentPublication.publicationId
+            && productAdmission.withValidAdmission({
+                lastReviewPackageTraceContext = packageTraceContext
+                return true
+            }) == true
+    }
+
     @discardableResult
     package func applyBridgePaneActivity(_ activity: BridgePaneActivity) -> Task<Void, Never>? {
         let previousActivity = refreshAdmissionCoordinator.diagnosticSnapshot.activity
@@ -141,8 +162,36 @@ extension BridgePaneController {
             guard let self else { return }
             var reservation: BridgePaneRefreshCatchUpReservation? = firstReservation
             var finalOutcome = BridgePaneRefreshCatchUpOutcome.stale
-            while let currentReservation = reservation, !Task.isCancelled {
+            while let currentReservation = reservation {
+                await self.productSchemeProvider?.recordOperationLifecycle(
+                    operationCorrelationID: currentReservation.operationCorrelationID,
+                    result: .success,
+                    stage: .refreshReserved,
+                    stageAttempt: currentReservation.operationStageAttempt,
+                    surface: .review
+                )
+                await self.productSchemeProvider?.recordOperationLifecycle(
+                    operationCorrelationID: currentReservation.operationCorrelationID,
+                    result: .started,
+                    stage: .reviewPrepareStarted,
+                    stageAttempt: currentReservation.operationStageAttempt,
+                    surface: .review
+                )
                 let outcome = await self.performReviewCatchUp(currentReservation)
+                await self.productSchemeProvider?.recordOperationLifecycle(
+                    operationCorrelationID: currentReservation.operationCorrelationID,
+                    result: Self.operationResult(for: outcome),
+                    stage: .reviewPrepareTerminal,
+                    stageAttempt: currentReservation.operationStageAttempt,
+                    surface: .review
+                )
+                await self.productSchemeProvider?.recordOperationLifecycle(
+                    operationCorrelationID: currentReservation.operationCorrelationID,
+                    result: Self.operationResult(for: outcome),
+                    stage: .refreshOperationTerminal,
+                    stageAttempt: currentReservation.operationStageAttempt,
+                    surface: .review
+                )
                 finalOutcome = outcome
                 self.refreshAdmissionCoordinator.completeRefreshPass(
                     currentReservation,
@@ -192,5 +241,18 @@ extension BridgePaneController {
             foregroundWorkAdmission: reservation.foregroundWorkAdmission,
             productAdmission: productAdmission
         )
+    }
+
+    private static func operationResult(
+        for outcome: BridgePaneRefreshCatchUpOutcome
+    ) -> BridgeOperationLifecycleTraceEvent.Result {
+        switch outcome {
+        case .succeeded:
+            .success
+        case .failed:
+            .failure
+        case .stale, .streamReset:
+            .stale
+        }
     }
 }

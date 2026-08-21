@@ -505,6 +505,7 @@ const bridgeProductContentRequestBaseShape = {
 	contentRequestId: bridgeProductIdentifierSchema,
 	kind: z.literal('content.open'),
 	leaseId: bridgeProductIdentifierSchema,
+	operationCorrelationId: bridgeProductSha256Schema.nullable(),
 	paneSessionId: bridgeProductIdentifierSchema,
 	wireVersion: z.literal(BRIDGE_PRODUCT_WIRE_VERSION),
 	workerDerivationEpoch: bridgeProductNonnegativeSequenceSchema,
@@ -553,6 +554,7 @@ const bridgeProductContentAcceptedBodyShape = {
 	contentRequestId: bridgeProductIdentifierSchema,
 	identity: bridgeProductContentIdentitySchema,
 	leaseId: bridgeProductIdentifierSchema,
+	operationCorrelationId: bridgeProductSha256Schema.nullable(),
 	paneSessionId: bridgeProductIdentifierSchema,
 	wireVersion: z.literal(BRIDGE_PRODUCT_WIRE_VERSION),
 	workerDerivationEpoch: bridgeProductNonnegativeSequenceSchema,
@@ -659,12 +661,14 @@ export const bridgeProductContentDataHeaderSchema = z
 		offsetBytes: bridgeProductNonnegativeSequenceSchema.max(
 			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
 		),
+		operationCorrelationId: bridgeProductSha256Schema.nullable(),
 	})
 	.strict();
 
 export const bridgeProductContentEndBodySchema = z
 	.object({
 		endOfSource: z.boolean(),
+		operationCorrelationId: bridgeProductSha256Schema.nullable(),
 		observedByteLength: bridgeProductNonnegativeSequenceSchema.max(
 			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
 		),
@@ -680,6 +684,7 @@ export const bridgeProductContentEndHeaderSchema = bridgeProductContentEndBodySc
 export const bridgeProductContentErrorBodySchema = z
 	.object({
 		code: bridgeProductRequestErrorCodeSchema,
+		operationCorrelationId: bridgeProductSha256Schema.nullable(),
 		retryable: z.boolean(),
 		safeMessage: bridgeProductSafeMessageSchema.nullable(),
 	})
@@ -694,6 +699,7 @@ export const bridgeProductContentErrorHeaderSchema = bridgeProductContentErrorBo
 
 export const bridgeProductContentResetBodySchema = z
 	.object({
+		operationCorrelationId: bridgeProductSha256Schema.nullable(),
 		reason: bridgeProductResetReasonSchema,
 	})
 	.strict();

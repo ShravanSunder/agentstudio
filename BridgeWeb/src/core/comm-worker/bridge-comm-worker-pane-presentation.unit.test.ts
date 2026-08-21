@@ -281,6 +281,8 @@ function makePanePresentationFrame(
 	return {
 		fileRefreshFailure,
 		kind: 'pane.presentation',
+
+		operationCorrelationId: null,
 		metadataStreamId: 'metadata-stream-pane-presentation-unit-test',
 		nativeActivity,
 		paneSessionId: 'pane-session-pane-presentation-unit-test',

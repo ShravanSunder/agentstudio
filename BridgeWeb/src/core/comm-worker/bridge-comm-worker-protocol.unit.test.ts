@@ -238,6 +238,7 @@ function reviewQueuedRenderDispositionReceipt(): BridgeWorkerRenderDispositionCo
 		disposition: 'queued' as const,
 		itemId: 'item-1',
 		kind: 'render.disposition' as const,
+		operationCorrelationId: null,
 		paneSessionId: 'pane-session-1',
 		publicationId: 'publication-review-8',
 		publicationSequence: 8,

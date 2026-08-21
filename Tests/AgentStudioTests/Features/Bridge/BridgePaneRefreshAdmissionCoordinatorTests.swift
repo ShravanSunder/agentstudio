@@ -485,6 +485,13 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         #expect(!reservation.requiresReviewRefresh)
         #expect(reviewReservation.lanes == [.review])
         #expect(reviewReservation.requiresReviewRefresh)
+        #expect(reservation.operationCorrelationID.count == 64)
+        #expect(reviewReservation.operationCorrelationID.count == 64)
+        #expect(reservation.operationCorrelationID != reviewReservation.operationCorrelationID)
+        #expect(
+            coordinator.productPresentationSnapshot.operationCorrelationID
+                == reviewReservation.operationCorrelationID
+        )
         #expect(thirdForegroundReservation == nil)
         #expect(coordinator.diagnosticSnapshot.activeRefreshPass?.id == reservation.id)
         #expect(coordinator.productPresentationSnapshot.refreshingLanes == [.file, .review])
@@ -542,6 +549,8 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         // Assert — late predecessors cannot clear 12 or restore their facts over it.
         #expect(operation10.authorityGeneration < operation11.authorityGeneration)
         #expect(operation11.authorityGeneration < operation12.authorityGeneration)
+        #expect(operation10.operationCorrelationID != operation11.operationCorrelationID)
+        #expect(operation11.operationCorrelationID != operation12.operationCorrelationID)
         #expect(!coordinator.isRefreshPassCurrent(operation10))
         #expect(!coordinator.isRefreshPassCurrent(operation11))
         #expect(coordinator.isRefreshPassCurrent(operation12))

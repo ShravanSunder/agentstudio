@@ -118,7 +118,7 @@ const invalidStartupTranscriptSchema = z
 
 const frozenFixtureHashes = {
 	invalid: '78da34fabc8fdfeb2316df0b21e819691ea2bb4e861a74cbee3270231d6494c8',
-	valid: '10331eb3c39f7ff25da92c8cdae394446bc7b11fb7b3be25d7bbf94260862173',
+	valid: 'a5556acd203621f3be1d48881b96a198385744cf85cb729832d3929a6688f4c3',
 } as const;
 
 describe('Bridge product startup transcript', () => {

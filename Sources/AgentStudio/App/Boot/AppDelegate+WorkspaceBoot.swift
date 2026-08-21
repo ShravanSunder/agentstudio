@@ -266,7 +266,8 @@ extension AppDelegate {
             sqliteAdapter: WorktreeAnnotationSQLiteDatastoreAdapter(
                 workspaceID: store.identityAtom.workspaceId,
                 datastore: sqliteDatastore
-            )
+            ),
+            traceRuntime: traceRuntime
         )
         worktreeAnnotationOutputCoordinator = WorktreeAnnotationOutputCoordinatorActor(
             store: worktreeAnnotationStore,

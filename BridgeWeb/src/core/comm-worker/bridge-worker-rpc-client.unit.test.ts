@@ -461,6 +461,7 @@ function makeReviewRenderDispositionCommandInput(): BridgeWorkerRpcCommandInput 
 			disposition: 'queued',
 			itemId: 'item-1',
 			kind: 'render.disposition',
+			operationCorrelationId: null,
 			paneSessionId: 'pane-session-1',
 			publicationId: 'publication-review-8',
 			publicationSequence: 8,

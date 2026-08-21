@@ -600,6 +600,8 @@ acceptMetadataFrame({
 	interestRevision: 1,
 	interestSha256: '2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd',
 	kind: 'subscription.data',
+
+	operationCorrelationId: null,
 	metadataStreamId: 'metadata-stream-1',
 	paneSessionId: 'pane-session-1',
 	sourceGeneration: 1,

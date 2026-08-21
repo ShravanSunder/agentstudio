@@ -6,25 +6,122 @@ extension BridgePaneProductSchemeProvider {
     func publishFileStatus(
         _ status: GitWorkingTreeStatus,
         productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        operationCorrelationID: String,
+        operationStageAttempt: Int
     ) async -> BridgePaneProductFileRefreshPublicationDisposition {
-        await metadataCoordinator.publish(
+        await recordOperationLifecycle(
+            operationCorrelationID: operationCorrelationID,
+            result: .started,
+            stage: .filePrepareStarted,
+            stageAttempt: operationStageAttempt,
+            surface: .file
+        )
+        await recordOperationLifecycle(
+            operationCorrelationID: operationCorrelationID,
+            result: .started,
+            stage: .metadataEnqueueStarted,
+            stageAttempt: operationStageAttempt,
+            surface: .file
+        )
+        let disposition = await metadataCoordinator.publish(
             status: status,
             productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission
+            foregroundWorkAdmission: foregroundWorkAdmission,
+            operationCorrelationID: operationCorrelationID
         )
+        await recordOperationLifecycle(
+            operationCorrelationID: operationCorrelationID,
+            result: Self.operationResult(for: disposition),
+            stage: .metadataEnqueueTerminal,
+            stageAttempt: operationStageAttempt,
+            surface: .file
+        )
+        await recordOperationLifecycle(
+            operationCorrelationID: operationCorrelationID,
+            result: Self.operationResult(for: disposition),
+            stage: .filePrepareTerminal,
+            stageAttempt: operationStageAttempt,
+            surface: .file
+        )
+        return disposition
     }
 
     func publishFileChangeset(
         _ changeset: FileChangeset,
         productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        operationCorrelationID: String,
+        operationStageAttempt: Int
     ) async -> BridgePaneProductFileRefreshPublicationDisposition {
-        await metadataCoordinator.publish(
+        await recordOperationLifecycle(
+            operationCorrelationID: operationCorrelationID,
+            result: .started,
+            stage: .filePrepareStarted,
+            stageAttempt: operationStageAttempt,
+            surface: .file
+        )
+        await recordOperationLifecycle(
+            operationCorrelationID: operationCorrelationID,
+            result: .started,
+            stage: .metadataEnqueueStarted,
+            stageAttempt: operationStageAttempt,
+            surface: .file
+        )
+        let disposition = await metadataCoordinator.publish(
             changeset: changeset,
             productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission
+            foregroundWorkAdmission: foregroundWorkAdmission,
+            operationCorrelationID: operationCorrelationID
         )
+        await recordOperationLifecycle(
+            operationCorrelationID: operationCorrelationID,
+            result: Self.operationResult(for: disposition),
+            stage: .metadataEnqueueTerminal,
+            stageAttempt: operationStageAttempt,
+            surface: .file
+        )
+        await recordOperationLifecycle(
+            operationCorrelationID: operationCorrelationID,
+            result: Self.operationResult(for: disposition),
+            stage: .filePrepareTerminal,
+            stageAttempt: operationStageAttempt,
+            surface: .file
+        )
+        return disposition
+    }
+
+    func recordOperationLifecycle(
+        operationCorrelationID: String,
+        result: BridgeOperationLifecycleTraceEvent.Result,
+        stage: BridgeOperationLifecycleTraceEvent.Stage,
+        stageAttempt: Int,
+        surface: BridgeProductSurface
+    ) async {
+        await metadataCoordinator.recordOperationLifecycle(
+            operationCorrelationID: operationCorrelationID,
+            result: result,
+            stage: stage,
+            stageAttempt: stageAttempt,
+            surface: surface
+        )
+    }
+
+    func recordOperationLifecycle(_ event: BridgeOperationLifecycleTraceEvent) async {
+        await metadataCoordinator.recordOperationLifecycle(event)
+    }
+
+    private static func operationResult(
+        for disposition: BridgePaneProductFileRefreshPublicationDisposition
+    ) -> BridgeOperationLifecycleTraceEvent.Result {
+        switch disposition {
+        case .applied, .notRequired:
+            .success
+        case .failed:
+            .failure
+        case .stale, .streamResetRequired:
+            .stale
+        }
     }
 
     func resetCurrentReviewSubscriptionsForUnavailableSource(

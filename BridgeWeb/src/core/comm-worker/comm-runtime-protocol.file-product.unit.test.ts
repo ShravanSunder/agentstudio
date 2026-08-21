@@ -237,6 +237,7 @@ describe('Bridge comm worker File product runtime', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		reviewEvents.push({
 			eventKind: 'review.sourceAccepted',
+			operationCorrelationId: null,
 			generation: 1,
 			packageId: 'review-package-cross-surface-store-isolation',
 			publicationId: '00000000-0000-7000-8000-000000000001',
@@ -281,6 +282,7 @@ describe('Bridge comm worker File product runtime', () => {
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const updatedInterests: unknown[] = [];
 		const openedDescriptorIds: string[] = [];
+		const operationLifecycleSamples: BridgeTelemetrySample[] = [];
 		let sourceDiscoveryCount = 0;
 		const createdSequences: number[] = [];
 		let nextSequence = 100;
@@ -316,6 +318,11 @@ describe('Bridge comm worker File product runtime', () => {
 			productTransport,
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
+			},
+			telemetryClient: {
+				record: (sample): void => {
+					operationLifecycleSamples.push(sample);
+				},
 			},
 		});
 
@@ -459,6 +466,20 @@ describe('Bridge comm worker File product runtime', () => {
 				requestId: 'request-production-stamped-file-queued',
 			}),
 		);
+		for (const disposition of ['applied', 'painted'] as const) {
+			dispatch.message(
+				encodeBridgeWorkerRenderDispositionCommand({
+					epoch: fileRenderPublication.workerDerivationEpoch,
+					receipt: bridgeWorkerRenderDispositionReceiptSchema.parse({
+						...fileRenderPublication.renderReceiptIdentity,
+						disposition,
+						kind: 'render.disposition',
+						receivedAtMilliseconds: 0,
+					}),
+					requestId: `request-production-stamped-file-${disposition}`,
+				}),
+			);
+		}
 		expect(
 			postedMessages.find(
 				({ message }) =>
@@ -466,6 +487,39 @@ describe('Bridge comm worker File product runtime', () => {
 					message.requestId === 'request-production-stamped-file-queued',
 			)?.message,
 		).toMatchObject({ status: 'ready' });
+		const selectedOperationSamples = operationLifecycleSamples.filter(
+			(sample) => sample.name === 'performance.bridge.web.operation_lifecycle',
+		);
+		const operationCorrelationIds = new Set(
+			selectedOperationSamples.map(
+				(sample) => sample.stringAttributes['agentstudio.bridge.operation.id'],
+			),
+		);
+		expect(operationCorrelationIds.size).toBe(1);
+		expect([...operationCorrelationIds][0]).toMatch(/^[0-9a-f]{64}$/);
+		expect(
+			selectedOperationSamples.map((sample) => sample.stringAttributes['agentstudio.bridge.phase']),
+		).toEqual([
+			'worker_application_started',
+			'file_content_operation_started',
+			'file_descriptor_wait_started',
+			'file_descriptor_wait_terminal',
+			'content_operation_started',
+			'content_operation_terminal',
+			'render_operation_started',
+			'main_thread_install_started',
+			'paint_fulfillment_started',
+			'main_thread_install_terminal',
+			'render_operation_terminal',
+			'paint_fulfillment_terminal',
+			'file_content_operation_terminal',
+			'worker_application_terminal',
+		]);
+		expect(
+			selectedOperationSamples.every(
+				(sample) => sample.numericAttributes['agentstudio.bridge.stage.attempt'] === 0,
+			),
+		).toBe(true);
 	});
 
 	test('does not replay completed File preparation when native foreground returns to Review', async () => {

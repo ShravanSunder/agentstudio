@@ -68,6 +68,7 @@ describe('Bridge product annotation output contracts', () => {
 			descriptor: markdownDescriptor,
 			kind: 'content.open',
 			leaseId: 'annotation-output-lease-1',
+			operationCorrelationId: null,
 			paneSessionId: 'pane-session-1',
 			wireVersion: 2,
 			workerDerivationEpoch: 0,

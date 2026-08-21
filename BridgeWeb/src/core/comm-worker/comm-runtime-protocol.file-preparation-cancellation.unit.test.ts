@@ -645,6 +645,8 @@ function makePanePresentationFrame(
 		fileRefreshFailure: null,
 		presentationRevision,
 		kind: 'pane.presentation',
+
+		operationCorrelationId: null,
 		metadataStreamId: 'metadata-stream-file-preparation-cancellation',
 		nativeActivity,
 		paneSessionId: 'pane-session-file-preparation-cancellation',

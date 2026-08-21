@@ -51,6 +51,40 @@ describe('Bridge product content frame decoder', () => {
 		expect(finalFrames).toEqual([contentDataFrame(), contentEndFrame()]);
 	});
 
+	test('round-trips the exact selected-content correlation on every binary frame kind', () => {
+		const operationCorrelationId = 'a'.repeat(64);
+		const accepted = {
+			...contentAcceptedFrame(),
+			header: { ...contentAcceptedFrame().header, operationCorrelationId },
+		};
+		const request = {
+			...contentRequestForAccepted(accepted),
+			operationCorrelationId,
+		};
+		const frames = [
+			accepted,
+			{
+				...contentDataFrame(),
+				header: { ...contentDataFrame().header, operationCorrelationId },
+			},
+			{
+				...contentEndFrame(),
+				header: { ...contentEndFrame().header, operationCorrelationId },
+			},
+		];
+		const encoder = new BridgeProductContentFrameEncoder(request);
+		const decoder = new BridgeProductContentFrameDecoder();
+
+		const decoded = decoder.push(concatenateBytes(...frames.map((frame) => encoder.encode(frame))));
+		decoder.finish();
+
+		expect(decoded.map((frame) => frame.header.operationCorrelationId)).toEqual([
+			operationCorrelationId,
+			operationCorrelationId,
+			operationCorrelationId,
+		]);
+	});
+
 	test('continues an admitted old-epoch lifecycle after the File derivation floor advances', () => {
 		const acceptedFixture = contentAcceptedFrame();
 		const admittedAcceptedFrame = {
@@ -63,6 +97,7 @@ describe('Bridge product content frame decoder', () => {
 				kind: 'content.accepted',
 				leaseId: acceptedFixture.header.leaseId,
 				maximumBytes: acceptedFixture.header.maximumBytes,
+				operationCorrelationId: null,
 				paneSessionId: acceptedFixture.header.paneSessionId,
 				wireVersion: 2,
 				workerDerivationEpoch: 2,
@@ -181,7 +216,7 @@ describe('Bridge product content frame decoder', () => {
 		const decoder = new BridgeProductContentFrameDecoder();
 
 		expect(() => decoder.push(concatenateBytes(accepted, retiredHeaderLengthDataFrame))).toThrow(
-			/sequence|offset|invalid/iu,
+			/sequence|offset|invalid|payload/iu,
 		);
 		expect(decoder.diagnostics).toMatchObject({ emittedFrameCount: 0, state: 'poisoned' });
 	});

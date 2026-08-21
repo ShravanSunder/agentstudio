@@ -140,36 +140,7 @@ package actor BridgeDevelopmentProductHost {
         self.productProvider = productPreparation.productProvider
         self.productSessionOwner = productPreparation.productSessionOwner
         self.refreshAdmissionCoordinator = productPreparation.refreshAdmissionCoordinator
-        let preparedProductProvider = productPreparation.productProvider
-        let preparedProductAdmissionGate = productPreparation.productAdmissionGate
-        self.worktreeRefreshDriver = await MainActor.run {
-            BridgePaneWorktreeRefreshDriver(
-                coordinator: productPreparation.refreshAdmissionCoordinator,
-                acquireProductAdmission: {
-                    preparedProductAdmissionGate.acquire()
-                },
-                publishFileChangeset: { changeset, productAdmission, foregroundWorkAdmission in
-                    await preparedProductProvider.publishFileChangeset(
-                        changeset,
-                        productAdmission: productAdmission,
-                        foregroundWorkAdmission: foregroundWorkAdmission
-                    )
-                },
-                publishFileStatus: { status, productAdmission, foregroundWorkAdmission in
-                    await preparedProductProvider.publishFileStatus(
-                        status,
-                        productAdmission: productAdmission,
-                        foregroundWorkAdmission: foregroundWorkAdmission
-                    )
-                },
-                publishPresentation: { snapshot, traceContext in
-                    await preparedProductProvider.publishPanePresentation(
-                        snapshot,
-                        traceContext: traceContext
-                    )
-                }
-            )
-        }
+        self.worktreeRefreshDriver = await Self.makeWorktreeRefreshDriver(productPreparation)
         self.repoId = repoId
         self.reviewedSubjectLabel = source.reviewedSubjectLabel
         self.reviewContentLoaderCache = productPreparation.reviewContentLoaderCache
@@ -190,6 +161,30 @@ package actor BridgeDevelopmentProductHost {
             committedCallTarget: productPreparation.committedCallTarget,
             fileMetadataSource: productPreparation.fileMetadataSource
         )
+    }
+
+    private static func makeWorktreeRefreshDriver(
+        _ preparation: BridgeDevelopmentProductProviderPreparation
+    ) async -> BridgePaneWorktreeRefreshDriver {
+        let productProvider = preparation.productProvider
+        let productAdmissionGate = preparation.productAdmissionGate
+        return await MainActor.run {
+            BridgePaneWorktreeRefreshDriver(
+                coordinator: preparation.refreshAdmissionCoordinator,
+                acquireProductAdmission: { productAdmissionGate.acquire() },
+                publishFileChangeset: productProvider.publishFileChangeset,
+                publishFileStatus: productProvider.publishFileStatus,
+                publishPresentation: { snapshot, traceContext in
+                    await productProvider.publishPanePresentation(
+                        snapshot,
+                        traceContext: traceContext
+                    )
+                },
+                publishOperationLifecycle: { event in
+                    await productProvider.recordOperationLifecycle(event)
+                }
+            )
+        }
     }
 
     package func issueBootstrap(

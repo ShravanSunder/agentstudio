@@ -69,6 +69,28 @@ actor BridgePaneProductMetadataCoordinator {
     }
 
     var hasActiveStream: Bool { activeStream != nil }
+
+    func recordOperationLifecycle(
+        operationCorrelationID: String,
+        result: BridgeOperationLifecycleTraceEvent.Result,
+        stage: BridgeOperationLifecycleTraceEvent.Stage,
+        stageAttempt: Int,
+        surface: BridgeProductSurface
+    ) async {
+        await lifecycleTraceRecorder?.record(
+            .init(
+                operationCorrelationID: operationCorrelationID,
+                result: result,
+                stage: stage,
+                stageAttempt: stageAttempt,
+                surface: surface
+            )
+        )
+    }
+
+    func recordOperationLifecycle(_ event: BridgeOperationLifecycleTraceEvent) async {
+        await lifecycleTraceRecorder?.record(event)
+    }
     func install(
         request: BridgeProductMetadataStreamRequest,
         lease: BridgeProductProducerLease,
@@ -628,7 +650,8 @@ extension BridgePaneProductMetadataCoordinator {
     func publish(
         status: GitWorkingTreeStatus,
         productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        operationCorrelationID: String
     ) async -> BridgePaneProductFileRefreshPublicationDisposition {
         guard let activeStream else { return .notRequired }
         guard activeStream.productAdmission.matches(productAdmission),
@@ -650,6 +673,7 @@ extension BridgePaneProductMetadataCoordinator {
                 try await Self.enqueue(
                     event: emission.event,
                     subscriptionId: emission.subscriptionId,
+                    operationCorrelationID: operationCorrelationID,
                     productAdmission: productAdmission,
                     foregroundWorkAdmission: foregroundWorkAdmission,
                     session: activeStream.session
@@ -669,7 +693,8 @@ extension BridgePaneProductMetadataCoordinator {
     func publish(
         changeset: FileChangeset,
         productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        operationCorrelationID: String
     ) async -> BridgePaneProductFileRefreshPublicationDisposition {
         guard let activeStream else { return .notRequired }
         guard activeStream.productAdmission.matches(productAdmission),
@@ -698,6 +723,7 @@ extension BridgePaneProductMetadataCoordinator {
                 try await Self.enqueue(
                     event: emission.event,
                     subscriptionId: emission.subscriptionId,
+                    operationCorrelationID: operationCorrelationID,
                     productAdmission: productAdmission,
                     foregroundWorkAdmission: foregroundWorkAdmission,
                     session: activeStream.session

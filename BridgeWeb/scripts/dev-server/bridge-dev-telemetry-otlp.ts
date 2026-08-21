@@ -250,6 +250,7 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.interaction.sequence',
 	'agentstudio.bridge.review.generation',
 	'agentstudio.bridge.source.generation',
+	'agentstudio.bridge.stage.attempt',
 	'agentstudio.bridge.review.item_count',
 	'agentstudio.bridge.scroll.frame_gap.max_ms',
 	'agentstudio.bridge.scroll.frame_gap.over_16ms.count',
@@ -306,20 +307,46 @@ const bridgeDevTelemetryUnsafeValuePatterns = [
 const bridgeDevExplicitSafeTelemetryNames = new Set([
 	'performance.bridge.web.annotation_lifecycle',
 	'performance.bridge.web.comm_worker_session',
+	'performance.bridge.web.operation_lifecycle',
 ]);
 const bridgeDevExplicitSafeStringAttributePairs = new Set([
 	'agentstudio.bridge.phase\u0000annotation_invalidation_received',
+	'agentstudio.bridge.phase\u0000annotation_paint_started',
 	'agentstudio.bridge.phase\u0000annotation_paint_terminal',
+	'agentstudio.bridge.phase\u0000content_transfer_started',
+	'agentstudio.bridge.phase\u0000content_transfer_terminal',
+	'agentstudio.bridge.phase\u0000descriptor_claim_started',
+	'agentstudio.bridge.phase\u0000descriptor_claim_terminal',
 	'agentstudio.bridge.phase\u0000comm_worker_session_snapshot',
 	'agentstudio.bridge.phase\u0000main_thread_install_terminal',
+	'agentstudio.bridge.phase\u0000main_thread_install_started',
+	'agentstudio.bridge.phase\u0000metadata_delivery_started',
+	'agentstudio.bridge.phase\u0000metadata_delivery_terminal',
+	'agentstudio.bridge.phase\u0000native_annotation_work_started',
+	'agentstudio.bridge.phase\u0000native_annotation_work_terminal',
 	'agentstudio.bridge.phase\u0000projection_content_transfer_terminal',
 	'agentstudio.bridge.phase\u0000projection_convergence_started',
 	'agentstudio.bridge.phase\u0000projection_convergence_terminal',
 	'agentstudio.bridge.phase\u0000projection_query_started',
 	'agentstudio.bridge.phase\u0000projection_query_terminal',
+	'agentstudio.bridge.phase\u0000projection_store_started',
 	'agentstudio.bridge.phase\u0000projection_store_terminal',
+	'agentstudio.bridge.phase\u0000projection_validation_started',
 	'agentstudio.bridge.phase\u0000projection_validation_terminal',
+	'agentstudio.bridge.phase\u0000worker_application_started',
 	'agentstudio.bridge.phase\u0000worker_application_terminal',
+	'agentstudio.bridge.phase\u0000panel_chrome_publish_started',
+	'agentstudio.bridge.phase\u0000panel_chrome_publish_terminal',
+	'agentstudio.bridge.phase\u0000file_content_operation_started',
+	'agentstudio.bridge.phase\u0000file_content_operation_terminal',
+	'agentstudio.bridge.phase\u0000file_descriptor_wait_started',
+	'agentstudio.bridge.phase\u0000file_descriptor_wait_terminal',
+	'agentstudio.bridge.phase\u0000content_operation_started',
+	'agentstudio.bridge.phase\u0000content_operation_terminal',
+	'agentstudio.bridge.phase\u0000render_operation_started',
+	'agentstudio.bridge.phase\u0000render_operation_terminal',
+	'agentstudio.bridge.phase\u0000paint_fulfillment_started',
+	'agentstudio.bridge.phase\u0000paint_fulfillment_terminal',
 ]);
 
 export function bridgeDevTelemetryObservationIsSafe(
@@ -340,8 +367,12 @@ export function bridgeDevTelemetryObservationIsSafe(
 				return false;
 			}
 		}
-		for (const key of Object.keys(sample.numericAttributes)) {
-			if (!bridgeDevNumericAttributeKeys.has(key)) {
+		for (const [key, value] of Object.entries(sample.numericAttributes)) {
+			if (
+				!bridgeDevNumericAttributeKeys.has(key) ||
+				!Number.isFinite(value) ||
+				(key === 'agentstudio.bridge.stage.attempt' && (!Number.isSafeInteger(value) || value < 0))
+			) {
 				return false;
 			}
 		}

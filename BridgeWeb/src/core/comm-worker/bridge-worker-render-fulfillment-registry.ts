@@ -30,6 +30,7 @@ export interface CreateBridgeWorkerRenderFulfillmentRegistryProps {
 
 export interface BeginBridgeWorkerRenderPublicationProps {
 	readonly job: BridgeWorkerPierreRenderJob;
+	readonly operationCorrelationId?: string | null;
 	readonly publicationSequence: number;
 	readonly workerDerivationEpoch: number;
 }
@@ -91,10 +92,12 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		props: BeginBridgeWorkerRenderPublicationProps,
 	): BeginBridgeWorkerRenderPublicationResult {
 		const windowKey = bridgeWorkerRenderWindowKeyForJob(props.job);
+		const operationCorrelationId = props.operationCorrelationId ?? null;
 		let existingState = this.#fulfillmentByItemId.get(props.job.itemId) ?? null;
 		if (
 			existingState !== null &&
 			existingState.identity.windowKey === windowKey &&
+			existingState.operationCorrelationId === operationCorrelationId &&
 			existingState.workerDerivationEpoch === props.workerDerivationEpoch
 		) {
 			if (existingState.stage === 'retry_wait') {
@@ -123,11 +126,13 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		const publicationState =
 			existingState === null ||
 			existingState.identity.windowKey !== windowKey ||
+			existingState.operationCorrelationId !== operationCorrelationId ||
 			existingState.workerDerivationEpoch !== props.workerDerivationEpoch
 				? createBridgeWorkerRenderFulfillment({
 						...this.#context,
 						identity: Object.freeze({ windowKey }),
 						itemId: props.job.itemId,
+						operationCorrelationId,
 						publicationId: this.#createIdentifier('publication'),
 						publicationSequence: props.publicationSequence,
 						submissionId: this.#createIdentifier('submission'),
@@ -321,6 +326,7 @@ function activeBridgeWorkerRenderReceiptIdentity(
 		return Object.freeze({
 			attemptId: state.activeAttempt.attemptId,
 			itemId: state.itemId,
+			operationCorrelationId: state.operationCorrelationId,
 			paneSessionId: state.paneSessionId,
 			publicationId: state.publicationId,
 			publicationSequence: state.publicationSequence,
@@ -339,6 +345,7 @@ function activeBridgeWorkerRenderReceiptIdentity(
 		return Object.freeze({
 			attemptId: latestClosedAttempt.attemptId,
 			itemId: state.itemId,
+			operationCorrelationId: state.operationCorrelationId,
 			paneSessionId: state.paneSessionId,
 			publicationId: state.publicationId,
 			publicationSequence: state.publicationSequence,

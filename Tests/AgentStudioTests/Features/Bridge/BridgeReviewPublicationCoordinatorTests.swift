@@ -38,6 +38,7 @@ struct BridgeReviewPublicationCoordinatorTests {
         let candidateToken = try #require(
             coordinator.stage(
                 publicationB,
+                operationCorrelationID: String(repeating: "b", count: 64),
                 productAdmission: productAdmission.context
             )
         )
@@ -90,6 +91,7 @@ struct BridgeReviewPublicationCoordinatorTests {
         let candidateToken = try #require(
             coordinator.stage(
                 publicationB,
+                operationCorrelationID: String(repeating: "b", count: 64),
                 productAdmission: productAdmission.context
             )
         )
@@ -140,6 +142,7 @@ struct BridgeReviewPublicationCoordinatorTests {
         // Assert
         #expect(panePackageId == publicationB.package.packageId)
         #expect(committedPublication.package == publicationB.package)
+        #expect(committedPublication.operationCorrelationID == String(repeating: "b", count: 64))
         #expect(committedPublication.comparisonPresentationRevision == 23)
         #expect(committedPublication.reviewComparison == expectedComparison)
         #expect(deliveryOutcome == .committed(delivery: .transportAcknowledged))

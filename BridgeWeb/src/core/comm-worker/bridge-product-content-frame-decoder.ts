@@ -32,6 +32,9 @@ const bridgeProductContentFramePrefixByteLength =
 	bridgeProductContentFrameTagByteLength +
 	bridgeProductContentFrameSequenceByteLength;
 const bridgeProductContentDataOffsetByteLength = 4;
+const bridgeProductContentCorrelationByteLength = 32;
+const bridgeProductContentCorrelationEnvelopeByteLength =
+	1 + bridgeProductContentCorrelationByteLength;
 const bridgeProductContentFrameMinimumBodyByteLength =
 	bridgeProductContentFrameTagByteLength + bridgeProductContentFrameSequenceByteLength;
 
@@ -45,6 +48,7 @@ export class BridgeProductContentFrameDecoder {
 	#controlBodyBytes: BridgeProductFrameByteAccumulator | null = null;
 	#dataOffsetBytes: BridgeProductFrameByteAccumulator | null = null;
 	#dataOffsetValue: number | null = null;
+	#dataOperationCorrelationBytes: BridgeProductFrameByteAccumulator | null = null;
 	#dataPayloadBytes: BridgeProductFrameByteAccumulator | null = null;
 	#fixedPrefix = new BridgeProductFrameByteAccumulator(bridgeProductContentFramePrefixByteLength);
 	#frameByteLength: number | null = null;
@@ -214,7 +218,10 @@ export class BridgeProductContentFrameDecoder {
 
 		const tagBodyByteLength = frameByteLength - bridgeProductContentFrameMinimumBodyByteLength;
 		if (frameTag === 0x02) {
-			const payloadByteLength = tagBodyByteLength - bridgeProductContentDataOffsetByteLength;
+			const payloadByteLength =
+				tagBodyByteLength -
+				bridgeProductContentDataOffsetByteLength -
+				bridgeProductContentCorrelationEnvelopeByteLength;
 			if (
 				payloadByteLength <= 0 ||
 				payloadByteLength > BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES
@@ -226,6 +233,9 @@ export class BridgeProductContentFrameDecoder {
 			}
 			this.#dataOffsetBytes = new BridgeProductFrameByteAccumulator(
 				bridgeProductContentDataOffsetByteLength,
+			);
+			this.#dataOperationCorrelationBytes = new BridgeProductFrameByteAccumulator(
+				bridgeProductContentCorrelationEnvelopeByteLength,
 			);
 			this.#dataPayloadBytes = new BridgeProductFrameByteAccumulator(payloadByteLength);
 		} else {
@@ -253,7 +263,9 @@ export class BridgeProductContentFrameDecoder {
 	): { readonly frame: BridgeProductContentFrame | null; readonly sourceOffset: number } {
 		const frameTag = requireBridgeProductContentNumber(this.#frameTag, 'frame tag');
 		if (frameTag === 0x02) {
-			return this.#acceptDataOffset(chunk, sourceOffset);
+			return this.#dataOffsetBytes === null
+				? this.#acceptDataOperationCorrelation(chunk, sourceOffset)
+				: this.#acceptDataOffset(chunk, sourceOffset);
 		}
 		return this.#acceptControlBody(chunk, sourceOffset);
 	}
@@ -277,11 +289,32 @@ export class BridgeProductContentFrameDecoder {
 		}
 		this.#dataOffsetValue = offsetBytes.readUint32BigEndian(0);
 		this.#dataOffsetBytes = null;
+		this.#diagnosticsLedger.recordReleased(bridgeProductContentDataOffsetByteLength);
+		return { frame: null, sourceOffset: nextSourceOffset };
+	}
+
+	#acceptDataOperationCorrelation(
+		chunk: Uint8Array,
+		sourceOffset: number,
+	): { readonly frame: null; readonly sourceOffset: number } {
+		const correlationBytes = requireBridgeProductContentAccumulator(
+			this.#dataOperationCorrelationBytes,
+			'data operation correlation bytes',
+		);
+		const nextSourceOffset = this.#copyInto(
+			correlationBytes,
+			chunk,
+			sourceOffset,
+			bridgeProductContentCorrelationEnvelopeByteLength,
+		);
+		if (correlationBytes.byteLength < bridgeProductContentCorrelationEnvelopeByteLength) {
+			return { frame: null, sourceOffset: nextSourceOffset };
+		}
 		this.#fixedPrefix = new BridgeProductFrameByteAccumulator(
 			bridgeProductContentFramePrefixByteLength,
 		);
 		this.#diagnosticsLedger.recordReleased(
-			bridgeProductContentFramePrefixByteLength + bridgeProductContentDataOffsetByteLength,
+			bridgeProductContentFramePrefixByteLength + bridgeProductContentCorrelationEnvelopeByteLength,
 		);
 		this.#diagnosticsLedger.setState('awaiting_frame_body');
 		return { frame: null, sourceOffset: nextSourceOffset };
@@ -359,6 +392,12 @@ export class BridgeProductContentFrameDecoder {
 			contentSequence: requireBridgeProductContentNumber(this.#contentSequence, 'content sequence'),
 			kind: 'content.data',
 			offsetBytes,
+			operationCorrelationId: decodeBridgeProductContentCorrelation(
+				requireBridgeProductContentAccumulator(
+					this.#dataOperationCorrelationBytes,
+					'data operation correlation bytes',
+				).takeBytes(),
+			),
 		});
 		const payload = payloadBytes.takeBytes();
 		this.#validateLifecycle({ header, payload });
@@ -391,6 +430,7 @@ export class BridgeProductContentFrameDecoder {
 		this.#controlBodyBytes = null;
 		this.#dataOffsetBytes = null;
 		this.#dataOffsetValue = null;
+		this.#dataOperationCorrelationBytes = null;
 		this.#dataPayloadBytes = null;
 		this.#diagnosticsLedger.setState('awaiting_length_prefix');
 	}
@@ -405,6 +445,7 @@ export class BridgeProductContentFrameDecoder {
 		this.#controlBodyBytes = null;
 		this.#dataOffsetBytes = null;
 		this.#dataOffsetValue = null;
+		this.#dataOperationCorrelationBytes = null;
 		this.#dataPayloadBytes = null;
 	}
 
@@ -461,6 +502,21 @@ export class BridgeProductContentFrameDecoder {
 			throw new Error('Bridge product content frame decoder is finished.');
 		}
 	}
+}
+
+function decodeBridgeProductContentCorrelation(bytes: Uint8Array): string | null {
+	const presence = bytes[0];
+	const digestBytes = bytes.subarray(1);
+	if (presence === 0) {
+		if (digestBytes.some((byte) => byte !== 0)) {
+			throw new Error('Bridge product null content correlation carried nonzero bytes.');
+		}
+		return null;
+	}
+	if (presence !== 1) {
+		throw new Error('Bridge product content correlation presence flag is invalid.');
+	}
+	return [...digestBytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function decodeBridgeProductContentControlBody(

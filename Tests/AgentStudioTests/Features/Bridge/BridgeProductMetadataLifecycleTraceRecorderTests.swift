@@ -6,6 +6,29 @@ import Testing
 
 @Suite("Bridge product metadata lifecycle trace recorder")
 struct BridgeProductMetadataLifecycleTraceRecorderTests {
+    @Test("Operation lifecycle exports only scrubbed correlation and safe stage attempt")
+    func operationLifecycleExportsScrubbedCorrelationAndStageAttempt() async throws {
+        let sink = BridgeProductMetadataLifecycleTraceSink()
+        let recorder = BridgeProductMetadataLifecycleTraceRecorder(recorder: sink)
+        let operationID = String(repeating: "b", count: 64)
+
+        await recorder.record(
+            BridgeOperationLifecycleTraceEvent(
+                operationCorrelationID: operationID,
+                result: .started,
+                stage: .filePrepareStarted,
+                stageAttempt: 2,
+                surface: .file
+            )
+        )
+
+        let sample = try #require(await sink.recordedSamples().only)
+        #expect(sample.name == "performance.bridge.swift.operation_lifecycle")
+        #expect(sample.stringAttributes["agentstudio.bridge.operation.id"] == operationID)
+        #expect(sample.stringAttributes["agentstudio.bridge.phase"] == "file_prepare_started")
+        #expect(sample.numericAttributes["agentstudio.bridge.stage.attempt"] == 2)
+    }
+
     @Test("Annotation lifecycle preserves scrubbed operation correlation")
     func annotationLifecyclePreservesScrubbedOperationCorrelation() async throws {
         let sink = BridgeProductMetadataLifecycleTraceSink()
@@ -24,9 +47,10 @@ struct BridgeProductMetadataLifecycleTraceRecorderTests {
         let sample = try #require(await sink.recordedSamples().only)
         #expect(sample.name == "performance.bridge.swift.annotation_lifecycle")
         #expect(sample.stringAttributes["agentstudio.bridge.operation.id"] == String(repeating: "a", count: 64))
-        #expect(sample.stringAttributes["agentstudio.bridge.phase"] == "annotation_notification_delivery_terminal")
+        #expect(sample.stringAttributes["agentstudio.bridge.phase"] == "metadata_delivery_terminal")
         #expect(sample.stringAttributes["agentstudio.bridge.viewer"] == "review")
         #expect(sample.numericAttributes["agentstudio.bridge.source.generation"] == 7)
+        #expect(sample.numericAttributes["agentstudio.bridge.stage.attempt"] == 0)
     }
 
     @Test("File window enqueue maps to the typed native telemetry vocabulary")
