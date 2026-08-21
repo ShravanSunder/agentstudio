@@ -77,7 +77,10 @@ describe.sequential('saved annotation range activation', () => {
 				await Promise.resolve();
 			});
 			await settleBrowserCondition(
-				(): boolean => commentSurface.getAttribute('data-annotation-active') === 'true',
+				(): boolean =>
+					document
+						.querySelector('[data-worktree-annotation-interaction]')
+						?.getAttribute('data-annotation-active') === 'true',
 				'Expected focus to activate the saved File thread.',
 			);
 			await settleBrowserCondition(
