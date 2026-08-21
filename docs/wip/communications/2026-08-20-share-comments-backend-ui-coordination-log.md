@@ -314,3 +314,24 @@ remains outside this backend correction
 Notes: root cause was ordinary handler response validation, not latency or a
 new system boundary: Swift encoded a valid output result, then its strict member
 vocabulary rejected the result before returning it to the frontend.
+
+### 2026-08-20 20:40 EDT — Share output response correction
+
+State: correction committed and exact-HEAD proof complete
+Head: `03b49b832c` (`fix(annotations): return output success responses`)
+Owns: completed backend-to-frontend response correction and proof receipt
+Changed: commit `03b49b832c`; no further production changes
+Proof: exact-HEAD real HTTP output regression passed 1/1; full BridgeWeb unit
+278 files / 1,878 tests passed; BridgeWeb check passed; `mise run lint` passed;
+live Review journey passed one Copy → one succeeded attempt/event → Share closed
+→ success toast/unhandle → New restored without unlock. Complete `mise run test`
+reached browser integration with 260/263 passing; two failures are the previously
+recorded 600px-vs-768px Pierre width mismatch. The third full-suite saved-range
+failure passed immediately in isolated rerun, 2/2, and is classified as a
+suite-order flake rather than a response-fix regression.
+Needs from other lane: Pierre width contract owner resolves the existing
+600px-vs-768px mismatch before branch-wide PR readiness
+Next: resume remaining Share S4/package readiness after that independent UI
+proof blocker is resolved
+Notes: the response correction itself is complete and committed; unrelated PR2
+research files remain untracked and untouched
