@@ -89,6 +89,18 @@ extension WebKitSerializedTests {
             )
             #expect(trackedBaseContent.data == Data("initial\n".utf8))
             #expect(trackedHeadContent.data == Data("initial\nupdated\n".utf8))
+            let untrackedItem = try #require(
+                package.itemsById.values.first { $0.headPath == "untracked.txt" }
+            )
+            #expect(untrackedItem.contentRoles.base == nil)
+            let untrackedHeadHandle = try #require(untrackedItem.contentRoles.head)
+            let untrackedHeadContent = try await harness.reviewSourceProvider.loadContent(
+                BridgeContentLoadRequest(
+                    handle: untrackedHeadHandle,
+                    requestedGeneration: package.reviewGeneration
+                )
+            )
+            #expect(untrackedHeadContent.data == Data("new file\n".utf8))
             #expect(harness.controller.reviewSharedConstructionBinder != nil)
             let constructionSnapshot = await harness.constructionCoordinator.snapshot()
             #expect(constructionSnapshot.entryCount == 1)
