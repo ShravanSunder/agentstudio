@@ -485,3 +485,27 @@ Next: commit the bounded remediation, run exact-HEAD `mise run test`, then obtai
 one fresh complete implementation review before PR creation
 Notes: the packaged debug process was stopped; the three unrelated PR2 research
 files remain untracked and untouched
+
+### 2026-08-21 05:38 EDT — Independent-review remediation two
+
+State: four implementation findings corrected; one plan-owned telemetry gap
+remains before final review
+Head before correction: `29de85306`
+Owns: finite annotation projection bound, subscription explicit retry, Share
+unknown membership, and durable History time presentation
+Changed: projection pages declare and enforce a maximum 128-page logical
+snapshot; explicit retry reopens an active missing annotation subscription even
+before bootstrap; Share renders `New (—)` / `All (—)` with Copy and Export
+disabled before the first complete projection; History renders a semantic time
+from the durable attempt timestamp
+Proof: red comm-worker failures reproduced unbounded page acceptance and inert
+pre-bootstrap retry; red browser proof reproduced missing History time, while
+the unknown Share case was source-verified and then exercised in the corrected
+browser lane. Green: BridgeWeb check exit 0, comm-worker 15/15, focused browser
+8/8, Swift formatting/lint 0 violations, and finite projection cursor 9/9
+Needs from other lane: none
+Next: checkpoint the bounded correction, then return the missing R-BLO-014
+annotation stage correlation and marker-scoped proof to `plan-implementation`
+Notes: the current convergence plan omitted a frontier explicitly deferred by
+the earlier backend reliability plan; this is a plan defect, not authority to
+improvise telemetry inside remediation. PR2 research files remain untouched

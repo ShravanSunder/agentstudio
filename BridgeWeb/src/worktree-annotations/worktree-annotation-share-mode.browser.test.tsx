@@ -114,10 +114,13 @@ function ShareModeFixture(props: {
 			<WorktreeAnnotationShareTrigger disabled={false} onOpen={() => setIsOpen(true)} />
 			{isOpen ? (
 				<WorktreeAnnotationShareModeRow
-					allCount={props.allCount ?? 11}
 					error={props.error ?? null}
 					isOutputPending={false}
-					newCount={props.newCount ?? 4}
+					membership={{
+						allCount: props.allCount ?? 11,
+						kind: 'ready',
+						newCount: props.newCount ?? 4,
+					}}
 					onCopy={(selectedScope) => props.onCopy?.(selectedScope)}
 					onDone={() => setIsOpen(false)}
 					onExport={(selectedScope) => props.onExport?.(selectedScope)}

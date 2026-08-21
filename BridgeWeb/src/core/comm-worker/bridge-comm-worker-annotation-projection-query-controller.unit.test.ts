@@ -159,6 +159,30 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		expect(harness.statuses).toEqual(['unavailable', 'refreshing', 'ready']);
 	});
 
+	test('explicit retry reopens after two pre-bootstrap notification failures', async () => {
+		const firstNotifications = createNotificationQueue('file');
+		const replacementNotifications = createNotificationQueue('file');
+		const retryNotifications = createNotificationQueue('file');
+		const harness = await createHarness({
+			notificationQueues: [firstNotifications, replacementNotifications, retryNotifications],
+			pages: await makeProjectionPages(1, 19),
+		});
+		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 19 });
+		harness.controller.ensureSubscription();
+
+		firstNotifications.close();
+		await flushTaskQueueUntil(() => harness.subscriptionCount() === 2);
+		replacementNotifications.close();
+		await harness.controller.waitForIdle();
+		harness.controller.retry();
+		await flushTaskQueueUntil(() => harness.subscriptionCount() === 3);
+		retryNotifications.push(snapshotRequired(19));
+		await harness.controller.waitForIdle();
+
+		expect(harness.subscriptionCount()).toBe(3);
+		expect(harness.statuses.at(-1)).toBe('ready');
+	});
+
 	test('coalesces invalidations 11 through 15 while 10 is blocked and fences stale completion', async () => {
 		const firstQuery = deferred<unknown>();
 		const pages10 = await makeProjectionPages(1, 10);
@@ -209,7 +233,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 	});
 
 	test('installs three or more ordered pages atomically', async () => {
-		const pages = await makeProjectionPages(180, 21, 900);
+		const pages = await makeProjectionPages(180, 21, 100_000);
 		expect(pages.length).toBeGreaterThanOrEqual(3);
 		const harness = await createHarness({ pages });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 21 });
@@ -220,6 +244,19 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		expect(harness.failures).toEqual([]);
 		expect(harness.publications).toHaveLength(1);
 		expect(harness.publications[0]?.snapshot.expectedMessageCount).toBe(180);
+	});
+
+	test('rejects a page chain beyond the maximum logical page count', async () => {
+		const pages = await makeProjectionPages(129, 22, 1);
+		expect(pages.length).toBeGreaterThan(128);
+		const harness = await createHarness({ pages });
+		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 22 });
+		harness.controller.ensureSubscription();
+		harness.notifications.push(snapshotRequired(22));
+		await harness.controller.waitForIdle();
+
+		expect(harness.publications).toEqual([]);
+		expect(harness.failures).toHaveLength(1);
 	});
 
 	test('rejects a mixed snapshot identity and publishes no partial projection', async () => {
@@ -516,6 +553,7 @@ async function makeProjectionPages(
 			page: {
 				aggregateSha256,
 				expectedMessageCount: messageCount,
+				expectedPageCount: pages.length,
 				expectedSessionCount: 1,
 				expectedThreadCount: 1,
 				isLastPage: pageOrdinal === pages.length - 1,

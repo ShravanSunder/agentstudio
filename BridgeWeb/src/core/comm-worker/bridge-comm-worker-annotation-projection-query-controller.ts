@@ -144,10 +144,11 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	}
 
 	retry(): void {
-		if (this.#disposed || this.#invalidation === null) return;
+		if (this.#disposed) return;
 		this.#automaticQueryRetryConsumed = false;
 		this.#automaticSubscriptionReopenConsumed = false;
 		if (this.#active && this.#subscription === null) this.ensureSubscription();
+		if (this.#invalidation === null) return;
 		this.#invalidationGeneration += 1;
 		this.#abortController?.abort();
 		this.#scheduleQueryLoop();
@@ -499,6 +500,7 @@ function validatePageContract(props: {
 	for (const field of [
 		'aggregateSha256',
 		'expectedMessageCount',
+		'expectedPageCount',
 		'expectedSessionCount',
 		'expectedThreadCount',
 		'projectionRevision',

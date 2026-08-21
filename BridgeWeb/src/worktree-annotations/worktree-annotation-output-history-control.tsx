@@ -139,7 +139,10 @@ function WorktreeAnnotationOutputHistory(props: {
 						{commentCountLabel(summary.messageCount)}
 					</p>
 					<p className="text-[11px] text-[var(--bridge-text-secondary)]">
-						{annotationOutputHistoryStatus(summary.state, summary.outputKind)}
+						<time dateTime={new Date(summary.createdAt).toISOString()}>
+							{formatOutputAttemptTime(summary.createdAt)}
+						</time>{' '}
+						· {annotationOutputHistoryStatus(summary.state, summary.outputKind)}
 					</p>
 					<div className="flex gap-1">
 						<BridgeViewerButton
@@ -183,4 +186,11 @@ function WorktreeAnnotationOutputHistory(props: {
 			))}
 		</div>
 	);
+}
+
+function formatOutputAttemptTime(timestamp: number): string {
+	return new Intl.DateTimeFormat(undefined, {
+		dateStyle: 'medium',
+		timeStyle: 'short',
+	}).format(new Date(timestamp));
 }

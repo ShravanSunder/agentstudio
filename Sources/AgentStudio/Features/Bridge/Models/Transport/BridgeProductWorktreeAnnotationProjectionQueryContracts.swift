@@ -2,6 +2,7 @@ import Foundation
 
 enum BridgeProductAnnotationProjectionContract {
     static let maximumDemandedSessionCount = 128
+    static let maximumPageCount = 128
     static let maximumPageBytes = 2 * 1024 * 1024
 }
 
@@ -75,6 +76,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
     enum CodingKeys: String, CodingKey, CaseIterable {
         case aggregateSha256
         case expectedMessageCount
+        case expectedPageCount
         case expectedSessionCount
         case expectedThreadCount
         case isLastPage
@@ -87,6 +89,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
 
     let aggregateSHA256: String
     let expectedMessageCount: Int
+    let expectedPageCount: Int
     let expectedSessionCount: Int
     let expectedThreadCount: Int
     let isLastPage: Bool
@@ -99,6 +102,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
     init(
         aggregateSHA256: String,
         expectedMessageCount: Int,
+        expectedPageCount: Int,
         expectedSessionCount: Int,
         expectedThreadCount: Int,
         isLastPage: Bool,
@@ -110,6 +114,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
     ) throws {
         self.aggregateSHA256 = aggregateSHA256
         self.expectedMessageCount = expectedMessageCount
+        self.expectedPageCount = expectedPageCount
         self.expectedSessionCount = expectedSessionCount
         self.expectedThreadCount = expectedThreadCount
         self.isLastPage = isLastPage
@@ -130,6 +135,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
         let container = try decoder.container(keyedBy: CodingKeys.self)
         aggregateSHA256 = try container.decode(String.self, forKey: .aggregateSha256)
         expectedMessageCount = try container.decode(Int.self, forKey: .expectedMessageCount)
+        expectedPageCount = try container.decode(Int.self, forKey: .expectedPageCount)
         expectedSessionCount = try container.decode(Int.self, forKey: .expectedSessionCount)
         expectedThreadCount = try container.decode(Int.self, forKey: .expectedThreadCount)
         isLastPage = try container.decode(Bool.self, forKey: .isLastPage)
@@ -153,6 +159,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(aggregateSHA256, forKey: .aggregateSha256)
         try container.encode(expectedMessageCount, forKey: .expectedMessageCount)
+        try container.encode(expectedPageCount, forKey: .expectedPageCount)
         try container.encode(expectedSessionCount, forKey: .expectedSessionCount)
         try container.encode(expectedThreadCount, forKey: .expectedThreadCount)
         try container.encode(isLastPage, forKey: .isLastPage)
@@ -170,6 +177,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
         try BridgeProductContractDecoding.validateSHA256(aggregateSHA256, codingPath: codingPath)
         for (name, count) in [
             ("expectedMessageCount", expectedMessageCount),
+            ("expectedPageCount", expectedPageCount),
             ("expectedSessionCount", expectedSessionCount),
             ("expectedThreadCount", expectedThreadCount),
             ("pageOrdinal", pageOrdinal),
@@ -188,6 +196,15 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
         guard isLastPage == (nextCursor == nil) else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Annotation projection continuation must agree with isLastPage",
+                codingPath: codingPath
+            )
+        }
+        guard expectedPageCount > 0,
+            expectedPageCount <= BridgeProductAnnotationProjectionContract.maximumPageCount,
+            isLastPage == (pageOrdinal + 1 == expectedPageCount)
+        else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Annotation projection final page must agree with bounded expectedPageCount",
                 codingPath: codingPath
             )
         }

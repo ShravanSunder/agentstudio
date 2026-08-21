@@ -20,11 +20,16 @@ import {
 
 export function WorktreeAnnotationShareHeaderControl(): ReactElement | null {
 	const interaction = useWorktreeAnnotationInteraction();
+	const projection = useWorktreeAnnotationProjection();
 	const selection = useWorktreeAnnotationSessionSelection();
-	if (selection.activeSessionId === null) return null;
+	const membershipUnknown = projection.revision === null;
+	if (selection.activeSessionId === null && !membershipUnknown) return null;
 	return (
 		<WorktreeAnnotationShareTrigger
-			disabled={!selection.capabilities.canOutput || interaction.shareMode.kind === 'open'}
+			disabled={
+				interaction.shareMode.kind === 'open' ||
+				(!membershipUnknown && !selection.capabilities.canOutput)
+			}
 			onOpen={interaction.openShareMode}
 		/>
 	);
@@ -37,11 +42,26 @@ export function WorktreeAnnotationShareSurface(): ReactElement | null {
 	const selection = useWorktreeAnnotationSessionSelection();
 	const [error, setError] = useState<string | null>(null);
 	const [isPending, setIsPending] = useState(false);
-	if (interaction.shareMode.kind === 'closed' || selection.activeSessionId === null) return null;
+	if (interaction.shareMode.kind === 'closed') return null;
+	if (projection.revision === null) {
+		return (
+			<WorktreeAnnotationShareModeRow
+				error={null}
+				isOutputPending={false}
+				membership={{ kind: 'unknown' }}
+				onCopy={ignoreUnknownOutput}
+				onDone={interaction.closeShareMode}
+				onExport={ignoreUnknownOutput}
+				onScopeChange={interaction.setShareScope}
+				scope={interaction.shareMode.scope}
+			/>
+		);
+	}
+	if (selection.activeSessionId === null) return null;
 	const session = projection.sessions.find(
 		({ sessionId }) => sessionId === selection.activeSessionId,
 	);
-	if (session === undefined || projection.revision === null) return null;
+	if (session === undefined) return null;
 	const shared = deriveWorktreeAnnotationShareProjection({
 		scope: interaction.shareMode.scope,
 		threads: projection.threads.filter((thread) =>
@@ -124,10 +144,9 @@ export function WorktreeAnnotationShareSurface(): ReactElement | null {
 	return (
 		<>
 			<WorktreeAnnotationShareModeRow
-				allCount={shared.allCount}
 				error={error}
 				isOutputPending={isPending}
-				newCount={shared.newCount}
+				membership={{ allCount: shared.allCount, kind: 'ready', newCount: shared.newCount }}
 				onCopy={(scope) => void executeOutput('clipboardMarkdown', scope)}
 				onDone={interaction.closeShareMode}
 				onExport={(scope) => void executeOutput('jsonFile', scope)}
@@ -138,6 +157,10 @@ export function WorktreeAnnotationShareSurface(): ReactElement | null {
 			<WorktreeAnnotationOutputHistoryControl />
 		</>
 	);
+}
+
+function ignoreUnknownOutput(): undefined {
+	return undefined;
 }
 
 function WorktreeAnnotationOtherSavedComments(props: {

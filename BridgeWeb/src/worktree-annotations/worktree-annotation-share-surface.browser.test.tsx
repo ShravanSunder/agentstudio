@@ -58,6 +58,21 @@ describe('worktree annotation Share comments integrated surface', () => {
 		toastSpies.warning.mockReset();
 	});
 
+	test('presents unknown membership before the first complete projection', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
+
+		await expect.element(rendered.getByRole('button', { name: 'Share comments' })).toBeEnabled();
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Share comments' }).click(),
+		);
+		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
+		await expect.element(rendered.getByText('New (—)')).toBeVisible();
+		await expect.element(rendered.getByText('All (—)')).toBeVisible();
+		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
+		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
+	});
+
 	test.each(['fileView', 'review'] as const)(
 		'uses the %s header entry and exact All scope, then dismisses with reversible success',
 		async (surfaceKind) => {

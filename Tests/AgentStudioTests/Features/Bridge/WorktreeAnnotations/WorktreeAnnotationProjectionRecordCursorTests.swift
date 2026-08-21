@@ -159,6 +159,28 @@ struct WorktreeAnnotationProjectionRecordCursorTests {
         }
     }
 
+    @Test("logical projection rejects a page chain beyond its aggregate bound")
+    func logicalProjectionRejectsOverBoundPageChain() {
+        let capture = makeProjectionCapture(
+            messageBodies: (0..<8).map { index in
+                "message-\(index)-" + String(repeating: "b", count: 5000)
+            }
+        )
+
+        #expect(
+            throws: BridgeProductAnnotationProjectionRecordCursorError.pageCountExceedsMaximum(
+                actualCount: 3,
+                maximumCount: 1
+            )
+        ) {
+            _ = try BridgeProductAnnotationProjectionRecordAnalysis(
+                capture: capture,
+                maximumPageCount: 1,
+                maximumPageBytes: 18_000
+            )
+        }
+    }
+
     @Test("a singleton record that cannot fit fails closed")
     func singletonRecordThatCannotFitFailsClosed() {
         // Arrange

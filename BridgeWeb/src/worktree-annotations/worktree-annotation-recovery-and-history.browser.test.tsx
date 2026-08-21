@@ -66,6 +66,7 @@ describe('worktree annotation recovery and rail history controls', () => {
 			await settleInteraction();
 		});
 		await expect.element(rendered.getByText('Clipboard Markdown · 1 comment')).toBeVisible();
+		expect(document.querySelector('time[datetime="2026-08-17T10:00:00.000Z"]')).not.toBeNull();
 		await expect
 			.element(rendered.getByRole('button', { name: 'Repeat output attempt 1' }))
 			.not.toBeInTheDocument();

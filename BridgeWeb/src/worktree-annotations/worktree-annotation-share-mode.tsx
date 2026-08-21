@@ -12,6 +12,9 @@ import {
 } from '../app/bridge-viewer-chrome.js';
 
 export type WorktreeAnnotationShareScope = 'new' | 'all';
+export type WorktreeAnnotationShareMembership =
+	| { readonly kind: 'unknown' }
+	| { readonly allCount: number; readonly kind: 'ready'; readonly newCount: number };
 
 export function WorktreeAnnotationShareTrigger(props: {
 	readonly disabled: boolean;
@@ -28,18 +31,26 @@ export function WorktreeAnnotationShareTrigger(props: {
 }
 
 export function WorktreeAnnotationShareModeRow(props: {
-	readonly allCount: number;
 	readonly error: string | null;
 	readonly isOutputPending: boolean;
-	readonly newCount: number;
+	readonly membership: WorktreeAnnotationShareMembership;
 	readonly onCopy: (scope: WorktreeAnnotationShareScope) => void;
 	readonly onDone: () => void;
 	readonly onExport: (scope: WorktreeAnnotationShareScope) => void;
 	readonly onScopeChange: (scope: WorktreeAnnotationShareScope) => void;
 	readonly scope: WorktreeAnnotationShareScope;
 }): ReactElement {
-	const displayedCount = props.scope === 'new' ? props.newCount : props.allCount;
-	const outputDisabled = displayedCount === 0 || props.isOutputPending;
+	const displayedCount =
+		props.membership.kind === 'unknown'
+			? null
+			: props.scope === 'new'
+				? props.membership.newCount
+				: props.membership.allCount;
+	const outputDisabled = displayedCount === null || displayedCount === 0 || props.isOutputPending;
+	const newCountLabel =
+		props.membership.kind === 'unknown' ? 'unknown' : String(props.membership.newCount);
+	const allCountLabel =
+		props.membership.kind === 'unknown' ? 'unknown' : String(props.membership.allCount);
 	const handleKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
 		if (event.key !== 'Escape') return;
 		event.preventDefault();
@@ -70,18 +81,18 @@ export function WorktreeAnnotationShareModeRow(props: {
 					variant="default"
 				>
 					<ToggleGroupItem
-						aria-label={`New comments, ${props.newCount}`}
+						aria-label={`New comments, ${newCountLabel}`}
 						className={bridgeViewerChromeSegmentButtonClassName}
 						value="new"
 					>
-						New ({props.newCount})
+						New ({props.membership.kind === 'unknown' ? '—' : props.membership.newCount})
 					</ToggleGroupItem>
 					<ToggleGroupItem
-						aria-label={`All comments, ${props.allCount}`}
+						aria-label={`All comments, ${allCountLabel}`}
 						className={bridgeViewerChromeSegmentButtonClassName}
 						value="all"
 					>
-						All ({props.allCount})
+						All ({props.membership.kind === 'unknown' ? '—' : props.membership.allCount})
 					</ToggleGroupItem>
 				</ToggleGroup>
 				<div className="flex items-center gap-1">

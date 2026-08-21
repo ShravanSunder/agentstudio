@@ -285,6 +285,7 @@ actor BridgeAnnotationProjectionSource {
         let pageContract = try BridgeProductAnnotationProjectionPageContract(
             aggregateSHA256: reservation.analysis.aggregateSHA256,
             expectedMessageCount: reservation.analysis.expectedMessageCount,
+            expectedPageCount: reservation.analysis.pageCount,
             expectedSessionCount: reservation.analysis.expectedSessionCount,
             expectedThreadCount: reservation.analysis.expectedThreadCount,
             isLastPage: isLastPage,

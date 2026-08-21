@@ -183,6 +183,7 @@ enum BridgeProductAnnotationProjectionRecord: Codable, Equatable, Sendable {
 enum BridgeProductAnnotationProjectionRecordCursorError: Error, Equatable, Sendable {
     case invalidCapture
     case invalidPageOrdinal(Int)
+    case pageCountExceedsMaximum(actualCount: Int, maximumCount: Int)
     case singletonRecordExceedsFrameMaximum(actualBytes: Int, maximumBytes: Int)
     case singletonRecordExceedsPageMaximum(actualBytes: Int, maximumBytes: Int)
     case traversalInvariantViolation
@@ -203,10 +204,11 @@ struct BridgeProductAnnotationProjectionRecordAnalysis: Sendable {
 
     init(
         capture: BridgeProductAnnotationProjectionCapture,
+        maximumPageCount: Int = BridgeProductAnnotationProjectionContract.maximumPageCount,
         maximumPageBytes: Int = BridgeProductAnnotationProjectionContract.maximumPageBytes,
         maximumFrameBytes: Int = BridgeProductWireContract.maximumContentDataPayloadBytes
     ) throws {
-        guard maximumPageBytes > 0, maximumFrameBytes > 0,
+        guard maximumPageCount > 0, maximumPageBytes > 0, maximumFrameBytes > 0,
             capture.projectionRevision >= 0, capture.sourceGeneration >= 0,
             !capture.worktreeID.isEmpty
         else {
@@ -250,6 +252,12 @@ struct BridgeProductAnnotationProjectionRecordAnalysis: Sendable {
             throw BridgeProductAnnotationProjectionRecordCursorError.traversalInvariantViolation
         }
         boundaries.append(.init(start: pageStart, end: traversal.position, byteCount: pageBytes))
+        guard boundaries.count <= maximumPageCount else {
+            throw BridgeProductAnnotationProjectionRecordCursorError.pageCountExceedsMaximum(
+                actualCount: boundaries.count,
+                maximumCount: maximumPageCount
+            )
+        }
 
         self.aggregateSHA256 = aggregateHasher.finalize().map { String(format: "%02x", $0) }.joined()
         self.expectedMessageCount = counts.messageCount

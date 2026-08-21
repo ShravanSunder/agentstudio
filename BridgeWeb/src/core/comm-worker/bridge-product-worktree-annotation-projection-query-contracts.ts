@@ -11,6 +11,7 @@ import {
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 
 export const BRIDGE_PRODUCT_MAXIMUM_ANNOTATION_PROJECTION_SESSION_COUNT = 128;
+export const BRIDGE_PRODUCT_MAXIMUM_ANNOTATION_PROJECTION_PAGE_COUNT = 128;
 export const BRIDGE_PRODUCT_MAXIMUM_ANNOTATION_PROJECTION_PAGE_BYTES =
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES;
 
@@ -32,6 +33,11 @@ export const bridgeProductAnnotationProjectionPageContractSchema = z
 	.object({
 		aggregateSha256: bridgeProductSha256Schema,
 		expectedMessageCount: bridgeProductNonnegativeSequenceSchema,
+		expectedPageCount: z
+			.number()
+			.int()
+			.positive()
+			.max(BRIDGE_PRODUCT_MAXIMUM_ANNOTATION_PROJECTION_PAGE_COUNT),
 		expectedSessionCount: bridgeProductNonnegativeSequenceSchema,
 		expectedThreadCount: bridgeProductNonnegativeSequenceSchema,
 		isLastPage: z.boolean(),
@@ -45,6 +51,10 @@ export const bridgeProductAnnotationProjectionPageContractSchema = z
 	.refine((page) => page.isLastPage === (page.nextCursor === null), {
 		message: 'Annotation projection continuation must agree with isLastPage.',
 		path: ['nextCursor'],
+	})
+	.refine((page) => page.isLastPage === (page.pageOrdinal + 1 === page.expectedPageCount), {
+		message: 'Annotation projection final page must agree with expectedPageCount.',
+		path: ['expectedPageCount'],
 	});
 
 export const bridgeProductAnnotationProjectionContentDescriptorSchema = z

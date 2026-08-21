@@ -181,6 +181,7 @@ const reviewAnnotationProjectionDescriptor = {
 	page: {
 		aggregateSha256: 'a'.repeat(64),
 		expectedMessageCount: 2,
+		expectedPageCount: 1,
 		expectedSessionCount: 1,
 		expectedThreadCount: 1,
 		isLastPage: true,
