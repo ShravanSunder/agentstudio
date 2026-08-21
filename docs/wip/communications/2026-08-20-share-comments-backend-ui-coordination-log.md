@@ -371,3 +371,12 @@ feature branch is updated to `8daaae22e`. Both manual dev servers were stopped.
 Two 1Password signing attempts failed, so the checkpoint used the documented
 unsigned fallback with hooks enabled. Unrelated PR2 files remain untracked and
 untouched.
+
+Review: fresh read-only complete implementation review
+`pr1-decoded-history-implementation-review-2026-08-21` returned no findings for
+`6b841f396..8daaae22e`. It independently classified runtime reachability as
+live and confirmed raw decode-once ownership, downstream decoded contracts,
+non-empty History proof, shared non-history variants, real Swift/Vite/SQLite
+E2E, and bounded File pointer retry. Uncovered boundaries remain one complete
+green `mise run test` and independent system-clipboard byte inspection; neither
+is represented as a decoded-History defect or PR-ready proof.
