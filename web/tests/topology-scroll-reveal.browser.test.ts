@@ -217,6 +217,29 @@ describe("topology scroll reveal", () => {
     expectNodeTranslation(fixture.middleNode, 93.333_333_333_333_33, 500);
   });
 
+  it("ignores scroll-era height noise but admits meaningful growth and window resize", async () => {
+    const fixture = createTopologyFixture();
+
+    await waitForRevealRender();
+    expect(fixture.artwork.viewBox.baseVal.height).toBe(1200);
+
+    fixture.artwork.style.height = "1208px";
+    await waitForRevealRender();
+    expect(fixture.artwork.viewBox.baseVal.height).toBe(1200);
+
+    fixture.artwork.style.height = "1209px";
+    await waitForRevealRender();
+    expect(fixture.artwork.viewBox.baseVal.height).toBe(1209);
+
+    fixture.artwork.style.height = "1215px";
+    await waitForRevealRender();
+    expect(fixture.artwork.viewBox.baseVal.height).toBe(1209);
+
+    window.dispatchEvent(new Event("resize"));
+    await waitForRevealRender();
+    expect(fixture.artwork.viewBox.baseVal.height).toBe(1215);
+  });
+
   it("renders a complete static topology when reduced motion is active", async () => {
     vi.spyOn(window, "matchMedia").mockImplementation(
       (query): MediaQueryList =>

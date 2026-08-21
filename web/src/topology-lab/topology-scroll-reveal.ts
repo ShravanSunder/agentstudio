@@ -11,6 +11,8 @@ export function initializeTopologyScrollReveal(artwork: SVGSVGElement): () => vo
   ];
   const lifecycle = new AbortController();
   const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  let lastLayoutHeight = 0;
+  let lastLayoutWidth = 0;
   let layoutNeedsUpdate = true;
   let pendingAnimationFrame: number | undefined;
 
@@ -20,6 +22,8 @@ export function initializeTopologyScrollReveal(artwork: SVGSVGElement): () => vo
       if (!layoutWorktreeTopology(artwork)) {
         return;
       }
+      lastLayoutWidth = artwork.clientWidth;
+      lastLayoutHeight = artwork.clientHeight;
       layoutNeedsUpdate = false;
     }
 
@@ -86,15 +90,27 @@ export function initializeTopologyScrollReveal(artwork: SVGSVGElement): () => vo
     pendingAnimationFrame = window.requestAnimationFrame(renderReveal);
   };
 
-  const scheduleLayoutUpdate = (): void => {
+  const forceLayoutUpdate = (): void => {
     layoutNeedsUpdate = true;
     scheduleRender();
   };
 
-  const artworkResizeObserver = new ResizeObserver(scheduleLayoutUpdate);
+  const scheduleMeaningfulLayoutUpdate = (entries: readonly ResizeObserverEntry[]): void => {
+    const entry = entries[0];
+    if (entry === undefined) {
+      return;
+    }
+    const widthChanged = Math.abs(entry.contentRect.width - lastLayoutWidth) > 0.5;
+    const heightChanged = Math.abs(entry.contentRect.height - lastLayoutHeight) > 8;
+    if (widthChanged || heightChanged) {
+      forceLayoutUpdate();
+    }
+  };
+
+  const artworkResizeObserver = new ResizeObserver(scheduleMeaningfulLayoutUpdate);
   artworkResizeObserver.observe(artwork);
   window.addEventListener("scroll", scheduleRender, { passive: true, signal: lifecycle.signal });
-  window.addEventListener("resize", scheduleLayoutUpdate, { signal: lifecycle.signal });
+  window.addEventListener("resize", forceLayoutUpdate, { signal: lifecycle.signal });
   reducedMotionQuery.addEventListener("change", scheduleRender, { signal: lifecycle.signal });
   scheduleRender();
 

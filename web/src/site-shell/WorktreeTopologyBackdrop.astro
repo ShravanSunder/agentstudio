@@ -1,0 +1,19 @@
+---
+import WorktreeTopologyArtwork from "@/topology-lab/WorktreeTopologyArtwork.astro";
+---
+
+<div
+  class="site-topology-backdrop pointer-events-none absolute inset-y-0 left-0 z-0 hidden overflow-hidden min-[1792px]:block"
+  data-site-topology-backdrop
+  aria-hidden="true"
+>
+  <WorktreeTopologyArtwork />
+</div>
+
+<style>
+  @reference "../styles/global.css";
+
+  .site-topology-backdrop {
+    width: calc((100% - min(calc(100% - 32px), var(--container-frame))) / 2);
+  }
+</style>

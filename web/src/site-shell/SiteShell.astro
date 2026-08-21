@@ -5,6 +5,8 @@ import { marketingCopy } from "@/marketing-copy";
 import XMark from "@/social-links/XMark.astro";
 import "@/styles/global.css";
 
+import WorktreeTopologyBackdrop from "./WorktreeTopologyBackdrop.astro";
+
 interface Props {
   readonly title: string;
   readonly description: string;
@@ -23,6 +25,7 @@ const { title, description } = Astro.props;
     <title>{title}</title>
   </head>
   <body>
+    <WorktreeTopologyBackdrop />
     <header
       class="site-header sticky top-px z-20 mx-auto flex min-h-18 items-center justify-between rounded-floating-shell border border-[rgb(137_180_250/24%)] px-5.5 py-4"
       data-site-header
