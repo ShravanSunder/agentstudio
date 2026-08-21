@@ -930,6 +930,7 @@ to the successor.
 | finite content route | command descriptor + content frames | same physical route and authority | intentionally unchanged |
 | File descriptor wait/content replacement | selection publishes Loading; descriptor-pending emits no terminal; replacement uses abort + generation fence | selection admits File-content operation; descriptor wait is preparing; producer terminal/selection/source/content/render provide exact terminals | changed |
 | render receipt | source/receipt fenced | same fence plus explicit current operation terminal correlation | strengthened |
+| diagnostic operation carrier | refresh reservation, metadata producer, presentation frame, worker application, and annotation notification mint unrelated or absent trace identities | the current operation owner mints one scrubbed correlation and the existing strict metadata/presentation envelopes carry it through every applicable downstream stage | added |
 
 ## Telemetry and stuck-operation detection
 
@@ -937,41 +938,116 @@ One scrubbed `bridge.operation.id` and owner-local generation identity propagate
 through applicable phases without exporting raw paths, payloads, message bodies,
 errors, prompts, UUIDs from domain data, or output bytes.
 
+The correlation carrier is diagnostic data inside the existing physical routes,
+not product authority and not a global operation registry:
+
+```text
+current-operation owner (native or BridgeWeb)
+  mints UUIDv7 operation identity
+  retains it only with that operation's existing custody record
+  derives lowercase SHA-256 bridge.operation.id
+        |
+        +--> native lifecycle samples
+        |
+        `--> existing strict metadata/presentation envelope
+                 operationCorrelationId: SHA-256 | null
+                    |
+                    +--> worker application and validation samples
+                    +--> main-thread install sample
+                    `--> render/paint terminal samples
+```
+
+`operationCorrelationId` is nullable only when no refresh/content/annotation
+operation has been admitted, such as an uncorrelated bootstrap or retained-state
+replay. A current admitted operation MUST carry a non-null value through every
+applicable envelope and receipt. `null` is not a compatibility fallback and may
+not be used to make an admitted operation pass validation. Strict Swift and
+TypeScript contracts validate the lowercase SHA-256 form and reject unknown or
+malformed values.
+
+Each native File or Review per-lane refresh reservation is its own correlation
+owner. One invalidation affecting both lanes therefore creates two independently
+correlated operations, matching the existing independent authority generations,
+reservations, terminals, and retry decisions. Dirty-fact coalescence preserves
+the current lane reservation identity; a successor admitted after supersession
+mints a successor identity. Late predecessor stages remain correlated to the old
+identity and cannot become current authority. The File reset-wait custody record
+retains its lane identity across `resyncRequired`, subscription reopen, strictly
+newer source acceptance, and the single retained-dirty replay.
+
+Selected File content is a separate worker-originated operation. The
+`BridgeCommWorkerSelectedFileContentOperationController` mints UUIDv7 at
+selection admission and derives its scrubbed SHA-256 synchronously before
+descriptor preparation. The selected-content request carries the correlation to
+the existing native content owner; accepted/data/end/error frames echo it; the
+worker validates the echo before applying bytes; and the worker-to-main render
+receipt carries it through main install and paint. This identity never inherits
+an unrelated File metadata-refresh identity. Source rebinding or a successor
+selection mints a successor content identity, while a duplicate admission for
+the same still-current selection retains the existing identity.
+
+Review rendering remains native-presentation-originated. Its per-lane Review
+reservation correlation travels on the existing presentation envelope into the
+worker application and render receipt. A retained bootstrap/replay with no
+admitted Review refresh may carry null and creates no claim about a current
+refresh operation.
+
+Annotation command/service invalidation is a separate operation family. Its
+`WorktreeAnnotationServiceActor.publishCommittedMutation` mints the identity
+before invoking the mutation and records the native start/terminal. On success,
+the existing `WorktreeAnnotationChange.snapshotRequired` fact carries the
+scrubbed identity through the observer stream into the notification source and
+annotation metadata envelope, finite query/content validation, main install,
+and paint. Other service-owned snapshot invalidations mint at their service
+entry before publishing the change fact. Per-observer coalescence retains only
+the newest change identity; the displaced predecessor receives a stale terminal.
+A delivery failure/reopen retains the current change identity until that
+operation terminates or a successor supersedes it. Annotation never borrows a
+concurrent File/Review correlation merely because both share a worktree or
+marker.
+
 ### Native File/Review chain
 
 ```text
 refresh_reserved
-file_prepare_started / terminal
-review_prepare_started / terminal
-refresh_commit_started / terminal
+file_prepare_started / file_prepare_terminal
+review_prepare_started / review_prepare_terminal
+refresh_commit_started / refresh_commit_terminal
 refresh_operation_terminal
-pane_presentation_enqueue_terminal
+metadata_enqueue_started / metadata_enqueue_terminal
+metadata_delivery_started / metadata_delivery_terminal
 ```
 
 ### Worker/presentation chain
 
 ```text
-pane_presentation_applied
-panel_chrome_published
-file_content_operation_started / terminal
-file_descriptor_wait_started / terminal
+worker_application_started / worker_application_terminal
+panel_chrome_publish_started / panel_chrome_publish_terminal
+file_content_operation_started / file_content_operation_terminal
+file_descriptor_wait_started / file_descriptor_wait_terminal
 content_operation_terminal
-render_operation_terminal
-paint_fulfillment_terminal
+main_thread_install_started / main_thread_install_terminal
+render_operation_started / render_operation_terminal
+paint_fulfillment_started / paint_fulfillment_terminal
 ```
 
 ### Annotation chain
 
 ```text
 annotation_invalidation_received
-projection_convergence_started / terminal
-projection_query_started / terminal
+native_annotation_work_started / native_annotation_work_terminal
+metadata_enqueue_started / metadata_enqueue_terminal
+metadata_delivery_started / metadata_delivery_terminal
+worker_application_started / worker_application_terminal
+projection_convergence_started / projection_convergence_terminal
+projection_query_started / projection_query_terminal
 projection_query_stale_awaiting_source
-descriptor_claim_terminal
-content_transfer_terminal
-projection_validation_terminal
-projection_store_terminal
-annotation_paint_terminal
+descriptor_claim_started / descriptor_claim_terminal
+content_transfer_started / content_transfer_terminal
+projection_validation_started / projection_validation_terminal
+projection_store_started / projection_store_terminal
+main_thread_install_started / main_thread_install_terminal
+annotation_paint_started / annotation_paint_terminal
 ```
 
 This is an `often` telemetry lane. Admission requires the existing explicit
@@ -983,6 +1059,23 @@ derives missing-terminal diagnostics from marker-scoped logs/metrics under an
 state. It is fail-open, never persists product task history, never mutates
 product state, and never retries work. Metrics aggregate safe owner, phase,
 terminal, duration, and count labels.
+
+The lifecycle vocabulary is a closed phase graph. Every asynchronous boundary
+that may wait emits a pre-call `*_started` sample and exactly one matching
+`*_terminal` sample. A sample also carries safe `stageAttempt`: zero for a
+single-instance phase, or the owner-local nonnegative attempt/generation ordinal
+for repeated query, delivery, reopen, and render attempts. The diagnostic key is
+`(bridge.operation.id, phase family, stageAttempt)`; source generations remain
+separate evidence and never substitute for the operation identity.
+
+Missing-terminal derivation groups by that key, verifies that each emitted start
+has one terminal inside the bounded policy window, and classifies the earliest
+missing phase family. A terminal without a start is a malformed lifecycle. A
+stale attempt terminates `stale`; its expected-successor rule names the next
+attempt ordinal under the same convergence operation or the successor operation
+identity. Product owners emit starts and terminals but own no diagnostic timer.
+The verifier/Victoria query owner may retain only bounded safe correlation state
+and must discard it after the window.
 
 ## Cross-cutting realization
 
@@ -1007,7 +1100,7 @@ terminal, duration, and count labels.
 | R-BLO-010/011 | exhaustive strict-contract vocabulary providers/registry, production scanner, and explicit time DTO | Swift encoder/strict decoder plus TS schema/browser Date real | every registered variant/key round-trips; missing provider/key fails before runtime; fixed instant agrees relative/absolute |
 | R-BLO-012 | operation custody snapshots | real owner close/restart and repeated load | bounded maps/reservations/observers; idempotent cleanup |
 | R-BLO-013 | service observer aggregation and query controller | real two-pane service/session | narrow coalescence, reset supersession, both panes converge |
-| R-BLO-014 | correlated telemetry lifecycle | real debug/stable producer and Victoria | H1/H2/H3 stage assignment and missing-terminal diagnostic |
+| R-BLO-014 | operation-owned scrubbed correlation carried by strict metadata/presentation and selected-content request/receipt envelopes; closed start/terminal graph keyed by safe stage attempt; observability-owned bounded missing-terminal reduction | real debug/stable native and BridgeWeb operation producers, metadata/reset/reopen, content, worker/main/render consumers, and Victoria | one operation ID joins every applicable stage; worker-originated content and per-lane refresh paths remain distinct; each withheld terminal names the first missing family; negative private-content query stays empty |
 | R-BLO-015 | architecture boundaries and full product journeys | real native/worker/File/Review/annotation paths | no Atom/second route/parallel authority; existing behavior preserved |
 | R-BLO-016 | production Core filesystem/Git actors, active/active-pane admission, construction freshness invalidation, exact development router, shared File driver, and host-owned Review continuation | real seeded worktree, production actors, development HTTP/Vite/worker path | source edit, status/branch 10/11/12, overload/reopen, registration rejection, detected ingress terminal, and deterministic shutdown converge without fixture injection |
 
@@ -1036,6 +1129,11 @@ The cutover is one hard lifecycle change with no compatibility shim:
 9. the packaged controller and development host cut over together to the shared
    File refresh driver; the development backend registers its exact seeded
    worktree with the production Core filesystem/Git actors before reporting ready.
+10. strict Swift and TypeScript metadata/presentation plus selected-content
+    request/frame/render-receipt envelopes gain the nullable diagnostic
+    `operationCorrelationId` together; every admitted operation producer and
+    consumer cuts over in the same build, with no old uncorrelated admitted-
+    operation path.
 
 There is no dual writer or dual transport phase. Rollback is source rollback
 before release; no new durable lifecycle state requires data migration.
@@ -1067,6 +1165,14 @@ before release; no new durable lifecycle state requires data migration.
 - Feature owners may not reacquire pane/source admission after work starts; they
   carry and revalidate the original fence.
 - Metadata may not carry bulk projection/content bodies.
+- The diagnostic correlation field may not become a product fence, persistence
+  key, retry key, cache key, or authorization input.
+- Independently minted trace roots, generations, source identities, or proof
+  markers may not be presented as one operation correlation.
+- An admitted operation may not emit an applicable downstream stage with a null
+  or successor correlation identity.
+- A repeated asynchronous phase may not reuse a `stageAttempt`, and a terminal
+  may not exist without its matching start.
 - A child producer may not swallow failure without settling its coordinator.
 - Wire scanners may not maintain a hand-written flat vocabulary disconnected
   from the exhaustive registered strict product contracts.
