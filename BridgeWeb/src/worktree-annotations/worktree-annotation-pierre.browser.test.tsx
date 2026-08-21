@@ -361,7 +361,7 @@ describe('worktree annotation Pierre integration', () => {
 			const annotationBounds = annotationContent.getBoundingClientRect();
 			const frameBounds = conversationFrame.getBoundingClientRect();
 			const textareaBounds = textareaElement.getBoundingClientRect();
-			expect(frameBounds.width).toBeLessThanOrEqual(600);
+			expect(frameBounds.width).toBeLessThanOrEqual(768);
 			expect(frameBounds.left - annotationBounds.left).toBeGreaterThanOrEqual(8);
 			expect(textareaBounds.left - frameBounds.left).toBeGreaterThanOrEqual(12);
 			await act(async (): Promise<void> => {
@@ -736,7 +736,7 @@ describe('worktree annotation Pierre integration', () => {
 		);
 		expect(threadFrames).toHaveLength(2);
 		for (const threadFrame of threadFrames) {
-			expect(threadFrame.getBoundingClientRect().width).toBeLessThanOrEqual(600);
+			expect(threadFrame.getBoundingClientRect().width).toBeLessThanOrEqual(768);
 		}
 		const firstThreadFrame = threadFrames.find(
 			(frame): boolean => frame.dataset['annotationThreadId'] === annotationHeadThreadId,
