@@ -17,6 +17,25 @@ import {
 
 const annotationSaveJourneyTimeoutMilliseconds = 120_000;
 const annotationProjectionResponseTimeoutMilliseconds = 30_000;
+const requiredAnnotationLifecycleStages = [
+	'annotation_invalidation_received',
+	'annotation_paint_started',
+	'annotation_paint_terminal',
+	'content_transfer_started',
+	'content_transfer_terminal',
+	'main_thread_install_started',
+	'main_thread_install_terminal',
+	'projection_convergence_started',
+	'projection_query_started',
+	'projection_store_started',
+	'projection_store_terminal',
+	'projection_validation_started',
+	'projection_validation_terminal',
+	'projection_query_terminal',
+	'projection_convergence_terminal',
+	'worker_application_started',
+	'worker_application_terminal',
+] as const;
 
 export interface AnnotationSaveJourneyObservations {
 	readonly correlatedLifecycleStageCount: number;
@@ -43,7 +62,9 @@ export function registerBridgeViewerViteAnnotationSaveJourneyTests(props: {
 			expect(observations.gatedProjectionRequestCount).toBeGreaterThan(0);
 			expect(observations.savingControlCountAfterCommit).toBe(0);
 			expect(observations.committedBodyCountWhileProjectionGated).toBe(1);
-			expect(observations.correlatedLifecycleStageCount).toBe(11);
+			expect(observations.correlatedLifecycleStageCount).toBe(
+				requiredAnnotationLifecycleStages.length,
+			);
 			expect(observations.projectedSavedMessageCount).toBe(1);
 			expect(observations.reloadedSavedMessageCount).toBe(1);
 		},
@@ -208,25 +229,6 @@ export async function runAnnotationSaveJourney(props: {
 }
 
 async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<number> {
-	const requiredStages = [
-		'annotation_invalidation_received',
-		'annotation_paint_started',
-		'annotation_paint_terminal',
-		'content_transfer_started',
-		'content_transfer_terminal',
-		'main_thread_install_started',
-		'main_thread_install_terminal',
-		'projection_convergence_started',
-		'projection_query_started',
-		'projection_store_started',
-		'projection_store_terminal',
-		'projection_validation_started',
-		'projection_validation_terminal',
-		'projection_query_terminal',
-		'projection_convergence_terminal',
-		'worker_application_started',
-		'worker_application_terminal',
-	] as const;
 	const statusUrl = new URL('/__bridge-dev-telemetry/status', page.url()).toString();
 	const handle = await page.waitForFunction(
 		async ({ expectedStages, url }): Promise<number | false> => {
@@ -270,7 +272,7 @@ async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<
 			}
 			return false;
 		},
-		{ expectedStages: requiredStages, url: statusUrl },
+		{ expectedStages: requiredAnnotationLifecycleStages, url: statusUrl },
 		{ timeout: annotationProjectionResponseTimeoutMilliseconds },
 	);
 	const completedStageCount = await handle.jsonValue();
