@@ -129,6 +129,20 @@ export class WorktreeAnnotationProjectionStore {
 		this.#publish({ ...this.#snapshot, outputHistory });
 	}
 
+	replaceOutputHistoryForSession(
+		sessionId: string,
+		outputHistory: readonly WorktreeAnnotationOutputHistorySummary[],
+	): void {
+		const retainedHistory = this.#snapshot.outputHistory.filter(
+			(summary) => summary.sessionId !== sessionId,
+		);
+		const matchingHistory = outputHistory.filter((summary) => summary.sessionId === sessionId);
+		this.#publish({
+			...this.#snapshot,
+			outputHistory: [...retainedHistory, ...matchingHistory],
+		});
+	}
+
 	#publish(snapshot: Omit<WorktreeAnnotationProjectionSnapshot, 'presentationRevision'>): void {
 		this.#snapshot = {
 			...snapshot,

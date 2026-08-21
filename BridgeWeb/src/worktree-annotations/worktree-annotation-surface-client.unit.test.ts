@@ -11,9 +11,13 @@ import {
 import { createBridgeWorkerRpcLifecycleStore } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import { WorktreeAnnotationProjectionStore } from './worktree-annotation-projection-store.js';
-import { createWorktreeAnnotationSurfaceClient } from './worktree-annotation-surface-client.js';
+import {
+	createWorktreeAnnotationSurfaceClient,
+	type WorktreeAnnotationOutputHistorySummary,
+} from './worktree-annotation-surface-client.js';
 
 const sessionId = '00000000-0000-7000-8000-000000000011';
+const siblingSessionId = '00000000-0000-7000-8000-000000000014';
 const threadId = '00000000-0000-7000-8000-000000000012';
 const messageId = '00000000-0000-7000-8000-000000000013';
 
@@ -74,6 +78,20 @@ describe('worktree annotation finite projection store', () => {
 		expect(store.getSnapshot().commandOutcomes).toHaveLength(1);
 		expect(store.getSnapshot().outputHistory).toHaveLength(1);
 	});
+
+	test('merges cold output history by demanded session', () => {
+		const store = new WorktreeAnnotationProjectionStore();
+		store.replaceOutputHistoryForSession(sessionId, [outputHistorySummary(sessionId, '21')]);
+
+		store.replaceOutputHistoryForSession(siblingSessionId, [
+			outputHistorySummary(siblingSessionId, '22'),
+		]);
+
+		expect(store.getSnapshot().outputHistory.map((summary) => summary.sessionId)).toEqual([
+			sessionId,
+			siblingSessionId,
+		]);
+	});
 });
 
 describe('worktree annotation surface command rendezvous', () => {
@@ -101,6 +119,31 @@ describe('worktree annotation surface command rendezvous', () => {
 			'agentstudio.bridge.phase': 'main_thread_install_terminal',
 			'agentstudio.bridge.result': 'success',
 		});
+		harness.client.dispose();
+	});
+
+	test('refreshes cold history for every demanded session after projection convergence', () => {
+		const harness = createSurfaceClientHarness();
+		const releaseSession = harness.client.acquireSession(sessionId);
+		harness.sentCommands.length = 0;
+
+		harness.publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
+			state: { kind: 'ready', snapshot: projectionSnapshot(7, 12) },
+			surface: 'fileView',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+
+		expect(harness.sentCommands).toContainEqual({
+			command: 'annotationCommand',
+			epoch: 0,
+			operation: { kind: 'output.history', sessionId },
+			surface: 'fileView',
+		});
+		releaseSession();
 		harness.client.dispose();
 	});
 
@@ -285,6 +328,23 @@ function createSurfaceClientHarness(workerRequestIds: readonly string[] = ['work
 		},
 		sentCommands,
 		telemetrySamples,
+	};
+}
+
+function outputHistorySummary(
+	outputSessionId: string,
+	attemptSuffix: string,
+): WorktreeAnnotationOutputHistorySummary {
+	return {
+		attemptId: `00000000-0000-7000-8000-0000000000${attemptSuffix}`,
+		canMarkNotHandled: true,
+		createdAt: 1,
+		messageCount: 1,
+		outputKind: 'clipboard_markdown',
+		repeatedFromAttemptId: null,
+		sessionId: outputSessionId,
+		state: 'succeeded',
+		updatedAt: 2,
 	};
 }
 

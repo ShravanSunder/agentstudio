@@ -81,7 +81,11 @@ export function createWorktreeAnnotationSurfaceClient(
 	const settleProductOutcome = (outcome: WorktreeAnnotationCommandOutcome): void => {
 		projectionStore.recordCommandOutcome(outcome);
 		if (outcome.status.kind === 'history') {
-			projectionStore.replaceOutputHistory(outcome.status.summaries);
+			if (outcome.sessionId === null) {
+				projectionStore.replaceOutputHistory(outcome.status.summaries);
+			} else {
+				projectionStore.replaceOutputHistoryForSession(outcome.sessionId, outcome.status.summaries);
+			}
 		}
 		retainBoundedOrphanCorrelation(outcomesByProductRequestId, outcome.requestId, outcome);
 		const workerRequestId = pendingWorkerRequestIdByProductRequestId.get(outcome.requestId);
@@ -152,6 +156,9 @@ export function createWorktreeAnnotationSurfaceClient(
 				if (message.state.kind === 'ready') {
 					if (message.operationCorrelationId !== null) {
 						projectionStore.apply(message.state.snapshot, message.operationCorrelationId);
+						for (const sessionId of demandCountBySessionId.keys()) {
+							void execute({ kind: 'output.history', sessionId }).catch((): void => {});
+						}
 						recordWorktreeAnnotationLifecycleTelemetry({
 							operationCorrelationId: message.operationCorrelationId,
 							phase: 'projection_store_terminal',
