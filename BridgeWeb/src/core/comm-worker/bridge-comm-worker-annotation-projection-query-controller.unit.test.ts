@@ -88,7 +88,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		harness.notifications.push(snapshotRequired(12));
 		await harness.controller.waitForIdle();
 
-		expect(harness.failures).toEqual([]);
+		expect(harness.statuses).toEqual(['refreshing', 'unavailable']);
 		expect(harness.publications).toEqual([]);
 
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 12 });
@@ -117,10 +117,6 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		harness.controller.ensureSubscription();
 		harness.notifications.push(snapshotRequired(18));
 		await harness.controller.waitForIdle();
-		expect(harness.statuses).toEqual(['refreshing']);
-
-		harness.controller.sourceUnavailable(new Error('File metadata producer ended.'));
-
 		expect(harness.statuses).toEqual(['refreshing', 'unavailable']);
 	});
 
@@ -492,6 +488,7 @@ async function makeProjectionPages(
 						sessionRevision: sourceGeneration,
 						status: 'locked',
 						threadId,
+						threadRevision: 1,
 					},
 				},
 			}),

@@ -303,9 +303,15 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				!this.#disposed &&
 				this.#active &&
 				!abortController.signal.aborted &&
-				attemptGeneration === this.#invalidationGeneration &&
-				!isStaleSourceProjectionAttempt(error)
+				attemptGeneration === this.#invalidationGeneration
 			) {
+				if (isStaleSourceProjectionAttempt(error)) {
+					this.#onConvergence({
+						state: { error, kind: 'unavailable' },
+						surface: this.#surface,
+					});
+					return;
+				}
 				if (isRetryableProjectionAttempt(error) && !this.#automaticQueryRetryConsumed) {
 					this.#automaticQueryRetryConsumed = true;
 					this.#invalidationGeneration += 1;
