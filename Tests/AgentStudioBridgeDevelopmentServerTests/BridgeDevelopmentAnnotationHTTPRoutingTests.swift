@@ -62,7 +62,7 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
                 operation: [
                     "editToken": "two-pane-editor",
                     "expectedDraftRevision": try #require(createReceipt.draftRevision),
-                    "expectedSessionRevision": createReceipt.sessionRevision,
+                    "expectedMessageRevision": createReceipt.messageRevision,
                     "kind": "draft.save",
                     "messageId": createReceipt.messageId.uuidString.lowercased(),
                     "sessionId": sessionID.uuidString.lowercased(),

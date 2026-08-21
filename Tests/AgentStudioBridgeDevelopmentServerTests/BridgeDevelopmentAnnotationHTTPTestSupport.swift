@@ -325,7 +325,19 @@ enum HTTPAnnotationIntegrationError: Error {
     case metadataStreamEnded
     case unexpectedAnnotationCommandResponse(String)
     case unexpectedControlResponse
-    case unexpectedHTTPResponse
+    case unexpectedHTTPResponse(context: String, status: Int, contentType: String?, body: String)
+}
+
+func unexpectedHTTPAnnotationResponse(
+    _ response: TestResponse,
+    context: String
+) -> HTTPAnnotationIntegrationError {
+    .unexpectedHTTPResponse(
+        context: context,
+        status: response.status.code,
+        contentType: response.headers[.contentType],
+        body: String(bytes: response.body.readableBytesView, encoding: .utf8) ?? "<invalid UTF-8>"
+    )
 }
 
 func startHTTPMetadataStream(
@@ -358,7 +370,12 @@ func startHTTPMetadataStream(
     guard response.status == .ok,
         response.headers[.contentType] == "application/octet-stream"
     else {
-        throw HTTPAnnotationIntegrationError.unexpectedHTTPResponse
+        throw HTTPAnnotationIntegrationError.unexpectedHTTPResponse(
+            context: "metadataStream.open",
+            status: response.status.code,
+            contentType: response.headers[.contentType],
+            body: "streaming response body unavailable before producer drain"
+        )
     }
     let recorder = try HTTPMetadataFrameRecorder()
     let responseBody = response.body
@@ -530,7 +547,13 @@ private func executeHTTPControl(
     guard response.status == .ok,
         response.headers[.contentType] == "application/json"
     else {
-        throw HTTPAnnotationIntegrationError.unexpectedHTTPResponse
+        throw unexpectedHTTPAnnotationResponse(
+            response,
+            context: String(
+                data: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+                encoding: .utf8
+            ) ?? "<invalid UTF-8 request>"
+        )
     }
     return try BridgeProductStrictJSON.decode(
         BridgeProductControlResponse.self,
@@ -671,7 +694,10 @@ private func acknowledgeHTTPMetadataFrame(
         body: ByteBuffer(data: acknowledgement)
     )
     guard response.status == .noContent else {
-        throw HTTPAnnotationIntegrationError.unexpectedHTTPResponse
+        throw unexpectedHTTPAnnotationResponse(
+            response,
+            context: "metadata stream frame acknowledgement sequence \(identity.streamSequence)"
+        )
     }
 }
 

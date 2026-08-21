@@ -149,7 +149,12 @@ private func openHTTPAnnotationProjectionContent(
     guard response.status == .ok,
         response.headers[.contentType] == "application/octet-stream"
     else {
-        throw HTTPAnnotationIntegrationError.unexpectedHTTPResponse
+        throw HTTPAnnotationIntegrationError.unexpectedHTTPResponse(
+            context: "annotation projection content open descriptor \(descriptor.descriptorID)",
+            status: response.status.code,
+            contentType: response.headers[.contentType],
+            body: "streaming response body unavailable before producer drain"
+        )
     }
 
     let recorder = try HTTPContentFrameRecorder()
@@ -226,7 +231,10 @@ private func acknowledgeHTTPContentFrame(
         body: ByteBuffer(data: body)
     )
     guard response.status == .noContent else {
-        throw HTTPAnnotationIntegrationError.unexpectedHTTPResponse
+        throw unexpectedHTTPAnnotationResponse(
+            response,
+            context: "annotation projection frame acknowledgement sequence \(contentSequence)"
+        )
     }
 }
 
@@ -252,7 +260,13 @@ private func executeHTTPAnnotationProjectionControl(
     guard response.status == .ok,
         response.headers[.contentType] == "application/json"
     else {
-        throw HTTPAnnotationIntegrationError.unexpectedHTTPResponse
+        throw unexpectedHTTPAnnotationResponse(
+            response,
+            context: String(
+                data: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+                encoding: .utf8
+            ) ?? "<invalid UTF-8 request>"
+        )
     }
     return try BridgeProductStrictJSON.decode(
         BridgeProductControlResponse.self,

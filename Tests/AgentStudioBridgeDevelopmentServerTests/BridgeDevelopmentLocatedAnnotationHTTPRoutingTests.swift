@@ -118,7 +118,7 @@ private func createHTTPSavedLocatedAnnotationBeforeRestart(
             operation: [
                 "editToken": "located-editor-1",
                 "expectedDraftRevision": draftRevision,
-                "expectedSessionRevision": createReceipt.sessionRevision,
+                "expectedMessageRevision": createReceipt.messageRevision,
                 "kind": "draft.save",
                 "messageId": createReceipt.messageId.uuidString.lowercased(),
                 "sessionId": sessionID.uuidString.lowercased(),
