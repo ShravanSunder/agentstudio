@@ -20,6 +20,7 @@ interface PhoneProductPlateComposition {
   readonly imageStoryId: string | null | undefined;
   readonly imageUsesPlateWidth: boolean;
   readonly imageUsesUncroppedMaster: boolean;
+  readonly panelAnimationName: string;
   readonly selectedDotDisplay: string;
   readonly stageHeight: number;
   readonly titleBeforeImage: boolean;
@@ -371,6 +372,7 @@ test("presents the phone carousel as title, image, then matching caption", async
     plate.evaluate((productPlate) => {
       const stage = productPlate.querySelector(".product-plate__selector-stage");
       const image = productPlate.querySelector("[data-product-plate-panel]:not([hidden]) img");
+      const panel = image?.closest("[data-product-plate-panel]");
       const visibleCaptions = [
         ...productPlate.querySelectorAll("[data-product-plate-caption]"),
       ].filter((caption) => {
@@ -378,7 +380,11 @@ test("presents the phone carousel as title, image, then matching caption", async
         return bounds.width > 0 && bounds.height > 0;
       });
 
-      if (!(stage instanceof HTMLElement) || !(image instanceof HTMLImageElement)) {
+      if (
+        !(stage instanceof HTMLElement) ||
+        !(image instanceof HTMLImageElement) ||
+        !(panel instanceof HTMLElement)
+      ) {
         throw new Error("Phone product plate is missing its title stage or selected image");
       }
 
@@ -407,6 +413,7 @@ test("presents the phone carousel as title, image, then matching caption", async
         captionBackground: getComputedStyle(caption).backgroundColor,
         imageUsesPlateWidth: Math.abs(imageBounds.width - plateBounds.width) <= 2,
         imageUsesUncroppedMaster: Math.abs(image.naturalWidth / image.naturalHeight - 1.6) < 0.01,
+        panelAnimationName: getComputedStyle(panel).animationName,
         selectedDotDisplay: getComputedStyle(selectedStory, "::after").display,
         visibleCaptionCount: visibleCaptions.length,
       };
@@ -421,6 +428,7 @@ test("presents the phone carousel as title, image, then matching caption", async
     captionBackground: "rgba(0, 0, 0, 0)",
     imageUsesPlateWidth: true,
     imageUsesUncroppedMaster: true,
+    panelAnimationName: "none",
     selectedDotDisplay: "none",
     visibleCaptionCount: 1,
   });

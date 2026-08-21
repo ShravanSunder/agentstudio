@@ -55,6 +55,9 @@ compact header. Deployment remains separate.
       the dot in compact mode so the selected title remains visually centered.
 - [x] Give reduced-motion visitors one static lifted surface without scroll-
       driven translation.
+- [x] Disable the image-and-caption panel entrance animation below `64rem` so
+      compact story changes swap at invariant geometry without opacity flicker
+      or `translateY` movement. Preserve the desktop panel entrance animation.
 - [x] Inspect the resting, transition, and lifted states at `1600x1000`, plus
       the complete slideshow at `899x900` and `390x844`. Reject the candidate
       for weak separation, competing glass cards, unreadable product pixels,

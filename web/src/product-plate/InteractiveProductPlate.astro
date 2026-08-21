@@ -350,6 +350,10 @@ import { productPlateStories } from "./product-plate-fixture";
   }
 
   @media (width < 64rem) {
+    .product-plate__panel {
+      animation: none;
+    }
+
     .product-plate__selector::after {
       display: none;
     }
