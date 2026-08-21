@@ -402,3 +402,24 @@ Next: commit this bounded test-harness checkpoint, rerun complete `mise run
 test`, then record and push only if the current-HEAD gate exits 0
 Notes: no Share product source or proof gate was weakened; unrelated PR2 files
 remain untracked and untouched
+
+### 2026-08-21 02:49 EDT — Mainline vendor instruction test convergence
+
+State: stale mainline assertion corrected with isolated and complete-lane proof
+Head before correction: `5de076106` (`test(ci): align local Swift inactivity budget`)
+Owns: `VendorConsumerWiringScriptTests` active-instruction expectations only
+Changed: removed the obsolete requirement that AGENTS duplicate README's
+`normally unhydrated in linked worktrees` sentence. AGENTS still must name plain
+setup and the explicit local-vendor escape hatch; README still owns the linked
+worktree hydration detail; forbidden bootstrap commands remain rejected across
+all active instructions.
+Proof: the preceding complete gate advanced through the formerly timed-out fast
+lane, then reproduced this single failure among 484 large tests. The same
+document/test mismatch exists on `origin/main` after AGENTS was shortened in
+`623433273`. Rebuilt focused proof passed 1/1. Complete large proof passed
+484/484 parallel tests plus 4/4 serial process tests.
+Needs from other lane: none
+Next: commit this bounded mainline-contract correction and rerun the complete
+current-HEAD `mise run test`
+Notes: Share production code remains unchanged; unrelated PR2 files remain
+untracked and untouched
