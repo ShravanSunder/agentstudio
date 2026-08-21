@@ -77,15 +77,17 @@ private func queryHTTPFileAnnotationProjection(
     sourceGeneration: Int,
     requestSequence: Int
 ) async throws -> BridgeProductAnnotationProjectionContentDescriptor {
+    let requestID = "annotation-projection-query-\(requestSequence)"
     let queryObject = httpAnnotationProjectionControlIdentity(
         connection: connection,
-        requestID: "annotation-projection-query-\(requestSequence)",
+        requestID: requestID,
         requestSequence: requestSequence
     ).merging([
         "call": [
             "method": "file.annotations.projection.query",
             "request": [
                 "cursor": NSNull(),
+                "operationCorrelationId": sha256Hex(Data(requestID.utf8)),
                 "sessionIds": demandedSessionIDs.map { $0.uuidString.lowercased() },
                 "sourceGeneration": sourceGeneration,
                 "surface": "file",

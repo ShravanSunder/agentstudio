@@ -641,7 +641,12 @@ func httpAnnotationInvalidationIsCompact(
 ) throws -> Bool {
     let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(event))
     guard let dictionary = object as? [String: Any] else { return false }
-    return Set(dictionary.keys) == ["eventKind", "sourceGeneration", "worktreeId"]
+    return Set(dictionary.keys) == [
+        "eventKind",
+        "operationCorrelationId",
+        "sourceGeneration",
+        "worktreeId",
+    ]
 }
 
 func waitForAcknowledgedMetadataFrame<MatchedValue: Sendable>(
