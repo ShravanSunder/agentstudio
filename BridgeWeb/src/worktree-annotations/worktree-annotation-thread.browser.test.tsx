@@ -535,7 +535,14 @@ describe('worktree annotation inline thread', () => {
 			surface.sentOperations
 				.map((operation) => operation.kind)
 				.filter((kind) => kind !== 'session.discover'),
-		).toEqual(['demand.acquire', 'source.refresh', 'output.history', 'reply.create', 'draft.save']);
+		).toEqual([
+			'demand.acquire',
+			'source.refresh',
+			'output.history',
+			'reply.create',
+			'output.history',
+			'draft.save',
+		]);
 		await act(async (): Promise<void> => {
 			surface.settleMostRecentCommitted(annotationSessionId, 1);
 			surface.publishThread({
