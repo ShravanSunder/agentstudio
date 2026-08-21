@@ -322,7 +322,7 @@ mise run test:bridge-web
 mise run bridge-web-build
 test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
 SWIFT_TEST_INCLUDE_E2E=1 \
-SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-300}" \
+SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-600}" \
 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS="${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}" \
 mise run test:swift
 git diff --check

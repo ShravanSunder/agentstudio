@@ -13,7 +13,7 @@ struct CIFastLaneWorkflowTests {
         #expect(testTask.contains("mise run test:bridge-web"))
         #expect(testTask.contains("mise run bridge-web-build"))
         #expect(testTask.contains("test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html"))
-        #expect(testTask.contains("SWIFT_TEST_TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-300}\""))
+        #expect(testTask.contains("SWIFT_TEST_TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-600}\""))
         #expect(
             testTask.contains(
                 "SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=\"${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}\""

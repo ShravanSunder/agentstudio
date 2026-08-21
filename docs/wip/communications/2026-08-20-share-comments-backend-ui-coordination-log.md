@@ -380,3 +380,25 @@ non-empty History proof, shared non-history variants, real Swift/Vite/SQLite
 E2E, and bounded File pointer retry. Uncovered boundaries remain one complete
 green `mise run test` and independent system-clipboard byte inspection; neither
 is represented as a decoded-History defect or PR-ready proof.
+
+### 2026-08-21 02:36 EDT — Local aggregate Swift watchdog correction
+
+State: root cause fixed with focused red/green proof; complete gate pending
+Head before correction: `840430b3f` (`test(annotations): isolate focus event proof`)
+Owns: local top-level pull-request gate inactivity budget only
+Changed: the top-level `mise run test` default for
+`SWIFT_TEST_TIMEOUT_SECONDS` now matches the established CI fast-lane budget of
+600 seconds instead of terminating the live native-concurrent Swift lane at
+300 seconds after the preceding Bridge workload. The watchdog remains based on
+output inactivity and remains overrideable.
+Proof: complete browser integration passed 263 tests with 5 established skips;
+the following aggregate Swift lane reproduced exit 124 at 300 seconds while
+its live process tree resumed passing tests at the termination boundary. The
+same lane passed alone in 162.33 seconds. Rebuilt-source red proof failed on the
+exact 300-versus-600 contract mismatch; focused green passed 1/1; the complete
+`CIFastLaneWorkflowTests` suite passed 21/21.
+Needs from other lane: none
+Next: commit this bounded test-harness checkpoint, rerun complete `mise run
+test`, then record and push only if the current-HEAD gate exits 0
+Notes: no Share product source or proof gate was weakened; unrelated PR2 files
+remain untracked and untouched
