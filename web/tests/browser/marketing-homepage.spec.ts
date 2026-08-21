@@ -703,6 +703,7 @@ test("presents supporting features as text and product media without numbered di
   await expect(page.locator(".feature-detail details, .feature-detail summary")).toHaveCount(0);
   await expect(page.locator(".feature-detail__media")).toHaveCount(3);
   await expect(page.locator(".feature-detail__media img")).toHaveCount(5);
+  await expect(featureDetails.first().locator("picture source")).toHaveCount(0);
   await expect(featureDetails.first().getByRole("heading")).toHaveText(
     "Keep tabs on your code with Files and Review.",
   );
@@ -1122,9 +1123,9 @@ test("holds full glass while the complete showcase remains visible", async ({ pa
     );
   };
 
-  const entryStartTop = geometry.viewportHeight;
-  const fullyEnteredTop = geometry.viewportHeight - geometry.height;
-  const visibleTop = 96;
+  const entryStartTop = geometry.viewportHeight * 0.9;
+  const fullyEnteredTop = entryStartTop - geometry.height;
+  const visibleTop = geometry.viewportHeight * 0.1;
   const fullyVisibleMidpointTop = (fullyEnteredTop + visibleTop) / 2;
   const exitMidpointTop = visibleTop - geometry.height / 2;
   const fullyExitedTop = visibleTop - geometry.height;

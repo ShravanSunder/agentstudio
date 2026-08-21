@@ -41,11 +41,10 @@ Deployment remains a separate decision.
 
 - [x] Morph the existing product plate itself; do not place it inside another
       frame. Preserve its selectors, images, captions, geometry, and interaction.
-- [x] Drive one reversible glass lifecycle from actual visibility: ramp from 0%
-      when the showcase top enters the viewport to 100% when its bottom reaches
-      the viewport bottom; hold 100% for the entire fully visible interval;
-      then ramp to 0% only while the showcase exits above the 96px visible-top
-      boundary. Use identical positions in reverse, with no direction state or
+- [x] Drive one reversible glass lifecycle from actual visibility: begin at 0%
+      when the surface top reaches 90vh, reach 100% when its bottom reaches
+      90vh, hold through the center, then return to 0% when its bottom reaches
+      10vh. Use identical positions in reverse, with no direction state or
       timer.
 - [x] Keep every product screenshot opaque and sharp. Expose glass only through
       the surrounding chassis and chrome. Do not add a frost, blur, or color
@@ -85,6 +84,9 @@ Deployment remains a separate decision.
       `ScrollMaterialSurface`: copy/media side-by-side on desktop and copy above
       media below `64rem`. Keep both panes equal-height on desktop, independently
       rounded and outlined, with the same 4px chassis seam.
+- [x] Keep the complete 16:10 Files and Review master at compact widths. Reject
+      the 4:5 derivative because it clips the left review/task context instead
+      of preserving the complete workspace relationship.
 - [x] Make every two-option persistence top bar two equal flex controls spanning
       the full row. Give each control the shared grey-glass material, outline,
       radius, and 4px separation; preserve its selected underline and behavior.

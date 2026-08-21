@@ -31,11 +31,11 @@ import { productPlateStories } from "./product-plate-fixture";
     data-enhanced="false"
   >
     <div
-      class="product-plate__selector-stage relative grid min-h-0 grid-cols-1 overflow-clip rounded-[14px] max-lg:grid-cols-[48px_minmax(0,1fr)_48px] max-lg:gap-1 max-phone:grid-cols-[40px_minmax(0,1fr)_40px]"
+      class="product-plate__selector-stage relative grid min-h-0 grid-cols-1 overflow-clip rounded-material-pane max-lg:grid-cols-[48px_minmax(0,1fr)_48px] max-lg:gap-1 max-phone:grid-cols-[40px_minmax(0,1fr)_40px]"
     >
       <button
         type="button"
-        class="scroll-material-pane product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-transparent text-2xl text-ink-muted transition-[background-color,color,transform] duration-150 ease-out hover:text-ink active:scale-95 motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-lg:rounded-xl max-lg:border max-lg:border-[rgb(255_255_255/10%)] max-phone:text-xl"
+        class="scroll-material-pane product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-transparent text-2xl text-ink-muted transition-[background-color,color,transform] duration-150 ease-out hover:text-ink active:scale-95 motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-lg:rounded-xl max-lg:border max-lg:border-line max-phone:text-xl"
         data-product-plate-previous
         aria-label="Previous workspace view"
         aria-controls="product-plate-story-selector"
@@ -58,7 +58,7 @@ import { productPlateStories } from "./product-plate-fixture";
               disabled
               tabindex="-1"
               class:list={[
-                "scroll-material-pane product-plate__selector relative isolate grid min-h-0 w-full flex-1 grid-cols-1 content-start items-start overflow-clip rounded-xl border border-[rgb(255_255_255/10%)] px-5 py-2.5 text-left text-ink-muted transition-colors duration-150 ease-out hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-lg:flex max-lg:min-h-16 max-lg:shrink-0 max-lg:grow-0 max-lg:snap-start max-lg:basis-full max-lg:items-center max-lg:justify-center max-lg:px-[clamp(24px,4vw,48px)] max-lg:py-3 max-phone:min-h-14 max-phone:px-4.5 max-phone:py-2.5 max-phone:text-center",
+                "scroll-material-pane product-plate__selector relative isolate grid min-h-0 w-full flex-1 grid-cols-1 content-start items-start overflow-clip rounded-xl border border-line px-5 py-2.5 text-left text-ink-muted transition-colors duration-150 ease-out hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-lg:flex max-lg:min-h-16 max-lg:shrink-0 max-lg:grow-0 max-lg:snap-start max-lg:basis-full max-lg:items-center max-lg:justify-center max-lg:px-[clamp(24px,4vw,48px)] max-lg:py-3 max-phone:min-h-14 max-phone:px-4.5 max-phone:py-2.5 max-phone:text-center",
                 { "is-default": index === 0 },
               ]}
             >
@@ -78,7 +78,7 @@ import { productPlateStories } from "./product-plate-fixture";
 
       <button
         type="button"
-        class="scroll-material-pane product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-transparent text-2xl text-ink-muted transition-[background-color,color,transform] duration-150 ease-out hover:text-ink active:scale-95 motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-lg:rounded-xl max-lg:border max-lg:border-[rgb(255_255_255/10%)] max-phone:text-xl"
+        class="scroll-material-pane product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-transparent text-2xl text-ink-muted transition-[background-color,color,transform] duration-150 ease-out hover:text-ink active:scale-95 motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-lg:rounded-xl max-lg:border max-lg:border-line max-phone:text-xl"
         data-product-plate-next
         aria-label="Next workspace view"
         aria-controls="product-plate-story-selector"
@@ -89,7 +89,7 @@ import { productPlateStories } from "./product-plate-fixture";
     </div>
 
     <div
-      class="scroll-material-pane product-plate__panels product-plate__image-column min-w-0 overflow-clip rounded-[14px]"
+      class="scroll-material-pane product-plate__panels product-plate__image-column min-w-0 overflow-clip rounded-material-pane"
     >
       {
         productPlateStories.map((story, index) => (
@@ -98,7 +98,7 @@ import { productPlateStories } from "./product-plate-fixture";
             data-product-plate-panel={story.id}
             hidden={index !== 0}
           >
-            <picture class="scroll-material-pane product-plate__image-frame block p-1 max-lg:rounded-[14px] max-lg:border max-lg:border-[rgb(255_255_255/10%)]">
+            <picture class="scroll-material-pane product-plate__image-frame block p-1 max-lg:rounded-material-pane max-lg:border max-lg:border-line">
               {
                 "phoneImage" in story && story.phoneImage !== undefined && (
                   <source media="(max-width: 620px)" srcset={story.phoneImage.src} />
@@ -116,7 +116,7 @@ import { productPlateStories } from "./product-plate-fixture";
               />
             </picture>
             <p
-              class="scroll-material-pane product-plate__responsive-caption m-0 hidden border-t border-line px-[clamp(20px,4vw,48px)] py-5 text-lg leading-[1.45] text-ink-muted max-lg:block max-lg:rounded-[14px] max-lg:border max-lg:border-[rgb(255_255_255/10%)] max-phone:px-5 max-phone:py-4 max-phone:text-sm"
+              class="scroll-material-pane product-plate__responsive-caption m-0 hidden border-t border-line px-[clamp(20px,4vw,48px)] py-5 text-lg leading-[1.45] text-ink-muted max-lg:block max-lg:rounded-material-pane max-lg:border max-lg:border-line max-phone:px-5 max-phone:py-4 max-phone:text-sm"
               data-product-plate-caption={story.id}
             >
               {story.phoneDescription}

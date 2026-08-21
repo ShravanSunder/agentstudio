@@ -1,4 +1,4 @@
-const visibleTopOffset = 96;
+const viewportEdgeInsetRatio = 0.1;
 const phoneMediaQuery = "(max-width: 620px)";
 
 let disposeActiveController: (() => void) | undefined;
@@ -49,13 +49,15 @@ function readSurfaceProgress(surface: HTMLElement): number {
   );
   const surfaceTop = surfaceBounds.top - (Number.isFinite(currentLift) ? currentLift : 0);
   const surfaceBottom = surfaceTop + surfaceBounds.height;
-  const fullyEnteredTop = window.innerHeight - surfaceBounds.height;
+  const topBookend = window.innerHeight * viewportEdgeInsetRatio;
+  const bottomBookend = window.innerHeight * (1 - viewportEdgeInsetRatio);
+  const fullyEnteredTop = bottomBookend - surfaceBounds.height;
   const rawProgress = clampProgress(
     surfaceTop >= fullyEnteredTop
-      ? (window.innerHeight - surfaceTop) / surfaceBounds.height
-      : surfaceTop >= visibleTopOffset
+      ? (bottomBookend - surfaceTop) / surfaceBounds.height
+      : surfaceTop >= topBookend
         ? 1
-        : (surfaceBottom - visibleTopOffset) / surfaceBounds.height,
+        : (surfaceBottom - topBookend) / surfaceBounds.height,
   );
   return easeProgress(rawProgress);
 }
