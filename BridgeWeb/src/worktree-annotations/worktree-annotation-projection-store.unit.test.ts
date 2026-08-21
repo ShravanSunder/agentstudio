@@ -4,6 +4,18 @@ import type { BridgeWorkerAnnotationProjectionSnapshot } from '../core/comm-work
 import { WorktreeAnnotationProjectionStore } from './worktree-annotation-projection-store.js';
 
 describe('WorktreeAnnotationProjectionStore read convergence', () => {
+	test('starts unknown until the first complete projection installs', () => {
+		const store = new WorktreeAnnotationProjectionStore();
+
+		expect(store.getSnapshot()).toMatchObject({
+			readStatus: { kind: 'unknown' },
+			revision: null,
+			sessions: [],
+			threads: [],
+			worktreeId: null,
+		});
+	});
+
 	test('retains the last complete projection while refreshing and unavailable', () => {
 		const store = new WorktreeAnnotationProjectionStore();
 		const complete = snapshot(4, 7);

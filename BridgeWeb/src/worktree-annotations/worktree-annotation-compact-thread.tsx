@@ -252,7 +252,7 @@ interface WorktreeAnnotationTimelineSummaryProps {
 	readonly latestMessage: WorktreeAnnotationMessageEntry;
 	readonly messageCount: number;
 	readonly placement: 'exact' | 'outdated' | 'relocated' | 'unavailable';
-	readonly readStatus: 'ready' | 'refreshing' | 'unavailable';
+	readonly readStatus: 'ready' | 'refreshing' | 'unavailable' | 'unknown';
 	readonly resolution: 'open' | 'resolved';
 	readonly timelineActions: ReactNode;
 }
@@ -282,6 +282,7 @@ function WorktreeAnnotationTimelineSummary(
 					<span>{props.resolution === 'open' ? 'Open' : 'Resolved'}</span>
 					{!props.hasDraft ? null : <span className="font-medium text-warning">Draft</span>}
 					{props.hasLockedMessage ? <span>Contains locked output</span> : null}
+					{props.readStatus === 'unknown' ? <span>Membership unknown</span> : null}
 					{props.readStatus === 'refreshing' ? <span>Refreshing</span> : null}
 					{props.readStatus === 'unavailable' ? <span>Updates unavailable</span> : null}
 					{props.placement === 'relocated' ? <span>Relocated</span> : null}

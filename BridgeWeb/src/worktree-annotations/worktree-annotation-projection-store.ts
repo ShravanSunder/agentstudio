@@ -30,6 +30,7 @@ export interface WorktreeAnnotationProjectionSnapshot {
 	readonly outputHistory: readonly WorktreeAnnotationOutputHistorySummary[];
 	readonly presentationRevision: number;
 	readonly readStatus:
+		| { readonly kind: 'unknown' }
 		| { readonly kind: 'ready' }
 		| { readonly kind: 'refreshing' }
 		| { readonly kind: 'unavailable'; readonly retryable: boolean };
@@ -45,7 +46,7 @@ export const emptyWorktreeAnnotationProjectionSnapshot: WorktreeAnnotationProjec
 	commandOutcomes: [],
 	outputHistory: [],
 	presentationRevision: 0,
-	readStatus: { kind: 'ready' },
+	readStatus: { kind: 'unknown' },
 	recoveryStatus: 'available',
 	revision: null,
 	sessions: [],
