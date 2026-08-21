@@ -73,23 +73,19 @@ describe('Bridge comm worker annotation projection query controller', () => {
 			pages: pages12,
 			queryOverride: (request) =>
 				request.sourceGeneration === 10
-					? Promise.reject(
-							new BridgeProductControlRequestError({
-								code: 'stale_source',
-								message: 'Bridge product call was rejected with stale_source.',
-								retryAfterMilliseconds: null,
-								retryable: false,
-							}),
-						)
-					: Promise.resolve({ descriptor: pages12[0]?.descriptor }),
+					? Promise.resolve({ currentSourceGeneration: 12, kind: 'source_stale' })
+					: Promise.resolve({ descriptor: pages12[0]?.descriptor, kind: 'content' }),
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 10 });
 		harness.controller.ensureSubscription();
 		harness.notifications.push(snapshotRequired(12));
 		await harness.controller.waitForIdle();
 
-		expect(harness.statuses).toEqual(['refreshing', 'unavailable']);
+		expect(harness.statuses).toEqual(['refreshing']);
 		expect(harness.publications).toEqual([]);
+		expect(harness.sourceAuthorityStalePublications).toEqual([
+			{ currentSourceGeneration: 12, requestedSourceGeneration: 10, surface: 'file' },
+		]);
 
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 12 });
 		await harness.controller.waitForIdle();
@@ -103,20 +99,14 @@ describe('Bridge comm worker annotation projection query controller', () => {
 	test('settles stale-await unavailable when its presentation source producer dies', async () => {
 		const harness = await createHarness({
 			pages: await makeProjectionPages(1, 18),
-			queryOverride: (): Promise<never> =>
-				Promise.reject(
-					new BridgeProductControlRequestError({
-						code: 'stale_source',
-						message: 'Presentation source has not converged.',
-						retryAfterMilliseconds: null,
-						retryable: false,
-					}),
-				),
+			queryOverride: (): Promise<unknown> =>
+				Promise.resolve({ currentSourceGeneration: 18, kind: 'source_stale' }),
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 17 });
 		harness.controller.ensureSubscription();
 		harness.notifications.push(snapshotRequired(18));
 		await harness.controller.waitForIdle();
+		harness.controller.sourceUnavailable(new Error('File metadata producer ended.'));
 		expect(harness.statuses).toEqual(['refreshing', 'unavailable']);
 	});
 
@@ -136,7 +126,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 								retryable: true,
 							}),
 						)
-					: Promise.resolve({ descriptor: pages[0]?.descriptor });
+					: Promise.resolve({ descriptor: pages[0]?.descriptor, kind: 'content' });
 			},
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 16 });
@@ -180,7 +170,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 				observedSignals.push(signal);
 				return ++queryCount === 1
 					? firstQuery.promise
-					: Promise.resolve({ descriptor: pages10[0]?.descriptor });
+					: Promise.resolve({ descriptor: pages10[0]?.descriptor, kind: 'content' });
 			},
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 10 });
@@ -193,7 +183,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		await flushTaskQueueUntil(() => harness.querySourceGenerations.length === 2);
 		expect(harness.querySourceGenerations).toEqual([10, 10]);
 		expect(observedSignals[0]?.aborted).toBe(true);
-		firstQuery.resolve({ descriptor: pages10[0]?.descriptor });
+		firstQuery.resolve({ descriptor: pages10[0]?.descriptor, kind: 'content' });
 		await harness.controller.waitForIdle();
 
 		expect(harness.querySourceGenerations).toEqual([10, 10]);
@@ -280,7 +270,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		await flushTaskQueue();
 		const disposal = harness.controller.dispose();
 		expect(observedSignals[0]?.aborted).toBe(true);
-		pendingQuery.resolve({ descriptor: pages[0]?.descriptor });
+		pendingQuery.resolve({ descriptor: pages[0]?.descriptor, kind: 'content' });
 		await disposal;
 
 		expect(harness.publications).toEqual([]);
@@ -311,6 +301,11 @@ interface AnnotationProjectionTestHarness {
 	}>;
 	readonly querySourceGenerations: number[];
 	readonly querySessionIds: string[][];
+	readonly sourceAuthorityStalePublications: Array<{
+		readonly currentSourceGeneration: number;
+		readonly requestedSourceGeneration: number;
+		readonly surface: 'file' | 'review';
+	}>;
 	readonly statuses: Array<BridgeCommWorkerAnnotationProjectionPublication['state']['kind']>;
 	readonly subscriptionCount: () => number;
 }
@@ -332,6 +327,8 @@ async function createHarness(props: {
 	const statuses: AnnotationProjectionTestHarness['statuses'] = [];
 	const querySourceGenerations: number[] = [];
 	const querySessionIds: string[][] = [];
+	const sourceAuthorityStalePublications: AnnotationProjectionTestHarness['sourceAuthorityStalePublications'] =
+		[];
 	const pageByCursor = new Map<string | null, MutableProjectionPage>();
 	for (const page of props.pages) {
 		const cursor =
@@ -343,7 +340,7 @@ async function createHarness(props: {
 			querySourceGenerations.push(request.sourceGeneration);
 			querySessionIds.push([...request.sessionIds]);
 			if (props.queryOverride !== undefined) return await props.queryOverride(request, signal);
-			return { descriptor: pageByCursor.get(request.cursor)?.descriptor };
+			return { descriptor: pageByCursor.get(request.cursor)?.descriptor, kind: 'content' };
 		},
 		openContent: (descriptor): BridgeProductContentStream<'annotation.projection'> => {
 			const page = props.pages.find(
@@ -365,6 +362,9 @@ async function createHarness(props: {
 			if (state.kind === 'ready') publications.push({ snapshot: state.snapshot, surface });
 			else if (state.kind === 'unavailable') failures.push(state.error);
 		},
+		onSourceAuthorityStale: (publication): void => {
+			sourceAuthorityStalePublications.push(publication);
+		},
 		surface: 'file',
 		transport,
 	});
@@ -375,6 +375,7 @@ async function createHarness(props: {
 		publications,
 		querySourceGenerations,
 		querySessionIds,
+		sourceAuthorityStalePublications,
 		statuses,
 		subscriptionCount: (): number => observedSubscriptionCount,
 	};

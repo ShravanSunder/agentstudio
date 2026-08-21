@@ -501,7 +501,7 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('file.annotations.projection.query'),
 			result: bridgeProductAnnotationProjectionQueryResultSchema.refine(
-				(result) => result.descriptor.surface === 'file',
+				(result) => result.kind === 'source_stale' || result.descriptor.surface === 'file',
 				{ message: 'File annotation projection descriptor must remain File-surface bound.' },
 			),
 		})
@@ -588,7 +588,7 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.annotations.projection.query'),
 			result: bridgeProductAnnotationProjectionQueryResultSchema.refine(
-				(result) => result.descriptor.surface === 'review',
+				(result) => result.kind === 'source_stale' || result.descriptor.surface === 'review',
 				{ message: 'Review annotation projection descriptor must remain Review-surface bound.' },
 			),
 		})

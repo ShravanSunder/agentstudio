@@ -93,6 +93,7 @@ enum BridgeProductStrictJSON {
             "createdAt",
             "createdAtUnixMilliseconds",
             "createdBeforeUnixMilliseconds",
+            "currentSourceGeneration",
             "cursor",
             "cwdScope",
             "data",

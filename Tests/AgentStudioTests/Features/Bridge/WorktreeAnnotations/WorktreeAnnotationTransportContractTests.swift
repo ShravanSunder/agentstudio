@@ -5,6 +5,45 @@ import Testing
 @testable import AgentStudioBridge
 
 struct WorktreeAnnotationTransportContractTests {
+    @Test("annotation projection stale result carries current source authority")
+    func annotationProjectionStaleResultCarriesCurrentSourceAuthority() throws {
+        for method in [
+            "file.annotations.projection.query",
+            "review.annotations.projection.query",
+        ] {
+            let result = try decodeStrict(
+                BridgeProductCallResult.self,
+                object: [
+                    "method": method,
+                    "result": [
+                        "currentSourceGeneration": 12,
+                        "kind": "source_stale",
+                    ],
+                ]
+            )
+            switch result {
+            case .fileAnnotationsProjectionQuery(.sourceStale(let currentSourceGeneration)),
+                .reviewAnnotationsProjectionQuery(.sourceStale(let currentSourceGeneration)):
+                #expect(currentSourceGeneration == 12)
+            default:
+                Issue.record("Expected a typed stale annotation projection result")
+            }
+        }
+
+        #expect(throws: (any Error).self) {
+            _ = try decodeStrict(
+                BridgeProductCallResult.self,
+                object: [
+                    "method": "file.annotations.projection.query",
+                    "result": [
+                        "currentSourceGeneration": -1,
+                        "kind": "source_stale",
+                    ],
+                ]
+            )
+        }
+    }
+
     @Test("File and Review annotation commands use one strict logical operation contract")
     func fileAndReviewCommandsUseStrictSharedOperationContract() throws {
         for (method, expectedSurface) in [

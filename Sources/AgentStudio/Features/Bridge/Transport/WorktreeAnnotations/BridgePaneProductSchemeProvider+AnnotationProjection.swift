@@ -14,6 +14,18 @@ extension BridgePaneProductSchemeProvider {
                 issuing: request,
                 productAdmission: productAdmission
             )
+        } catch BridgeAnnotationProjectionSourceError.staleSourceGeneration(
+            let currentSourceGeneration
+        ) {
+            let staleResult = BridgeProductAnnotationProjectionQueryResult.sourceStale(
+                currentSourceGeneration: currentSourceGeneration
+            )
+            let result: BridgeProductCallResult =
+                switch queryRequest.surface {
+                case .file: .fileAnnotationsProjectionQuery(staleResult)
+                case .review: .reviewAnnotationsProjectionQuery(staleResult)
+                }
+            return try .callCompleted(correlating: request, result: result)
         } catch let sourceError as BridgeAnnotationProjectionSourceError {
             return try annotationProjectionError(sourceError, for: request)
         } catch {
@@ -22,9 +34,9 @@ extension BridgePaneProductSchemeProvider {
         let result: BridgeProductCallResult =
             switch queryRequest.surface {
             case .file:
-                .fileAnnotationsProjectionQuery(.init(descriptor: descriptor))
+                .fileAnnotationsProjectionQuery(.content(descriptor))
             case .review:
-                .reviewAnnotationsProjectionQuery(.init(descriptor: descriptor))
+                .reviewAnnotationsProjectionQuery(.content(descriptor))
             }
         return try .callCompleted(correlating: request, result: result)
     }
@@ -175,14 +187,7 @@ extension BridgePaneProductSchemeProvider {
     ) throws -> BridgeProductControlResponse {
         switch error {
         case .staleSourceGeneration:
-            return try .requestError(
-                correlating: request,
-                code: .staleSource,
-                nextExpectedRequestSequence: request.requestSequence + 1,
-                retryAfterMilliseconds: nil,
-                retryable: false,
-                safeMessage: "Annotation projection source generation is stale"
-            )
+            throw error
         case .initialSourceGenerationUnavailable,
             .projectionCaptureUnavailable,
             .revalidatedSourceGenerationUnavailable,

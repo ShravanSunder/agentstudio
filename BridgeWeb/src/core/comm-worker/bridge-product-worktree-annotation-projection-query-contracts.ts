@@ -64,9 +64,20 @@ export const bridgeProductAnnotationProjectionContentDescriptorSchema = z
 export const bridgeProductAnnotationProjectionContentIdentitySchema =
 	bridgeProductAnnotationProjectionContentDescriptorSchema;
 
-export const bridgeProductAnnotationProjectionQueryResultSchema = z
-	.object({ descriptor: bridgeProductAnnotationProjectionContentDescriptorSchema })
-	.strict();
+export const bridgeProductAnnotationProjectionQueryResultSchema = z.discriminatedUnion('kind', [
+	z
+		.object({
+			descriptor: bridgeProductAnnotationProjectionContentDescriptorSchema,
+			kind: z.literal('content'),
+		})
+		.strict(),
+	z
+		.object({
+			currentSourceGeneration: bridgeProductNonnegativeSequenceSchema,
+			kind: z.literal('source_stale'),
+		})
+		.strict(),
+]);
 
 export type BridgeProductAnnotationProjectionQueryRequest = z.infer<
 	typeof bridgeProductAnnotationProjectionQueryRequestSchema
@@ -79,4 +90,7 @@ export type BridgeProductAnnotationProjectionContentDescriptor = z.infer<
 >;
 export type BridgeProductAnnotationProjectionContentIdentity = z.infer<
 	typeof bridgeProductAnnotationProjectionContentIdentitySchema
+>;
+export type BridgeProductAnnotationProjectionQueryResult = z.infer<
+	typeof bridgeProductAnnotationProjectionQueryResultSchema
 >;

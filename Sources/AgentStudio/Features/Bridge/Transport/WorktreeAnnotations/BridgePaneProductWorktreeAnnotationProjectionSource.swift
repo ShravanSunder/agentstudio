@@ -8,7 +8,7 @@ enum BridgeAnnotationProjectionSourceError: Error, Equatable, Sendable {
     case initialSourceGenerationUnavailable
     case revalidatedSourceGenerationUnavailable
     case sourceRefreshUnavailable
-    case staleSourceGeneration
+    case staleSourceGeneration(currentSourceGeneration: Int)
     case unavailable
 }
 
@@ -109,7 +109,9 @@ actor BridgeAnnotationProjectionSource {
             throw BridgeAnnotationProjectionSourceError.initialSourceGenerationUnavailable
         }
         guard currentGeneration == query.sourceGeneration else {
-            throw BridgeAnnotationProjectionSourceError.staleSourceGeneration
+            throw BridgeAnnotationProjectionSourceError.staleSourceGeneration(
+                currentSourceGeneration: currentGeneration
+            )
         }
 
         if let cursor = query.cursor {
@@ -155,7 +157,9 @@ actor BridgeAnnotationProjectionSource {
             throw BridgeAnnotationProjectionSourceError.revalidatedSourceGenerationUnavailable
         }
         guard revalidatedGeneration == currentGeneration else {
-            throw BridgeAnnotationProjectionSourceError.staleSourceGeneration
+            throw BridgeAnnotationProjectionSourceError.staleSourceGeneration(
+                currentSourceGeneration: revalidatedGeneration
+            )
         }
         let placements = try evaluatePlacements(
             details: serviceCapture.repositorySnapshot.details,
@@ -226,8 +230,11 @@ actor BridgeAnnotationProjectionSource {
             productAdmission,
             requirements
         )
-        guard try await currentSourceGeneration(surface, productAdmission) == sourceGeneration else {
-            throw BridgeAnnotationProjectionSourceError.staleSourceGeneration
+        let revalidatedGeneration = try await currentSourceGeneration(surface, productAdmission)
+        guard revalidatedGeneration == sourceGeneration else {
+            throw BridgeAnnotationProjectionSourceError.staleSourceGeneration(
+                currentSourceGeneration: revalidatedGeneration
+            )
         }
         return try evaluatePlacements(
             details: [detail],

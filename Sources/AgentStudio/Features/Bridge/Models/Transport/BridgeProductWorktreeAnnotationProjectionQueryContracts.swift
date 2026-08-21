@@ -393,29 +393,64 @@ struct BridgeProductAnnotationProjectionContentRequest: Codable, Equatable, Send
     }
 }
 
-struct BridgeProductAnnotationProjectionQueryResult: Codable, Equatable, Sendable {
-    private enum CodingKeys: String, CodingKey, CaseIterable { case descriptor }
+enum BridgeProductAnnotationProjectionQueryResult: Codable, Equatable, Sendable {
+    case content(BridgeProductAnnotationProjectionContentDescriptor)
+    case sourceStale(currentSourceGeneration: Int)
 
-    let descriptor: BridgeProductAnnotationProjectionContentDescriptor
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case currentSourceGeneration
+        case descriptor
+        case kind
+    }
 
-    init(descriptor: BridgeProductAnnotationProjectionContentDescriptor) {
-        self.descriptor = descriptor
+    private enum Kind: String, Codable {
+        case content
+        case sourceStale = "source_stale"
     }
 
     init(from decoder: Decoder) throws {
-        try BridgeProductContractDecoding.rejectUnknownKeys(
-            from: decoder,
-            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
-            contract: "worktree annotation projection query result"
-        )
-        descriptor = try decoder.container(keyedBy: CodingKeys.self).decode(
-            BridgeProductAnnotationProjectionContentDescriptor.self,
-            forKey: .descriptor
-        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .content:
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [CodingKeys.descriptor.rawValue, CodingKeys.kind.rawValue],
+                contract: "annotation projection content query result"
+            )
+            self = .content(
+                try container.decode(
+                    BridgeProductAnnotationProjectionContentDescriptor.self,
+                    forKey: .descriptor
+                )
+            )
+        case .sourceStale:
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [CodingKeys.currentSourceGeneration.rawValue, CodingKeys.kind.rawValue],
+                contract: "annotation projection stale-source query result"
+            )
+            let currentSourceGeneration = try container.decode(
+                Int.self,
+                forKey: .currentSourceGeneration
+            )
+            try BridgeProductContractDecoding.validateNonnegative(
+                currentSourceGeneration,
+                name: "currentSourceGeneration",
+                codingPath: decoder.codingPath
+            )
+            self = .sourceStale(currentSourceGeneration: currentSourceGeneration)
+        }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(descriptor, forKey: .descriptor)
+        switch self {
+        case .content(let descriptor):
+            try container.encode(Kind.content, forKey: .kind)
+            try container.encode(descriptor, forKey: .descriptor)
+        case .sourceStale(let currentSourceGeneration):
+            try container.encode(Kind.sourceStale, forKey: .kind)
+            try container.encode(currentSourceGeneration, forKey: .currentSourceGeneration)
+        }
     }
 }

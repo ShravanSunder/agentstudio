@@ -120,6 +120,19 @@ export async function runAnnotationSaveJourney(props: {
 		};
 		await page.route(projectionRoutePattern, projectionRouteHandler);
 		try {
+			const gatedProjectionRequest = page.waitForRequest(
+				(request): boolean => {
+					if (
+						request.method() !== 'POST' ||
+						new URL(request.url()).pathname !== '/__bridge-product/content'
+					) {
+						return false;
+					}
+					const body: unknown = request.postDataJSON();
+					return isUnknownRecord(body) && body['contentKind'] === 'annotation.projection';
+				},
+				{ timeout: annotationProjectionResponseTimeoutMilliseconds },
+			);
 			const draftSaveCommitted = waitForCommittedAnnotationCommand(
 				page,
 				'draft.save',
@@ -127,6 +140,7 @@ export async function runAnnotationSaveJourney(props: {
 			);
 			await page.getByRole('button', { name: 'Save annotation' }).click();
 			await draftSaveCommitted;
+			await gatedProjectionRequest;
 			await settleBrowserFrames(page, 2);
 			savingControlCountAfterCommit = await page
 				.getByRole('button', { name: 'Saving annotation' })

@@ -3,6 +3,7 @@ import {
 	bridgeCommWorkerAnnotationProjectionTransport,
 	type BridgeCommWorkerAnnotationProjectionDemand,
 	type BridgeCommWorkerAnnotationProjectionPublication,
+	type BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication,
 } from './bridge-comm-worker-annotation-projection-query-controller.js';
 import {
 	bridgeProductWorktreeAnnotationCommandResultSchema,
@@ -73,6 +74,10 @@ export class BridgeCommWorkerProductController {
 		file: null,
 		review: null,
 	};
+	readonly #annotationSourceReconciliationBySurface: Record<
+		'file' | 'review',
+		Promise<void> | null
+	> = { file: null, review: null };
 	readonly #callCurrentFileSource: () => Promise<FileSourceDiscoveryResult>;
 	readonly #subscribeFile: (
 		options: BridgeProductSubscriptionOptions<'file.metadata'>,
@@ -133,11 +138,17 @@ export class BridgeCommWorkerProductController {
 		this.#annotationProjectionBySurface = {
 			file: new BridgeCommWorkerAnnotationProjectionQueryController({
 				onConvergence,
+				onSourceAuthorityStale: (publication): void => {
+					void this.reconcileAnnotationProjectionSourceAuthority(publication);
+				},
 				surface: 'file',
 				transport: annotationProjectionTransport,
 			}),
 			review: new BridgeCommWorkerAnnotationProjectionQueryController({
 				onConvergence,
+				onSourceAuthorityStale: (publication): void => {
+					void this.reconcileAnnotationProjectionSourceAuthority(publication);
+				},
 				surface: 'review',
 				transport: annotationProjectionTransport,
 			}),
@@ -189,11 +200,76 @@ export class BridgeCommWorkerProductController {
 		this.#annotationProjectionBySurface[surface].sourceUnavailable(error);
 	}
 
+	reconcileAnnotationProjectionSourceAuthority(
+		publication: BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication,
+	): Promise<void> {
+		if (publication.currentSourceGeneration <= publication.requestedSourceGeneration) {
+			this.setAnnotationProjectionSourceUnavailable(
+				publication.surface,
+				new Error('Annotation projection source authority did not advance.'),
+			);
+			return Promise.resolve();
+		}
+		const existingReconciliation =
+			this.#annotationSourceReconciliationBySurface[publication.surface];
+		if (existingReconciliation !== null) return existingReconciliation;
+		const reconciliation = this.#reopenAnnotationProjectionSourceAuthority(
+			publication.surface,
+		).catch((error: unknown): void => {
+			this.setAnnotationProjectionSourceUnavailable(publication.surface, error);
+		});
+		const trackedReconciliation = reconciliation.finally((): void => {
+			if (
+				this.#annotationSourceReconciliationBySurface[publication.surface] === trackedReconciliation
+			) {
+				this.#annotationSourceReconciliationBySurface[publication.surface] = null;
+			}
+		});
+		this.#annotationSourceReconciliationBySurface[publication.surface] = trackedReconciliation;
+		return trackedReconciliation;
+	}
+
 	async disposeAnnotationProjections(): Promise<void> {
 		await Promise.all([
 			this.#annotationProjectionBySurface.file.dispose(),
 			this.#annotationProjectionBySurface.review.dispose(),
 		]);
+	}
+
+	async #reopenAnnotationProjectionSourceAuthority(surface: 'file' | 'review'): Promise<void> {
+		if (surface === 'file') {
+			const subscription = this.#fileSubscription;
+			this.#fileSubscription = null;
+			this.#fileSource = null;
+			this.#fileSourceEnsure = null;
+			this.#fileDesiredInterestSignature = null;
+			this.#hasPublishedFileMetadataInterests = false;
+			this.#fileInterestRevision += 1;
+			this.#fileInterestUpdate = Promise.resolve();
+			this.#fileInterestUpdateFailed = false;
+			if (subscription !== null) {
+				try {
+					await subscription.cancel();
+				} catch {
+					// The replacement source authority supersedes the retired subscription locally.
+				}
+			}
+			await this.ensureFileSource();
+			return;
+		}
+		const subscription = this.#reviewSubscription;
+		this.#reviewSubscription = null;
+		this.#reviewDesiredInterestSignature = null;
+		this.#reviewInterestUpdate = Promise.resolve();
+		this.#reviewRecoveryPublicationId = null;
+		if (subscription !== null) {
+			try {
+				await subscription.cancel();
+			} catch {
+				// The replacement source authority supersedes the retired subscription locally.
+			}
+		}
+		this.ensureReviewMetadata();
 	}
 
 	ensureFileSource(): Promise<void> {

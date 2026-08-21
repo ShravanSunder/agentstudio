@@ -98,13 +98,13 @@ private func queryHTTPFileAnnotationProjection(
         object: queryObject
     )
     guard case .callCompleted(let completed) = response,
-        case .fileAnnotationsProjectionQuery(let result) = completed.call
+        case .fileAnnotationsProjectionQuery(.content(let descriptor)) = completed.call
     else {
         throw HTTPAnnotationProjectionIntegrationError.unexpectedQueryResponse(
             String(reflecting: response)
         )
     }
-    return result.descriptor
+    return descriptor
 }
 
 private func openHTTPAnnotationProjectionContent(

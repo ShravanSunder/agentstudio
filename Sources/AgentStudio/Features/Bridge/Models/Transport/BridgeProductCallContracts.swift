@@ -833,7 +833,12 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
             BridgeProductAnnotationProjectionQueryResult.self,
             forKey: .result
         )
-        guard result.descriptor.surface == surface else {
+        let matchesSurface =
+            switch result {
+            case .content(let descriptor): descriptor.surface == surface
+            case .sourceStale: true
+            }
+        guard matchesSurface else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Annotation projection descriptor surface does not match its call method",
                 codingPath: decoder.codingPath

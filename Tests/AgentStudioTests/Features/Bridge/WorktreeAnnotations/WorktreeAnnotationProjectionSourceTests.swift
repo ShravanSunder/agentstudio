@@ -26,7 +26,11 @@ struct WorktreeAnnotationProjectionSourceTests {
         #expect(descriptor.page.expectedThreadCount == 1)
         #expect(descriptor.page.expectedMessageCount == 1)
 
-        await #expect(throws: BridgeAnnotationProjectionSourceError.staleSourceGeneration) {
+        await #expect(
+            throws: BridgeAnnotationProjectionSourceError.staleSourceGeneration(
+                currentSourceGeneration: harness.sourceGeneration
+            )
+        ) {
             _ = try await harness.source.descriptor(
                 for: try projectionQuery(
                     sessionID: harness.detail.session.id,

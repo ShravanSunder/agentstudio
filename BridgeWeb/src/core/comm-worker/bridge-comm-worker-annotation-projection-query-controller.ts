@@ -15,6 +15,7 @@ import {
 	type BridgeProductAnnotationProjectionContentDescriptor,
 	type BridgeProductAnnotationProjectionPageContract,
 	type BridgeProductAnnotationProjectionQueryRequest,
+	type BridgeProductAnnotationProjectionQueryResult,
 } from './bridge-product-worktree-annotation-projection-query-contracts.js';
 
 export type BridgeCommWorkerAnnotationSurface = 'file' | 'review';
@@ -33,8 +34,17 @@ export interface BridgeCommWorkerAnnotationProjectionPublication {
 	readonly surface: BridgeCommWorkerAnnotationSurface;
 }
 
+export interface BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication {
+	readonly currentSourceGeneration: number;
+	readonly requestedSourceGeneration: number;
+	readonly surface: BridgeCommWorkerAnnotationSurface;
+}
+
 interface CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps {
 	readonly onConvergence: (publication: BridgeCommWorkerAnnotationProjectionPublication) => void;
+	readonly onSourceAuthorityStale: (
+		publication: BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication,
+	) => void;
 	readonly surface: BridgeCommWorkerAnnotationSurface;
 	readonly transport: BridgeCommWorkerAnnotationProjectionTransport;
 }
@@ -61,6 +71,7 @@ interface AnnotationProjectionInvalidation {
 
 export class BridgeCommWorkerAnnotationProjectionQueryController {
 	readonly #onConvergence: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps['onConvergence'];
+	readonly #onSourceAuthorityStale: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps['onSourceAuthorityStale'];
 	readonly #surface: BridgeCommWorkerAnnotationSurface;
 	readonly #transport: BridgeCommWorkerAnnotationProjectionTransport;
 	#active = false;
@@ -81,6 +92,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 
 	constructor(props: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps) {
 		this.#onConvergence = props.onConvergence;
+		this.#onSourceAuthorityStale = props.onSourceAuthorityStale;
 		this.#surface = props.surface;
 		this.#transport = props.transport;
 	}
@@ -283,7 +295,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		abortController: AbortController,
 	): Promise<void> {
 		try {
-			const snapshot = await this.#fetchSnapshot(
+			const fetchResult = await this.#fetchSnapshot(
 				invalidation,
 				sourceGeneration,
 				abortController.signal,
@@ -296,7 +308,18 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			) {
 				return;
 			}
-			this.#onConvergence({ state: { kind: 'ready', snapshot }, surface: this.#surface });
+			if (fetchResult.kind === 'source_stale') {
+				this.#onSourceAuthorityStale({
+					currentSourceGeneration: fetchResult.currentSourceGeneration,
+					requestedSourceGeneration: sourceGeneration,
+					surface: this.#surface,
+				});
+				return;
+			}
+			this.#onConvergence({
+				state: { kind: 'ready', snapshot: fetchResult.snapshot },
+				surface: this.#surface,
+			});
 			this.#automaticQueryRetryConsumed = false;
 		} catch (error) {
 			if (
@@ -305,13 +328,6 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				!abortController.signal.aborted &&
 				attemptGeneration === this.#invalidationGeneration
 			) {
-				if (isStaleSourceProjectionAttempt(error)) {
-					this.#onConvergence({
-						state: { error, kind: 'unavailable' },
-						surface: this.#surface,
-					});
-					return;
-				}
 				if (isRetryableProjectionAttempt(error) && !this.#automaticQueryRetryConsumed) {
 					this.#automaticQueryRetryConsumed = true;
 					this.#invalidationGeneration += 1;
@@ -329,7 +345,10 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		invalidation: AnnotationProjectionInvalidation,
 		sourceGeneration: number,
 		signal: AbortSignal,
-	): Promise<BridgeWorkerAnnotationProjectionSnapshot> {
+	): Promise<
+		| { readonly kind: 'content'; readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot }
+		| Extract<BridgeProductAnnotationProjectionQueryResult, { readonly kind: 'source_stale' }>
+	> {
 		const decoder = new BridgeCommWorkerAnnotationProjectionDecoder();
 		let cursor: string | null = null;
 		let expectedPage: BridgeProductAnnotationProjectionPageContract | null = null;
@@ -345,8 +364,9 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				},
 				signal,
 			);
-			const descriptor =
-				bridgeProductAnnotationProjectionQueryResultSchema.parse(result).descriptor;
+			const parsedResult = bridgeProductAnnotationProjectionQueryResultSchema.parse(result);
+			if (parsedResult.kind === 'source_stale') return parsedResult;
+			const descriptor = parsedResult.descriptor;
 			validatePageContract({
 				descriptor,
 				expectedPage,
@@ -383,7 +403,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		if (decodedProjection.aggregateSha256 !== expectedPage.aggregateSha256) {
 			throw new Error('Annotation projection aggregate SHA-256 does not match its page contract.');
 		}
-		return snapshot;
+		return { kind: 'content', snapshot };
 	}
 
 	#queryProjection(
@@ -401,10 +421,6 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			signal,
 		);
 	}
-}
-
-function isStaleSourceProjectionAttempt(error: unknown): boolean {
-	return error instanceof BridgeProductControlRequestError && error.code === 'stale_source';
 }
 
 function isRetryableProjectionAttempt(error: unknown): boolean {

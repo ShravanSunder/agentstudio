@@ -24,6 +24,26 @@ const currentFileSource = {
 } as const;
 
 describe('Bridge product call contracts', () => {
+	test('returns current source authority instead of a generic stale projection error', () => {
+		for (const method of [
+			'file.annotations.projection.query',
+			'review.annotations.projection.query',
+		] as const) {
+			const result = {
+				method,
+				result: { currentSourceGeneration: 12, kind: 'source_stale' },
+			} as const;
+
+			expect(bridgeProductCallResultSchema.parse(result)).toEqual(result);
+			expect(
+				bridgeProductCallResultSchema.safeParse({
+					...result,
+					result: { currentSourceGeneration: -1, kind: 'source_stale' },
+				}).success,
+			).toBe(false);
+		}
+	});
+
 	test('defines paired strict annotation commands with no delete operation', () => {
 		for (const method of ['file.annotations.command', 'review.annotations.command'] as const) {
 			const request = { method, request: { operation: { kind: 'session.discover' } } } as const;
