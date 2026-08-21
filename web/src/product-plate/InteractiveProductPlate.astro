@@ -23,16 +23,16 @@ import { productPlateStories } from "./product-plate-fixture";
   </div>
 
   <div
-    class="product-plate grid grid-cols-[280px_minmax(0,1fr)] overflow-clip rounded-product border border-line-strong bg-product-ground max-site-edge:grid-cols-1"
+    class="product-plate grid grid-cols-[280px_minmax(0,1fr)] overflow-clip rounded-product border border-line bg-product-ground max-lg:grid-cols-1"
     data-product-plate
     data-enhanced="false"
   >
     <div
-      class="product-plate__selector-stage contents max-site-edge:relative max-site-edge:grid max-site-edge:grid-cols-[52px_minmax(0,1fr)_52px] max-phone:grid-cols-[40px_minmax(0,1fr)_40px]"
+      class="product-plate__selector-stage contents max-lg:relative max-lg:grid max-lg:grid-cols-[48px_minmax(0,1fr)_48px] max-phone:grid-cols-[40px_minmax(0,1fr)_40px]"
     >
       <button
         type="button"
-        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-canvas text-[24px] text-primary disabled:cursor-default disabled:text-ink-faint max-site-edge:grid max-site-edge:text-ink max-phone:text-[20px]"
+        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-product-ground text-2xl text-ink-muted transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-phone:text-xl"
         data-product-plate-previous
         aria-label="Previous workspace view"
         aria-controls="product-plate-story-selector"
@@ -43,7 +43,7 @@ import { productPlateStories } from "./product-plate-fixture";
 
       <div
         id="product-plate-story-selector"
-        class="product-plate__selectors border-r border-line-strong bg-canvas max-site-edge:flex max-site-edge:snap-x max-site-edge:snap-mandatory max-site-edge:overflow-x-auto max-site-edge:scroll-smooth max-site-edge:border-r-0"
+        class="product-plate__selectors flex min-h-0 flex-col border-r border-line bg-product-ground max-lg:flex-row max-lg:snap-x max-lg:snap-mandatory max-lg:overflow-x-auto max-lg:scroll-smooth max-lg:border-r-0"
         data-product-plate-selectors
         aria-label={marketingCopy.switcher.accessibilityLabel}
       >
@@ -55,22 +55,19 @@ import { productPlateStories } from "./product-plate-fixture";
               disabled
               tabindex="-1"
               class:list={[
-                "product-plate__selector relative grid w-full grid-cols-[34px_minmax(0,1fr)] border-0 border-b border-line bg-transparent px-5 py-[clamp(7.5px,calc(1.25vw-10.5px),9.5px)] text-left text-ink-muted max-site-edge:flex max-site-edge:min-h-22 max-site-edge:shrink-0 max-site-edge:grow-0 max-site-edge:snap-start max-site-edge:basis-full max-site-edge:items-center max-site-edge:justify-center max-site-edge:gap-3 max-site-edge:border-0 max-site-edge:px-[clamp(24px,4vw,48px)] max-site-edge:py-4.5 max-phone:min-h-19 max-phone:gap-2.5 max-phone:px-4.5 max-phone:py-3.5 max-phone:text-center",
+                "product-plate__selector grid min-h-0 w-full flex-1 grid-cols-1 content-start items-start border-0 border-b border-line bg-transparent px-5 py-2.5 text-left text-ink-muted transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-lg:flex max-lg:min-h-16 max-lg:shrink-0 max-lg:grow-0 max-lg:snap-start max-lg:basis-full max-lg:items-center max-lg:justify-center max-lg:border-0 max-lg:px-[clamp(24px,4vw,48px)] max-lg:py-3 max-phone:min-h-14 max-phone:px-4.5 max-phone:py-2.5 max-phone:text-center",
                 { "is-default": index === 0 },
               ]}
             >
-              <span
-                class="row-span-2 font-mono-product text-[12px] text-ink-faint max-site-edge:text-[13px] max-phone:text-[11px]"
-                data-product-plate-index
-              >
-                {String(index + 1).padStart(2, "0")}
-              </span>
-              <strong class="text-[16px] text-inherit max-site-edge:text-[20px] max-site-edge:leading-tight max-phone:text-[18px]">
+              <strong class="text-lg font-bold text-inherit">
                 {story.label}
               </strong>
-              <small class="mt-1.75 max-w-[760px] leading-[1.4] text-ink-faint max-site-edge:hidden">
+              <span
+                class="mt-2 max-w-[760px] text-sm text-ink-muted max-lg:hidden"
+                data-product-plate-description
+              >
                 <span>{story.description}</span>
-              </small>
+              </span>
             </button>
           ))
         }
@@ -78,7 +75,7 @@ import { productPlateStories } from "./product-plate-fixture";
 
       <button
         type="button"
-        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-canvas text-[24px] text-primary disabled:cursor-default disabled:text-ink-faint max-site-edge:grid max-site-edge:text-ink max-phone:text-[20px]"
+        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-product-ground text-2xl text-ink-muted transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-phone:text-xl"
         data-product-plate-next
         aria-label="Next workspace view"
         aria-controls="product-plate-story-selector"
@@ -109,7 +106,7 @@ import { productPlateStories } from "./product-plate-fixture";
               />
             </picture>
             <p
-              class="product-plate__responsive-caption m-0 hidden border-t border-line bg-canvas px-[clamp(20px,4vw,48px)] py-5 text-[17px] leading-[1.45] text-ink-muted max-site-edge:block max-phone:px-5 max-phone:py-4 max-phone:text-[15px]"
+              class="product-plate__responsive-caption m-0 hidden border-t border-line bg-product-ground px-[clamp(20px,4vw,48px)] py-5 text-lg leading-[1.45] text-ink-muted max-lg:block max-phone:px-5 max-phone:py-4 max-phone:text-sm"
               data-product-plate-caption={story.id}
             >
               {story.phoneDescription}
@@ -146,22 +143,16 @@ import { productPlateStories } from "./product-plate-fixture";
 
   .product-plate__selector[aria-selected="true"],
   .product-plate__selector.is-default:disabled {
-    @apply bg-active-surface text-ink;
+    @apply bg-product-ground text-ink;
   }
 
-  .product-plate__selector[aria-selected="true"]::before,
-  .product-plate__selector.is-default:disabled::before {
-    @apply absolute inset-y-3 left-0 w-1 rounded-full bg-primary;
-    content: "";
+  .product-plate__selector[aria-selected="true"] strong,
+  .product-plate__selector.is-default:disabled strong {
+    @apply text-ink;
   }
 
-  .product-plate__selector[aria-selected="true"] small,
-  .product-plate__selector.is-default:disabled small {
-    @apply text-ink-muted;
-  }
-
-  .product-plate__selector[aria-selected="true"] [data-product-plate-index],
-  .product-plate__selector.is-default:disabled [data-product-plate-index] {
+  .product-plate__selector[aria-selected="true"] [data-product-plate-description],
+  .product-plate__selector.is-default:disabled [data-product-plate-description] {
     @apply text-ink;
   }
 
@@ -173,10 +164,6 @@ import { productPlateStories } from "./product-plate-fixture";
     display: none;
   }
 
-  .product-plate__carousel-action:not(:disabled):hover {
-    @apply bg-active-surface;
-  }
-
   .product-plate__panel {
     animation: product-panel-enter 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
@@ -185,20 +172,20 @@ import { productPlateStories } from "./product-plate-fixture";
     display: none;
   }
 
-  @media (width < 56.25rem) {
+  @media (width < 64rem) {
     .product-plate__selector-stage::after {
-      @apply pointer-events-none absolute right-0 bottom-0 left-0 z-[1] h-px bg-line-strong;
+      @apply pointer-events-none absolute right-0 bottom-0 left-0 z-[1] h-px bg-line;
       content: "";
     }
 
     .product-plate__selector[aria-selected="true"],
     .product-plate__selector.is-default:disabled {
-      @apply bg-active-surface text-ink;
+      @apply bg-product-ground text-ink;
     }
 
-    .product-plate__selector[aria-selected="true"]::before,
-    .product-plate__selector.is-default:disabled::before {
-      @apply inset-y-0 rounded-none;
+    .product-plate__selector[aria-selected="true"] strong,
+    .product-plate__selector.is-default:disabled strong {
+      @apply text-ink;
     }
   }
 

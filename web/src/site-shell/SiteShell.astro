@@ -24,7 +24,7 @@ const { title, description } = Astro.props;
   </head>
   <body>
     <header
-      class="site-header sticky top-px z-20 mx-auto flex min-h-18 w-[min(calc(100%-32px),var(--container-frame))] items-center justify-between rounded-floating-shell border border-[rgb(137_180_250/24%)] px-page-inline py-4 max-site-edge:w-[calc(100%-2px)]"
+      class="site-header sticky top-px z-20 mx-auto flex min-h-18 items-center justify-between rounded-floating-shell border border-[rgb(137_180_250/24%)] px-5.5 py-4"
       data-site-header
       data-visual-state="resting"
     >
@@ -58,7 +58,7 @@ const { title, description } = Astro.props;
     </header>
     <div class="site-header-frost" aria-hidden="true"></div>
     <div
-      class="site-frame relative z-[1] mx-auto mb-4 w-[min(calc(100%-32px),var(--container-frame))] overflow-visible bg-[rgb(46_48_54/97%)] max-site-edge:m-0 max-site-edge:w-full"
+      class="site-frame relative z-[1] mx-auto mb-4 w-[min(calc(100%-32px),var(--container-frame))] overflow-visible bg-[rgb(46_48_54/97%)] max-lg:m-0 max-lg:w-full"
     >
       <main id="top">
         <slot />
@@ -98,6 +98,10 @@ const { title, description } = Astro.props;
   @reference "../styles/global.css";
 
   .site-header {
+    width: calc(
+      min(calc(100% - 32px), var(--container-frame)) - var(--spacing-page-inline) -
+        var(--spacing-page-inline)
+    );
     background:
       linear-gradient(135deg, rgb(137 180 250 / 7%), transparent 42%, rgb(116 199 236 / 4%)),
       rgb(30 30 46 / 78%);
@@ -156,6 +160,12 @@ const { title, description } = Astro.props;
 
   .site-header[data-visual-state="floating"] + .site-header-frost {
     opacity: 1;
+  }
+
+  @media (width < 64rem) {
+    .site-header {
+      width: calc(100% - var(--spacing-page-inline) - var(--spacing-page-inline));
+    }
   }
 
   @media (max-width: 620px) {

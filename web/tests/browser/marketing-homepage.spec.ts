@@ -15,6 +15,7 @@ const verificationViewports = [
 
 interface PhoneProductPlateComposition {
   readonly captionAfterImage: boolean;
+  readonly captionBackground: string;
   readonly captionStoryId: string | undefined;
   readonly imageStoryId: string | null | undefined;
   readonly imageUsesPlateWidth: boolean;
@@ -112,7 +113,7 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   }
   expect(plateGeometry.panelImageTopOffset).toBeLessThanOrEqual(2);
   expect(plateGeometry.panelContentBottomOffset).toBeLessThanOrEqual(2);
-  expect(plateGeometry.selectedBackground).toBe("rgb(37, 39, 45)");
+  expect(plateGeometry.selectedBackground).toBe("rgb(36, 38, 43)");
 
   const originalUrl = page.url();
   await page.getByRole("tab", { name: /Pane drawer/ }).click();
@@ -208,7 +209,7 @@ test("keeps the static product plate honest without JavaScript", async ({ browse
 });
 
 test("synchronizes collapsed product-story text and imagery as one carousel", async ({ page }) => {
-  await page.setViewportSize({ width: 899, height: 900 });
+  await page.setViewportSize({ width: 1023, height: 900 });
   await page.goto("/");
 
   const previousStory = page.getByRole("button", { name: "Previous workspace view" });
@@ -219,6 +220,8 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
   await expect(previousStory).toBeEnabled();
   await expect(nextStory).toBeVisible();
   await expect(nextStory).toBeEnabled();
+  await expect(previousStory).toHaveCSS("color", "rgb(197, 200, 198)");
+  await expect(nextStory).toHaveCSS("color", "rgb(197, 200, 198)");
   await expect(page.locator('[data-product-plate-caption="parallel-work"]')).toBeVisible();
 
   const collapsedGeometry = await selectorViewport.evaluate((selectors) => {
@@ -231,9 +234,8 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
       (story) => story.getBoundingClientRect(),
     );
     const selectedStory = selectors.querySelector('[aria-selected="true"]');
-    const selectedIndex = selectedStory?.querySelector("[data-product-plate-index]");
     const selectedTitle = selectedStory?.querySelector("strong");
-    const selectedDescription = selectedStory?.querySelector("small");
+    const selectedDescription = selectedStory?.querySelector("[data-product-plate-description]");
     const previousButton = selectors.parentElement?.querySelector("[data-product-plate-previous]");
     const nextButton = selectors.parentElement?.querySelector("[data-product-plate-next]");
 
@@ -241,7 +243,6 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
       selectorStageBounds === undefined ||
       selectedImageBounds === undefined ||
       !(selectedStory instanceof HTMLElement) ||
-      !(selectedIndex instanceof HTMLElement) ||
       !(selectedTitle instanceof HTMLElement) ||
       !(selectedDescription instanceof HTMLElement) ||
       !(previousButton instanceof HTMLElement) ||
@@ -251,10 +252,11 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
     }
 
     return {
-      arrowColors: [previousButton, nextButton].map((button) => getComputedStyle(button).color),
+      arrowBackgrounds: [previousButton, nextButton].map(
+        (button) => getComputedStyle(button).backgroundColor,
+      ),
       descriptionDisplay: getComputedStyle(selectedDescription).display,
       imageGap: selectedImageBounds.top - selectorStageBounds.bottom,
-      indexColor: getComputedStyle(selectedIndex).color,
       overflowX: getComputedStyle(selectors).overflowX,
       selectedBackground: getComputedStyle(selectedStory).backgroundColor,
       selectorStageHeight: selectorStageBounds.height,
@@ -262,21 +264,23 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
       storyWidths: storyBounds.map((story) => story.width),
       storyOffsets: storyBounds.map((story) => story.left - selectorBounds.left),
       titleColor: getComputedStyle(selectedTitle).color,
-      titleIndexAlignmentDelta: Math.abs(
-        selectedTitle.getBoundingClientRect().y - selectedIndex.getBoundingClientRect().y,
+      titleCenterDelta: Math.abs(
+        selectedTitle.getBoundingClientRect().left +
+          selectedTitle.getBoundingClientRect().width / 2 -
+          (selectorBounds.left + selectorBounds.width / 2),
       ),
     };
   });
 
-  expect(collapsedGeometry.arrowColors).toEqual(["rgb(255, 255, 255)", "rgb(255, 255, 255)"]);
+  expect(collapsedGeometry.arrowBackgrounds).toEqual(["rgb(36, 38, 43)", "rgb(36, 38, 43)"]);
   expect(collapsedGeometry.descriptionDisplay).toBe("none");
   expect(collapsedGeometry.overflowX).toBe("auto");
   expect(collapsedGeometry.imageGap).toBeLessThanOrEqual(1);
-  expect(collapsedGeometry.indexColor).toBe("rgb(255, 255, 255)");
-  expect(collapsedGeometry.selectedBackground).toBe("rgb(37, 39, 45)");
-  expect(collapsedGeometry.selectorStageHeight).toBeLessThanOrEqual(96);
+  await expect(page.locator("[data-product-plate-index]")).toHaveCount(0);
+  expect(collapsedGeometry.selectedBackground).toBe("rgb(36, 38, 43)");
+  expect(collapsedGeometry.selectorStageHeight).toBeLessThanOrEqual(64);
   expect(collapsedGeometry.titleColor).toBe("rgb(255, 255, 255)");
-  expect(collapsedGeometry.titleIndexAlignmentDelta).toBeLessThanOrEqual(4);
+  expect(collapsedGeometry.titleCenterDelta).toBeLessThanOrEqual(1);
   expect(
     collapsedGeometry.storyWidths.every(
       (storyWidth) => Math.abs(storyWidth - collapsedGeometry.selectorWidth) <= 1,
@@ -294,8 +298,13 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
   await expect(page.locator('[data-product-plate-caption="pane-drawer"]')).toBeVisible();
   await expect(page.locator('[data-product-plate-caption="parallel-work"]')).toBeHidden();
   await expect
-    .poll(() => selectorViewport.evaluate((selectors) => selectors.scrollLeft))
-    .toBeCloseTo(collapsedGeometry.selectorWidth, 0);
+    .poll(async () =>
+      Math.abs(
+        (await selectorViewport.evaluate((selectors) => selectors.scrollLeft)) -
+          collapsedGeometry.selectorWidth,
+      ),
+    )
+    .toBeLessThanOrEqual(1);
 
   await selectorViewport.evaluate((selectors) => {
     selectors.style.scrollBehavior = "auto";
@@ -321,8 +330,8 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
   await expect(nextStory).toBeHidden();
 });
 
-test("keeps the desktop rail at the exact 900px boundary", async ({ page }) => {
-  await page.setViewportSize({ width: 900, height: 900 });
+test("keeps the desktop selector at Tailwind's exact lg boundary", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
   await page.goto("/");
 
   await expect(page.getByRole("button", { name: "Previous workspace view" })).toBeHidden();
@@ -331,36 +340,21 @@ test("keeps the desktop rail at the exact 900px boundary", async ({ page }) => {
 
   const boundaryGeometry = await page.locator(".product-plate").evaluate((plate) => {
     const selectors = plate.querySelector(".product-plate__selectors");
-    const selectedStory = plate.querySelector('.product-plate__selector[aria-selected="true"]');
     const selectedImage = plate.querySelector('[data-product-plate-panel="parallel-work"] img');
 
-    if (
-      !(selectors instanceof HTMLElement) ||
-      !(selectedStory instanceof HTMLElement) ||
-      !(selectedImage instanceof HTMLImageElement)
-    ) {
-      throw new Error("Desktop boundary is missing its selector rail or selected image");
+    if (!(selectors instanceof HTMLElement) || !(selectedImage instanceof HTMLImageElement)) {
+      throw new Error("Desktop boundary is missing its selector or selected image");
     }
 
     const selectorBounds = selectors.getBoundingClientRect();
     const imageBounds = selectedImage.getBoundingClientRect();
-    const selectedRailStyle = getComputedStyle(selectedStory, "::before");
     return {
       imageFollowsRail: Math.abs(selectorBounds.right - imageBounds.left) <= 1,
-      railBottom: selectedRailStyle.bottom,
-      railRadius: Number.parseFloat(selectedRailStyle.borderRadius),
-      railTop: selectedRailStyle.top,
       selectorWidth: selectorBounds.width,
     };
   });
 
-  expect(boundaryGeometry).toMatchObject({
-    imageFollowsRail: true,
-    railBottom: "12px",
-    railTop: "12px",
-    selectorWidth: 280,
-  });
-  expect(boundaryGeometry.railRadius).toBeGreaterThan(100);
+  expect(boundaryGeometry).toEqual({ imageFollowsRail: true, selectorWidth: 280 });
 });
 
 test("presents the phone carousel as title, image, then matching caption", async ({ page }) => {
@@ -403,6 +397,7 @@ test("presents the phone carousel as title, image, then matching caption", async
         stageHeight: stageBounds.height,
         titleBeforeImage: stageBounds.bottom <= imageBounds.top + 1,
         captionAfterImage: captionBounds.top >= imageBounds.bottom - 1,
+        captionBackground: getComputedStyle(caption).backgroundColor,
         imageUsesPlateWidth: Math.abs(imageBounds.width - plateBounds.width) <= 2,
         imageUsesUncroppedMaster: Math.abs(image.naturalWidth / image.naturalHeight - 1.6) < 0.01,
         visibleCaptionCount: visibleCaptions.length,
@@ -415,6 +410,7 @@ test("presents the phone carousel as title, image, then matching caption", async
     imageStoryId: "parallel-work",
     titleBeforeImage: true,
     captionAfterImage: true,
+    captionBackground: "rgb(36, 38, 43)",
     imageUsesPlateWidth: true,
     imageUsesUncroppedMaster: true,
     visibleCaptionCount: 1,
@@ -518,61 +514,69 @@ for (const viewport of verificationViewports) {
   }
 }
 
-test("uses a product focus rail for the selected story and neutral inactive indices", async ({
-  page,
-}) => {
+test("divides the desktop selector into five equal story rows", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.goto("/");
 
   const selectedStory = page.locator('.product-plate__selector[aria-selected="true"]');
-  const selectedIndex = page.locator(
-    '.product-plate__selector[aria-selected="true"] > span:first-child',
-  );
-  const inactiveIndices = page.locator(
-    '.product-plate__selector[aria-selected="false"] > span:first-child',
-  );
+  const parallelStory = page.locator('[data-product-plate-selector="parallel-work"]');
+  const selectedTitle = selectedStory.locator("strong");
+  const storyRows = page.locator(".product-plate__selector");
+  const storyDescriptions = storyRows.locator("[data-product-plate-description]");
 
-  expect(await selectedIndex.evaluate((index) => getComputedStyle(index).color)).toBe(
+  await expect(selectedStory).toHaveCSS("background-color", "rgb(36, 38, 43)");
+  await expect(page.locator("[data-product-plate-index]")).toHaveCount(0);
+  await expect(selectedTitle).toHaveCSS("color", "rgb(255, 255, 255)");
+  await expect(selectedStory.locator("[data-product-plate-description]")).toHaveCSS(
+    "color",
     "rgb(255, 255, 255)",
   );
-  const desktopRailStyle = await selectedStory.evaluate((story) => ({
-    bottom: getComputedStyle(story, "::before").bottom,
-    color: getComputedStyle(story, "::before").backgroundColor,
-    radius: Number.parseFloat(getComputedStyle(story, "::before").borderRadius),
-    top: getComputedStyle(story, "::before").top,
-  }));
-  expect(desktopRailStyle).toMatchObject({
-    bottom: "12px",
-    color: "rgb(137, 180, 250)",
-    top: "12px",
-  });
-  expect(desktopRailStyle.radius).toBeGreaterThan(100);
+  await expect(storyDescriptions).toHaveCount(5);
   expect(
-    await inactiveIndices.evaluateAll((indices) => [
-      ...new Set(indices.map((index) => getComputedStyle(index).color)),
-    ]),
-  ).toEqual(["rgb(155, 161, 173)"]);
+    await storyDescriptions.evaluateAll((descriptions) =>
+      descriptions.every((description) => getComputedStyle(description).display !== "none"),
+    ),
+  ).toBe(true);
+
+  const desktopAccordionGeometry = await page.locator(".product-plate").evaluate((plate) => {
+    const selectors = plate.querySelector(".product-plate__selectors");
+    const panels = plate.querySelector(".product-plate__panels");
+    const stories = [...plate.querySelectorAll<HTMLElement>(".product-plate__selector")];
+    if (!(selectors instanceof HTMLElement) || !(panels instanceof HTMLElement)) {
+      throw new Error("Desktop selector geometry is incomplete");
+    }
+
+    const storyHeights = stories.map((story) => story.getBoundingClientRect().height);
+    return {
+      railPanelHeightDelta: Math.abs(
+        selectors.getBoundingClientRect().height - panels.getBoundingClientRect().height,
+      ),
+      rowHeightSpread: Math.max(...storyHeights) - Math.min(...storyHeights),
+    };
+  });
+
+  expect(desktopAccordionGeometry.railPanelHeightDelta).toBeLessThanOrEqual(1);
+  expect(desktopAccordionGeometry.rowHeightSpread).toBeLessThanOrEqual(1);
 
   await page.getByRole("tab", { name: /Review/ }).click();
-  await expect(page.getByRole("tab", { name: /Review/ })).toHaveAttribute("aria-selected", "true");
-  expect(await selectedIndex.evaluate((index) => getComputedStyle(index).color)).toBe(
+  const reviewStory = page.getByRole("tab", { name: /Review/ });
+  await expect(reviewStory).toHaveAttribute("aria-selected", "true");
+  await expect(reviewStory.locator("strong")).toHaveCSS("color", "rgb(255, 255, 255)");
+  await expect(reviewStory.locator("[data-product-plate-description]")).toBeVisible();
+  await expect(reviewStory.locator("[data-product-plate-description]")).toHaveCSS(
+    "color",
     "rgb(255, 255, 255)",
   );
+  await expect(parallelStory.locator("[data-product-plate-description]")).toBeVisible();
+  await expect(parallelStory.locator("[data-product-plate-description]")).toHaveCSS(
+    "color",
+    "rgb(197, 200, 198)",
+  );
 
-  await page.setViewportSize({ width: 899, height: 900 });
-  expect(
-    await selectedStory.evaluate((story) => ({
-      bottom: getComputedStyle(story, "::before").bottom,
-      color: getComputedStyle(story, "::before").backgroundColor,
-      radius: getComputedStyle(story, "::before").borderRadius,
-      top: getComputedStyle(story, "::before").top,
-    })),
-  ).toEqual({
-    bottom: "0px",
-    color: "rgb(137, 180, 250)",
-    radius: "0px",
-    top: "0px",
-  });
+  await page.setViewportSize({ width: 1023, height: 900 });
+  await expect(reviewStory).toHaveCSS("background-color", "rgb(36, 38, 43)");
+  await expect(reviewStory.locator("strong")).toHaveCSS("color", "rgb(255, 255, 255)");
+  await expect(reviewStory.locator("[data-product-plate-description]")).toBeHidden();
 });
 
 test("presents supporting features as text and product media without numbered disclosures", async ({
@@ -679,12 +683,14 @@ test("morphs the frame-width header into a max-w-2xl floating glass pill", async
     const main = frame?.querySelector(":scope > main");
     const brand = header?.querySelector(".brand-link");
     const heroEyebrow = document.querySelector(".hero .eyebrow");
+    const hero = document.querySelector(".hero");
     if (
       !(header instanceof HTMLElement) ||
       !(frame instanceof HTMLElement) ||
       !(main instanceof HTMLElement) ||
       !(brand instanceof HTMLElement) ||
-      !(heroEyebrow instanceof HTMLElement)
+      !(heroEyebrow instanceof HTMLElement) ||
+      !(hero instanceof HTMLElement)
     ) {
       throw new Error("Site shell surfaces are incomplete");
     }
@@ -693,6 +699,10 @@ test("morphs the frame-width header into a max-w-2xl floating glass pill", async
     const mainStyle = getComputedStyle(main);
     const headerBounds = header.getBoundingClientRect();
     const frameBounds = frame.getBoundingClientRect();
+    const heroBounds = hero.getBoundingClientRect();
+    const heroStyle = getComputedStyle(hero);
+    const heroContentLeft = heroBounds.left + Number(heroStyle.paddingLeft.replace("px", ""));
+    const heroContentRight = heroBounds.right - Number(heroStyle.paddingRight.replace("px", ""));
     return {
       headerState: header.dataset["visualState"],
       header: {
@@ -714,9 +724,8 @@ test("morphs the frame-width header into a max-w-2xl floating glass pill", async
         right: mainStyle.borderRightWidth,
         left: mainStyle.borderLeftWidth,
       },
-      contentAlignmentDelta: Math.abs(
-        brand.getBoundingClientRect().x - heroEyebrow.getBoundingClientRect().x,
-      ),
+      headerLeftToHeroContentDelta: Math.abs(headerBounds.left - heroContentLeft),
+      headerRightToHeroContentDelta: Math.abs(headerBounds.right - heroContentRight),
     };
   });
 
@@ -728,11 +737,11 @@ test("morphs the frame-width header into a max-w-2xl floating glass pill", async
     left: "1px",
   });
   expect(restingGeometry.header.radius).toBe("24px");
-  expect(restingGeometry.header.width).toBe(restingGeometry.frame.width);
-  expect(restingGeometry.header.x).toBe(restingGeometry.frame.x);
-  expect(restingGeometry.header.paddingLeft).toBe("72px");
-  expect(restingGeometry.header.paddingRight).toBe("72px");
-  expect(restingGeometry.contentAlignmentDelta).toBeLessThanOrEqual(1);
+  expect(restingGeometry.header.width).toBeLessThan(restingGeometry.frame.width);
+  expect(restingGeometry.header.paddingLeft).toBe("22px");
+  expect(restingGeometry.header.paddingRight).toBe("22px");
+  expect(restingGeometry.headerLeftToHeroContentDelta).toBeLessThanOrEqual(1);
+  expect(restingGeometry.headerRightToHeroContentDelta).toBeLessThanOrEqual(1);
   expect(restingGeometry.main).toEqual({ right: "0px", left: "0px" });
 
   await page.evaluate(() => window.scrollTo({ top: 500, behavior: "instant" }));
@@ -815,7 +824,7 @@ test("contains phone composition within the document viewport", async ({ page })
   });
 
   expect(documentWidths.scrollWidth).toBeLessThanOrEqual(documentWidths.clientWidth);
-  expect(documentWidths.attachedHeaderWidth).toBe(documentWidths.clientWidth - 2);
+  expect(documentWidths.attachedHeaderWidth).toBe(documentWidths.clientWidth - 36);
 
   await page.evaluate(() => window.scrollTo({ top: 500, behavior: "instant" }));
   await expect(siteHeader).toHaveAttribute("data-visual-state", "floating");

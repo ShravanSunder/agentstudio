@@ -20,7 +20,7 @@ const { beforeImage, restoredImage } = Astro.props;
   >
     <button
       type="button"
-      class="persistence-proof__control relative min-w-32 cursor-pointer border-0 border-r border-line bg-transparent px-4.5 font-mono-product text-[12px] text-ink-muted uppercase max-phone:min-w-0 max-phone:flex-[1_1_50%]"
+      class="persistence-proof__control relative min-w-32 cursor-pointer border-0 border-r border-line bg-transparent px-4.5 font-mono-product text-[12px] text-ink-muted uppercase transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-phone:min-w-0 max-phone:flex-[1_1_50%]"
       data-persistence-proof-button="before"
       aria-pressed="true"
       disabled
@@ -29,7 +29,7 @@ const { beforeImage, restoredImage } = Astro.props;
     </button>
     <button
       type="button"
-      class="persistence-proof__control relative min-w-32 cursor-pointer border-0 border-r border-line bg-transparent px-4.5 font-mono-product text-[12px] text-ink-muted uppercase max-phone:min-w-0 max-phone:flex-[1_1_50%]"
+      class="persistence-proof__control relative min-w-32 cursor-pointer border-0 border-r border-line bg-transparent px-4.5 font-mono-product text-[12px] text-ink-muted uppercase transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-phone:min-w-0 max-phone:flex-[1_1_50%]"
       data-persistence-proof-button="restored"
       aria-pressed="false"
       disabled
