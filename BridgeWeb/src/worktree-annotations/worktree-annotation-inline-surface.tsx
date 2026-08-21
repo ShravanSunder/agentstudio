@@ -113,7 +113,7 @@ function WorktreeAnnotationSurfaceCard(props: WorktreeAnnotationSurfaceCardProps
 			{props.commands === undefined ? null : (
 				<div
 					aria-label="Comment commands"
-					className="absolute right-1 bottom-0 flex flex-col items-center gap-0.5"
+					className="absolute right-2 bottom-2 flex flex-col items-center gap-0.5"
 				>
 					{props.commands}
 				</div>

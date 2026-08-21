@@ -84,6 +84,10 @@ describe('worktree annotation inline shell', () => {
 		const expandedThreadBounds = thread.getBoundingClientRect();
 		expect(latestCommandRailBounds.top).toBeGreaterThanOrEqual(latestCardBounds.top);
 		expect(latestCommandRailBounds.bottom).toBeLessThanOrEqual(latestCardBounds.bottom);
+		expect(latestCardBounds.right - latestCommandRailBounds.right).toBeCloseTo(9, 1);
+		expect(latestCardBounds.bottom - latestCommandRailBounds.bottom).toBeCloseTo(9, 1);
+		expect(latestCommandRail.classList).toContain('right-2');
+		expect(latestCommandRail.classList).toContain('bottom-2');
 		expect(expandedThreadBounds.right - latestCardBounds.right).toBeCloseTo(36, 1);
 		expect(expandedThreadBounds.bottom - latestCardBounds.bottom).toBeCloseTo(36, 1);
 		expect(compactThread.getBoundingClientRect().height).toBeGreaterThan(compactThreadHeight);
