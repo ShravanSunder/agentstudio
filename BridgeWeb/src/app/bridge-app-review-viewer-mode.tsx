@@ -487,6 +487,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		<WorktreeAnnotationSurfaceProvider
 			markdownWorkerClient={props.markdownWorkerClient}
 			surfaceClient={reviewClient}
+			telemetryRecorder={telemetryRecorderRef.current}
 		>
 			<>
 				<BridgeReviewViewerShellBoundary

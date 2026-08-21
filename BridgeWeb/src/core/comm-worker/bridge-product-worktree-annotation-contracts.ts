@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
+	bridgeProductSha256Schema,
 	bridgeProductUnicodeScalarUtf8ByteLength,
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
@@ -296,6 +297,7 @@ export const bridgeProductWorktreeAnnotationMessageEntrySchema = z
 export const bridgeProductWorktreeAnnotationEventSchema = z
 	.object({
 		eventKind: z.literal('snapshot.required'),
+		operationCorrelationId: bridgeProductSha256Schema,
 		sourceGeneration: bridgeProductNonnegativeSequenceSchema,
 		worktreeId: bridgeProductIdentifierSchema,
 	})

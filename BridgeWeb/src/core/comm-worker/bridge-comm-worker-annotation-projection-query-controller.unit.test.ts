@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { describe, expect, test, vi } from 'vitest';
 
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	BridgeCommWorkerAnnotationProjectionQueryController,
 	type BridgeCommWorkerAnnotationProjectionPublication,
@@ -37,6 +38,26 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		expect(harness.statuses).toEqual(['refreshing', 'ready']);
 		expect(harness.publications).toHaveLength(1);
 		expect(harness.publications[0]?.snapshot.threads[0]?.messages).toHaveLength(1);
+		expect(
+			harness.telemetrySamples.map(
+				(sample) =>
+					`${sample.stringAttributes['agentstudio.bridge.phase']}:${sample.stringAttributes['agentstudio.bridge.result']}`,
+			),
+		).toEqual([
+			'annotation_invalidation_received:success',
+			'projection_convergence_started:started',
+			'projection_query_started:started',
+			'projection_content_transfer_terminal:success',
+			'projection_validation_terminal:success',
+			'projection_query_terminal:success',
+			'projection_convergence_terminal:success',
+			'worker_application_terminal:success',
+		]);
+		expect(
+			harness.telemetrySamples.every(
+				(sample) => sample.stringAttributes['agentstudio.bridge.operation.id'] === 'a'.repeat(64),
+			),
+		).toBe(true);
 	});
 
 	test('requeries when demanded sessions change on the same active source generation', async () => {
@@ -345,6 +366,7 @@ interface AnnotationProjectionTestHarness {
 	}>;
 	readonly statuses: Array<BridgeCommWorkerAnnotationProjectionPublication['state']['kind']>;
 	readonly subscriptionCount: () => number;
+	readonly telemetrySamples: BridgeTelemetrySample[];
 }
 
 async function createHarness(props: {
@@ -366,6 +388,7 @@ async function createHarness(props: {
 	const querySessionIds: string[][] = [];
 	const sourceAuthorityStalePublications: AnnotationProjectionTestHarness['sourceAuthorityStalePublications'] =
 		[];
+	const telemetrySamples: BridgeTelemetrySample[] = [];
 	const pageByCursor = new Map<string | null, MutableProjectionPage>();
 	for (const page of props.pages) {
 		const cursor =
@@ -403,6 +426,11 @@ async function createHarness(props: {
 			sourceAuthorityStalePublications.push(publication);
 		},
 		surface: 'file',
+		telemetryClient: {
+			record: (sample): void => {
+				telemetrySamples.push(sample);
+			},
+		},
 		transport,
 	});
 	return {
@@ -415,6 +443,7 @@ async function createHarness(props: {
 		sourceAuthorityStalePublications,
 		statuses,
 		subscriptionCount: (): number => observedSubscriptionCount,
+		telemetrySamples,
 	};
 }
 
@@ -558,6 +587,7 @@ async function makeProjectionPages(
 				expectedThreadCount: 1,
 				isLastPage: pageOrdinal === pages.length - 1,
 				nextCursor: pageOrdinal === pages.length - 1 ? null : `cursor-${pageOrdinal + 1}`,
+				operationCorrelationId: 'a'.repeat(64),
 				pageOrdinal,
 				projectionRevision: sourceGeneration,
 				snapshotId: uuidv7(sourceGeneration + 10_000),
@@ -613,7 +643,12 @@ function concatenate(chunks: readonly Uint8Array<ArrayBuffer>[]): Uint8Array<Arr
 }
 
 function snapshotRequired(sourceGeneration: number): BridgeProductWorktreeAnnotationEvent {
-	return { eventKind: 'snapshot.required', sourceGeneration, worktreeId };
+	return {
+		eventKind: 'snapshot.required',
+		operationCorrelationId: 'a'.repeat(64),
+		sourceGeneration,
+		worktreeId,
+	};
 }
 
 function uuidv7(value: number): string {

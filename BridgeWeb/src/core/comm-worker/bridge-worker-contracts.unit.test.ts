@@ -73,6 +73,7 @@ describe('BridgeWorkerContracts', () => {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			direction: 'serverWorkerToMain',
 			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
 			surface: command.surface,
 			transferDescriptors: [],
 			state: {
@@ -94,6 +95,7 @@ describe('BridgeWorkerContracts', () => {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			direction: 'serverWorkerToMain',
 			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
 			state: { kind: 'refreshing' },
 			surface: command.surface,
 			transferDescriptors: [],

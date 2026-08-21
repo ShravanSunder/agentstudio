@@ -3,6 +3,10 @@ import Foundation
 extension BridgeTelemetryWireSchema {
     static func auxiliaryContractMatches(name: String, contract: EventContract) -> Bool? {
         switch name {
+        case "performance.bridge.web.annotation_lifecycle":
+            webAnnotationLifecycleContractMatches(contract)
+        case "performance.bridge.swift.annotation_lifecycle":
+            annotationLifecycleContractMatches(contract)
         case "performance.bridge.viewer.content_queue":
             contentQueueContractMatches(contract)
         case "performance.bridge.viewer.content_cache":
@@ -24,6 +28,70 @@ extension BridgeTelemetryWireSchema {
         default:
             nil
         }
+    }
+
+    private static func webAnnotationLifecycleContractMatches(_ contract: EventContract) -> Bool {
+        let phases: Set<String> = [
+            "annotation_invalidation_received",
+            "annotation_paint_terminal",
+            "main_thread_install_terminal",
+            "projection_content_transfer_terminal",
+            "projection_convergence_started",
+            "projection_convergence_terminal",
+            "projection_query_started",
+            "projection_query_terminal",
+            "projection_store_terminal",
+            "projection_validation_terminal",
+            "worker_application_terminal",
+        ]
+        guard phases.contains(contract.phase) else { return false }
+        return contract.matches(
+            .init(
+                phase: contract.phase,
+                plane: .data,
+                priority: .hot,
+                slice: .reviewProjection,
+                transport: contract.transport,
+                attributeKeys: .init(
+                    additionalStringKeys: [
+                        "agentstudio.bridge.operation.id",
+                        "agentstudio.bridge.result",
+                        "agentstudio.bridge.viewer",
+                    ],
+                    numericKeys: ["agentstudio.bridge.source.generation"]
+                )
+            )
+        ) && (contract.transport == "worker" || contract.transport == "local")
+    }
+
+    private static func annotationLifecycleContractMatches(_ contract: EventContract) -> Bool {
+        let phases: Set<String> = [
+            "annotation_invalidation_admitted",
+            "annotation_notification_delivery_terminal",
+            "projection_content_transfer_started",
+            "projection_content_transfer_terminal",
+            "projection_query_started",
+            "projection_query_terminal",
+        ]
+        guard phases.contains(contract.phase) else { return false }
+        return contract.matches(
+            .init(
+                phase: contract.phase,
+                plane: .data,
+                priority: .hot,
+                slice: .reviewProjection,
+                transport: "swift",
+                attributeKeys: .init(
+                    additionalStringKeys: [
+                        "agentstudio.bridge.operation.id",
+                        "agentstudio.bridge.protocol",
+                        "agentstudio.bridge.result",
+                        "agentstudio.bridge.viewer",
+                    ],
+                    numericKeys: ["agentstudio.bridge.source.generation"]
+                )
+            )
+        )
     }
 
     private static func contentQueueContractMatches(_ contract: EventContract) -> Bool {

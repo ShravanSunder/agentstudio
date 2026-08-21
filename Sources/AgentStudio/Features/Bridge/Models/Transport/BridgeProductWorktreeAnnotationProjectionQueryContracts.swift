@@ -9,12 +9,14 @@ enum BridgeProductAnnotationProjectionContract {
 struct BridgeProductAnnotationProjectionQueryRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case cursor
+        case operationCorrelationId
         case sessionIds
         case sourceGeneration
         case surface
     }
 
     let cursor: String?
+    let operationCorrelationID: String
     let sessionIDs: [UUID]
     let sourceGeneration: Int
     let surface: BridgeProductSurface
@@ -32,6 +34,7 @@ struct BridgeProductAnnotationProjectionQueryRequest: Codable, Equatable, Sendab
             from: container,
             codingPath: decoder.codingPath
         )
+        operationCorrelationID = try container.decode(String.self, forKey: .operationCorrelationId)
         let encodedSessionIDs = try container.decode([String].self, forKey: .sessionIds)
         guard encodedSessionIDs.count <= BridgeProductAnnotationProjectionContract.maximumDemandedSessionCount else {
             throw BridgeProductContractDecoding.invalidValue(
@@ -53,6 +56,10 @@ struct BridgeProductAnnotationProjectionQueryRequest: Codable, Equatable, Sendab
         if let cursor {
             try BridgeProductContractDecoding.validateOpaqueReference(cursor, codingPath: decoder.codingPath)
         }
+        try BridgeProductContractDecoding.validateSHA256(
+            operationCorrelationID,
+            codingPath: decoder.codingPath
+        )
         try BridgeProductContractDecoding.validateNonnegative(
             sourceGeneration,
             name: "sourceGeneration",
@@ -63,6 +70,7 @@ struct BridgeProductAnnotationProjectionQueryRequest: Codable, Equatable, Sendab
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(cursor, forKey: .cursor)
+        try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
         try container.encode(
             sessionIDs.map(BridgeProductReviewPublicationIdContract.encode),
             forKey: .sessionIds
@@ -81,6 +89,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
         case expectedThreadCount
         case isLastPage
         case nextCursor
+        case operationCorrelationId
         case pageOrdinal
         case projectionRevision
         case snapshotId
@@ -94,6 +103,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
     let expectedThreadCount: Int
     let isLastPage: Bool
     let nextCursor: String?
+    let operationCorrelationID: String
     let pageOrdinal: Int
     let projectionRevision: Int
     let snapshotID: UUID
@@ -107,6 +117,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
         expectedThreadCount: Int,
         isLastPage: Bool,
         nextCursor: String?,
+        operationCorrelationID: String,
         pageOrdinal: Int,
         projectionRevision: Int,
         snapshotID: UUID,
@@ -119,6 +130,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
         self.expectedThreadCount = expectedThreadCount
         self.isLastPage = isLastPage
         self.nextCursor = nextCursor
+        self.operationCorrelationID = operationCorrelationID
         self.pageOrdinal = pageOrdinal
         self.projectionRevision = projectionRevision
         self.snapshotID = snapshotID
@@ -145,6 +157,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
             from: container,
             codingPath: decoder.codingPath
         )
+        operationCorrelationID = try container.decode(String.self, forKey: .operationCorrelationId)
         pageOrdinal = try container.decode(Int.self, forKey: .pageOrdinal)
         projectionRevision = try container.decode(Int.self, forKey: .projectionRevision)
         snapshotID = try BridgeProductReviewPublicationIdContract.decode(
@@ -164,6 +177,7 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
         try container.encode(expectedThreadCount, forKey: .expectedThreadCount)
         try container.encode(isLastPage, forKey: .isLastPage)
         try container.encode(nextCursor, forKey: .nextCursor)
+        try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
         try container.encode(pageOrdinal, forKey: .pageOrdinal)
         try container.encode(projectionRevision, forKey: .projectionRevision)
         try container.encode(
@@ -175,6 +189,10 @@ struct BridgeProductAnnotationProjectionPageContract: Codable, Equatable, Sendab
 
     func validate(codingPath: [any CodingKey]) throws {
         try BridgeProductContractDecoding.validateSHA256(aggregateSHA256, codingPath: codingPath)
+        try BridgeProductContractDecoding.validateSHA256(
+            operationCorrelationID,
+            codingPath: codingPath
+        )
         for (name, count) in [
             ("expectedMessageCount", expectedMessageCount),
             ("expectedPageCount", expectedPageCount),

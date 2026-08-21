@@ -1,4 +1,8 @@
 import {
+	recordWorktreeAnnotationLifecycleTelemetry,
+	type WorktreeAnnotationLifecycleTelemetryRecorder,
+} from '../../worktree-annotations/worktree-annotation-lifecycle-telemetry.js';
+import {
 	BridgeCommWorkerAnnotationProjectionDecoder,
 	type BridgeWorkerAnnotationProjectionSnapshot,
 } from './bridge-comm-worker-annotation-projection-decoder.js';
@@ -27,6 +31,7 @@ export interface BridgeCommWorkerAnnotationProjectionDemand {
 }
 
 export interface BridgeCommWorkerAnnotationProjectionPublication {
+	readonly operationCorrelationId: string | null;
 	readonly state:
 		| { readonly error: unknown; readonly kind: 'unavailable' }
 		| { readonly kind: 'ready'; readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot }
@@ -46,6 +51,7 @@ interface CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps {
 		publication: BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication,
 	) => void;
 	readonly surface: BridgeCommWorkerAnnotationSurface;
+	readonly telemetryClient?: WorktreeAnnotationLifecycleTelemetryRecorder | undefined;
 	readonly transport: BridgeCommWorkerAnnotationProjectionTransport;
 }
 
@@ -65,6 +71,7 @@ export interface BridgeCommWorkerAnnotationProjectionTransport {
 }
 
 interface AnnotationProjectionInvalidation {
+	readonly operationCorrelationId: string;
 	readonly sourceGeneration: number;
 	readonly worktreeId: string;
 }
@@ -74,6 +81,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	readonly #onSourceAuthorityStale: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps['onSourceAuthorityStale'];
 	readonly #surface: BridgeCommWorkerAnnotationSurface;
 	readonly #transport: BridgeCommWorkerAnnotationProjectionTransport;
+	readonly #telemetryClient: WorktreeAnnotationLifecycleTelemetryRecorder | undefined;
 	#active = false;
 	#automaticQueryRetryConsumed = false;
 	#automaticSubscriptionReopenConsumed = false;
@@ -95,6 +103,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		this.#onSourceAuthorityStale = props.onSourceAuthorityStale;
 		this.#surface = props.surface;
 		this.#transport = props.transport;
+		this.#telemetryClient = props.telemetryClient;
 	}
 
 	ensureSubscription(): void {
@@ -159,7 +168,11 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		this.#invalidationGeneration += 1;
 		this.#lastAttemptedGeneration = this.#invalidationGeneration;
 		this.#abortController?.abort();
-		this.#onConvergence({ state: { error, kind: 'unavailable' }, surface: this.#surface });
+		this.#onConvergence({
+			operationCorrelationId: this.#invalidation?.operationCorrelationId ?? null,
+			state: { error, kind: 'unavailable' },
+			surface: this.#surface,
+		});
 	}
 
 	async dispose(): Promise<void> {
@@ -204,9 +217,16 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		for await (const unknownEvent of subscription.events) {
 			if (this.#disposed || this.#subscription !== subscription) return;
 			const event = bridgeProductWorktreeAnnotationEventSchema.parse(unknownEvent);
+			this.#recordLifecycle(
+				event.operationCorrelationId,
+				'annotation_invalidation_received',
+				'success',
+				event.sourceGeneration,
+			);
 			this.#automaticQueryRetryConsumed = false;
 			this.#automaticSubscriptionReopenConsumed = false;
 			this.#invalidation = {
+				operationCorrelationId: event.operationCorrelationId,
 				sourceGeneration: event.sourceGeneration,
 				worktreeId: event.worktreeId,
 			};
@@ -221,7 +241,11 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 
 	#handleSubscriptionFailure(error: unknown): void {
 		this.#subscription = null;
-		this.#onConvergence({ state: { error, kind: 'unavailable' }, surface: this.#surface });
+		this.#onConvergence({
+			operationCorrelationId: this.#invalidation?.operationCorrelationId ?? null,
+			state: { error, kind: 'unavailable' },
+			surface: this.#surface,
+		});
 		if (
 			this.#disposed ||
 			!this.#active ||
@@ -266,7 +290,23 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		this.#abortController?.abort();
 		const abortController = new AbortController();
 		this.#abortController = abortController;
-		this.#onConvergence({ state: { kind: 'refreshing' }, surface: this.#surface });
+		this.#onConvergence({
+			operationCorrelationId: invalidation.operationCorrelationId,
+			state: { kind: 'refreshing' },
+			surface: this.#surface,
+		});
+		this.#recordLifecycle(
+			invalidation.operationCorrelationId,
+			'projection_convergence_started',
+			'started',
+			sourceGeneration,
+		);
+		this.#recordLifecycle(
+			invalidation.operationCorrelationId,
+			'projection_query_started',
+			'started',
+			sourceGeneration,
+		);
 		const queryLoop = this.#runQueryAttempt(
 			attemptGeneration,
 			invalidation,
@@ -295,6 +335,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		sourceGeneration: number,
 		abortController: AbortController,
 	): Promise<void> {
+		let terminalRecorded = false;
 		try {
 			const fetchResult = await this.#fetchSnapshot(
 				invalidation,
@@ -307,9 +348,13 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				abortController.signal.aborted ||
 				attemptGeneration !== this.#invalidationGeneration
 			) {
+				this.#recordAttemptTerminal(invalidation, sourceGeneration, 'cancelled');
+				terminalRecorded = true;
 				return;
 			}
 			if (fetchResult.kind === 'source_stale') {
+				this.#recordAttemptTerminal(invalidation, sourceGeneration, 'stale');
+				terminalRecorded = true;
 				this.#onSourceAuthorityStale({
 					currentSourceGeneration: fetchResult.currentSourceGeneration,
 					requestedSourceGeneration: sourceGeneration,
@@ -318,11 +363,17 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				return;
 			}
 			this.#onConvergence({
+				operationCorrelationId: invalidation.operationCorrelationId,
 				state: { kind: 'ready', snapshot: fetchResult.snapshot },
 				surface: this.#surface,
 			});
+			this.#recordAttemptTerminal(invalidation, sourceGeneration, 'success');
+			terminalRecorded = true;
 			this.#automaticQueryRetryConsumed = false;
 		} catch (error) {
+			const result = abortController.signal.aborted ? 'cancelled' : 'failure';
+			this.#recordAttemptTerminal(invalidation, sourceGeneration, result);
+			terminalRecorded = true;
 			if (
 				!this.#disposed &&
 				this.#active &&
@@ -335,9 +386,14 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 					return;
 				}
 				this.#onConvergence({
+					operationCorrelationId: invalidation.operationCorrelationId,
 					state: { error, kind: 'unavailable' },
 					surface: this.#surface,
 				});
+			}
+		} finally {
+			if (!terminalRecorded) {
+				this.#recordAttemptTerminal(invalidation, sourceGeneration, 'cancelled');
 			}
 		}
 	}
@@ -359,6 +415,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			const result = await this.#queryProjection(
 				{
 					cursor,
+					operationCorrelationId: invalidation.operationCorrelationId,
 					sessionIds: [...this.#sessionIds],
 					sourceGeneration,
 					surface: this.#surface,
@@ -373,43 +430,123 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				expectedPage,
 				previousPageOrdinal,
 				requestedCursor: cursor,
+				requestedOperationCorrelationId: invalidation.operationCorrelationId,
 				requestedSourceGeneration: sourceGeneration,
 				requestedSurface: this.#surface,
 			});
 			expectedPage ??= descriptor.page;
 			previousPageOrdinal = descriptor.page.pageOrdinal;
 			// eslint-disable-next-line no-await-in-loop -- Each claimed page must complete before its continuation query.
-			const pageBytes = await openAnnotationProjectionPage({
-				descriptor,
-				openContent: this.#transport.openContent,
-				signal,
-			});
+			let pageBytes: Uint8Array;
+			try {
+				pageBytes = await openAnnotationProjectionPage({
+					descriptor,
+					openContent: this.#transport.openContent,
+					signal,
+				});
+			} catch (error) {
+				this.#recordLifecycle(
+					invalidation.operationCorrelationId,
+					'projection_content_transfer_terminal',
+					'failure',
+					sourceGeneration,
+				);
+				throw error;
+			}
 			decoder.acceptPage(pageBytes, descriptor.page.pageOrdinal);
 			if (descriptor.page.isLastPage) break;
 			cursor = descriptor.page.nextCursor;
 		}
 		if (expectedPage === null) throw new Error('Annotation projection returned no pages.');
-		const decodedProjection = decoder.finish();
-		const snapshot = decodedProjection.snapshot;
-		if (
-			snapshot.projectionRevision !== expectedPage.projectionRevision ||
-			snapshot.sourceGeneration !== expectedPage.sourceGeneration ||
-			snapshot.worktreeId !== invalidation.worktreeId ||
-			snapshot.expectedSessionCount !== expectedPage.expectedSessionCount ||
-			snapshot.expectedThreadCount !== expectedPage.expectedThreadCount ||
-			snapshot.expectedMessageCount !== expectedPage.expectedMessageCount
-		) {
-			throw new Error('Annotation projection header does not match its page contract.');
+		this.#recordLifecycle(
+			invalidation.operationCorrelationId,
+			'projection_content_transfer_terminal',
+			'success',
+			sourceGeneration,
+		);
+		try {
+			const decodedProjection = decoder.finish();
+			const snapshot = decodedProjection.snapshot;
+			if (
+				expectedPage.operationCorrelationId !== invalidation.operationCorrelationId ||
+				snapshot.projectionRevision !== expectedPage.projectionRevision ||
+				snapshot.sourceGeneration !== expectedPage.sourceGeneration ||
+				snapshot.worktreeId !== invalidation.worktreeId ||
+				snapshot.expectedSessionCount !== expectedPage.expectedSessionCount ||
+				snapshot.expectedThreadCount !== expectedPage.expectedThreadCount ||
+				snapshot.expectedMessageCount !== expectedPage.expectedMessageCount
+			) {
+				throw new Error('Annotation projection header does not match its page contract.');
+			}
+			if (decodedProjection.aggregateSha256 !== expectedPage.aggregateSha256) {
+				throw new Error(
+					'Annotation projection aggregate SHA-256 does not match its page contract.',
+				);
+			}
+			this.#recordLifecycle(
+				invalidation.operationCorrelationId,
+				'projection_validation_terminal',
+				'success',
+				sourceGeneration,
+			);
+			return { kind: 'content', snapshot };
+		} catch (error) {
+			this.#recordLifecycle(
+				invalidation.operationCorrelationId,
+				'projection_validation_terminal',
+				'failure',
+				sourceGeneration,
+			);
+			throw error;
 		}
-		if (decodedProjection.aggregateSha256 !== expectedPage.aggregateSha256) {
-			throw new Error('Annotation projection aggregate SHA-256 does not match its page contract.');
-		}
-		return { kind: 'content', snapshot };
+	}
+
+	#recordAttemptTerminal(
+		invalidation: AnnotationProjectionInvalidation,
+		sourceGeneration: number,
+		result: 'cancelled' | 'failure' | 'stale' | 'success',
+	): void {
+		this.#recordLifecycle(
+			invalidation.operationCorrelationId,
+			'projection_query_terminal',
+			result,
+			sourceGeneration,
+		);
+		this.#recordLifecycle(
+			invalidation.operationCorrelationId,
+			'projection_convergence_terminal',
+			result,
+			sourceGeneration,
+		);
+		this.#recordLifecycle(
+			invalidation.operationCorrelationId,
+			'worker_application_terminal',
+			result,
+			sourceGeneration,
+		);
+	}
+
+	#recordLifecycle(
+		operationCorrelationId: string,
+		phase: Parameters<typeof recordWorktreeAnnotationLifecycleTelemetry>[0]['phase'],
+		result: Parameters<typeof recordWorktreeAnnotationLifecycleTelemetry>[0]['result'],
+		sourceGeneration: number,
+	): void {
+		recordWorktreeAnnotationLifecycleTelemetry({
+			operationCorrelationId,
+			phase,
+			recorder: this.#telemetryClient,
+			result,
+			sourceGeneration,
+			transport: 'worker',
+			viewer: this.#surface,
+		});
 	}
 
 	#queryProjection(
 		request: {
 			readonly cursor: string | null;
+			readonly operationCorrelationId: string;
 			readonly sessionIds: string[];
 			readonly sourceGeneration: number;
 			readonly surface: BridgeCommWorkerAnnotationSurface;
@@ -484,12 +621,14 @@ function validatePageContract(props: {
 	readonly expectedPage: BridgeProductAnnotationProjectionPageContract | null;
 	readonly previousPageOrdinal: number | null;
 	readonly requestedCursor: string | null;
+	readonly requestedOperationCorrelationId: string;
 	readonly requestedSourceGeneration: number;
 	readonly requestedSurface: BridgeCommWorkerAnnotationSurface;
 }): void {
 	const expectedOrdinal = props.previousPageOrdinal === null ? 0 : props.previousPageOrdinal + 1;
 	if (
 		props.descriptor.surface !== props.requestedSurface ||
+		props.descriptor.page.operationCorrelationId !== props.requestedOperationCorrelationId ||
 		props.descriptor.page.sourceGeneration !== props.requestedSourceGeneration ||
 		props.descriptor.page.pageOrdinal !== expectedOrdinal ||
 		(props.requestedCursor === null) !== (props.descriptor.page.pageOrdinal === 0)
@@ -503,6 +642,7 @@ function validatePageContract(props: {
 		'expectedPageCount',
 		'expectedSessionCount',
 		'expectedThreadCount',
+		'operationCorrelationId',
 		'projectionRevision',
 		'snapshotId',
 		'sourceGeneration',

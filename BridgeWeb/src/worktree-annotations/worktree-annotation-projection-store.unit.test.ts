@@ -19,7 +19,7 @@ describe('WorktreeAnnotationProjectionStore read convergence', () => {
 	test('retains the last complete projection while refreshing and unavailable', () => {
 		const store = new WorktreeAnnotationProjectionStore();
 		const complete = snapshot(4, 7);
-		store.apply(complete);
+		store.apply(complete, 'a'.repeat(64));
 
 		store.markRefreshing();
 		expect(store.getSnapshot()).toMatchObject({
@@ -36,7 +36,7 @@ describe('WorktreeAnnotationProjectionStore read convergence', () => {
 			threads: complete.threads,
 		});
 
-		store.apply(snapshot(5, 8));
+		store.apply(snapshot(5, 8), 'a'.repeat(64));
 		expect(store.getSnapshot().readStatus).toEqual({ kind: 'ready' });
 		expect(store.getSnapshot().revision).toBe(5);
 	});

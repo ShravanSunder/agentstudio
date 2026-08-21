@@ -14,10 +14,12 @@ import {
 
 import type { BridgeMarkdownRenderWorkerClient } from '../app/markdown/worker/bridge-markdown-render-worker-client.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
+import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
 	useWorktreeAnnotationInteraction,
 	WorktreeAnnotationInteractionProvider,
 } from './worktree-annotation-interaction.js';
+import { recordWorktreeAnnotationLifecycleTelemetry } from './worktree-annotation-lifecycle-telemetry.js';
 import {
 	createWorktreeAnnotationSurfaceClient,
 	emptyWorktreeAnnotationProjectionSnapshot,
@@ -73,20 +75,59 @@ export interface WorktreeAnnotationSurfaceProviderProps {
 	readonly children: ReactNode;
 	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient | null | undefined;
 	readonly surfaceClient: BridgePaneSurfaceClient;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
 }
 
 export function WorktreeAnnotationSurfaceProvider(
 	props: WorktreeAnnotationSurfaceProviderProps,
 ): ReactElement {
 	const annotationClient = useMemo(
-		() => createWorktreeAnnotationSurfaceClient(props.surfaceClient),
-		[props.surfaceClient],
+		() => createWorktreeAnnotationSurfaceClient(props.surfaceClient, props.telemetryRecorder),
+		[props.surfaceClient, props.telemetryRecorder],
 	);
 	const projection = useSyncExternalStore(
 		annotationClient.subscribe,
 		annotationClient.getSnapshot,
 		annotationClient.getServerSnapshot,
 	);
+	useEffect((): (() => void) | undefined => {
+		if (projection.operationCorrelationId === null || projection.revision === null)
+			return undefined;
+		const operationCorrelationId = projection.operationCorrelationId;
+		const sourceGeneration = projection.sourceGeneration;
+		let terminalRecorded = false;
+		const frame = requestAnimationFrame((): void => {
+			terminalRecorded = true;
+			recordWorktreeAnnotationLifecycleTelemetry({
+				operationCorrelationId,
+				phase: 'annotation_paint_terminal',
+				recorder: props.telemetryRecorder,
+				result: 'success',
+				sourceGeneration,
+				transport: 'local',
+				viewer: props.surfaceClient.surface === 'fileView' ? 'file' : 'review',
+			});
+		});
+		return (): void => {
+			cancelAnimationFrame(frame);
+			if (terminalRecorded) return;
+			recordWorktreeAnnotationLifecycleTelemetry({
+				operationCorrelationId,
+				phase: 'annotation_paint_terminal',
+				recorder: props.telemetryRecorder,
+				result: 'cancelled',
+				sourceGeneration,
+				transport: 'local',
+				viewer: props.surfaceClient.surface === 'fileView' ? 'file' : 'review',
+			});
+		};
+	}, [
+		projection.operationCorrelationId,
+		projection.revision,
+		projection.sourceGeneration,
+		props.surfaceClient.surface,
+		props.telemetryRecorder,
+	]);
 	const applicableLivingSessionIds = useMemo(
 		() =>
 			projection.sessions

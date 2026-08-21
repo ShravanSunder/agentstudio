@@ -28,6 +28,7 @@ export interface WorktreeAnnotationThreadProjection {
 export interface WorktreeAnnotationProjectionSnapshot {
 	readonly commandOutcomes: readonly WorktreeAnnotationCommandOutcome[];
 	readonly outputHistory: readonly WorktreeAnnotationOutputHistorySummary[];
+	readonly operationCorrelationId: string | null;
 	readonly presentationRevision: number;
 	readonly readStatus:
 		| { readonly kind: 'unknown' }
@@ -45,6 +46,7 @@ export interface WorktreeAnnotationProjectionSnapshot {
 export const emptyWorktreeAnnotationProjectionSnapshot: WorktreeAnnotationProjectionSnapshot = {
 	commandOutcomes: [],
 	outputHistory: [],
+	operationCorrelationId: null,
 	presentationRevision: 0,
 	readStatus: { kind: 'unknown' },
 	recoveryStatus: 'available',
@@ -71,7 +73,7 @@ export class WorktreeAnnotationProjectionStore {
 		};
 	};
 
-	apply(snapshot: BridgeWorkerAnnotationProjectionSnapshot): void {
+	apply(snapshot: BridgeWorkerAnnotationProjectionSnapshot, operationCorrelationId: string): void {
 		const currentRevision = this.#snapshot.revision ?? -1;
 		if (snapshot.projectionRevision < currentRevision) return;
 		if (
@@ -84,6 +86,7 @@ export class WorktreeAnnotationProjectionStore {
 		this.#publish({
 			commandOutcomes: this.#snapshot.commandOutcomes,
 			outputHistory: this.#snapshot.outputHistory,
+			operationCorrelationId,
 			readStatus: { kind: 'ready' },
 			recoveryStatus: snapshot.recoveryStatus,
 			revision: snapshot.projectionRevision,

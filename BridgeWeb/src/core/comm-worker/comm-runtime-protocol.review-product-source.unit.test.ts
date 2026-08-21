@@ -77,6 +77,7 @@ describe('Bridge comm worker Review product source projection', () => {
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'annotation-metadata-source');
 		reviewAnnotationEvents.push({
 			eventKind: 'snapshot.required',
+			operationCorrelationId: 'a'.repeat(64),
 			sourceGeneration: 0,
 			worktreeId: 'worktree-1',
 		});

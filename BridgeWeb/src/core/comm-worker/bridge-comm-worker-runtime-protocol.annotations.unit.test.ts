@@ -460,6 +460,7 @@ function annotationOutputDescriptor(props: {
 function annotationProjectionEvent(revision: number): BridgeProductWorktreeAnnotationEvent {
 	return {
 		eventKind: 'snapshot.required',
+		operationCorrelationId: 'a'.repeat(64),
 		sourceGeneration: revision,
 		worktreeId: annotationWorktreeId,
 	} as const;

@@ -38,11 +38,10 @@ struct WorktreeAnnotationNotificationSourceTests {
             makeCreateRootDraftProps(),
             ownerGeneration: "worker-a"
         )
-        let committedEvent = try BridgeProductWorktreeAnnotationEvent(
-            sourceGeneration: 1,
-            worktreeID: "worktree-1"
-        )
-        #expect(await iterator.next() == committedEvent)
+        let committedEvent = await iterator.next()
+        #expect(committedEvent?.sourceGeneration == 1)
+        #expect(committedEvent?.worktreeID == "worktree-1")
+        #expect(committedEvent?.operationCorrelationID.count == 64)
 
         openTask.cancel()
         _ = try? await openTask.value

@@ -750,14 +750,17 @@ private func rejectAnnotationProjectionUnknownKeys<TCodingKey: CodingKey & RawRe
 struct BridgeProductWorktreeAnnotationEvent: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case eventKind
+        case operationCorrelationId
         case sourceGeneration
         case worktreeId
     }
 
+    let operationCorrelationID: String
     let sourceGeneration: Int
     let worktreeID: String
 
-    init(sourceGeneration: Int, worktreeID: String) throws {
+    init(operationCorrelationID: String, sourceGeneration: Int, worktreeID: String) throws {
+        self.operationCorrelationID = operationCorrelationID
         self.sourceGeneration = sourceGeneration
         self.worktreeID = worktreeID
         try validate(codingPath: [])
@@ -776,6 +779,7 @@ struct BridgeProductWorktreeAnnotationEvent: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
         }
+        operationCorrelationID = try container.decode(String.self, forKey: .operationCorrelationId)
         sourceGeneration = try container.decode(Int.self, forKey: .sourceGeneration)
         worktreeID = try container.decode(String.self, forKey: .worktreeId)
         try validate(codingPath: decoder.codingPath)
@@ -784,11 +788,16 @@ struct BridgeProductWorktreeAnnotationEvent: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode("snapshot.required", forKey: .eventKind)
+        try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
         try container.encode(sourceGeneration, forKey: .sourceGeneration)
         try container.encode(worktreeID, forKey: .worktreeId)
     }
 
     private func validate(codingPath: [any CodingKey]) throws {
+        try BridgeProductContractDecoding.validateSHA256(
+            operationCorrelationID,
+            codingPath: codingPath
+        )
         try BridgeProductContractDecoding.validateNonnegative(
             sourceGeneration,
             name: "sourceGeneration",

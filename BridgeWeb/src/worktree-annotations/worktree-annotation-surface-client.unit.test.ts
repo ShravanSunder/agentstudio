@@ -9,6 +9,7 @@ import {
 	type BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import { createBridgeWorkerRpcLifecycleStore } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
+import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import { WorktreeAnnotationProjectionStore } from './worktree-annotation-projection-store.js';
 import { createWorktreeAnnotationSurfaceClient } from './worktree-annotation-surface-client.js';
 
@@ -22,7 +23,7 @@ describe('worktree annotation finite projection store', () => {
 		const listener = vi.fn();
 		store.subscribe(listener);
 
-		store.apply(projectionSnapshot(4, 8));
+		store.apply(projectionSnapshot(4, 8), 'a'.repeat(64));
 
 		expect(listener).toHaveBeenCalledTimes(1);
 		expect(store.getSnapshot()).toMatchObject({
@@ -38,9 +39,9 @@ describe('worktree annotation finite projection store', () => {
 		const store = new WorktreeAnnotationProjectionStore();
 		const listener = vi.fn();
 		store.subscribe(listener);
-		store.apply(projectionSnapshot(5, 9));
+		store.apply(projectionSnapshot(5, 9), 'a'.repeat(64));
 
-		store.apply(projectionSnapshot(4, 10));
+		store.apply(projectionSnapshot(4, 10), 'a'.repeat(64));
 
 		expect(listener).toHaveBeenCalledTimes(1);
 		expect(store.getSnapshot().revision).toBe(5);
@@ -68,7 +69,7 @@ describe('worktree annotation finite projection store', () => {
 			},
 		]);
 
-		store.apply(projectionSnapshot(6, 11));
+		store.apply(projectionSnapshot(6, 11), 'a'.repeat(64));
 
 		expect(store.getSnapshot().commandOutcomes).toHaveLength(1);
 		expect(store.getSnapshot().outputHistory).toHaveLength(1);
@@ -76,6 +77,33 @@ describe('worktree annotation finite projection store', () => {
 });
 
 describe('worktree annotation surface command rendezvous', () => {
+	test('records main-thread install with the exact projection correlation', () => {
+		const harness = createSurfaceClientHarness();
+
+		harness.publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
+			state: { kind: 'ready', snapshot: projectionSnapshot(7, 12) },
+			surface: 'fileView',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+
+		expect(harness.telemetrySamples).toHaveLength(2);
+		expect(harness.telemetrySamples[0]?.stringAttributes).toMatchObject({
+			'agentstudio.bridge.operation.id': 'a'.repeat(64),
+			'agentstudio.bridge.phase': 'projection_store_terminal',
+			'agentstudio.bridge.result': 'success',
+		});
+		expect(harness.telemetrySamples[1]?.stringAttributes).toMatchObject({
+			'agentstudio.bridge.operation.id': 'a'.repeat(64),
+			'agentstudio.bridge.phase': 'main_thread_install_terminal',
+			'agentstudio.bridge.result': 'success',
+		});
+		harness.client.dispose();
+	});
+
 	test('sends one typed projection retry for the owning surface', () => {
 		const harness = createSurfaceClientHarness();
 
@@ -103,6 +131,7 @@ describe('worktree annotation surface command rendezvous', () => {
 		harness.publish({
 			direction: 'serverWorkerToMain',
 			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: null,
 			state: { kind: 'unavailable', retryable: true },
 			surface: 'fileView',
 			transferDescriptors: [],
@@ -212,10 +241,12 @@ function createSurfaceClientHarness(workerRequestIds: readonly string[] = ['work
 	readonly client: ReturnType<typeof createWorktreeAnnotationSurfaceClient>;
 	readonly publish: (message: BridgeWorkerServerToMainMessage) => void;
 	readonly sentCommands: Array<Parameters<BridgePaneSurfaceClient['send']>[0]>;
+	readonly telemetrySamples: BridgeTelemetrySample[];
 } {
 	let listener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
 	let nextWorkerRequestIndex = 0;
 	const sentCommands: Parameters<BridgePaneSurfaceClient['send']>[0][] = [];
+	const telemetrySamples: BridgeTelemetrySample[] = [];
 	const surfaceClient = {
 		lifecycle: createBridgeWorkerRpcLifecycleStore(),
 		renderFulfillmentCoordinator: createBridgeMainRenderFulfillmentCoordinator({
@@ -241,11 +272,19 @@ function createSurfaceClientHarness(workerRequestIds: readonly string[] = ['work
 		surface: 'fileView',
 	} satisfies BridgePaneSurfaceClient;
 	return {
-		client: createWorktreeAnnotationSurfaceClient(surfaceClient),
+		client: createWorktreeAnnotationSurfaceClient(surfaceClient, {
+			flush: (): boolean => true,
+			isEnabled: (): boolean => true,
+			measure: (props) => props.operation(),
+			record: (sample): void => {
+				telemetrySamples.push(sample);
+			},
+		}),
 		publish: (message): void => {
 			listener?.(message);
 		},
 		sentCommands,
+		telemetrySamples,
 	};
 }
 

@@ -70,6 +70,7 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 	const snapshot = (): WorktreeAnnotationProjectionSnapshot => ({
 		commandOutcomes: [],
 		outputHistory: [],
+		operationCorrelationId: null,
 		presentationRevision: message.messageRevision,
 		sourceGeneration: 0,
 		recoveryStatus: 'available',

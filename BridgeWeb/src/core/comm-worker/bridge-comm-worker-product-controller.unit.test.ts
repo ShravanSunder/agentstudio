@@ -73,6 +73,7 @@ describe('Bridge comm worker product controller', () => {
 		});
 		const projectionEvent = {
 			eventKind: 'snapshot.required',
+			operationCorrelationId: 'a'.repeat(64),
 			sourceGeneration: 1,
 			worktreeId: 'worktree-1',
 		} as const;
@@ -990,7 +991,6 @@ function productTransportWithFileEpochBump(onBump: () => void): BridgeProductTra
 		workerDerivationEpoch: (surface): number => (surface === 'file' ? fileEpoch : 0),
 	};
 }
-
 function discoverCurrentFileSource(): Promise<{
 	readonly source: typeof currentFileSourceConfiguration;
 	readonly status: 'available';

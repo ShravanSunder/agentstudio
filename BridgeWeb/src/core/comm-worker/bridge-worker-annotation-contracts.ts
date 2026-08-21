@@ -2,7 +2,10 @@ import { z } from 'zod';
 
 import { bridgeWorkerAnnotationProjectionSnapshotSchema } from './bridge-comm-worker-annotation-projection-decoder.js';
 import { bridgeProductWorktreeAnnotationOperationSchema } from './bridge-product-call-contracts.js';
-import { bridgeProductIdentifierSchema } from './bridge-product-contract-primitives.js';
+import {
+	bridgeProductIdentifierSchema,
+	bridgeProductSha256Schema,
+} from './bridge-product-contract-primitives.js';
 import { bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema } from './bridge-product-worktree-annotation-contracts.js';
 import {
 	bridgeProductAnnotationOutputContentDescriptorSchema,
@@ -52,6 +55,7 @@ export const bridgeWorkerAnnotationProjectionConvergenceEventSchema =
 	bridgeWorkerServerToMainBaseSchema
 		.extend({
 			kind: z.literal('annotationProjectionConvergence'),
+			operationCorrelationId: bridgeProductSha256Schema.nullable(),
 			state: z.discriminatedUnion('kind', [
 				z.object({ kind: z.literal('refreshing') }).strict(),
 				z.object({ kind: z.literal('unavailable'), retryable: z.boolean() }).strict(),
@@ -64,7 +68,16 @@ export const bridgeWorkerAnnotationProjectionConvergenceEventSchema =
 			]),
 			surface: bridgeWorkerInteractionSurfaceSchema,
 		})
-		.strict();
+		.strict()
+		.superRefine((event, context): void => {
+			if (event.state.kind === 'ready' && event.operationCorrelationId === null) {
+				context.addIssue({
+					code: 'custom',
+					message: 'Ready annotation projection requires lifecycle correlation.',
+					path: ['operationCorrelationId'],
+				});
+			}
+		});
 
 const bridgeWorkerArrayBufferSchema = z.custom<ArrayBuffer>(
 	(value): value is ArrayBuffer => value instanceof ArrayBuffer,

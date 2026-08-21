@@ -47,6 +47,7 @@ actor BridgeAnnotationProjectionSource {
         let analysis: BridgeProductAnnotationProjectionRecordAnalysis
         let authority: RequestAuthority
         let demandedSessionIDs: [UUID]
+        let operationCorrelationID: String
         let snapshotID: UUID
         let sourceGeneration: Int
         let surface: BridgeProductSurface
@@ -119,6 +120,7 @@ actor BridgeAnnotationProjectionSource {
                 cursor: cursor,
                 authority: authority,
                 demandedSessionIDs: query.sessionIDs,
+                operationCorrelationID: query.operationCorrelationID,
                 surface: query.surface,
                 sourceGeneration: currentGeneration
             )
@@ -182,6 +184,7 @@ actor BridgeAnnotationProjectionSource {
             analysis: analysis,
             authority: authority,
             demandedSessionIDs: query.sessionIDs,
+            operationCorrelationID: query.operationCorrelationID,
             snapshotID: snapshotID,
             sourceGeneration: currentGeneration,
             surface: query.surface,
@@ -253,12 +256,14 @@ actor BridgeAnnotationProjectionSource {
         cursor: String,
         authority: RequestAuthority,
         demandedSessionIDs: [UUID],
+        operationCorrelationID: String,
         surface: BridgeProductSurface,
         sourceGeneration: Int
     ) throws -> BridgeProductAnnotationProjectionContentDescriptor {
         guard let reservation = logicalReservation,
             reservation.authority == authority,
             reservation.demandedSessionIDs == demandedSessionIDs,
+            reservation.operationCorrelationID == operationCorrelationID,
             reservation.surface == surface,
             reservation.sourceGeneration == sourceGeneration,
             reservation.continuationReady,
@@ -290,6 +295,7 @@ actor BridgeAnnotationProjectionSource {
             expectedThreadCount: reservation.analysis.expectedThreadCount,
             isLastPage: isLastPage,
             nextCursor: nextCursor,
+            operationCorrelationID: reservation.operationCorrelationID,
             pageOrdinal: pageOrdinal,
             projectionRevision: reservation.analysis.projectionRevision,
             snapshotID: reservation.snapshotID,

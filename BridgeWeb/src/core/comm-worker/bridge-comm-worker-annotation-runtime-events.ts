@@ -34,6 +34,7 @@ export function bridgeCommWorkerAnnotationCommandAcceptedEvent(props: {
 }
 
 export function bridgeCommWorkerAnnotationProjectionConvergenceEvent(props: {
+	readonly operationCorrelationId: string | null;
 	readonly state:
 		| { readonly kind: 'ready'; readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot }
 		| { readonly error: unknown; readonly kind: 'unavailable' }
@@ -52,6 +53,7 @@ export function bridgeCommWorkerAnnotationProjectionConvergenceEvent(props: {
 	return {
 		direction: 'serverWorkerToMain',
 		kind: 'annotationProjectionConvergence',
+		operationCorrelationId: props.operationCorrelationId,
 		state,
 		surface: props.surface === 'file' ? 'fileView' : 'review',
 		transferDescriptors: [],

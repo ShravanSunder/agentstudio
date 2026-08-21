@@ -609,6 +609,7 @@ export class RecordingAnnotationBrowserSurface {
 		this.#publish({
 			direction: 'serverWorkerToMain',
 			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
 			state: {
 				kind: 'ready',
 				snapshot: {

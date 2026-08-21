@@ -116,6 +116,7 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.interaction.attempt_id',
 	'agentstudio.bridge.language_class',
 	'agentstudio.bridge.markdown.fallback_reason',
+	'agentstudio.bridge.operation.id',
 	'agentstudio.bridge.phase',
 	'agentstudio.bridge.panel.operation',
 	'agentstudio.bridge.plane',
@@ -302,9 +303,23 @@ const bridgeDevTelemetryUnsafeValuePatterns = [
 	/(^|[._-])comms?([._-]|$)/i,
 ] as const satisfies readonly RegExp[];
 
-const bridgeDevExplicitSafeTelemetryNames = new Set(['performance.bridge.web.comm_worker_session']);
+const bridgeDevExplicitSafeTelemetryNames = new Set([
+	'performance.bridge.web.annotation_lifecycle',
+	'performance.bridge.web.comm_worker_session',
+]);
 const bridgeDevExplicitSafeStringAttributePairs = new Set([
+	'agentstudio.bridge.phase\u0000annotation_invalidation_received',
+	'agentstudio.bridge.phase\u0000annotation_paint_terminal',
 	'agentstudio.bridge.phase\u0000comm_worker_session_snapshot',
+	'agentstudio.bridge.phase\u0000main_thread_install_terminal',
+	'agentstudio.bridge.phase\u0000projection_content_transfer_terminal',
+	'agentstudio.bridge.phase\u0000projection_convergence_started',
+	'agentstudio.bridge.phase\u0000projection_convergence_terminal',
+	'agentstudio.bridge.phase\u0000projection_query_started',
+	'agentstudio.bridge.phase\u0000projection_query_terminal',
+	'agentstudio.bridge.phase\u0000projection_store_terminal',
+	'agentstudio.bridge.phase\u0000projection_validation_terminal',
+	'agentstudio.bridge.phase\u0000worker_application_terminal',
 ]);
 
 export function bridgeDevTelemetryObservationIsSafe(
@@ -631,6 +646,9 @@ function resourceAttributesForBridgeDevTelemetry(props: {
 function bridgeDevStringAttributeIsSafe(key: string, value: string): boolean {
 	if (!bridgeDevStringAttributeKeys.has(key)) {
 		return false;
+	}
+	if (key === 'agentstudio.bridge.operation.id') {
+		return /^[0-9a-f]{64}$/u.test(value);
 	}
 	const restrictedValues = bridgeDevRestrictedStringAttributeValuesByKey.get(key);
 	if (restrictedValues !== undefined) {

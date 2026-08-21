@@ -2,13 +2,40 @@ import AgentStudioInfrastructure
 import Foundation
 
 protocol BridgeProductMetadataLifecycleTraceRecording: Sendable {
+    func record(_ event: BridgeAnnotationLifecycleTraceEvent) async
     func record(_ event: BridgeProductMetadataLifecycleTraceEvent) async
     func record(_ event: BridgeProductReviewMetadataPublicationTraceEvent) async
     func record(_ event: BridgePanePresentationTraceEvent) async
 }
 
 extension BridgeProductMetadataLifecycleTraceRecording {
+    func record(_: BridgeAnnotationLifecycleTraceEvent) async {}
     func record(_: BridgePanePresentationTraceEvent) async {}
+}
+
+struct BridgeAnnotationLifecycleTraceEvent: Equatable, Sendable {
+    enum Stage: String, Sendable {
+        case invalidationAdmitted = "annotation_invalidation_admitted"
+        case notificationDeliveryTerminal = "annotation_notification_delivery_terminal"
+        case projectionContentTransferStarted = "projection_content_transfer_started"
+        case projectionContentTransferTerminal = "projection_content_transfer_terminal"
+        case projectionQueryStarted = "projection_query_started"
+        case projectionQueryTerminal = "projection_query_terminal"
+    }
+
+    enum Result: String, Sendable {
+        case cancelled
+        case failure
+        case stale
+        case started
+        case success
+    }
+
+    let operationCorrelationID: String
+    let result: Result
+    let sourceGeneration: Int
+    let stage: Stage
+    let surface: BridgeProductSurface
 }
 
 struct BridgePanePresentationTraceEvent: Equatable, Sendable {
@@ -252,6 +279,33 @@ struct BridgeProductMetadataLifecycleTraceRecorder: BridgeProductMetadataLifecyc
 
     init(recorder: any BridgePerformanceTraceRecording) {
         self.recorder = recorder
+    }
+
+    func record(_ event: BridgeAnnotationLifecycleTraceEvent) async {
+        await recorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .swift,
+                name: "performance.bridge.swift.annotation_lifecycle",
+                durationMilliseconds: nil,
+                traceContext: nil,
+                stringAttributes: [
+                    "agentstudio.bridge.operation.id": event.operationCorrelationID,
+                    "agentstudio.bridge.phase": event.stage.rawValue,
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.data.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.hot.rawValue,
+                    "agentstudio.bridge.protocol": "worktree-annotations",
+                    "agentstudio.bridge.result": event.result.rawValue,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.reviewProjection.rawValue,
+                    "agentstudio.bridge.transport": "swift",
+                    "agentstudio.bridge.viewer": event.surface.rawValue,
+                ],
+                numericAttributes: [
+                    "agentstudio.bridge.source.generation": Double(event.sourceGeneration)
+                ],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
     }
 
     func record(_ event: BridgeProductMetadataLifecycleTraceEvent) async {

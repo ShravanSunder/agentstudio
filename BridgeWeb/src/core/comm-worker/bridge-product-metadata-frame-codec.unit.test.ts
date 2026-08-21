@@ -109,6 +109,7 @@ describe('Bridge product metadata frame decoder', () => {
 		} as const;
 		const invalidation = {
 			eventKind: 'snapshot.required',
+			operationCorrelationId: 'a'.repeat(64),
 			sourceGeneration: 1,
 			worktreeId: '00000000-0000-7000-8000-000000000001',
 		} as const;

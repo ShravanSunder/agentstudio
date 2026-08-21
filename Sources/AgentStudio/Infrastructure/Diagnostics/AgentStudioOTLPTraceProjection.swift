@@ -56,6 +56,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.native_capacity.operation_class",
         "agentstudio.bridge.native_capacity.product_kind",
         "agentstudio.bridge.native_capacity.worktree_hash",
+        "agentstudio.bridge.operation.id",
         "agentstudio.bridge.package_build.reason",
         "agentstudio.bridge.panel.operation",
         "agentstudio.bridge.phase",

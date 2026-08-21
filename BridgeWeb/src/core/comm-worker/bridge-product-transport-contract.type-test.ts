@@ -186,6 +186,7 @@ const reviewAnnotationProjectionDescriptor = {
 		expectedThreadCount: 1,
 		isLastPage: true,
 		nextCursor: null,
+		operationCorrelationId: 'a'.repeat(64),
 		pageOrdinal: 0,
 		projectionRevision: 11,
 		snapshotId: '00000000-0000-7000-8000-000000000018',
@@ -280,6 +281,7 @@ const reviewAnnotationProjectionQueryResult: Promise<
 	BridgeProductCallResult<'review.annotations.projection.query'>
 > = productTransport.call('review.annotations.projection.query', {
 	cursor: null,
+	operationCorrelationId: 'a'.repeat(64),
 	sessionIds: ['00000000-0000-7000-8000-000000000019'],
 	sourceGeneration: 7,
 	surface: 'review',

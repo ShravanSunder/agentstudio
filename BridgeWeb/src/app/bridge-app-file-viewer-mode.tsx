@@ -114,6 +114,7 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 			<WorktreeAnnotationSurfaceProvider
 				markdownWorkerClient={props.markdownWorkerClient}
 				surfaceClient={props.fileViewClient}
+				telemetryRecorder={props.telemetryRecorder}
 			>
 				{!props.isActive && !hasActivatedFileViewerShell ? (
 					!props.requiresNavigationSourceDiscovery ? null : (

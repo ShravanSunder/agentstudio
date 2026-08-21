@@ -477,7 +477,13 @@ extension BridgePaneController {
         let fileSourceComposition = makeFileSourceComposition(input)
         let fileMetadataSource = fileSourceComposition.source
         let reviewContentSource = makeReviewContentSource(input)
-        let annotationSource = makeWorktreeAnnotationSource(input)
+        let lifecycleTraceRecorder = input.telemetryRecorder.map(
+            BridgeProductMetadataLifecycleTraceRecorder.init(recorder:)
+        )
+        let annotationSource = makeWorktreeAnnotationSource(
+            input,
+            lifecycleTraceRecorder: lifecycleTraceRecorder
+        )
         let annotationProjectionSource = makeWorktreeAnnotationProjectionSource(
             input,
             fileMetadataSource: fileMetadataSource
@@ -544,9 +550,7 @@ extension BridgePaneController {
             },
             initialPanePresentation: input.initialProductPresentation,
             refreshWorkAdmissionSource: input.refreshWorkAdmissionSource,
-            lifecycleTraceRecorder: input.telemetryRecorder.map(
-                BridgeProductMetadataLifecycleTraceRecorder.init(recorder:)
-            )
+            lifecycleTraceRecorder: lifecycleTraceRecorder
         )
         let installation = makeInitialProductSessionInstallation(
             paneSessionId: input.paneSessionId,
@@ -630,12 +634,17 @@ extension BridgePaneController {
     }
 
     private static func makeWorktreeAnnotationSource(
-        _ input: BridgeProductSessionDependencyInput
+        _ input: BridgeProductSessionDependencyInput,
+        lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
     ) -> BridgePaneAnnotationNotificationSource {
         guard let service = input.worktreeAnnotationStore,
             let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
         else { return .unavailable }
-        return BridgePaneAnnotationNotificationSource(service: service, worktreeID: worktreeID)
+        return BridgePaneAnnotationNotificationSource(
+            service: service,
+            worktreeID: worktreeID,
+            lifecycleTraceRecorder: lifecycleTraceRecorder
+        )
     }
 
     private static func makeWorktreeAnnotationProjectionSource(

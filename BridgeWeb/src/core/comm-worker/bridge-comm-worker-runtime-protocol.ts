@@ -594,6 +594,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			publishDisplayPatches: publishReviewDisplayPatches,
 		});
 		const installedProductController = new BridgeCommWorkerProductController({
+			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 			callCurrentFileSource: () =>
 				callCurrentFileSourceWithTelemetry({
 					productTransport,
@@ -602,10 +603,14 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 						? {}
 						: { telemetryClient: props.telemetryClient }),
 				}),
-			onAnnotationProjectionConvergence: ({ state, surface }): void => {
+			onAnnotationProjectionConvergence: ({ operationCorrelationId, state, surface }): void => {
 				port.postMessage(
 					bridgeWorkerAnnotationProjectionConvergenceEventSchema.parse(
-						bridgeCommWorkerAnnotationProjectionConvergenceEvent({ state, surface }),
+						bridgeCommWorkerAnnotationProjectionConvergenceEvent({
+							operationCorrelationId,
+							state,
+							surface,
+						}),
 					),
 				);
 			},

@@ -19,6 +19,7 @@ const annotationSaveJourneyTimeoutMilliseconds = 120_000;
 const annotationProjectionResponseTimeoutMilliseconds = 30_000;
 
 export interface AnnotationSaveJourneyObservations {
+	readonly correlatedLifecycleStageCount: number;
 	readonly gatedProjectionRequestCount: number;
 	readonly projectedSavedMessageCount: number;
 	readonly reloadedSavedMessageCount: number;
@@ -42,6 +43,7 @@ export function registerBridgeViewerViteAnnotationSaveJourneyTests(props: {
 			expect(observations.gatedProjectionRequestCount).toBeGreaterThan(0);
 			expect(observations.savingControlCountAfterCommit).toBe(0);
 			expect(observations.committedBodyCountWhileProjectionGated).toBe(1);
+			expect(observations.correlatedLifecycleStageCount).toBe(11);
 			expect(observations.projectedSavedMessageCount).toBe(1);
 			expect(observations.reloadedSavedMessageCount).toBe(1);
 		},
@@ -160,6 +162,7 @@ export async function runAnnotationSaveJourney(props: {
 			timeout: annotationProjectionResponseTimeoutMilliseconds,
 		});
 		const projectedSavedMessageCount = await savedThreadBody.count();
+		const correlatedLifecycleStageCount = await waitForCompleteAnnotationLifecycleTelemetry(page);
 
 		await page.reload({
 			timeout: annotationSaveJourneyTimeoutMilliseconds,
@@ -181,6 +184,7 @@ export async function runAnnotationSaveJourney(props: {
 
 		return {
 			committedBodyCountWhileProjectionGated,
+			correlatedLifecycleStageCount,
 			gatedProjectionRequestCount,
 			projectedSavedMessageCount,
 			reloadedSavedMessageCount: await reloadedSavedThreadBody.count(),
@@ -201,6 +205,54 @@ export async function runAnnotationSaveJourney(props: {
 		await page?.close();
 		await browser.close();
 	}
+}
+
+async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<number> {
+	const requiredStages = [
+		'annotation_invalidation_received',
+		'projection_convergence_started',
+		'projection_query_started',
+		'projection_content_transfer_terminal',
+		'projection_validation_terminal',
+		'projection_query_terminal',
+		'projection_convergence_terminal',
+		'worker_application_terminal',
+		'projection_store_terminal',
+		'main_thread_install_terminal',
+		'annotation_paint_terminal',
+	] as const;
+	const statusUrl = new URL('/__bridge-dev-telemetry/status', page.url()).toString();
+	const handle = await page.waitForFunction(
+		async ({ expectedStages, url }): Promise<number | false> => {
+			const response = await fetch(url);
+			if (!response.ok) return false;
+			const body: unknown = await response.json();
+			if (typeof body !== 'object' || body === null || !('recentSamples' in body)) return false;
+			const recentSamples = body.recentSamples;
+			if (!Array.isArray(recentSamples)) return false;
+			const stagesByOperation = new Map<string, Set<string>>();
+			for (const sample of recentSamples) {
+				if (typeof sample !== 'object' || sample === null || !('stringAttributes' in sample)) {
+					continue;
+				}
+				const attributes = sample.stringAttributes;
+				if (typeof attributes !== 'object' || attributes === null) continue;
+				const operationId = Reflect.get(attributes, 'agentstudio.bridge.operation.id');
+				const phase = Reflect.get(attributes, 'agentstudio.bridge.phase');
+				if (typeof operationId !== 'string' || typeof phase !== 'string') continue;
+				const stages = stagesByOperation.get(operationId) ?? new Set<string>();
+				stages.add(phase);
+				stagesByOperation.set(operationId, stages);
+			}
+			for (const stages of stagesByOperation.values()) {
+				if (expectedStages.every((stage) => stages.has(stage))) return expectedStages.length;
+			}
+			return false;
+		},
+		{ expectedStages: requiredStages, url: statusUrl },
+		{ timeout: annotationProjectionResponseTimeoutMilliseconds },
+	);
+	return await handle.jsonValue();
 }
 
 async function verifyDurableHistoryAndUnhandle(page: Page): Promise<void> {

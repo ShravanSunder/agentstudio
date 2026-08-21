@@ -10,6 +10,39 @@ import {
 } from './bridge-dev-telemetry.js';
 
 describe('Bridge dev telemetry sink', () => {
+	test('admits scrubbed annotation lifecycle correlation and rejects raw identifiers', () => {
+		const sample = makeTelemetrySample();
+		const lifecycleSample = {
+			...sample,
+			name: 'performance.bridge.web.annotation_lifecycle',
+			stringAttributes: {
+				...sample.stringAttributes,
+				'agentstudio.bridge.operation.id': 'a'.repeat(64),
+				'agentstudio.bridge.phase': 'main_thread_install_terminal',
+			},
+		};
+		expect(
+			bridgeDevTelemetryObservationIsSafe({
+				scenario: 'lifecycle-proof',
+				samples: [lifecycleSample],
+			}),
+		).toBe(true);
+		expect(
+			bridgeDevTelemetryObservationIsSafe({
+				scenario: 'lifecycle-proof',
+				samples: [
+					{
+						...lifecycleSample,
+						stringAttributes: {
+							...lifecycleSample.stringAttributes,
+							'agentstudio.bridge.operation.id': 'raw-operation-uuid',
+						},
+					},
+				],
+			}),
+		).toBe(false);
+	});
+
 	test('builds scrubbed OTLP log records for BridgeWeb browser batches', () => {
 		const record = buildBridgeDevTelemetryLogRecord({
 			marker: 'vite-dev-proof-1',

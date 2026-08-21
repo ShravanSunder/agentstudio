@@ -54,7 +54,11 @@ package enum BridgeTelemetryWireSchema {
             return false
         }
         for (key, value) in stringAttributes {
-            guard allowedStringValuesByAttributeKey[key]?.contains(value) == true else {
+            let isAllowedOperationID =
+                key == "agentstudio.bridge.operation.id"
+                && value.count == 64
+                && value.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+            guard isAllowedOperationID || allowedStringValuesByAttributeKey[key]?.contains(value) == true else {
                 return false
             }
         }

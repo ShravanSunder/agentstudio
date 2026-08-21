@@ -34,6 +34,7 @@ describe('Bridge product worktree annotation contracts', () => {
 	test('accepts only the compact snapshot-required invalidation', () => {
 		const event = {
 			eventKind: 'snapshot.required',
+			operationCorrelationId: 'a'.repeat(64),
 			sourceGeneration: 7,
 			worktreeId: '00000000-0000-7000-8000-000000000001',
 		} as const;
@@ -44,6 +45,7 @@ describe('Bridge product worktree annotation contracts', () => {
 	test('rejects missing, invalid, and unknown invalidation members', () => {
 		const event = {
 			eventKind: 'snapshot.required',
+			operationCorrelationId: 'a'.repeat(64),
 			sourceGeneration: 7,
 			worktreeId: '00000000-0000-7000-8000-000000000001',
 		} as const;

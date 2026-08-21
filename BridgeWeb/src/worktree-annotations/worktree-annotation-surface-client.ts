@@ -2,6 +2,8 @@ import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-ru
 import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeProductAnnotationOutputContentDescriptor } from '../core/comm-worker/bridge-product-content-contracts.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
+import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
+import { recordWorktreeAnnotationLifecycleTelemetry } from './worktree-annotation-lifecycle-telemetry.js';
 import {
 	WorktreeAnnotationProjectionStore,
 	type WorktreeAnnotationCommandOutcome,
@@ -58,6 +60,7 @@ interface PendingAnnotationOutputInspection {
 
 export function createWorktreeAnnotationSurfaceClient(
 	surfaceClient: BridgePaneSurfaceClient,
+	telemetryRecorder?: BridgeTelemetryRecorder,
 ): WorktreeAnnotationSurfaceClient {
 	const pendingCommandsByWorkerRequestId = new Map<string, PendingAnnotationCommand>();
 	const pendingOutputInspectionsByWorkerRequestId = new Map<
@@ -146,9 +149,33 @@ export function createWorktreeAnnotationSurfaceClient(
 				return;
 			}
 			if (message.kind === 'annotationProjectionConvergence') {
-				if (message.state.kind === 'ready') projectionStore.apply(message.state.snapshot);
-				else if (message.state.kind === 'refreshing') projectionStore.markRefreshing();
-				else projectionStore.markUnavailable(message.state.retryable);
+				if (message.state.kind === 'ready') {
+					if (message.operationCorrelationId !== null) {
+						projectionStore.apply(message.state.snapshot, message.operationCorrelationId);
+						recordWorktreeAnnotationLifecycleTelemetry({
+							operationCorrelationId: message.operationCorrelationId,
+							phase: 'projection_store_terminal',
+							recorder: telemetryRecorder,
+							result: 'success',
+							sourceGeneration: message.state.snapshot.sourceGeneration,
+							transport: 'local',
+							viewer: surfaceClient.surface === 'fileView' ? 'file' : 'review',
+						});
+						recordWorktreeAnnotationLifecycleTelemetry({
+							operationCorrelationId: message.operationCorrelationId,
+							phase: 'main_thread_install_terminal',
+							recorder: telemetryRecorder,
+							result: 'success',
+							sourceGeneration: message.state.snapshot.sourceGeneration,
+							transport: 'local',
+							viewer: surfaceClient.surface === 'fileView' ? 'file' : 'review',
+						});
+					}
+				} else if (message.state.kind === 'refreshing') {
+					projectionStore.markRefreshing();
+				} else {
+					projectionStore.markUnavailable(message.state.retryable);
+				}
 				return;
 			}
 			if (

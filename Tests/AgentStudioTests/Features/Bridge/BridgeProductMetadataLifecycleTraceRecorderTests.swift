@@ -6,6 +6,29 @@ import Testing
 
 @Suite("Bridge product metadata lifecycle trace recorder")
 struct BridgeProductMetadataLifecycleTraceRecorderTests {
+    @Test("Annotation lifecycle preserves scrubbed operation correlation")
+    func annotationLifecyclePreservesScrubbedOperationCorrelation() async throws {
+        let sink = BridgeProductMetadataLifecycleTraceSink()
+        let recorder = BridgeProductMetadataLifecycleTraceRecorder(recorder: sink)
+
+        await recorder.record(
+            BridgeAnnotationLifecycleTraceEvent(
+                operationCorrelationID: String(repeating: "a", count: 64),
+                result: .success,
+                sourceGeneration: 7,
+                stage: .notificationDeliveryTerminal,
+                surface: .review
+            )
+        )
+
+        let sample = try #require(await sink.recordedSamples().only)
+        #expect(sample.name == "performance.bridge.swift.annotation_lifecycle")
+        #expect(sample.stringAttributes["agentstudio.bridge.operation.id"] == String(repeating: "a", count: 64))
+        #expect(sample.stringAttributes["agentstudio.bridge.phase"] == "annotation_notification_delivery_terminal")
+        #expect(sample.stringAttributes["agentstudio.bridge.viewer"] == "review")
+        #expect(sample.numericAttributes["agentstudio.bridge.source.generation"] == 7)
+    }
+
     @Test("File window enqueue maps to the typed native telemetry vocabulary")
     func fileWindowEnqueueMapsToTypedTelemetryVocabulary() async throws {
         // Arrange

@@ -18,6 +18,7 @@ export const BRIDGE_PRODUCT_MAXIMUM_ANNOTATION_PROJECTION_PAGE_BYTES =
 export const bridgeProductAnnotationProjectionQueryRequestSchema = z
 	.object({
 		cursor: bridgeProductOpaqueReferenceSchema.nullable(),
+		operationCorrelationId: bridgeProductSha256Schema,
 		sessionIds: z
 			.array(bridgeProductReviewPublicationIdSchema)
 			.max(BRIDGE_PRODUCT_MAXIMUM_ANNOTATION_PROJECTION_SESSION_COUNT)
@@ -42,6 +43,7 @@ export const bridgeProductAnnotationProjectionPageContractSchema = z
 		expectedThreadCount: bridgeProductNonnegativeSequenceSchema,
 		isLastPage: z.boolean(),
 		nextCursor: bridgeProductOpaqueReferenceSchema.nullable(),
+		operationCorrelationId: bridgeProductSha256Schema,
 		pageOrdinal: bridgeProductNonnegativeSequenceSchema,
 		projectionRevision: bridgeProductNonnegativeSequenceSchema,
 		snapshotId: bridgeProductReviewPublicationIdSchema,

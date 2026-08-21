@@ -61,6 +61,7 @@ describe('Bridge product subscription state', () => {
 					data: {
 						event: {
 							eventKind: 'snapshot.required',
+							operationCorrelationId: 'a'.repeat(64),
 							sourceGeneration: 1,
 							worktreeId: 'worktree-1',
 						},

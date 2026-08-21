@@ -405,6 +405,7 @@ private func projectionQuery(
 ) throws -> BridgeProductAnnotationProjectionQueryRequest {
     let object: [String: Any] = [
         "cursor": cursor ?? NSNull(),
+        "operationCorrelationId": String(repeating: "a", count: 64),
         "sessionIds": [sessionID.rawValue.uuidString.lowercased()],
         "sourceGeneration": sourceGeneration,
         "surface": surface.rawValue,
@@ -426,6 +427,7 @@ private func projectionControlRequest(
             "method": method,
             "request": [
                 "cursor": NSNull(),
+                "operationCorrelationId": String(repeating: "a", count: 64),
                 "sessionIds": [],
                 "sourceGeneration": 7,
                 "surface": surface.rawValue,

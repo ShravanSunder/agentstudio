@@ -39,6 +39,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         @MainActor @Sendable (BridgeProductReviewIntakeReadyRequest, BridgeProductAdmissionContext) async -> Void
     let markReviewItemViewed: @MainActor @Sendable (String, BridgeProductAdmissionContext) -> Void
     let metadataCoordinator: BridgePaneProductMetadataCoordinator
+    let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
     let recordReviewPublicationApplication: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
     nonisolated let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     private let reviewContentSource: any BridgePaneProductReviewContentProducing
@@ -127,6 +128,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             refreshWorkAdmissionSource: refreshWorkAdmissionSource,
             lifecycleTraceRecorder: lifecycleTraceRecorder
         )
+        self.lifecycleTraceRecorder = lifecycleTraceRecorder
         self.markReviewItemViewed = markReviewItemViewed
         self.recordReviewPublicationApplication = recordReviewPublicationApplication
         self.refreshWorkAdmissionSource = refreshWorkAdmissionSource

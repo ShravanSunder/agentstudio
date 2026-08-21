@@ -1,3 +1,4 @@
+import type { WorktreeAnnotationLifecycleTelemetryRecorder } from '../../worktree-annotations/worktree-annotation-lifecycle-telemetry.js';
 import {
 	BridgeCommWorkerAnnotationProjectionQueryController,
 	bridgeCommWorkerAnnotationProjectionTransport,
@@ -116,6 +117,7 @@ export class BridgeCommWorkerProductController {
 		readonly onReviewMetadataEvent?: ReviewMetadataEventHandler;
 		readonly onReviewMetadataFailure?: ReviewMetadataFailureHandler;
 		readonly productTransport: BridgeProductTransportSession;
+		readonly telemetryClient?: WorktreeAnnotationLifecycleTelemetryRecorder | undefined;
 		readonly subscribeFile?: (
 			options: BridgeProductSubscriptionOptions<'file.metadata'>,
 		) => FileMetadataSubscription;
@@ -143,6 +145,7 @@ export class BridgeCommWorkerProductController {
 				},
 				surface: 'file',
 				transport: annotationProjectionTransport,
+				telemetryClient: props.telemetryClient,
 			}),
 			review: new BridgeCommWorkerAnnotationProjectionQueryController({
 				onConvergence,
@@ -151,6 +154,7 @@ export class BridgeCommWorkerProductController {
 				},
 				surface: 'review',
 				transport: annotationProjectionTransport,
+				telemetryClient: props.telemetryClient,
 			}),
 		};
 		this.#callCurrentFileSource =
