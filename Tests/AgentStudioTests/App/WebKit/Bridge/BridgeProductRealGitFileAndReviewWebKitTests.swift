@@ -345,7 +345,7 @@ extension WebKitSerializedTests {
                 proof.hiddenReviewPublicationCountAfterLateRelease
                     == proof.hiddenReviewPublicationCountBeforeLateRelease
             )
-            #expect(proof.paneOneFinalRefreshPassCount == proof.paneOneForegroundRefreshPassCount + 1)
+            #expect(proof.paneOneFinalRefreshPassCount == proof.paneOneForegroundRefreshPassCount + 2)
             #expect(proof.updatingReviewStatus.comparisonStatusText == nil)
             #expect(proof.updatingReviewStatus.reviewStatusText == "Updating review…")
             #expect(proof.updatingReviewStatus.fileStatusText == nil)

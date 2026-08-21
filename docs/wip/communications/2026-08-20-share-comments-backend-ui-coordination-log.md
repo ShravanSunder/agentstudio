@@ -423,3 +423,24 @@ Next: commit this bounded mainline-contract correction and rerun the complete
 current-HEAD `mise run test`
 Notes: Share production code remains unchanged; unrelated PR2 files remain
 untracked and untouched
+
+### 2026-08-21 03:06 EDT — WebKit per-lane refresh proof convergence
+
+State: deterministic stale assertions corrected; complete WebKit lane green
+Head before correction: `a86941729` (`test(ci): follow shortened agent instructions`)
+Owns: two existing WebKit refresh-pass count assertions only
+Changed: both journeys now expect two independently admitted catch-up passes
+for filesystem invalidations that dirty File and Review, matching production's
+accepted per-lane authority cutover in `0c1c975f8` and the current Bridge
+latest-generation Program Design.
+Proof: the hosted two-pane failure reproduced in the aggregate gate and alone
+with final count 4 versus foreground count 2 plus obsolete 1; rebuilt focused
+proof passed after expecting File plus Review. The complete WebKit lane then
+identified the same stale one-pass expectation in workspace fan-out; rebuilt
+focused proof passed. Final complete serialized WebKit lane exited 0 in 113.02
+seconds.
+Needs from other lane: none
+Next: commit the bounded proof correction, then run the complete current-HEAD
+gate once more
+Notes: no production code or proof gate changed; unrelated PR2 files remain
+untracked and untouched

@@ -434,7 +434,7 @@ extension WebKitSerializedTests {
             #expect(hiddenPaneRefresh.dirtyFact?.filePaths == ["Sources/Changed.swift"])
             #expect(hiddenPaneRefresh.refreshPassCount == 0)
             #expect(foregroundPaneRefresh.dirtyFact == nil)
-            #expect(foregroundPaneRefresh.refreshPassCount == 1)
+            #expect(foregroundPaneRefresh.refreshPassCount == 2)
 
             await constructionCoordinator.release(currentLease)
             await harness.finish()
