@@ -14,15 +14,28 @@ interface WorktreeRoute {
   readonly className: string;
   readonly forkRow: number;
   readonly lane: 1 | 2 | 3 | 4;
-  readonly mergeApproachRow?: number;
-  readonly mergeRow?: number;
-  readonly openEndRow?: number;
+  readonly mergeApproachRow: number;
+  readonly mergeRow: number;
+}
+
+interface RouteSegment {
+  readonly d: string;
+  readonly endRow: number;
+  readonly startRow: number;
 }
 
 const firstRowY = 100;
 const rowHeight = 84;
 const lanePositions = [240, 300, 360, 420, 480] as const;
 const finalRow = 26;
+const leadingEdgeBands = [
+  { end: 1 / 6, opacity: 1, start: 0 },
+  { end: 2 / 6, opacity: 0.78, start: 1 / 6 },
+  { end: 3 / 6, opacity: 0.56, start: 2 / 6 },
+  { end: 4 / 6, opacity: 0.34, start: 3 / 6 },
+  { end: 5 / 6, opacity: 0.16, start: 4 / 6 },
+  { end: 1, opacity: 0.04, start: 5 / 6 },
+] as const;
 
 function rowY(row: number): number {
   return firstRowY + row * rowHeight;
@@ -35,22 +48,32 @@ function laneAccent(lane: TopologyNode["lane"]): TopologyAccent {
   return lane === 1 || lane === 3 ? "peach" : "cyan";
 }
 
-function routePath(route: WorktreeRoute): string {
+function routeSegments(route: WorktreeRoute): readonly RouteSegment[] {
   const mainLaneX = lanePositions[0];
   const worktreeLaneX = lanePositions[route.lane];
   const forkY = rowY(route.forkRow);
   const arrivalY = rowY(route.arrivalRow);
   const forkControlX = mainLaneX + (worktreeLaneX - mainLaneX) / 2;
-  const fork = `M ${mainLaneX} ${forkY} C ${forkControlX} ${forkY} ${worktreeLaneX} ${arrivalY - rowHeight / 2} ${worktreeLaneX} ${arrivalY}`;
-
-  if (route.mergeApproachRow !== undefined && route.mergeRow !== undefined) {
-    const mergeApproachY = rowY(route.mergeApproachRow);
-    const mergeY = rowY(route.mergeRow);
-    const mergeControlX = mainLaneX + (worktreeLaneX - mainLaneX) / 2;
-    return `${fork} L ${worktreeLaneX} ${mergeApproachY} C ${worktreeLaneX} ${mergeApproachY + rowHeight / 2} ${mergeControlX} ${mergeY} ${mainLaneX} ${mergeY}`;
-  }
-
-  return `${fork} L ${worktreeLaneX} ${rowY(route.openEndRow ?? finalRow)}`;
+  const mergeApproachY = rowY(route.mergeApproachRow);
+  const mergeY = rowY(route.mergeRow);
+  const mergeControlX = mainLaneX + (worktreeLaneX - mainLaneX) / 2;
+  return [
+    {
+      d: `M ${mainLaneX} ${forkY} C ${forkControlX} ${forkY} ${worktreeLaneX} ${arrivalY - rowHeight / 2} ${worktreeLaneX} ${arrivalY}`,
+      endRow: route.arrivalRow,
+      startRow: route.forkRow,
+    },
+    {
+      d: `M ${worktreeLaneX} ${arrivalY} L ${worktreeLaneX} ${mergeApproachY}`,
+      endRow: route.mergeApproachRow,
+      startRow: route.arrivalRow,
+    },
+    {
+      d: `M ${worktreeLaneX} ${mergeApproachY} C ${worktreeLaneX} ${mergeApproachY + rowHeight / 2} ${mergeControlX} ${mergeY} ${mainLaneX} ${mergeY}`,
+      endRow: route.mergeRow,
+      startRow: route.mergeApproachRow,
+    },
+  ];
 }
 
 const routes = [
@@ -123,6 +146,7 @@ const svgHeight = rowY(finalRow) + 100;
 
 <svg
   class="block h-auto w-[1200px] max-w-none"
+  data-topology-artwork
   viewBox={`0 0 1200 ${svgHeight}`}
   width="1200"
   height={svgHeight}
@@ -135,22 +159,82 @@ const svgHeight = rowY(finalRow) + 100;
     worktrees merge back into the mainline.
   </desc>
 
-  <g class="topology-base">
-    <path d={`M ${lanePositions[0]} ${rowY(0)} L ${lanePositions[0]} ${rowY(finalRow)}`} />
-    {routes.map((route) => <path d={routePath(route)} />)}
-  </g>
-
   <g class="topology-primary">
-    <path d={`M ${lanePositions[0]} ${rowY(0)} L ${lanePositions[0]} ${rowY(finalRow)}`} />
+    {
+      leadingEdgeBands.map((band) => (
+        <path
+          class="topology-leading-edge topology-reveal-path"
+          data-topology-lead-start={band.start}
+          data-topology-lead-end={band.end}
+          data-topology-path-role="leading-band"
+          data-topology-path-start="0"
+          data-topology-path-end="1"
+          pathLength="1"
+          d={`M ${lanePositions[0]} ${rowY(0)} L ${lanePositions[0]} ${rowY(finalRow)}`}
+          style={`opacity: ${band.opacity}`}
+        />
+      ))
+    }
+    <path
+      class="topology-reveal-path"
+      data-topology-path-role="core"
+      data-topology-path-start="0"
+      data-topology-path-end="1"
+      pathLength="1"
+      d={`M ${lanePositions[0]} ${rowY(0)} L ${lanePositions[0]} ${rowY(finalRow)}`}
+    />
   </g>
 
   {
-    routes.map((route) => (
-      <g class:list={["topology-worktree", route.className]}>
-        <path class="topology-clearance" d={routePath(route)} />
-        <path class="topology-line" d={routePath(route)} />
-      </g>
-    ))
+    routes.map((route) => {
+      const segments = routeSegments(route);
+
+      return (
+        <g class:list={["topology-worktree", route.className]}>
+          <g class="topology-clearances">
+            {segments.map((segment) => (
+              <path
+                class="topology-clearance topology-reveal-path"
+                data-topology-path-role="clearance"
+                data-topology-path-start={segment.startRow / finalRow}
+                data-topology-path-end={segment.endRow / finalRow}
+                pathLength="1"
+                d={segment.d}
+              />
+            ))}
+          </g>
+          <g class="topology-leading-edges">
+            {segments.map((segment) =>
+              leadingEdgeBands.map((band) => (
+                <path
+                  class="topology-leading-edge topology-reveal-path"
+                  data-topology-lead-start={band.start}
+                  data-topology-lead-end={band.end}
+                  data-topology-path-role="leading-band"
+                  data-topology-path-start={segment.startRow / finalRow}
+                  data-topology-path-end={segment.endRow / finalRow}
+                  pathLength="1"
+                  d={segment.d}
+                  style={`opacity: ${band.opacity}`}
+                />
+              )),
+            )}
+          </g>
+          <g class="topology-lines">
+            {segments.map((segment) => (
+              <path
+                class="topology-line topology-reveal-path"
+                data-topology-path-role="core"
+                data-topology-path-start={segment.startRow / finalRow}
+                data-topology-path-end={segment.endRow / finalRow}
+                pathLength="1"
+                d={segment.d}
+              />
+            ))}
+          </g>
+        </g>
+      );
+    })
   }
 
   <g class="topology-nodes">
@@ -159,10 +243,15 @@ const svgHeight = rowY(finalRow) + 100;
         const x = lanePositions[node.lane];
         const y = rowY(node.row);
         const accent = node.accent ?? laneAccent(node.lane);
+        const nodeProgress = node.row / finalRow;
 
         if (node.kind === "merge") {
           return (
-            <g class={`node-merge accent-${accent}`} transform={`translate(${x} ${y})`}>
+            <g
+              class={`node-merge accent-${accent}`}
+              data-topology-node-progress={nodeProgress}
+              transform={`translate(${x} ${y})`}
+            >
               <circle cx="0" cy="0" r="8" />
               <path d="M -3 -1 L 0 2 L 3 -1" />
             </g>
@@ -171,15 +260,38 @@ const svgHeight = rowY(finalRow) + 100;
 
         if (node.kind === "current") {
           return (
-            <circle class={`node-terminal accent-${accent}`} cx={x} cy={y} r="7" />
+            <circle
+              class={`node-terminal accent-${accent}`}
+              data-topology-node-progress={nodeProgress}
+              cx={x}
+              cy={y}
+              r="7"
+            />
           );
         }
 
-        return <circle class={`node-filled accent-${accent}`} cx={x} cy={y} r="4" />;
+        return (
+          <circle
+            class={`node-filled accent-${accent}`}
+            data-topology-node-progress={nodeProgress}
+            cx={x}
+            cy={y}
+            r="4"
+          />
+        );
       })
     }
   </g>
 </svg>
+
+<script>
+  import { initializeTopologyScrollReveal } from "./topology-scroll-reveal";
+
+  const topologyArtwork = document.querySelector<SVGSVGElement>("[data-topology-artwork]");
+  if (topologyArtwork !== null) {
+    initializeTopologyScrollReveal(topologyArtwork);
+  }
+</script>
 
 <style>
   path,
@@ -187,7 +299,6 @@ const svgHeight = rowY(finalRow) + 100;
     vector-effect: non-scaling-stroke;
   }
 
-  .topology-base path,
   .topology-primary path,
   .topology-worktree path {
     fill: none;
@@ -195,14 +306,27 @@ const svgHeight = rowY(finalRow) + 100;
     stroke-linejoin: round;
   }
 
-  .topology-base path {
-    stroke: rgb(255 255 255 / 7%);
-    stroke-width: 1px;
-  }
-
   .topology-primary path {
     stroke: rgb(137 180 250 / 62%);
     stroke-width: 1.5px;
+  }
+
+  .topology-reveal-path {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+
+  .topology-primary .topology-leading-edge,
+  .topology-worktree .topology-leading-edge {
+    stroke-linecap: butt;
+  }
+
+  [data-topology-node-progress] {
+    opacity: 0;
+  }
+
+  [data-topology-at-start] [data-topology-node-progress="0"] {
+    animation: topology-start-node-breathe 3.2s ease-in-out infinite;
   }
 
   .topology-worktree .topology-clearance {
@@ -211,13 +335,17 @@ const svgHeight = rowY(finalRow) + 100;
   }
 
   .worktree-a .topology-line,
-  .worktree-c .topology-line {
+  .worktree-a .topology-leading-edge,
+  .worktree-c .topology-line,
+  .worktree-c .topology-leading-edge {
     stroke: rgb(239 159 118 / 42%);
     stroke-width: 1px;
   }
 
   .worktree-b .topology-line,
-  .worktree-d .topology-line {
+  .worktree-b .topology-leading-edge,
+  .worktree-d .topology-line,
+  .worktree-d .topology-leading-edge {
     stroke: rgb(116 199 236 / 44%);
     stroke-width: 1px;
   }
@@ -265,5 +393,22 @@ const svgHeight = rowY(finalRow) + 100;
     stroke-width: 1.5px;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  @keyframes topology-start-node-breathe {
+    0%,
+    100% {
+      opacity: 0.2;
+    }
+
+    50% {
+      opacity: 0.8;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-topology-node-progress="0"] {
+      animation: none;
+    }
   }
 </style>
