@@ -20,6 +20,7 @@ describe('Bridge product worktree annotation contracts', () => {
 				savedRevision: null,
 				sessionRevision: 1,
 				threadId: '01890abc-def0-7abc-8def-012345678902',
+				threadRevision: 1,
 			},
 			requestId: 'annotation-command-1',
 			sessionId: lowercaseSessionId,
@@ -80,6 +81,7 @@ describe('Bridge product worktree annotation contracts', () => {
 			status: 'editable',
 			handled: false,
 			threadId,
+			threadRevision: 1,
 		} as const;
 		const neverSavedDraft = {
 			...baseMessage,

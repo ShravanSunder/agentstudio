@@ -10,6 +10,10 @@ import {
 } from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
 import { registerBridgeViewerViteAnnotationSaveJourneyTests } from './bridge-viewer-vite-annotation-save-journey.ts';
 import {
+	decodePaintedSourceCorrelations,
+	type PaintedSourceCorrelation,
+} from './bridge-viewer-vite-painted-source-correlation.ts';
+import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
 	type BridgeViewerOwnedViteProductServer,
@@ -29,22 +33,6 @@ import {
 } from './bridge-viewer-vite-review-comparison-observation.ts';
 
 const productJourneyTimeoutMilliseconds = 120_000;
-
-interface PaintedSourceCorrelation {
-	readonly descriptorId: string;
-	readonly disposition: string;
-	readonly itemId: string;
-	readonly observedSha256: string;
-	readonly pierreItemId: string;
-	readonly position: string;
-	readonly publicationId: string;
-	readonly requestId: string;
-	readonly role: string;
-	readonly semanticItemId: string;
-	readonly sourceGeneration: number;
-	readonly sourceIdentity: string;
-	readonly surface: string;
-}
 
 interface FileDeepScrollObservation {
 	readonly deepTreePathPainted: boolean;
@@ -713,55 +701,6 @@ async function readFileDeepScrollObservation(props: {
 		...observation,
 		paintedCorrelations: decodePaintedSourceCorrelations(encodedPaintedCorrelations),
 	};
-}
-
-function decodePaintedSourceCorrelations(
-	encodedValue: string,
-): readonly PaintedSourceCorrelation[] {
-	const parsedValue: unknown = JSON.parse(encodedValue);
-	if (!Array.isArray(parsedValue)) throw new Error('Painted source correlations must be an array.');
-	return parsedValue.map((value, valueIndex): PaintedSourceCorrelation => {
-		if (!isUnknownRecord(value)) {
-			throw new Error(`Painted source correlation ${valueIndex} must be an object.`);
-		}
-		const stringFields = [
-			'descriptorId',
-			'disposition',
-			'itemId',
-			'observedSha256',
-			'pierreItemId',
-			'position',
-			'publicationId',
-			'requestId',
-			'role',
-			'semanticItemId',
-			'sourceIdentity',
-			'surface',
-		] as const;
-		for (const fieldName of stringFields) {
-			if (typeof value[fieldName] !== 'string') {
-				throw new Error(`Painted source correlation ${valueIndex} has invalid ${fieldName}.`);
-			}
-		}
-		if (typeof value['sourceGeneration'] !== 'number') {
-			throw new Error(`Painted source correlation ${valueIndex} has invalid sourceGeneration.`);
-		}
-		return {
-			descriptorId: value['descriptorId'],
-			disposition: value['disposition'],
-			itemId: value['itemId'],
-			observedSha256: value['observedSha256'],
-			pierreItemId: value['pierreItemId'],
-			position: value['position'],
-			publicationId: value['publicationId'],
-			requestId: value['requestId'],
-			role: value['role'],
-			semanticItemId: value['semanticItemId'],
-			sourceGeneration: value['sourceGeneration'],
-			sourceIdentity: value['sourceIdentity'],
-			surface: value['surface'],
-		};
-	});
 }
 
 function observeProductContentRequests(page: Page): ProductContentRequestObservation[] {
