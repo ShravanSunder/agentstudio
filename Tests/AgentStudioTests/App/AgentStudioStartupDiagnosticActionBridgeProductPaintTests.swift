@@ -213,7 +213,7 @@ struct BridgeProductPaintStartupDiagnosticTests {
         // Arrange / Act
         let javaScript = AppDelegate.bridgeProductPaintCorrelationJavaScript(
             relativePath: "tracked.txt",
-            primerRelativePath: "tree/group-00/segment-00/file-000.swift",
+            primerRelativePath: "primer.swift",
             sha256: "expected-sha",
             canary: "expected-canary"
         )

@@ -144,7 +144,7 @@ comparison_target_name=journey-stack-base
 tracked_relative_path=tracked.txt
 tracked_sha256=""
 tracked_byte_count=0
-early_relative_path="tree/group-00/segment-00/file-000.swift"
+early_relative_path="primer.swift"
 middle_relative_path="tree/group-04/segment-00/file-128.swift"
 final_relative_path="tree/group-07/segment-03/file-255.swift"
 early_baseline_sha256=""
@@ -215,10 +215,14 @@ write_receipt "$journey_status" "$journey_reason"
 printf 'bridge-product-paint-baseline\n' >"$fixture_root/$tracked_relative_path"
 fixture_file_count=1
 for index in $(seq 0 255); do
-  group_index=$((index / 32))
-  segment_index=$(((index % 32) / 8))
-  printf -v relative_path 'tree/group-%02d/segment-%02d/file-%03d.swift' \
-    "$group_index" "$segment_index" "$index"
+  if [ "$index" -eq 0 ]; then
+    relative_path="$early_relative_path"
+  else
+    group_index=$((index / 32))
+    segment_index=$(((index % 32) / 8))
+    printf -v relative_path 'tree/group-%02d/segment-%02d/file-%03d.swift' \
+      "$group_index" "$segment_index" "$index"
+  fi
   mkdir -p "$(dirname "$fixture_root/$relative_path")"
   printf '// bridge packaged journey baseline %03d\nlet fixtureValue%03d = %d\n' \
     "$index" "$index" "$index" >"$fixture_root/$relative_path"
@@ -248,10 +252,14 @@ baseline_commit="$($GIT_BIN -C "$fixture_root" rev-parse HEAD)"
 printf 'bridge-product-paint-canary\npackaged-journey-selected-source\n' \
   >"$fixture_root/$tracked_relative_path"
 for index in $(seq 0 255); do
-  group_index=$((index / 32))
-  segment_index=$(((index % 32) / 8))
-  printf -v relative_path 'tree/group-%02d/segment-%02d/file-%03d.swift' \
-    "$group_index" "$segment_index" "$index"
+  if [ "$index" -eq 0 ]; then
+    relative_path="$early_relative_path"
+  else
+    group_index=$((index / 32))
+    segment_index=$(((index % 32) / 8))
+    printf -v relative_path 'tree/group-%02d/segment-%02d/file-%03d.swift' \
+      "$group_index" "$segment_index" "$index"
+  fi
   printf '\nbridge-packaged-live::%s\n' "$relative_path" >>"$fixture_root/$relative_path"
 done
 tracked_sha256="$(sha256_for_file "$fixture_root/$tracked_relative_path")"
