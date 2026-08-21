@@ -54,7 +54,7 @@ export interface WorktreeAnnotationNewMessageComposerProps {
 	readonly editToken?: string | undefined;
 	readonly onCancel: () => void;
 	readonly onSaved: () => void;
-	readonly placement?: 'embedded' | 'standalone' | undefined;
+	readonly placement?: 'embedded' | 'standalone' | 'timeline' | undefined;
 	readonly placeholder: string;
 	readonly registerExitHandler?: ((handler: () => Promise<void>) => () => void) | undefined;
 }
@@ -340,7 +340,7 @@ export function WorktreeAnnotationNewMessageComposer(
 		<div ref={admissionAnchorRef}>
 			<WorktreeAnnotationConversationFrame
 				aria-label={`${props.placeholder} composer`}
-				placement={props.placement}
+				placement={props.placement === 'timeline' ? 'embedded' : props.placement}
 			>
 				<WorktreeAnnotationInlineSurface
 					active={props.active}

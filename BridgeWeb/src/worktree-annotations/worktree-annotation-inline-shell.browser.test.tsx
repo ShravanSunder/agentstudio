@@ -112,6 +112,24 @@ describe('worktree annotation inline shell', () => {
 		await expect.element(composer).toBeVisible();
 		expect(thread.contains(composer.element())).toBe(true);
 		await expect.element(rendered.getByText('Root message.')).toBeVisible();
+		const timelineMessages = [
+			...thread.querySelectorAll<HTMLElement>('[data-testid="worktree-annotation-message"]'),
+		];
+		const rootAvatar = timelineMessages[0]?.querySelector<HTMLElement>('[aria-label="You"]');
+		const replyAvatar = timelineMessages.at(-1)?.querySelector<HTMLElement>('[aria-label="You"]');
+		if (
+			rootAvatar === null ||
+			rootAvatar === undefined ||
+			replyAvatar === null ||
+			replyAvatar === undefined
+		) {
+			throw new Error('Expected aligned root and reply avatars on the inline timeline.');
+		}
+		expect(replyAvatar.getBoundingClientRect().left).toBeCloseTo(
+			rootAvatar.getBoundingClientRect().left,
+			1,
+		);
+		await page.screenshot({ path: '../../../tmp/bridgeweb-inline-reply-aligned.png' });
 
 		await act(async (): Promise<void> => {
 			await composer.fill('Inline reply draft');
@@ -120,7 +138,7 @@ describe('worktree annotation inline shell', () => {
 		expect(thread.contains(composer.element())).toBe(true);
 	});
 
-	test('activates on focus and summary click without expanding the thread', async () => {
+	test('activates on focus and expands the compact thread surface on click', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderInlineShell(surface);
 		await publishTwoMessageThread(surface);
@@ -134,18 +152,16 @@ describe('worktree annotation inline shell', () => {
 		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
 			'bg-comment-active-surface',
 		);
+		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
+			'rounded-2xl',
+		);
+		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain('p-2');
 
 		await act(async (): Promise<void> => {
 			await rendered
 				.getByTestId('worktree-annotation-thread-summary')
 				.getByText('2 messages')
 				.click();
-			await Promise.resolve();
-		});
-		expect(document.body.textContent).not.toContain('Root message.');
-
-		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Expand 2 messages' }).click();
 			await Promise.resolve();
 		});
 		await expect.element(rendered.getByText('Root message.')).toBeVisible();
@@ -170,6 +186,10 @@ describe('worktree annotation inline shell', () => {
 		await expect.element(resolveButton).toBeVisible();
 		expect(resolveButton.element().className).toContain('bg-primary/15');
 
+		await act(async (): Promise<void> => {
+			await thread.getByText('Latest message.').click();
+		});
+		await expect.element(rendered.getByText('Root message.')).toBeVisible();
 		await act(async (): Promise<void> => {
 			await thread.getByText('Latest message.').click();
 		});

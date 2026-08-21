@@ -4,7 +4,7 @@ import type { ComponentProps, ReactElement } from 'react';
 import { cn } from '@/lib/utils.js';
 
 const annotationConversationFrameVariants = cva(
-	'min-w-0 font-sans text-comment-foreground transition-colors',
+	'min-w-0 rounded-2xl font-sans text-comment-foreground transition-colors',
 	{
 		variants: {
 			active: {
@@ -13,7 +13,7 @@ const annotationConversationFrameVariants = cva(
 			},
 			placement: {
 				embedded: 'm-0 w-full max-w-none',
-				standalone: 'm-2 w-[calc(100%-1rem)] max-w-3xl',
+				standalone: 'm-2 w-[calc(100%-1rem)] max-w-3xl p-2',
 			},
 		},
 		defaultVariants: { active: false, placement: 'standalone' },

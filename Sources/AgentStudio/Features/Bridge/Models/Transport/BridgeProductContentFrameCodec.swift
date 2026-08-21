@@ -174,7 +174,7 @@ final class BridgeProductContentFrameEncoder {
 }
 
 extension BridgeProductContentFrame {
-    fileprivate func correlated(to admission: BridgeProductContentAdmission) throws -> Self {
+    func correlated(to admission: BridgeProductContentAdmission) throws -> Self {
         let correlatedHeader: BridgeProductContentHeader
         switch header {
         case .accepted(let value):

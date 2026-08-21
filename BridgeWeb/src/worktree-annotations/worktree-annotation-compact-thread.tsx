@@ -1,5 +1,11 @@
 import { Check, ChevronDown, ChevronUp, Reply, RotateCcw } from 'lucide-react';
-import { useState, type FocusEvent, type ReactElement, type ReactNode } from 'react';
+import {
+	useState,
+	type FocusEvent,
+	type MouseEvent as ReactMouseEvent,
+	type ReactElement,
+	type ReactNode,
+} from 'react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert.js';
 
@@ -72,6 +78,18 @@ export function WorktreeAnnotationThread(
 	};
 	const handleThreadBlur = (event: FocusEvent<HTMLElement>): void => {
 		interaction.handleCommentBlur(event.relatedTarget);
+	};
+	const handleThreadClick = (event: ReactMouseEvent<HTMLElement>): void => {
+		activateRange();
+		if (!hasMultipleMessages || isExpanded) return;
+		if (
+			event.target instanceof Element &&
+			event.target.closest('a, button, input, select, textarea, [role="button"]') !== null
+		)
+			return;
+		if (window.getSelection()?.isCollapsed === false) return;
+		event.stopPropagation();
+		interaction.expandThread(threadId, event.currentTarget);
 	};
 	const setResolution = async (): Promise<void> => {
 		if (!canSetThreadResolution) return;
@@ -157,7 +175,7 @@ export function WorktreeAnnotationThread(
 			data-annotation-expanded={isExpanded ? 'true' : 'false'}
 			data-testid="worktree-annotation-thread"
 			onBlurCapture={handleThreadBlur}
-			onClickCapture={activateRange}
+			onClickCapture={handleThreadClick}
 			onFocusCapture={activateRange}
 			onKeyDownCapture={(event) => {
 				if (
@@ -231,6 +249,7 @@ export function WorktreeAnnotationThread(
 						editToken={threadExpansion.editor.editToken}
 						onCancel={interaction.finishThreadEditor}
 						onSaved={interaction.finishThreadEditor}
+						placement="timeline"
 						placeholder="Reply with Markdown"
 						registerExitHandler={interaction.registerThreadEditorExit}
 					/>

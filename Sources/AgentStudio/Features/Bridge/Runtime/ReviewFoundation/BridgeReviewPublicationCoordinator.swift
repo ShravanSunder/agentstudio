@@ -137,6 +137,18 @@ struct BridgeReviewCommittedPublication: Equatable, Sendable {
         self.reviewComparison = reviewComparison
         self.operationCorrelationID = operationCorrelationID
     }
+
+    var retainedReplay: Self {
+        Self(
+            publicationId: publicationId,
+            package: package,
+            delta: delta,
+            contentHandles: contentHandles,
+            comparisonPresentationRevision: comparisonPresentationRevision,
+            reviewComparison: reviewComparison,
+            operationCorrelationID: nil
+        )
+    }
 }
 
 struct BridgeReviewContentAuthorityLease: Equatable, Sendable {

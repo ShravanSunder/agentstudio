@@ -42,7 +42,7 @@ extension BridgePaneProductMetadataCoordinator {
             )
         else { return }
         _ = await deliverReviewPublication(
-            publication,
+            publication.retainedReplay,
             reservation: reservation,
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission,

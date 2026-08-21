@@ -61,6 +61,15 @@ describe('Bridge comm worker annotation projection query controller', () => {
 				(sample) => sample.stringAttributes['agentstudio.bridge.operation.id'] === 'a'.repeat(64),
 			),
 		).toBe(true);
+		expect(
+			harness.telemetrySamples
+				.filter(
+					(sample) =>
+						sample.stringAttributes['agentstudio.bridge.phase'] !==
+						'annotation_invalidation_received',
+				)
+				.every((sample) => sample.numericAttributes['agentstudio.bridge.stage.attempt'] === 0),
+		).toBe(true);
 	});
 
 	test('requeries when demanded sessions change on the same active source generation', async () => {

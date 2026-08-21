@@ -96,6 +96,8 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	#scheduledSubscriptionReopen: Promise<void> | null = null;
 	#sessionIds: readonly string[] = [];
 	#sourceGeneration: number | null = null;
+	#stageAttemptOperationCorrelationId: string | null = null;
+	#nextStageAttempt = 0;
 	#subscription: BridgeProductSubscription<'file.annotations' | 'review.annotations'> | null = null;
 
 	constructor(props: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps) {
@@ -286,6 +288,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		const invalidation = this.#invalidation;
 		const sourceGeneration = this.#sourceGeneration;
 		if (sourceGeneration === null) return;
+		const stageAttempt = this.#claimStageAttempt(invalidation.operationCorrelationId);
 		this.#lastAttemptedGeneration = attemptGeneration;
 		this.#abortController?.abort();
 		const abortController = new AbortController();
@@ -300,23 +303,27 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			'projection_convergence_started',
 			'started',
 			sourceGeneration,
+			stageAttempt,
 		);
 		this.#recordLifecycle(
 			invalidation.operationCorrelationId,
 			'projection_query_started',
 			'started',
 			sourceGeneration,
+			stageAttempt,
 		);
 		this.#recordLifecycle(
 			invalidation.operationCorrelationId,
 			'worker_application_started',
 			'started',
 			sourceGeneration,
+			stageAttempt,
 		);
 		const queryLoop = this.#runQueryAttempt(
 			attemptGeneration,
 			invalidation,
 			sourceGeneration,
+			stageAttempt,
 			abortController,
 		).finally((): void => {
 			this.#queryAttempts.delete(queryLoop);
@@ -339,6 +346,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		attemptGeneration: number,
 		invalidation: AnnotationProjectionInvalidation,
 		sourceGeneration: number,
+		stageAttempt: number,
 		abortController: AbortController,
 	): Promise<void> {
 		let terminalRecorded = false;
@@ -346,6 +354,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			const fetchResult = await this.#fetchSnapshot(
 				invalidation,
 				sourceGeneration,
+				stageAttempt,
 				abortController.signal,
 			);
 			if (
@@ -354,12 +363,12 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				abortController.signal.aborted ||
 				attemptGeneration !== this.#invalidationGeneration
 			) {
-				this.#recordAttemptTerminal(invalidation, sourceGeneration, 'cancelled');
+				this.#recordAttemptTerminal(invalidation, sourceGeneration, stageAttempt, 'cancelled');
 				terminalRecorded = true;
 				return;
 			}
 			if (fetchResult.kind === 'source_stale') {
-				this.#recordAttemptTerminal(invalidation, sourceGeneration, 'stale');
+				this.#recordAttemptTerminal(invalidation, sourceGeneration, stageAttempt, 'stale');
 				terminalRecorded = true;
 				this.#onSourceAuthorityStale({
 					currentSourceGeneration: fetchResult.currentSourceGeneration,
@@ -373,12 +382,12 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				state: { kind: 'ready', snapshot: fetchResult.snapshot },
 				surface: this.#surface,
 			});
-			this.#recordAttemptTerminal(invalidation, sourceGeneration, 'success');
+			this.#recordAttemptTerminal(invalidation, sourceGeneration, stageAttempt, 'success');
 			terminalRecorded = true;
 			this.#automaticQueryRetryConsumed = false;
 		} catch (error) {
 			const result = abortController.signal.aborted ? 'cancelled' : 'failure';
-			this.#recordAttemptTerminal(invalidation, sourceGeneration, result);
+			this.#recordAttemptTerminal(invalidation, sourceGeneration, stageAttempt, result);
 			terminalRecorded = true;
 			if (
 				!this.#disposed &&
@@ -399,7 +408,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			}
 		} finally {
 			if (!terminalRecorded) {
-				this.#recordAttemptTerminal(invalidation, sourceGeneration, 'cancelled');
+				this.#recordAttemptTerminal(invalidation, sourceGeneration, stageAttempt, 'cancelled');
 			}
 		}
 	}
@@ -407,6 +416,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	async #fetchSnapshot(
 		invalidation: AnnotationProjectionInvalidation,
 		sourceGeneration: number,
+		stageAttempt: number,
 		signal: AbortSignal,
 	): Promise<
 		| { readonly kind: 'content'; readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot }
@@ -418,6 +428,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			'content_transfer_started',
 			'started',
 			sourceGeneration,
+			stageAttempt,
 		);
 		let cursor: string | null = null;
 		let expectedPage: BridgeProductAnnotationProjectionPageContract | null = null;
@@ -462,6 +473,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 					'content_transfer_terminal',
 					'failure',
 					sourceGeneration,
+					stageAttempt,
 				);
 				throw error;
 			}
@@ -475,6 +487,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			'content_transfer_terminal',
 			'success',
 			sourceGeneration,
+			stageAttempt,
 		);
 		try {
 			this.#recordLifecycle(
@@ -482,6 +495,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				'projection_validation_started',
 				'started',
 				sourceGeneration,
+				stageAttempt,
 			);
 			const decodedProjection = decoder.finish();
 			const snapshot = decodedProjection.snapshot;
@@ -506,6 +520,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				'projection_validation_terminal',
 				'success',
 				sourceGeneration,
+				stageAttempt,
 			);
 			return { kind: 'content', snapshot };
 		} catch (error) {
@@ -514,6 +529,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				'projection_validation_terminal',
 				'failure',
 				sourceGeneration,
+				stageAttempt,
 			);
 			throw error;
 		}
@@ -522,6 +538,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	#recordAttemptTerminal(
 		invalidation: AnnotationProjectionInvalidation,
 		sourceGeneration: number,
+		stageAttempt: number,
 		result: 'cancelled' | 'failure' | 'stale' | 'success',
 	): void {
 		this.#recordLifecycle(
@@ -529,18 +546,21 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			'projection_query_terminal',
 			result,
 			sourceGeneration,
+			stageAttempt,
 		);
 		this.#recordLifecycle(
 			invalidation.operationCorrelationId,
 			'projection_convergence_terminal',
 			result,
 			sourceGeneration,
+			stageAttempt,
 		);
 		this.#recordLifecycle(
 			invalidation.operationCorrelationId,
 			'worker_application_terminal',
 			result,
 			sourceGeneration,
+			stageAttempt,
 		);
 	}
 
@@ -549,6 +569,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		phase: Parameters<typeof recordWorktreeAnnotationLifecycleTelemetry>[0]['phase'],
 		result: Parameters<typeof recordWorktreeAnnotationLifecycleTelemetry>[0]['result'],
 		sourceGeneration: number,
+		stageAttempt = 0,
 	): void {
 		recordWorktreeAnnotationLifecycleTelemetry({
 			operationCorrelationId,
@@ -556,10 +577,21 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			recorder: this.#telemetryClient,
 			result,
 			sourceGeneration,
-			stageAttempt: this.#lastAttemptedGeneration,
+			stageAttempt,
 			transport: 'worker',
 			viewer: this.#surface,
 		});
+	}
+
+	#claimStageAttempt(operationCorrelationId: string): number {
+		if (this.#stageAttemptOperationCorrelationId !== operationCorrelationId) {
+			this.#stageAttemptOperationCorrelationId = operationCorrelationId;
+			this.#nextStageAttempt = 1;
+			return 0;
+		}
+		const stageAttempt = this.#nextStageAttempt;
+		this.#nextStageAttempt += 1;
+		return stageAttempt;
 	}
 
 	#queryProjection(
