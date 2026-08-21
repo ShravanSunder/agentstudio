@@ -67,8 +67,17 @@ export const marketingCopy = {
   featureDetails: {
     eyebrow: "More of the workspace",
     headline: "The work around each agent matters too.",
-    description: "Sessions, layouts, and pane types stay part of the same workspace.",
+    description: "Files, reviews, sessions, and layouts stay part of the same workspace.",
     items: [
+      {
+        id: "pane-types",
+        title: "Keep 'tabs' on your code with Files and Review.",
+        summary: "Browse source and inspect every changed file without leaving the workspace.",
+        detail:
+          "Use Files to browse the repository and Review to move through every changed file in one continuous diff.",
+        imageDescription:
+          "Agent Studio with Files and Review tabs above a changed-files tree and continuous diff, with the global sidebar hidden.",
+      },
       {
         id: "persistence",
         title: "Close the app. Keep the work.",
@@ -88,15 +97,6 @@ export const marketingCopy = {
           "Agent Studio with the Parallel agents arrangement active, showing Codex and Claude Code side by side with the global sidebar hidden.",
         paneZoomImageDescription:
           "Claude Code filling the Agent Studio workspace in Pane Zoom.",
-      },
-      {
-        id: "pane-types",
-        title: "Use more than terminal panes.",
-        summary: "Terminal, browser, Files, and Review panes share one workspace.",
-        detail:
-          "Keep source, diffs, browser context, and supporting terminals beside the task that needs them instead of opening another disconnected window.",
-        imageDescription:
-          "A terminal beside Agent Studio Review with a changed-files tree and unified diff.",
       },
     ],
   },

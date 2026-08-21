@@ -4,6 +4,7 @@ export type WebsiteCaptureId =
   | "quick-find"
   | "review"
   | "git-context"
+  | "files-review-tabs"
   | "arrangement-saved"
   | "pane-zoom"
   | "persistent-before"
@@ -177,6 +178,28 @@ export const websiteCaptureSuite = {
       normalizedMasterSha256: "c1fde40d20129e9d7a29da4a458b8f3d5d6db7522ef704c94380e14fc8e7ea67",
       websiteAssetSha256: "c1fde40d20129e9d7a29da4a458b8f3d5d6db7522ef704c94380e14fc8e7ea67",
       phoneWebsiteAssetSha256: "e3ee77a2b8660b49d6ec6f6fd899e7fc4c8cab14a8adb54256a73fd226028ad4",
+      focusRegion: null,
+      focusRadiusPixels: null,
+      focusRail: false,
+      settledAtSeconds: 1,
+    },
+    {
+      id: "files-review-tabs",
+      assetPath: "../assets/captures/files-review-tabs.png",
+      phoneAssetPath: "../assets/captures/files-review-tabs-phone.png",
+      alternativeText:
+        "Agent Studio with Files and Review tabs above a changed-files tree and continuous diff, with the global sidebar hidden.",
+      source: {
+        productRevision: "0.0.90-beta.30 (151)",
+        fixtureIdentity: "owner-prepared-beta-workspace-2026-08-21",
+        bundleIdentifier: "com.agentstudio.app.beta",
+        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
+      },
+      processGeneration: "B",
+      sourceSha256: "7023788ecebfdd6efd11f0b72747185dbf4590247686fa0d1300610e6a8fe644",
+      normalizedMasterSha256: "7b30828ae58243c819bf485e4669268d71f24392c729428d9102609cc2abe214",
+      websiteAssetSha256: "7b30828ae58243c819bf485e4669268d71f24392c729428d9102609cc2abe214",
+      phoneWebsiteAssetSha256: "c16e2c745f578d0ad6fb5cd3a60b79600dfebbe3771584273e8d702dd4afe129",
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,

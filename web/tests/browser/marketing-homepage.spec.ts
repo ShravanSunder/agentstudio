@@ -129,7 +129,9 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   await page.getByRole("tab", { name: /Git and PR context/ }).click();
   await expect(page.getByRole("tabpanel", { name: /Git and PR context/ })).toBeVisible();
 
-  const persistencePanel = page.locator(".feature-detail").first();
+  const persistencePanel = page.locator(".feature-detail").filter({
+    has: page.getByRole("heading", { name: "Close the app. Keep the work." }),
+  });
   const beforeFrameButton = persistencePanel.getByRole("button", { name: "Before close" });
   const restoredFrameButton = persistencePanel.getByRole("button", { name: "Restored" });
   await expect(beforeFrameButton).toHaveAttribute("aria-pressed", "true");
@@ -590,11 +592,16 @@ test("presents supporting features as text and product media without numbered di
   await expect(page.locator(".feature-detail details, .feature-detail summary")).toHaveCount(0);
   await expect(page.locator(".feature-detail__media")).toHaveCount(3);
   await expect(page.locator(".feature-detail__media img")).toHaveCount(5);
+  await expect(featureDetails.first().getByRole("heading")).toHaveText(
+    "Keep 'tabs' on your code with Files and Review.",
+  );
   await expect(page.getByRole("heading", { name: "Run the agents you already use." })).toHaveCount(
     0,
   );
 
-  const arrangementsPanel = page.locator(".feature-detail").nth(1);
+  const arrangementsPanel = page.locator(".feature-detail").filter({
+    has: page.getByRole("heading", { name: "Save the layout that fits the task." }),
+  });
   const savedLayoutButton = arrangementsPanel.getByRole("button", { name: "Saved layout" });
   const paneZoomButton = arrangementsPanel.getByRole("button", { name: "Pane Zoom" });
   await expect(savedLayoutButton).toHaveAttribute("aria-pressed", "true");

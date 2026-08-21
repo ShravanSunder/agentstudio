@@ -2,15 +2,16 @@
 import { Image } from "astro:assets";
 
 import arrangementSavedImage from "@/assets/captures/arrangement-saved.png";
+import filesReviewTabsPhoneImage from "@/assets/captures/files-review-tabs-phone.png";
+import filesReviewTabsImage from "@/assets/captures/files-review-tabs.png";
 import paneZoomImage from "@/assets/captures/pane-zoom.png";
 import persistentBeforeImage from "@/assets/captures/persistence-claude-before.png";
 import persistentRestoredImage from "@/assets/captures/persistence-claude-restored.png";
-import reviewImage from "@/assets/captures/review.png";
 import { marketingCopy } from "@/marketing-copy";
 import PersistenceProof from "@/product-plate/PersistenceProof.astro";
 
 const mediaByFeatureId = {
-  "pane-types": reviewImage,
+  "pane-types": filesReviewTabsImage,
 } as const;
 ---
 
@@ -63,16 +64,19 @@ const mediaByFeatureId = {
                 accessibilityLabel="Workspace layout presentation"
               />
             ) : (
-              <Image
-                src={mediaByFeatureId[item.id]}
-                alt={item.imageDescription}
-                widths={[720, 1080, 1440, 2160]}
-                sizes="(max-width: 900px) 100vw, 62vw"
-                format="png"
-                loading="lazy"
-                decoding="async"
-                class="block h-auto w-full"
-              />
+              <picture class="block">
+                <source media="(max-width: 620px)" srcset={filesReviewTabsPhoneImage.src} />
+                <Image
+                  src={mediaByFeatureId[item.id]}
+                  alt={item.imageDescription}
+                  widths={[720, 1080, 1440, 2160]}
+                  sizes="(max-width: 900px) 100vw, 62vw"
+                  format="png"
+                  loading="lazy"
+                  decoding="async"
+                  class="block h-auto w-full"
+                />
+              </picture>
             )}
           </div>
         </article>

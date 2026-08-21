@@ -776,6 +776,63 @@ Proof from the current dirty candidate:
   build successfully.
 - `git diff --check`: pass.
 
+## 2026-08-21 Files and Review supporting-row checkpoint
+
+Current result: `NOT ACCEPTED` pending owner visual review and a browser-suite
+rerun in an environment where headless Chrome can launch. No deployment is
+authorized by this checkpoint.
+
+Acceptance contract:
+
+- The first item under `The work around each agent matters too.` explains that
+  Files and Review are useful workspace tabs, not generic non-terminal pane
+  types.
+- The title is `Keep 'tabs' on your code with Files and Review.`
+- The image shows the Files and Review tabs, a populated changed-files tree,
+  and meaningful diff content. Review is selected and the global Agent Studio
+  sidebar is hidden.
+- Desktop uses one complete 2560x1600 Retina master. Phone uses a 1280x1600
+  right-half focal crop from the same master so the claim-bearing controls and
+  tree remain readable without redrawing or regenerating product pixels.
+- Reject clipping, empty panes, an unrelated global sidebar, duplicate Review
+  imagery, a caption that carries evidence the image cannot show, or a phone
+  render where the tabs collapse into an unreadable full-window thumbnail.
+
+Evidence:
+
+- Beta capture identity: bundle `com.agentstudio.app.beta`, version
+  `0.0.90-beta.30 (151)`, PID `76810`, process-start identity
+  `1787275073838643`, CoreGraphics window ID `310825`, and native 1280x800-point
+  window captured at 2x as 2560x1600.
+- The desktop master SHA-256 is
+  `7b30828ae58243c819bf485e4669268d71f24392c729428d9102609cc2abe214`.
+  The canonical sRGB phone crop SHA-256 is
+  `c16e2c745f578d0ad6fb5cd3a60b79600dfebbe3771584273e8d702dd4afe129`.
+  Profile stamping preserved identical RGBA pixels with pixel SHA-256
+  `8ecc440345c50db793cd83249a4c3f9a60de4e1a083519ed6e8f9741cf19351e`.
+- Full-resolution source inspection passes all edges, native toolbar geometry,
+  Files and Review controls, changed-files tree, diff content, and global
+  sidebar exclusion.
+- Live local inspection passes at desktop size and at `390x844`; the phone
+  browser selects the 1280x1600 focal derivative and renders the tabs, tree,
+  diff, and bottom status strip without clipping.
+- Independent copy review read all 544 lines of the project-local copywriter
+  skill and passed the section intro, title, summary, detail, and alt text
+  against current README claims.
+- Independent visual review records separate `SOURCE PASS` and `RENDER PASS`
+  verdicts for the desktop and `390x844` phone states. The verdict remains
+  current after the metadata-only canonical sRGB profile update.
+- `pnpm --dir web run check`: pass. Oxlint and Oxfmt pass; Astro reports 0
+  errors, 0 warnings, and 0 hints; 10 masters and 6 responsive crops verify;
+  the capture pixel audit passes; Vitest passes 12/12.
+- `pnpm --dir web run build`: pass. The static build emits the desktop optimized
+  variants and the 1280x1600 phone source selected at `max-width: 620px`.
+- `pnpm --dir web run test:browser`: environment blocked. Both the full run and
+  an unchanged one-worker affected-file rerun abort every system-Chrome process
+  at launch with `SIGABRT` before a page opens. No browser assertion executed;
+  this is not recorded as an implementation pass or failure.
+- `git diff --check`: pass.
+
 ## Evidence retained
 
 - Plain-language critique: README descriptor, value promise, product traits, mechanism, and six feature headings are the canonical copy set.
