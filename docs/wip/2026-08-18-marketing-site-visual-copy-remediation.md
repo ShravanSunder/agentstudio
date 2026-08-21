@@ -732,6 +732,50 @@ Details and proof:
   hero install control, one closing GitHub button, no document overflow, and
   zero site-origin console warnings or errors.
 
+## 2026-08-20 Claude-inclusive supporting-image checkpoint
+
+Current result: `NOT ACCEPTED` pending owner visual review. No deployment is
+authorized by this checkpoint.
+
+- [x] Replace the first showcase master with the owner-supplied Codex and Claude
+      Code frame, rename the visible story to `Parallel agents`, preserve every
+      RGB pixel, and apply the canonical 2560x1600 native-window alpha boundary.
+- [x] Remove the duplicate `Run the agents you already use` supporting row.
+- [x] Create a real `Parallel agents` named arrangement in Beta and capture it
+      with Codex and Claude Code visible and the global sidebar hidden.
+- [x] Capture Claude Code in Pane Zoom with the global sidebar and empty Files
+      viewer hidden.
+- [x] Capture a real Before close / Restored sequence from Beta process
+      generations `A` (PID `25620`, start identity `1787244214206872`) and `B`
+      (PID `76810`, start identity `1787275073838643`). The restored workspace
+      retains four tabs, All Panes, the `Parallel agents` arrangement, both
+      panes, and continued terminal output.
+- [x] Normalize all four new supporting masters to sRGB through ColorSync
+      without resizing; record untouched source and normalized website hashes.
+- [x] Replace the reused arrangements still with an accessible Saved layout /
+      Pane Zoom full-size comparison.
+- [x] Inspect all four source masters at 100 percent and every selected state at
+      `1600x1000` and `390x844` in the live local page.
+- [x] Run independent copy review with complete project-local copywriter-skill
+      coverage. Both rows pass after narrowing the Restored and Pane Zoom alt
+      text to visible evidence.
+- [ ] Obtain owner visual acceptance for the complete phone-sized supporting
+      rows. The independent visual reviewer rejects the current full-frame
+      phone treatment as too small and flags the intentional empty field in the
+      Pane Zoom source. The implementation retains the existing owner-approved
+      complete 16:10 mobile contract instead of inventing an unapproved crop.
+
+Proof from the current dirty candidate:
+
+- `pnpm --dir web run check`: Oxlint/Oxfmt pass; Astro reports 0 errors, 0
+  warnings, and 0 hints; 9 masters and 5 responsive crops verify; all 9 assets
+  pass sRGB/corner/fringe audit; Vitest passes 12/12.
+- `pnpm --dir web run test:browser`: 59 passed and 1 touch-hover test skipped
+  across desktop and mobile projects.
+- `pnpm --dir web run build`: one static page and all optimized image variants
+  build successfully.
+- `git diff --check`: pass.
+
 ## Evidence retained
 
 - Plain-language critique: README descriptor, value promise, product traits, mechanism, and six feature headings are the canonical copy set.
