@@ -309,6 +309,7 @@ export class RecordingAnnotationBrowserSurface {
 				savedRevision: null,
 				sessionRevision: this.#revision,
 				threadId: annotationHeadThreadId,
+				threadRevision: 0,
 			};
 		}
 		if (operation.kind === 'reply.create') {
@@ -318,8 +319,9 @@ export class RecordingAnnotationBrowserSurface {
 				messageId: '00000000-0000-7000-8000-000000000032',
 				messageRevision: 0,
 				savedRevision: null,
-				sessionRevision: operation.expectedSessionRevision + 1,
+				sessionRevision: this.#revision + 1,
 				threadId: operation.threadId,
+				threadRevision: operation.expectedThreadRevision + 1,
 			};
 		}
 		if (operation.kind !== 'draft.flush' && operation.kind !== 'draft.save') return undefined;
@@ -345,8 +347,9 @@ export class RecordingAnnotationBrowserSurface {
 			messageRevision: (projectedMessage?.messageRevision ?? 0) + 1,
 			savedRevision:
 				operation.kind === 'draft.save' ? (projectedMessage?.savedRevision ?? 0) + 1 : null,
-			sessionRevision: operation.expectedSessionRevision + 1,
+			sessionRevision: this.#revision + 1,
 			threadId: projectedMessage?.threadId ?? annotationHeadThreadId,
+			threadRevision: projectedMessage?.threadRevision ?? 0,
 		};
 	}
 
@@ -682,6 +685,7 @@ export function annotationMessage(props: {
 	readonly ordinal?: number;
 	readonly sessionRevision?: number;
 	readonly threadId: string;
+	readonly threadRevision?: number;
 }): WorktreeAnnotationMessageEntry {
 	return {
 		authorKind: 'human',
@@ -697,5 +701,6 @@ export function annotationMessage(props: {
 		sessionRevision: props.sessionRevision ?? 1,
 		status: 'editable',
 		threadId: props.threadId,
+		threadRevision: props.threadRevision ?? 1,
 	};
 }

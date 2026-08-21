@@ -147,6 +147,7 @@ const annotationCommandReceiptSchema = z.discriminatedUnion('kind', [
 			savedRevision: bridgeProductNonnegativeSequenceSchema.positive().nullable(),
 			sessionRevision: bridgeProductNonnegativeSequenceSchema,
 			threadId: bridgeProductReviewPublicationIdSchema,
+			threadRevision: bridgeProductNonnegativeSequenceSchema,
 		})
 		.strict(),
 ]);
@@ -187,6 +188,7 @@ const annotationMessageEntryShape = {
 	sessionRevision: bridgeProductNonnegativeSequenceSchema,
 	status: z.enum(['editable', 'locked']),
 	threadId: bridgeProductReviewPublicationIdSchema,
+	threadRevision: bridgeProductNonnegativeSequenceSchema,
 } as const;
 
 export const bridgeProductWorktreeAnnotationDecodedMessageEntrySchema = z

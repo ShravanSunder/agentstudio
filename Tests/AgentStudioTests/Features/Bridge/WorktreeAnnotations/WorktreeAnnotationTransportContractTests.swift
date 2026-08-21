@@ -111,10 +111,7 @@ struct WorktreeAnnotationTransportContractTests {
         threadID: String,
         messageID: String
     ) -> [[String: Any]] {
-        let commonRevisionFields: [String: Any] = [
-            "expectedSessionRevision": 4,
-            "sessionId": sessionID,
-        ]
+        let commonIdentityFields: [String: Any] = ["sessionId": sessionID]
         return [
             ["kind": "session.discover"],
             ["kind": "demand.acquire", "sessionId": sessionID],
@@ -134,44 +131,51 @@ struct WorktreeAnnotationTransportContractTests {
                     "startLine": 12,
                 ],
             ],
-            commonRevisionFields.merging([
+            commonIdentityFields.merging([
                 "body": "Reply draft",
                 "editToken": "edit-token-2",
+                "expectedThreadRevision": 4,
                 "kind": "reply.create",
                 "threadId": threadID,
             ]) { _, new in new },
-            commonRevisionFields.merging([
+            commonIdentityFields.merging([
                 "body": "Updated draft",
                 "editToken": "edit-token-1",
                 "expectedDraftRevision": 2,
+                "expectedMessageRevision": 4,
                 "kind": "draft.flush",
                 "messageId": messageID,
             ]) { _, new in new },
-            commonRevisionFields.merging([
+            commonIdentityFields.merging([
                 "editToken": "edit-token-1",
                 "expectedDraftRevision": 3,
+                "expectedMessageRevision": 4,
                 "kind": "draft.save",
                 "messageId": messageID,
             ]) { _, new in new },
-            commonRevisionFields.merging([
+            commonIdentityFields.merging([
                 "editToken": "edit-token-1",
                 "expectedDraftRevision": 3,
+                "expectedMessageRevision": 4,
                 "kind": "draft.revert",
                 "messageId": messageID,
             ]) { _, new in new },
-            commonRevisionFields.merging([
+            commonIdentityFields.merging([
+                "expectedThreadRevision": 4,
                 "kind": "thread.resolution.set",
                 "resolution": "resolved",
                 "threadId": threadID,
             ]) { _, new in new },
-            commonRevisionFields.merging([
+            commonIdentityFields.merging([
                 "confirmsUnresolvedWork": true,
                 "expectedOpenThreadCount": 2,
+                "expectedSessionRevision": 4,
                 "kind": "session.lifecycle.set",
                 "lifecycle": "completed",
             ]) { _, new in new },
-            commonRevisionFields.merging([
+            commonIdentityFields.merging([
                 "decision": "acceptCurrentSource",
+                "expectedSessionRevision": 4,
                 "kind": "continuity.choose",
             ]) { _, new in new },
             [

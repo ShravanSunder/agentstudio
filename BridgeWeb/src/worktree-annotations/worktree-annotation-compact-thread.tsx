@@ -50,7 +50,7 @@ export function WorktreeAnnotationThread(
 	const firstMessage = visibleMessages[0];
 	const latestMessage = visibleMessages.at(-1);
 	const sessionId = firstMessage?.sessionId ?? null;
-	const sessionRevision = firstMessage?.sessionRevision ?? 0;
+	const threadRevision = firstMessage?.threadRevision ?? 0;
 	useWorktreeAnnotationSessionDemand(sessionId);
 	if (firstMessage === undefined || latestMessage === undefined || sessionId === null) return null;
 
@@ -77,7 +77,7 @@ export function WorktreeAnnotationThread(
 		if (!canSetThreadResolution) return;
 		setOperationError(null);
 		const outcome = await annotationClient.execute({
-			expectedSessionRevision: sessionRevision,
+			expectedThreadRevision: threadRevision,
 			kind: 'thread.resolution.set',
 			resolution: props.thread.context.resolution === 'open' ? 'resolved' : 'open',
 			sessionId,
@@ -223,7 +223,7 @@ export function WorktreeAnnotationThread(
 						createOperation={(body, editToken) => ({
 							body,
 							editToken,
-							expectedSessionRevision: sessionRevision,
+							expectedThreadRevision: threadRevision,
 							kind: 'reply.create',
 							sessionId,
 							threadId,

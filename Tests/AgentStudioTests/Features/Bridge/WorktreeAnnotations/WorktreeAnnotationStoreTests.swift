@@ -71,7 +71,7 @@ struct WorktreeAnnotationStoreTests {
             sessionID: detail.session.id,
             messageID: message.id,
             editToken: "editor-reclaimed",
-            expectedSessionRevision: detail.session.semanticRevision,
+            expectedMessageRevision: message.semanticRevision,
             expectedDraftRevision: originalDraft.draftRevision,
             now: Date(timeIntervalSince1970: 3)
         )
@@ -92,7 +92,7 @@ struct WorktreeAnnotationStoreTests {
                     sessionID: detail.session.id,
                     messageID: message.id,
                     editToken: "editor-1",
-                    expectedSessionRevision: detail.session.semanticRevision,
+                    expectedMessageRevision: try #require(detail.threads.first?.messages.first?.semanticRevision),
                     expectedDraftRevision: originalDraft.draftRevision,
                     body: "delayed old writer",
                     now: Date(timeIntervalSince1970: 4)
@@ -106,7 +106,7 @@ struct WorktreeAnnotationStoreTests {
                 sessionID: detail.session.id,
                 messageID: message.id,
                 editToken: "editor-reclaimed",
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedMessageRevision: try #require(detail.threads.first?.messages.first?.semanticRevision),
                 expectedDraftRevision: reclaimedDraft.draftRevision,
                 now: Date(timeIntervalSince1970: 5)
             ),
@@ -361,7 +361,7 @@ struct WorktreeAnnotationStoreTests {
                 sessionID: detail.session.id,
                 messageID: rootMessage.id,
                 editToken: "editor-1",
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedMessageRevision: rootMessage.semanticRevision,
                 expectedDraftRevision: 0,
                 body: "Updated draft",
                 now: Date(timeIntervalSince1970: 3)
@@ -373,12 +373,13 @@ struct WorktreeAnnotationStoreTests {
                 sessionID: detail.session.id,
                 messageID: updatedRoot.id,
                 editToken: "editor-1",
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedMessageRevision: updatedRoot.semanticRevision,
                 expectedDraftRevision: try #require(updatedRoot.draft?.draftRevision),
                 now: Date(timeIntervalSince1970: 4)
             )
         )
         let savedRoot = try #require(detail.threads.first?.messages.first)
+        let threadID = try #require(detail.threads.first?.thread.id)
         let savedRevision = try #require(savedRoot.savedRevision)
         let attemptID = WorktreeAnnotationOutputAttemptID.generate()
         let snapshot = try WorktreeAnnotationBatchProjector.makeSnapshot(
@@ -387,7 +388,15 @@ struct WorktreeAnnotationStoreTests {
                 createdAt: Date(timeIntervalSince1970: 5),
                 sessionDetail: detail,
                 selectedMessages: [.init(messageID: savedRoot.id, expectedSavedRevision: savedRevision)],
-                placementsByThreadID: [:],
+                placementsByThreadID: [
+                    threadID: .init(
+                        placement: .exact,
+                        currentPath: "Sources/Feature.swift",
+                        currentStartLine: 2,
+                        currentEndLine: 2,
+                        currentSourceIdentity: "source-original"
+                    )
+                ],
                 sessionLabel: "Current review",
                 worktreeLabel: "agent-studio.review-comments",
                 comparisonLabel: nil
@@ -401,8 +410,7 @@ struct WorktreeAnnotationStoreTests {
             for: snapshot,
             presentation: markdownPresentation
         )
-
-        let prepared = try await store.prepareOutput(
+        let preparedCommit = try await access.prepareOutput(
             .init(
                 attemptID: attemptID,
                 sessionID: detail.session.id,
@@ -418,6 +426,7 @@ struct WorktreeAnnotationStoreTests {
                 now: Date(timeIntervalSince1970: 5)
             )
         )
+        let prepared = preparedCommit.preparedOutput
 
         #expect(prepared.attempt.exactBytes == exactBytes)
         let durableDetail = try repository.fetchSessionDetail(sessionID: detail.session.id)

@@ -4,10 +4,11 @@ import GRDB
 extension WorktreeAnnotationSQLiteRepository {
     func acquireEditToken(_ props: AcquireEditTokenProps) throws -> WorktreeAnnotationSessionDetail {
         try databaseWriter.write { database in
-            try validateSessionRevision(
+            try validateMessageRevision(
                 database,
+                messageID: props.messageID,
                 sessionID: props.sessionID,
-                expectedRevision: props.expectedSessionRevision
+                expectedRevision: props.expectedMessageRevision
             )
             try requireWritableSession(database, sessionID: props.sessionID)
             try ensureMessageEditable(database, messageID: props.messageID)
@@ -62,10 +63,11 @@ extension WorktreeAnnotationSQLiteRepository {
 
     func releaseEditToken(_ props: ReleaseEditTokenProps) throws -> WorktreeAnnotationSessionDetail {
         try databaseWriter.write { database in
-            try validateSessionRevision(
+            try validateMessageRevision(
                 database,
+                messageID: props.messageID,
                 sessionID: props.sessionID,
-                expectedRevision: props.expectedSessionRevision
+                expectedRevision: props.expectedMessageRevision
             )
             try requireWritableSession(database, sessionID: props.sessionID)
             try ensureMessageEditable(database, messageID: props.messageID)

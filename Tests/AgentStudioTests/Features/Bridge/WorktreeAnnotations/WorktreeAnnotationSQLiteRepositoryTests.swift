@@ -19,7 +19,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 sessionID: detail.session.id,
                 messageID: message.id,
                 editToken: "editor-root",
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedMessageRevision: message.semanticRevision,
                 expectedDraftRevision: try #require(message.draft?.draftRevision),
                 body: "  \n\t",
                 now: Date(timeIntervalSince1970: 2)
@@ -43,7 +43,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                     sessionID: detail.session.id,
                     messageID: original.id,
                     editToken: "editor-other",
-                    expectedSessionRevision: detail.session.semanticRevision,
+                    expectedMessageRevision: original.semanticRevision,
                     expectedDraftRevision: originalDraft.draftRevision,
                     liveEditTokens: ["editor-root"],
                     now: Date(timeIntervalSince1970: 2)
@@ -56,7 +56,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 sessionID: detail.session.id,
                 messageID: original.id,
                 editToken: "editor-reclaimed",
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedMessageRevision: original.semanticRevision,
                 expectedDraftRevision: originalDraft.draftRevision,
                 liveEditTokens: [],
                 now: Date(timeIntervalSince1970: 3)
@@ -73,7 +73,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                     sessionID: detail.session.id,
                     messageID: original.id,
                     editToken: "editor-root",
-                    expectedSessionRevision: detail.session.semanticRevision,
+                    expectedMessageRevision: try #require(detail.threads.first?.messages.first?.semanticRevision),
                     expectedDraftRevision: originalDraft.draftRevision,
                     body: "late overwrite",
                     now: Date(timeIntervalSince1970: 4)
@@ -86,7 +86,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 sessionID: detail.session.id,
                 messageID: original.id,
                 editToken: "editor-reclaimed",
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedMessageRevision: try #require(detail.threads.first?.messages.first?.semanticRevision),
                 expectedDraftRevision: reclaimed.draftRevision,
                 now: Date(timeIntervalSince1970: 5)
             )
@@ -108,7 +108,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 sessionID: detail.session.id,
                 messageID: message.id,
                 editToken: try #require(draft.activeEditToken),
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedMessageRevision: message.semanticRevision,
                 expectedDraftRevision: draft.draftRevision,
                 liveEditTokens: [],
                 now: Date(timeIntervalSince1970: 2)
@@ -357,7 +357,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 sessionID: detail.session.id,
                 messageID: rootMessage.id,
                 editToken: "editor-root",
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedMessageRevision: rootMessage.semanticRevision,
                 expectedDraftRevision: 0,
                 now: Date(timeIntervalSince1970: 2)
             )
@@ -373,7 +373,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 sessionID: detail.session.id,
                 messageID: savedRoot.id,
                 editToken: "editor-root-v2",
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedMessageRevision: savedRoot.semanticRevision,
                 expectedDraftRevision: nil,
                 body: "Root edit",
                 now: Date(timeIntervalSince1970: 3)
@@ -388,7 +388,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                     sessionID: detail.session.id,
                     messageID: editedRoot.id,
                     editToken: "stale-editor",
-                    expectedSessionRevision: detail.session.semanticRevision,
+                    expectedMessageRevision: editedRoot.semanticRevision,
                     expectedDraftRevision: editedRoot.draft?.draftRevision,
                     body: "Overwrite",
                     now: Date(timeIntervalSince1970: 4)
@@ -401,7 +401,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 sessionID: detail.session.id,
                 messageID: editedRoot.id,
                 editToken: "editor-root-v2",
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedMessageRevision: editedRoot.semanticRevision,
                 expectedDraftRevision: try #require(editedRoot.draft?.draftRevision),
                 now: Date(timeIntervalSince1970: 5)
             )
@@ -413,7 +413,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
             .init(
                 sessionID: detail.session.id,
                 threadID: threadID,
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedThreadRevision: try #require(detail.threads.first?.thread.semanticRevision),
                 body: "Flat reply",
                 editToken: "editor-reply",
                 now: Date(timeIntervalSince1970: 6)
@@ -426,20 +426,24 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 sessionID: detail.session.id,
                 threadID: threadID,
                 resolution: .resolved,
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedThreadRevision: try #require(detail.threads.first?.thread.semanticRevision),
                 now: Date(timeIntervalSince1970: 7)
             )
         )
         #expect(detail.threads.first?.thread.resolution == .resolved)
         #expect(detail.threads.first?.messages.count == 2)
 
-        #expect(throws: WorktreeAnnotationRepositoryError.conflict(currentRevision: detail.session.semanticRevision)) {
+        #expect(
+            throws: WorktreeAnnotationRepositoryError.conflict(
+                currentRevision: try #require(detail.threads.first?.thread.semanticRevision)
+            )
+        ) {
             try repository.setThreadResolution(
                 .init(
                     sessionID: detail.session.id,
                     threadID: threadID,
                     resolution: .open,
-                    expectedSessionRevision: detail.session.semanticRevision - 1,
+                    expectedThreadRevision: try #require(detail.threads.first?.thread.semanticRevision) - 1,
                     now: Date(timeIntervalSince1970: 8)
                 )
             )
@@ -456,7 +460,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 sessionID: detail.session.id,
                 messageID: root.id,
                 editToken: "editor-root",
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedMessageRevision: root.semanticRevision,
                 expectedDraftRevision: 0,
                 now: Date(timeIntervalSince1970: 2)
             )
@@ -637,7 +641,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 .init(
                     sessionID: detail.session.id,
                     threadID: threadID,
-                    expectedSessionRevision: detail.session.semanticRevision,
+                    expectedThreadRevision: try #require(detail.threads.first?.thread.semanticRevision),
                     body: "Paused reply",
                     editToken: "uncertain-reply",
                     now: Date(timeIntervalSince1970: 6)
@@ -660,7 +664,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                     sessionID: detail.session.id,
                     threadID: threadID,
                     resolution: .resolved,
-                    expectedSessionRevision: detail.session.semanticRevision,
+                    expectedThreadRevision: try #require(detail.threads.first?.thread.semanticRevision),
                     now: Date(timeIntervalSince1970: 8)
                 )
             )
@@ -679,7 +683,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
             .init(
                 sessionID: detail.session.id,
                 threadID: threadID,
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedThreadRevision: try #require(detail.threads.first?.thread.semanticRevision),
                 body: "Authoring resumed",
                 editToken: "resumed-reply",
                 now: Date(timeIntervalSince1970: 10)
@@ -716,7 +720,7 @@ private func assertCompletedSessionRejectsAuthoring(
                 sessionID: detail.session.id,
                 messageID: rootMessage.id,
                 editToken: "editor-root",
-                expectedSessionRevision: detail.session.semanticRevision,
+                expectedMessageRevision: rootMessage.semanticRevision,
                 expectedDraftRevision: 0,
                 body: "Must reopen first",
                 now: Date(timeIntervalSince1970: 3)
@@ -821,7 +825,9 @@ private func verifyFinalizedOutputLocksSavedMessage(
                 sessionID: detail.session.id,
                 messageID: savedMessage.id,
                 editToken: "editor-after-output",
-                expectedSessionRevision: rehandledDetail.session.semanticRevision,
+                expectedMessageRevision: try #require(
+                    rehandledDetail.threads.first?.messages.first?.semanticRevision
+                ),
                 expectedDraftRevision: nil,
                 body: "Must be a new reply",
                 now: Date(timeIntervalSince1970: 13)
@@ -885,13 +891,13 @@ private func verifyLaterSuccessHandlesClearedRevision(
     return rehandledDetail
 }
 
-private func makeRepository() throws -> WorktreeAnnotationSQLiteRepository {
+func makeRepository() throws -> WorktreeAnnotationSQLiteRepository {
     let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
     try WorkspaceLocalMigrations.migrate(databaseQueue)
     return WorktreeAnnotationSQLiteRepository(databaseWriter: databaseQueue)
 }
 
-private func makeSourceFingerprint(worktreeID: String) -> WorktreeAnnotationSourceFingerprint {
+func makeSourceFingerprint(worktreeID: String) -> WorktreeAnnotationSourceFingerprint {
     WorktreeAnnotationSourceFingerprint(
         repositoryID: "repo-1",
         worktreeID: worktreeID,
@@ -900,7 +906,7 @@ private func makeSourceFingerprint(worktreeID: String) -> WorktreeAnnotationSour
     )
 }
 
-private func makeRootDraft(repository: WorktreeAnnotationSQLiteRepository) throws -> WorktreeAnnotationSessionDetail {
+func makeRootDraft(repository: WorktreeAnnotationSQLiteRepository) throws -> WorktreeAnnotationSessionDetail {
     try repository.createRootDraft(
         .init(
             admission: .implicitOrSingle,

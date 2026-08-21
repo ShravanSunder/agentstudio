@@ -396,6 +396,10 @@ private func prepareSavedOutput(
             expectedSavedRevision: savedFixture.savedRevision
         )
     ]
+    let projection = try await firstStore.captureProjection(
+        worktreeID: savedFixture.detail.session.worktreeID,
+        demandedSessionIDs: [savedFixture.detail.session.id]
+    )
     _ = try await firstStore.prepareOutput(
         .init(
             attemptID: attemptID,
@@ -409,6 +413,7 @@ private func prepareSavedOutput(
             destinationPath: nil,
             repeatedFromAttemptID: nil,
             selectedMessages: selectedMessages,
+            expectedProjectionRevision: projection.revision,
             now: Date(timeIntervalSince1970: 3)
         )
     )
@@ -469,7 +474,7 @@ private func createSavedLocatedMessage(
             sessionID: draftDetail.session.id,
             messageID: draftMessage.id,
             editToken: "editor-1",
-            expectedSessionRevision: draftDetail.session.semanticRevision,
+            expectedMessageRevision: draftMessage.semanticRevision,
             expectedDraftRevision: 0,
             now: Date(timeIntervalSince1970: 2)
         )

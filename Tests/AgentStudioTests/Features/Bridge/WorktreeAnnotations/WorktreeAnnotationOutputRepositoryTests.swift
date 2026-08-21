@@ -99,7 +99,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
             .init(
                 sessionID: fixture.detail.session.id,
                 threadID: threadID,
-                expectedSessionRevision: fixture.detail.session.semanticRevision,
+                expectedThreadRevision: try #require(fixture.detail.threads.first?.thread.semanticRevision),
                 body: "A distinct reply for the next output",
                 editToken: "reply-editor",
                 now: Date(timeIntervalSince1970: 4)
@@ -111,7 +111,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
                 sessionID: detailWithReply.session.id,
                 messageID: replyDraft.id,
                 editToken: "reply-editor",
-                expectedSessionRevision: detailWithReply.session.semanticRevision,
+                expectedMessageRevision: replyDraft.semanticRevision,
                 expectedDraftRevision: 0,
                 now: Date(timeIntervalSince1970: 5)
             )
@@ -397,7 +397,7 @@ private func makeOutputRepositoryFixture() throws -> OutputRepositoryFixture {
             sessionID: detail.session.id,
             messageID: draftMessage.id,
             editToken: "editor-1",
-            expectedSessionRevision: detail.session.semanticRevision,
+            expectedMessageRevision: draftMessage.semanticRevision,
             expectedDraftRevision: 0,
             now: Date(timeIntervalSince1970: 2)
         )

@@ -820,7 +820,7 @@ function ProjectionRemountingReplyComposer(props: { readonly editToken: string }
 			createOperation={(body, editToken) => ({
 				body,
 				editToken,
-				expectedSessionRevision: 3,
+				expectedThreadRevision: 3,
 				kind: 'reply.create',
 				sessionId: annotationSessionId,
 				threadId: annotationHeadThreadId,

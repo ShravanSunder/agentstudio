@@ -94,7 +94,7 @@ describe('worktree annotation surface command rendezvous', () => {
 		const save = harness.client.execute({
 			editToken: '00000000-0000-7000-8000-000000000014',
 			expectedDraftRevision: 1,
-			expectedSessionRevision: 2,
+			expectedMessageRevision: 2,
 			kind: 'draft.save',
 			messageId,
 			sessionId,
@@ -302,6 +302,7 @@ function projectionSnapshot(
 						sessionRevision: projectionRevision,
 						status: 'locked',
 						threadId,
+						threadRevision: 1,
 					},
 				],
 			},

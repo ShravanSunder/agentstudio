@@ -28,7 +28,7 @@ export class WorktreeAnnotationEditOwnershipController {
 			const outcome = await this.#annotationClient.execute({
 				editToken: this.#editToken,
 				expectedDraftRevision: message.draft.revision,
-				expectedSessionRevision: message.sessionRevision,
+				expectedMessageRevision: message.messageRevision,
 				kind: 'draft.edit.acquire',
 				messageId: message.messageId,
 				sessionId: message.sessionId,
@@ -48,7 +48,7 @@ export class WorktreeAnnotationEditOwnershipController {
 			const outcome = await this.#annotationClient.execute({
 				editToken: this.#editToken,
 				expectedDraftRevision: message.draft.revision,
-				expectedSessionRevision: message.sessionRevision,
+				expectedMessageRevision: message.messageRevision,
 				kind: 'draft.edit.release',
 				messageId: message.messageId,
 				sessionId: message.sessionId,

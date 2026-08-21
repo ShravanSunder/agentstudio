@@ -34,7 +34,7 @@ describe('RecordingAnnotationBrowserSurface command correlation', () => {
 		const savePromise = client.execute({
 			editToken: 'annotation-edit-test',
 			expectedDraftRevision: rootReceipt.draftRevision ?? 0,
-			expectedSessionRevision: rootReceipt.sessionRevision,
+			expectedMessageRevision: rootReceipt.messageRevision,
 			kind: 'draft.save',
 			messageId: rootReceipt.messageId,
 			sessionId: annotationSessionId,

@@ -336,6 +336,51 @@ extension WorktreeAnnotationSQLiteRepository {
         return try decodeIdentity(value)
     }
 
+    func validateMessageRevision(
+        _ database: Database,
+        messageID: WorktreeAnnotationMessageID,
+        sessionID: WorktreeAnnotationSessionID,
+        expectedRevision: Int
+    ) throws {
+        guard
+            let currentRevision = try Int.fetchOne(
+                database,
+                sql: """
+                    SELECT message.semantic_revision
+                    FROM annotation_message message
+                    JOIN annotation_thread thread ON thread.id = message.thread_id
+                    WHERE message.id = ? AND thread.session_id = ?
+                    """,
+                arguments: [messageID.databaseValue, sessionID.databaseValue]
+            )
+        else {
+            throw WorktreeAnnotationRepositoryError.notFound
+        }
+        guard currentRevision == expectedRevision else {
+            throw WorktreeAnnotationRepositoryError.conflict(currentRevision: currentRevision)
+        }
+    }
+
+    func validateThreadRevision(
+        _ database: Database,
+        threadID: WorktreeAnnotationThreadID,
+        sessionID: WorktreeAnnotationSessionID,
+        expectedRevision: Int
+    ) throws {
+        guard
+            let currentRevision = try Int.fetchOne(
+                database,
+                sql: "SELECT semantic_revision FROM annotation_thread WHERE id = ? AND session_id = ?",
+                arguments: [threadID.databaseValue, sessionID.databaseValue]
+            )
+        else {
+            throw WorktreeAnnotationRepositoryError.notFound
+        }
+        guard currentRevision == expectedRevision else {
+            throw WorktreeAnnotationRepositoryError.conflict(currentRevision: currentRevision)
+        }
+    }
+
     func ensureMessageEditable(_ database: Database, messageID: WorktreeAnnotationMessageID) throws {
         guard
             let status = try String.fetchOne(

@@ -132,7 +132,7 @@ struct WorktreeAnnotationTransportAdapterTests {
                   "operation": {
                     "editToken": "editor-save",
                     "expectedDraftRevision": \(createDraftRevision),
-                    "expectedSessionRevision": \(createReceipt.sessionRevision),
+                    "expectedMessageRevision": \(createReceipt.messageRevision),
                     "kind": "draft.save",
                     "messageId": "\(createReceipt.messageId.uuidString.lowercased())",
                     "sessionId": "\(sessionID.uuidString.lowercased())"
@@ -204,7 +204,7 @@ struct WorktreeAnnotationTransportAdapterTests {
                 "body": "Must not commit",
                 "editToken": "editor-1",
                 "expectedDraftRevision": 0,
-                "expectedSessionRevision": 999,
+                "expectedMessageRevision": 999,
                 "kind": "draft.flush",
                 "messageId": "\(message.id.rawValue.uuidString.lowercased())",
                 "sessionId": "\(sessionID.rawValue.uuidString.lowercased())"
@@ -443,7 +443,7 @@ struct WorktreeAnnotationTransportAdapterTests {
                 .init(
                     sessionID: detail.session.id,
                     threadID: threadID,
-                    expectedSessionRevision: detail.session.semanticRevision,
+                    expectedThreadRevision: try #require(detail.threads.first?.thread.semanticRevision),
                     body: "Request \(ordinal)",
                     editToken: editToken,
                     now: Date(timeIntervalSince1970: Double(200 + ordinal))
@@ -455,7 +455,7 @@ struct WorktreeAnnotationTransportAdapterTests {
                     sessionID: detail.session.id,
                     messageID: draft.id,
                     editToken: editToken,
-                    expectedSessionRevision: detail.session.semanticRevision,
+                    expectedMessageRevision: draft.semanticRevision,
                     expectedDraftRevision: try #require(draft.draft?.draftRevision),
                     now: Date(timeIntervalSince1970: Double(400 + ordinal))
                 )
@@ -570,7 +570,7 @@ private func prepareSavedOutputCommandFixture(
             sessionID: sessionID,
             messageID: draftMessage.id,
             editToken: "editor-output",
-            expectedSessionRevision: draftDetail.session.semanticRevision,
+            expectedMessageRevision: draftMessage.semanticRevision,
             expectedDraftRevision: try #require(draftMessage.draft?.draftRevision),
             now: Date(timeIntervalSince1970: 101)
         )
@@ -722,7 +722,7 @@ private func createSavedTransportMessage(
             sessionID: sessionID,
             messageID: draftMessage.id,
             editToken: "editor-history",
-            expectedSessionRevision: draftDetail.session.semanticRevision,
+            expectedMessageRevision: draftMessage.semanticRevision,
             expectedDraftRevision: try #require(draftMessage.draft?.draftRevision),
             now: Date(timeIntervalSince1970: 101)
         )

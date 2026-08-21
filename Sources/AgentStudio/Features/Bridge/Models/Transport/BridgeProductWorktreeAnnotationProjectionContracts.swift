@@ -127,9 +127,11 @@ struct BridgeProductWorktreeAnnotationMessageReceiptDTO: Codable, Equatable, Sen
     let savedRevision: Int?
     let sessionRevision: Int
     let threadId: UUID
+    let threadRevision: Int
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
-        case draftRevision, kind, messageId, messageRevision, savedRevision, sessionRevision, threadId
+        case draftRevision, kind, messageId, messageRevision, savedRevision, sessionRevision, threadId,
+            threadRevision
     }
 
     init(_ receipt: WorktreeAnnotationMessageCommandReceipt) {
@@ -139,6 +141,7 @@ struct BridgeProductWorktreeAnnotationMessageReceiptDTO: Codable, Equatable, Sen
         savedRevision = receipt.savedRevision
         sessionRevision = receipt.sessionRevision
         threadId = receipt.threadID.rawValue
+        threadRevision = receipt.threadRevision
     }
 
     init(from decoder: Decoder) throws {
@@ -162,10 +165,12 @@ struct BridgeProductWorktreeAnnotationMessageReceiptDTO: Codable, Equatable, Sen
             container.decode(String.self, forKey: .threadId),
             codingPath: decoder.codingPath + [CodingKeys.threadId]
         )
+        threadRevision = try container.decode(Int.self, forKey: .threadRevision)
         for (name, value) in [
             ("draftRevision", draftRevision),
             ("messageRevision", Optional(messageRevision)),
             ("sessionRevision", Optional(sessionRevision)),
+            ("threadRevision", Optional(threadRevision)),
         ] {
             if let value {
                 try BridgeProductContractDecoding.validateNonnegative(
@@ -199,6 +204,7 @@ struct BridgeProductWorktreeAnnotationMessageReceiptDTO: Codable, Equatable, Sen
             BridgeProductReviewPublicationIdContract.encode(threadId),
             forKey: .threadId
         )
+        try container.encode(threadRevision, forKey: .threadRevision)
     }
 }
 
@@ -600,6 +606,7 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
         case sessionRevision
         case status
         case threadId
+        case threadRevision
     }
 
     let authorKind: String
@@ -615,6 +622,7 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
     let sessionRevision: Int
     let status: WorktreeAnnotationMessageStatus
     let threadId: UUID
+    let threadRevision: Int
 
     init(
         message: WorktreeAnnotationMessage,
@@ -636,6 +644,7 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
         sessionRevision = session.semanticRevision
         status = message.status
         threadId = thread.id.rawValue
+        threadRevision = thread.semanticRevision
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard try encoder.encode(self).count <= 64 * 1024 else {
@@ -682,6 +691,7 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
         sessionRevision = try container.decode(Int.self, forKey: .sessionRevision)
         status = try container.decode(WorktreeAnnotationMessageStatus.self, forKey: .status)
         threadId = try container.decode(UUID.self, forKey: .threadId)
+        threadRevision = try container.decode(Int.self, forKey: .threadRevision)
         guard (savedBody == nil) == (savedRevision == nil), savedRevision.map({ $0 > 0 }) ?? true,
             savedBody != nil || draft != nil,
             !(status == .locked && draft != nil),
@@ -722,6 +732,7 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
             BridgeProductReviewPublicationIdContract.encode(threadId),
             forKey: .threadId
         )
+        try container.encode(threadRevision, forKey: .threadRevision)
     }
 }
 

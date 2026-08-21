@@ -163,7 +163,7 @@ export function WorktreeAnnotationMessageEditor(
 						body: nextBody,
 						editToken,
 						expectedDraftRevision: cursor.draftRevision,
-						expectedSessionRevision: cursor.sessionRevision,
+						expectedMessageRevision: cursor.messageRevision,
 						kind: 'draft.flush',
 						messageId: cursor.messageId,
 						sessionId: cursor.sessionId,
@@ -247,7 +247,7 @@ export function WorktreeAnnotationMessageEditor(
 				const outcome = await annotationClient.execute({
 					editToken,
 					expectedDraftRevision: cursor.draftRevision,
-					expectedSessionRevision: cursor.sessionRevision,
+					expectedMessageRevision: cursor.messageRevision,
 					kind: 'draft.save',
 					messageId: cursor.messageId,
 					sessionId: cursor.sessionId,
@@ -278,7 +278,7 @@ export function WorktreeAnnotationMessageEditor(
 			const outcome = await annotationClient.execute({
 				editToken,
 				expectedDraftRevision: cursor.draftRevision,
-				expectedSessionRevision: cursor.sessionRevision,
+				expectedMessageRevision: cursor.messageRevision,
 				kind: 'draft.revert',
 				messageId: cursor.messageId,
 				sessionId: cursor.sessionId,

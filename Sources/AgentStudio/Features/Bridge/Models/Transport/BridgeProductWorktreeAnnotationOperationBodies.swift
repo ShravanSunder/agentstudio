@@ -4,7 +4,7 @@ extension BridgeProductWorktreeAnnotationOperation {
     struct MutationBody: Codable, Equatable, Sendable {
         let body: String
         let editToken: String
-        let expectedSessionRevision: Int
+        let expectedThreadRevision: Int
         let sessionId: UUID
         let threadId: UUID
     }
@@ -13,7 +13,7 @@ extension BridgeProductWorktreeAnnotationOperation {
         let body: String
         let editToken: String
         let expectedDraftRevision: Int?
-        let expectedSessionRevision: Int
+        let expectedMessageRevision: Int
         let messageId: UUID
         let sessionId: UUID
     }
@@ -21,13 +21,13 @@ extension BridgeProductWorktreeAnnotationOperation {
     struct DraftRevisionBody: Codable, Equatable, Sendable {
         let editToken: String
         let expectedDraftRevision: Int
-        let expectedSessionRevision: Int
+        let expectedMessageRevision: Int
         let messageId: UUID
         let sessionId: UUID
     }
 
     struct ThreadResolutionBody: Codable, Equatable, Sendable {
-        let expectedSessionRevision: Int
+        let expectedThreadRevision: Int
         let resolution: WorktreeAnnotationThreadResolution
         let sessionId: UUID
         let threadId: UUID

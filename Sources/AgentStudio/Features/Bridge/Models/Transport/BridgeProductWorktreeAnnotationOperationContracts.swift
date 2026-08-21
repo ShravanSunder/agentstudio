@@ -35,8 +35,10 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         case displayedProjectionRevision
         case editToken
         case expectedDraftRevision
+        case expectedMessageRevision
         case expectedOpenThreadCount
         case expectedSessionRevision
+        case expectedThreadRevision
         case kind
         case lifecycle
         case messageId
@@ -165,7 +167,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
             MutationBody(
                 body: try validatedBody(container, decoder),
                 editToken: try validatedIdentifier(container, .editToken, decoder),
-                expectedSessionRevision: try nonnegative(container, .expectedSessionRevision, decoder),
+                expectedThreadRevision: try nonnegative(container, .expectedThreadRevision, decoder),
                 sessionId: try decodeID(container, .sessionId, decoder),
                 threadId: try decodeID(container, .threadId, decoder)
             )
@@ -178,7 +180,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
     ) throws -> Self {
         .setThreadResolution(
             ThreadResolutionBody(
-                expectedSessionRevision: try nonnegative(container, .expectedSessionRevision, decoder),
+                expectedThreadRevision: try nonnegative(container, .expectedThreadRevision, decoder),
                 resolution: try container.decode(WorktreeAnnotationThreadResolution.self, forKey: .resolution),
                 sessionId: try decodeID(container, .sessionId, decoder),
                 threadId: try decodeID(container, .threadId, decoder)
@@ -244,7 +246,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
                 body: try validatedBody(container, decoder),
                 editToken: try validatedIdentifier(container, .editToken, decoder),
                 expectedDraftRevision: expectedDraftRevision,
-                expectedSessionRevision: try nonnegative(container, .expectedSessionRevision, decoder),
+                expectedMessageRevision: try nonnegative(container, .expectedMessageRevision, decoder),
                 messageId: try decodeID(container, .messageId, decoder),
                 sessionId: try decodeID(container, .sessionId, decoder)
             )
@@ -329,16 +331,16 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         case .createRoot:
             [.admission, .body, .editToken, .kind, .origin]
         case .createReply:
-            [.body, .editToken, .expectedSessionRevision, .kind, .sessionId, .threadId]
+            [.body, .editToken, .expectedThreadRevision, .kind, .sessionId, .threadId]
         case .flushDraft:
             [
-                .body, .editToken, .expectedDraftRevision, .expectedSessionRevision, .kind,
+                .body, .editToken, .expectedDraftRevision, .expectedMessageRevision, .kind,
                 .messageId, .sessionId,
             ]
         case .acquireEditToken, .releaseEditToken, .saveDraft, .revertDraft:
-            [.editToken, .expectedDraftRevision, .expectedSessionRevision, .kind, .messageId, .sessionId]
+            [.editToken, .expectedDraftRevision, .expectedMessageRevision, .kind, .messageId, .sessionId]
         case .setThreadResolution:
-            [.expectedSessionRevision, .kind, .resolution, .sessionId, .threadId]
+            [.expectedThreadRevision, .kind, .resolution, .sessionId, .threadId]
         case .setSessionLifecycle:
             [
                 .confirmsUnresolvedWork, .expectedOpenThreadCount, .expectedSessionRevision,
@@ -373,7 +375,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         DraftRevisionBody(
             editToken: try validatedIdentifier(container, .editToken, decoder),
             expectedDraftRevision: try nonnegative(container, .expectedDraftRevision, decoder),
-            expectedSessionRevision: try nonnegative(container, .expectedSessionRevision, decoder),
+            expectedMessageRevision: try nonnegative(container, .expectedMessageRevision, decoder),
             messageId: try decodeID(container, .messageId, decoder),
             sessionId: try decodeID(container, .sessionId, decoder)
         )
@@ -440,7 +442,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         try container.encode(kind, forKey: .kind)
         try container.encode(body.body, forKey: .body)
         try container.encode(body.editToken, forKey: .editToken)
-        try container.encode(body.expectedSessionRevision, forKey: .expectedSessionRevision)
+        try container.encode(body.expectedThreadRevision, forKey: .expectedThreadRevision)
         try container.encode(
             BridgeProductReviewPublicationIdContract.encode(body.sessionId),
             forKey: .sessionId
@@ -460,7 +462,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         try container.encode(body.body, forKey: .body)
         try container.encode(body.editToken, forKey: .editToken)
         try container.encode(body.expectedDraftRevision, forKey: .expectedDraftRevision)
-        try container.encode(body.expectedSessionRevision, forKey: .expectedSessionRevision)
+        try container.encode(body.expectedMessageRevision, forKey: .expectedMessageRevision)
         try container.encode(
             BridgeProductReviewPublicationIdContract.encode(body.messageId),
             forKey: .messageId
@@ -479,7 +481,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         try container.encode(kind, forKey: .kind)
         try container.encode(body.editToken, forKey: .editToken)
         try container.encode(body.expectedDraftRevision, forKey: .expectedDraftRevision)
-        try container.encode(body.expectedSessionRevision, forKey: .expectedSessionRevision)
+        try container.encode(body.expectedMessageRevision, forKey: .expectedMessageRevision)
         try container.encode(
             BridgeProductReviewPublicationIdContract.encode(body.messageId),
             forKey: .messageId
@@ -496,7 +498,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         into container: inout KeyedEncodingContainer<CodingKeys>
     ) throws {
         try container.encode(kind, forKey: .kind)
-        try container.encode(body.expectedSessionRevision, forKey: .expectedSessionRevision)
+        try container.encode(body.expectedThreadRevision, forKey: .expectedThreadRevision)
         try container.encode(body.resolution, forKey: .resolution)
         try container.encode(
             BridgeProductReviewPublicationIdContract.encode(body.sessionId),

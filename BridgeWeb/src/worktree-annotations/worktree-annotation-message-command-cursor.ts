@@ -11,6 +11,7 @@ export interface WorktreeAnnotationMessageCommandCursor {
 	readonly sessionId: string;
 	readonly sessionRevision: number;
 	readonly threadId: string;
+	readonly threadRevision: number;
 }
 
 export function messageCommandCursorFromOutcome(
@@ -31,6 +32,7 @@ export function messageCommandCursorFromOutcome(
 		sessionId: outcome.sessionId,
 		sessionRevision: outcome.receipt.sessionRevision,
 		threadId: outcome.receipt.threadId,
+		threadRevision: outcome.receipt.threadRevision,
 	};
 }
 
@@ -45,6 +47,7 @@ export function messageCommandCursorFromProjection(
 		sessionId: message.sessionId,
 		sessionRevision: message.sessionRevision,
 		threadId: message.threadId,
+		threadRevision: message.threadRevision,
 	};
 }
 
@@ -54,8 +57,8 @@ export function newestMessageCommandCursor(
 ): WorktreeAnnotationMessageCommandCursor | null {
 	if (current === null) return candidate;
 	if (candidate === null) return current;
-	if (candidate.sessionRevision !== current.sessionRevision) {
-		return candidate.sessionRevision > current.sessionRevision ? candidate : current;
+	if (candidate.messageRevision !== current.messageRevision) {
+		return candidate.messageRevision > current.messageRevision ? candidate : current;
 	}
-	return candidate.messageRevision > current.messageRevision ? candidate : current;
+	return candidate.sessionRevision > current.sessionRevision ? candidate : current;
 }

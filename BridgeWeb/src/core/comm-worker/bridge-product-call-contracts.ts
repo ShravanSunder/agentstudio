@@ -159,7 +159,7 @@ export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUni
 		.object({
 			body: bridgeProductWorktreeAnnotationBodySchema,
 			editToken: bridgeProductIdentifierSchema,
-			expectedSessionRevision: z.number().int().nonnegative(),
+			expectedThreadRevision: z.number().int().nonnegative(),
 			kind: z.literal('reply.create'),
 			sessionId: bridgeProductWorktreeAnnotationIdSchema,
 			threadId: bridgeProductWorktreeAnnotationIdSchema,
@@ -170,7 +170,7 @@ export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUni
 			body: bridgeProductWorktreeAnnotationDraftEditBodySchema,
 			editToken: bridgeProductIdentifierSchema,
 			expectedDraftRevision: z.number().int().nonnegative().nullable(),
-			expectedSessionRevision: z.number().int().nonnegative(),
+			expectedMessageRevision: z.number().int().nonnegative(),
 			kind: z.literal('draft.flush'),
 			messageId: bridgeProductWorktreeAnnotationIdSchema,
 			sessionId: bridgeProductWorktreeAnnotationIdSchema,
@@ -181,7 +181,7 @@ export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUni
 			.object({
 				editToken: bridgeProductIdentifierSchema,
 				expectedDraftRevision: z.number().int().nonnegative(),
-				expectedSessionRevision: z.number().int().nonnegative(),
+				expectedMessageRevision: z.number().int().nonnegative(),
 				kind: z.literal(kind),
 				messageId: bridgeProductWorktreeAnnotationIdSchema,
 				sessionId: bridgeProductWorktreeAnnotationIdSchema,
@@ -193,7 +193,7 @@ export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUni
 			.object({
 				editToken: bridgeProductIdentifierSchema,
 				expectedDraftRevision: z.number().int().nonnegative(),
-				expectedSessionRevision: z.number().int().nonnegative(),
+				expectedMessageRevision: z.number().int().nonnegative(),
 				kind: z.literal(kind),
 				messageId: bridgeProductWorktreeAnnotationIdSchema,
 				sessionId: bridgeProductWorktreeAnnotationIdSchema,
@@ -202,7 +202,7 @@ export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUni
 	),
 	z
 		.object({
-			expectedSessionRevision: z.number().int().nonnegative(),
+			expectedThreadRevision: z.number().int().nonnegative(),
 			kind: z.literal('thread.resolution.set'),
 			resolution: z.enum(['open', 'resolved']),
 			sessionId: bridgeProductWorktreeAnnotationIdSchema,

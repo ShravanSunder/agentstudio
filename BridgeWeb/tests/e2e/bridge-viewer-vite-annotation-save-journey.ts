@@ -1,4 +1,5 @@
 import { chromium, type Page, type Response, type Route } from 'playwright';
+import { expect, test } from 'vitest';
 
 import {
 	revealReviewTreeFilePath,
@@ -23,6 +24,28 @@ export interface AnnotationSaveJourneyObservations {
 	readonly reloadedSavedMessageCount: number;
 	readonly savingControlCountAfterCommit: number;
 	readonly committedBodyCountWhileProjectionGated: number;
+}
+
+export function registerBridgeViewerViteAnnotationSaveJourneyTests(props: {
+	readonly oracle: () => BridgeViewerViteProductFixtureOracle;
+	readonly server: () => BridgeViewerOwnedViteProductServer;
+}): void {
+	test.each(['file', 'review'] as const)(
+		'keeps an exact committed annotation visible while the %s projection is gated',
+		async (surface) => {
+			const observations = await runAnnotationSaveJourney({
+				oracle: props.oracle(),
+				server: props.server(),
+				surface,
+			});
+
+			expect(observations.gatedProjectionRequestCount).toBeGreaterThan(0);
+			expect(observations.savingControlCountAfterCommit).toBe(0);
+			expect(observations.committedBodyCountWhileProjectionGated).toBe(1);
+			expect(observations.projectedSavedMessageCount).toBe(1);
+			expect(observations.reloadedSavedMessageCount).toBe(1);
+		},
+	);
 }
 
 export async function runAnnotationSaveJourney(props: {

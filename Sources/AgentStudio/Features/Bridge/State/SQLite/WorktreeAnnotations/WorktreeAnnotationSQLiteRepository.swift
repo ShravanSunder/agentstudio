@@ -24,7 +24,7 @@ struct WorktreeAnnotationSQLiteRepository {
         let sessionID: WorktreeAnnotationSessionID
         let messageID: WorktreeAnnotationMessageID
         let editToken: String
-        let expectedSessionRevision: Int
+        let expectedMessageRevision: Int
         let expectedDraftRevision: Int?
         let body: String
         let now: Date
@@ -34,7 +34,7 @@ struct WorktreeAnnotationSQLiteRepository {
         let sessionID: WorktreeAnnotationSessionID
         let messageID: WorktreeAnnotationMessageID
         let editToken: String
-        let expectedSessionRevision: Int
+        let expectedMessageRevision: Int
         let expectedDraftRevision: Int
         let now: Date
     }
@@ -43,7 +43,7 @@ struct WorktreeAnnotationSQLiteRepository {
         let sessionID: WorktreeAnnotationSessionID
         let messageID: WorktreeAnnotationMessageID
         let editToken: String
-        let expectedSessionRevision: Int
+        let expectedMessageRevision: Int
         let expectedDraftRevision: Int
         let now: Date
     }
@@ -52,7 +52,7 @@ struct WorktreeAnnotationSQLiteRepository {
         let sessionID: WorktreeAnnotationSessionID
         let messageID: WorktreeAnnotationMessageID
         let editToken: String
-        let expectedSessionRevision: Int
+        let expectedMessageRevision: Int
         let expectedDraftRevision: Int
         let liveEditTokens: Set<String>
         let now: Date
@@ -62,7 +62,7 @@ struct WorktreeAnnotationSQLiteRepository {
         let sessionID: WorktreeAnnotationSessionID
         let messageID: WorktreeAnnotationMessageID
         let editToken: String
-        let expectedSessionRevision: Int
+        let expectedMessageRevision: Int
         let expectedDraftRevision: Int
         let now: Date
     }
@@ -70,7 +70,7 @@ struct WorktreeAnnotationSQLiteRepository {
     struct CreateReplyDraftProps: Sendable {
         let sessionID: WorktreeAnnotationSessionID
         let threadID: WorktreeAnnotationThreadID
-        let expectedSessionRevision: Int
+        let expectedThreadRevision: Int
         let body: String
         let editToken: String
         let now: Date
@@ -80,7 +80,7 @@ struct WorktreeAnnotationSQLiteRepository {
         let sessionID: WorktreeAnnotationSessionID
         let threadID: WorktreeAnnotationThreadID
         let resolution: WorktreeAnnotationThreadResolution
-        let expectedSessionRevision: Int
+        let expectedThreadRevision: Int
         let now: Date
     }
 
@@ -198,10 +198,11 @@ struct WorktreeAnnotationSQLiteRepository {
 
     func flushDraft(_ props: FlushDraftProps) throws -> WorktreeAnnotationSessionDetail {
         try databaseWriter.write { database in
-            try validateSessionRevision(
+            try validateMessageRevision(
                 database,
+                messageID: props.messageID,
                 sessionID: props.sessionID,
-                expectedRevision: props.expectedSessionRevision
+                expectedRevision: props.expectedMessageRevision
             )
             try requireWritableSession(database, sessionID: props.sessionID)
             try ensureMessageEditable(database, messageID: props.messageID)
@@ -302,10 +303,11 @@ struct WorktreeAnnotationSQLiteRepository {
 
     func saveDraft(_ props: SaveDraftProps) throws -> WorktreeAnnotationSessionDetail {
         try databaseWriter.write { database in
-            try validateSessionRevision(
+            try validateMessageRevision(
                 database,
+                messageID: props.messageID,
                 sessionID: props.sessionID,
-                expectedRevision: props.expectedSessionRevision
+                expectedRevision: props.expectedMessageRevision
             )
             try requireWritableSession(database, sessionID: props.sessionID)
             try ensureMessageEditable(database, messageID: props.messageID)
@@ -347,10 +349,11 @@ struct WorktreeAnnotationSQLiteRepository {
 
     func revertDraft(_ props: RevertDraftProps) throws -> WorktreeAnnotationSessionDetail {
         try databaseWriter.write { database in
-            try validateSessionRevision(
+            try validateMessageRevision(
                 database,
+                messageID: props.messageID,
                 sessionID: props.sessionID,
-                expectedRevision: props.expectedSessionRevision
+                expectedRevision: props.expectedMessageRevision
             )
             try requireWritableSession(database, sessionID: props.sessionID)
             try ensureMessageEditable(database, messageID: props.messageID)
@@ -404,10 +407,11 @@ struct WorktreeAnnotationSQLiteRepository {
     func createReplyDraft(_ props: CreateReplyDraftProps) throws -> WorktreeAnnotationSessionDetail {
         let body = try WorktreeAnnotationMessagePolicy.validate(props.body)
         return try databaseWriter.write { database in
-            try validateSessionRevision(
+            try validateThreadRevision(
                 database,
+                threadID: props.threadID,
                 sessionID: props.sessionID,
-                expectedRevision: props.expectedSessionRevision
+                expectedRevision: props.expectedThreadRevision
             )
             try requireWritableSession(database, sessionID: props.sessionID)
             let resolution = try String.fetchOne(
@@ -450,10 +454,11 @@ struct WorktreeAnnotationSQLiteRepository {
 
     func setThreadResolution(_ props: SetThreadResolutionProps) throws -> WorktreeAnnotationSessionDetail {
         try databaseWriter.write { database in
-            try validateSessionRevision(
+            try validateThreadRevision(
                 database,
+                threadID: props.threadID,
                 sessionID: props.sessionID,
-                expectedRevision: props.expectedSessionRevision
+                expectedRevision: props.expectedThreadRevision
             )
             try requireWritableSession(database, sessionID: props.sessionID)
             guard

@@ -11,7 +11,7 @@ extension WorktreeAnnotationTransportAdapter {
                 sessionID: sessionID,
                 messageID: .init(rawValue: body.messageId),
                 editToken: body.editToken,
-                expectedSessionRevision: body.expectedSessionRevision,
+                expectedMessageRevision: body.expectedMessageRevision,
                 expectedDraftRevision: body.expectedDraftRevision,
                 now: now()
             ),
@@ -30,7 +30,7 @@ extension WorktreeAnnotationTransportAdapter {
                 sessionID: sessionID,
                 messageID: .init(rawValue: body.messageId),
                 editToken: body.editToken,
-                expectedSessionRevision: body.expectedSessionRevision,
+                expectedMessageRevision: body.expectedMessageRevision,
                 expectedDraftRevision: body.expectedDraftRevision,
                 now: now()
             ),

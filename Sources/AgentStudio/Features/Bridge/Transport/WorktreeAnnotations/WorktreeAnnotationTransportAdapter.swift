@@ -355,7 +355,7 @@ final class WorktreeAnnotationTransportAdapter {
                 sessionID: sessionID,
                 threadID: .init(rawValue: body.threadId),
                 resolution: body.resolution,
-                expectedSessionRevision: body.expectedSessionRevision,
+                expectedThreadRevision: body.expectedThreadRevision,
                 now: now()
             )
         )
@@ -398,6 +398,7 @@ final class WorktreeAnnotationTransportAdapter {
             receipt: .init(
                 messageID: createdMessage.id,
                 threadID: createdThread.thread.id,
+                threadRevision: createdThread.thread.semanticRevision,
                 sessionRevision: detail.session.semanticRevision,
                 messageRevision: createdMessage.semanticRevision,
                 draftRevision: createdMessage.draft?.draftRevision,
@@ -415,7 +416,7 @@ final class WorktreeAnnotationTransportAdapter {
             .init(
                 sessionID: sessionID,
                 threadID: .init(rawValue: body.threadId),
-                expectedSessionRevision: body.expectedSessionRevision,
+                expectedThreadRevision: body.expectedThreadRevision,
                 body: body.body,
                 editToken: body.editToken,
                 now: now()
@@ -441,7 +442,7 @@ final class WorktreeAnnotationTransportAdapter {
                 sessionID: sessionID,
                 messageID: .init(rawValue: body.messageId),
                 editToken: body.editToken,
-                expectedSessionRevision: body.expectedSessionRevision,
+                expectedMessageRevision: body.expectedMessageRevision,
                 expectedDraftRevision: body.expectedDraftRevision,
                 body: body.body,
                 now: now()
@@ -468,7 +469,7 @@ final class WorktreeAnnotationTransportAdapter {
                 sessionID: sessionID,
                 messageID: .init(rawValue: body.messageId),
                 editToken: body.editToken,
-                expectedSessionRevision: body.expectedSessionRevision,
+                expectedMessageRevision: body.expectedMessageRevision,
                 expectedDraftRevision: body.expectedDraftRevision,
                 now: now()
             ),
@@ -487,7 +488,7 @@ final class WorktreeAnnotationTransportAdapter {
                 sessionID: sessionID,
                 messageID: .init(rawValue: body.messageId),
                 editToken: body.editToken,
-                expectedSessionRevision: body.expectedSessionRevision,
+                expectedMessageRevision: body.expectedMessageRevision,
                 expectedDraftRevision: body.expectedDraftRevision,
                 now: now()
             ),
@@ -518,6 +519,7 @@ final class WorktreeAnnotationTransportAdapter {
             receipt: .init(
                 messageID: message.id,
                 threadID: thread.thread.id,
+                threadRevision: thread.thread.semanticRevision,
                 sessionRevision: detail.session.semanticRevision,
                 messageRevision: message.semanticRevision,
                 draftRevision: message.draft?.draftRevision,

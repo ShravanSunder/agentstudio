@@ -61,6 +61,7 @@ struct WorktreeAnnotationCommandOutcome: Equatable, Sendable {
 struct WorktreeAnnotationMessageCommandReceipt: Equatable, Sendable {
     let messageID: WorktreeAnnotationMessageID
     let threadID: WorktreeAnnotationThreadID
+    let threadRevision: Int
     let sessionRevision: Int
     let messageRevision: Int
     let draftRevision: Int?

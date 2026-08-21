@@ -4,7 +4,7 @@ struct WorktreeAnnotationEditTokenCommandProps: Sendable {
     let sessionID: WorktreeAnnotationSessionID
     let messageID: WorktreeAnnotationMessageID
     let editToken: String
-    let expectedSessionRevision: Int
+    let expectedMessageRevision: Int
     let expectedDraftRevision: Int
     let now: Date
 }
@@ -135,7 +135,7 @@ extension WorktreeAnnotationServiceActor {
                 sessionID: props.sessionID,
                 messageID: props.messageID,
                 editToken: props.editToken,
-                expectedSessionRevision: props.expectedSessionRevision,
+                expectedMessageRevision: props.expectedMessageRevision,
                 expectedDraftRevision: props.expectedDraftRevision,
                 liveEditTokens: editOwnership.liveTokens,
                 now: props.now
@@ -157,7 +157,7 @@ extension WorktreeAnnotationServiceActor {
                     sessionID: props.sessionID,
                     messageID: props.messageID,
                     editToken: props.editToken,
-                    expectedSessionRevision: props.expectedSessionRevision,
+                    expectedMessageRevision: props.expectedMessageRevision,
                     expectedDraftRevision: props.expectedDraftRevision,
                     now: props.now
                 )

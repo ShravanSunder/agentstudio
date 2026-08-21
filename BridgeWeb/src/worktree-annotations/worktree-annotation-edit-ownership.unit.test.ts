@@ -24,7 +24,7 @@ describe('WorktreeAnnotationEditOwnershipController', () => {
 			{
 				editToken: 'browser-token',
 				expectedDraftRevision: 1,
-				expectedSessionRevision: 3,
+				expectedMessageRevision: 1,
 				kind: 'draft.edit.acquire',
 				messageId: fixture.messageId,
 				sessionId: fixture.sessionId,
@@ -32,7 +32,7 @@ describe('WorktreeAnnotationEditOwnershipController', () => {
 			{
 				editToken: 'browser-token',
 				expectedDraftRevision: 2,
-				expectedSessionRevision: 4,
+				expectedMessageRevision: 2,
 				kind: 'draft.edit.release',
 				messageId: fixture.messageId,
 				sessionId: fixture.sessionId,
@@ -167,5 +167,6 @@ function messageWithDraft(activeEditToken: string | null): WorktreeAnnotationMes
 		sessionRevision: 3,
 		status: 'editable',
 		threadId: '00000000-0000-7000-8000-000000000021',
+		threadRevision: 1,
 	};
 }

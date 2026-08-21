@@ -14,6 +14,7 @@ describe('newestMessageCommandCursor', () => {
 		sessionId: 'session-1',
 		sessionRevision: 5,
 		threadId: 'thread-1',
+		threadRevision: 2,
 	} satisfies WorktreeAnnotationMessageCommandCursor;
 
 	test('retains an exact command receipt when the rendered projection is stale', () => {
@@ -26,6 +27,16 @@ describe('newestMessageCommandCursor', () => {
 		} satisfies WorktreeAnnotationMessageCommandCursor;
 
 		expect(newestMessageCommandCursor(currentCursor, staleProjectionCursor)).toBe(currentCursor);
+	});
+
+	test('does not replace a newer message receipt with an unrelated session revision', () => {
+		const unrelatedSessionAdvance = {
+			...currentCursor,
+			messageRevision: currentCursor.messageRevision - 1,
+			sessionRevision: currentCursor.sessionRevision + 100,
+		} satisfies WorktreeAnnotationMessageCommandCursor;
+
+		expect(newestMessageCommandCursor(currentCursor, unrelatedSessionAdvance)).toBe(currentCursor);
 	});
 
 	test('advances to a newer projected revision after convergence', () => {
