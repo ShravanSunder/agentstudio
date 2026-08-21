@@ -17,6 +17,7 @@ import {
 	type BridgeViewerViteProductFixtureOracle,
 	type BridgeViewerViteProductReviewFileOracle,
 } from './bridge-viewer-vite-product-fixture.ts';
+import { runAnnotationSaveJourney } from './bridge-viewer-vite-annotation-save-journey.ts';
 import {
 	bridgeViewerViteProductFileUrl,
 	bridgeViewerViteProductReviewUrl,
@@ -133,6 +134,23 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 		expect(collectBridgeViewerProductOnlyContractViolations(journeyObservations)).toEqual([]);
 		assertJourneyFreshness({ journeyObservations, oracle, server });
 	});
+
+	test.each(['file', 'review'] as const)(
+		'keeps an exact committed annotation visible while the %s projection is gated',
+		async (surface) => {
+			const observations = await runAnnotationSaveJourney({
+				oracle: requireFixtureOracle(),
+				server: requireOwnedServer(),
+				surface,
+			});
+
+			expect(observations.gatedProjectionRequestCount).toBeGreaterThan(0);
+			expect(observations.savingControlCountAfterCommit).toBe(0);
+			expect(observations.committedBodyCountWhileProjectionGated).toBe(1);
+			expect(observations.projectedSavedMessageCount).toBe(1);
+			expect(observations.reloadedSavedMessageCount).toBe(1);
+		},
+	);
 
 	test('observes Review base/head body truth, request leases, painted publication correlation, and directory disclosure interaction', async () => {
 		const oracle = requireFixtureOracle();
