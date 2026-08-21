@@ -5,7 +5,7 @@ import { marketingCopy } from "@/marketing-copy";
 import XMark from "@/social-links/XMark.astro";
 import "@/styles/global.css";
 
-import WorktreeTopologyBackdrop from "./WorktreeTopologyBackdrop.astro";
+import FullPageTopologyBackdrop from "./FullPageTopologyBackdrop.astro";
 
 interface Props {
   readonly title: string;
@@ -25,7 +25,7 @@ const { title, description } = Astro.props;
     <title>{title}</title>
   </head>
   <body>
-    <WorktreeTopologyBackdrop />
+    <FullPageTopologyBackdrop />
     <header
       class="site-header sticky top-px z-20 mx-auto flex min-h-18 items-center justify-between rounded-floating-shell border border-[rgb(137_180_250/24%)] px-5.5 py-4"
       data-site-header
@@ -61,7 +61,7 @@ const { title, description } = Astro.props;
     </header>
     <div class="site-header-frost" aria-hidden="true"></div>
     <div
-      class="site-frame relative z-[1] mx-auto mb-4 w-[min(calc(100%-32px),var(--container-frame))] overflow-visible bg-[rgb(46_48_54/97%)] max-lg:m-0 max-lg:w-full"
+      class="site-frame relative z-[1] mx-auto mb-4 w-[min(calc(100%-32px),var(--container-frame))] overflow-visible bg-transparent max-lg:m-0 max-lg:w-full"
     >
       <main id="top">
         <slot />

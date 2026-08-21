@@ -1,10 +1,15 @@
 import { layoutWorktreeTopology } from "./topology-layout";
 
+type LayoutTopologyArtwork = (artwork: SVGSVGElement) => boolean;
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
 }
 
-export function initializeTopologyScrollReveal(artwork: SVGSVGElement): () => void {
+export function initializeTopologyScrollReveal(
+  artwork: SVGSVGElement,
+  layoutArtwork: LayoutTopologyArtwork = layoutWorktreeTopology,
+): () => void {
   const revealPaths = [...artwork.querySelectorAll<SVGPathElement>("[data-topology-path-start]")];
   const revealNodes = [
     ...artwork.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]"),
@@ -19,7 +24,7 @@ export function initializeTopologyScrollReveal(artwork: SVGSVGElement): () => vo
   const renderReveal = (): void => {
     pendingAnimationFrame = undefined;
     if (layoutNeedsUpdate) {
-      if (!layoutWorktreeTopology(artwork)) {
+      if (!layoutArtwork(artwork)) {
         return;
       }
       lastLayoutWidth = artwork.clientWidth;

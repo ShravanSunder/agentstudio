@@ -108,8 +108,7 @@ export const marketingCopy = {
         paneZoomLabel: "Pane Zoom",
         savedArrangementImageDescription:
           "Agent Studio with the Parallel agents arrangement active, showing Codex and Claude Code side by side with the global sidebar hidden.",
-        paneZoomImageDescription:
-          "Claude Code filling the Agent Studio workspace in Pane Zoom.",
+        paneZoomImageDescription: "Claude Code filling the Agent Studio workspace in Pane Zoom.",
       },
     ],
   },

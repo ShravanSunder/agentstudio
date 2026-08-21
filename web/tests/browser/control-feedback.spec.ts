@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-const canvasColor = "rgb(46, 48, 54)";
 const activeSurfaceColor = "rgb(37, 39, 45)";
+const darkFrostColor = "rgba(24, 26, 32, 0.72)";
 
 test("gives primary and neutral controls consistent hover and pressed feedback", async ({
   page,
@@ -22,7 +22,7 @@ test("gives primary and neutral controls consistent hover and pressed feedback",
 
   const nextStoryButton = page.locator("[data-product-plate-next]");
   await nextStoryButton.hover();
-  await expect(nextStoryButton).toHaveCSS("background-color", canvasColor);
+  await expect(nextStoryButton).toHaveCSS("background-color", darkFrostColor);
   await page.mouse.down();
   await expect(nextStoryButton).toHaveCSS("background-color", activeSurfaceColor);
   await page.mouse.up();
@@ -30,7 +30,7 @@ test("gives primary and neutral controls consistent hover and pressed feedback",
   const restoredButton = page.getByRole("button", { name: "Restored" });
   await restoredButton.scrollIntoViewIfNeeded();
   await restoredButton.hover();
-  await expect(restoredButton).toHaveCSS("background-color", canvasColor);
+  await expect(restoredButton).toHaveCSS("background-color", darkFrostColor);
   await page.mouse.down();
   await expect(restoredButton).toHaveCSS("background-color", activeSurfaceColor);
   await page.mouse.up();
