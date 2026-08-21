@@ -169,6 +169,10 @@ const { title, description } = Astro.props;
     .site-header {
       width: calc(100% - var(--spacing-page-inline) - var(--spacing-page-inline));
     }
+
+    .site-header[data-visual-state="resting"] {
+      @apply top-0 w-full rounded-none border-0;
+    }
   }
 
   @media (max-width: 620px) {

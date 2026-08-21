@@ -15,13 +15,18 @@ const verificationViewports = [
 
 interface PhoneProductPlateComposition {
   readonly captionAfterImage: boolean;
-  readonly captionBackground: string;
+  readonly captionIsOutlined: boolean;
+  readonly captionIsRounded: boolean;
   readonly captionStoryId: string | undefined;
+  readonly captionUsesNeutralSurface: boolean;
   readonly imageStoryId: string | null | undefined;
   readonly imageIsInsetWithinPlate: boolean;
+  readonly imagePaneIsOutlined: boolean;
+  readonly imagePaneIsRounded: boolean;
   readonly imageUsesUncroppedMaster: boolean;
   readonly panelAnimationName: string;
   readonly selectedDotDisplay: string;
+  readonly sharedWrapperIsTransparent: boolean;
   readonly stageHeight: number;
   readonly titleBeforeImage: boolean;
   readonly visibleCaptionCount: number;
@@ -212,7 +217,8 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
 
   const collapsedGeometry = await selectorViewport.evaluate((selectors) => {
     const selectorBounds = selectors.getBoundingClientRect();
-    const selectorStageBounds = selectors.parentElement?.getBoundingClientRect();
+    const selectorStage = selectors.parentElement;
+    const selectorStageBounds = selectorStage?.getBoundingClientRect();
     const selectedImageBounds = document
       .querySelector("[data-product-plate-panel]:not([hidden]) img")
       ?.getBoundingClientRect();
@@ -222,29 +228,44 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
     const selectedStory = selectors.querySelector('[aria-selected="true"]');
     const selectedTitle = selectedStory?.querySelector("strong");
     const selectedDescription = selectedStory?.querySelector("[data-product-plate-description]");
-    const previousButton = selectors.parentElement?.querySelector("[data-product-plate-previous]");
-    const nextButton = selectors.parentElement?.querySelector("[data-product-plate-next]");
+    const previousButton = selectorStage?.querySelector("[data-product-plate-previous]");
+    const nextButton = selectorStage?.querySelector("[data-product-plate-next]");
+    const imagePane = document.querySelector(".product-plate__image-frame");
 
     if (
+      !(selectorStage instanceof HTMLElement) ||
       selectorStageBounds === undefined ||
       selectedImageBounds === undefined ||
       !(selectedStory instanceof HTMLElement) ||
       !(selectedTitle instanceof HTMLElement) ||
       !(selectedDescription instanceof HTMLElement) ||
       !(previousButton instanceof HTMLElement) ||
-      !(nextButton instanceof HTMLElement)
+      !(nextButton instanceof HTMLElement) ||
+      !(imagePane instanceof HTMLElement)
     ) {
       throw new Error("Collapsed carousel is missing its stage or selected image");
     }
 
+    const compactControls = [previousButton, selectedStory, nextButton];
     return {
       arrowBackgrounds: [previousButton, nextButton].map(
         (button) => getComputedStyle(button).backgroundColor,
       ),
+      controlGap: Number.parseFloat(getComputedStyle(selectorStage).columnGap),
+      controlsAreOutlined: compactControls.every(
+        (control) =>
+          Number.parseFloat(getComputedStyle(control).borderTopWidth) > 0 &&
+          getComputedStyle(control).borderTopColor !== "rgba(0, 0, 0, 0)",
+      ),
+      controlsAreRounded: compactControls.every(
+        (control) => Number.parseFloat(getComputedStyle(control).borderTopLeftRadius) > 0,
+      ),
       descriptionDisplay: getComputedStyle(selectedDescription).display,
       imageGap: selectedImageBounds.top - selectorStageBounds.bottom,
+      imagePaneBackground: getComputedStyle(imagePane).backgroundColor,
       overflowX: getComputedStyle(selectors).overflowX,
       selectedBackground: getComputedStyle(selectedStory).backgroundColor,
+      selectedGlassBackground: getComputedStyle(selectedStory, "::before").backgroundColor,
       selectorStageHeight: selectorStageBounds.height,
       selectorWidth: selectorBounds.width,
       storyWidths: storyBounds.map((story) => story.width),
@@ -258,7 +279,14 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
     };
   });
 
-  expect(collapsedGeometry.arrowBackgrounds).toEqual(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"]);
+  expect(collapsedGeometry.arrowBackgrounds).toEqual([
+    collapsedGeometry.imagePaneBackground,
+    collapsedGeometry.imagePaneBackground,
+  ]);
+  expect(collapsedGeometry.selectedGlassBackground).toBe(collapsedGeometry.imagePaneBackground);
+  expect(collapsedGeometry.controlGap).toBeGreaterThan(0);
+  expect(collapsedGeometry.controlsAreOutlined).toBe(true);
+  expect(collapsedGeometry.controlsAreRounded).toBe(true);
   expect(collapsedGeometry.descriptionDisplay).toBe("none");
   expect(collapsedGeometry.overflowX).toBe("auto");
   expect(collapsedGeometry.imageGap).toBeGreaterThan(0);
@@ -355,6 +383,8 @@ test("presents the phone carousel as title, image, then matching caption", async
       const stage = productPlate.querySelector(".product-plate__selector-stage");
       const image = productPlate.querySelector("[data-product-plate-panel]:not([hidden]) img");
       const panel = image?.closest("[data-product-plate-panel]");
+      const imagePane = image?.closest(".product-plate__image-frame");
+      const imageColumn = productPlate.querySelector(".product-plate__image-column");
       const visibleCaptions = [
         ...productPlate.querySelectorAll("[data-product-plate-caption]"),
       ].filter((caption) => {
@@ -365,7 +395,9 @@ test("presents the phone carousel as title, image, then matching caption", async
       if (
         !(stage instanceof HTMLElement) ||
         !(image instanceof HTMLImageElement) ||
-        !(panel instanceof HTMLElement)
+        !(panel instanceof HTMLElement) ||
+        !(imagePane instanceof HTMLElement) ||
+        !(imageColumn instanceof HTMLElement)
       ) {
         throw new Error("Phone product plate is missing its title stage or selected image");
       }
@@ -379,6 +411,8 @@ test("presents the phone carousel as title, image, then matching caption", async
       const stageBounds = stage.getBoundingClientRect();
       const imageBounds = image.getBoundingClientRect();
       const captionBounds = caption.getBoundingClientRect();
+      const captionStyle = getComputedStyle(caption);
+      const imagePaneStyle = getComputedStyle(imagePane);
       const selectedStory = productPlate.querySelector('[aria-selected="true"]');
       if (!(selectedStory instanceof HTMLElement)) {
         throw new Error("Phone product plate is missing its selected story");
@@ -392,12 +426,18 @@ test("presents the phone carousel as title, image, then matching caption", async
         stageHeight: stageBounds.height,
         titleBeforeImage: stageBounds.bottom <= imageBounds.top + 1,
         captionAfterImage: captionBounds.top >= imageBounds.bottom - 1,
-        captionBackground: getComputedStyle(caption).backgroundColor,
+        captionIsOutlined: Number.parseFloat(captionStyle.borderTopWidth) > 0,
+        captionIsRounded: Number.parseFloat(captionStyle.borderTopLeftRadius) > 0,
         imageIsInsetWithinPlate:
           imageBounds.left > plateBounds.left && imageBounds.right < plateBounds.right,
+        captionUsesNeutralSurface: captionStyle.backgroundColor === imagePaneStyle.backgroundColor,
+        imagePaneIsOutlined: Number.parseFloat(imagePaneStyle.borderTopWidth) > 0,
+        imagePaneIsRounded: Number.parseFloat(imagePaneStyle.borderTopLeftRadius) > 0,
         imageUsesUncroppedMaster: Math.abs(image.naturalWidth / image.naturalHeight - 1.6) < 0.01,
         panelAnimationName: getComputedStyle(panel).animationName,
         selectedDotDisplay: getComputedStyle(selectedStory, "::after").display,
+        sharedWrapperIsTransparent:
+          getComputedStyle(imageColumn).backgroundColor === "rgba(0, 0, 0, 0)",
         visibleCaptionCount: visibleCaptions.length,
       };
     });
@@ -408,11 +448,16 @@ test("presents the phone carousel as title, image, then matching caption", async
     imageStoryId: "parallel-work",
     titleBeforeImage: true,
     captionAfterImage: true,
-    captionBackground: "rgba(0, 0, 0, 0)",
+    captionIsOutlined: true,
+    captionIsRounded: true,
+    captionUsesNeutralSurface: true,
     imageIsInsetWithinPlate: true,
+    imagePaneIsOutlined: true,
+    imagePaneIsRounded: true,
     imageUsesUncroppedMaster: true,
     panelAnimationName: "none",
     selectedDotDisplay: "none",
+    sharedWrapperIsTransparent: true,
     visibleCaptionCount: 1,
   });
   expect((await readPhoneComposition()).stageHeight).toBeLessThanOrEqual(96);
@@ -858,9 +903,23 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
   await expect(page.locator(".showcase-surface-frost")).toHaveCount(0);
   await expect(showcaseSurface).toHaveAttribute("data-visual-state", "resting");
 
+  const restingMaterial = await showcaseSurface.evaluate((surface) => {
+    const surfaceStyle = getComputedStyle(surface);
+    return {
+      backgroundColor: surfaceStyle.backgroundColor,
+      borderColor: surfaceStyle.borderTopColor,
+      progress: surfaceStyle.getPropertyValue("--scroll-material-progress"),
+    };
+  });
+  expect(restingMaterial).toEqual({
+    backgroundColor: "rgba(30, 30, 46, 0)",
+    borderColor: "rgba(137, 180, 250, 0.38)",
+    progress: "0.000",
+  });
+
   await showcaseSurface.evaluate(async (surface) => {
     const surfaceStyle = getComputedStyle(surface);
-    const lift = Number.parseFloat(surfaceStyle.getPropertyValue("--showcase-surface-lift")) || 0;
+    const lift = Number.parseFloat(surfaceStyle.getPropertyValue("--scroll-material-lift")) || 0;
     const bounds = surface.getBoundingClientRect();
     const documentTop = window.scrollY + bounds.top - lift;
     const bottomBookendTop = window.innerHeight - bounds.height;
@@ -909,6 +968,8 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
       Number.parseFloat(selectedDotStyle.width) / 2;
     return {
       backdropFilter: surfaceStyle.backdropFilter,
+      backgroundColor: surfaceStyle.backgroundColor,
+      borderColor: surfaceStyle.borderTopColor,
       boxShadow: surfaceStyle.boxShadow,
       imageWidth: imageBounds.width,
       imageColumnBackground: getComputedStyle(imageColumn).backgroundColor,
@@ -930,12 +991,14 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
       selectedDotTitleCenterDelta: Math.abs(
         selectedTitleBounds.top + selectedTitleBounds.height / 2 - selectedDotCenter,
       ),
-      progress: Number(surfaceStyle.getPropertyValue("--showcase-surface-progress")),
+      progress: Number(surfaceStyle.getPropertyValue("--scroll-material-progress")),
       transform: surfaceStyle.transform,
     };
   });
 
   expect(liftedSurface.backdropFilter).not.toBe("none");
+  expect(liftedSurface.backgroundColor).not.toBe("rgba(30, 30, 46, 0)");
+  expect(liftedSurface.borderColor).toBe("rgba(137, 180, 250, 0.38)");
   expect(liftedSurface.boxShadow).not.toBe("none");
   expect(liftedSurface.imageWidth).toBeGreaterThan(900);
   expect(liftedSurface.imageColumnBackground).not.toBe("rgba(0, 0, 0, 0)");
@@ -978,7 +1041,7 @@ test("holds full glass while the complete showcase remains visible", async ({ pa
   const readProgressAt = async (surfaceTop: number): Promise<number> => {
     await showcaseSurface.evaluate(async (surface, targetSurfaceTop) => {
       const surfaceStyle = getComputedStyle(surface);
-      const lift = Number.parseFloat(surfaceStyle.getPropertyValue("--showcase-surface-lift")) || 0;
+      const lift = Number.parseFloat(surfaceStyle.getPropertyValue("--scroll-material-lift")) || 0;
       const documentTop = window.scrollY + surface.getBoundingClientRect().top - lift;
       window.scrollTo({ top: documentTop - targetSurfaceTop, behavior: "instant" });
       await new Promise<void>((resolve) =>
@@ -986,7 +1049,7 @@ test("holds full glass while the complete showcase remains visible", async ({ pa
       );
     }, surfaceTop);
     return showcaseSurface.evaluate((surface) =>
-      Number(getComputedStyle(surface).getPropertyValue("--showcase-surface-progress")),
+      Number(getComputedStyle(surface).getPropertyValue("--scroll-material-progress")),
     );
   };
 
@@ -1028,7 +1091,7 @@ test("keeps the glass slideshow surface static with reduced motion", async ({ pa
     return {
       dotAnimationName: selectedDotStyle.animationName,
       dotOpacity: selectedDotStyle.opacity,
-      progress: surfaceStyle.getPropertyValue("--showcase-surface-progress"),
+      progress: surfaceStyle.getPropertyValue("--scroll-material-progress"),
       transform: surfaceStyle.transform,
     };
   });
@@ -1060,16 +1123,87 @@ test("contains phone composition within the document viewport", async ({ page })
     return {
       clientWidth: document.documentElement.clientWidth,
       scrollWidth: document.documentElement.scrollWidth,
-      attachedHeaderWidth: header.getBoundingClientRect().width,
+      attachedHeader: {
+        width: header.getBoundingClientRect().width,
+        x: header.getBoundingClientRect().x,
+        top: header.getBoundingClientRect().top,
+        radius: getComputedStyle(header).borderRadius,
+        borders: {
+          top: getComputedStyle(header).borderTopWidth,
+          right: getComputedStyle(header).borderRightWidth,
+          bottom: getComputedStyle(header).borderBottomWidth,
+          left: getComputedStyle(header).borderLeftWidth,
+        },
+      },
     };
   });
 
   expect(documentWidths.scrollWidth).toBeLessThanOrEqual(documentWidths.clientWidth);
-  expect(documentWidths.attachedHeaderWidth).toBe(documentWidths.clientWidth - 36);
+  expect(documentWidths.attachedHeader).toEqual({
+    width: documentWidths.clientWidth,
+    x: 0,
+    top: 0,
+    radius: "0px",
+    borders: {
+      top: "0px",
+      right: "0px",
+      bottom: "0px",
+      left: "0px",
+    },
+  });
 
   await page.evaluate(() => window.scrollTo({ top: 500, behavior: "instant" }));
   await expect(siteHeader).toHaveAttribute("data-visual-state", "floating");
   await expect(siteHeader).toHaveCSS("width", "312px");
+  await expect(siteHeader).toHaveCSS("border-radius", "24px");
   await expect(page.getByRole("tab", { name: /Git and PR context/ })).toBeAttached();
   await expect(page.getByRole("button", { name: "Before close" })).toBeAttached();
+});
+
+test("keeps the compact attached header edge-to-edge until it detaches", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto("/");
+
+  const siteHeader = page.locator(".site-header");
+  const attachedGeometry = await siteHeader.evaluate((header) => {
+    const bounds = header.getBoundingClientRect();
+    const style = getComputedStyle(header);
+    return {
+      clientWidth: document.documentElement.clientWidth,
+      width: bounds.width,
+      x: bounds.x,
+      top: bounds.top,
+      radius: style.borderRadius,
+      borders: [
+        style.borderTopWidth,
+        style.borderRightWidth,
+        style.borderBottomWidth,
+        style.borderLeftWidth,
+      ],
+    };
+  });
+
+  expect(attachedGeometry.width).toBe(attachedGeometry.clientWidth);
+  expect(attachedGeometry).toMatchObject({
+    x: 0,
+    top: 0,
+    radius: "0px",
+    borders: ["0px", "0px", "0px", "0px"],
+  });
+
+  await page.evaluate(() => window.scrollTo({ top: 500, behavior: "instant" }));
+  await expect(siteHeader).toHaveAttribute("data-visual-state", "floating");
+  await expect(siteHeader).toHaveCSS("width", "672px");
+  await expect(siteHeader).toHaveCSS("border-radius", "24px");
+  expect(
+    await siteHeader.evaluate((header) => {
+      const style = getComputedStyle(header);
+      return [
+        style.borderTopWidth,
+        style.borderRightWidth,
+        style.borderBottomWidth,
+        style.borderLeftWidth,
+      ];
+    }),
+  ).toEqual(["1px", "1px", "1px", "1px"]);
 });

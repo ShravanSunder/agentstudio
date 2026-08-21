@@ -34,10 +34,10 @@ named proof both passed; editing the source alone does not complete an item.
 
 ### 2026-08-21 detached slideshow surface experiment
 
-Current result: `APPROVED FOR CHECKPOINT`. The owner accepted the nested glass
-composition, full-row dark selected state, selected-dot treatment, dot-free
-compact header, and visibility-based glass lifecycle. Deployment remains a
-separate decision.
+Current result: `APPROVED FOR CHECKPOINT`. The owner accepted the reusable
+materializing-glass chassis, nested desktop composition, three-pane compact
+composition, responsive attached header, and visibility-based lifecycle.
+Deployment remains a separate decision.
 
 - [x] Morph the existing product plate itself; do not place it inside another
       frame. Preserve its selectors, images, captions, geometry, and interaction.
@@ -50,10 +50,15 @@ separate decision.
 - [x] Keep every product screenshot opaque and sharp. Expose glass only through
       the surrounding chassis and chrome. Do not add a frost, blur, or color
       overlay over product pixels.
-- [x] Use the detached title bar's navy glass as the outer chassis, with a 4px
-      reveal around two equal-height columns and a 4px seam between them. The
-      selector column owns five separate rounded glass rows; inactive rows use
-      neutral charcoal glass and the selected row uses deeper dark frost.
+- [x] Extract the outer chassis into `ScrollMaterialSurface`, with one shared
+      controller that supports multiple future instances. At rest, retain only
+      the constant 38% primary-blue outline; materialize the navy fill, blur,
+      illumination, highlight, shadow, radius, and lift through the focus zone,
+      then reverse from the same scroll positions.
+- [x] On desktop, keep the 4px reveal around two equal-height columns and the
+      4px seam between them. The selector column owns five separately rounded
+      rows; inactive rows use neutral charcoal and the selected row uses deeper
+      dark frost.
 - [x] Place the screenshot inside an image-column surface using the same neutral
       charcoal glass as the inactive rows, with one 4px inset on all four sides.
       Preserve the screenshot as the opaque content surface; do not create a
@@ -63,6 +68,15 @@ separate decision.
       white and align one 8px primary-blue dot to the title centerline. Animate
       the desktop dot between 20% and 80% opacity without glow or scale. Hide
       the dot in compact mode so the selected title remains visually centered.
+- [x] Below `64rem`, present three peer panes inside the shared chassis:
+      controls, image, and description. Give each its own neutral-charcoal
+      material, outline, radius, and 4px separation; leave their structural
+      wrapper transparent. Keep both arrow controls tactile with the existing
+      active-surface token and restrained scale feedback.
+- [x] Below `64rem`, make the attached site header full-width, top-flush,
+      square, and borderless without changing its content or material. Preserve
+      the complete rounded border and inset geometry after it detaches, and
+      preserve the existing desktop attached state at `64rem` and above.
 - [x] Give reduced-motion visitors one static lifted surface without scroll-
       driven translation.
 - [x] Disable the image-and-caption panel entrance animation below `64rem` so
@@ -78,14 +92,15 @@ separate decision.
 Verification:
 
 - `pnpm --dir web exec playwright test tests/browser/marketing-homepage.spec.ts`:
-  46 focused desktop/mobile carousel checks pass after replacing obsolete
-  edge-to-edge assertions with the accepted nested-surface contract.
+  50 desktop/mobile homepage checks pass, including the reusable material
+  lifecycle, three compact panes, tactile navigation, and attached-header
+  geometry at phone, mid-width, and desktop sizes.
 
 - `pnpm --dir web run check`: type-aware Oxlint, Oxfmt, Astro/typecheck, 10
   capture masters and 6 responsive crops, pixel audit, and 14 unit tests pass.
 - `pnpm --dir web run test:browser`: 65 passed and 1 expected skip across the
   desktop and mobile projects.
-- `pnpm --dir web run build`: two static routes and 50 optimized image variants
+- `pnpm --dir web run build`: three static routes and 50 optimized image variants
   build successfully.
 - Independent visual review `carousel-glass-visual-review-2026-08-21`: `PASS`
   at `1600x1000` and `390x844` across Pane drawer, Quick Find, Review, scroll
