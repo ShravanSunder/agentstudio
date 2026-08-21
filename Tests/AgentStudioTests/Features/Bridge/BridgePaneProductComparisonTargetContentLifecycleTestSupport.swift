@@ -338,6 +338,7 @@ struct BridgeReviewComparisonTargetsContentRequestTest: Encodable {
         try container.encode(descriptor, forKey: .descriptor)
         try container.encode("content.open", forKey: .kind)
         try container.encode("lease-\(suffix)", forKey: .leaseId)
+        try container.encodeNil(forKey: .operationCorrelationId)
         try container.encode(paneSessionId, forKey: .paneSessionId)
         try container.encode(2, forKey: .wireVersion)
         try container.encode(workerDerivationEpoch, forKey: .workerDerivationEpoch)
@@ -350,6 +351,7 @@ struct BridgeReviewComparisonTargetsContentRequestTest: Encodable {
         case descriptor
         case kind
         case leaseId
+        case operationCorrelationId
         case paneSessionId
         case wireVersion
         case workerDerivationEpoch
