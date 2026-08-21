@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const productStoryCases = [
-  { id: "parallel-work", accessibleName: /Parallel work/ },
+  { id: "parallel-work", accessibleName: /Parallel agents/ },
   { id: "pane-drawer", accessibleName: /Pane drawer/ },
   { id: "quick-find", accessibleName: /Quick Find/ },
   { id: "review", accessibleName: /Review/ },
@@ -67,7 +67,7 @@ test("renders the claim-first homepage and switches product stories", async ({ p
 
   const productTabs = page.getByRole("tab");
   await expect(productTabs).toHaveCount(5);
-  await expect(page.getByRole("tab", { name: /Parallel work/ })).toHaveAttribute(
+  await expect(page.getByRole("tab", { name: /Parallel agents/ })).toHaveAttribute(
     "aria-selected",
     "true",
   );
@@ -585,11 +585,23 @@ test("presents supporting features as text and product media without numbered di
   await page.goto("/");
 
   const featureDetails = page.locator(".feature-detail");
-  await expect(featureDetails).toHaveCount(4);
+  await expect(featureDetails).toHaveCount(3);
   await expect(page.locator(".feature-detail__number")).toHaveCount(0);
   await expect(page.locator(".feature-detail details, .feature-detail summary")).toHaveCount(0);
-  await expect(page.locator(".feature-detail__media")).toHaveCount(4);
+  await expect(page.locator(".feature-detail__media")).toHaveCount(3);
   await expect(page.locator(".feature-detail__media img")).toHaveCount(5);
+  await expect(page.getByRole("heading", { name: "Run the agents you already use." })).toHaveCount(
+    0,
+  );
+
+  const arrangementsPanel = page.locator(".feature-detail").nth(1);
+  const savedLayoutButton = arrangementsPanel.getByRole("button", { name: "Saved layout" });
+  const paneZoomButton = arrangementsPanel.getByRole("button", { name: "Pane Zoom" });
+  await expect(savedLayoutButton).toHaveAttribute("aria-pressed", "true");
+  await expect(paneZoomButton).toHaveAttribute("aria-pressed", "false");
+  await paneZoomButton.click();
+  await expect(savedLayoutButton).toHaveAttribute("aria-pressed", "false");
+  await expect(paneZoomButton).toHaveAttribute("aria-pressed", "true");
 
   const featureGeometry = await featureDetails.evaluateAll((features) =>
     features.map((feature) => {

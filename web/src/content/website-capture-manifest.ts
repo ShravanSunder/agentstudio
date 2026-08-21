@@ -4,6 +4,8 @@ export type WebsiteCaptureId =
   | "quick-find"
   | "review"
   | "git-context"
+  | "arrangement-saved"
+  | "pane-zoom"
   | "persistent-before"
   | "persistent-restored";
 
@@ -62,9 +64,9 @@ export const websiteCaptureSuite = {
     renderer: "Native macOS",
     compositorVersion: "Peekaboo 4.2.2 exact-window Retina capture",
     exportCompositor:
-      "FFmpeg 9.0.1 localized privacy blur; Sharp 0.35.3 sRGB conversion and phone crops",
+      "ColorSync sRGB conversion without resizing; canonical same-geometry native alpha boundary for Parallel agents; frozen phone crops",
     focalPixelPolicy:
-      "Native app and sheet pixels remain unchanged except for a bounded blur over the Antigravity account email in Parallel and Drawer",
+      "Native app and sheet RGB pixels remain unchanged after capture except for recorded privacy treatment and color-profile normalization",
     contextualScrim: "Native Agent Studio treatment only",
     focusRail: "None",
     duplicateProductMedia: false,
@@ -72,10 +74,10 @@ export const websiteCaptureSuite = {
   captures: [
     {
       id: "parallel-work",
-      assetPath: "../assets/captures/parallel-work.png",
+      assetPath: "../assets/captures/parallel-agents.png",
       phoneAssetPath: "../assets/captures/parallel-work-phone.png",
       alternativeText:
-        "Agent Studio All Panes with agent-vm and agentstudio context beside Antigravity and Codex.",
+        "Agent Studio All Panes showing active Codex and Claude Code sessions with repository, worktree, branch, and activity context.",
       source: {
         productRevision: "0.0.90-beta.30 (151)",
         fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
@@ -83,9 +85,9 @@ export const websiteCaptureSuite = {
         executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
       },
       processGeneration: "A",
-      sourceSha256: "3bb2606b47aac09c038c3a1384b5677f09303968a25b3ec57dc0dd7944001c9a",
-      normalizedMasterSha256: "79eae201fb1e4a145f308797aca8729a96df1011aa934bd43f10ed4817fbdec2",
-      websiteAssetSha256: "79eae201fb1e4a145f308797aca8729a96df1011aa934bd43f10ed4817fbdec2",
+      sourceSha256: "9c61b828ae7d47c0c9bf9847f1a70f9827fc6ccd6143d66bba7cf8e5aabeba91",
+      normalizedMasterSha256: "ee9f4586fdc036ed4030c29e04d8ba65356f44dcec5aaaa6e4c965a6c84f50e0",
+      websiteAssetSha256: "ee9f4586fdc036ed4030c29e04d8ba65356f44dcec5aaaa6e4c965a6c84f50e0",
       phoneWebsiteAssetSha256: "d5a6d6ab015958f06764c38dfb43adfa54e50aa203a17f0d7d993156dbc3f502",
       focusRegion: null,
       focusRadiusPixels: null,
@@ -181,20 +183,59 @@ export const websiteCaptureSuite = {
       settledAtSeconds: 1,
     },
     {
-      id: "persistent-before",
-      assetPath: "../assets/captures/persistent-before.png",
+      id: "arrangement-saved",
+      assetPath: "../assets/captures/arrangement-saved.png",
       alternativeText:
-        "Agent Studio before closing with five tabs, All Panes, a CI workflow diff in Review, and Claude Code in the matching worktree for pull request 313.",
+        "Agent Studio with the Parallel agents arrangement active, showing Codex and Claude Code side by side with the global sidebar hidden.",
       source: {
-        productRevision: "2b0ff02d47b447ee67393c42b2a02a65894d3a36",
-        fixtureIdentity: "h4u3-real-projects-2026-08-20",
-        bundleIdentifier: "com.agentstudio.app.debug.dh4u3",
-        executableSha256: "6f53124fb6e8575e69cc0b1ce59aa1701855ae892754e72d9495eb67ce704ff4",
+        productRevision: "0.0.90-beta.30 (151)",
+        fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
+        bundleIdentifier: "com.agentstudio.app.beta",
+        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
       },
       processGeneration: "A",
-      sourceSha256: "90014a79378bbefe0432401146b57c22103b9bca8f0d05b37b83ff53015e7db5",
-      normalizedMasterSha256: "67d4164fd45e4601f5d56a7de14751f7f03e91bc9ac7b6271e48b5384448d627",
-      websiteAssetSha256: "67d4164fd45e4601f5d56a7de14751f7f03e91bc9ac7b6271e48b5384448d627",
+      sourceSha256: "3b0a01201b1b66cc8dd8205c7eefea38a4fce1ad3c633566386666347cf6f40f",
+      normalizedMasterSha256: "839cad625cbf95181715b924075a2dd73615cae6b65ebb5d125c6ea0e42d96d6",
+      websiteAssetSha256: "839cad625cbf95181715b924075a2dd73615cae6b65ebb5d125c6ea0e42d96d6",
+      focusRegion: null,
+      focusRadiusPixels: null,
+      focusRail: false,
+      settledAtSeconds: 1,
+    },
+    {
+      id: "pane-zoom",
+      assetPath: "../assets/captures/pane-zoom.png",
+      alternativeText: "Claude Code filling the Agent Studio workspace in Pane Zoom.",
+      source: {
+        productRevision: "0.0.90-beta.30 (151)",
+        fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
+        bundleIdentifier: "com.agentstudio.app.beta",
+        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
+      },
+      processGeneration: "A",
+      sourceSha256: "7b5ed5a79df6adcda772e92a65deb2c5e0b3397360fd8c7244556f07d9446c2f",
+      normalizedMasterSha256: "e41ad06b0da16b974611469d48a7d647ab35cbb543d859fdda017398bd2e81db",
+      websiteAssetSha256: "e41ad06b0da16b974611469d48a7d647ab35cbb543d859fdda017398bd2e81db",
+      focusRegion: null,
+      focusRadiusPixels: null,
+      focusRail: false,
+      settledAtSeconds: 1,
+    },
+    {
+      id: "persistent-before",
+      assetPath: "../assets/captures/persistence-claude-before.png",
+      alternativeText:
+        "Agent Studio before closing with All Panes, the Parallel agents arrangement, Codex, and Claude Code visible.",
+      source: {
+        productRevision: "0.0.90-beta.30 (151)",
+        fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
+        bundleIdentifier: "com.agentstudio.app.beta",
+        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
+      },
+      processGeneration: "A",
+      sourceSha256: "f2c578f3888731018e4652653ac418e8bd70f8c72b6aaa93c5c1bf5a18c81b7b",
+      normalizedMasterSha256: "8fe88d440c0ec59d031270b97c46187e7c0fc83d1156f30b98dabfc48a80585c",
+      websiteAssetSha256: "8fe88d440c0ec59d031270b97c46187e7c0fc83d1156f30b98dabfc48a80585c",
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,
@@ -202,19 +243,19 @@ export const websiteCaptureSuite = {
     },
     {
       id: "persistent-restored",
-      assetPath: "../assets/captures/persistent-restored.png",
+      assetPath: "../assets/captures/persistence-claude-restored.png",
       alternativeText:
-        "Agent Studio after reopening with the same five tabs, All Panes grouping, CI workflow diff, Claude Code worktree, pull request, and terminal session.",
+        "Agent Studio after reopening in the Parallel agents arrangement with All Panes, Codex, and continued Claude Code terminal output visible.",
       source: {
-        productRevision: "2b0ff02d47b447ee67393c42b2a02a65894d3a36",
-        fixtureIdentity: "h4u3-real-projects-2026-08-20",
-        bundleIdentifier: "com.agentstudio.app.debug.dh4u3",
-        executableSha256: "6f53124fb6e8575e69cc0b1ce59aa1701855ae892754e72d9495eb67ce704ff4",
+        productRevision: "0.0.90-beta.30 (151)",
+        fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
+        bundleIdentifier: "com.agentstudio.app.beta",
+        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
       },
       processGeneration: "B",
-      sourceSha256: "ca86b5996a578c1f1422020bb22cbc6c7ed35df4d2dacfc544fe7dc9bd20469a",
-      normalizedMasterSha256: "11817756f0e2b8254d5741ac294a7ae3dbbd852c4d14a8435fdaf6dd60f192c1",
-      websiteAssetSha256: "11817756f0e2b8254d5741ac294a7ae3dbbd852c4d14a8435fdaf6dd60f192c1",
+      sourceSha256: "4c84f5a68a52c7074c5c9fa084bbf589b57c7d2b69e0cacc7b97007d6443bc16",
+      normalizedMasterSha256: "dc6ecb25de709cf1b86873edf467e596546437a63ac1ee7ff698b202c8f4a8e3",
+      websiteAssetSha256: "dc6ecb25de709cf1b86873edf467e596546437a63ac1ee7ff698b202c8f4a8e3",
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,

@@ -2,7 +2,7 @@ import type { ImageMetadata } from "astro";
 
 import gitContextImage from "@/assets/captures/git-pull-request-context.png";
 import paneDrawerImage from "@/assets/captures/pane-drawer.png";
-import parallelWorkImage from "@/assets/captures/parallel-work.png";
+import parallelAgentsImage from "@/assets/captures/parallel-agents.png";
 import quickFindImage from "@/assets/captures/quick-find.png";
 import reviewImage from "@/assets/captures/review.png";
 import { marketingCopy } from "@/marketing-copy";
@@ -28,7 +28,7 @@ export const productPlateStories = [
     label: marketingCopy.stories.parallelWork.label,
     description: marketingCopy.stories.parallelWork.description,
     phoneDescription: marketingCopy.stories.parallelWork.phoneDescription,
-    image: parallelWorkImage,
+    image: parallelAgentsImage,
     alternativeText: marketingCopy.stories.parallelWork.imageDescription,
   },
   {

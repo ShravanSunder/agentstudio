@@ -7,16 +7,29 @@ import { marketingCopy } from "@/marketing-copy";
 interface Props {
   readonly beforeImage: ImageMetadata;
   readonly restoredImage: ImageMetadata;
+  readonly beforeLabel?: string;
+  readonly restoredLabel?: string;
+  readonly beforeImageDescription?: string;
+  readonly restoredImageDescription?: string;
+  readonly accessibilityLabel?: string;
 }
 
-const { beforeImage, restoredImage } = Astro.props;
+const {
+  beforeImage,
+  restoredImage,
+  beforeLabel = marketingCopy.stories.persistence.beforeLabel,
+  restoredLabel = marketingCopy.stories.persistence.restoredLabel,
+  beforeImageDescription = marketingCopy.stories.persistence.beforeImageDescription,
+  restoredImageDescription = marketingCopy.stories.persistence.restoredImageDescription,
+  accessibilityLabel = "Workspace restoration",
+} = Astro.props;
 ---
 
 <div class="persistence-proof" data-persistence-proof data-enhanced="false">
   <div
     class="flex min-h-12 border-b border-line-strong bg-canvas"
     role="group"
-    aria-label="Workspace restoration"
+    aria-label={accessibilityLabel}
   >
     <button
       type="button"
@@ -25,7 +38,7 @@ const { beforeImage, restoredImage } = Astro.props;
       aria-pressed="true"
       disabled
     >
-      {marketingCopy.stories.persistence.beforeLabel}
+      {beforeLabel}
     </button>
     <button
       type="button"
@@ -34,14 +47,14 @@ const { beforeImage, restoredImage } = Astro.props;
       aria-pressed="false"
       disabled
     >
-      {marketingCopy.stories.persistence.restoredLabel}
+      {restoredLabel}
     </button>
   </div>
 
   <figure class="m-0" data-persistence-frame="before">
     <Image
       src={beforeImage}
-      alt={marketingCopy.stories.persistence.beforeImageDescription}
+      alt={beforeImageDescription}
       widths={[720, 1080, 1440, 2160]}
       sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
       format="png"
@@ -53,7 +66,7 @@ const { beforeImage, restoredImage } = Astro.props;
   <figure class="m-0" data-persistence-frame="restored" hidden>
     <Image
       src={restoredImage}
-      alt={marketingCopy.stories.persistence.restoredImageDescription}
+      alt={restoredImageDescription}
       widths={[720, 1080, 1440, 2160]}
       sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
       format="png"

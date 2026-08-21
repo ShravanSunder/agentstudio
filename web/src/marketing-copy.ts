@@ -18,11 +18,11 @@ export const marketingCopy = {
   },
   stories: {
     parallelWork: {
-      label: "Parallel work",
+      label: "Parallel agents",
       description: "See which repository, worktree, branch, and directory each agent is using.",
       phoneDescription: "See every agent's repo and branch.",
       imageDescription:
-        "Agent Studio All Panes with agent-vm and agentstudio context beside Antigravity and Codex.",
+        "Agent Studio All Panes showing active Codex and Claude Code sessions with repository, worktree, branch, and activity context.",
     },
     paneDrawer: {
       label: "Pane drawer",
@@ -59,22 +59,22 @@ export const marketingCopy = {
       beforeLabel: "Before close",
       restoredLabel: "Restored",
       beforeImageDescription:
-        "Five tabs, All Panes, a CI workflow diff in Review, and Claude Code in the matching worktree before closing.",
+        "Agent Studio before closing with All Panes, the Parallel agents arrangement, Codex, and Claude Code visible.",
       restoredImageDescription:
-        "The same five tabs, All Panes grouping, CI workflow diff, Claude Code worktree, pull request, and terminal session after reopening.",
+        "Agent Studio after reopening in the Parallel agents arrangement with All Panes, Codex, and continued Claude Code terminal output visible.",
     },
   },
   featureDetails: {
     eyebrow: "More of the workspace",
     headline: "The work around each agent matters too.",
-    description: "Sessions, layouts, pane types, and CLI agents stay part of the same workspace.",
+    description: "Sessions, layouts, and pane types stay part of the same workspace.",
     items: [
       {
         id: "persistence",
         title: "Close the app. Keep the work.",
-        summary: "Terminal processes keep running while the workspace closes.",
+        summary: "Terminal processes keep running after the app closes.",
         detail:
-          "Reopen Agent Studio to restore tabs, panes, drawers, layouts, and visible terminal sessions instead of rebuilding the workspace by hand.",
+          "Reopen Agent Studio and return to the same tabs, panes, drawers, arrangements, and visible terminal sessions.",
       },
       {
         id: "arrangements",
@@ -82,8 +82,12 @@ export const marketingCopy = {
         summary: "Use named arrangements, or zoom one pane when you need focus.",
         detail:
           "Switch between saved arrangements without stopping the work in other panes, then return to the wider workspace when you are ready.",
-        imageDescription:
-          "A restored Agent Studio workspace with its tabs, panes, Review surface, and sidebar grouping intact.",
+        savedArrangementLabel: "Saved layout",
+        paneZoomLabel: "Pane Zoom",
+        savedArrangementImageDescription:
+          "Agent Studio with the Parallel agents arrangement active, showing Codex and Claude Code side by side with the global sidebar hidden.",
+        paneZoomImageDescription:
+          "Claude Code filling the Agent Studio workspace in Pane Zoom.",
       },
       {
         id: "pane-types",
@@ -93,15 +97,6 @@ export const marketingCopy = {
           "Keep source, diffs, browser context, and supporting terminals beside the task that needs them instead of opening another disconnected window.",
         imageDescription:
           "A terminal beside Agent Studio Review with a changed-files tree and unified diff.",
-      },
-      {
-        id: "agent-agnostic",
-        title: "Run the agents you already use.",
-        summary: "Codex, Claude Code, and other CLI agents use the same workspace model.",
-        detail:
-          "Agent Studio organizes the repository, worktree, branch, and panes around the task without requiring one agent vendor or protocol.",
-        imageDescription:
-          "Codex and Claude Code working in separate panes inside one Agent Studio workspace.",
       },
     ],
   },

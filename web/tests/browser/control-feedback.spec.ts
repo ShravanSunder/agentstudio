@@ -27,7 +27,7 @@ test("gives primary and neutral controls consistent hover and pressed feedback",
   await expect(nextStoryButton).toHaveCSS("background-color", activeSurfaceColor);
   await page.mouse.up();
 
-  const restoredButton = page.locator('[data-persistence-proof-button="restored"]');
+  const restoredButton = page.getByRole("button", { name: "Restored" });
   await restoredButton.scrollIntoViewIfNeeded();
   await restoredButton.hover();
   await expect(restoredButton).toHaveCSS("background-color", canvasColor);
@@ -44,7 +44,7 @@ test("removes control transition duration when reduced motion is requested", asy
   const controls = [
     page.locator("[data-install-copy]"),
     page.locator("[data-product-plate-next]"),
-    page.locator('[data-persistence-proof-button="restored"]'),
+    page.getByRole("button", { name: "Restored" }),
   ];
 
   await Promise.all(

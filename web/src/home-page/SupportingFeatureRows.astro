@@ -1,17 +1,16 @@
 ---
 import { Image } from "astro:assets";
 
-import parallelWorkImage from "@/assets/captures/parallel-work.png";
-import persistentBeforeImage from "@/assets/captures/persistent-before.png";
-import persistentRestoredImage from "@/assets/captures/persistent-restored.png";
+import arrangementSavedImage from "@/assets/captures/arrangement-saved.png";
+import paneZoomImage from "@/assets/captures/pane-zoom.png";
+import persistentBeforeImage from "@/assets/captures/persistence-claude-before.png";
+import persistentRestoredImage from "@/assets/captures/persistence-claude-restored.png";
 import reviewImage from "@/assets/captures/review.png";
 import { marketingCopy } from "@/marketing-copy";
 import PersistenceProof from "@/product-plate/PersistenceProof.astro";
 
 const mediaByFeatureId = {
-  arrangements: persistentRestoredImage,
   "pane-types": reviewImage,
-  "agent-agnostic": parallelWorkImage,
 } as const;
 ---
 
@@ -52,6 +51,16 @@ const mediaByFeatureId = {
               <PersistenceProof
                 beforeImage={persistentBeforeImage}
                 restoredImage={persistentRestoredImage}
+              />
+            ) : item.id === "arrangements" ? (
+              <PersistenceProof
+                beforeImage={arrangementSavedImage}
+                restoredImage={paneZoomImage}
+                beforeLabel={item.savedArrangementLabel}
+                restoredLabel={item.paneZoomLabel}
+                beforeImageDescription={item.savedArrangementImageDescription}
+                restoredImageDescription={item.paneZoomImageDescription}
+                accessibilityLabel="Workspace layout presentation"
               />
             ) : (
               <Image
