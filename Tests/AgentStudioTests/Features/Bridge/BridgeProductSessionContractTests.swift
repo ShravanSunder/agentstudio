@@ -824,6 +824,7 @@ extension BridgeProductSessionContractTests {
                 let method = call["method"] as? String
             else { return nil }
             switch method {
+            case "file.refresh.retry": return "file"
             case "review.comparisonTargets.query", "review.markFileViewed": return "review"
             default: return nil
             }
