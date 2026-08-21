@@ -65,8 +65,6 @@ struct BridgePackagedProductJourneyScriptTests {
             encoding: .utf8
         )
 
-        #expect(runnerSource.contains(#"early_relative_path="zz-primer.swift""#))
-        #expect(runnerSource.contains(#"if [ "$index" -eq 0 ]; then"#))
         #expect(runnerSource.contains("AGENTSTUDIO_BRIDGE_JOURNEY_TARGET_NAME"))
         #expect(runnerSource.contains("refs/remotes/origin/HEAD"))
         #expect(runnerSource.contains("refs/heads/$comparison_target_name"))
@@ -516,6 +514,28 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(!source.contains("rm -rf"))
     }
 
+    @Test("runner isolates application state inside each packaged journey")
+    func runnerIsolatesApplicationStateInsideEachPackagedJourney() throws {
+        let runnerSource = try String(
+            contentsOfFile: "scripts/run-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+        let verifierSource = try String(
+            contentsOfFile: "scripts/verify-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        #expect(runnerSource.contains(#"runtime_data_root="$journey_root/app-data""#))
+        #expect(runnerSource.contains(#"AGENTSTUDIO_DEBUG_DATA_DIR="$runtime_data_root""#))
+        #expect(
+            runnerSource.contains(
+                "write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_DATA_ROOT \"$runtime_data_root\""
+            )
+        )
+        #expect(verifierSource.contains("AGENTSTUDIO_BRIDGE_JOURNEY_DATA_ROOT"))
+        #expect(verifierSource.contains(#"if [ "$state_data_dir" != "$journey_data_root" ]; then"#))
+    }
+
     @Test("runner disables commit signing only inside its disposable fixture")
     func runnerDisablesCommitSigningOnlyInsideDisposableFixture() throws {
         let source = try String(
@@ -539,6 +559,8 @@ struct BridgePackagedProductJourneyScriptTests {
         )
         let verifierOwnedKeys = [
             "AGENTSTUDIO_BRIDGE_JOURNEY_STATUS",
+            "JOURNEY_ROOT",
+            "AGENTSTUDIO_BRIDGE_JOURNEY_DATA_ROOT",
             "AGENTSTUDIO_BRIDGE_JOURNEY_OBSERVABILITY_STATE_FILE",
             "AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_ROOT",
             "AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_FILE_COUNT",

@@ -60,6 +60,8 @@ fixture_digest_for_current_worktree() {
 }
 
 journey_status=""
+journey_root=""
+journey_data_root=""
 observability_state_file=""
 fixture_root=""
 expected_file_count=""
@@ -82,6 +84,8 @@ while IFS='=' read -r key raw_value; do
   value="$(decode_state_value "$raw_value")"
   case "$key" in
     AGENTSTUDIO_BRIDGE_JOURNEY_STATUS) journey_status="$value" ;;
+    JOURNEY_ROOT) journey_root="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_DATA_ROOT) journey_data_root="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_OBSERVABILITY_STATE_FILE) observability_state_file="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_ROOT) fixture_root="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_FILE_COUNT) expected_file_count="$value" ;;
@@ -189,6 +193,15 @@ while IFS='=' read -r key raw_value; do
     AGENTSTUDIO_OBSERVABILITY_PROOF_TOKEN) state_proof_token="$value" ;;
   esac
 done <"$observability_state_file"
+
+if [ "$journey_data_root" != "$journey_root/app-data" ]; then
+  echo "Bridge packaged journey application data root is not isolated inside its journey" >&2
+  exit 1
+fi
+if [ "$state_data_dir" != "$journey_data_root" ]; then
+  echo "Bridge packaged journey candidate did not launch with its isolated application data root" >&2
+  exit 1
+fi
 
 if [ "$state_status" != "running" ] || [ "$state_launch_method" != "launchservices" ]; then
   echo "Bridge packaged journey requires a running strict LaunchServices candidate" >&2

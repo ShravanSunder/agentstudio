@@ -46,6 +46,7 @@ if [ "$dry_run" = true ]; then
   echo "dry-run contract: delegates to the standard debug observability runner"
   echo "dry-run contract: requires strict LaunchServices with direct fallback disabled"
   echo "dry-run contract: creates a private disposable hierarchical Git fixture outside the repo"
+  echo "dry-run contract: isolates application state inside the current packaged journey"
   echo "dry-run contract: starts with 257 initial Review diffs across the hierarchical fixture"
   echo "dry-run contract: starts the bridge-product-paint-correlation diagnostic with one-shot IPC escrow"
   echo "dry-run contract: seeds a designated default and an explicit symbolic comparison target"
@@ -127,6 +128,7 @@ AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$OBSERVABILITY_STATE_FILE" \
 
 run_identifier="$(date -u +%Y%m%dT%H%M%SZ)-$$-$(uuidgen | tr '[:upper:]' '[:lower:]')"
 journey_root="$debug_data_root/bridge-packaged-product-journeys/$run_identifier"
+runtime_data_root="$journey_root/app-data"
 fixture_root="$journey_root/fixture"
 run_state_file="$journey_root/journey.env"
 mkdir -p "$fixture_root" "$(dirname "$JOURNEY_STATE_FILE")"
@@ -144,7 +146,7 @@ comparison_target_name=journey-stack-base
 tracked_relative_path=tracked.txt
 tracked_sha256=""
 tracked_byte_count=0
-early_relative_path="zz-primer.swift"
+early_relative_path="tree/group-00/segment-00/file-000.swift"
 middle_relative_path="tree/group-04/segment-00/file-128.swift"
 final_relative_path="tree/group-07/segment-03/file-255.swift"
 early_baseline_sha256=""
@@ -163,6 +165,7 @@ write_receipt() {
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_REASON "$reason"
     write_state_value DEBUG_CODE "$debug_code"
     write_state_value JOURNEY_ROOT "$journey_root"
+    write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_DATA_ROOT "$runtime_data_root"
     write_state_value RUN_STATE_FILE "$run_state_file"
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_OBSERVABILITY_STATE_FILE "$OBSERVABILITY_STATE_FILE"
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_ROOT "$fixture_root"
@@ -215,14 +218,10 @@ write_receipt "$journey_status" "$journey_reason"
 printf 'bridge-product-paint-baseline\n' >"$fixture_root/$tracked_relative_path"
 fixture_file_count=1
 for index in $(seq 0 255); do
-  if [ "$index" -eq 0 ]; then
-    relative_path="$early_relative_path"
-  else
-    group_index=$((index / 32))
-    segment_index=$(((index % 32) / 8))
-    printf -v relative_path 'tree/group-%02d/segment-%02d/file-%03d.swift' \
-      "$group_index" "$segment_index" "$index"
-  fi
+  group_index=$((index / 32))
+  segment_index=$(((index % 32) / 8))
+  printf -v relative_path 'tree/group-%02d/segment-%02d/file-%03d.swift' \
+    "$group_index" "$segment_index" "$index"
   mkdir -p "$(dirname "$fixture_root/$relative_path")"
   printf '// bridge packaged journey baseline %03d\nlet fixtureValue%03d = %d\n' \
     "$index" "$index" "$index" >"$fixture_root/$relative_path"
@@ -252,14 +251,10 @@ baseline_commit="$($GIT_BIN -C "$fixture_root" rev-parse HEAD)"
 printf 'bridge-product-paint-canary\npackaged-journey-selected-source\n' \
   >"$fixture_root/$tracked_relative_path"
 for index in $(seq 0 255); do
-  if [ "$index" -eq 0 ]; then
-    relative_path="$early_relative_path"
-  else
-    group_index=$((index / 32))
-    segment_index=$(((index % 32) / 8))
-    printf -v relative_path 'tree/group-%02d/segment-%02d/file-%03d.swift' \
-      "$group_index" "$segment_index" "$index"
-  fi
+  group_index=$((index / 32))
+  segment_index=$(((index % 32) / 8))
+  printf -v relative_path 'tree/group-%02d/segment-%02d/file-%03d.swift' \
+    "$group_index" "$segment_index" "$index"
   printf '\nbridge-packaged-live::%s\n' "$relative_path" >>"$fixture_root/$relative_path"
 done
 tracked_sha256="$(sha256_for_file "$fixture_root/$tracked_relative_path")"
@@ -292,6 +287,7 @@ write_receipt "$journey_status" ""
 
 unset AGENTSTUDIO_IPC_UNSAFE_NO_AUTH
 if ! AGENTSTUDIO_DEBUG_DIRECT_FALLBACK=0 \
+  AGENTSTUDIO_DEBUG_DATA_DIR="$runtime_data_root" \
   AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
   AGENTSTUDIO_STARTUP_WATCH_FOLDER="$fixture_root" \
   AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=bridge-product-paint-correlation \
