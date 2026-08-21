@@ -308,10 +308,21 @@ describe('worktree annotation Pierre range selection', () => {
 				document.querySelector('[data-testid="worktree-annotation-committed-pending-projection"]'),
 			).not.toBeNull();
 			expect(document.querySelector('[aria-label="Write an annotation in Markdown"]')).toBeNull();
+			const codeRowAfterSave = requireHTMLElement(
+				reviewAdditionRows()[1] ?? null,
+				'Expected a Review code row after the committed Save receipt.',
+			);
+			const codeRowAfterSaveBounds = codeRowAfterSave.getBoundingClientRect();
 			await act(async (): Promise<void> => {
-				dispatchPointer(document.body, 'pointerdown', {
-					clientX: 4,
-					clientY: 4,
+				dispatchPointer(codeRowAfterSave, 'pointerdown', {
+					clientX: codeRowAfterSaveBounds.left + 4,
+					clientY: codeRowAfterSaveBounds.top + codeRowAfterSaveBounds.height / 2,
+					pointerId: 29,
+					pointerType: 'mouse',
+				});
+				dispatchPointer(document, 'pointerup', {
+					clientX: codeRowAfterSaveBounds.left + 4,
+					clientY: codeRowAfterSaveBounds.top + codeRowAfterSaveBounds.height / 2,
 					pointerId: 29,
 					pointerType: 'mouse',
 				});

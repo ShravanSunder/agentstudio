@@ -230,6 +230,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			) {
 				return;
 			}
+			if (pendingAnnotationComposerRef.current?.committed === true) return;
 			if (range === null && pendingAnnotationComposerRef.current !== null) return;
 			const selectedItem = props.selectedCodeViewItem;
 			const sourceDescriptorId = selectedItem?.bridgeMetadata.sourceDescriptorId;
@@ -290,8 +291,12 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			...(props.codeViewOptions ?? bridgeFileViewerCodeViewOptions),
 			enableGutterUtility: true,
 			enableLineSelection: true,
-			onGutterUtilityClick: (range, context): void => admitSelectedRange(range, context.item.id),
+			onGutterUtilityClick: (range, context): void => {
+				if (pendingAnnotationComposerRef.current?.committed === true) return;
+				admitSelectedRange(range, context.item.id);
+			},
 			onLineSelectionEnd: (range, context): void => {
+				if (pendingAnnotationComposerRef.current?.committed === true) return;
 				if (range === null) admitSelectedRange(null, '');
 				else retainSelectedRange(range, context.item.id);
 			},

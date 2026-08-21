@@ -236,6 +236,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			) {
 				return;
 			}
+			if (pendingComposerRef.current?.committed === true) return;
 			if (range === null && pendingComposerRef.current !== null) return;
 			const descriptor = itemId === null ? undefined : props.reviewPackage.itemsById[itemId];
 			if (range === null || descriptor === undefined || itemId === null) {
@@ -282,8 +283,12 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 				...props.codeViewOptions,
 				enableGutterUtility: true,
 				enableLineSelection: true,
-				onGutterUtilityClick: (range, context): void => admitSelectedRange(range, context.item),
+				onGutterUtilityClick: (range, context): void => {
+					if (pendingComposerRef.current?.committed === true) return;
+					admitSelectedRange(range, context.item);
+				},
 				onLineSelectionEnd: (range, context): void => {
+					if (pendingComposerRef.current?.committed === true) return;
 					if (range === null) admitSelectedRange(null, null);
 					else retainSelectedRange(range, context.item.id);
 				},
