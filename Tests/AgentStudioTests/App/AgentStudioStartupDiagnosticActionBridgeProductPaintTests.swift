@@ -202,9 +202,28 @@ struct BridgeProductPaintStartupDiagnosticTests {
         )
         #expect(
             javaScript.contains(
-                "fileSelectedPathMatched,\n    fileSelectionActivationAttempted"
+                "fileSelectedPathMatched,\n    fileSelectionPrimerActivationAttempted,\n"
+                    + "    fileSelectionActivationAttempted"
             ))
         #expect(!javaScript.contains("fileSelectedPath !== relativePath"))
+    }
+
+    @Test("Bridge product paint diagnostic forces a File identity transition before selecting its proof target")
+    func bridgeProductPaintDiagnosticForcesFileIdentityTransitionBeforeTargetSelection() {
+        // Arrange / Act
+        let javaScript = AppDelegate.bridgeProductPaintCorrelationJavaScript(
+            relativePath: "tracked.txt",
+            primerRelativePath: "tree/group-00/segment-00/file-000.swift",
+            sha256: "expected-sha",
+            canary: "expected-canary"
+        )
+
+        // Assert
+        #expect(javaScript.contains("const primerRelativePath ="))
+        #expect(javaScript.contains("fileSelectedPath === primerRelativePath"))
+        #expect(javaScript.contains("fileSelectionPrimerActivationAttempted"))
+        #expect(javaScript.contains("CSS.escape(primerRelativePath)"))
+        #expect(javaScript.contains("CSS.escape(relativePath)"))
     }
 
     @Test("Bridge product paint diagnostic exports scrub-safe File transition disposition")

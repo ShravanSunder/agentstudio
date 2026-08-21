@@ -209,6 +209,8 @@ import WebKit
     @MainActor
     extension AppDelegate {
         nonisolated private static let bridgeProductPaintFixtureRelativePath = "tracked.txt"
+        nonisolated private static let bridgeProductPaintFixturePrimerRelativePath =
+            "tree/group-00/segment-00/file-000.swift"
         nonisolated private static let bridgeProductPaintFixtureCanary = "bridge-product-paint-canary"
 
         func runBridgeProductPaintCorrelationDiagnostic(
@@ -254,6 +256,7 @@ import WebKit
             paneTabViewController()?.execute(.focusPane, target: pane.id, targetType: .pane)
             let javaScript = Self.bridgeProductPaintCorrelationJavaScript(
                 relativePath: Self.bridgeProductPaintFixtureRelativePath,
+                primerRelativePath: Self.bridgeProductPaintFixturePrimerRelativePath,
                 sha256: oracle.sha256,
                 canary: Self.bridgeProductPaintFixtureCanary
             )
@@ -493,15 +496,18 @@ import WebKit
         // swiftlint:disable:next function_body_length
         nonisolated static func bridgeProductPaintCorrelationJavaScript(
             relativePath: String,
+            primerRelativePath: String = bridgeProductPaintFixturePrimerRelativePath,
             sha256: String,
             canary: String
         ) -> String {
             let relativePathLiteral = bridgeProductPaintJavaScriptLiteral(relativePath)
+            let primerRelativePathLiteral = bridgeProductPaintJavaScriptLiteral(primerRelativePath)
             let sha256Literal = bridgeProductPaintJavaScriptLiteral(sha256)
             let canaryLiteral = bridgeProductPaintJavaScriptLiteral(canary)
             return """
                 return JSON.stringify((() => {
                   const relativePath = \(relativePathLiteral);
+                  const primerRelativePath = \(primerRelativePathLiteral);
                   const expectedSha256 = \(sha256Literal);
                   const expectedCanary = \(canaryLiteral);
                   const prior = globalThis.__bridgeProductPaintCorrelationProbe ?? {};
@@ -780,10 +786,29 @@ import WebKit
                     prior.filePaintedSourceMatched === true || fileMatches.length > 0;
                   let fileSelectionActivationAttempted =
                     prior.fileSelectionActivationAttempted === true;
+                  let fileSelectionPrimerActivationAttempted =
+                    prior.fileSelectionPrimerActivationAttempted === true;
                   if (
                     reviewPaintedSourceMatched &&
                     fileViewerIsActive &&
                     !filePaintedSourceMatched &&
+                    !fileSelectionPrimerActivationAttempted
+                  ) {
+                    const primerSelector =
+                      `button[data-item-type="file"][data-item-path="${CSS.escape(primerRelativePath)}"],` +
+                      `[data-type="item"][data-item-type="file"][data-item-path="${CSS.escape(primerRelativePath)}"]`;
+                    const primerRow = queryOpenRoots(fileShell, primerSelector);
+                    if (primerRow instanceof HTMLElement) {
+                      primerRow.click();
+                      fileSelectionPrimerActivationAttempted = true;
+                    }
+                  }
+                  if (
+                    reviewPaintedSourceMatched &&
+                    fileViewerIsActive &&
+                    !filePaintedSourceMatched &&
+                    fileSelectionPrimerActivationAttempted &&
+                    fileSelectedPath === primerRelativePath &&
                     !fileSelectionActivationAttempted
                   ) {
                     const selector =
@@ -834,6 +859,7 @@ import WebKit
                     fileIdentityChainMatched,
                     filePaintedSourceMatchCount,
                     fileSelectedPathMatched,
+                    fileSelectionPrimerActivationAttempted,
                     fileSelectionActivationAttempted
                   };
                   globalThis.__bridgeProductPaintCorrelationProbe = next;
