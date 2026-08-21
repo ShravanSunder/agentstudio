@@ -85,7 +85,7 @@ describe('worktree annotation inline shell', () => {
 		expect(latestCommandRailBounds.top).toBeGreaterThanOrEqual(latestCardBounds.top);
 		expect(latestCommandRailBounds.bottom).toBeLessThanOrEqual(latestCardBounds.bottom);
 		expect(expandedThreadBounds.right - latestCardBounds.right).toBeCloseTo(36, 1);
-		expect(expandedThreadBounds.bottom - latestCardBounds.bottom).toBeCloseTo(16, 1);
+		expect(expandedThreadBounds.bottom - latestCardBounds.bottom).toBeCloseTo(36, 1);
 		expect(compactThread.getBoundingClientRect().height).toBeGreaterThan(compactThreadHeight);
 		expect(followingDiffRow.getBoundingClientRect().top).toBeGreaterThan(followingDiffRowTop);
 		await page.screenshot({ path: '../../../tmp/bridgeweb-inline-thread-expanded.png' });
@@ -163,7 +163,7 @@ describe('worktree annotation inline shell', () => {
 			'pr-9',
 		);
 		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
-			'pb-4',
+			'pb-9',
 		);
 
 		await act(async (): Promise<void> => {

@@ -13,7 +13,7 @@ const annotationConversationFrameVariants = cva(
 			},
 			placement: {
 				embedded: 'm-0 w-full max-w-none',
-				standalone: 'm-2 w-[calc(100%-1rem)] max-w-3xl p-2 pr-9 pb-4',
+				standalone: 'm-2 w-[calc(100%-1rem)] max-w-3xl p-2 pr-9 pb-9',
 			},
 		},
 		defaultVariants: { active: false, placement: 'standalone' },
