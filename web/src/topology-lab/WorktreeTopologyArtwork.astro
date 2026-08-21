@@ -1,0 +1,269 @@
+---
+type TopologyNodeKind = "checkpoint" | "current" | "fork" | "merge" | "ordinary" | "pull-request";
+type TopologyAccent = "cyan" | "main" | "peach";
+
+interface TopologyNode {
+  readonly accent?: TopologyAccent;
+  readonly kind: TopologyNodeKind;
+  readonly lane: 0 | 1 | 2 | 3 | 4;
+  readonly row: number;
+}
+
+interface WorktreeRoute {
+  readonly arrivalRow: number;
+  readonly className: string;
+  readonly forkRow: number;
+  readonly lane: 1 | 2 | 3 | 4;
+  readonly mergeApproachRow?: number;
+  readonly mergeRow?: number;
+  readonly openEndRow?: number;
+}
+
+const firstRowY = 100;
+const rowHeight = 84;
+const lanePositions = [240, 300, 360, 420, 480] as const;
+const finalRow = 26;
+
+function rowY(row: number): number {
+  return firstRowY + row * rowHeight;
+}
+
+function laneAccent(lane: TopologyNode["lane"]): TopologyAccent {
+  if (lane === 0) {
+    return "main";
+  }
+  return lane === 1 || lane === 3 ? "peach" : "cyan";
+}
+
+function routePath(route: WorktreeRoute): string {
+  const mainLaneX = lanePositions[0];
+  const worktreeLaneX = lanePositions[route.lane];
+  const forkY = rowY(route.forkRow);
+  const arrivalY = rowY(route.arrivalRow);
+  const forkControlX = mainLaneX + (worktreeLaneX - mainLaneX) / 2;
+  const fork = `M ${mainLaneX} ${forkY} C ${forkControlX} ${forkY} ${worktreeLaneX} ${arrivalY - rowHeight / 2} ${worktreeLaneX} ${arrivalY}`;
+
+  if (route.mergeApproachRow !== undefined && route.mergeRow !== undefined) {
+    const mergeApproachY = rowY(route.mergeApproachRow);
+    const mergeY = rowY(route.mergeRow);
+    const mergeControlX = mainLaneX + (worktreeLaneX - mainLaneX) / 2;
+    return `${fork} L ${worktreeLaneX} ${mergeApproachY} C ${worktreeLaneX} ${mergeApproachY + rowHeight / 2} ${mergeControlX} ${mergeY} ${mainLaneX} ${mergeY}`;
+  }
+
+  return `${fork} L ${worktreeLaneX} ${rowY(route.openEndRow ?? finalRow)}`;
+}
+
+const routes = [
+  {
+    arrivalRow: 3,
+    className: "worktree-a",
+    forkRow: 2,
+    lane: 1,
+    mergeApproachRow: 16,
+    mergeRow: 17,
+  },
+  {
+    arrivalRow: 6,
+    className: "worktree-b",
+    forkRow: 5,
+    lane: 2,
+    mergeApproachRow: 21,
+    mergeRow: 22,
+  },
+  {
+    arrivalRow: 9,
+    className: "worktree-c",
+    forkRow: 8,
+    lane: 3,
+    mergeApproachRow: 19,
+    mergeRow: 20,
+  },
+  {
+    arrivalRow: 13,
+    className: "worktree-d",
+    forkRow: 12,
+    lane: 4,
+    mergeApproachRow: 24,
+    mergeRow: 25,
+  },
+] satisfies readonly WorktreeRoute[];
+
+const nodes = [
+  { kind: "current", lane: 0, row: 0 },
+  { kind: "ordinary", lane: 0, row: 1 },
+  { accent: "peach", kind: "fork", lane: 0, row: 2 },
+  { kind: "ordinary", lane: 1, row: 3 },
+  { kind: "ordinary", lane: 0, row: 4 },
+  { accent: "cyan", kind: "fork", lane: 0, row: 5 },
+  { kind: "ordinary", lane: 2, row: 6 },
+  { kind: "pull-request", lane: 1, row: 7 },
+  { accent: "peach", kind: "fork", lane: 0, row: 8 },
+  { kind: "ordinary", lane: 3, row: 9 },
+  { kind: "pull-request", lane: 2, row: 10 },
+  { kind: "checkpoint", lane: 0, row: 11 },
+  { accent: "cyan", kind: "fork", lane: 0, row: 12 },
+  { kind: "ordinary", lane: 4, row: 13 },
+  { kind: "checkpoint", lane: 1, row: 14 },
+  { kind: "pull-request", lane: 3, row: 15 },
+  { kind: "ordinary", lane: 0, row: 16 },
+  { kind: "merge", lane: 0, row: 17 },
+  { kind: "pull-request", lane: 4, row: 18 },
+  { kind: "checkpoint", lane: 2, row: 19 },
+  { kind: "merge", lane: 0, row: 20 },
+  { kind: "ordinary", lane: 0, row: 21 },
+  { kind: "merge", lane: 0, row: 22 },
+  { kind: "checkpoint", lane: 4, row: 23 },
+  { kind: "ordinary", lane: 0, row: 24 },
+  { kind: "merge", lane: 0, row: 25 },
+  { kind: "current", lane: 0, row: 26 },
+] satisfies readonly TopologyNode[];
+
+const svgHeight = rowY(finalRow) + 100;
+---
+
+<svg
+  class="block h-auto w-[1200px] max-w-none"
+  viewBox={`0 0 1200 ${svgHeight}`}
+  width="1200"
+  height={svgHeight}
+  role="img"
+  aria-labelledby="topology-artwork-title topology-artwork-description"
+>
+  <title id="topology-artwork-title">Row-based five-lane worktree topology study</title>
+  <desc id="topology-artwork-description">
+    A repository activity topology arranged on fixed event rows and five worktree lanes. Four
+    worktrees merge back into the mainline.
+  </desc>
+
+  <g class="topology-base">
+    <path d={`M ${lanePositions[0]} ${rowY(0)} L ${lanePositions[0]} ${rowY(finalRow)}`} />
+    {routes.map((route) => <path d={routePath(route)} />)}
+  </g>
+
+  <g class="topology-primary">
+    <path d={`M ${lanePositions[0]} ${rowY(0)} L ${lanePositions[0]} ${rowY(finalRow)}`} />
+  </g>
+
+  {
+    routes.map((route) => (
+      <g class:list={["topology-worktree", route.className]}>
+        <path class="topology-clearance" d={routePath(route)} />
+        <path class="topology-line" d={routePath(route)} />
+      </g>
+    ))
+  }
+
+  <g class="topology-nodes">
+    {
+      nodes.map((node) => {
+        const x = lanePositions[node.lane];
+        const y = rowY(node.row);
+        const accent = node.accent ?? laneAccent(node.lane);
+
+        if (node.kind === "merge") {
+          return (
+            <g class={`node-merge accent-${accent}`} transform={`translate(${x} ${y})`}>
+              <circle cx="0" cy="0" r="8" />
+              <path d="M -3 -1 L 0 2 L 3 -1" />
+            </g>
+          );
+        }
+
+        if (node.kind === "current") {
+          return (
+            <circle class={`node-terminal accent-${accent}`} cx={x} cy={y} r="7" />
+          );
+        }
+
+        return <circle class={`node-filled accent-${accent}`} cx={x} cy={y} r="4" />;
+      })
+    }
+  </g>
+</svg>
+
+<style>
+  path,
+  circle {
+    vector-effect: non-scaling-stroke;
+  }
+
+  .topology-base path,
+  .topology-primary path,
+  .topology-worktree path {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .topology-base path {
+    stroke: rgb(255 255 255 / 7%);
+    stroke-width: 1px;
+  }
+
+  .topology-primary path {
+    stroke: rgb(137 180 250 / 62%);
+    stroke-width: 1.5px;
+  }
+
+  .topology-worktree .topology-clearance {
+    stroke: #2e3036;
+    stroke-width: 5px;
+  }
+
+  .worktree-a .topology-line,
+  .worktree-c .topology-line {
+    stroke: rgb(239 159 118 / 42%);
+    stroke-width: 1px;
+  }
+
+  .worktree-b .topology-line,
+  .worktree-d .topology-line {
+    stroke: rgb(116 199 236 / 44%);
+    stroke-width: 1px;
+  }
+
+  .topology-nodes circle {
+    fill: #2e3036;
+    stroke: rgb(255 255 255 / 24%);
+    stroke-width: 1px;
+  }
+
+  .topology-nodes .accent-main {
+    --node-accent: #89b4fa;
+    stroke: var(--node-accent);
+  }
+
+  .topology-nodes .accent-peach {
+    --node-accent: #ef9f76;
+    stroke: var(--node-accent);
+  }
+
+  .topology-nodes .accent-cyan {
+    --node-accent: #74c7ec;
+    stroke: var(--node-accent);
+  }
+
+  .topology-nodes .node-filled {
+    fill: var(--node-accent);
+    stroke: var(--node-accent);
+  }
+
+  .topology-nodes .node-terminal,
+  .topology-nodes .node-merge circle {
+    fill: #2e3036;
+    stroke: var(--node-accent);
+    stroke-width: 1.5px;
+  }
+
+  .topology-nodes .node-terminal {
+    fill: var(--node-accent);
+  }
+
+  .topology-nodes .node-merge path {
+    fill: none;
+    stroke: var(--node-accent);
+    stroke-width: 1.5px;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+</style>
