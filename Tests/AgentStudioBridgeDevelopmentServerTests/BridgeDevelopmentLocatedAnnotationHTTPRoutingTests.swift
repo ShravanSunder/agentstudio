@@ -73,8 +73,7 @@ private struct HTTPSavedLocatedAnnotationObservation {
 private func createHTTPSavedLocatedAnnotationBeforeRestart(
     runtime: HTTPDevelopmentProductRuntime
 ) async throws -> HTTPSavedLocatedAnnotationObservation {
-    let application = BridgeDevelopmentHTTPApplication.make(host: runtime.host)
-    return try await application.test(.router) { client in
+    try await withBridgeDevelopmentHTTPRouterTestClient(host: runtime.host) { client in
         let connection = try await openHTTPProductConnection(client: client)
         let context = try await prepareHTTPAnnotationAuthoring(
             client: client,
@@ -166,8 +165,7 @@ private func restoreHTTPLocatedAnnotationBeforeDescriptorMaterialization(
     runtime: HTTPDevelopmentProductRuntime,
     savedAnnotation: HTTPSavedLocatedAnnotationObservation
 ) async throws -> HTTPAnnotationProjectionSnapshot {
-    let application = BridgeDevelopmentHTTPApplication.make(host: runtime.host)
-    return try await application.test(.router) { client in
+    try await withBridgeDevelopmentHTTPRouterTestClient(host: runtime.host) { client in
         let context = try await prepareHTTPAnnotationLocatedRestore(
             client: client,
             runtime: runtime

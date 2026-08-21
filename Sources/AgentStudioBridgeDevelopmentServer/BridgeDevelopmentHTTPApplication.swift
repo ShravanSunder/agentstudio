@@ -11,6 +11,7 @@ enum BridgeDevelopmentHTTPApplication {
     static func make(
         host: BridgeDevelopmentProductHost,
         configuration: ApplicationConfiguration = .init(),
+        eventLoopGroupProvider: EventLoopGroupProvider = .singleton,
         healthIsReady: @escaping @Sendable () async -> Bool = { true }
     ) -> some ApplicationProtocol {
         let router = Router()
@@ -40,7 +41,8 @@ enum BridgeDevelopmentHTTPApplication {
         )
         return Application(
             responder: router.buildResponder(),
-            configuration: configuration
+            configuration: configuration,
+            eventLoopGroupProvider: eventLoopGroupProvider
         )
     }
 

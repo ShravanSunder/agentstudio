@@ -31,9 +31,7 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
             paneID: paneID,
             worktreeRoot: repositoryURL
         )
-        let application = BridgeDevelopmentHTTPApplication.make(host: runtime.host)
-
-        try await application.test(.router) { client in
+        try await withBridgeDevelopmentHTTPRouterTestClient(host: runtime.host) { client in
             let connection = try await openHTTPProductConnection(client: client)
             let preparation = try await prepareHTTPAnnotationAuthoring(
                 client: client,
@@ -143,11 +141,8 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
             composition: paneA.composition,
             paneID: paneBID
         )
-        let applicationA = BridgeDevelopmentHTTPApplication.make(host: paneA.host)
-        let applicationB = BridgeDevelopmentHTTPApplication.make(host: paneB.host)
-
-        try await applicationA.test(.router) { clientA in
-            try await applicationB.test(.router) { clientB in
+        try await withBridgeDevelopmentHTTPRouterTestClient(host: paneA.host) { clientA in
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: paneB.host) { clientB in
                 let connectionA = try await openHTTPProductConnection(client: clientA)
                 let connectionB = try await openHTTPProductConnection(client: clientB)
                 let preparationA = try await prepareHTTPAnnotationAuthoring(
@@ -342,8 +337,7 @@ private func createHTTPAnnotationDraftBeforeRestart(
     runtime: HTTPDevelopmentProductRuntime,
     draftBody: String
 ) async throws -> HTTPAnnotationDraftObservation {
-    let application = BridgeDevelopmentHTTPApplication.make(host: runtime.host)
-    return try await application.test(.router) { client in
+    try await withBridgeDevelopmentHTTPRouterTestClient(host: runtime.host) { client in
         let connection = try await openHTTPProductConnection(client: client)
         let preparation = try await prepareHTTPAnnotationAuthoring(
             client: client,
@@ -406,8 +400,7 @@ private func restoreHTTPAnnotationDraftAfterRestart(
     draftBody: String,
     sessionID: UUID
 ) async throws -> HTTPAnnotationProjectionSnapshot {
-    let application = BridgeDevelopmentHTTPApplication.make(host: runtime.host)
-    return try await application.test(.router) { client in
+    try await withBridgeDevelopmentHTTPRouterTestClient(host: runtime.host) { client in
         let connection = try await openHTTPProductConnection(client: client)
         let metadataStream = try await startHTTPMetadataStream(
             host: runtime.host,

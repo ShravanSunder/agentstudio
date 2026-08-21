@@ -124,6 +124,7 @@ private func openHTTPAnnotationProjectionContent(
         "descriptor": try jsonObject(descriptor),
         "kind": "content.open",
         "leaseId": leaseID,
+        "operationCorrelationId": NSNull(),
         "paneSessionId": connection.bootstrap.paneSessionId,
         "wireVersion": BridgeProductWireContract.version,
         "workerDerivationEpoch": 0,

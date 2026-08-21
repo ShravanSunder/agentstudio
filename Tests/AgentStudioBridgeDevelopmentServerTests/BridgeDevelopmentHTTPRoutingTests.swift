@@ -99,10 +99,8 @@ struct BridgeDevelopmentHTTPRoutingTests {
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
-            let application = BridgeDevelopmentHTTPApplication.make(host: host)
-
             // Act / Assert
-            try await application.test(.router) { client in
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
                 try await client.execute(
                     uri: "/__bridge-product/health",
                     method: .get
@@ -124,21 +122,19 @@ struct BridgeDevelopmentHTTPRoutingTests {
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
-            let application = BridgeDevelopmentHTTPApplication.make(
-                host: host,
-                healthIsReady: { false }
-            )
-
             // Act / Assert
-            try await application.test(.router) { client in
-                try await client.execute(
-                    uri: "/__bridge-product/health",
-                    method: .get
-                ) { response in
-                    #expect(response.status == .serviceUnavailable)
-                    #expect(response.body.readableBytes == 0)
-                }
-            }
+            try await withBridgeDevelopmentHTTPRouterTestClient(
+                host: host,
+                healthIsReady: { false },
+                test: { client in
+                    try await client.execute(
+                        uri: "/__bridge-product/health",
+                        method: .get
+                    ) { response in
+                        #expect(response.status == .serviceUnavailable)
+                        #expect(response.body.readableBytes == 0)
+                    }
+                })
         }
     }
 
@@ -152,14 +148,13 @@ struct BridgeDevelopmentHTTPRoutingTests {
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
-            let application = BridgeDevelopmentHTTPApplication.make(host: host)
             let body = ByteBuffer(
                 string:
                     #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
             )
 
             // Act / Assert
-            try await application.test(.router) { client in
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
                 try await client.execute(
                     uri: "/__bridge-product/bootstrap",
                     method: .post,
@@ -196,8 +191,7 @@ struct BridgeDevelopmentHTTPRoutingTests {
 
         // Act / Assert
         try await withDevelopmentServerHarness(harness) {
-            let application = BridgeDevelopmentHTTPApplication.make(host: harness.host)
-            try await application.test(.router) { client in
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: harness.host) { client in
                 try await client.execute(
                     uri: "/__bridge-product/bootstrap",
                     method: .post,
@@ -237,10 +231,8 @@ struct BridgeDevelopmentHTTPRoutingTests {
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
-            let application = BridgeDevelopmentHTTPApplication.make(host: host)
-
             // Act / Assert
-            try await application.test(.router) { client in
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
                 let bootstrapResponse = try await client.execute(
                     uri: "/__bridge-product/bootstrap",
                     method: .post,
