@@ -148,10 +148,14 @@ PR1 human boundary
   Revert restores the saved body. The active editor, visible text, focus, and
   containing thread remain continuous while a first edit becomes durable and
   its updated thread becomes visible; an intermediate update must not make the
-  editor or thread disappear.
+  editor or thread disappear. An exact committed Save ends editing immediately
+  and keeps the committed saved message visible even when the shared read model
+  is still refreshing or unavailable. Saving or flushing a different message
+  in the same living session must not make this message conflict.
 - Why: Draft text is human work product and must not be lost merely because the
   review surface or process lifecycle changes.
-- Evidence: owner confirmation on 2026-08-14.
+- Evidence: owner confirmation on 2026-08-14 and live save/convergence correction
+  on 2026-08-20.
 - Authority: authorized.
 - Priority: must, assigned by the Agent Studio owner.
 - Hypothesis state: a hard failure may lose only changes not yet durably flushed
@@ -168,10 +172,14 @@ PR1 human boundary
   progress ends when the exact Save command reports committed or failed; later
   cross-view/read-model convergence is separate and must not leave a committed
   Save looking busy or turn it into a failure. While that read model refreshes
-  or is unavailable, the last complete annotation state remains usable.
+  or is unavailable, the last complete annotation state plus any exact
+  command-confirmed local result remains usable. Before the first complete read,
+  the UI must say that annotation membership is unknown rather than presenting
+  a fabricated empty state or zero New/All counts.
 - Why: Crash protection must not silently declare incomplete writing eligible
   for output.
-- Evidence: owner confirmation on 2026-08-14.
+- Evidence: owner confirmation on 2026-08-14 and live save/convergence correction
+  on 2026-08-20.
 - Authority: authorized.
 - Priority: must, assigned by the Agent Studio owner.
 - Hypothesis state: none.
@@ -309,9 +317,14 @@ Resolve whole thread
   or Reverted before its current body can participate.
 - Why: The reviewer needs a fast review-level handoff without reproducing the
   inline thread hierarchy as a second selection interface, while explicit Save
-  remains the output boundary.
-- Evidence: owner confirmation on 2026-08-14 and the established partial-output
-  workflow.
+  remains the output boundary. The header entry and in-flow Share row must look
+  and behave like one shared File/Review toolbar surface: the same compact
+  control height, typography, spacing, radius, focus, hover, selected, and
+  disabled treatments as adjacent BridgeViewer chrome. Copy and Export are peer
+  destinations; neither is promoted as the primary action merely because of its
+  position.
+- Evidence: owner confirmation on 2026-08-14, the established partial-output
+  workflow, and the shared-shadcn visual correction on 2026-08-20.
 - Authority: authorized.
 - Priority: must, assigned by the Agent Studio owner.
 - Hypothesis state: none.
@@ -354,6 +367,12 @@ Resolve whole thread
   messages handled by default. The success toast and durable output history both
   let the reviewer mark that output's exact saved messages not handled, which
   returns them to `New` without unlocking them or changing historical output.
+  After the short success toast disappears, reopening Share comments in either
+  File View or Review View exposes the same durable history through a collapsed
+  in-flow History disclosure. The reviewer can inspect an attempt there, undo
+  handling for an eligible success, and explicitly repeat the exact saved bytes
+  of an unknown attempt. History does not require a sidebar, global panel,
+  thread command, popover, or persistent session surface.
   Later work does not rewrite the historical batch. Normal Copy and Export
   success show a concise confirmation, close Share comments, and leave every
   containing thread open. A crash-recovered attempt whose external
@@ -456,8 +475,10 @@ Resolve whole thread
   Bridge transport, or exactly-once machinery requires renewed owner approval.
 - Acceptable outcome evidence: automated state/format/failure proof; restart and
   recovery state inspection; manual or packaged interaction proof in File View
-  and Review View; actual clipboard Markdown inspection; actual exported JSON
-  validation; and proof that no PR2 capability is required for the loop.
+  and Review View; a real Vite/comm-worker-to-Swift development-backend journey
+  for create, flush, Save, projection convergence, and retry/recovery; actual
+  clipboard Markdown inspection; actual exported JSON validation; and proof
+  that no PR2 capability is required for the loop.
 
 ## Confirmed policy decisions
 
@@ -536,6 +557,18 @@ main-view presentation
   single line → gutter + opens composer directly
   no PR1 global-review panel, whole-file/session comments, or sidebar
   located anchoring uses source/diff line presentation only in PR1
+
+projection presentation
+  before first complete read → unknown, never fabricated empty or zero counts
+  refreshing/unavailable → retain last complete plus exact command-confirmed result
+  committed Save → end editing and keep saved message visible immediately
+
+Share comments chrome
+  one shared File/Review BridgeViewer toolbar composition
+  New/All → compact segmented control using adjacent viewer semantics
+  Copy/Export → peer neutral destinations
+  Done → quiet exit action
+  History → collapsed in-flow disclosure in both viewers; inspect/unhandle/repeat
 ```
 
 Exact internal storage, relocation, continuity evidence, transport,

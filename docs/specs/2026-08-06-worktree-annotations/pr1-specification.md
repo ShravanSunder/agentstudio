@@ -54,6 +54,12 @@ main File / Review view
                                                  handled by default
   toast/history → Mark as not handled → exact saved bodies return to New
 
+  Share comments reopened after toast
+      └─► collapsed in-flow History disclosure
+             inspect exact attempt
+             successful attempt → Mark as not handled
+             unknown attempt    → explicit exact-byte Repeat
+
 No PR1 global-review panel, whole-file/session comments, persistent session
 chrome, or comment sidebar exists.
 ```
@@ -527,14 +533,21 @@ Command+Enter MUST invoke Save; Enter and Shift+Enter MUST insert a newline.
 
 Save progress MUST begin when the explicit Save mutation is requested and MUST
 end when its exact typed command response reports committed or failed. A
-committed response MUST make Save successful immediately; a later invalidation,
-projection delay, replacement, or read failure MUST NOT keep Save busy, reverse
-that committed result, or present it as a Save failure. Read-model convergence
-after commit is governed separately by R-P1-014. The UI MUST NOT fabricate a
-saved message or mutate projected rows optimistically while awaiting that
-convergence.
+committed response MUST end editing, present the exact command-confirmed saved
+message immediately, and make Save successful without waiting for a projection
+query. A later invalidation, projection delay, replacement, or read failure
+MUST NOT keep Save busy, hide that saved message, reverse the committed result,
+or present it as a Save failure. Read-model convergence after commit is governed
+separately by R-P1-014. The UI MUST NOT fabricate content beyond the exact
+committed command result or treat command-confirmed presentation as output-ready
+until a complete current projection confirms its output membership.
 
-Basis: P1-U3.
+Mutations to different messages in the same living, applicable session MUST NOT
+conflict merely because another message committed first. A message Save or
+draft flush MAY conflict when that same message or draft changed, its edit
+authority changed, or the containing session became non-writable.
+
+Basis: P1-U2, P1-U3, P1-U14.
 
 Failure expectation: failed Save MUST leave both the recoverable draft and
 current saved body unchanged and MUST visibly report that Save did not complete.
@@ -635,6 +648,24 @@ filter the inline comments shown by the viewer and MUST be the complete output
 membership; PR1 MUST NOT add a second thread/message checklist or selected-count
 state.
 
+The header entry and in-flow row MUST use the same shared BridgeViewer control
+language in File and Review: 24 px compact controls, 11 px control typography,
+the adjacent viewer's spacing and radius scale, and identical semantic hover,
+focus, selected, pressed, and disabled treatments. `New | All` MUST use the
+shared compact segmented-control treatment. Copy Markdown and Export JSON MUST
+be visually equal neutral destinations; neither receives solid-primary
+treatment. Done MUST be the quiet exit action. The row MUST use viewer-header
+surface and border roles rather than comment-card surface roles.
+
+When the active session has durable output attempts, the same Share comments
+surface in both File View and Review View MUST expose a collapsed in-flow
+`History (n)` disclosure adjacent to the Share command row. Reopening Share
+comments MUST make that disclosure discoverable after a success toast has
+expired. Expanding History MUST take document-layout space and MUST NOT create a
+popover, dialog, floating overlay, nested scroll owner, sidebar, global panel,
+thread command, or persistent session surface. Opening or closing History MUST
+NOT change the active New/All filter or its output membership.
+
 `New` MUST contain every current saved body whose handled boundary is not set,
 whether its message is editable or locked. `All` MUST contain every current
 saved body, whether new or handled and whether editable or locked. A message
@@ -661,7 +692,11 @@ Resolve/Reopen controls retain their normal contracts; a committed mutation may
 change New/All membership through ordinary projection convergence. `Escape` and
 `Done` MUST close the mode without output, while Command+A retains ordinary
 text-selection meaning. An empty New or All display MUST disable Copy and
-Export.
+Export. Before the first complete annotation projection, Share MUST present
+membership as unknown rather than `New (0)` / `All (0)` and MUST disable both
+destinations. While a successor projection is refreshing or unavailable, the
+row MUST distinguish last-known counts from current confirmed membership and
+MUST NOT present stale counts as current zero.
 
 Invoking Copy or Export MUST construct one immutable batch snapshot containing
 the exact displayed message identities, saved bodies, immutable origins,
@@ -967,6 +1002,19 @@ Export repetition. Recovery MUST NOT automatically replay the external effect
 or invent success/failure. The history UI MUST expose inspection and explicit
 repetition without forcing a recovery-choice modal.
 
+The durable history interaction MUST be owned by the shared File/Review Share
+comments surface described by R-P1-010. Each entry MUST identify output kind,
+message count, time, and `succeeded | unknown | finalization failed` outcome in
+plain language. Every retained attempt MUST allow exact-byte inspection. An
+eligible successful attempt MUST expose `Mark as not handled`; an unknown
+attempt MUST expose an explicit `Repeat` action that uses the stored bytes
+rather than rebuilding current New/All membership. A finalization-failed attempt
+MUST remain inspectable but MUST NOT expose Repeat because its external effect
+is known to have occurred. A merely prepared in-process attempt MUST also remain
+inspectable but MUST NOT be repeatable until recovery has classified it. No
+history action may alter placement, resolution, message bodies, or immutable
+output bytes.
+
 ```text
 prepared batch
     +-- effect fails --------> no event; preparation cancelled
@@ -1000,20 +1048,35 @@ request rather than treating an earlier notification as the annotation data.
 Each visible annotation read MUST expose one of these independent states:
 
 ```text
-ready(last complete)
+unknown(no complete projection)
+  └─ demand/subscription snapshot ──► refreshing(no complete projection)
+                                      ├─ complete current replacement ──► ready(first complete)
+                                      └─ real read failure ─────────────► unavailable(no complete projection)
+
+ready(last complete + no command-confirmed overlay)
   └─ applicable invalidation ──► refreshing(last complete)
                                   ├─ complete current replacement ──► ready(new complete)
                                   └─ real read failure ─────────────► unavailable(last complete)
 
 unavailable(last complete)
   └─ retry, new invalidation, or reactivation ──► refreshing(last complete)
+
+exact committed command response
+  └─ present command-confirmed message immediately
+      ├─ complete projection contains same/newer message ──► reconcile overlay
+      └─ refresh fails ──► retain command-confirmed message + unavailable status
 ```
 
 `refreshing` MUST mean that a live current read is converging, not that a Save
 is still running. `unavailable` MUST retain the last complete projection and a
 truthful retryable/non-retryable read-status treatment; it MUST NOT replace it
 with fabricated empty state. A partial or superseded finite response MUST NOT
-replace the last complete projection.
+replace the last complete projection. `unknown` MUST NOT be represented by the
+same data shape as a confirmed empty projection. An initiating viewer MUST
+retain exact command-confirmed message state until a complete projection at the
+same or newer committed message revision reconciles it; a different or missing
+successor at that revision MUST remain visibly degraded rather than silently
+discarding the committed result.
 
 Basis: P1-U1, P1-U2, P1-U6, P1-U8, P1-U12, P1-U14.
 
@@ -1187,7 +1250,9 @@ dynamic complete-message packing
 - Markdown rendering MUST use the existing safe-rendering posture and MUST not
   admit raw HTML through message bodies.
 - File View and Review View MUST expose equivalent annotation semantics and
-  keyboard/focus accessibility for shared actions.
+  keyboard/focus accessibility for shared actions. Shared viewer controls MUST
+  use one owned shadcn/BridgeViewer composition; importing a primitive while
+  recreating route-local geometry or emphasis does not satisfy this obligation.
 - PR1 introduces no external network dependency and MUST remain useful offline
   against locally available worktree and repository evidence.
 
@@ -1227,12 +1292,12 @@ authorization to prebuild PR2 delivery machinery.
 | --- | --- |
 | R-P1-001, R-P1-008, R-P1-009 | automated lifecycle/thread behavior plus manual cross-view interaction |
 | R-P1-002, R-P1-007 | automated selection/admission and placement-state behavior using real source evidence plus manual pending-range and endpoint/gutter `+` proof; focus each compact thread and its controls, move activity between threads, keep expanded-thread activity, and clear comment activity to prove exactly one full stored range is painted through `selectedLines`, inactive cards retain no range paint, and no location command exists |
-| R-P1-003, R-P1-004, R-P1-006 | automated draft/save/revert behavior with controlled time and restart state inspection, plus a real-thread Reply/Edit projection-reconciliation case proving the first character, editor identity, local value, focus, containing thread, and single editing authority remain continuous while state and content updates arrive separately |
+| R-P1-003, R-P1-004, R-P1-006 | automated draft/save/revert behavior with controlled time and restart state inspection, plus same-session different-message mutation proof and a real-thread Reply/Edit projection-reconciliation case proving the first character, editor identity, local value, focus, containing thread, immediate command-confirmed saved presentation, and single editing authority remain continuous while state and content updates arrive separately |
 | R-P1-005, R-P1-017 | automated Markdown/size/frame admission plus manual visual inspection and boundary rejection |
-| R-P1-010, R-P1-011 | deterministic New/All scope and Markdown behavior; File/Review browser plus manual visual proof of header entry, in-flow row, no checklist/popover/nested scroll, body range activation without editing, empty-scope disablement, Other saved comments, Escape/Done, and actual clipboard inspection |
+| R-P1-010, R-P1-011 | deterministic New/All scope and Markdown behavior; File/Review browser plus screenshot/geometry proof that both use one shared 24 px BridgeViewer/shadcn composition with peer neutral Copy/Export actions, viewer-header roles, no checklist/popover/nested scroll, unknown-before-first-read rather than false zero, body range activation without editing, empty-scope disablement, Other saved comments, Escape/Done, and actual clipboard inspection |
 | R-P1-012 | schema validation, encode/decode, malformed-input, and unsupported-version evidence |
-| R-P1-013 | automated Copy/Export success dismissal, default handled transition, toast/history Mark as not handled, failure/cancellation retention, partial-success behavior, and actual file/clipboard effect inspection |
-| R-P1-014 | integration behavior across File/Review and restart with canonical state inspection |
+| R-P1-013 | automated Copy/Export success dismissal, default handled transition, toast/history Mark as not handled, failure/cancellation retention, partial-success behavior, actual file/clipboard effect inspection, and File/Review proof that reopening Share after toast expiry exposes in-flow History with exact inspection and explicit unknown-byte repetition |
+| R-P1-014 | real Vite + comm worker + Swift development-backend behavior for create, repeated flush, Save, exact command-confirmed presentation, invalidation, projection query/content completion, two different messages in one session, stream reset/retry, File/Review convergence, and restart with canonical SQLite/projection inspection; mocked browser and direct HTTP tests remain lower layers and cannot substitute for this boundary |
 | R-P1-016 | automated M1-only and collapsed M-summary-plus-M-last rendering, focus activation without expansion, expanded-thread active range, one inline M-summary-plus-M1-through-Mn chronology, Pierre row growth with stable row top/scroll anchor, exact command ownership, independent same-coordinate threads, inline authoring, Escape/outside-click/focus-return behavior, and collapsed-content accessibility exclusion plus manual File/Review, narrow-width, 200% text, reduced-motion, and packaged VoiceOver interaction |
 | R-P1-015 | dependency/surface inspection proving the complete journey without PR2 machinery |
 | Reliability obligations | corrupt-local-database recovery proving visible pre-acknowledgement degradation, rejected mutations, retained recovery witness, and retained quarantined files |
@@ -1257,11 +1322,20 @@ geometry with no clipping, overlap, nested scrollbar, editor disappearance,
 first-character loss, persistent flicker, duplicate reply, or competing scroll
 writer.
 
+The development-browser proof MUST drive the production React composer through
+the production comm worker into the real Swift development backend. It MUST
+type and Save at least two different messages in one session, observe no
+unrelated-message conflict, prove the initiating saved row never disappears,
+prove `unknown` is never rendered as confirmed zero, and observe the worker
+return to `ready` after its real notification and projection-content cycle.
+Direct Swift HTTP routing, repository tests, and mocked browser surfaces do not
+satisfy this proof by themselves.
+
 ## Traceability
 
 ```text
 P1-U1  → R-P1-001, R-P1-014
-P1-U2  → R-P1-003, R-P1-014
+P1-U2  → R-P1-003, R-P1-004, R-P1-014
 P1-U3  → R-P1-003, R-P1-004, R-P1-006
 P1-U4  → R-P1-005, R-P1-017
 P1-U5  → R-P1-002
@@ -1273,7 +1347,7 @@ P1-U10 → R-P1-011
 P1-U11 → R-P1-012
 P1-U12 → R-P1-010, R-P1-013, R-P1-014
 P1-U13 → R-P1-001
-P1-U14 → R-P1-013, R-P1-014, R-P1-016, R-P1-017
+P1-U14 → R-P1-004, R-P1-013, R-P1-014, R-P1-016, R-P1-017
 all    → R-P1-015
 ```
 
