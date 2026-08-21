@@ -71,9 +71,7 @@ describe.sequential('saved annotation range activation', () => {
 			const scrollCallCountBeforeFocus = scrollCalls.length;
 
 			await act(async (): Promise<void> => {
-				if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-				await Promise.resolve();
-				commentSurface.focus();
+				commentSurface.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
 				await Promise.resolve();
 			});
 			await settleBrowserCondition(
@@ -159,9 +157,7 @@ describe.sequential('saved annotation range activation', () => {
 			const scrollCallCountBeforeFocus = scrollCalls.length;
 
 			await act(async (): Promise<void> => {
-				if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-				await Promise.resolve();
-				commentSurface.focus();
+				commentSurface.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
 				await Promise.resolve();
 			});
 
