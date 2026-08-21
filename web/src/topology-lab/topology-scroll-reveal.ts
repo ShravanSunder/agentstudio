@@ -23,6 +23,10 @@ export function initializeTopologyScrollReveal(artwork: SVGSVGElement): () => vo
       "data-topology-at-start",
       !reducedMotionQuery.matches && scrollProgress <= 0.0001,
     );
+    artwork.toggleAttribute(
+      "data-topology-at-end",
+      !reducedMotionQuery.matches && scrollProgress >= 0.9999,
+    );
 
     for (const path of revealPaths) {
       const start = Number(path.dataset["topologyPathStart"]);
