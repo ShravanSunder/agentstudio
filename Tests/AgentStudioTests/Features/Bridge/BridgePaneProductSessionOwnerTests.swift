@@ -485,6 +485,12 @@ struct BridgePaneProductSessionOwnerTests {
             ),
             encoding: .utf8
         )
+        let bootstrapModelsSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController+BootstrapModels.swift"
+            ),
+            encoding: .utf8
+        )
         let schemeHandlerSource = try String(
             contentsOf: projectRoot.appending(
                 path: "Sources/AgentStudio/Features/Bridge/Transport/BridgeSchemeHandler.swift"
@@ -494,7 +500,8 @@ struct BridgePaneProductSessionOwnerTests {
 
         // Act / Assert
         #expect(bootstrapSource.contains("BridgePaneProductSessionOwner"))
-        #expect(bootstrapSource.contains("BridgeProductSchemeSessionRouter"))
+        #expect(bootstrapModelsSource.contains("BridgeProductSchemeSessionRouter"))
+        #expect(bootstrapSource.contains("productSessionRouter: input.productSessionRouter"))
         #expect(schemeHandlerSource.contains("BridgeProductSchemeSessionRouter"))
         #expect(schemeHandlerSource.contains("BridgeProductWireContract.commandRoute"))
         #expect(schemeHandlerSource.contains("BridgeProductWireContract.streamRoute"))
