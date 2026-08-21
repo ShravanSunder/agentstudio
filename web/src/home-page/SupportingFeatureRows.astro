@@ -37,7 +37,20 @@ const mediaByFeatureId = {
         <article class="feature-detail grid grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)] items-center gap-[clamp(40px,5vw,76px)] border-b border-line-strong py-[clamp(48px,5vw,76px)] max-phone:grid-cols-1 max-phone:gap-7 max-phone:py-10">
           <div class="feature-detail__copy max-w-[440px] max-phone:max-w-[680px]">
             <h3 class="m-0 text-[clamp(28px,3.2vw,48px)] leading-none tracking-[-0.045em] text-ink max-phone:text-[clamp(30px,9vw,44px)]">
-              {item.title}
+              {
+                item.title.kind === "accented" ? (
+                  <>
+                    {item.title.beforeAccent}
+                    <span class="text-primary">{item.title.accent}</span>
+                    {item.title.afterAccent}
+                  </>
+                ) : (
+                  <>
+                    {item.title.beforeTail}
+                    <span class="whitespace-nowrap">{item.title.tail}</span>
+                  </>
+                )
+              }
             </h3>
             <p class="mt-5.5 mb-0 text-marketing-body text-ink-secondary max-phone:text-[16px]">
               {item.summary}

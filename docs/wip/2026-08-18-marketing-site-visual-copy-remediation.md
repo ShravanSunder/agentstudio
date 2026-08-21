@@ -867,11 +867,14 @@ Evidence:
   browser selects the 1280x1600 focal derivative and renders the tabs, tree,
   diff, and bottom status strip without clipping.
 - Independent copy review read all 544 lines of the project-local copywriter
-  skill and passed the section intro, title, summary, detail, and alt text
-  against current README claims.
+  skill and passed the section intro, all three lightly playful supporting
+  titles, summary, detail, and alt text against current README claims.
 - Independent visual review records separate `SOURCE PASS` and `RENDER PASS`
   verdicts for the desktop and `390x844` phone states. The verdict remains
-  current after the metadata-only canonical sRGB profile update.
+  current after the metadata-only canonical sRGB profile update. A later title
+  review rejected isolated `place.` lines at desktop and phone widths; grouping
+  `your place.` and `its place.` with Tailwind `whitespace-nowrap` removed both
+  orphans without overflow or clipping and received a refreshed `RENDER PASS`.
 - `pnpm --dir web run check`: pass. Oxlint and Oxfmt pass; Astro reports 0
   errors, 0 warnings, and 0 hints; 10 masters and 6 responsive crops verify;
   the capture pixel audit passes; Vitest passes 12/12.

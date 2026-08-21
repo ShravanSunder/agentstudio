@@ -71,7 +71,12 @@ export const marketingCopy = {
     items: [
       {
         id: "pane-types",
-        title: "Keep 'tabs' on your code with Files and Review.",
+        title: {
+          kind: "accented",
+          beforeAccent: "Keep ",
+          accent: "tabs",
+          afterAccent: " on your code with Files and Review.",
+        },
         summary: "Browse source and inspect every changed file without leaving the workspace.",
         detail:
           "Use Files to browse the repository and Review to move through every changed file in one continuous diff.",
@@ -80,14 +85,22 @@ export const marketingCopy = {
       },
       {
         id: "persistence",
-        title: "Close the app. Keep the work.",
+        title: {
+          kind: "no-wrap-tail",
+          beforeTail: "Close the app. Keep ",
+          tail: "your place.",
+        },
         summary: "Terminal processes keep running after the app closes.",
         detail:
           "Reopen Agent Studio and return to the same tabs, panes, drawers, arrangements, and visible terminal sessions.",
       },
       {
         id: "arrangements",
-        title: "Save the layout that fits the task.",
+        title: {
+          kind: "no-wrap-tail",
+          beforeTail: "Give every pane ",
+          tail: "its place.",
+        },
         summary: "Use named arrangements, or zoom one pane when you need focus.",
         detail:
           "Switch between saved arrangements without stopping the work in other panes, then return to the wider workspace when you are ready.",
