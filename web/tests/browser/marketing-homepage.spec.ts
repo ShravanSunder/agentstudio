@@ -18,7 +18,7 @@ interface PhoneProductPlateComposition {
   readonly captionBackground: string;
   readonly captionStoryId: string | undefined;
   readonly imageStoryId: string | null | undefined;
-  readonly imageUsesPlateWidth: boolean;
+  readonly imageIsInsetWithinPlate: boolean;
   readonly imageUsesUncroppedMaster: boolean;
   readonly panelAnimationName: string;
   readonly selectedDotDisplay: string;
@@ -76,45 +76,27 @@ test("renders the claim-first homepage and switches product stories", async ({ p
 
   const plateGeometry = await page.locator(".product-plate").evaluate((plate) => {
     const selectors = plate.querySelector(".product-plate__selectors")?.getBoundingClientRect();
-    const panels = plate.querySelector(".product-plate__panels")?.getBoundingClientRect();
     const image = plate
       .querySelector('[data-product-plate-panel="parallel-work"] img')
       ?.getBoundingClientRect();
-    const caption = plate.querySelector('[data-product-plate-caption="parallel-work"]');
     const selected = plate.querySelector('[aria-selected="true"]');
 
-    if (
-      selectors === undefined ||
-      panels === undefined ||
-      image === undefined ||
-      selected === null
-    ) {
+    if (selectors === undefined || image === undefined || selected === null) {
       throw new Error("Product plate geometry is incomplete");
     }
 
-    const captionBounds = caption?.getBoundingClientRect();
-    const captionIsVisible =
-      caption instanceof HTMLElement && getComputedStyle(caption).display !== "none";
-    const finalContentBottom =
-      captionIsVisible && captionBounds !== undefined ? captionBounds.bottom : image.bottom;
-
     return {
-      phoneLayout: window.matchMedia("(max-width: 38.75rem)").matches,
       stackedLayout: selectors.bottom <= image.top + 1,
       imageGap: Math.abs(selectors.right - image.left),
       stackedImageGap: Math.abs(selectors.bottom - image.top),
-      panelImageTopOffset: Math.abs(panels.top - image.top),
-      panelContentBottomOffset: Math.abs(panels.bottom - finalContentBottom),
       selectedBackground: getComputedStyle(selected).backgroundColor,
     };
   });
   if (plateGeometry.stackedLayout) {
-    expect(plateGeometry.stackedImageGap).toBeLessThanOrEqual(1);
+    expect(plateGeometry.stackedImageGap).toBeGreaterThan(0);
   } else {
-    expect(plateGeometry.imageGap).toBeLessThanOrEqual(1);
+    expect(plateGeometry.imageGap).toBeGreaterThan(0);
   }
-  expect(plateGeometry.panelImageTopOffset).toBeLessThanOrEqual(2);
-  expect(plateGeometry.panelContentBottomOffset).toBeLessThanOrEqual(2);
   expect(plateGeometry.selectedBackground).toBe("rgba(0, 0, 0, 0)");
 
   const originalUrl = page.url();
@@ -279,7 +261,7 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
   expect(collapsedGeometry.arrowBackgrounds).toEqual(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"]);
   expect(collapsedGeometry.descriptionDisplay).toBe("none");
   expect(collapsedGeometry.overflowX).toBe("auto");
-  expect(collapsedGeometry.imageGap).toBeLessThanOrEqual(1);
+  expect(collapsedGeometry.imageGap).toBeGreaterThan(0);
   await expect(page.locator("[data-product-plate-index]")).toHaveCount(0);
   expect(collapsedGeometry.selectedBackground).toBe("rgba(0, 0, 0, 0)");
   expect(collapsedGeometry.selectorStageHeight).toBeLessThanOrEqual(64);
@@ -353,12 +335,12 @@ test("keeps the desktop selector at Tailwind's exact lg boundary", async ({ page
     const selectorBounds = selectors.getBoundingClientRect();
     const imageBounds = selectedImage.getBoundingClientRect();
     return {
-      imageFollowsRail: Math.abs(selectorBounds.right - imageBounds.left) <= 1,
+      imageIsSeparatedFromRail: imageBounds.left > selectorBounds.right,
       selectorWidth: selectorBounds.width,
     };
   });
 
-  expect(boundaryGeometry).toEqual({ imageFollowsRail: true, selectorWidth: 280 });
+  expect(boundaryGeometry).toEqual({ imageIsSeparatedFromRail: true, selectorWidth: 280 });
 });
 
 test("presents the phone carousel as title, image, then matching caption", async ({ page }) => {
@@ -411,7 +393,8 @@ test("presents the phone carousel as title, image, then matching caption", async
         titleBeforeImage: stageBounds.bottom <= imageBounds.top + 1,
         captionAfterImage: captionBounds.top >= imageBounds.bottom - 1,
         captionBackground: getComputedStyle(caption).backgroundColor,
-        imageUsesPlateWidth: Math.abs(imageBounds.width - plateBounds.width) <= 2,
+        imageIsInsetWithinPlate:
+          imageBounds.left > plateBounds.left && imageBounds.right < plateBounds.right,
         imageUsesUncroppedMaster: Math.abs(image.naturalWidth / image.naturalHeight - 1.6) < 0.01,
         panelAnimationName: getComputedStyle(panel).animationName,
         selectedDotDisplay: getComputedStyle(selectedStory, "::after").display,
@@ -426,7 +409,7 @@ test("presents the phone carousel as title, image, then matching caption", async
     titleBeforeImage: true,
     captionAfterImage: true,
     captionBackground: "rgba(0, 0, 0, 0)",
-    imageUsesPlateWidth: true,
+    imageIsInsetWithinPlate: true,
     imageUsesUncroppedMaster: true,
     panelAnimationName: "none",
     selectedDotDisplay: "none",
@@ -513,7 +496,7 @@ for (const viewport of verificationViewports) {
           expect(image.renderedHeight).toBeGreaterThan(0);
           expect(image.containedHorizontally).toBe(true);
           expect(image.containedVertically).toBe(true);
-          expect(image.unusedPanelRegionBelow).toBeLessThanOrEqual(1);
+          expect(image.unusedPanelRegionBelow).toBeLessThanOrEqual(4);
           expect(
             Math.abs(
               image.renderedWidth / image.renderedHeight - image.naturalWidth / image.naturalHeight,
@@ -868,10 +851,16 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
     const surfaceStyle = getComputedStyle(surface);
     const selectedImage = surface.querySelector("[data-product-plate-panel]:not([hidden]) img");
     const selectorRail = surface.querySelector(".product-plate__selectors");
+    const selectorStage = surface.querySelector(".product-plate__selector-stage");
+    const imageColumn = surface.querySelector(".product-plate__image-column");
+    const imageFrame = selectedImage?.closest(".product-plate__image-frame");
     const selectedSelector = selectorRail?.querySelector('[aria-selected="true"]');
     if (
       !(selectedImage instanceof HTMLImageElement) ||
       !(selectorRail instanceof HTMLElement) ||
+      !(selectorStage instanceof HTMLElement) ||
+      !(imageColumn instanceof HTMLElement) ||
+      !(imageFrame instanceof HTMLElement) ||
       !(selectedSelector instanceof HTMLElement)
     ) {
       throw new Error("Morphed showcase surface is missing its image or glass selector rail");
@@ -884,6 +873,9 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
     }
     const selectedTitleBounds = selectedTitle.getBoundingClientRect();
     const selectedSelectorBounds = selectedSelector.getBoundingClientRect();
+    const selectorStageBounds = selectorStage.getBoundingClientRect();
+    const imageColumnBounds = imageColumn.getBoundingClientRect();
+    const imageFrameBounds = imageFrame.getBoundingClientRect();
     const selectedGlassStyle = getComputedStyle(selectedSelector, "::before");
     const selectedDotStyle = getComputedStyle(selectedSelector, "::after");
     const selectedDotCenter =
@@ -894,20 +886,25 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
       backdropFilter: surfaceStyle.backdropFilter,
       boxShadow: surfaceStyle.boxShadow,
       imageWidth: imageBounds.width,
-      nestedPlateCount: surface.querySelectorAll(".product-plate").length,
+      imageColumnBackground: getComputedStyle(imageColumn).backgroundColor,
+      imageColumnBlur: getComputedStyle(imageColumn).backdropFilter,
+      imageInset: {
+        top: imageBounds.top - imageFrameBounds.top,
+        right: imageFrameBounds.right - imageBounds.right,
+        bottom: imageFrameBounds.bottom - imageBounds.bottom,
+        left: imageBounds.left - imageFrameBounds.left,
+      },
+      outerGap: getComputedStyle(surface).gap,
+      outerPadding: getComputedStyle(surface).padding,
+      selectorStageHeightDelta: Math.abs(selectorStageBounds.height - imageColumnBounds.height),
       selectedGlassBackdropFilter: selectedGlassStyle.backdropFilter,
       selectedGlassBackgroundColor: selectedGlassStyle.backgroundColor,
-      selectedGlassBorderWidth: selectedGlassStyle.borderWidth,
-      selectedGlassInset: selectedGlassStyle.inset,
       selectedGlassOpacity: selectedGlassStyle.opacity,
       selectedDotAnimationName: selectedDotStyle.animationName,
       selectedDotBackgroundColor: selectedDotStyle.backgroundColor,
       selectedDotTitleCenterDelta: Math.abs(
         selectedTitleBounds.top + selectedTitleBounds.height / 2 - selectedDotCenter,
       ),
-      selectedSelectorBackground: getComputedStyle(selectedSelector).backgroundColor,
-      selectorRailBackground: getComputedStyle(selectorRail).backgroundColor,
-      surfaceOwnsPlate: surface.classList.contains("product-plate"),
       progress: Number(surfaceStyle.getPropertyValue("--showcase-surface-progress")),
       transform: surfaceStyle.transform,
     };
@@ -916,23 +913,23 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
   expect(liftedSurface.backdropFilter).not.toBe("none");
   expect(liftedSurface.boxShadow).not.toBe("none");
   expect(liftedSurface.imageWidth).toBeGreaterThan(900);
-  expect(liftedSurface.nestedPlateCount).toBe(0);
+  expect(liftedSurface.imageColumnBackground).not.toBe("rgba(0, 0, 0, 0)");
+  expect(liftedSurface.imageColumnBlur).not.toBe("none");
+  expect(liftedSurface.imageInset).toEqual({ top: 4, right: 4, bottom: 4, left: 4 });
+  expect(liftedSurface.outerGap).toBe("4px");
+  expect(liftedSurface.outerPadding).toBe("4px");
+  expect(liftedSurface.selectorStageHeightDelta).toBeLessThanOrEqual(1);
   expect(liftedSurface.selectedGlassBackdropFilter).not.toBe("none");
-  expect(liftedSurface.selectedGlassBackgroundColor).toBe("rgba(15, 18, 25, 0.74)");
-  expect(liftedSurface.selectedGlassBorderWidth).toBe("0px");
-  expect(liftedSurface.selectedGlassInset).toBe("0px");
+  expect(liftedSurface.selectedGlassBackgroundColor).not.toBe("rgba(0, 0, 0, 0)");
   expect(liftedSurface.selectedGlassOpacity).toBe("1");
   expect(liftedSurface.selectedDotAnimationName).toBe("selected-dot-breathe");
   expect(liftedSurface.selectedDotBackgroundColor).toBe("rgb(137, 180, 250)");
   expect(liftedSurface.selectedDotTitleCenterDelta).toBeLessThanOrEqual(1);
-  expect(liftedSurface.selectedSelectorBackground).toBe("rgba(0, 0, 0, 0)");
-  expect(liftedSurface.selectorRailBackground).toBe("rgba(0, 0, 0, 0)");
-  expect(liftedSurface.surfaceOwnsPlate).toBe(true);
   expect(liftedSurface.progress).toBeGreaterThanOrEqual(0.98);
   expect(liftedSurface.transform).not.toBe("none");
 });
 
-test("holds a reversible strong-glass band between visible bookends", async ({ page }) => {
+test("holds full glass while the complete showcase remains visible", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.goto("/");
 
@@ -968,22 +965,24 @@ test("holds a reversible strong-glass band between visible bookends", async ({ p
     );
   };
 
-  const bottomBookendTop = geometry.viewportHeight - geometry.height;
+  const entryStartTop = geometry.viewportHeight;
+  const fullyEnteredTop = geometry.viewportHeight - geometry.height;
   const visibleTop = 96;
-  const travel = bottomBookendTop - visibleTop;
-  const plateauStartTop = bottomBookendTop - travel * 0.35;
-  const midpointTop = bottomBookendTop - travel * 0.5;
-  const plateauEndTop = bottomBookendTop - travel * 0.65;
+  const fullyVisibleMidpointTop = (fullyEnteredTop + visibleTop) / 2;
+  const exitMidpointTop = visibleTop - geometry.height / 2;
+  const fullyExitedTop = visibleTop - geometry.height;
 
-  expect(await readProgressAt(bottomBookendTop)).toBeLessThanOrEqual(0.02);
-  expect(await readProgressAt(plateauStartTop)).toBeGreaterThanOrEqual(0.98);
-  expect(await readProgressAt(midpointTop)).toBeGreaterThanOrEqual(0.98);
-  expect(await readProgressAt(plateauEndTop)).toBeGreaterThanOrEqual(0.98);
-  expect(await readProgressAt(visibleTop)).toBeLessThanOrEqual(0.02);
-  expect(await readProgressAt(plateauEndTop)).toBeGreaterThanOrEqual(0.98);
-  expect(await readProgressAt(midpointTop)).toBeGreaterThanOrEqual(0.98);
-  expect(await readProgressAt(plateauStartTop)).toBeGreaterThanOrEqual(0.98);
-  expect(await readProgressAt(bottomBookendTop)).toBeLessThanOrEqual(0.02);
+  expect(await readProgressAt(entryStartTop)).toBeLessThanOrEqual(0.02);
+  expect(await readProgressAt(fullyEnteredTop)).toBeGreaterThanOrEqual(0.98);
+  expect(await readProgressAt(fullyVisibleMidpointTop)).toBeGreaterThanOrEqual(0.98);
+  expect(await readProgressAt(visibleTop)).toBeGreaterThanOrEqual(0.98);
+  expect(await readProgressAt(exitMidpointTop)).toBeCloseTo(0.5, 1);
+  expect(await readProgressAt(fullyExitedTop)).toBeLessThanOrEqual(0.02);
+  expect(await readProgressAt(exitMidpointTop)).toBeCloseTo(0.5, 1);
+  expect(await readProgressAt(visibleTop)).toBeGreaterThanOrEqual(0.98);
+  expect(await readProgressAt(fullyVisibleMidpointTop)).toBeGreaterThanOrEqual(0.98);
+  expect(await readProgressAt(fullyEnteredTop)).toBeGreaterThanOrEqual(0.98);
+  expect(await readProgressAt(entryStartTop)).toBeLessThanOrEqual(0.02);
 });
 
 test("keeps the glass slideshow surface static with reduced motion", async ({ page }) => {

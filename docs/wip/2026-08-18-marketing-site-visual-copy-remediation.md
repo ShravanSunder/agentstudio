@@ -34,21 +34,30 @@ named proof both passed; editing the source alone does not complete an item.
 
 ### 2026-08-21 detached slideshow surface experiment
 
-Current result: `APPROVED FOR RELEASE`. The owner accepted the full-row dark
-frost direction, selected-dot treatment, dot-free compact header, and
-scroll-position strong-glass band. Deployment remains separate.
+Current result: `APPROVED FOR CHECKPOINT`. The owner accepted the nested glass
+composition, full-row dark selected state, selected-dot treatment, dot-free
+compact header, and visibility-based glass lifecycle. Deployment remains a
+separate decision.
 
 - [x] Morph the existing product plate itself; do not place it inside another
       frame. Preserve its selectors, images, captions, geometry, and interaction.
-- [x] Drive one reversible strong-glass band entirely from showcase position:
-      0% when its bottom reaches the viewport bottom, smooth ramp to 100%, hold
-      100% from 35% through 65% of the bookend travel, then smooth ramp to 0%
-      when its top reaches the 96px visible-top boundary. Use the same positions
-      in reverse when scrolling upward, with no direction state or timer.
+- [x] Drive one reversible glass lifecycle from actual visibility: ramp from 0%
+      when the showcase top enters the viewport to 100% when its bottom reaches
+      the viewport bottom; hold 100% for the entire fully visible interval;
+      then ramp to 0% only while the showcase exits above the 96px visible-top
+      boundary. Use identical positions in reverse, with no direction state or
+      timer.
 - [x] Keep every product screenshot opaque and sharp. Expose glass only through
-      the desktop selector rail and responsive title, arrow, and caption chrome.
-      Do not add a separate frost or
-      blur element, decorative gutter treatment, or overlay over product pixels.
+      the surrounding chassis and chrome. Do not add a frost, blur, or color
+      overlay over product pixels.
+- [x] Use the detached title bar's navy glass as the outer chassis, with a 4px
+      reveal around two equal-height columns and a 4px seam between them. The
+      selector column owns five separate rounded glass rows; inactive rows use
+      neutral charcoal glass and the selected row uses deeper dark frost.
+- [x] Place the screenshot inside an image-column surface using the same neutral
+      charcoal glass as the inactive rows, with one 4px inset on all four sides.
+      Preserve the screenshot as the opaque content surface; do not create a
+      duplicate picture frame or border.
 - [x] Make the complete selected row a full-width dark frost surface with no
       inset card, extra radius, border, or internal shadow. Keep selected copy
       white and align one 8px primary-blue dot to the title centerline. Animate
@@ -68,8 +77,12 @@ scroll-position strong-glass band. Deployment remains separate.
 
 Verification:
 
+- `pnpm --dir web exec playwright test tests/browser/marketing-homepage.spec.ts`:
+  46 focused desktop/mobile carousel checks pass after replacing obsolete
+  edge-to-edge assertions with the accepted nested-surface contract.
+
 - `pnpm --dir web run check`: type-aware Oxlint, Oxfmt, Astro/typecheck, 10
-  capture masters and 6 responsive crops, pixel audit, and 12 unit tests pass.
+  capture masters and 6 responsive crops, pixel audit, and 14 unit tests pass.
 - `pnpm --dir web run test:browser`: 65 passed and 1 expected skip across the
   desktop and mobile projects.
 - `pnpm --dir web run build`: two static routes and 50 optimized image variants
