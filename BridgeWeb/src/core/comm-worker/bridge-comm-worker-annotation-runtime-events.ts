@@ -1,5 +1,5 @@
 import type { BridgeWorkerAnnotationProjectionSnapshot } from './bridge-comm-worker-annotation-projection-decoder.js';
-import { bridgeProductWorktreeAnnotationCommandResultSchema } from './bridge-product-call-contracts.js';
+import { bridgeProductWorktreeAnnotationDecodedCommandResultSchema } from './bridge-product-call-contracts.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
 import type {
@@ -18,7 +18,7 @@ export function bridgeCommWorkerAnnotationCommandAcceptedEvent(props: {
 	) {
 		return null;
 	}
-	const annotationResult = bridgeProductWorktreeAnnotationCommandResultSchema.parse(
+	const annotationResult = bridgeProductWorktreeAnnotationDecodedCommandResultSchema.parse(
 		props.actionResult,
 	);
 	return {

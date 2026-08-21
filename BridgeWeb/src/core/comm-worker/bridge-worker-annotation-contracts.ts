@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { bridgeWorkerAnnotationProjectionSnapshotSchema } from './bridge-comm-worker-annotation-projection-decoder.js';
 import { bridgeProductWorktreeAnnotationOperationSchema } from './bridge-product-call-contracts.js';
 import { bridgeProductIdentifierSchema } from './bridge-product-contract-primitives.js';
-import { bridgeProductWorktreeAnnotationCommandOutcomeSchema } from './bridge-product-worktree-annotation-contracts.js';
+import { bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema } from './bridge-product-worktree-annotation-contracts.js';
 import {
 	bridgeProductAnnotationOutputContentDescriptorSchema,
 	bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
@@ -41,7 +41,7 @@ export const bridgeWorkerAnnotationProjectionRetryCommandSchema = bridgeWorkerMa
 export const bridgeWorkerAnnotationCommandAcceptedEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
 		kind: z.literal('annotationCommandAccepted'),
-		outcome: bridgeProductWorktreeAnnotationCommandOutcomeSchema.optional(),
+		outcome: bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema.optional(),
 		productRequestId: bridgeProductIdentifierSchema,
 		requestId: bridgeWorkerRequestIdSchema,
 		surface: bridgeWorkerInteractionSurfaceSchema,

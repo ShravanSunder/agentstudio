@@ -12,7 +12,10 @@ import {
 import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-review-comparison-contracts.js';
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 import { bridgeProductFileSourceConfigurationSchema } from './bridge-product-subscription-contracts.js';
-import { bridgeProductWorktreeAnnotationCommandOutcomeSchema } from './bridge-product-worktree-annotation-contracts.js';
+import {
+	bridgeProductWorktreeAnnotationCommandOutcomeSchema,
+	bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema,
+} from './bridge-product-worktree-annotation-contracts.js';
 import {
 	bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
 	bridgeProductWorktreeAnnotationOutputInspectResultSchema,
@@ -263,6 +266,12 @@ export const bridgeProductWorktreeAnnotationCommandResultSchema = z
 	.object({
 		kind: z.literal('completed'),
 		outcome: bridgeProductWorktreeAnnotationCommandOutcomeSchema,
+	})
+	.strict();
+export const bridgeProductWorktreeAnnotationDecodedCommandResultSchema = z
+	.object({
+		kind: z.literal('completed'),
+		outcome: bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema,
 	})
 	.strict();
 

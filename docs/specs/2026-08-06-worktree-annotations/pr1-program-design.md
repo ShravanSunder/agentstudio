@@ -58,6 +58,28 @@ The Swift development backend maps these same contracts to
 `/__bridge-product/command`, `/__bridge-product/stream`, and
 `/__bridge-product/content`. It is an adapter, not a second architecture.
 
+The command route has one raw-wire validation boundary and one decoded-value
+boundary. `BridgeProductTransport` validates the Swift JSON response against
+the raw product schema and performs explicit field transformations such as
+Unix-millisecond timestamps to the decoded BridgeWeb value. Product
+controllers, runtime-event factories, worker-event contracts, and React
+consumers accept only that decoded value shape; they MUST NOT apply the raw-wire
+schema again. Raw and decoded schemas may share unchanged members, but their
+separate names and contract tests preserve the boundary whenever a transform
+exists. A non-empty history result therefore crosses the route as:
+
+```text
+Swift history JSON with createdAtUnixMilliseconds
+  -> raw product schema validates once
+  -> transport transforms to decoded createdAt
+  -> product controller and worker event validate decoded history
+  -> Share History presentation
+```
+
+This is a representation boundary only. It does not create a second history
+model, alter SQLite truth, or permit downstream owners to reinterpret a command
+outcome.
+
 The proof harness drives the same production React, comm-worker, HTTP adapter,
 service, repository, and SQLite path. Direct HTTP tests remain a lower proof
 layer because they do not exercise browser command correlation, subscription

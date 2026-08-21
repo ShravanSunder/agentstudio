@@ -847,6 +847,16 @@ Swift conversion is explicit at the DTO boundary; BridgeWeb constructs `Date`
 only through one validated conversion helper. Relative and absolute renderers
 consume the same value.
 
+The production settlement decoder is the sole raw-wire-to-decoded-value
+boundary. It validates the Unix-millisecond wire members once and returns the
+decoded BridgeWeb contract, whose timestamp members use the canonical decoded
+names and values. Product controllers, runtime-event factories, worker-event
+schemas, and UI consumers validate the decoded contract and MUST NOT reapply a
+raw-wire schema to an already decoded result. Raw and decoded schemas remain
+separately named and receive a contract test whenever any member transforms;
+this prevents a valid non-empty result from being rejected merely because a
+downstream owner expects the pre-transform field name.
+
 ### Content terminal symmetry
 
 Every registered complete content terminal includes the common observed byte

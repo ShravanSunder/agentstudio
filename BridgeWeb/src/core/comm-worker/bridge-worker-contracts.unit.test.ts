@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, test } from 'vitest';
 
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
+import { bridgeCommWorkerAnnotationCommandAcceptedEvent } from './bridge-comm-worker-annotation-runtime-events.js';
 import { makeContentRequestDescriptor } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { parseBridgeWorkerMainToServerMessage } from './bridge-worker-contract-parsers.js';
 import {
@@ -43,6 +44,31 @@ describe('BridgeWorkerContracts', () => {
 			surface: command.surface,
 			transferDescriptors: [],
 		} as const;
+		const historyAccepted = {
+			...accepted,
+			productRequestId: 'annotation-history-product-request-1',
+			outcome: {
+				requestId: 'annotation-history-product-request-1',
+				sessionId: '00000000-0000-7000-8000-000000000041',
+				status: {
+					kind: 'history',
+					summaries: [
+						{
+							attemptId: '00000000-0000-7000-8000-000000000042',
+							canMarkNotHandled: true,
+							createdAt: 1_700_000_000_000,
+							messageCount: 1,
+							outputKind: 'clipboard_markdown',
+							repeatedFromAttemptId: null,
+							sessionId: '00000000-0000-7000-8000-000000000041',
+							state: 'succeeded',
+							updatedAt: 1_700_000_000_001,
+						},
+					],
+				},
+				surface: 'file',
+			},
+		} as const;
 		const readyConvergence = {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			direction: 'serverWorkerToMain',
@@ -79,6 +105,24 @@ describe('BridgeWorkerContracts', () => {
 
 		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
 		expect(bridgeWorkerServerToMainMessageSchema.parse(accepted)).toEqual(accepted);
+		expect(bridgeWorkerServerToMainMessageSchema.parse(historyAccepted)).toEqual(historyAccepted);
+		expect(
+			bridgeWorkerServerToMainMessageSchema.parse(
+				bridgeCommWorkerAnnotationCommandAcceptedEvent({
+					actionResult: { kind: 'completed', outcome: historyAccepted.outcome },
+					command: {
+						method: 'file.annotations.command',
+						params: {
+							operation: {
+								kind: 'output.history',
+								sessionId: '00000000-0000-7000-8000-000000000041',
+							},
+						},
+					},
+					requestId: accepted.requestId,
+				}),
+			),
+		).toEqual(historyAccepted);
 		expect(bridgeWorkerServerToMainMessageSchema.parse(readyConvergence)).toEqual(readyConvergence);
 		expect(bridgeWorkerServerToMainMessageSchema.parse(projectionRefreshing)).toEqual(
 			projectionRefreshing,

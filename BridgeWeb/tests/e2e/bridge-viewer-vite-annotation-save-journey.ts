@@ -177,6 +177,7 @@ export async function runAnnotationSaveJourney(props: {
 			state: 'visible',
 			timeout: annotationProjectionResponseTimeoutMilliseconds,
 		});
+		await verifyDurableHistoryAndUnhandle(page);
 
 		return {
 			committedBodyCountWhileProjectionGated,
@@ -200,6 +201,44 @@ export async function runAnnotationSaveJourney(props: {
 		await page?.close();
 		await browser.close();
 	}
+}
+
+async function verifyDurableHistoryAndUnhandle(page: Page): Promise<void> {
+	await page.getByRole('button', { name: 'Share comments' }).press('Enter');
+	const newScope = page.locator('[aria-label^="New comments, "]');
+	await newScope.waitFor({
+		state: 'visible',
+		timeout: annotationProjectionResponseTimeoutMilliseconds,
+	});
+	await page.getByRole('button', { name: 'Copy Markdown' }).press('Enter');
+	await page
+		.getByRole('region', { name: 'Share comments' })
+		.waitFor({ state: 'hidden', timeout: annotationProjectionResponseTimeoutMilliseconds });
+
+	await page.getByRole('button', { name: 'Share comments' }).press('Enter');
+	const history = page.getByRole('button', { name: /^History \([1-9][0-9]*\)$/ });
+	await history.waitFor({
+		state: 'visible',
+		timeout: annotationProjectionResponseTimeoutMilliseconds,
+	});
+	await history.press('Enter');
+	await page
+		.getByRole('region', { name: 'Output history' })
+		.getByRole('button', { name: 'Mark as not handled' })
+		.first()
+		.press('Enter');
+	await page.waitForFunction(
+		(): boolean => {
+			const label = document
+				.querySelector('[aria-label^="New comments, "]')
+				?.getAttribute('aria-label');
+			if (label === undefined || label === null) return false;
+			const count = Number(label.slice('New comments, '.length));
+			return Number.isInteger(count) && count > 0;
+		},
+		undefined,
+		{ timeout: annotationProjectionResponseTimeoutMilliseconds },
+	);
 }
 
 async function annotationProjectionUiDiagnostic(page: Page): Promise<{
@@ -245,6 +284,13 @@ function observeAnnotationJourneyDiagnostics(page: Page, diagnostics: string[]):
 				? body['requestSequence']
 				: null;
 		const method = call !== null && typeof call['method'] === 'string' ? call['method'] : null;
+		const callRequest = call !== null && isUnknownRecord(call['request']) ? call['request'] : null;
+		const operation =
+			callRequest !== null && isUnknownRecord(callRequest['operation'])
+				? callRequest['operation']
+				: null;
+		const operationKind =
+			operation !== null && typeof operation['kind'] === 'string' ? operation['kind'] : null;
 		if (method === 'file.activeViewerMode.update' && call !== null) {
 			const activeViewerRequest = call['request'];
 			const activeSource = isUnknownRecord(activeViewerRequest)
@@ -280,11 +326,44 @@ function observeAnnotationJourneyDiagnostics(page: Page, diagnostics: string[]):
 					recordAnnotationDiagnostic(diagnostics, 'projection-query-result:unreadable');
 				});
 		}
+		if (operationKind === 'output.history') {
+			void response
+				.json()
+				.then((responseBody: unknown): void => {
+					recordAnnotationDiagnostic(
+						diagnostics,
+						`history-result:${JSON.stringify(annotationHistoryResultDiagnostic(responseBody))}`,
+					);
+				})
+				.catch((): void => {
+					recordAnnotationDiagnostic(diagnostics, 'history-result:unreadable');
+				});
+		}
 		recordAnnotationDiagnostic(
 			diagnostics,
-			`response:${path}:${response.status()}:${kind ?? '-'}:${method ?? contentKind ?? '-'}:${requestSequence ?? '-'}`,
+			`response:${path}:${response.status()}:${kind ?? '-'}:${method ?? contentKind ?? '-'}:${operationKind ?? '-'}:${requestSequence ?? '-'}`,
 		);
 	});
+}
+
+function annotationHistoryResultDiagnostic(value: unknown): unknown {
+	if (!isUnknownRecord(value) || !isUnknownRecord(value['call'])) return { call: 'missing' };
+	const call = value['call'];
+	if (!isUnknownRecord(call['result'])) return { result: 'missing' };
+	const result = call['result'];
+	if (!isUnknownRecord(result['outcome']) || !isUnknownRecord(result['outcome']['status'])) {
+		return { outcome: 'missing' };
+	}
+	const status = result['outcome']['status'];
+	const summaries = Array.isArray(status['summaries']) ? status['summaries'] : [];
+	const firstSummary = summaries[0];
+	return {
+		firstKeys: isUnknownRecord(firstSummary) ? Object.keys(firstSummary).toSorted() : [],
+		kind: status['kind'],
+		firstSessionId: isUnknownRecord(firstSummary) ? firstSummary['sessionId'] : null,
+		outcomeSessionId: result['outcome']['sessionId'],
+		summaryCount: summaries.length,
+	};
 }
 
 function annotationProjectionQueryResultDiagnostic(value: unknown): unknown {
@@ -420,8 +499,32 @@ async function selectRangeForAnnotation(props: {
 		const endRow = props.page.locator(`[data-column-number="${props.endLine}"]`).first();
 		await startRow.waitFor({ state: 'visible', timeout: annotationSaveJourneyTimeoutMilliseconds });
 		await endRow.waitFor({ state: 'visible', timeout: annotationSaveJourneyTimeoutMilliseconds });
-		startBounds = await startRow.boundingBox();
-		endBounds = await endRow.boundingBox();
+		const lineUtility = props.page.locator('[data-utility-button]').first();
+		// oxlint-disable-next-line no-await-in-loop -- Each bounded pointer attempt must settle before retry.
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			startBounds = await startRow.boundingBox();
+			endBounds = await endRow.boundingBox();
+			if (startBounds === null || endBounds === null) {
+				throw new Error('File annotation range rows must have visible pointer geometry.');
+			}
+			await props.page.mouse.move(startBounds.x + 4, startBounds.y + startBounds.height / 2);
+			await props.page.mouse.down();
+			await props.page.mouse.move(endBounds.x + 4, endBounds.y + endBounds.height / 2, {
+				steps: 4,
+			});
+			await props.page.mouse.up();
+			try {
+				await lineUtility.waitFor({ state: 'visible', timeout: 2_000 });
+				await lineUtility.click();
+				await props.page
+					.getByRole('textbox', { name: 'Write an annotation in Markdown' })
+					.waitFor({ state: 'visible', timeout: annotationProjectionResponseTimeoutMilliseconds });
+				return;
+			} catch (error: unknown) {
+				if (attempt === 2) throw error;
+			}
+		}
+		throw new Error('File annotation range selection exhausted its bounded attempts.');
 	} else {
 		[startBounds, endBounds] = await reviewAdditionRangeBounds(props.page);
 	}

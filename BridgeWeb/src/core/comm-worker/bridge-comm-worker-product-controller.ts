@@ -6,7 +6,7 @@ import {
 	type BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication,
 } from './bridge-comm-worker-annotation-projection-query-controller.js';
 import {
-	bridgeProductWorktreeAnnotationCommandResultSchema,
+	bridgeProductWorktreeAnnotationDecodedCommandResultSchema,
 	type BridgeProductCallResult,
 	type BridgeProductWorktreeAnnotationOperation,
 } from './bridge-product-call-contracts.js';
@@ -342,7 +342,7 @@ export class BridgeCommWorkerProductController {
 			surface === 'file'
 				? await this.#productTransport.call('file.annotations.command', { operation })
 				: await this.#productTransport.call('review.annotations.command', { operation });
-		const parsedResult = bridgeProductWorktreeAnnotationCommandResultSchema.parse(result);
+		const parsedResult = bridgeProductWorktreeAnnotationDecodedCommandResultSchema.parse(result);
 		if (parsedResult.outcome.status.kind !== 'committed') return parsedResult;
 		if (operation.kind === 'demand.acquire') {
 			this.#annotationSessionIdsBySurface[surface].add(operation.sessionId);

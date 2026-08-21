@@ -85,27 +85,76 @@ export const bridgeProductWorktreeAnnotationOutputHistorySummarySchema = z
 		updatedAt: updatedAtUnixMilliseconds,
 	}));
 
+export const bridgeProductWorktreeAnnotationDecodedOutputHistorySummarySchema = z
+	.object({
+		attemptId: bridgeProductReviewPublicationIdSchema,
+		canMarkNotHandled: z.boolean(),
+		createdAt: annotationUnixMillisecondsSchema,
+		messageCount: bridgeProductNonnegativeSequenceSchema.positive(),
+		outputKind: z.enum(['clipboard_markdown', 'json_file']),
+		repeatedFromAttemptId: bridgeProductReviewPublicationIdSchema.nullable(),
+		sessionId: bridgeProductReviewPublicationIdSchema,
+		state: z.enum(['prepared', 'succeeded', 'unknown', 'finalization_failed']),
+		updatedAt: annotationUnixMillisecondsSchema,
+	})
+	.strict()
+	.superRefine((summary, context) => {
+		if (summary.state !== 'succeeded' && summary.canMarkNotHandled) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Only successful output history can be marked not handled.',
+				path: ['canMarkNotHandled'],
+			});
+		}
+	});
+
+const annotationCommittedCommandOutcomeStatusSchema = z
+	.object({ kind: z.literal('committed') })
+	.strict();
+const annotationAdmissionRequiredCommandOutcomeStatusSchema = z
+	.object({
+		candidateSessionIds: z
+			.array(bridgeProductReviewPublicationIdSchema)
+			.min(1)
+			.max(128)
+			.refine((sessionIds) => new Set(sessionIds).size === sessionIds.length, {
+				message: 'Annotation admission candidates must be unique.',
+			}),
+		kind: z.literal('admission_required'),
+		reason: z.enum(['applicable_session_choice', 'uncertain_continuity_choice']),
+	})
+	.strict();
+const annotationOutputCommandOutcomeStatusSchema = z
+	.object({
+		kind: z.literal('output'),
+		outcome: annotationOutputCommandOutcomeSchema,
+	})
+	.strict();
+const annotationFailedCommandOutcomeStatusSchema = z
+	.object({
+		code: z.enum([
+			'conflict',
+			'edit_token_conflict',
+			'invalid_source',
+			'message_locked',
+			'not_found',
+			'open_thread_count_conflict',
+			'output_unavailable',
+			'recovery_acknowledgement_required',
+			'session_read_only',
+			'session_selection_required',
+			'unavailable',
+			'unexpected',
+			'unresolved_work_confirmation_required',
+		]),
+		kind: z.literal('failed'),
+	})
+	.strict();
+
 const annotationCommandOutcomeStatusSchema = z.discriminatedUnion('kind', [
-	z.object({ kind: z.literal('committed') }).strict(),
-	z
-		.object({
-			candidateSessionIds: z
-				.array(bridgeProductReviewPublicationIdSchema)
-				.min(1)
-				.max(128)
-				.refine((sessionIds) => new Set(sessionIds).size === sessionIds.length, {
-					message: 'Annotation admission candidates must be unique.',
-				}),
-			kind: z.literal('admission_required'),
-			reason: z.enum(['applicable_session_choice', 'uncertain_continuity_choice']),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal('output'),
-			outcome: annotationOutputCommandOutcomeSchema,
-		})
-		.strict(),
+	annotationCommittedCommandOutcomeStatusSchema,
+	annotationAdmissionRequiredCommandOutcomeStatusSchema,
+	annotationOutputCommandOutcomeStatusSchema,
 	z
 		.object({
 			kind: z.literal('history'),
@@ -115,26 +164,23 @@ const annotationCommandOutcomeStatusSchema = z.discriminatedUnion('kind', [
 				.readonly(),
 		})
 		.strict(),
+	annotationFailedCommandOutcomeStatusSchema,
+]);
+
+const annotationDecodedCommandOutcomeStatusSchema = z.discriminatedUnion('kind', [
+	annotationCommittedCommandOutcomeStatusSchema,
+	annotationAdmissionRequiredCommandOutcomeStatusSchema,
+	annotationOutputCommandOutcomeStatusSchema,
 	z
 		.object({
-			code: z.enum([
-				'conflict',
-				'edit_token_conflict',
-				'invalid_source',
-				'message_locked',
-				'not_found',
-				'open_thread_count_conflict',
-				'output_unavailable',
-				'recovery_acknowledgement_required',
-				'session_read_only',
-				'session_selection_required',
-				'unavailable',
-				'unexpected',
-				'unresolved_work_confirmation_required',
-			]),
-			kind: z.literal('failed'),
+			kind: z.literal('history'),
+			summaries: z
+				.array(bridgeProductWorktreeAnnotationDecodedOutputHistorySummarySchema)
+				.max(128)
+				.readonly(),
 		})
 		.strict(),
+	annotationFailedCommandOutcomeStatusSchema,
 ]);
 
 const annotationCommandReceiptSchema = z.discriminatedUnion('kind', [
@@ -158,6 +204,16 @@ export const bridgeProductWorktreeAnnotationCommandOutcomeSchema = z
 		requestId: bridgeProductIdentifierSchema,
 		sessionId: bridgeProductReviewPublicationIdSchema.nullable(),
 		status: annotationCommandOutcomeStatusSchema,
+		surface: z.enum(['file', 'review']),
+	})
+	.strict();
+
+export const bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema = z
+	.object({
+		receipt: annotationCommandReceiptSchema.optional(),
+		requestId: bridgeProductIdentifierSchema,
+		sessionId: bridgeProductReviewPublicationIdSchema.nullable(),
+		status: annotationDecodedCommandOutcomeStatusSchema,
 		surface: z.enum(['file', 'review']),
 	})
 	.strict();
