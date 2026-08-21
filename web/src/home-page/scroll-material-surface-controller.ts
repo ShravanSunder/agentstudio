@@ -19,6 +19,10 @@ function applySurfaceProgress(surface: HTMLElement, progress: number, shouldLift
     "--scroll-material-lift",
     `${shouldLift ? (-liftDistance * progress).toFixed(2) : "0"}px`,
   );
+  surface.style.setProperty(
+    "--scroll-material-border-color",
+    `rgb(137 180 250 / ${(0.38 * progress).toFixed(3)})`,
+  );
   surface.style.setProperty("--scroll-material-primary-alpha", (0.11 * progress).toFixed(3));
   surface.style.setProperty("--scroll-material-cyan-alpha", (0.06 * progress).toFixed(3));
   surface.style.setProperty("--scroll-material-ground-alpha", (0.88 * progress).toFixed(3));

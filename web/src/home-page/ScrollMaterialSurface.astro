@@ -25,6 +25,7 @@ const { class: className, ...attributes } = Astro.props;
   .scroll-material-surface {
     --scroll-material-progress: 0;
     --scroll-material-lift: 0px;
+    --scroll-material-border-color: rgb(137 180 250 / 0%);
     --scroll-material-primary-alpha: 0;
     --scroll-material-cyan-alpha: 0;
     --scroll-material-ground-alpha: 0;
@@ -34,7 +35,15 @@ const { class: className, ...attributes } = Astro.props;
     --scroll-material-blur: 0px;
     --scroll-material-saturation: 100%;
     --scroll-material-radius: 16px;
-    border-color: rgb(137 180 250 / 38%);
+    --scroll-material-pane-background:
+      linear-gradient(
+        135deg,
+        rgb(137 180 250 / var(--scroll-material-primary-alpha)),
+        transparent 40%,
+        rgb(116 199 236 / var(--scroll-material-cyan-alpha))
+      ),
+      rgb(24 26 32 / 72%);
+    border-color: var(--scroll-material-border-color);
     border-radius: var(--scroll-material-radius);
     background:
       linear-gradient(
@@ -55,6 +64,15 @@ const { class: className, ...attributes } = Astro.props;
     -webkit-backdrop-filter: blur(var(--scroll-material-blur))
       saturate(var(--scroll-material-saturation));
     will-change: transform;
+  }
+
+  :global(.scroll-material-pane) {
+    background: var(--scroll-material-pane-background);
+    box-shadow: inset 0 1px rgb(255 255 255 / var(--scroll-material-highlight-alpha));
+    backdrop-filter: blur(var(--scroll-material-blur))
+      saturate(var(--scroll-material-saturation));
+    -webkit-backdrop-filter: blur(var(--scroll-material-blur))
+      saturate(var(--scroll-material-saturation));
   }
 
   @media (prefers-reduced-motion: reduce) {

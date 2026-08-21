@@ -25,15 +25,15 @@ const {
 } = Astro.props;
 ---
 
-<div class="persistence-proof" data-persistence-proof data-enhanced="false">
+<div class="persistence-proof grid gap-1" data-persistence-proof data-enhanced="false">
   <div
-    class="flex min-h-12 border-b border-line-strong bg-canvas"
+    class="flex min-h-12 gap-1 bg-transparent"
     role="group"
     aria-label={accessibilityLabel}
   >
     <button
       type="button"
-      class="persistence-proof__control relative min-w-32 cursor-pointer border-0 border-r border-line bg-transparent px-4.5 font-mono-product text-[12px] text-ink-muted uppercase transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-phone:min-w-0 max-phone:flex-[1_1_50%]"
+      class="scroll-material-pane persistence-proof__control relative min-w-0 flex-1 basis-0 cursor-pointer rounded-xl border border-line px-4.5 font-mono-product text-[12px] text-ink-muted uppercase transition-colors duration-150 ease-out hover:text-ink motion-reduce:duration-0 disabled:pointer-events-none"
       data-persistence-proof-button="before"
       aria-pressed="true"
       disabled
@@ -42,7 +42,7 @@ const {
     </button>
     <button
       type="button"
-      class="persistence-proof__control relative min-w-32 cursor-pointer border-0 border-r border-line bg-transparent px-4.5 font-mono-product text-[12px] text-ink-muted uppercase transition-colors duration-150 ease-out hover:bg-canvas hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-phone:min-w-0 max-phone:flex-[1_1_50%]"
+      class="scroll-material-pane persistence-proof__control relative min-w-0 flex-1 basis-0 cursor-pointer rounded-xl border border-line px-4.5 font-mono-product text-[12px] text-ink-muted uppercase transition-colors duration-150 ease-out hover:text-ink motion-reduce:duration-0 disabled:pointer-events-none"
       data-persistence-proof-button="restored"
       aria-pressed="false"
       disabled
@@ -51,7 +51,7 @@ const {
     </button>
   </div>
 
-  <figure class="m-0" data-persistence-frame="before">
+  <figure class="m-0 overflow-clip rounded-control" data-persistence-frame="before">
     <Image
       src={beforeImage}
       alt={beforeImageDescription}
@@ -63,7 +63,7 @@ const {
       class="block h-auto w-full"
     />
   </figure>
-  <figure class="m-0" data-persistence-frame="restored" hidden>
+  <figure class="m-0 overflow-clip rounded-control" data-persistence-frame="restored" hidden>
     <Image
       src={restoredImage}
       alt={restoredImageDescription}
@@ -81,7 +81,8 @@ const {
   @reference "../styles/global.css";
 
   .persistence-proof__control[aria-pressed="true"] {
-    @apply bg-active-surface text-ink;
+    @apply text-ink;
+    background: var(--color-active-surface);
   }
 
   .persistence-proof__control[aria-pressed="true"]::after {

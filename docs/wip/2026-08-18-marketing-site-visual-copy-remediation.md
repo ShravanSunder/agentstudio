@@ -51,10 +51,14 @@ Deployment remains a separate decision.
       the surrounding chassis and chrome. Do not add a frost, blur, or color
       overlay over product pixels.
 - [x] Extract the outer chassis into `ScrollMaterialSurface`, with one shared
-      controller that supports multiple future instances. At rest, retain only
-      the constant 38% primary-blue outline; materialize the navy fill, blur,
-      illumination, highlight, shadow, radius, and lift through the focus zone,
-      then reverse from the same scroll positions.
+      controller that supports multiple instances. At rest, keep the outer
+      chassis completely absent; materialize its primary-blue outline, navy
+      fill, blur, illumination, highlight, shadow, radius, and lift through the
+      focus zone, then reverse from the same scroll positions.
+- [x] Give every neutral inner surface one `scroll-material-pane` recipe for
+      its charcoal base, blue/cyan reflection, highlight, blur, and saturation.
+      Use it for slideshow controls, image and description panes, supporting
+      copy/media panes, and persistence tabs so consumers cannot drift.
 - [x] On desktop, keep the 4px reveal around two equal-height columns and the
       4px seam between them. The selector column owns five separately rounded
       rows; inactive rows use neutral charcoal and the selected row uses deeper
@@ -77,6 +81,13 @@ Deployment remains a separate decision.
       square, and borderless without changing its content or material. Preserve
       the complete rounded border and inset geometry after it detaches, and
       preserve the existing desktop attached state at `64rem` and above.
+- [x] Rebuild each “More of the workspace” item as two peer glass panes inside
+      `ScrollMaterialSurface`: copy/media side-by-side on desktop and copy above
+      media below `64rem`. Keep both panes equal-height on desktop, independently
+      rounded and outlined, with the same 4px chassis seam.
+- [x] Make every two-option persistence top bar two equal flex controls spanning
+      the full row. Give each control the shared grey-glass material, outline,
+      radius, and 4px separation; preserve its selected underline and behavior.
 - [x] Give reduced-motion visitors one static lifted surface without scroll-
       driven translation.
 - [x] Disable the image-and-caption panel entrance animation below `64rem` so
@@ -92,7 +103,7 @@ Deployment remains a separate decision.
 Verification:
 
 - `pnpm --dir web exec playwright test tests/browser/marketing-homepage.spec.ts`:
-  50 desktop/mobile homepage checks pass, including the reusable material
+  54 desktop/mobile homepage checks pass, including the reusable material
   lifecycle, three compact panes, tactile navigation, and attached-header
   geometry at phone, mid-width, and desktop sizes.
 

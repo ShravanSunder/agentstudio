@@ -99,10 +99,11 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   });
   if (plateGeometry.stackedLayout) {
     expect(plateGeometry.stackedImageGap).toBeGreaterThan(0);
+    expect(plateGeometry.selectedBackground).not.toBe("rgba(0, 0, 0, 0)");
   } else {
     expect(plateGeometry.imageGap).toBeGreaterThan(0);
+    expect(plateGeometry.selectedBackground).toBe("rgba(0, 0, 0, 0)");
   }
-  expect(plateGeometry.selectedBackground).toBe("rgba(0, 0, 0, 0)");
 
   const originalUrl = page.url();
   await page.getByRole("tab", { name: /Pane drawer/ }).click();
@@ -139,11 +140,15 @@ test("renders the claim-first homepage and switches product stories", async ({ p
     const panelBounds = media.getBoundingClientRect();
     const imageBounds = image.getBoundingClientRect();
     return {
-      widthDifference: Math.abs(panelBounds.width - imageBounds.width),
+      leftInset: imageBounds.left - panelBounds.left,
+      rightInset: panelBounds.right - imageBounds.right,
       unusedAreaBelow: panelBounds.bottom - imageBounds.bottom,
     };
   });
-  expect(beforeFrameGeometry.widthDifference).toBeLessThanOrEqual(2);
+  expect(beforeFrameGeometry.leftInset).toBeGreaterThan(0);
+  expect(
+    Math.abs(beforeFrameGeometry.leftInset - beforeFrameGeometry.rightInset),
+  ).toBeLessThanOrEqual(1);
   expect(beforeFrameGeometry.unusedAreaBelow).toBeLessThanOrEqual(64);
 
   await restoredFrameButton.click();
@@ -151,6 +156,7 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   await expect(restoredFrameButton).toHaveAttribute("aria-pressed", "true");
   await expect(persistencePanel.locator('[data-persistence-frame="before"]')).toBeHidden();
   await expect(persistencePanel.locator('[data-persistence-frame="restored"]')).toBeVisible();
+  await persistencePanel.locator('[data-persistence-frame="restored"]').scrollIntoViewIfNeeded();
 
   await expect
     .poll(() =>
@@ -162,14 +168,51 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   await expect
     .poll(() =>
       persistencePanel
-        .locator("img")
-        .evaluateAll((images) =>
-          images.every((image) => image instanceof HTMLImageElement && image.naturalWidth > 0),
-        ),
+        .locator('[data-persistence-frame="restored"] img')
+        .evaluate((image) => (image instanceof HTMLImageElement ? image.naturalWidth > 0 : false)),
     )
     .toBe(true);
   await expect(persistencePanel.locator("img")).toHaveCount(2);
 });
+
+for (const viewport of verificationViewports) {
+  test(`fills every persistence proof header at ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+
+    const controlRows = page.locator('[data-persistence-proof] [role="group"]');
+    await expect(controlRows).toHaveCount(2);
+
+    const rowGeometry = await controlRows.evaluateAll((rows) =>
+      rows.map((row) => {
+        const controls = [...row.querySelectorAll("button")];
+        if (controls.length !== 2) {
+          throw new Error("Persistence proof header must contain exactly two controls");
+        }
+
+        const rowBounds = row.getBoundingClientRect();
+        const firstControlBounds = controls[0]?.getBoundingClientRect();
+        const secondControlBounds = controls[1]?.getBoundingClientRect();
+        if (firstControlBounds === undefined || secondControlBounds === undefined) {
+          throw new Error("Persistence proof controls are missing");
+        }
+
+        return {
+          controlsFillRow:
+            Math.abs(firstControlBounds.left - rowBounds.left) <= 1 &&
+            Math.abs(secondControlBounds.right - rowBounds.right) <= 1,
+          controlsHaveEqualWidth:
+            Math.abs(firstControlBounds.width - secondControlBounds.width) <= 1,
+        };
+      }),
+    );
+
+    expect(rowGeometry.every(({ controlsFillRow }) => controlsFillRow)).toBe(true);
+    expect(rowGeometry.every(({ controlsHaveEqualWidth }) => controlsHaveEqualWidth)).toBe(true);
+  });
+}
 
 test("keeps the static product plate honest without JavaScript", async ({ browser }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
@@ -265,7 +308,6 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
       imagePaneBackground: getComputedStyle(imagePane).backgroundColor,
       overflowX: getComputedStyle(selectors).overflowX,
       selectedBackground: getComputedStyle(selectedStory).backgroundColor,
-      selectedGlassBackground: getComputedStyle(selectedStory, "::before").backgroundColor,
       selectorStageHeight: selectorStageBounds.height,
       selectorWidth: selectorBounds.width,
       storyWidths: storyBounds.map((story) => story.width),
@@ -283,7 +325,7 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
     collapsedGeometry.imagePaneBackground,
     collapsedGeometry.imagePaneBackground,
   ]);
-  expect(collapsedGeometry.selectedGlassBackground).toBe(collapsedGeometry.imagePaneBackground);
+  expect(collapsedGeometry.selectedBackground).toBe(collapsedGeometry.imagePaneBackground);
   expect(collapsedGeometry.controlGap).toBeGreaterThan(0);
   expect(collapsedGeometry.controlsAreOutlined).toBe(true);
   expect(collapsedGeometry.controlsAreRounded).toBe(true);
@@ -291,7 +333,6 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
   expect(collapsedGeometry.overflowX).toBe("auto");
   expect(collapsedGeometry.imageGap).toBeGreaterThan(0);
   await expect(page.locator("[data-product-plate-index]")).toHaveCount(0);
-  expect(collapsedGeometry.selectedBackground).toBe("rgba(0, 0, 0, 0)");
   expect(collapsedGeometry.selectorStageHeight).toBeLessThanOrEqual(64);
   expect(collapsedGeometry.titleColor).toBe("rgb(255, 255, 255)");
   expect(collapsedGeometry.titleCenterDelta).toBeLessThanOrEqual(1);
@@ -646,7 +687,7 @@ test("divides the desktop selector into five equal story rows", async ({ page })
   );
 
   await page.setViewportSize({ width: 1023, height: 900 });
-  await expect(reviewStory).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(reviewStory).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(reviewStory.locator("strong")).toHaveCSS("color", "rgb(255, 255, 255)");
   await expect(reviewStory.locator("[data-product-plate-description]")).toBeHidden();
 });
@@ -690,8 +731,25 @@ test("presents supporting features as text and product media without numbered di
 
       const copyBounds = copy.getBoundingClientRect();
       const mediaBounds = media.getBoundingClientRect();
+      const copyStyle = getComputedStyle(copy);
+      const mediaStyle = getComputedStyle(media);
+      const featureStyle = getComputedStyle(feature);
+      const compactLayout = window.matchMedia("(width < 64rem)").matches;
       return {
+        compactLayout,
         copyWidth: copyBounds.width,
+        hasScrollMaterialOwner: feature.hasAttribute("data-scroll-material-surface"),
+        paneGap: Number.parseFloat(featureStyle.gap),
+        panesAreOutlined:
+          Number.parseFloat(copyStyle.borderTopWidth) > 0 &&
+          Number.parseFloat(mediaStyle.borderTopWidth) > 0,
+        panesAreRounded:
+          Number.parseFloat(copyStyle.borderTopLeftRadius) > 0 &&
+          Number.parseFloat(mediaStyle.borderTopLeftRadius) > 0,
+        panesShareMaterial: copyStyle.backgroundColor === mediaStyle.backgroundColor,
+        stackedTopToBottom: mediaBounds.top >= copyBounds.bottom,
+        sideBySide: mediaBounds.left >= copyBounds.right,
+        desktopHeightDelta: Math.abs(copyBounds.height - mediaBounds.height),
         mediaWidth: mediaBounds.width,
         mediaFollowsCopy:
           mediaBounds.left >= copyBounds.right || mediaBounds.top >= copyBounds.bottom,
@@ -703,6 +761,17 @@ test("presents supporting features as text and product media without numbered di
     expect(geometry.copyWidth).toBeGreaterThan(0);
     expect(geometry.mediaWidth).toBeGreaterThan(0);
     expect(geometry.mediaFollowsCopy).toBe(true);
+    expect(geometry.hasScrollMaterialOwner).toBe(true);
+    expect(geometry.paneGap).toBeGreaterThan(0);
+    expect(geometry.panesAreOutlined).toBe(true);
+    expect(geometry.panesAreRounded).toBe(true);
+    expect(geometry.panesShareMaterial).toBe(true);
+    if (geometry.compactLayout) {
+      expect(geometry.stackedTopToBottom).toBe(true);
+    } else {
+      expect(geometry.sideBySide).toBe(true);
+      expect(geometry.desktopHeightDelta).toBeLessThanOrEqual(1);
+    }
   }
 });
 
@@ -913,7 +982,7 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
   });
   expect(restingMaterial).toEqual({
     backgroundColor: "rgba(30, 30, 46, 0)",
-    borderColor: "rgba(137, 180, 250, 0.38)",
+    borderColor: "rgba(137, 180, 250, 0)",
     progress: "0.000",
   });
 

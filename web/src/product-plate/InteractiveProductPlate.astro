@@ -35,7 +35,7 @@ import { productPlateStories } from "./product-plate-fixture";
     >
       <button
         type="button"
-        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-transparent text-2xl text-ink-muted transition-[background-color,color,transform] duration-150 ease-out hover:bg-canvas hover:text-ink active:scale-95 active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-lg:rounded-xl max-lg:border max-lg:border-[rgb(255_255_255/10%)] max-lg:bg-[var(--showcase-control-ground-color)] max-phone:text-xl"
+        class="scroll-material-pane product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-transparent text-2xl text-ink-muted transition-[background-color,color,transform] duration-150 ease-out hover:text-ink active:scale-95 motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-lg:rounded-xl max-lg:border max-lg:border-[rgb(255_255_255/10%)] max-phone:text-xl"
         data-product-plate-previous
         aria-label="Previous workspace view"
         aria-controls="product-plate-story-selector"
@@ -58,7 +58,7 @@ import { productPlateStories } from "./product-plate-fixture";
               disabled
               tabindex="-1"
               class:list={[
-                "product-plate__selector relative isolate grid min-h-0 w-full flex-1 grid-cols-1 content-start items-start overflow-clip rounded-xl border border-[rgb(255_255_255/10%)] px-5 py-2.5 text-left text-ink-muted transition-colors duration-150 ease-out hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-lg:flex max-lg:min-h-16 max-lg:shrink-0 max-lg:grow-0 max-lg:snap-start max-lg:basis-full max-lg:items-center max-lg:justify-center max-lg:px-[clamp(24px,4vw,48px)] max-lg:py-3 max-phone:min-h-14 max-phone:px-4.5 max-phone:py-2.5 max-phone:text-center",
+                "scroll-material-pane product-plate__selector relative isolate grid min-h-0 w-full flex-1 grid-cols-1 content-start items-start overflow-clip rounded-xl border border-[rgb(255_255_255/10%)] px-5 py-2.5 text-left text-ink-muted transition-colors duration-150 ease-out hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-lg:flex max-lg:min-h-16 max-lg:shrink-0 max-lg:grow-0 max-lg:snap-start max-lg:basis-full max-lg:items-center max-lg:justify-center max-lg:px-[clamp(24px,4vw,48px)] max-lg:py-3 max-phone:min-h-14 max-phone:px-4.5 max-phone:py-2.5 max-phone:text-center",
                 { "is-default": index === 0 },
               ]}
             >
@@ -78,7 +78,7 @@ import { productPlateStories } from "./product-plate-fixture";
 
       <button
         type="button"
-        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-transparent text-2xl text-ink-muted transition-[background-color,color,transform] duration-150 ease-out hover:bg-canvas hover:text-ink active:scale-95 active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-lg:rounded-xl max-lg:border max-lg:border-[rgb(255_255_255/10%)] max-lg:bg-[var(--showcase-control-ground-color)] max-phone:text-xl"
+        class="scroll-material-pane product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-transparent text-2xl text-ink-muted transition-[background-color,color,transform] duration-150 ease-out hover:text-ink active:scale-95 motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-lg:rounded-xl max-lg:border max-lg:border-[rgb(255_255_255/10%)] max-phone:text-xl"
         data-product-plate-next
         aria-label="Next workspace view"
         aria-controls="product-plate-story-selector"
@@ -89,7 +89,7 @@ import { productPlateStories } from "./product-plate-fixture";
     </div>
 
     <div
-      class="product-plate__panels product-plate__image-column min-w-0 overflow-clip rounded-[14px] bg-transparent"
+      class="scroll-material-pane product-plate__panels product-plate__image-column min-w-0 overflow-clip rounded-[14px]"
     >
       {
         productPlateStories.map((story, index) => (
@@ -98,7 +98,7 @@ import { productPlateStories } from "./product-plate-fixture";
             data-product-plate-panel={story.id}
             hidden={index !== 0}
           >
-            <picture class="product-plate__image-frame block p-1 max-lg:rounded-[14px] max-lg:border max-lg:border-[rgb(255_255_255/10%)]">
+            <picture class="scroll-material-pane product-plate__image-frame block p-1 max-lg:rounded-[14px] max-lg:border max-lg:border-[rgb(255_255_255/10%)]">
               {
                 "phoneImage" in story && story.phoneImage !== undefined && (
                   <source media="(max-width: 620px)" srcset={story.phoneImage.src} />
@@ -116,7 +116,7 @@ import { productPlateStories } from "./product-plate-fixture";
               />
             </picture>
             <p
-              class="product-plate__responsive-caption m-0 hidden border-t border-line bg-transparent px-[clamp(20px,4vw,48px)] py-5 text-lg leading-[1.45] text-ink-muted max-lg:block max-lg:rounded-[14px] max-lg:border max-lg:border-[rgb(255_255_255/10%)] max-lg:bg-[var(--showcase-control-ground-color)] max-phone:px-5 max-phone:py-4 max-phone:text-sm"
+              class="scroll-material-pane product-plate__responsive-caption m-0 hidden border-t border-line px-[clamp(20px,4vw,48px)] py-5 text-lg leading-[1.45] text-ink-muted max-lg:block max-lg:rounded-[14px] max-lg:border max-lg:border-[rgb(255_255_255/10%)] max-phone:px-5 max-phone:py-4 max-phone:text-sm"
               data-product-plate-caption={story.id}
             >
               {story.phoneDescription}
@@ -148,45 +148,12 @@ import { productPlateStories } from "./product-plate-fixture";
 <style>
   @reference "../styles/global.css";
 
-  .product-plate {
-    --showcase-control-ground-color: rgb(24 26 32 / 72%);
-  }
-
   .product-plate__image-frame {
     background: transparent;
   }
 
   .product-plate__selector-stage {
     background: transparent;
-  }
-
-  .product-plate__selector {
-    background:
-      linear-gradient(
-        135deg,
-        rgb(137 180 250 / var(--scroll-material-primary-alpha)),
-        transparent 40%,
-        rgb(116 199 236 / var(--scroll-material-cyan-alpha))
-      ),
-      var(--showcase-control-ground-color);
-    box-shadow: inset 0 1px rgb(255 255 255 / var(--scroll-material-highlight-alpha));
-    backdrop-filter: blur(var(--scroll-material-blur))
-      saturate(var(--scroll-material-saturation));
-    -webkit-backdrop-filter: blur(var(--scroll-material-blur))
-      saturate(var(--scroll-material-saturation));
-  }
-
-  .product-plate__image-column {
-    background: var(--showcase-control-ground-color);
-    box-shadow:
-      inset 0 1px rgb(255 255 255 / var(--scroll-material-highlight-alpha)),
-      inset 1px 0 rgb(255 255 255 / var(--scroll-material-highlight-alpha)),
-      inset 0 -1px rgb(4 6 10 / var(--scroll-material-secondary-shadow-alpha)),
-      inset -1px 0 rgb(4 6 10 / var(--scroll-material-secondary-shadow-alpha));
-    backdrop-filter: blur(calc(var(--scroll-material-blur) * 0.8))
-      saturate(var(--scroll-material-saturation));
-    -webkit-backdrop-filter: blur(calc(var(--scroll-material-blur) * 0.8))
-      saturate(var(--scroll-material-saturation));
   }
 
   .product-plate[data-enhanced="true"] .product-plate__selector {
@@ -270,7 +237,7 @@ import { productPlateStories } from "./product-plate-fixture";
     }
 
     .product-plate__image-frame {
-      background: var(--showcase-control-ground-color);
+      background: var(--scroll-material-pane-background);
     }
 
     .product-plate__panel {
@@ -281,22 +248,19 @@ import { productPlateStories } from "./product-plate-fixture";
       display: none;
     }
 
-    .product-plate__carousel-action {
-      box-shadow: inset 0 1px rgb(255 255 255 / var(--scroll-material-highlight-alpha));
-      backdrop-filter: blur(var(--scroll-material-blur))
-        saturate(var(--scroll-material-saturation));
-      -webkit-backdrop-filter: blur(var(--scroll-material-blur))
-        saturate(var(--scroll-material-saturation));
-    }
-
     .product-plate__selector[aria-selected="true"]::before,
     .product-plate__selector.is-default:disabled::before {
-      background: var(--showcase-control-ground-color);
+      opacity: 0;
+    }
+
+    .product-plate__carousel-action:active {
+      background: var(--color-active-surface);
     }
 
     .product-plate__selector[aria-selected="true"],
     .product-plate__selector.is-default:disabled {
-      @apply bg-transparent text-ink;
+      @apply text-ink;
+      background: var(--scroll-material-pane-background);
     }
 
     .product-plate__selector[aria-selected="true"] strong,
