@@ -14,7 +14,8 @@
     "normalize:captures": "node --experimental-strip-types scripts/stamp-srgb-color-profile.ts",
     "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview --host 127.0.0.1",
     "test:browser": "playwright test",
-    "test:unit": "vitest run",
+    "test:browser-unit": "vitest run --project browser",
+    "test:unit": "vitest run --project unit",
     "typecheck": "ASTRO_TELEMETRY_DISABLED=1 astro check",
     "verify:captures": "node --experimental-strip-types scripts/verify-capture-assets.ts"
   },
@@ -24,6 +25,7 @@
     "@playwright/test": "1.62.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "26.1.1",
+    "@vitest/browser-playwright": "4.1.10",
     "astro": "7.2.2",
     "oxfmt": "0.63.0",
     "oxlint": "1.78.0",

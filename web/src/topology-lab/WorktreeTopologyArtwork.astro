@@ -20,7 +20,12 @@ interface WorktreeRoute {
 
 interface RouteSegment {
   readonly d: string;
+  readonly endX: number;
+  readonly endY: number;
   readonly endRow: number;
+  readonly kind: "fork" | "lane" | "merge";
+  readonly startX: number;
+  readonly startY: number;
   readonly startRow: number;
 }
 
@@ -60,17 +65,32 @@ function routeSegments(route: WorktreeRoute): readonly RouteSegment[] {
   return [
     {
       d: `M ${mainLaneX} ${forkY} C ${forkControlX} ${forkY} ${worktreeLaneX} ${arrivalY - rowHeight / 2} ${worktreeLaneX} ${arrivalY}`,
+      endX: worktreeLaneX,
+      endY: arrivalY,
       endRow: route.arrivalRow,
+      kind: "fork",
+      startX: mainLaneX,
+      startY: forkY,
       startRow: route.forkRow,
     },
     {
       d: `M ${worktreeLaneX} ${arrivalY} L ${worktreeLaneX} ${mergeApproachY}`,
+      endX: worktreeLaneX,
+      endY: mergeApproachY,
       endRow: route.mergeApproachRow,
+      kind: "lane",
+      startX: worktreeLaneX,
+      startY: arrivalY,
       startRow: route.arrivalRow,
     },
     {
       d: `M ${worktreeLaneX} ${mergeApproachY} C ${worktreeLaneX} ${mergeApproachY + rowHeight / 2} ${mergeControlX} ${mergeY} ${mainLaneX} ${mergeY}`,
+      endX: mainLaneX,
+      endY: mergeY,
       endRow: route.mergeRow,
+      kind: "merge",
+      startX: worktreeLaneX,
+      startY: mergeApproachY,
       startRow: route.mergeApproachRow,
     },
   ];
@@ -145,11 +165,12 @@ const svgHeight = rowY(finalRow) + 100;
 ---
 
 <svg
-  class="block h-auto w-[1200px] max-w-none"
+  class="block h-full w-full"
   data-topology-artwork
-  viewBox={`0 0 1200 ${svgHeight}`}
-  width="1200"
+  viewBox={`0 0 540 ${svgHeight}`}
+  width="540"
   height={svgHeight}
+  preserveAspectRatio="none"
   role="img"
   aria-labelledby="topology-artwork-title topology-artwork-description"
 >
@@ -169,7 +190,6 @@ const svgHeight = rowY(finalRow) + 100;
           data-topology-path-role="leading-band"
           data-topology-path-start="0"
           data-topology-path-end="1"
-          pathLength="1"
           d={`M ${lanePositions[0]} ${rowY(0)} L ${lanePositions[0]} ${rowY(finalRow)}`}
           style={`opacity: ${band.opacity}`}
         />
@@ -180,7 +200,6 @@ const svgHeight = rowY(finalRow) + 100;
       data-topology-path-role="core"
       data-topology-path-start="0"
       data-topology-path-end="1"
-      pathLength="1"
       d={`M ${lanePositions[0]} ${rowY(0)} L ${lanePositions[0]} ${rowY(finalRow)}`}
     />
   </g>
@@ -198,7 +217,11 @@ const svgHeight = rowY(finalRow) + 100;
                 data-topology-path-role="clearance"
                 data-topology-path-start={segment.startRow / finalRow}
                 data-topology-path-end={segment.endRow / finalRow}
-                pathLength="1"
+                data-topology-segment-kind={segment.kind}
+                data-topology-segment-start-x={segment.startX}
+                data-topology-segment-start-y={segment.startY}
+                data-topology-segment-end-x={segment.endX}
+                data-topology-segment-end-y={segment.endY}
                 d={segment.d}
               />
             ))}
@@ -213,7 +236,11 @@ const svgHeight = rowY(finalRow) + 100;
                   data-topology-path-role="leading-band"
                   data-topology-path-start={segment.startRow / finalRow}
                   data-topology-path-end={segment.endRow / finalRow}
-                  pathLength="1"
+                  data-topology-segment-kind={segment.kind}
+                  data-topology-segment-start-x={segment.startX}
+                  data-topology-segment-start-y={segment.startY}
+                  data-topology-segment-end-x={segment.endX}
+                  data-topology-segment-end-y={segment.endY}
                   d={segment.d}
                   style={`opacity: ${band.opacity}`}
                 />
@@ -227,7 +254,11 @@ const svgHeight = rowY(finalRow) + 100;
                 data-topology-path-role="core"
                 data-topology-path-start={segment.startRow / finalRow}
                 data-topology-path-end={segment.endRow / finalRow}
-                pathLength="1"
+                data-topology-segment-kind={segment.kind}
+                data-topology-segment-start-x={segment.startX}
+                data-topology-segment-start-y={segment.startY}
+                data-topology-segment-end-x={segment.endX}
+                data-topology-segment-end-y={segment.endY}
                 d={segment.d}
               />
             ))}
@@ -249,11 +280,15 @@ const svgHeight = rowY(finalRow) + 100;
           return (
             <g
               class={`node-merge accent-${accent}`}
+              data-topology-node-lane={node.lane}
               data-topology-node-progress={nodeProgress}
+              data-topology-node-row={node.row}
               transform={`translate(${x} ${y})`}
             >
-              <circle cx="0" cy="0" r="8" />
-              <path d="M -3 -1 L 0 2 L 3 -1" />
+              <g data-topology-node-shape>
+                <circle cx="0" cy="0" r="8" />
+                <path d="M -3 -1 L 0 2 L 3 -1" />
+              </g>
             </g>
           );
         }
@@ -262,23 +297,31 @@ const svgHeight = rowY(finalRow) + 100;
           return (
             <g
               class={`node-terminal-group accent-${accent}`}
+              data-topology-node-lane={node.lane}
               data-topology-node-progress={nodeProgress}
+              data-topology-node-row={node.row}
               transform={`translate(${x} ${y})`}
             >
-              <circle class="node-terminal-halo" cx="0" cy="0" r="7" />
-              <circle class="node-terminal" cx="0" cy="0" r="7" />
+              <g data-topology-node-shape>
+                <circle class="node-terminal-halo" cx="0" cy="0" r="7" />
+                <circle class="node-terminal" cx="0" cy="0" r="7" />
+              </g>
             </g>
           );
         }
 
         return (
-          <circle
-            class={`node-filled accent-${accent}`}
+          <g
+            class={`accent-${accent}`}
+            data-topology-node-lane={node.lane}
             data-topology-node-progress={nodeProgress}
-            cx={x}
-            cy={y}
-            r="4"
-          />
+            data-topology-node-row={node.row}
+            transform={`translate(${x} ${y})`}
+          >
+            <g data-topology-node-shape>
+              <circle class="node-filled" cx="0" cy="0" r="4" />
+            </g>
+          </g>
         );
       })
     }
