@@ -9,6 +9,80 @@ import Testing
 @MainActor
 @Suite("Workspace cache apply governor", .serialized)
 struct WorkspaceCacheCoordinatorApplyGovernorTests {
+    @Test("repository projections coalesce by repository and apply latest sequence atomically")
+    func repositoryProjectionsCoalesceAndApplyAtomically() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let repoCache = RepoCacheAtom()
+        let clock = TestPushClock()
+        let repoId = UUIDv7.generate()
+        let branch = "feature/coalesced"
+        let branchKey = RepoBranchKey(repoId: repoId, branch: branch)!
+        let facts = PullRequestFacts(openCount: 1, exactOpenURL: nil)
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: bus,
+            workspaceStore: WorkspaceStore(),
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in },
+            enrichmentApplyTickCadence: .milliseconds(25),
+            enrichmentApplyClock: clock
+        )
+        await coordinator.startConsuming()
+
+        await bus.post(
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .forge(
+                        .pullRequestRepositoryProjectionChanged(
+                            repoId: repoId,
+                            projection: .loading(
+                                baseline: .unknown,
+                                requestIdentity: 1
+                            ),
+                            invalidatedBranches: []
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: nil,
+                    source: .system(.service(.gitForge(provider: "github"))),
+                    seq: 1
+                )
+            )
+        )
+        await bus.post(
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .forge(
+                        .pullRequestRepositoryProjectionChanged(
+                            repoId: repoId,
+                            projection: .stable(
+                                .ready(confirmedFactsByBranch: [branch: facts])
+                            ),
+                            invalidatedBranches: []
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: nil,
+                    source: .system(.service(.gitForge(provider: "github"))),
+                    seq: 2
+                )
+            )
+        )
+        await eventually("repository projection drain should be scheduled") {
+            clock.pendingSleepCount == 1
+        }
+        #expect(repoCache.cacheRevision == 0)
+
+        clock.advance(by: .milliseconds(25))
+        await eventually("latest repository projection should apply") {
+            repoCache.pullRequestFacts(for: branchKey) == facts
+        }
+        await coordinator.shutdown()
+
+        #expect(repoCache.cacheRevision == 1)
+        #expect(!repoCache.isPullRequestLoading(forRepository: repoId))
+        #expect(repoCache.pullRequestFacts(for: branchKey) == facts)
+    }
+
     @Test("rapid enrichment facts coalesce to one apply per worktree in one drain turn")
     func rapidEnrichmentFactsCoalesceByWorktree() async throws {
         let traceDirectory = FileManager.default.temporaryDirectory.appending(

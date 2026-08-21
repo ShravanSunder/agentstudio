@@ -907,7 +907,7 @@ enum RepoExplorerProjection {
         return "worktree:\(groupId):\(repoId.uuidString):\(worktreeId.uuidString):\(placementToken)"
     }
 
-    private static func sortedRepos(
+    static func sortedRepos(
         _ repos: [RepoPresentationItem],
         sortOrder: RepoExplorerSortOrder
     ) -> [RepoPresentationItem] {

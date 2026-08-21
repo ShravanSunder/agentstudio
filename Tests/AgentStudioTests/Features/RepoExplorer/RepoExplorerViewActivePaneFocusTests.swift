@@ -11,6 +11,115 @@ import Testing
 /// tests for the active-pane chip's real-attention composition (F5) and its keyboard-routing/
 /// observation-admission extensions (N2a, N2b from the sidebar-grouping re-audit).
 extension RepoExplorerViewProjectionHelperTests {
+    @Test("visible Repo observation consumes its registration when surface demand is lost")
+    func visibleRepoObservationTracksDemandLoss() {
+        withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let view = RepoExplorerView(
+                store: store,
+                octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                bridgeAttendanceSnapshot: { _ in nil },
+                commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
+                onSetSortOrder: { _ in },
+                onRefocusActivePane: {},
+                onSidebarVisibleWorktreesChanged: {},
+                onShowNotificationsForWorktree: { _ in },
+                unreadCount: { _ in 0 }
+            )
+            let invalidationRecorder = RepoProjectionInvalidationRecorder()
+
+            withObservationTracking {
+                _ = view.projectionInputRevision
+            } onChange: {
+                invalidationRecorder.record()
+            }
+            atoms.workspaceSidebarState.setSidebarSurface(.inbox)
+
+            #expect(invalidationRecorder.invalidationCount == 1)
+        }
+    }
+
+    @Test("By Repository does not observe pane attention transitions")
+    func byRepositoryDoesNotObservePaneAttention() {
+        withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let view = RepoExplorerView(
+                store: store,
+                octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                bridgeAttendanceSnapshot: { _ in nil },
+                commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
+                onSetSortOrder: { _ in },
+                onRefocusActivePane: {},
+                onSidebarVisibleWorktreesChanged: {},
+                onShowNotificationsForWorktree: { _ in },
+                unreadCount: { _ in 0 }
+            )
+            let windowId = UUIDv7.generate()
+            atoms.windowLifecycle.recordWindowRegistered(windowId)
+            atoms.windowLifecycle.recordWindowBecameKey(windowId)
+            let invalidationRecorder = RepoProjectionInvalidationRecorder()
+
+            withObservationTracking {
+                _ = view.projectionInputRevision
+            } onChange: {
+                invalidationRecorder.record()
+            }
+            atoms.commandBarSurface.present(scope: .everything, workspaceWindowId: windowId)
+
+            #expect(invalidationRecorder.invalidationCount == 0)
+        }
+    }
+
+    @Test("hidden Repo surface registers no projection inputs")
+    func hiddenRepoSurfaceRegistersNoProjectionInputs() {
+        withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let preferences = RepoExplorerSidebarPrefsAtom()
+            preferences.setGroupingMode(.pane)
+            let view = RepoExplorerView(
+                store: store,
+                octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                repoExplorerPrefs: preferences,
+                isProjectionDemanded: false,
+                bridgeAttendanceSnapshot: { _ in nil },
+                commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
+                onSetSortOrder: { _ in },
+                onRefocusActivePane: {},
+                onSidebarVisibleWorktreesChanged: {},
+                onShowNotificationsForWorktree: { _ in },
+                unreadCount: { _ in 0 }
+            )
+            let invalidationRecorder = RepoProjectionInvalidationRecorder()
+
+            withObservationTracking {
+                _ = view.projectionInputRevision
+            } onChange: {
+                invalidationRecorder.record()
+            }
+            atoms.commandBarSurface.present(
+                scope: .everything,
+                workspaceWindowId: UUIDv7.generate()
+            )
+            preferences.setGroupingMode(.tab)
+
+            #expect(invalidationRecorder.invalidationCount == 0)
+        }
+    }
+
     @Test("F5: the active pane chip requires real attention, not merely tab selection")
     func activePaneRowFactRequiresRealAttentionNotJustTabSelection() throws {
         try withTestCoreAtoms { atoms in
@@ -107,7 +216,7 @@ extension RepoExplorerViewProjectionHelperTests {
     }
 
     @Test("N2a: a focus-only transition wakes the projection input observation gate")
-    func projectionInputRevisionObservesFocusTransitions() throws {
+    func projectionInputRevisionObservesFocusTransitions() {
         // N2a (re-audit): paneRowFactsByPaneId's isActive composition depends on
         // KeyboardRoutingContext + attendedPane, but the separate admission gate
         // (projectionInputRevision) that decides whether a cached projection gets rebuilt did not
@@ -115,16 +224,18 @@ extension RepoExplorerViewProjectionHelperTests {
         // changing) would never wake the gate, leaving a stale isActive on screen until an
         // unrelated input happened to tick. Prove the gate itself now observes a command-bar
         // transition, using the exact withObservationTracking wiring the production code uses.
-        try withTestCoreAtoms { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
+            let preferences = RepoExplorerSidebarPrefsAtom()
+            preferences.setGroupingMode(.pane)
             let view = RepoExplorerView(
                 store: store,
                 octiconLoader: makeRepoExplorerTestOcticonLoader(),
-                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                repoExplorerPrefs: preferences,
                 bridgeAttendanceSnapshot: { _ in nil },
                 commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
                 onSetSortOrder: { _ in },

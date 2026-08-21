@@ -343,7 +343,12 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         record: AgentStudioOTLPProjectedLogRecord,
         dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
     ) {
-        guard record.body == "performance.repo_explorer.keyed_wake" else { return }
+        guard
+            [
+                "performance.repo_explorer.keyed_wake",
+                "performance.repo_explorer.stage_snapshot",
+            ].contains(record.body)
+        else { return }
         for (name, attributeKey) in [
             ("stage", "agentstudio.performance.repo_explorer.stage"),
             ("key_class", "agentstudio.performance.repo_explorer.key_class"),
@@ -537,7 +542,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     private static func measurement(
         for sample: AgentStudioOTLPPerformanceMetricSample
     ) -> AgentStudioOTLPPerformanceMeasurement? {
-        if counterMetricLabels.contains(sample.label) {
+        if isCounterMetricLabel(sample.label) {
             guard sample.value >= 0 else { return nil }
             return .counter(sample)
         }
@@ -547,6 +552,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     private static let counterMetricLabels: Set<String> = [
         "agentstudio_performance_filesystem_affected_key_request_count",
         "agentstudio_performance_filesystem_full_reconciliation_request_count",
+        "agentstudio_performance_repo_explorer_interval_count",
         "agentstudio_performance_terminal_accumulator_equal_suppressed_count",
         "agentstudio_performance_terminal_accumulator_follow_up_drain_count",
         "agentstudio_performance_terminal_accumulator_mainactor_task_count",
@@ -561,6 +567,11 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         "agentstudio_performance_trace_identity_fleet_capture_count",
         "agentstudio_performance_trace_identity_refresh_request_count",
     ]
+
+    private static func isCounterMetricLabel(_ label: String) -> Bool {
+        counterMetricLabels.contains(label)
+            || (label.hasPrefix("agentstudio_performance_forge_") && label.hasSuffix("_count"))
+    }
 
     private static func doubleValue(_ value: AgentStudioTraceValue?) -> Double? {
         switch value {

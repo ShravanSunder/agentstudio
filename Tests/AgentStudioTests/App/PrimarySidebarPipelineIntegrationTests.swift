@@ -46,7 +46,13 @@ struct PrimarySidebarPipelineIntegrationTests {
             let repoARefresh = Task<[String: PullRequestFacts]?, Never> {
                 for await envelope in repoARefreshSubscription {
                     guard case .worktree(let worktreeEnvelope) = envelope,
-                        case .forge(.pullRequestsChanged(let repoId, let factsByBranch)) = worktreeEnvelope.event,
+                        case .forge(
+                            .pullRequestRepositoryProjectionChanged(
+                                let repoId,
+                                .stable(.ready(let factsByBranch)),
+                                _
+                            )
+                        ) = worktreeEnvelope.event,
                         repoId == repoA.id
                     else { continue }
                     return factsByBranch
@@ -56,7 +62,13 @@ struct PrimarySidebarPipelineIntegrationTests {
             let repoBRefresh = Task<[String: PullRequestFacts]?, Never> {
                 for await envelope in repoBRefreshSubscription {
                     guard case .worktree(let worktreeEnvelope) = envelope,
-                        case .forge(.pullRequestsChanged(let repoId, let factsByBranch)) = worktreeEnvelope.event,
+                        case .forge(
+                            .pullRequestRepositoryProjectionChanged(
+                                let repoId,
+                                .stable(.ready(let factsByBranch)),
+                                _
+                            )
+                        ) = worktreeEnvelope.event,
                         repoId == repoB.id
                     else { continue }
                     return factsByBranch
@@ -368,7 +380,7 @@ struct PrimarySidebarPipelineIntegrationTests {
             }
             #expect(pullRequestCountsConverged)
 
-            let sidebarRepos = workspaceStore.repos.map(RepoPresentationItem.init(repo:))
+            let sidebarRepos = makeRepoPresentationItems(repositories: workspaceStore.repos)
             let metadata = RepoExplorerView.buildRepoMetadata(
                 repos: sidebarRepos,
                 repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId
@@ -380,6 +392,18 @@ struct PrimarySidebarPipelineIntegrationTests {
             let financeGroup = groups.first { $0.id == "remote:askluna/askluna-finance" }
             #expect(financeGroup != nil)
             #expect((financeGroup?.repos.count ?? 0) >= 3)
+        }
+    }
+
+    private func makeRepoPresentationItems(repositories: [Repo]) -> [RepoPresentationItem] {
+        repositories.map { repo in
+            RepoPresentationItem(
+                repo: repo,
+                stableKey: repo.stableKey,
+                worktreeStableKeysByID: Dictionary(
+                    uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.stableKey) }
+                )
+            )
         }
     }
 

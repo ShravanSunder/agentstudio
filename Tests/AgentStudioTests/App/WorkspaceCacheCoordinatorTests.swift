@@ -584,7 +584,7 @@ final class WorkspaceCacheCoordinatorTests {
     }
 
     @Test
-    func enrichment_pullRequestsChanged_mapsByBranch() {
+    func enrichment_repositoryProjectionMapsByBranch() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
@@ -615,11 +615,16 @@ final class WorkspaceCacheCoordinatorTests {
 
         let envelope = WorktreeEnvelope.test(
             event: .forge(
-                .pullRequestsChanged(
+                .pullRequestRepositoryProjectionChanged(
                     repoId: repoId,
-                    factsByBranch: [
-                        "feature/runtime": PullRequestFacts(openCount: 3, exactOpenURL: nil)
-                    ]
+                    projection: .stable(
+                        .ready(
+                            confirmedFactsByBranch: [
+                                "feature/runtime": PullRequestFacts(openCount: 3, exactOpenURL: nil)
+                            ]
+                        )
+                    ),
+                    invalidatedBranches: []
                 )
             ),
             repoId: repoId,

@@ -548,7 +548,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     return nil
                 }
                 switch topologyEvent {
-                case .repoDiscovered(let repoPath, let parentPath, _):
+                case .repoDiscovered(let repoPath, let parentPath, _, _):
                     guard
                         parentPath.standardizedFileURL.path == normalizedRoot
                             || repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)

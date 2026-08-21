@@ -96,6 +96,7 @@ struct SidebarSurfaceHost: View {
                 store: store,
                 octiconLoader: octiconLoader,
                 repoExplorerPrefs: repoExplorerSidebarPrefs,
+                isProjectionDemanded: uiState.sidebarSurface == .repos,
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 commandDispatcher: AppCommandDispatcher.shared,
                 commandPresentationSnapshot: repoCommandPresentationBatch?.snapshot ?? .empty,

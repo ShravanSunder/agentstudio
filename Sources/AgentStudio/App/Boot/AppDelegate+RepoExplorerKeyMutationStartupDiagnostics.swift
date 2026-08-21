@@ -1,6 +1,7 @@
 import AgentStudioCore
 import AgentStudioInboxNotification
 import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import AppKit
 import Foundation
 
@@ -24,6 +25,7 @@ import Foundation
                 )
             }
 
+            let fixtureApplySequence = currentRepoExplorerMainActorApplySequence()
             guard
                 let fixture = SidebarPerformanceProofFixture.prepare(
                     store: store,
@@ -39,7 +41,13 @@ import Foundation
                 return
             }
 
-            guard await settleRepoExplorerProjection(fixture: fixture, action: action) else { return }
+            guard
+                await settleRepoExplorerProjection(
+                    fixture: fixture,
+                    fixtureApplySequence: fixtureApplySequence,
+                    action: action
+                )
+            else { return }
 
             await runRepoExplorerKeyMutationPhase(
                 action: action,
@@ -133,6 +141,10 @@ import Foundation
             )
         }
 
+        private func currentRepoExplorerMainActorApplySequence() -> UInt64 {
+            RepoExplorerPerformanceTelemetry.shared.sequence(for: "mainactor_apply")
+        }
+
         private func runRepoExplorerKeyMutationPhase(
             action: AgentStudioStartupDiagnosticAction,
             phase: String,
@@ -142,7 +154,7 @@ import Foundation
             mutations: () async -> Void
         ) async {
             recordRepoExplorerKeyMutationStep(action: action, phase: "\(phase)_start", count: 0)
-            AtomPerformanceTelemetry.shared.setRepoExplorerKeyedWakeContext(
+            RepoExplorerPerformanceTelemetry.shared.setContext(
                 keyClass: keyClass,
                 facet: facet,
                 rowRelation: rowRelation
@@ -150,7 +162,7 @@ import Foundation
             await mutations()
             await Task.yield()
             await Task.yield()
-            AtomPerformanceTelemetry.shared.setRepoExplorerKeyedWakeContext(keyClass: nil)
+            RepoExplorerPerformanceTelemetry.shared.setContext(keyClass: nil)
             recordRepoExplorerKeyMutationStep(action: action, phase: "\(phase)_settled")
             recordRepoExplorerKeyMutationStep(action: action, phase: "\(phase)_end")
         }
@@ -173,7 +185,7 @@ import Foundation
         }
 
         private func recordRepoExplorerAtomSlotMutation() {
-            AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+            RepoExplorerPerformanceTelemetry.shared.record(
                 stage: "atom_slot",
                 outcome: "changed"
             )
@@ -181,13 +193,11 @@ import Foundation
 
         private func settleRepoExplorerProjection(
             fixture: SidebarPerformanceProofFixture,
+            fixtureApplySequence: UInt64,
             action: AgentStudioStartupDiagnosticAction
         ) async -> Bool {
-            AtomPerformanceTelemetry.shared.setRepoExplorerKeyedWakeContext(keyClass: "diagnostic_settle")
-            defer { AtomPerformanceTelemetry.shared.setRepoExplorerKeyedWakeContext(keyClass: nil) }
-            let fixtureApplySequence = AtomPerformanceTelemetry.shared.repoExplorerKeyedWakeSequence(
-                for: "mainactor_apply"
-            )
+            RepoExplorerPerformanceTelemetry.shared.setContext(keyClass: "diagnostic_settle")
+            defer { RepoExplorerPerformanceTelemetry.shared.setContext(keyClass: nil) }
             atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)
             mainWindowController?.expandSidebar()
             guard await waitForRepoExplorerProjectionReadiness(fixture: fixture) else {
@@ -208,7 +218,7 @@ import Foundation
             let clock = ContinuousClock()
             let deadline = clock.now.advanced(by: AppPolicies.StartupDiagnostic.appActivationTimeout)
             repeat {
-                if AtomPerformanceTelemetry.shared.repoExplorerKeyedWakeSequence(for: stage) > sequence {
+                if RepoExplorerPerformanceTelemetry.shared.sequence(for: stage) > sequence {
                     return true
                 }
                 await Task.yield()
@@ -220,7 +230,7 @@ import Foundation
             guard let repository = store.repositoryTopologyAtom.repos.first else { return }
             var nextFavoriteState = !repository.isFavorite
             for _ in 0..<100 {
-                let captureSequence = AtomPerformanceTelemetry.shared.repoExplorerKeyedWakeSequence(
+                let captureSequence = RepoExplorerPerformanceTelemetry.shared.sequence(
                     for: "capture_rebuild"
                 )
                 store.mutationCoordinator.setRepoFavorite(
@@ -252,7 +262,7 @@ import Foundation
                     isMainWorktree: worktree.isMainWorktree
                 )
             for _ in 0..<100 {
-                let captureSequence = AtomPerformanceTelemetry.shared.repoExplorerKeyedWakeSequence(
+                let captureSequence = RepoExplorerPerformanceTelemetry.shared.sequence(
                     for: "capture_rebuild"
                 )
                 enrichment.updateBranch(enrichment.branch == "diagnostic-a" ? "diagnostic-b" : "diagnostic-a")
@@ -271,7 +281,7 @@ import Foundation
             guard let repository = store.repositoryTopologyAtom.repos.first else { return }
             var nextFavoriteState = !repository.isFavorite
             for _ in 0..<100 {
-                let captureSequence = AtomPerformanceTelemetry.shared.repoExplorerKeyedWakeSequence(
+                let captureSequence = RepoExplorerPerformanceTelemetry.shared.sequence(
                     for: "capture_rebuild"
                 )
                 store.mutationCoordinator.setRepoFavorite(
@@ -344,7 +354,7 @@ import Foundation
             let fixtureRoot = FileManager.default.temporaryDirectory
                 .appending(path: "agentstudio-repo-explorer-missing")
             for _ in 0..<50 {
-                var membershipSequence = AtomPerformanceTelemetry.shared.repoExplorerKeyedWakeSequence(
+                var membershipSequence = RepoExplorerPerformanceTelemetry.shared.sequence(
                     for: "membership_path"
                 )
                 let repository = store.mutationCoordinator.addRepo(at: fixtureRoot)
@@ -355,7 +365,7 @@ import Foundation
                         after: membershipSequence
                     )
                 else { return }
-                membershipSequence = AtomPerformanceTelemetry.shared.repoExplorerKeyedWakeSequence(
+                membershipSequence = RepoExplorerPerformanceTelemetry.shared.sequence(
                     for: "membership_path"
                 )
                 store.mutationCoordinator.removeRepo(repository.id)

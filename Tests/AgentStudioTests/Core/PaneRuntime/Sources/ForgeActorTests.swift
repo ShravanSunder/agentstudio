@@ -586,7 +586,10 @@ struct ForgeActorFixture {
     let clock: TestPushClock
     let monotonicNow: ManualForgeMonotonicNow
     let observationTask: Task<Void, Never>
-    static func make(performanceTraceRecorder: (any ForgePerformanceRecording)? = nil) async -> Self {
+    static func make(
+        performanceTraceRecorder: (any ForgePerformanceRecording)? = nil,
+        beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)? = nil
+    ) async -> Self {
         let bus = EventBus<RuntimeEnvelope>()
         let provider = GatedForgeStatusProvider()
         let events = ObservedForgeEvents()
@@ -598,7 +601,8 @@ struct ForgeActorFixture {
             providerName: "stub",
             monotonicNow: { monotonicNow.value },
             sleepClock: clock,
-            performanceTraceRecorder: performanceTraceRecorder
+            performanceTraceRecorder: performanceTraceRecorder,
+            beforeEventEmission: beforeEventEmission
         )
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let observationTask = Task {
@@ -679,10 +683,15 @@ actor ObservedForgeEvents {
 
     func facts(for repoId: UUID, branch: String) -> PullRequestFacts? {
         for event in recordedEvents.reversed() {
-            guard case .pullRequestsChanged(let eventRepoId, let factsByBranch) = event,
+            guard
+                case .pullRequestRepositoryProjectionChanged(
+                    let eventRepoId,
+                    let projection,
+                    _
+                ) = event,
                 eventRepoId == repoId
             else { continue }
-            if let facts = factsByBranch[branch] { return facts }
+            return projection.confirmedFactsByBranch?[branch]
         }
         return nil
     }
@@ -699,7 +708,12 @@ actor ObservedForgeEvents {
 
     func invalidatedBranches(for repoId: UUID) -> Set<String> {
         recordedEvents.reduce(into: []) { result, event in
-            guard case .pullRequestBranchesInvalidated(let eventRepoId, let branches) = event,
+            guard
+                case .pullRequestRepositoryProjectionChanged(
+                    let eventRepoId,
+                    _,
+                    let branches
+                ) = event,
                 eventRepoId == repoId
             else { return }
             result.formUnion(branches)
@@ -715,7 +729,13 @@ actor ObservedForgeEvents {
     func waitForRepositoryInvalidation(repoId: UUID) async -> Bool {
         await waitForRecordedEvent {
             recordedEvents.contains(where: { event in
-                guard case .pullRequestRepositoryInvalidated(let eventRepoId) = event else { return false }
+                guard
+                    case .pullRequestRepositoryProjectionChanged(
+                        let eventRepoId,
+                        .stable(.unknown),
+                        _
+                    ) = event
+                else { return false }
                 return eventRepoId == repoId
             })
         }
@@ -723,7 +743,13 @@ actor ObservedForgeEvents {
 
     func repositoryInvalidationCount(repoId: UUID) -> Int {
         recordedEvents.count { event in
-            guard case .pullRequestRepositoryInvalidated(let eventRepoId) = event else { return false }
+            guard
+                case .pullRequestRepositoryProjectionChanged(
+                    let eventRepoId,
+                    .stable(.unknown),
+                    _
+                ) = event
+            else { return false }
             return eventRepoId == repoId
         }
     }
@@ -757,16 +783,42 @@ actor ObservedForgeEvents {
 
     func containsExactURL(_ url: URL) -> Bool {
         recordedEvents.contains { event in
-            guard case .pullRequestsChanged(_, let factsByBranch) = event else { return false }
+            guard
+                case .pullRequestRepositoryProjectionChanged(
+                    _,
+                    .stable(.ready(let factsByBranch)),
+                    _
+                ) = event
+            else { return false }
             return factsByBranch.values.contains { $0.exactOpenURL == url }
         }
     }
 
     func pullRequestEventCount(for repoId: UUID) -> Int {
-        recordedEvents.count { event in
-            guard case .pullRequestsChanged(let eventRepoId, _) = event else { return false }
-            return eventRepoId == repoId
+        var previousReadyFacts: [String: PullRequestFacts]?
+        var changedReadyFactsCount = 0
+        for event in recordedEvents {
+            guard
+                case .pullRequestRepositoryProjectionChanged(
+                    let eventRepoId,
+                    let projection,
+                    _
+                ) = event,
+                eventRepoId == repoId
+            else { continue }
+            switch projection {
+            case .stable(.ready(let factsByBranch)):
+                if previousReadyFacts != factsByBranch {
+                    changedReadyFactsCount += 1
+                }
+                previousReadyFacts = factsByBranch
+            case .stable(.unknown), .stable(.unavailable):
+                previousReadyFacts = nil
+            case .loading:
+                continue
+            }
         }
+        return changedReadyFactsCount
     }
 
     func refreshFailureCount(for repoId: UUID) -> Int {
@@ -789,6 +841,7 @@ actor ObservedForgeEvents {
         }
     }
 }
+
 private actor SuspendedForgeStatusProvider: ForgeStatusProvider {
     private struct PendingCall {
         let continuation: CheckedContinuation<ForgePullRequestQueryOutcome, Never>

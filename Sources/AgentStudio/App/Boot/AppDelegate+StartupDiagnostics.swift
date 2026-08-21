@@ -28,6 +28,11 @@ import Foundation
                 let tabId = store.tabLayoutAtom.tabID(containingPane: pane.id),
                 let arrangementId = store.tabLayoutAtom.tab(tabId)?.activeArrangementId
             else { return nil }
+            let sortableRepositoryRoot = repositoryRoot.appendingPathComponent(
+                "agentstudio-sidebar-sort-fixture",
+                isDirectory: true
+            )
+            _ = store.mutationCoordinator.addRepo(at: sortableRepositoryRoot)
             let arrangementPane = store.paneAtom.createPane(
                 title: "Arrangement Fixture",
                 provider: .zmx,
@@ -44,6 +49,8 @@ import Foundation
                     sizingMode: .halveTarget
                 )
             else { return nil }
+            populateRealSizeTopology(store: store, repositoryRoot: repositoryRoot)
+            populateRealSizePaneFleet(store: store)
             store.tabLayoutAtom.renameTab(tabId, name: "Tab")
             return Self(
                 paneId: pane.id,
@@ -380,6 +387,8 @@ extension AppDelegate {
             let worktreeCount = store.repositoryTopologyAtom.repos.reduce(0) { count, repo in
                 count + repo.worktrees.count
             }
+            let tabCount = store.tabLayoutAtom.tabs.count
+            let paneCount = store.paneAtom.graphAtom.paneIDs.count
             let inboxCount = atomStore.inboxNotification.notifications.count
             let projectionTrigger = AppPolicies.SidebarProjection.Trigger.startupDiagnostic
             let inboxProjectionProof = await runInboxSidebarProjectionProof(trigger: projectionTrigger)
@@ -388,6 +397,11 @@ extension AppDelegate {
                 [
                     "agentstudio.startup_diagnostic.fixture.repo.count": .int(repoCount),
                     "agentstudio.startup_diagnostic.fixture.worktree.count": .int(worktreeCount),
+                    "agentstudio.startup_diagnostic.fixture.tab.count": .int(tabCount),
+                    "agentstudio.startup_diagnostic.fixture.pane.count": .int(paneCount),
+                    "agentstudio.startup_diagnostic.fixture.active_pty.count": .int(
+                        AppPolicies.SidebarPerformanceProof.activePTYCount
+                    ),
                     "agentstudio.startup_diagnostic.fixture.inbox_notification.count": .int(inboxCount),
                     "agentstudio.startup_diagnostic.fixture.sidebar_surface.count": .int(1),
                     "agentstudio.startup_diagnostic.fixture.terminal_pane.count": .int(1),

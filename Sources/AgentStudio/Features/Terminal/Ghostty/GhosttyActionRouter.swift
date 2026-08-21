@@ -167,14 +167,6 @@ extension Ghostty {
                 return false
             }
 
-            traceGhosttyAction(
-                body: "ghostty.action.received",
-                actionTag: rawActionTag,
-                signalClass: signalClass(for: actionTag),
-                routeResult: nil,
-                reason: nil
-            )
-
             if interceptedTags.contains(actionTag) {
                 return handleInterceptedAction(
                     actionTag,
@@ -768,7 +760,7 @@ extension Ghostty {
                     )
                 }
                 var didApplyPrecedingTitle = false
-                _ = routeExactFactOrControlOnMainActor(
+                _ = await routeExactFactOrControlOnMainActor(
                     precedingTitle: precedingTitle,
                     actionTag: actionTag,
                     payload: payload,

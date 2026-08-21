@@ -456,6 +456,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.repo_explorer.outline_apply_proxy.rows_total.count",
         "agentstudio.performance.repo_explorer.outline_apply_proxy.mainactor_held_ms",
         "agentstudio.performance.repo_explorer.frame_sample.sequence",
+        "agentstudio.performance.repo_explorer.interval.count",
         "agentstudio.performance.repo_explorer.scroll_burst.sequence",
         "agentstudio.performance.repo_explorer.visible_set.count",
         "agentstudio.performance.repo_explorer.visible_set_delta.count",
@@ -644,8 +645,11 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.fixture.terminal_view.count",
         "agentstudio.startup_diagnostic.fixture.valid_geometry.count",
         "agentstudio.startup_diagnostic.fixture.inbox_notification.count",
+        "agentstudio.startup_diagnostic.fixture.active_pty.count",
+        "agentstudio.startup_diagnostic.fixture.pane.count",
         "agentstudio.startup_diagnostic.fixture.repo.count",
         "agentstudio.startup_diagnostic.fixture.sidebar_surface.count",
+        "agentstudio.startup_diagnostic.fixture.tab.count",
         "agentstudio.startup_diagnostic.fixture.worktree.count",
         "agentstudio.startup_diagnostic.repo_explorer_key_mutation.count",
         "agentstudio.terminal.startup.failure.creation_retry.count",
@@ -662,6 +666,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.threshold_rows",
     ]).union(AgentStudioCoordinationProjectionKeys.numericKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.numericAttributeKeys)
+        .union(AgentStudioOTLPRepoExplorerTaxonomy.numericAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.numericKeys)
         .union(BridgeProductPaintProjectionKeys.numericKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)

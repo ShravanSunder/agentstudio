@@ -168,6 +168,54 @@ package final class RepoEnrichmentCacheAtom {
         }
     }
 
+    package func applyPullRequestRepositoryProjection(
+        _ projection: PullRequestRepositoryProjection,
+        forRepository repoId: UUID
+    ) {
+        let materialized = Self.materializedPullRequestProjection(projection, repoId: repoId)
+        let existingFactKeys = Set(
+            pullRequestFactsMap.snapshot().keys.filter { $0.repoId == repoId }
+        )
+        let desiredFactKeys = Set(materialized.factsByKey.keys)
+        let factKeysToRemove = existingFactKeys.subtracting(desiredFactKeys)
+        let factsDidChange =
+            !factKeysToRemove.isEmpty
+            || materialized.factsByKey.contains { key, facts in
+                pullRequestFactsMap.snapshotValue(for: key) != facts
+            }
+        let isCurrentlyLoading = pullRequestLoadingMap.snapshotValue(for: repoId) ?? false
+        let loadingDidChange = isCurrentlyLoading != materialized.isLoading
+        let isCurrentlyUnavailable = pullRequestUnavailableRepoIds.contains(repoId)
+        let unavailabilityDidChange = isCurrentlyUnavailable != materialized.isUnavailable
+
+        guard factsDidChange || loadingDidChange || unavailabilityDidChange else { return }
+        mutate { mutation in
+            for key in factKeysToRemove {
+                pullRequestFactsMap.removeValue(for: key, mutation: mutation)
+            }
+            for (key, facts) in materialized.factsByKey {
+                pullRequestFactsMap.setValue(facts, for: key, mutation: mutation)
+            }
+            if materialized.isLoading {
+                pullRequestLoadingMap.setValue(true, for: repoId, mutation: mutation)
+            } else {
+                pullRequestLoadingMap.removeValue(for: repoId, mutation: mutation)
+            }
+            if materialized.isUnavailable {
+                pullRequestUnavailableRepoIds.insert(repoId)
+            } else {
+                pullRequestUnavailableRepoIds.remove(repoId)
+            }
+            if factsDidChange {
+                pullRequestFactsRevisionAtom.bump()
+            }
+            if unavailabilityDidChange {
+                mutation.recordAcceptedChange()
+                pullRequestUnavailabilityRevisionAtom.bump()
+            }
+        }
+    }
+
     package func setPullRequestLoading(_ isLoading: Bool, forRepository repoId: UUID) {
         mutate { mutation in
             if isLoading {
@@ -345,6 +393,46 @@ package final class RepoEnrichmentCacheAtom {
         }
     }
 
+    private static func materializedPullRequestProjection(
+        _ projection: PullRequestRepositoryProjection,
+        repoId: UUID
+    ) -> (factsByKey: [RepoBranchKey: PullRequestFacts], isLoading: Bool, isUnavailable: Bool) {
+        let stablePresentation: PullRequestStablePresentation
+        let isLoading: Bool
+        switch projection {
+        case .stable(let presentation):
+            stablePresentation = presentation
+            isLoading = false
+        case .loading(let baseline, _):
+            stablePresentation = baseline
+            isLoading = true
+        }
+
+        let factsByBranch: [String: PullRequestFacts]
+        let isUnavailable: Bool
+        switch stablePresentation {
+        case .unknown:
+            factsByBranch = [:]
+            isUnavailable = false
+        case .ready(let confirmedFactsByBranch):
+            factsByBranch = confirmedFactsByBranch
+            isUnavailable = false
+        case .unavailable(let previousConfirmedFactsByBranch):
+            factsByBranch = previousConfirmedFactsByBranch ?? [:]
+            isUnavailable = !isLoading
+        }
+
+        return (
+            factsByKey: Dictionary(
+                uniqueKeysWithValues: factsByBranch.compactMap { branch, facts in
+                    RepoBranchKey(repoId: repoId, branch: branch).map { ($0, facts) }
+                }
+            ),
+            isLoading: isLoading,
+            isUnavailable: isUnavailable
+        )
+    }
+
     private static func repoEnrichmentSnapshotsMatch(
         _ lhs: [UUID: RepoEnrichment],
         _ rhs: [UUID: RepoEnrichment]
@@ -467,6 +555,16 @@ package final class RepoCacheAtom {
 
     package func applyPullRequestFacts(_ factsByKey: [RepoBranchKey: PullRequestFacts]) {
         enrichmentCacheAtom.applyPullRequestFacts(factsByKey)
+    }
+
+    package func applyPullRequestRepositoryProjection(
+        _ projection: PullRequestRepositoryProjection,
+        forRepository repoId: UUID
+    ) {
+        enrichmentCacheAtom.applyPullRequestRepositoryProjection(
+            projection,
+            forRepository: repoId
+        )
     }
 
     package func setPullRequestLoading(_ isLoading: Bool, forRepository repoId: UUID) {

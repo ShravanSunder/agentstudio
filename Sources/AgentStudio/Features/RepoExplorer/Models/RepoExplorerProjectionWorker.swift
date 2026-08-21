@@ -3,9 +3,53 @@ import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import Foundation
 
-enum RepoExplorerScopedProjectionChange: Equatable, Sendable {
+enum RepoExplorerScopedProjectionChange: Equatable, Hashable, Sendable {
     case repo(UUID)
     case worktreeFact(UUID)
+}
+
+struct RepoExplorerProjectionDelta: Equatable, Sendable {
+    let baselineRevision: Int
+    let baselineResult: RepoExplorerProjectionResult
+    let targetRequest: RepoExplorerProjectionRequest
+    let changes: Set<RepoExplorerScopedProjectionChange>
+}
+
+enum RepoExplorerProjectionWork: Equatable, Sendable {
+    case full(RepoExplorerProjectionRequest)
+    case delta(RepoExplorerProjectionDelta)
+
+    var generation: Int {
+        targetRequest.generation
+    }
+
+    var targetRequest: RepoExplorerProjectionRequest {
+        switch self {
+        case .full(let request): request
+        case .delta(let delta): delta.targetRequest
+        }
+    }
+
+    static func combinePending(
+        _ pending: Self,
+        _ latest: Self
+    ) -> Self {
+        guard case .delta(let pendingDelta) = pending,
+            case .delta(let latestDelta) = latest,
+            pendingDelta.baselineRevision == latestDelta.baselineRevision,
+            pendingDelta.baselineResult == latestDelta.baselineResult
+        else {
+            return .full(latest.targetRequest)
+        }
+        return .delta(
+            RepoExplorerProjectionDelta(
+                baselineRevision: latestDelta.baselineRevision,
+                baselineResult: latestDelta.baselineResult,
+                targetRequest: latestDelta.targetRequest,
+                changes: pendingDelta.changes.union(latestDelta.changes)
+            )
+        )
+    }
 }
 
 struct RepoExplorerProjectionRequest: Equatable, Sendable {
@@ -150,6 +194,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
     let bridgeCommandResolutionByWorktreeId: [UUID: BridgePaneCommandResolution]
     let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
     let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
+    let baselineRevision: Int?
 
     static let empty: Self = {
         let snapshot = RepoExplorerSnapshot(
@@ -184,12 +229,62 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
             branchNameByWorktreeId: [:],
             bridgeCommandResolutionByWorktreeId: [:],
             paneRowFactsByPaneId: [:],
-            tabGroupFactsByTabId: [:]
+            tabGroupFactsByTabId: [:],
+            baselineRevision: nil
         )
     }()
 }
 
 actor RepoExplorerProjectionWorker {
+    static func project(
+        _ work: RepoExplorerProjectionWork
+    ) throws -> RepoExplorerProjectionResult {
+        switch work {
+        case .full(let request):
+            return try project(request)
+        case .delta(let delta):
+            var result = delta.baselineResult
+            let repositoryChanges = delta.changes.compactMap { change -> UUID? in
+                guard case .repo(let repositoryID) = change else { return nil }
+                return repositoryID
+            }
+            .sorted { $0.uuidString < $1.uuidString }
+            let worktreeChanges = delta.changes.compactMap { change -> UUID? in
+                guard case .worktreeFact(let worktreeID) = change else { return nil }
+                return worktreeID
+            }
+            .sorted { $0.uuidString < $1.uuidString }
+
+            for repositoryID in repositoryChanges {
+                try Task.checkCancellation()
+                guard
+                    let updated = applyScopedRepoChange(
+                        repoId: repositoryID,
+                        request: delta.targetRequest,
+                        previous: result
+                    )
+                else {
+                    return try project(delta.targetRequest)
+                }
+                result = updated
+            }
+            for worktreeID in worktreeChanges {
+                try Task.checkCancellation()
+                guard
+                    let updated = applyScopedWorktreeFactChange(
+                        worktreeId: worktreeID,
+                        request: delta.targetRequest,
+                        previous: result
+                    )
+                else {
+                    return try project(delta.targetRequest)
+                }
+                result = updated
+            }
+            return result.withBaselineRevision(delta.baselineRevision)
+        }
+    }
+
     static func applyScopedChange(
         _ change: RepoExplorerScopedProjectionChange,
         request: RepoExplorerProjectionRequest,
@@ -279,7 +374,8 @@ actor RepoExplorerProjectionWorker {
             branchNameByWorktreeId: branchNameByWorktreeId,
             bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
-            tabGroupFactsByTabId: request.tabGroupFactsByTabId
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId,
+            baselineRevision: nil
         )
     }
 
@@ -380,7 +476,10 @@ actor RepoExplorerProjectionWorker {
             }
         let favoriteGroups = updatedGroups.filter { !$0.repos.isEmpty && $0.repos.allSatisfy(\.isFavorite) }
         let regularGroups = updatedGroups.filter { $0.repos.contains { !$0.isFavorite } }
-        let updatedLoadingRepos = previousContent.loadingRepos.map { replacingRepo(in: $0) }
+        let updatedLoadingRepos = RepoExplorerProjection.sortedRepos(
+            previousContent.loadingRepos.map { replacingRepo(in: $0) },
+            sortOrder: request.snapshot.sortOrder
+        )
         let favoriteLoadingRepos = updatedLoadingRepos.filter(\.isFavorite)
         let regularLoadingRepos = updatedLoadingRepos.filter { !$0.isFavorite }
         var sections: [RepoExplorerSidebarSection] = []
@@ -468,7 +567,8 @@ actor RepoExplorerProjectionWorker {
             branchNameByWorktreeId: branchNames,
             bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
-            tabGroupFactsByTabId: request.tabGroupFactsByTabId
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId,
+            baselineRevision: nil
         )
     }
 
@@ -496,7 +596,31 @@ actor RepoExplorerProjectionWorker {
             branchNameByWorktreeId: previous.branchNameByWorktreeId,
             bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
-            tabGroupFactsByTabId: request.tabGroupFactsByTabId
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId,
+            baselineRevision: nil
+        )
+    }
+}
+
+extension RepoExplorerProjectionResult {
+    fileprivate func withBaselineRevision(_ baselineRevision: Int) -> Self {
+        Self(
+            generation: generation,
+            snapshot: snapshot,
+            collapsedGroupIds: collapsedGroupIds,
+            isFiltering: isFiltering,
+            trigger: trigger,
+            projection: projection,
+            rowIndex: rowIndex,
+            workerDuration: workerDuration,
+            projectionDuration: projectionDuration,
+            rowIndexDuration: rowIndexDuration,
+            branchStatusByWorktreeId: branchStatusByWorktreeId,
+            branchNameByWorktreeId: branchNameByWorktreeId,
+            bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId,
+            paneRowFactsByPaneId: paneRowFactsByPaneId,
+            tabGroupFactsByTabId: tabGroupFactsByTabId,
+            baselineRevision: baselineRevision
         )
     }
 }

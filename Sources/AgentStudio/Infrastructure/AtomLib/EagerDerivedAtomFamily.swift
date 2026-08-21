@@ -15,8 +15,9 @@ package final class EagerDerivedAtomFamily<
     }
 
     private let requestIdentity: @Sendable (Request) -> RequestIdentity
+    private let combinePendingRequests: @Sendable (Request, Request) -> Request
     private let telemetryLabel: String?
-    private let recordsRepoExplorerKeyedWake: Bool
+    private let performanceOutcome: @MainActor @Sendable (String, String) -> Void
     private let isValueEqual: @Sendable (Value, Value) -> Bool
     private let project: @Sendable (Request) throws(CancellationError) -> Value
     private let onProjectionCompletion: @MainActor @Sendable (Key, Atom.ProjectionCompletion) -> Void
@@ -27,16 +28,18 @@ package final class EagerDerivedAtomFamily<
 
     package init(
         telemetryLabel: String? = nil,
-        recordsRepoExplorerKeyedWake: Bool = false,
+        performanceOutcome: @escaping @MainActor @Sendable (String, String) -> Void = { _, _ in },
         requestIdentity: @escaping @Sendable (Request) -> RequestIdentity,
+        combinePendingRequests: @escaping @Sendable (Request, Request) -> Request,
         isValueEqual: @escaping @Sendable (Value, Value) -> Bool,
         project: @escaping @Sendable (Request) throws(CancellationError) -> Value,
         onProjectionCompletion:
             @escaping @MainActor @Sendable (Key, Atom.ProjectionCompletion) -> Void = { _, _ in }
     ) {
         self.telemetryLabel = telemetryLabel
-        self.recordsRepoExplorerKeyedWake = recordsRepoExplorerKeyedWake
+        self.performanceOutcome = performanceOutcome
         self.requestIdentity = requestIdentity
+        self.combinePendingRequests = combinePendingRequests
         self.isValueEqual = isValueEqual
         self.project = project
         self.onProjectionCompletion = onProjectionCompletion
@@ -56,6 +59,7 @@ package final class EagerDerivedAtomFamily<
         let slotID = nextSlotID
         let atom = Atom(
             requestIdentity: requestIdentity,
+            combinePendingRequests: combinePendingRequests,
             isValueEqual: isValueEqual,
             project: project,
             onProjectionCompletion: { [weak self] completion in
@@ -77,12 +81,7 @@ package final class EagerDerivedAtomFamily<
 
     package func admit(_ request: Request, for key: Key) {
         guard !hasStopped, let atom = materialize(for: key) else { return }
-        if recordsRepoExplorerKeyedWake {
-            AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
-                stage: "eager_admission",
-                outcome: "admitted"
-            )
-        }
+        performanceOutcome("eager_admission", "admitted")
         if let telemetryLabel {
             AtomPerformanceTelemetry.shared.recordEagerDerivedFamily(
                 label: telemetryLabel,
@@ -112,6 +111,17 @@ package final class EagerDerivedAtomFamily<
         return slot.atom.value
     }
 
+    package func latestAcceptedValue(for key: Key) -> Value? {
+        guard let slot = slotByKey[key],
+            let admittedIdentity = slot.admittedIdentity,
+            slot.readyIdentity == admittedIdentity,
+            slot.atom.isCurrent(admittedIdentity)
+        else {
+            return nil
+        }
+        return slot.atom.latestAcceptedValue
+    }
+
     package func remove(for key: Key) {
         guard let slot = slotByKey[key] else { return }
         stopAndRetainInFlightAtomIfNeeded(slot)
@@ -133,12 +143,7 @@ package final class EagerDerivedAtomFamily<
         for key: Key,
         slotID: UInt64
     ) {
-        if recordsRepoExplorerKeyedWake {
-            AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
-                stage: "projection_worker",
-                outcome: Self.telemetryOutcome(for: completion)
-            )
-        }
+        performanceOutcome("projection_worker", Self.telemetryOutcome(for: completion))
         if let telemetryLabel {
             AtomPerformanceTelemetry.shared.recordEagerDerivedFamily(
                 label: telemetryLabel,

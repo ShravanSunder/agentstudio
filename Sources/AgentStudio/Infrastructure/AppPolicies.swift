@@ -39,8 +39,18 @@ package enum AppPolicies {
         }
     }
 
+    package enum SidebarPerformanceProof {
+        package static let repositoryCount: Int = 150
+        package static let worktreeCount: Int = 180
+        package static let tabCount: Int = 12
+        package static let paneCount: Int = 36
+        package static let activePTYCount: Int = 1
+        package static let maximumProcessCPUPercent: Double = 30
+    }
+
     package enum Diagnostics {
         package static let traceEventQueueBufferLimit: Int = 4096
+        package static let repoExplorerExactAttributionRecordLimit: Int = 2048
         package static let repoExplorerScrollBurstSeparationNanoseconds: UInt64 = 250_000_000
         /// Native hot-path performance facts must shed before reaching
         /// swift-otel. Topology lookup telemetry is informational, so repeated
@@ -142,13 +152,14 @@ package enum AppPolicies {
         package static let titleMainActorAdmissionSlackNanoseconds: UInt64 = 100_000_000
     }
 
-    /// Bounds for the source-side "last output line" contraction (Contract 7):
-    /// how large the resulting candidate line may be before it can reach the
-    /// EventBus. The Ghostty viewport read itself is unbounded (full
-    /// viewport, one call per settle) — see
-    /// `SurfaceManager.readViewportTrailingText`.
+    /// Bounds for the source-side "last output line" contraction (Contract 7).
+    /// The pinned Ghostty C API cannot select the last N written viewport rows,
+    /// so one full-viewport read remains a measured exception after this
+    /// preflight cell cap. Raw bytes are rejected before String construction.
     package enum TerminalOutputCapture {
         package static let maxLastOutputLineUTF8Bytes: Int = 120
+        package static let maxViewportCellsPerSettleRead: Int = 250_000
+        package static let maxRawViewportUTF8Bytes: Int = 1_048_576
     }
 
     package enum NonterminalContentMount {
@@ -488,9 +499,9 @@ package enum AppPolicies {
         package static let agentSettledMinimumActiveDuration: Duration = .seconds(360)
         package static let agentSettledQuietDuration: Duration = .seconds(180)
         package static let terminalActivitySessionIdleTimeoutDuration: Duration = .seconds(300)
-        /// Timerless leading-edge rate limit for a pane's activity-status fact (sidebar L2 text):
-        /// at most one publish per pane within this window. A settle inside the window is dropped
-        /// entirely, not deferred; the next settle after the window naturally carries the latest line.
+        /// Minimum publication interval for a pane's activity-status fact (sidebar L2 text).
+        /// A distinct settle inside the window is retained as the pane's latest pending value and
+        /// published at the deadline without requiring another settle.
         package static let paneActivityStatusMinimumPublishInterval: Duration = .seconds(10)
     }
 

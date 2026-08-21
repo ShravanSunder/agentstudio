@@ -47,12 +47,26 @@ struct InboxNotificationRepoPresentationTests {
         )
         let presentation = try #require(presentations[repoId])
         let expectedAccentColorHex = RepoPresentationColoring.checkoutColorHex(
-            for: RepoPresentationItem(repo: repo),
+            for: RepoPresentationItem(
+                repo: repo,
+                stableKey: repo.stableKey,
+                worktreeStableKeysByID: Dictionary(
+                    uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.stableKey) }
+                )
+            ),
             in: RepoPresentationGroup(
                 id: identity.groupKey,
                 repoTitle: identity.displayName,
                 organizationName: identity.organizationName,
-                repos: [RepoPresentationItem(repo: repo)]
+                repos: [
+                    RepoPresentationItem(
+                        repo: repo,
+                        stableKey: repo.stableKey,
+                        worktreeStableKeysByID: Dictionary(
+                            uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.stableKey) }
+                        )
+                    )
+                ]
             )
         )
 

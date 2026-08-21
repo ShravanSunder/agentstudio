@@ -118,10 +118,40 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("required_metric_keys="))
         #expect(source.contains("wait_for_required_metric_count"))
         #expect(source.contains("REQUIRED_SAMPLE_COUNT=100"))
+        #expect(source.contains("REQUIRED_MATERIALIZED_SAMPLE_COUNT=90"))
+        #expect(source.contains("WORKLOAD_FIXTURE_VERSION=sidebar-workload-v4"))
+        #expect(source.contains("REQUIRED_REPOSITORY_COUNT=150"))
+        #expect(source.contains("REQUIRED_WORKTREE_COUNT=180"))
+        #expect(source.contains("REQUIRED_TAB_COUNT=12"))
+        #expect(source.contains("REQUIRED_PANE_COUNT=36"))
+        #expect(source.contains("REQUIRED_ACTIVE_PTY_COUNT=1"))
+        #expect(source.contains("MAXIMUM_PROCESS_CPU_PERCENT=30"))
+        #expect(source.contains("process_cpu_percent_p50="))
+        #expect(source.contains("process_cpu_percent_p95="))
+        #expect(source.contains("process_cpu_percent_max="))
+        #expect(source.contains("/usr/bin/top -l 0 -s 1 -pid \"$pid\" -stats pid,cpu"))
+        #expect(source.contains("discarded_first_process_sample = False"))
+        #expect(!source.contains("/bin/ps -p \"$pid\" -o %cpu="))
+        #expect(source.contains("trace_queue_dropped_record_count="))
+        #expect(source.contains("runtime_delivery_dropped_count="))
+        #expect(source.contains("collector_loss_count="))
+        #expect(source.contains("input_to_semantic_fact_contraction_ratio="))
+        #expect(source.contains("semantic_fact_to_capture_admission_ratio="))
+        #expect(source.contains("capture_to_execution_admission_ratio="))
+        #expect(source.contains("execution_to_publication_ratio="))
+        #expect(source.contains("publication_to_materialization_ratio="))
+        #expect(source.contains("fixture_repo_count="))
+        #expect(source.contains("fixture_worktree_count="))
+        #expect(source.contains("fixture_tab_count="))
+        #expect(source.contains("fixture_pane_count="))
+        #expect(source.contains("fixture_active_pty_count="))
+        #expect(source.contains("minimum_count=\"$REQUIRED_MATERIALIZED_SAMPLE_COUNT\""))
+        #expect(source.contains("if [ \"$phase\" = \"request_build_mainactor\" ]"))
         #expect(source.contains("REQUIRED_METRIC_READBACK_ATTEMPTS=45"))
         #expect(source.contains("seq 1 \"$REQUIRED_METRIC_READBACK_ATTEMPTS\""))
         #expect(source.contains("AGENTSTUDIO_SIDEBAR_IPC_CYCLES:-100"))
-        #expect(source.contains("performance,atoms,app.startup,terminal.startup"))
+        #expect(source.contains("performance,app.startup,terminal.startup"))
+        #expect(!source.contains("performance,atoms,app.startup,terminal.startup"))
         #expect(source.contains("must be >= {minimum}"))
         #expect(source.contains("def wait_for_readback"))
         #expect(source.contains("time.monotonic() + timeout"))
@@ -196,6 +226,80 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(summary.contains("worktree_fixture_key="))
         #expect(summary.contains("workload_cycles=100"))
         #expect(summary.contains("sidebar_projection.metric_result_count=1"))
+    }
+
+    @Test("each sidebar diagnostic phase starts from the disposable debug root")
+    func eachSidebarDiagnosticPhaseStartsFromDisposableDebugRoot() throws {
+        let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
+
+        let keyPhase = try #require(
+            source.range(of: "run_repo_explorer_key_mutation_phase() {")
+        )
+        let interactionPhase = try #require(
+            source.range(
+                of: "run_repo_explorer_interaction_phase() {",
+                range: keyPhase.upperBound..<source.endIndex
+            )
+        )
+        let keyPhaseSource = source[keyPhase.lowerBound..<interactionPhase.lowerBound]
+        let keyPhaseStop = try #require(keyPhaseSource.range(of: "stop_pid \"$first_phase_pid\""))
+        let keyPhaseReset = try #require(keyPhaseSource.range(of: "reset_disposable_debug_root"))
+        let keyPhaseLaunch = try #require(keyPhaseSource.range(of: "repo-explorer-key-mutation-proof"))
+
+        let performanceCheck = try #require(
+            source.range(
+                of: "performance_threshold_check() {",
+                range: interactionPhase.upperBound..<source.endIndex
+            )
+        )
+        let interactionPhaseSource = source[interactionPhase.lowerBound..<performanceCheck.lowerBound]
+        #expect(interactionPhaseSource.contains("keyed_wake_key_mutation_completion"))
+        #expect(interactionPhaseSource.contains("key_class=\\\"missing_declared_key\\\""))
+        #expect(interactionPhaseSource.contains("stage=\\\"membership_path\\\""))
+        #expect(interactionPhaseSource.contains("\"$WORKLOAD_CYCLES\" >/dev/null"))
+        let interactionPhaseStop = try #require(
+            interactionPhaseSource.range(of: "stop_pid \"$key_phase_pid\"")
+        )
+        let interactionPhaseReset = try #require(
+            interactionPhaseSource.range(of: "reset_disposable_debug_root")
+        )
+        let interactionPhaseLaunch = try #require(
+            interactionPhaseSource.range(of: "repo-explorer-interaction-proof")
+        )
+
+        #expect(keyPhaseStop.lowerBound < keyPhaseReset.lowerBound)
+        #expect(keyPhaseReset.lowerBound < keyPhaseLaunch.lowerBound)
+        #expect(interactionPhaseStop.lowerBound < interactionPhaseReset.lowerBound)
+        #expect(interactionPhaseReset.lowerBound < interactionPhaseLaunch.lowerBound)
+    }
+
+    @Test("workload captures phase W metrics before launching later diagnostic markers")
+    func workloadCapturesPhaseWMetricsBeforeLaunchingLaterDiagnosticMarkers() throws {
+        let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        let workloadInvocation = try #require(
+            source.range(of: "run_authenticated_sidebar_ipc_workload")
+        )
+        let phaseWMetricCapture = try #require(
+            source.range(
+                of: "repo_sort_projection_worker_elapsed_ms_p95=\"$(",
+                range: workloadInvocation.upperBound..<source.endIndex
+            )
+        )
+        let keyPhaseInvocation = try #require(
+            source.range(
+                of: "run_repo_explorer_key_mutation_phase\n",
+                range: workloadInvocation.upperBound..<source.endIndex
+            )
+        )
+        let keyedWakeAssertions = try #require(
+            source.range(
+                of: ": >\"$KEYED_WAKE_VALUES_FILE\"",
+                range: keyPhaseInvocation.upperBound..<source.endIndex
+            )
+        )
+
+        #expect(phaseWMetricCapture.lowerBound < keyPhaseInvocation.lowerBound)
+        #expect(keyPhaseInvocation.lowerBound < keyedWakeAssertions.lowerBound)
     }
 
     @Test("workload rejects fewer than one hundred issued samples per bucket")

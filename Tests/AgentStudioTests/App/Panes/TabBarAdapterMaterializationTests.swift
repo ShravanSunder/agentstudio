@@ -173,8 +173,8 @@ final class TabBarAdapterMaterializationTests {
         #expect(adapter.tabs.first?.displayTitle == "After")
     }
 
-    @Test("overlapping projections publish only the latest admitted request")
-    func overlappingProjectionsPublishOnlyLatestRequest() async {
+    @Test("rapid same-tab invalidations stay single-flight and publish the latest request")
+    func rapidSameTabInvalidationsStaySingleFlightAndPublishLatestRequest() async {
         let secondGate = TabBarAdapterProjectionGate()
         let thirdGate = TabBarAdapterProjectionGate()
         defer {
@@ -204,6 +204,7 @@ final class TabBarAdapterMaterializationTests {
         secondGate.release()
         #expect(await completionRecorder.wait(for: .superseded(.init(value: 2))))
         #expect(await thirdGate.waitUntilStarted(), "Third projection did not start")
+        #expect(projectionController.maximumConcurrentProjectionCount == 1)
 
         thirdGate.release()
         #expect(await completionRecorder.wait(for: .published(.init(value: 3))))

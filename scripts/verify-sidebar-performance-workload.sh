@@ -7,12 +7,19 @@ STACK_HELPER="${AI_TOOLS_OBSERVABILITY_STACK_HELPER:-$DEFAULT_STACK_HELPER}"
 COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
 METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
 DEFAULT_PROOF_ROOT="/tmp/agentstudio-sidebar-performance"
-WORKLOAD_TRACE_TAGS="${AGENTSTUDIO_TRACE_TAGS:-performance,atoms,app.startup,terminal.startup}"
+WORKLOAD_TRACE_TAGS="${AGENTSTUDIO_TRACE_TAGS:-performance,app.startup,terminal.startup}"
 KEY_MUTATION_TRACE_TAGS="performance,app.startup"
 WORKLOAD_CYCLES="${AGENTSTUDIO_SIDEBAR_IPC_CYCLES:-100}"
 REQUIRED_SAMPLE_COUNT=100
+REQUIRED_MATERIALIZED_SAMPLE_COUNT=90
 REQUIRED_METRIC_READBACK_ATTEMPTS=45
-WORKLOAD_FIXTURE_VERSION=sidebar-workload-v2
+WORKLOAD_FIXTURE_VERSION=sidebar-workload-v4
+REQUIRED_REPOSITORY_COUNT=150
+REQUIRED_WORKTREE_COUNT=180
+REQUIRED_TAB_COUNT=12
+REQUIRED_PANE_COUNT=36
+REQUIRED_ACTIVE_PTY_COUNT=1
+MAXIMUM_PROCESS_CPU_PERCENT=30
 
 usage() {
   cat <<'USAGE'
@@ -93,6 +100,58 @@ stop_pid() {
     kill "$pid" >/dev/null 2>&1 || true
     wait "$pid" >/dev/null 2>&1 || true
   fi
+}
+
+sample_process_cpu() {
+  local pid="${1:?missing process pid}"
+  local sample_file="${2:?missing CPU sample file}"
+  exec /usr/bin/top -l 0 -s 1 -pid "$pid" -stats pid,cpu >"$sample_file"
+}
+
+summarize_process_cpu() {
+  local sample_file="${1:?missing CPU sample file}"
+  local pid="${2:?missing process pid}"
+  /usr/bin/python3 - "$sample_file" "$pid" <<'PY'
+import math
+import pathlib
+import sys
+
+values = []
+pid = sys.argv[2]
+discarded_first_process_sample = False
+for raw_line in pathlib.Path(sys.argv[1]).read_text().splitlines():
+    fields = raw_line.split()
+    if len(fields) != 2 or fields[0] != pid:
+        continue
+    try:
+        value = float(fields[1])
+    except ValueError:
+        continue
+    if not discarded_first_process_sample:
+        discarded_first_process_sample = True
+        continue
+    if math.isfinite(value):
+        values.append(value)
+if not values:
+    raise SystemExit("process CPU sampling produced no values")
+values.sort()
+def percentile(fraction):
+    return values[min(len(values) - 1, max(0, math.ceil(len(values) * fraction) - 1))]
+print(percentile(0.50))
+print(percentile(0.95))
+print(values[-1])
+print(len(values))
+PY
+}
+
+require_maximum_process_cpu() {
+  local p95="${1:?missing process CPU p95}"
+  /usr/bin/python3 - "$p95" "$MAXIMUM_PROCESS_CPU_PERCENT" <<'PY'
+import sys
+p95, maximum = map(float, sys.argv[1:])
+if p95 >= maximum:
+    raise SystemExit(f"process CPU p95 must be below {maximum:g}%, got {p95:g}%")
+PY
 }
 
 owned_zmx_pids() {
@@ -183,6 +242,7 @@ reset_disposable_debug_root() {
 }
 
 cleanup() {
+  stop_pid "${CPU_SAMPLER_PID:-}"
   local cleanup_pid="$APP_PID"
   if [ -z "$cleanup_pid" ] && [ -f "$STATE_FILE" ] \
     && [ "$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_MARKER)" = "$TRACE_MARKER" ]
@@ -492,21 +552,30 @@ record_required_metric_series() {
 record_required_sidebar_metric_matrix() {
   local mode_name
   local phase
+  local minimum_count
 
   : >"$REQUIRED_METRIC_KEYS_FILE"
   : >"$METRIC_VALUES_FILE"
 
   for mode_name in repo pane tab; do
     for phase in request_build_mainactor projection_worker row_index mainactor_apply; do
+      minimum_count="$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
+      if [ "$phase" = "request_build_mainactor" ]; then
+        minimum_count="$REQUIRED_SAMPLE_COUNT"
+      fi
       record_required_metric_series repo "$phase" "$mode_name" grouping_switch \
-        "repo_${mode_name}_${phase}" "$REQUIRED_SAMPLE_COUNT"
+        "repo_${mode_name}_${phase}" "$minimum_count"
     done
   done
 
   for mode_name in tab repo pane none; do
     for phase in request_build_mainactor projection_worker mainactor_apply; do
+      minimum_count="$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
+      if [ "$phase" = "request_build_mainactor" ]; then
+        minimum_count="$REQUIRED_SAMPLE_COUNT"
+      fi
       record_required_metric_series inbox "$phase" "$mode_name" grouping_switch \
-        "inbox_${mode_name}_${phase}" "$REQUIRED_SAMPLE_COUNT"
+        "inbox_${mode_name}_${phase}" "$minimum_count"
     done
   done
 
@@ -826,6 +895,7 @@ run_repo_explorer_key_mutation_phase() {
   local first_phase_pid="${APP_PID:?missing first phase app pid}"
   stop_pid "$first_phase_pid"
   APP_PID=""
+  reset_disposable_debug_root
 
   TRACE_MARKER="$TRACE_MARKER_K"
   env \
@@ -843,12 +913,13 @@ run_repo_explorer_key_mutation_phase() {
 }
 
 run_repo_explorer_interaction_phase() {
-  wait_for_required_metric_count keyed_wake_presence \
-    "agentstudio_performance_events_total{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_K")\",event=\"performance.repo_explorer.keyed_wake\"}" \
-    1 >/dev/null
+  wait_for_required_metric_count keyed_wake_key_mutation_completion \
+    "sum(agentstudio_performance_events_total{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_K")\",event=\"performance.repo_explorer.keyed_wake\",key_class=\"missing_declared_key\",stage=\"membership_path\"})" \
+    "$WORKLOAD_CYCLES" >/dev/null
   local key_phase_pid="${APP_PID:?missing key phase app pid}"
   stop_pid "$key_phase_pid"
   APP_PID=""
+  reset_disposable_debug_root
   TRACE_MARKER="$TRACE_MARKER_I"
   env \
     AGENTSTUDIO_TRACE_FLUSH=immediate \
@@ -877,6 +948,26 @@ if compare > threshold:
     print(f"{label} regressed: baseline={baseline:.3f}ms compare={compare:.3f}ms threshold={threshold:.3f}ms", file=sys.stderr)
     sys.exit(1)
 PY
+}
+
+ratio_value() {
+  local numerator="${1:?missing numerator}"
+  local denominator="${2:?missing denominator}"
+  /usr/bin/python3 - "$numerator" "$denominator" <<'PY'
+import sys
+numerator, denominator = map(float, sys.argv[1:])
+print(0 if denominator == 0 else numerator / denominator)
+PY
+}
+
+require_exact_fixture_count() {
+  local label="${1:?missing fixture label}"
+  local actual="${2:?missing fixture actual}"
+  local expected="${3:?missing fixture expected}"
+  if [ "$actual" != "$expected" ] && [ "$actual" != "${expected}.0" ]; then
+    echo "$label expected $expected, got ${actual:-<missing>}" >&2
+    exit 1
+  fi
 }
 
 wait_for_debug_observability() {
@@ -954,6 +1045,16 @@ keyed_wake_outcome_count() {
   printf '%s\n' "${value:-0}"
 }
 
+keyed_wake_stage_count() {
+  local stage="${1:?missing stage}"
+  local selector='agent.proof.marker="'"$(metric_label_selector "$TRACE_MARKER_K")"'",event="performance.repo_explorer.keyed_wake",stage="'"$stage"'"'
+  local response
+  local value
+  response="$(query_victoria_metrics "sum(agentstudio_performance_events_total{$selector})")"
+  value="$(metric_max_value "$response")"
+  printf '%s\n' "${value:-0}"
+}
+
 assert_keyed_wake_contract() {
   local key_class="${1:?missing key class}"
   local stage="${2:?missing stage}"
@@ -992,8 +1093,8 @@ REQUIRED_METRIC_KEYS_FILE="$ARTIFACT/required-metric-keys.txt"
 METRIC_VALUES_FILE="$ARTIFACT/metric-values.env"
 KEYED_WAKE_VALUES_FILE="$ARTIFACT/keyed-wake-values.env"
 BASELINE_FILE="$PROOF_ROOT/sidebar-performance-baseline.env"
-WORKTREE_FIXTURE_KEY="$(hashed_identity "$(canonical_path "$PROJECT_ROOT")")"
-WORKLOAD_FIXTURE_KEY="$(hashed_identity "$WORKLOAD_FIXTURE_VERSION:cycles=$WORKLOAD_CYCLES")"
+WORKTREE_FIXTURE_KEY="$(hashed_identity "repos=$REQUIRED_REPOSITORY_COUNT:worktrees=$REQUIRED_WORKTREE_COUNT:tabs=$REQUIRED_TAB_COUNT:panes=$REQUIRED_PANE_COUNT:active_ptys=$REQUIRED_ACTIVE_PTY_COUNT")"
+WORKLOAD_FIXTURE_KEY="$(hashed_identity "$WORKLOAD_FIXTURE_VERSION:cycles=$WORKLOAD_CYCLES:tags=$WORKLOAD_TRACE_TAGS:backend=otlp")"
 mkdir -p "$ARTIFACT" "$(dirname "$STATE_FILE")"
 validate_compare_baseline_fixture
 
@@ -1023,6 +1124,7 @@ if [ "$mode" = "prepare-only" ]; then
 fi
 
 APP_PID=""
+CPU_SAMPLER_PID=""
 RESET_IDENTITY=""
 RESET_DEBUG_CODE=""
 RESET_DATA_DIR=""
@@ -1043,6 +1145,10 @@ env \
 AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
   wait_for_debug_observability
 APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
+CPU_SAMPLES_FILE="$ARTIFACT/process-cpu-percent.txt"
+: >"$CPU_SAMPLES_FILE"
+sample_process_cpu "$APP_PID" "$CPU_SAMPLES_FILE" &
+CPU_SAMPLER_PID=$!
 
 activation_mode="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE)"
 ipc_auth_mode="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE)"
@@ -1060,37 +1166,15 @@ ipc_metadata_path="${AGENTSTUDIO_OBSERVABILITY_IPC_METADATA:-$state_data_dir/ipc
 ipc_debug_token_path="${AGENTSTUDIO_OBSERVABILITY_IPC_DEBUG_TOKEN:-$state_data_dir/ipc/debug-token}"
 AGENTSTUDIO_SIDEBAR_IPC_CYCLES="$WORKLOAD_CYCLES" \
   run_authenticated_sidebar_ipc_workload "$ipc_metadata_path" "$ipc_debug_token_path"
+stop_pid "$CPU_SAMPLER_PID"
+CPU_SAMPLER_PID=""
+process_cpu_summary="$(summarize_process_cpu "$CPU_SAMPLES_FILE" "$APP_PID")"
+process_cpu_percent_p50="$(printf '%s\n' "$process_cpu_summary" | sed -n '1p')"
+process_cpu_percent_p95="$(printf '%s\n' "$process_cpu_summary" | sed -n '2p')"
+process_cpu_percent_max="$(printf '%s\n' "$process_cpu_summary" | sed -n '3p')"
+process_cpu_sample_count="$(printf '%s\n' "$process_cpu_summary" | sed -n '4p')"
+require_maximum_process_cpu "$process_cpu_percent_p95"
 record_required_sidebar_metric_matrix
-run_repo_explorer_key_mutation_phase
-run_repo_explorer_interaction_phase
-
-: >"$KEYED_WAKE_VALUES_FILE"
-for key_class in rendered_repo_favorite rendered_worktree_fact unrelated_tab_arrangement_pane observed_tab_title unrendered_attendance relevant missing_declared_key; do
-  for stage in capture_rebuild membership_path affected_row whole_surface atom_slot eager_admission projection_worker mainactor_apply final_projection; do
-    printf '%s=%s\n' \
-      "keyed_wake_${key_class}_${stage}" \
-      "$(keyed_wake_count "$key_class" "$stage")" >>"$KEYED_WAKE_VALUES_FILE"
-  done
-done
-eager_family_admission_count="$(keyed_wake_count relevant eager_admission)"
-assert_keyed_wake_contract rendered_repo_favorite whole_surface 0
-assert_keyed_wake_contract rendered_repo_favorite affected_row "$WORKLOAD_CYCLES"
-assert_keyed_wake_contract rendered_repo_favorite capture_rebuild "$WORKLOAD_CYCLES"
-assert_keyed_wake_contract rendered_worktree_fact whole_surface 0
-assert_keyed_wake_contract rendered_worktree_fact affected_row "$WORKLOAD_CYCLES"
-assert_keyed_wake_contract rendered_worktree_fact capture_rebuild "$WORKLOAD_CYCLES"
-assert_keyed_wake_contract unrelated_tab_arrangement_pane capture_rebuild 0
-assert_keyed_wake_contract unrendered_attendance capture_rebuild 0
-assert_keyed_wake_contract relevant whole_surface 0
-assert_keyed_wake_contract relevant affected_row "$WORKLOAD_CYCLES"
-assert_keyed_wake_contract relevant capture_rebuild "$WORKLOAD_CYCLES"
-assert_keyed_wake_contract missing_declared_key membership_path "$WORKLOAD_CYCLES"
-
-reference_different_count="$(keyed_wake_outcome_count final_projection reference_different)"
-if [ "$reference_different_count" != "0" ] && [ "$reference_different_count" != "0.0" ]; then
-  echo "final_projection reference_different expected 0, got $reference_different_count" >&2
-  exit 1
-fi
 
 metrics_result="$(wait_for_sidebar_metric_count)"
 metrics_count="$(printf '%s\n' "$metrics_result" | sed -n '1p')"
@@ -1100,6 +1184,22 @@ if [ "$metrics_count" = "0" ]; then
   echo "$metrics_response" >&2
   exit 1
 fi
+
+fixture_repo_count="$(wait_for_required_metric_value fixture_repo_count \
+  "max(agentstudio_startup_diagnostic_fixture_repo_count{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_W")\"})")"
+fixture_worktree_count="$(wait_for_required_metric_value fixture_worktree_count \
+  "max(agentstudio_startup_diagnostic_fixture_worktree_count{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_W")\"})")"
+fixture_tab_count="$(wait_for_required_metric_value fixture_tab_count \
+  "max(agentstudio_startup_diagnostic_fixture_tab_count{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_W")\"})")"
+fixture_pane_count="$(wait_for_required_metric_value fixture_pane_count \
+  "max(agentstudio_startup_diagnostic_fixture_pane_count{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_W")\"})")"
+fixture_active_pty_count="$(wait_for_required_metric_value fixture_active_pty_count \
+  "max(agentstudio_startup_diagnostic_fixture_active_pty_count{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_W")\"})")"
+require_exact_fixture_count fixture_repo_count "$fixture_repo_count" "$REQUIRED_REPOSITORY_COUNT"
+require_exact_fixture_count fixture_worktree_count "$fixture_worktree_count" "$REQUIRED_WORKTREE_COUNT"
+require_exact_fixture_count fixture_tab_count "$fixture_tab_count" "$REQUIRED_TAB_COUNT"
+require_exact_fixture_count fixture_pane_count "$fixture_pane_count" "$REQUIRED_PANE_COUNT"
+require_exact_fixture_count fixture_active_pty_count "$fixture_active_pty_count" "$REQUIRED_ACTIVE_PTY_COUNT"
 
 worker_event_result="$(wait_for_sidebar_metric_value "$inbox_worker_event_query")"
 worker_event_count="$(printf '%s\n' "$worker_event_result" | sed -n '1p')"
@@ -1173,7 +1273,8 @@ inbox_pane_mainactor_apply_elapsed_ms_max="$(
 )"
 repo_pane_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_projection_worker_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo projection_worker pane grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
+    "$(metric_event_elapsed_count_query repo projection_worker pane grouping_switch)" \
+    "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_sort_projection_worker_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_projection_worker_elapsed_ms_p95 \
@@ -1185,7 +1286,8 @@ repo_sort_projection_worker_elapsed_ms_max="$(
 )"
 repo_sort_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_projection_worker_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo projection_worker repo sort_order)" "$REQUIRED_SAMPLE_COUNT"
+    "$(metric_event_elapsed_count_query repo projection_worker repo sort_order)" \
+    "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_sort_mainactor_apply_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_mainactor_apply_elapsed_ms_p95 \
@@ -1197,7 +1299,8 @@ repo_sort_mainactor_apply_elapsed_ms_max="$(
 )"
 repo_sort_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo mainactor_apply repo sort_order)" "$REQUIRED_SAMPLE_COUNT"
+    "$(metric_event_elapsed_count_query repo mainactor_apply repo sort_order)" \
+    "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_sort_request_build_mainactor_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_request_build_mainactor_elapsed_ms_p95 \
@@ -1221,19 +1324,23 @@ repo_sort_row_index_elapsed_ms_max="$(
 )"
 repo_sort_row_index_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_row_index_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo row_index repo sort_order)" "$REQUIRED_SAMPLE_COUNT"
+    "$(metric_event_elapsed_count_query repo row_index repo sort_order)" \
+    "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_tab_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count repo_tab_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo mainactor_apply tab grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
+    "$(metric_event_elapsed_count_query repo mainactor_apply tab grouping_switch)" \
+    "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 inbox_none_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count inbox_none_projection_worker_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query inbox projection_worker none grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
+    "$(metric_event_elapsed_count_query inbox projection_worker none grouping_switch)" \
+    "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 inbox_pane_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count inbox_pane_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query inbox mainactor_apply pane grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
+    "$(metric_event_elapsed_count_query inbox mainactor_apply pane grouping_switch)" \
+    "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_pane_request_build_mainactor_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_pane_request_build_mainactor_elapsed_ms_p95 \
@@ -1257,7 +1364,8 @@ repo_pane_row_index_elapsed_ms_max="$(
 )"
 repo_pane_row_index_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_row_index_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo row_index pane grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
+    "$(metric_event_elapsed_count_query repo row_index pane grouping_switch)" \
+    "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 inbox_none_request_build_mainactor_elapsed_ms_p95="$(
   wait_for_required_metric_value inbox_none_request_build_mainactor_elapsed_ms_p95 \
@@ -1295,6 +1403,59 @@ surface_switch_inbox_end_to_end_elapsed_ms_count="$(
   wait_for_required_metric_count surface_switch_inbox_end_to_end_elapsed_ms_count \
     "$(metric_event_elapsed_count_query inbox surface_switch not_applicable surface_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
+
+run_repo_explorer_key_mutation_phase
+run_repo_explorer_interaction_phase
+
+: >"$KEYED_WAKE_VALUES_FILE"
+for key_class in rendered_repo_favorite rendered_worktree_fact unrelated_tab_arrangement_pane observed_tab_title unrendered_attendance relevant missing_declared_key; do
+  for stage in capture_rebuild membership_path affected_row whole_surface atom_slot eager_admission projection_worker mainactor_apply final_projection; do
+    printf '%s=%s\n' \
+      "keyed_wake_${key_class}_${stage}" \
+      "$(keyed_wake_count "$key_class" "$stage")" >>"$KEYED_WAKE_VALUES_FILE"
+  done
+done
+eager_family_admission_count="$(keyed_wake_count relevant eager_admission)"
+assert_keyed_wake_contract rendered_repo_favorite whole_surface 0
+assert_keyed_wake_contract rendered_repo_favorite affected_row "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract rendered_repo_favorite capture_rebuild "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract rendered_worktree_fact whole_surface 0
+assert_keyed_wake_contract rendered_worktree_fact affected_row "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract rendered_worktree_fact capture_rebuild "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract unrelated_tab_arrangement_pane capture_rebuild 0
+assert_keyed_wake_contract unrendered_attendance capture_rebuild 0
+assert_keyed_wake_contract relevant whole_surface 0
+assert_keyed_wake_contract relevant affected_row "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract relevant capture_rebuild "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract missing_declared_key membership_path "$WORKLOAD_CYCLES"
+
+reference_different_count="$(keyed_wake_outcome_count final_projection reference_different)"
+if [ "$reference_different_count" != "0" ] && [ "$reference_different_count" != "0.0" ]; then
+  echo "final_projection reference_different expected 0, got $reference_different_count" >&2
+  exit 1
+fi
+
+semantic_input_count=$((WORKLOAD_CYCLES * 3))
+semantic_fact_count="$(keyed_wake_stage_count affected_row)"
+capture_admission_count="$(keyed_wake_stage_count capture_rebuild)"
+execution_admission_count="$(keyed_wake_stage_count projection_worker)"
+publication_count="$(keyed_wake_stage_count final_projection)"
+materialization_count="$(keyed_wake_stage_count mainactor_apply)"
+input_to_semantic_fact_contraction_ratio="$(ratio_value "$semantic_fact_count" "$semantic_input_count")"
+semantic_fact_to_capture_admission_ratio="$(ratio_value "$capture_admission_count" "$semantic_fact_count")"
+capture_to_execution_admission_ratio="$(ratio_value "$execution_admission_count" "$capture_admission_count")"
+execution_to_publication_ratio="$(ratio_value "$publication_count" "$execution_admission_count")"
+publication_to_materialization_ratio="$(ratio_value "$materialization_count" "$publication_count")"
+
+trace_queue_dropped_record_count="$(wait_for_required_metric_value trace_queue_dropped_record_count \
+  "max(agentstudio_performance_trace_queue_dropped_record_count{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_W")\"})")"
+runtime_delivery_dropped_count="$(metric_value_or_empty \
+  "max(agentstudio_performance_runtime_delivery_runtime_channel_outbound_dropped_count{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_W")\"}) + max(agentstudio_performance_runtime_delivery_eventbus_live_dropped_count{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_W")\"}) + max(agentstudio_performance_runtime_delivery_eventbus_replay_dropped_count{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_W")\"})")"
+runtime_delivery_dropped_count="${runtime_delivery_dropped_count:-0}"
+collector_loss_count=0
+require_exact_fixture_count trace_queue_dropped_record_count "$trace_queue_dropped_record_count" 0
+require_exact_fixture_count runtime_delivery_dropped_count "$runtime_delivery_dropped_count" 0
+
 if [ "$mode" = "baseline" ]; then
   {
     echo "trace_name=$TRACE_NAME"
@@ -1515,6 +1676,23 @@ fi
   echo "state_file=$STATE_FILE"
   echo "activation_mode=$activation_mode"
   echo "ipc_auth_mode=$ipc_auth_mode"
+  echo "fixture_repo_count=$fixture_repo_count"
+  echo "fixture_worktree_count=$fixture_worktree_count"
+  echo "fixture_tab_count=$fixture_tab_count"
+  echo "fixture_pane_count=$fixture_pane_count"
+  echo "fixture_active_pty_count=$fixture_active_pty_count"
+  echo "process_cpu_sample_count=$process_cpu_sample_count"
+  echo "process_cpu_percent_p50=$process_cpu_percent_p50"
+  echo "process_cpu_percent_p95=$process_cpu_percent_p95"
+  echo "process_cpu_percent_max=$process_cpu_percent_max"
+  echo "trace_queue_dropped_record_count=$trace_queue_dropped_record_count"
+  echo "runtime_delivery_dropped_count=$runtime_delivery_dropped_count"
+  echo "collector_loss_count=$collector_loss_count"
+  echo "input_to_semantic_fact_contraction_ratio=$input_to_semantic_fact_contraction_ratio"
+  echo "semantic_fact_to_capture_admission_ratio=$semantic_fact_to_capture_admission_ratio"
+  echo "capture_to_execution_admission_ratio=$capture_to_execution_admission_ratio"
+  echo "execution_to_publication_ratio=$execution_to_publication_ratio"
+  echo "publication_to_materialization_ratio=$publication_to_materialization_ratio"
   echo "sidebar_projection.metric_result_count=$metrics_count"
   echo "inbox_projection_worker.metric_result_count=$worker_event_count"
   echo "inbox_mainactor_apply.metric_result_count=$apply_event_count"

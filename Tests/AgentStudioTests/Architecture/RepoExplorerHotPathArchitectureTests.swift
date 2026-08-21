@@ -42,20 +42,40 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!source.contains(".id(sidebarProjectionFingerprint)"))
     }
 
-    @Test("projection requests are built only after observation admits a semantic input change")
+    @Test("projection demand gates capture before hidden, grouping, and deadline work")
     func projectionRequestsAreBuiltOnlyAfterObservationAdmission() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let source = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
             encoding: .utf8
         )
+        let adapterSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionAdapter.swift"
+            ),
+            encoding: .utf8
+        )
 
         #expect(!source.contains(".onChange(of: projectionRequestKey)"))
-        #expect(source.contains("withObservationTracking"))
-        #expect(source.contains("private func observeProjectionInputs("))
-        #expect(source.contains("let inputRevision = withObservationTracking"))
+        #expect(!source.contains("withObservationTracking"))
+        #expect(!source.contains("private func observeProjectionInputs("))
+        #expect(adapterSource.contains("withObservationTracking"))
+        #expect(adapterSource.contains("func startObservation("))
+        #expect(adapterSource.contains("func suspendObservation()"))
         #expect(source.contains("projectionInputRevision"))
         #expect(!source.contains("let request = withObservationTracking"))
+        #expect(source.contains("let currentSurface = uiState.sidebarSurface"))
+        #expect(source.contains("guard isProjectionDemanded, currentSurface == .repos else { return 0 }"))
+        #expect(source.contains("let observesPanePresentation = groupingMode != .repo"))
+        #expect(source.contains("let observesTabPresentation = groupingMode == .tab"))
+        #expect(source.contains("repoCache.isPullRequestLoading(forRepository: repositoryID)"))
+        #expect(source.contains("repoCache.isPullRequestDataUnavailable(forRepository: repositoryID)"))
+        #expect(!source.contains("repoCache.loadingPullRequestRepoIds"))
+        #expect(!source.contains("repoCache.unavailablePullRequestRepoIds"))
+        #expect(!source.contains("paneRecencyDisplayCadence"))
+        #expect(!source.contains("while !Task.isCancelled"))
+        #expect(source.contains("scheduleRecencyDeadline(for: result)"))
+        #expect(source.contains("projectionAdapter.admitDelta("))
         #expect(
             source.contains(
                 "let request = projectionRequest\n        let requestBuildDuration"
@@ -75,21 +95,8 @@ struct RepoExplorerHotPathArchitectureTests {
             )
         )
         #expect(captureTelemetry.lowerBound < requestEquality.lowerBound)
-        #expect(
-            source.contains(
-                """
-                .onChange(of: debouncedQuery) { _, _ in
-                            let clock = ContinuousClock()
-                            let requestBuildStart = clock.now
-                            let request = projectionRequest
-                            refreshProjection(
-                                request: request,
-                                requestBuildDuration: requestBuildStart.duration(to: clock.now)
-                            )
-                        }
-                """
-            )
-        )
+        #expect(source.contains(".onChange(of: debouncedQuery)"))
+        #expect(source.contains("guard isProjectionDemanded else { return }"))
         #expect(
             source.contains(
                 """
@@ -99,6 +106,48 @@ struct RepoExplorerHotPathArchitectureTests {
                 """
             )
         )
+    }
+
+    @Test("Repo Explorer capture consumes stored topology identity")
+    func repoExplorerCaptureConsumesStoredTopologyIdentity() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let viewSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+        let presentationSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Models/RepoPresentation.swift"),
+            encoding: .utf8
+        )
+        let rowIndexSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerRowIndex.swift"
+            ),
+            encoding: .utf8
+        )
+
+        let sidebarReposBody = try #require(
+            viewSource.repoExplorerSlice(
+                from: "private var sidebarRepos: [RepoPresentationItem]",
+                to: "private var sidebarSnapshot: RepoExplorerSnapshot"
+            )
+        )
+        let repoInitializerBody = try #require(
+            presentationSource.repoExplorerSlice(
+                from: "package init(\n        repo: Repo,",
+                to: "package struct RepoIdentityMetadata"
+            )
+        )
+
+        #expect(sidebarReposBody.contains("repositoryStableKey(for:"))
+        #expect(sidebarReposBody.contains("worktreeStableKeysByID"))
+        #expect(!repoInitializerBody.contains("repo.stableKey"))
+        #expect(!rowIndexSource.contains("worktree.stableKey"))
+        for source in [sidebarReposBody, repoInitializerBody, rowIndexSource] {
+            #expect(!source.contains("StableKey.fromPath"))
+            #expect(!source.contains("resolvingSymlinksInPath"))
+            #expect(!source.contains("FileManager"))
+        }
     }
 
     @Test("projection inputs exclude removed Repo Explorer visibility semantics")
@@ -277,5 +326,16 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!featureSource.contains("visibilityCommand"))
         #expect(!featureSource.contains("canSetSortOrder"))
         #expect(!presentationSource.contains("dispatcher.canDispatch"))
+    }
+}
+
+extension String {
+    fileprivate func repoExplorerSlice(from startMarker: String, to endMarker: String) -> String? {
+        guard let start = range(of: startMarker)?.lowerBound,
+            let end = range(of: endMarker, range: start..<endIndex)?.lowerBound
+        else {
+            return nil
+        }
+        return String(self[start..<end])
     }
 }

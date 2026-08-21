@@ -61,6 +61,7 @@ private func makeEagerDerivedAtomTestFamily(
 ) -> EagerDerivedAtomTestFamily {
     EagerDerivedAtomTestFamily(
         requestIdentity: \EagerDerivedAtomTestRequest.identity,
+        combinePendingRequests: { _, latestRequest in latestRequest },
         isValueEqual: { lhs, rhs in lhs.content == rhs.content },
         project: projectEagerDerivedAtomTestRequest,
         onProjectionCompletion: { key, completion in
@@ -96,6 +97,7 @@ struct EagerDerivedAtomFamilyTests {
         let family = EagerDerivedAtomTestFamily(
             telemetryLabel: "repo_explorer_projection",
             requestIdentity: \EagerDerivedAtomTestRequest.identity,
+            combinePendingRequests: { _, latestRequest in latestRequest },
             isValueEqual: { lhs, rhs in lhs.content == rhs.content },
             project: projectEagerDerivedAtomTestRequest,
             onProjectionCompletion: { key, completion in
@@ -299,18 +301,15 @@ struct EagerDerivedAtomFamilyTests {
             ),
             for: 1
         )
-        guard
-            await requireEagerDerivedAtomTestEvent(
-                "family successor start",
-                wait: { await successorGate.waitUntilStarted() }
-            )
-        else { return }
-
         predecessorGate.release()
         guard
             await requireEagerDerivedAtomTestEvent(
                 "keyed superseded completion",
                 wait: { await recorder.wait(forKey: 1, completion: .superseded(1)) }
+            ),
+            await requireEagerDerivedAtomTestEvent(
+                "family successor start",
+                wait: { await successorGate.waitUntilStarted() }
             )
         else { return }
 
@@ -381,7 +380,7 @@ struct EagerDerivedAtomFamilyTests {
         EagerDerivedAtomFamilyTermination.removeKey,
         .stopFamily,
     ])
-    func terminationRetainsStoppedChildUntilEveryOverlappingProjectionSettles(
+    func terminationRetainsStoppedChildUntilItsActiveProjectionSettles(
         _ termination: EagerDerivedAtomFamilyTermination
     ) async {
         let recorder = EagerDerivedAtomFamilyCompletionRecorder()
@@ -420,13 +419,6 @@ struct EagerDerivedAtomFamilyTests {
             ),
             for: 1
         )
-        guard
-            await requireEagerDerivedAtomTestEvent(
-                "overlapping successor start",
-                wait: { await successorGate.waitUntilStarted() }
-            )
-        else { return }
-
         switch termination {
         case .removeKey:
             family.remove(for: 1)
@@ -438,23 +430,19 @@ struct EagerDerivedAtomFamilyTests {
             await requireEagerDerivedAtomTestEvent(
                 "removed predecessor cancellation",
                 wait: { await recorder.wait(forKey: 1, completion: .cancelled(1)) }
-            )
-        else { return }
-
-        successorGate.release()
-        guard
+            ),
             await requireEagerDerivedAtomTestEvent(
                 "removed successor cancellation",
                 wait: { await recorder.wait(forKey: 1, completion: .cancelled(2)) }
             )
         else { return }
 
-        #expect(projectionCount.count == 2)
+        #expect(projectionCount.count == 1)
         #expect(family.atom(for: 1) == nil)
     }
 
     @Test
-    func ownerReleaseRetainsStoppedChildUntilEveryOverlappingProjectionSettles() async {
+    func ownerReleaseRetainsStoppedChildUntilItsActiveProjectionSettles() async {
         let predecessorGate = EagerDerivedAtomProjectionGate()
         let successorGate = EagerDerivedAtomProjectionGate()
         defer {
@@ -462,7 +450,6 @@ struct EagerDerivedAtomFamilyTests {
             successorGate.release()
         }
         let predecessorCancellation = EagerDerivedAtomTestSignal()
-        let successorCancellation = EagerDerivedAtomTestSignal()
         let projectionCount = EagerDerivedAtomTestCounter()
         var family: EagerDerivedAtomTestFamily? = makeEagerDerivedAtomTestFamily()
         weak let stoppedChild = family?.materialize(for: 1)
@@ -490,18 +477,10 @@ struct EagerDerivedAtomFamilyTests {
                 identity: 2,
                 outputContent: 20,
                 gate: successorGate,
-                projectionCount: projectionCount,
-                observesCancellation: true,
-                cancellationSignal: successorCancellation
+                projectionCount: projectionCount
             ),
             for: 1
         )
-        guard
-            await requireEagerDerivedAtomTestEvent(
-                "owner-release successor start",
-                wait: { await successorGate.waitUntilStarted() }
-            )
-        else { return }
 
         family?.stop()
         family = nil
@@ -521,19 +500,11 @@ struct EagerDerivedAtomFamilyTests {
         #expect(stoppedChild?.freshness == .stopped)
         #expect(stoppedChild?.value == nil)
 
-        successorGate.release()
-        guard
-            await requireEagerDerivedAtomTestEvent(
-                "owner-release successor cancellation",
-                wait: { await successorCancellation.wait() }
-            )
-        else { return }
-
         for _ in 0..<1000 where stoppedChild != nil {
             await Task.yield()
         }
         #expect(stoppedChild == nil)
-        #expect(projectionCount.count == 2)
+        #expect(projectionCount.count == 1)
     }
 
     @Test

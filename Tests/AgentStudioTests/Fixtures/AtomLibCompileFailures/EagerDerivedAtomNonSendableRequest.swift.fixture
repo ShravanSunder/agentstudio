@@ -6,6 +6,7 @@ private class EagerDerivedAtomNonSendableRequest {
 private func buildEagerDerivedAtomWithNonSendableRequest() {
     _ = EagerDerivedAtom<EagerDerivedAtomNonSendableRequest, Int, Int>(
         requestIdentity: { $0.value },
+        combinePendingRequests: { _, latestRequest in latestRequest },
         isValueEqual: ==,
         project: { $0.value }
     )

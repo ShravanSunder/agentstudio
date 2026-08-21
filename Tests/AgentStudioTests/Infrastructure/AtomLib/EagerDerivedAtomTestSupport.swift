@@ -95,6 +95,36 @@ final class EagerDerivedAtomTestCounter: Sendable {
     }
 }
 
+final class EagerDerivedAtomConcurrencyTracker: Sendable {
+    private struct State {
+        var activeProjectionCount = 0
+        var maximumConcurrentProjectionCount = 0
+    }
+
+    private let state = Mutex(State())
+
+    var maximumConcurrentProjectionCount: Int {
+        state.withLock(\.maximumConcurrentProjectionCount)
+    }
+
+    func projectionDidStart() {
+        state.withLock { state in
+            state.activeProjectionCount += 1
+            state.maximumConcurrentProjectionCount = max(
+                state.maximumConcurrentProjectionCount,
+                state.activeProjectionCount
+            )
+        }
+    }
+
+    func projectionDidFinish() {
+        state.withLock { state in
+            precondition(state.activeProjectionCount > 0)
+            state.activeProjectionCount -= 1
+        }
+    }
+}
+
 final class EagerDerivedAtomTestValue: Sendable {
     let content: Int
 
@@ -108,6 +138,7 @@ struct EagerDerivedAtomTestRequest: Sendable {
     let outputContent: Int
     let gate: EagerDerivedAtomProjectionGate?
     let projectionCount: EagerDerivedAtomTestCounter
+    let concurrencyTracker: EagerDerivedAtomConcurrencyTracker?
     let observesCancellation: Bool
     let cancellationSignal: EagerDerivedAtomTestSignal?
 }
@@ -116,6 +147,8 @@ func projectEagerDerivedAtomTestRequest(
     _ request: EagerDerivedAtomTestRequest
 ) throws(CancellationError) -> EagerDerivedAtomTestValue {
     request.projectionCount.increment()
+    request.concurrencyTracker?.projectionDidStart()
+    defer { request.concurrencyTracker?.projectionDidFinish() }
     try request.gate?.holdProjection()
     if request.observesCancellation, Task.isCancelled {
         request.cancellationSignal?.signal()
@@ -129,6 +162,7 @@ func makeEagerDerivedAtomTestRequest(
     outputContent: Int,
     gate: EagerDerivedAtomProjectionGate? = nil,
     projectionCount: EagerDerivedAtomTestCounter,
+    concurrencyTracker: EagerDerivedAtomConcurrencyTracker? = nil,
     observesCancellation: Bool = false,
     cancellationSignal: EagerDerivedAtomTestSignal? = nil
 ) -> EagerDerivedAtomTestRequest {
@@ -137,6 +171,7 @@ func makeEagerDerivedAtomTestRequest(
         outputContent: outputContent,
         gate: gate,
         projectionCount: projectionCount,
+        concurrencyTracker: concurrencyTracker,
         observesCancellation: observesCancellation,
         cancellationSignal: cancellationSignal
     )
@@ -204,10 +239,16 @@ func requireEagerDerivedAtomTestEvent(
 
 @MainActor
 func makeEagerDerivedAtomTestNode(
-    completionRecorder: EagerDerivedAtomCompletionRecorder? = nil
+    completionRecorder: EagerDerivedAtomCompletionRecorder? = nil,
+    combinePendingRequests:
+        @escaping @Sendable (
+            EagerDerivedAtomTestRequest,
+            EagerDerivedAtomTestRequest
+        ) -> EagerDerivedAtomTestRequest = { _, latestRequest in latestRequest }
 ) -> EagerDerivedAtomTestNode {
     EagerDerivedAtom(
         requestIdentity: \EagerDerivedAtomTestRequest.identity,
+        combinePendingRequests: combinePendingRequests,
         isValueEqual: { lhs, rhs in lhs.content == rhs.content },
         project: projectEagerDerivedAtomTestRequest,
         onProjectionCompletion: { completion in

@@ -641,6 +641,19 @@ private actor RefreshCompletionProbe {
 private struct RepoDiscoveryEvent: Equatable {
     let repoPath: URL
     let linkedWorktrees: LinkedWorktreeInfo
+    let stableIdentity: DiscoveredRepoStableIdentity
+
+    init(
+        repoPath: URL,
+        linkedWorktrees: LinkedWorktreeInfo,
+        stableIdentity: DiscoveredRepoStableIdentity? = nil
+    ) {
+        self.repoPath = repoPath
+        self.linkedWorktrees = linkedWorktrees
+        self.stableIdentity =
+            stableIdentity
+            ?? .prepare(repoPath: repoPath, linkedWorktrees: linkedWorktrees)
+    }
 }
 
 private struct TopologyEventSet: Equatable {
@@ -656,11 +669,12 @@ private actor TopologyEventRecorder {
             case .topology(let topologyEvent) = systemEnvelope.event
         else { return }
         switch topologyEvent {
-        case .repoDiscovered(let repoPath, _, let linkedWorktrees):
+        case .repoDiscovered(let repoPath, _, let linkedWorktrees, let stableIdentity):
             events.discovered.append(
                 RepoDiscoveryEvent(
                     repoPath: repoPath.standardizedFileURL,
-                    linkedWorktrees: linkedWorktrees
+                    linkedWorktrees: linkedWorktrees,
+                    stableIdentity: stableIdentity
                 )
             )
         case .reposDiscovered(_, let repositories):
@@ -668,7 +682,8 @@ private actor TopologyEventRecorder {
                 contentsOf: repositories.map {
                     RepoDiscoveryEvent(
                         repoPath: $0.repoPath.standardizedFileURL,
-                        linkedWorktrees: $0.linkedWorktrees
+                        linkedWorktrees: $0.linkedWorktrees,
+                        stableIdentity: $0.stableIdentity
                     )
                 }
             )

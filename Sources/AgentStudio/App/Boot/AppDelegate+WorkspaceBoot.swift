@@ -3,6 +3,7 @@ import AgentStudioCommandBar
 import AgentStudioCore
 import AgentStudioInboxNotification
 import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import AgentStudioTerminal
 import AppKit
 import Foundation
@@ -155,7 +156,7 @@ extension AppDelegate {
 
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
-        AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
+        configurePerformanceTelemetry()
         CoreAtomScope.setUp(atomStore.core)
         atomStore.core.workspaceRepositoryTopology.setWorktreePathAmbiguityReporter { [weak self] in
             Task { @MainActor [weak self] in
@@ -253,6 +254,14 @@ extension AppDelegate {
         synchronizeApplicationLifecycleStateAfterWorkspaceBoot(isApplicationActive: NSApp.isActive)
         RestoreTrace.log(
             "workspace.composition.load complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.graphAtom.paneIDs.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
+        )
+    }
+
+    private func configurePerformanceTelemetry() {
+        AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
+        RepoExplorerPerformanceTelemetry.shared.configure(
+            traceRuntime: traceRuntime,
+            performanceTraceRecorder: performanceTraceRecorder
         )
     }
 

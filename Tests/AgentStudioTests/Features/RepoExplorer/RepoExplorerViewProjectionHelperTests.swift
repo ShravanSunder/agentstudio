@@ -560,7 +560,15 @@ struct RepoExplorerViewProjectionHelperTests {
             let invalidationRecorder = RepoProjectionInvalidationRecorder()
             withObservationTracking {
                 _ = view.makeSidebarSnapshot(
-                    repos: store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:)),
+                    repos: store.repositoryTopologyAtom.repos.map { repo in
+                        RepoPresentationItem(
+                            repo: repo,
+                            stableKey: repo.stableKey,
+                            worktreeStableKeysByID: Dictionary(
+                                uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.stableKey) }
+                            )
+                        )
+                    },
                     repoEnrichmentByRepoId: [:],
                     groupingMode: .repo,
                     sortOrder: .ascending,
@@ -608,7 +616,15 @@ struct RepoExplorerViewProjectionHelperTests {
                 onShowNotificationsForWorktree: { _ in },
                 unreadCount: { _ in 0 }
             )
-            let renderedRepos = [RepoPresentationItem(repo: renderedRepo)]
+            let renderedRepos = [
+                RepoPresentationItem(
+                    repo: renderedRepo,
+                    stableKey: renderedRepo.stableKey,
+                    worktreeStableKeysByID: Dictionary(
+                        uniqueKeysWithValues: renderedRepo.worktrees.map { ($0.id, $0.stableKey) }
+                    )
+                )
+            ]
             let invalidationRecorder = RepoProjectionInvalidationRecorder()
 
             withObservationTracking {

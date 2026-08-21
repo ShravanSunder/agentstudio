@@ -148,6 +148,8 @@ package enum AgentStudioFocusResponderChangeReason: String, Sendable {
 }
 
 package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
+    package typealias PeriodicSnapshotReporter = @MainActor @Sendable () -> Void
+
     package struct TopologyLookupFact: Hashable, Sendable {
         let normalizedCWD: String
         let worktreePathIndexGeneration: UInt64
@@ -204,6 +206,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case paneViewRestoreVisible = "performance.pane_view.restore_visible"
         case repoExplorerCommandPresentation = "performance.repo_explorer.command_presentation"
         case repoExplorerKeyedWake = "performance.repo_explorer.keyed_wake"
+        case repoExplorerStageSnapshot = "performance.repo_explorer.stage_snapshot"
         case repoExplorerOutlineApplyProxy = "performance.repo_explorer.outline_apply_proxy"
         case repoExplorerRowBodyEvaluation = "performance.repo_explorer.row_body_evaluation"
         case repoExplorerScrollFrameGap = "performance.repo_explorer.scroll_frame_gap"
@@ -243,6 +246,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     private var paneAssociationAdmission = PaneAssociationTraceAdmission()
     private let processMemorySampler: AgentStudioProcessMemorySampler?
     private let runtimeDeliveryPerformanceReporter: RuntimeDeliveryPerformanceReporter?
+    private let periodicSnapshotReporterRegistry: PeriodicSnapshotReporterRegistry
     private var recordedStartupLaunchInstant: ContinuousClock.Instant
 
     package init(
@@ -252,6 +256,8 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
             AgentStudioProcessMemorySampler.waitOneSecond
     ) {
         self.recordedStartupLaunchInstant = ContinuousClock.now
+        let periodicSnapshotReporterRegistry = PeriodicSnapshotReporterRegistry()
+        self.periodicSnapshotReporterRegistry = periodicSnapshotReporterRegistry
         self.traceRuntime = traceRuntime
         if let traceRuntime, traceRuntime.isEnabled(.performance) {
             runtimeDeliveryPerformanceReporter?.enable()
@@ -274,6 +280,11 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
                         eventTimeUnixNano: traceRuntime.timestampUnixNano(),
                         attributes: runtimeDeliverySnapshot.traceAttributes
                     )
+                }
+                Task { @MainActor in
+                    for reporter in periodicSnapshotReporterRegistry.snapshot() {
+                        reporter()
+                    }
                 }
             }
             self.processMemorySampler = processMemorySampler
@@ -315,6 +326,17 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
             eventTimeUnixNano: traceRuntime.timestampUnixNano(),
             attributes: attributes()
         )
+    }
+
+    @discardableResult
+    package func registerPeriodicSnapshotReporter(
+        _ reporter: @escaping PeriodicSnapshotReporter
+    ) -> UUID {
+        periodicSnapshotReporterRegistry.register(reporter)
+    }
+
+    package func unregisterPeriodicSnapshotReporter(_ token: UUID) {
+        periodicSnapshotReporterRegistry.unregister(token)
     }
 
     package func recordDuration(

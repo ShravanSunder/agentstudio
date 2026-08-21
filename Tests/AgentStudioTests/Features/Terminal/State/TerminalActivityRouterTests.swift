@@ -406,7 +406,7 @@ struct TerminalActivityRouterTests {
             bus: bus,
             activityAtom: atom,
             surfaceIDForPaneID: { $0 },
-            lastOutputLineReader: { _ in "seam-live-proof" },
+            lastOutputLineReader: { _ in .value("seam-live-proof") },
             recordSettledActivityStatus: { paneId, lastOutputLine in
                 recordedCalls.record(paneId: paneId, lastOutputLine: lastOutputLine)
             },
@@ -440,14 +440,8 @@ struct TerminalActivityRouterTests {
         await subscriber.shutdown()
     }
 
-    @Test("commandFinished bus event settles the pane with zero scrollbar events, regardless of attention")
-    func commandFinishedBusEventSettlesPaneWithZeroScrollbarEvents() async {
-        // RC2 end-to-end: a real terminal.commandFinished envelope on the runtime bus — with no
-        // scrollbar aggregate ever ingested — must still reach the projector's settle path and post
-        // a derived unseenActivitySettled envelope, for an ATTENDED pane. Attention state is exactly
-        // what the scrollbar/unseen-window path structurally excludes (see
-        // TerminalActivityProjector.commandFinished's doc comment), so this is the scenario the fix
-        // exists for: typing into your own focused pane.
+    @Test("ordered commandFinished settles before and independently of lossy bus delivery")
+    func orderedCommandFinishedSettlesIndependentlyOfBusDelivery() async {
         let bus = EventBus<RuntimeEnvelope>()
         let subscriber = RecordingSubscriber(
             subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
@@ -468,7 +462,7 @@ struct TerminalActivityRouterTests {
             activityAtom: atom,
             surfaceIDForPaneID: { $0 },
             isPaneCurrentlyAttended: { _ in true },
-            lastOutputLineReader: { _ in "echo-command-output" },
+            lastOutputLineReader: { _ in .value("echo-command-output") },
             recordSettledActivityStatus: { paneId, lastOutputLine in
                 recordedCalls.record(paneId: paneId, lastOutputLine: lastOutputLine)
             }
@@ -477,6 +471,28 @@ struct TerminalActivityRouterTests {
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 1)
+        await router.consumeTerminalActivityInput(
+            .orderedControl(
+                surfaceID: paneId.uuid,
+                paneID: paneId.uuid,
+                precedingAggregate: nil,
+                control: .commandFinished
+            )
+        )
+
+        await assertEventuallyAsync("ordered commandFinished should publish a zero-row settled activity") {
+            await subscriber.count { envelope in
+                RuntimeEnvelopeHarness.paneEvents(from: [envelope]).contains {
+                    if case .terminalActivity(.unseenActivitySettled(let activity)) = $0.event {
+                        return activity.lastOutputLine == "echo-command-output" && activity.rowsAdded == 0
+                    }
+                    return false
+                }
+            } == 1
+        }
+
+        // The ordinary semantic fact remains available on the bus, but activity settlement does
+        // not consume it a second time or depend on this subscriber path.
         _ = await bus.post(
             .pane(
                 .test(
@@ -487,7 +503,7 @@ struct TerminalActivityRouterTests {
             )
         )
 
-        await assertEventuallyAsync("commandFinished should publish a zero-row settled activity") {
+        await assertEventuallyAsync("bus delivery must not duplicate ordered command settlement") {
             await subscriber.count { envelope in
                 RuntimeEnvelopeHarness.paneEvents(from: [envelope]).contains {
                     if case .terminalActivity(.unseenActivitySettled(let activity)) = $0.event {

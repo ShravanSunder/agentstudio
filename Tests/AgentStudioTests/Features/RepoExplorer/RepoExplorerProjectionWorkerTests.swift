@@ -717,7 +717,7 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(adapter.materializedProjection?.revision == initialRevision + 1)
     }
 
-    private func repo(
+    func repo(
         id: UUID,
         worktreeId: UUID = UUIDv7.generate(),
         name: String,
@@ -744,7 +744,7 @@ struct RepoExplorerProjectionWorkerTests {
         )
     }
 
-    private func request(
+    func request(
         repos: [RepoPresentationItem],
         unavailablePullRequestRepoIds: Set<UUID> = [],
         loadingPullRequestRepoIds: Set<UUID> = []
@@ -757,10 +757,11 @@ struct RepoExplorerProjectionWorkerTests {
         )
     }
 
-    private func request(
+    func request(
         repos: [RepoPresentationItem],
         generation: Int,
         enrichmentUpdatedAt: Date = Date(timeIntervalSince1970: 0),
+        resolvesRemotes: Bool = true,
         branchNameByWorktreeId: [UUID: String] = [:],
         query: String = "",
         bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:],
@@ -772,18 +773,19 @@ struct RepoExplorerProjectionWorkerTests {
             generation: generation,
             snapshot: RepoExplorerSnapshot(
                 repos: repos,
-                repoEnrichmentByRepoId: Dictionary(
-                    uniqueKeysWithValues: repos.map {
-                        (
-                            $0.id,
-                            resolvedRemote(
-                                repoId: $0.id,
-                                displayName: $0.name,
-                                updatedAt: enrichmentUpdatedAt
+                repoEnrichmentByRepoId: resolvesRemotes
+                    ? Dictionary(
+                        uniqueKeysWithValues: repos.map {
+                            (
+                                $0.id,
+                                resolvedRemote(
+                                    repoId: $0.id,
+                                    displayName: $0.name,
+                                    updatedAt: enrichmentUpdatedAt
+                                )
                             )
-                        )
-                    }
-                ),
+                        }
+                    ) : [:],
                 groupingMode: .repo,
                 query: query,
                 paneLocationsByWorktreeId: paneLocationsByWorktreeId,
@@ -811,7 +813,7 @@ struct RepoExplorerProjectionWorkerTests {
         )
     }
 
-    private func withFavorite(_ repo: RepoPresentationItem) -> RepoPresentationItem {
+    func withFavorite(_ repo: RepoPresentationItem) -> RepoPresentationItem {
         RepoPresentationItem(
             id: repo.id,
             name: repo.name,
@@ -824,7 +826,7 @@ struct RepoExplorerProjectionWorkerTests {
         )
     }
 
-    private func resolvedRemote(
+    func resolvedRemote(
         repoId: UUID,
         displayName: String,
         updatedAt: Date = Date(timeIntervalSince1970: 0)
@@ -843,7 +845,7 @@ struct RepoExplorerProjectionWorkerTests {
     }
 
     @MainActor
-    private func publishedResult(
+    func publishedResult(
         generation: Int,
         from adapter: RepoExplorerProjectionAdapter
     ) async throws -> RepoExplorerProjectionResult {

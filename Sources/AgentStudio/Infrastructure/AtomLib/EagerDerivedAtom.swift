@@ -26,26 +26,39 @@ package final class EagerDerivedAtom<
     package private(set) var value: Value?
     package private(set) var freshness: Freshness = .idle
     package private(set) var revision = 0
+    @ObservationIgnored package private(set) var latestAcceptedValue: Value?
 
     @ObservationIgnored private let revocationEpoch = Mutex<UInt64>(0)
     @ObservationIgnored private let requestIdentity: @Sendable (Request) -> RequestIdentity
+    @ObservationIgnored private let combinePendingRequests: @Sendable (Request, Request) -> Request
     @ObservationIgnored private let isValueEqual: @Sendable (Value, Value) -> Bool
     @ObservationIgnored private let project: @Sendable (Request) throws(CancellationError) -> Value
     @ObservationIgnored private let onProjectionCompletion: @MainActor @Sendable (ProjectionCompletion) -> Void
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var admittedIdentity: RequestIdentity?
     @ObservationIgnored private var admittedEpoch: UInt64?
+    @ObservationIgnored private var activeRequest: AcceptedRequest?
+    @ObservationIgnored private var pendingRequest: AcceptedRequest?
     @ObservationIgnored private var retainedTask: Task<Void, Never>?
     @ObservationIgnored private var unsettledProjectionTaskCount = 0
     @ObservationIgnored private var hasStopped = false
 
+    private struct AcceptedRequest {
+        let request: Request
+        let identity: RequestIdentity
+        let generation: UInt64
+        let epoch: UInt64
+    }
+
     package init(
         requestIdentity: @escaping @Sendable (Request) -> RequestIdentity,
+        combinePendingRequests: @escaping @Sendable (Request, Request) -> Request,
         isValueEqual: @escaping @Sendable (Value, Value) -> Bool,
         project: @escaping @Sendable (Request) throws(CancellationError) -> Value,
         onProjectionCompletion: @escaping @MainActor @Sendable (ProjectionCompletion) -> Void = { _ in }
     ) {
         self.requestIdentity = requestIdentity
+        self.combinePendingRequests = combinePendingRequests
         self.isValueEqual = isValueEqual
         self.project = project
         self.onProjectionCompletion = onProjectionCompletion
@@ -70,11 +83,45 @@ package final class EagerDerivedAtom<
         }
 
         generation &+= 1
-        let admittedGeneration = generation
-        retainedTask?.cancel()
         admittedIdentity = identity
         admittedEpoch = epoch
         freshness = .running(identity)
+
+        let acceptedRequest = AcceptedRequest(
+            request: request,
+            identity: identity,
+            generation: generation,
+            epoch: epoch
+        )
+        guard let activeRequest else {
+            start(acceptedRequest)
+            return
+        }
+
+        let requestToCombine = pendingRequest?.request ?? activeRequest.request
+        let combinedRequest = combinePendingRequests(requestToCombine, request)
+        precondition(
+            requestIdentity(combinedRequest) == identity,
+            "The combined pending request must retain the latest admitted identity"
+        )
+        let replacedPendingRequest = pendingRequest
+        pendingRequest = AcceptedRequest(
+            request: combinedRequest,
+            identity: identity,
+            generation: generation,
+            epoch: epoch
+        )
+        retainedTask?.cancel()
+        if let replacedPendingRequest,
+            replacedPendingRequest.identity != identity
+        {
+            onProjectionCompletion(.superseded(replacedPendingRequest.identity))
+        }
+    }
+
+    private func start(_ acceptedRequest: AcceptedRequest) {
+        guard !hasStopped else { return }
+        activeRequest = acceptedRequest
 
         let previousValue = value
         let isValueEqual = self.isValueEqual
@@ -84,7 +131,7 @@ package final class EagerDerivedAtom<
         // swiftlint:disable:next no_task_detached
         retainedTask = Task.detached(priority: .userInitiated) { [self] in
             do {
-                let candidate = try project(request)
+                let candidate = try project(acceptedRequest.request)
                 let isEqualToPrevious =
                     previousValue.map {
                         isValueEqual($0, candidate)
@@ -94,15 +141,15 @@ package final class EagerDerivedAtom<
                     candidate,
                     isEqualToPrevious: isEqualToPrevious,
                     wasCancelled: wasCancelled,
-                    generation: admittedGeneration,
-                    identity: identity,
-                    epoch: epoch
+                    generation: acceptedRequest.generation,
+                    identity: acceptedRequest.identity,
+                    epoch: acceptedRequest.epoch
                 )
             } catch {
                 await finishCancelledProjection(
-                    generation: admittedGeneration,
-                    identity: identity,
-                    epoch: epoch
+                    generation: acceptedRequest.generation,
+                    identity: acceptedRequest.identity,
+                    epoch: acceptedRequest.epoch
                 )
             }
         }
@@ -128,10 +175,14 @@ package final class EagerDerivedAtom<
         hasStopped = true
         generation &+= 1
         retainedTask?.cancel()
-        retainedTask = nil
+        let cancelledPendingRequest = pendingRequest
+        pendingRequest = nil
         admittedIdentity = nil
         admittedEpoch = nil
         freshness = .stopped
+        if let cancelledPendingRequest {
+            onProjectionCompletion(.cancelled(cancelledPendingRequest.identity))
+        }
     }
 
     private func mirrorInvalidatedFreshnessIfNeeded() {
@@ -154,32 +205,30 @@ package final class EagerDerivedAtom<
         epoch completedEpoch: UInt64
     ) {
         projectionTaskDidSettle()
-        guard !hasStopped else {
-            onProjectionCompletion(.cancelled(completedIdentity))
-            return
-        }
-        guard !wasCancelled,
+        let completion: ProjectionCompletion
+        if hasStopped {
+            completion = .cancelled(completedIdentity)
+        } else if !wasCancelled,
             generation == completedGeneration,
             admittedIdentity == completedIdentity,
             admittedEpoch == completedEpoch,
             revocationEpoch.withLock({ $0 }) == completedEpoch
-        else {
-            onProjectionCompletion(.superseded(completedIdentity))
-            return
+        {
+            freshness = .current(completedIdentity)
+            latestAcceptedValue = candidate
+            if isEqualToPrevious {
+                completion = .equal(completedIdentity)
+            } else {
+                if value != nil {
+                    revision += 1
+                }
+                value = candidate
+                completion = .published(completedIdentity)
+            }
+        } else {
+            completion = .superseded(completedIdentity)
         }
-
-        retainedTask = nil
-        freshness = .current(completedIdentity)
-        guard !isEqualToPrevious else {
-            onProjectionCompletion(.equal(completedIdentity))
-            return
-        }
-
-        if value != nil {
-            revision += 1
-        }
-        value = candidate
-        onProjectionCompletion(.published(completedIdentity))
+        finishActiveRequest(completedGeneration, completion: completion)
     }
 
     private func finishCancelledProjection(
@@ -188,20 +237,36 @@ package final class EagerDerivedAtom<
         epoch completedEpoch: UInt64
     ) {
         projectionTaskDidSettle()
-        guard !hasStopped else {
-            onProjectionCompletion(.cancelled(completedIdentity))
-            return
-        }
-        guard generation == completedGeneration,
+        let completion: ProjectionCompletion
+        if hasStopped {
+            completion = .cancelled(completedIdentity)
+        } else if generation == completedGeneration,
             admittedIdentity == completedIdentity,
             admittedEpoch == completedEpoch,
             revocationEpoch.withLock({ $0 }) == completedEpoch
-        else {
-            onProjectionCompletion(.superseded(completedIdentity))
+        {
+            completion = .cancelled(completedIdentity)
+        } else {
+            completion = .superseded(completedIdentity)
+        }
+        finishActiveRequest(completedGeneration, completion: completion)
+    }
+
+    private func finishActiveRequest(
+        _ completedGeneration: UInt64,
+        completion: ProjectionCompletion
+    ) {
+        onProjectionCompletion(completion)
+        guard activeRequest?.generation == completedGeneration else { return }
+        activeRequest = nil
+        retainedTask = nil
+        guard !hasStopped, let pendingRequest else { return }
+        self.pendingRequest = nil
+        guard pendingRequest.epoch == revocationEpoch.withLock({ $0 }) else {
+            onProjectionCompletion(.superseded(pendingRequest.identity))
             return
         }
-        retainedTask = nil
-        onProjectionCompletion(.cancelled(completedIdentity))
+        start(pendingRequest)
     }
 
     private func projectionTaskDidSettle() {

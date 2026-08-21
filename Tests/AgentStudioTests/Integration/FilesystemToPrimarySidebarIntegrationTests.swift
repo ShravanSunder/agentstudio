@@ -65,7 +65,15 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             }
             #expect(prCountsConverged)
 
-            let sidebarRepos = testSystem.workspaceStore.repos.map(RepoPresentationItem.init(repo:))
+            let sidebarRepos = testSystem.workspaceStore.repos.map { repo in
+                RepoPresentationItem(
+                    repo: repo,
+                    stableKey: repo.stableKey,
+                    worktreeStableKeysByID: Dictionary(
+                        uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.stableKey) }
+                    )
+                )
+            }
             let metadataByRepoId = RepoExplorerView.buildRepoMetadata(
                 repos: sidebarRepos,
                 repoEnrichmentByRepoId: testSystem.repoCache.repoEnrichmentByRepoId

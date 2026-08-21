@@ -130,6 +130,7 @@ final class TabBarAdapter {
         self.onProjectionCompletion = onProjectionCompletion
         self.materializedProjectionFamily = TabBarMaterializedProjectionFamily(
             requestIdentity: \.generation,
+            combinePendingRequests: { _, latestRequest in latestRequest },
             isValueEqual: ==,
             project: measuredProject,
             onProjectionCompletion: { [weak self] tabId, completion in

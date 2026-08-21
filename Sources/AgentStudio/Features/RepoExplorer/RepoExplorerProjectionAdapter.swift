@@ -9,21 +9,14 @@ private enum RepoExplorerProjectionSlot: Hashable, Sendable {
 
 private enum RepoExplorerRenderedRowContent: Equatable {
     case sectionHeader(RepoExplorerSidebarSectionKind)
-    case loadingSectionHeader(
-        kind: RepoExplorerSidebarSectionKind,
-        state: RepoExplorerLoadingSectionState
-    )
-    case loadingRepo(
-        section: RepoExplorerSidebarSectionKind,
-        repoId: UUID,
-        name: String,
-        isStatusUnavailable: Bool
-    )
+    case loadingSectionHeader(RepoExplorerSidebarSectionKind, RepoExplorerLoadingSectionState)
+    case loadingRepo(RepoExplorerSidebarSectionKind, UUID, String, Bool)
     case groupHeader(RepoExplorerRenderedGroupHeaderContent)
     case worktree(RepoExplorerRenderedWorktreeContent)
-    case pane(RepoExplorerRenderedPaneContent)
-    case topologyFault(duplicateIdentityCount: Int)
-    case unresolved(id: String)
+    case associatedPane(RepoExplorerProjectedPaneRow)
+    case unassociatedPane(RepoExplorerUnassociatedPaneDestination, RepoExplorerPaneRowFacts?)
+    case topologyFault(Int)
+    case unresolved(String)
 }
 
 private struct RepoExplorerRenderedGroupHeaderContent: Equatable {
@@ -32,7 +25,7 @@ private struct RepoExplorerRenderedGroupHeaderContent: Equatable {
     let organizationName: String?
     let colorHex: String?
     let semanticRepoPath: URL?
-    let paneDestinations: [RepoExplorerRenderedPaneDestination]
+    let paneDestinations: [RepoExplorerPaneDestination]
 }
 
 private struct RepoExplorerRenderedWorktreeContent: Equatable {
@@ -50,37 +43,18 @@ private struct RepoExplorerRenderedWorktreeContent: Equatable {
     let branchStatus: GitBranchStatus
     let branchName: String
     let bridgeCommandResolution: BridgePaneCommandResolution
-    let paneDestinations: [RepoExplorerRenderedPaneDestination]
-}
-
-private struct RepoExplorerRenderedPaneDestination: Equatable {
-    let paneId: UUID
-    let worktreeLabel: String
-    let tabIndex: Int
-    let paneIndexInTab: Int
-    let isActiveInTab: Bool
-}
-
-private struct RepoExplorerRenderedPaneContent: Equatable {
-    let groupId: String
-    let rowId: String
-    let repoId: UUID?
-    let paneId: UUID
-    let worktreeLabel: String
-    let tabIndex: Int
-    let paneIndexInTab: Int
-    let isActiveInTab: Bool
+    let paneDestinations: [RepoExplorerPaneDestination]
 }
 
 typealias RepoExplorerMaterializedProjection = EagerDerivedAtom<
-    RepoExplorerProjectionRequest,
+    RepoExplorerProjectionWork,
     Int,
     RepoExplorerProjectionResult
 >
 
 private typealias RepoExplorerMaterializedProjectionFamily = EagerDerivedAtomFamily<
     RepoExplorerProjectionSlot,
-    RepoExplorerProjectionRequest,
+    RepoExplorerProjectionWork,
     Int,
     RepoExplorerProjectionResult
 >
@@ -89,12 +63,15 @@ private typealias RepoExplorerMaterializedProjectionFamily = EagerDerivedAtomFam
 @Observable
 final class RepoExplorerProjectionAdapter {
     private(set) var publishedResult: RepoExplorerProjectionResult?
+    private(set) var publishedRevision = 0
     @ObservationIgnored private var projectionFamily: RepoExplorerMaterializedProjectionFamily!
     @ObservationIgnored private let onProjectionSuppressed:
         @MainActor @Sendable (
             RepoExplorerProjectionResult
         ) -> Void
     @ObservationIgnored private var hasStopped = false
+    @ObservationIgnored private var observationGeneration = 0
+    @ObservationIgnored private var projectionBaselineResult: RepoExplorerProjectionResult?
 
     init(
         onProjectionSuppressed:
@@ -102,10 +79,10 @@ final class RepoExplorerProjectionAdapter {
                 RepoExplorerProjectionResult
             ) -> Void = { _ in },
         project:
-            @escaping @Sendable (RepoExplorerProjectionRequest) throws(CancellationError)
-            -> RepoExplorerProjectionResult = { request throws(CancellationError) in
+            @escaping @Sendable (RepoExplorerProjectionWork) throws(CancellationError)
+            -> RepoExplorerProjectionResult = { work throws(CancellationError) in
                 do {
-                    return try RepoExplorerProjectionWorker.project(request)
+                    return try RepoExplorerProjectionWorker.project(work)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
@@ -116,8 +93,11 @@ final class RepoExplorerProjectionAdapter {
         self.onProjectionSuppressed = onProjectionSuppressed
         projectionFamily = RepoExplorerMaterializedProjectionFamily(
             telemetryLabel: "repo_explorer_projection",
-            recordsRepoExplorerKeyedWake: true,
+            performanceOutcome: { stage, outcome in
+                RepoExplorerPerformanceTelemetry.shared.record(stage: stage, outcome: outcome)
+            },
             requestIdentity: \.generation,
+            combinePendingRequests: RepoExplorerProjectionWork.combinePending,
             isValueEqual: Self.hasEqualRenderedContent,
             project: project,
             onProjectionCompletion: { [weak self] _, completion in
@@ -133,23 +113,99 @@ final class RepoExplorerProjectionAdapter {
 
     func admit(_ request: RepoExplorerProjectionRequest) {
         guard !hasStopped else { return }
-        projectionFamily.admit(request, for: .sidebar)
+        projectionFamily.admit(.full(request), for: .sidebar)
+    }
+
+    func admitDelta(
+        _ changes: Set<RepoExplorerScopedProjectionChange>,
+        request: RepoExplorerProjectionRequest
+    ) {
+        guard !hasStopped, !changes.isEmpty else { return }
+        guard let projectionBaselineResult else {
+            admit(request)
+            return
+        }
+        projectionFamily.admit(
+            .delta(
+                RepoExplorerProjectionDelta(
+                    baselineRevision: publishedRevision,
+                    baselineResult: projectionBaselineResult,
+                    targetRequest: request,
+                    changes: changes
+                )
+            ),
+            for: .sidebar
+        )
+    }
+
+    func startObservation(
+        observeInputs: @escaping @MainActor () -> Void,
+        onInvalidated: @escaping @MainActor (_ force: Bool) -> Void
+    ) {
+        guard !hasStopped else { return }
+        observationGeneration += 1
+        registerObservation(
+            generation: observationGeneration,
+            force: true,
+            observeInputs: observeInputs,
+            onInvalidated: onInvalidated
+        )
+    }
+
+    func suspendObservation() {
+        observationGeneration += 1
     }
 
     func stop() {
         guard !hasStopped else { return }
         hasStopped = true
+        suspendObservation()
         projectionFamily.stop()
+    }
+
+    private func registerObservation(
+        generation: Int,
+        force: Bool,
+        observeInputs: @escaping @MainActor () -> Void,
+        onInvalidated: @escaping @MainActor (_ force: Bool) -> Void
+    ) {
+        guard !hasStopped, observationGeneration == generation else { return }
+        withObservationTracking {
+            observeInputs()
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                await Task.yield()
+                guard let self, !self.hasStopped, self.observationGeneration == generation else {
+                    return
+                }
+                self.registerObservation(
+                    generation: generation,
+                    force: false,
+                    observeInputs: observeInputs,
+                    onInvalidated: onInvalidated
+                )
+            }
+        }
+        onInvalidated(force)
     }
 
     private func handleProjectionCompletion(
         _ completion: RepoExplorerMaterializedProjection.ProjectionCompletion
     ) {
-        guard let result = projectionFamily.currentValue(for: .sidebar) else { return }
+        guard let result = projectionFamily.latestAcceptedValue(for: .sidebar) else { return }
         switch completion {
         case .published:
+            guard result.baselineRevision == nil || result.baselineRevision == publishedRevision else {
+                return
+            }
+            projectionBaselineResult = result
+            publishedRevision += 1
             publishedResult = result
         case .equal:
+            guard result.baselineRevision == nil || result.baselineRevision == publishedRevision else {
+                return
+            }
+            projectionBaselineResult = result
             onProjectionSuppressed(result)
         case .superseded, .cancelled:
             break
@@ -162,38 +218,32 @@ final class RepoExplorerProjectionAdapter {
     ) -> Bool {
         lhs.snapshot.groupingMode == rhs.snapshot.groupingMode
             && lhs.projection.emptyState == rhs.projection.emptyState
-            && renderedRows(for: lhs) == renderedRows(for: rhs)
+            && renderedRows(in: lhs) == renderedRows(in: rhs)
     }
 
     private nonisolated static func renderedRows(
-        for result: RepoExplorerProjectionResult
+        in result: RepoExplorerProjectionResult
     ) -> [RepoExplorerRenderedRowContent] {
         result.rowIndex.entries.map { entry in
             switch entry {
             case .sectionHeader(let kind):
                 return .sectionHeader(kind)
             case .loadingSectionHeader(let kind):
-                return .loadingSectionHeader(
-                    kind: kind,
-                    state: result.projection.sections
-                        .first(where: { $0.kind == kind })?
-                        .loadingState(
-                            enrichmentByRepoId: result.snapshot.repoEnrichmentSnapshotByRepoId
-                        ) ?? .scanning
-                )
+                let state =
+                    result.projection.sections
+                    .first(where: { $0.kind == kind })?
+                    .loadingState(
+                        enrichmentByRepoId: result.snapshot.repoEnrichmentSnapshotByRepoId
+                    ) ?? .scanning
+                return .loadingSectionHeader(kind, state)
             case .loadingRepoRow(let section, let repo):
-                let isStatusUnavailable: Bool
+                let isUnavailable: Bool
                 if case .statusUnavailable = result.snapshot.repoEnrichmentSnapshotByRepoId[repo.id] {
-                    isStatusUnavailable = true
+                    isUnavailable = true
                 } else {
-                    isStatusUnavailable = false
+                    isUnavailable = false
                 }
-                return .loadingRepo(
-                    section: section,
-                    repoId: repo.id,
-                    name: repo.name,
-                    isStatusUnavailable: isStatusUnavailable
-                )
+                return .loadingRepo(section, repo.id, repo.name, isUnavailable)
             case .resolvedGroupHeader(let group):
                 return .groupHeader(
                     RepoExplorerRenderedGroupHeaderContent(
@@ -216,7 +266,7 @@ final class RepoExplorerProjectionAdapter {
                         worktreeId: worktreeId,
                         rowId: rowId
                     )
-                else { return .unresolved(id: entry.id) }
+                else { return .unresolved(entry.id) }
                 return .worktree(
                     RepoExplorerRenderedWorktreeContent(
                         groupId: groupId,
@@ -233,8 +283,7 @@ final class RepoExplorerProjectionAdapter {
                         branchStatus: result.branchStatusByWorktreeId[worktreeId] ?? .unknown,
                         branchName: result.branchNameByWorktreeId[worktreeId] ?? "detached HEAD",
                         bridgeCommandResolution: result.bridgeCommandResolutionByWorktreeId[worktreeId] ?? .create,
-                        paneDestinations: (result.projection.paneDestinationsByWorktreeId[worktreeId] ?? [])
-                            .map(renderedPaneDestination)
+                        paneDestinations: result.projection.paneDestinationsByWorktreeId[worktreeId] ?? []
                     )
                 )
             case .resolvedPaneRow(let groupId, let identity, let rowId):
@@ -245,65 +294,27 @@ final class RepoExplorerProjectionAdapter {
                         paneId: identity.paneId,
                         rowId: rowId
                     )
-                else { return .unresolved(id: entry.id) }
-                return .pane(
-                    RepoExplorerRenderedPaneContent(
-                        groupId: groupId,
-                        rowId: rowId,
-                        repoId: identity.repoId,
-                        paneId: identity.paneId,
-                        worktreeLabel: context.destination.worktreeLabel,
-                        tabIndex: context.destination.tabIndex,
-                        paneIndexInTab: context.destination.paneIndexInTab,
-                        isActiveInTab: context.destination.isActiveInTab
-                    )
-                )
+                else { return .unresolved(entry.id) }
+                return .associatedPane(context.row)
             case .unassociatedPaneRow(let destination):
-                return renderedUnassociatedPane(destination, rowId: entry.id)
+                return .unassociatedPane(
+                    destination,
+                    result.paneRowFactsByPaneId[destination.paneId]
+                )
             case .topologyFault(let fault):
-                return .topologyFault(duplicateIdentityCount: fault.duplicateIdentityCount)
+                return .topologyFault(fault.duplicateIdentityCount)
             }
         }
-    }
-
-    private nonisolated static func renderedUnassociatedPane(
-        _ destination: RepoExplorerUnassociatedPaneDestination,
-        rowId: String
-    ) -> RepoExplorerRenderedRowContent {
-        .pane(
-            RepoExplorerRenderedPaneContent(
-                groupId: "ungrouped",
-                rowId: rowId,
-                repoId: nil,
-                paneId: destination.paneId,
-                worktreeLabel: "",
-                tabIndex: destination.tabIndex,
-                paneIndexInTab: destination.paneIndexInTab,
-                isActiveInTab: destination.isActiveInTab
-            )
-        )
-    }
-
-    private nonisolated static func renderedPaneDestination(
-        _ destination: RepoExplorerPaneDestination
-    ) -> RepoExplorerRenderedPaneDestination {
-        RepoExplorerRenderedPaneDestination(
-            paneId: destination.paneId,
-            worktreeLabel: destination.worktreeLabel,
-            tabIndex: destination.tabIndex,
-            paneIndexInTab: destination.paneIndexInTab,
-            isActiveInTab: destination.isActiveInTab
-        )
     }
 
     private nonisolated static func renderedGroupPaneDestinations(
         _ group: RepoPresentationGroup,
         result: RepoExplorerProjectionResult
-    ) -> [RepoExplorerRenderedPaneDestination] {
+    ) -> [RepoExplorerPaneDestination] {
         guard result.snapshot.groupingMode != .tab, group.repos.count == 1,
-            let repoId = group.repos.first?.id
+            let repositoryID = group.repos.first?.id
         else { return [] }
-        return (result.projection.paneDestinationsByRepoId[repoId] ?? []).map(renderedPaneDestination)
+        return result.projection.paneDestinationsByRepoId[repositoryID] ?? []
     }
 
     private nonisolated static func semanticRepoPath(

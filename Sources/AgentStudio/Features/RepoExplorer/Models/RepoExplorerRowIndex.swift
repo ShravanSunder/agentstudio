@@ -50,7 +50,7 @@ struct RepoExplorerTopologyFaultDetector {
             claimsByWorktreeId[worktree.id, default: []].append(
                 RepoExplorerWorktreeIdentityClaim(
                     repoId: repo.id,
-                    stableKey: worktree.stableKey,
+                    stableKey: repo.worktreeStableKeysByID[worktree.id] ?? "",
                     path: worktree.path
                 )
             )

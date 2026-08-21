@@ -84,6 +84,11 @@ package final class RepositoryTopologyStore {
         let watchedPaths = atom.watchedPaths
         let snapshot = await WorkspacePersistenceTransformer.makeRepositoryTopologySQLiteSnapshotOffMain(
             repositories: repositories,
+            stableIdentity: RepositoryTopologyStableIdentity(
+                repositoryStableKeysByID: atom.repositoryStableKeysByID,
+                worktreeStableKeysByID: atom.worktreeStableKeysByID,
+                watchedPathStableKeysByID: atom.watchedPathStableKeysByID
+            ),
             unavailableRepositoryIDs: unavailableRepositoryIDs,
             watchedPaths: watchedPaths,
             persistedAt: Date()

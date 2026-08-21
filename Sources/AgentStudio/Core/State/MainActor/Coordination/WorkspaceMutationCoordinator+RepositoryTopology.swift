@@ -16,7 +16,12 @@ extension WorkspaceMutationCoordinator {
     @discardableResult
     package func addRepo(at path: URL) -> Repo {
         let normalizedPath = path.standardizedFileURL
-        let incomingStableKey = StableKey.fromPath(normalizedPath)
+        return addRepo(at: normalizedPath, stableKey: StableKey.fromPath(normalizedPath))
+    }
+
+    @discardableResult
+    package func addRepo(at path: URL, stableKey incomingStableKey: String) -> Repo {
+        let normalizedPath = path.standardizedFileURL
         if let existing = repositoryTopologyAtom.repos.first(where: {
             $0.repoPath.standardizedFileURL == normalizedPath || $0.stableKey == incomingStableKey
         }) {
@@ -47,7 +52,9 @@ extension WorkspaceMutationCoordinator {
         applyTopology(
             repositories: repositoryTopologyAtom.repos + [repository],
             watchedPaths: repositoryTopologyAtom.watchedPaths,
-            unavailableRepositoryIDs: repositoryTopologyAtom.unavailableRepoIds.subtracting([repositoryID])
+            unavailableRepositoryIDs: repositoryTopologyAtom.unavailableRepoIds.subtracting([repositoryID]),
+            repositoryStableKeyOverrides: [repositoryID: incomingStableKey],
+            worktreeStableKeyOverrides: [mainWorktree.id: incomingStableKey]
         )
         return repository
     }
@@ -207,6 +214,7 @@ extension WorkspaceMutationCoordinator {
                 repositoryID,
                 to: newPath,
                 candidates: discoveredWorktrees.map(WorktreeReconciliationCandidate.identified),
+                repositoryStableKey: nil,
                 traceID: nil
             )
         )
@@ -225,6 +233,7 @@ extension WorkspaceMutationCoordinator {
                 to: newPath,
                 candidates: [.scannedMain(scannedWorktrees.main)]
                     + scannedWorktrees.linked.map(WorktreeReconciliationCandidate.scannedLinked),
+                repositoryStableKey: scannedWorktrees.main.stableKey,
                 traceID: traceId
             )
         )
@@ -288,7 +297,11 @@ extension WorkspaceMutationCoordinator {
             switch RepositoryTopologyReplacement.prepare(
                 repositories: repositories,
                 watchedPaths: repositoryTopologyAtom.watchedPaths,
-                unavailableRepositoryIDs: unavailableRepositoryIDs
+                unavailableRepositoryIDs: unavailableRepositoryIDs,
+                stableIdentity: stableIdentity(
+                    repositories: repositories,
+                    watchedPaths: repositoryTopologyAtom.watchedPaths
+                )
             ) {
             case .prepared(let replacement):
                 repositoryTopologyAtom.replaceTopology(replacement)
@@ -303,10 +316,11 @@ extension WorkspaceMutationCoordinator {
         _ repositoryID: UUID,
         to newPath: URL,
         candidates: [WorktreeReconciliationCandidate],
+        repositoryStableKey: String?,
         traceID: UUID?
     ) -> RepositoryReassociationResult {
         let normalizedPath = newPath.standardizedFileURL
-        let incomingStableKey = StableKey.fromPath(normalizedPath)
+        let incomingStableKey = repositoryStableKey ?? StableKey.fromPath(normalizedPath)
         if repositoryTopologyAtom.repos.contains(where: {
             $0.id != repositoryID && $0.stableKey == incomingStableKey
         }) {
@@ -346,7 +360,9 @@ extension WorkspaceMutationCoordinator {
             applyTopology(
                 repositories: repositories,
                 watchedPaths: repositoryTopologyAtom.watchedPaths,
-                unavailableRepositoryIDs: unavailableRepositoryIDs
+                unavailableRepositoryIDs: unavailableRepositoryIDs,
+                repositoryStableKeyOverrides: [repositoryID: incomingStableKey],
+                worktreeStableKeyOverrides: prepared.worktreeStableKeysByID
             )
             return .accepted(
                 .init(
@@ -391,7 +407,8 @@ extension WorkspaceMutationCoordinator {
                 applyTopology(
                     repositories: repositories,
                     watchedPaths: repositoryTopologyAtom.watchedPaths,
-                    unavailableRepositoryIDs: unavailableRepositoryIDs
+                    unavailableRepositoryIDs: unavailableRepositoryIDs,
+                    worktreeStableKeyOverrides: prepared.worktreeStableKeysByID
                 )
             }
             return .accepted(.init(delta: acceptedDelta))
@@ -421,6 +438,7 @@ extension WorkspaceMutationCoordinator {
             existingWorktrees: existingWorktrees
         )
         let candidateWorktrees = matchedCandidates.worktrees
+        let candidateStableKeysByID = matchedCandidates.stableKeysByID
         let preservedWorktreeIDs = matchedCandidates.preservedWorktreeIDs
         let normalizedRepositoryPath = (repositoryPath ?? repositoryTopologyAtom.repos[repositoryIndex].repoPath)
             .standardizedFileURL
@@ -450,10 +468,15 @@ extension WorkspaceMutationCoordinator {
             repositoryTopologyAtom.repos
                 .filter { $0.id != repositoryID }
                 .flatMap(\.worktrees)
-                .map(\.stableKey)
+                .compactMap { repositoryTopologyAtom.worktreeStableKey(for: $0.id) }
         )
-        for worktree in mergedWorktrees where !seenStableKeys.insert(worktree.stableKey).inserted {
-            return .rejected(.duplicateWorktreeStableKey(worktree.stableKey))
+        for worktree in mergedWorktrees {
+            guard let stableKey = candidateStableKeysByID[worktree.id] else {
+                return .rejected(.topologyRejected(.missingWorktreeStableKey(worktree.id)))
+            }
+            guard seenStableKeys.insert(stableKey).inserted else {
+                return .rejected(.duplicateWorktreeStableKey(stableKey))
+            }
         }
 
         let preservedWorktreeIDSet = Set(preservedWorktreeIDs)
@@ -478,6 +501,7 @@ extension WorkspaceMutationCoordinator {
             .init(
                 repositoryIndex: repositoryIndex,
                 mergedWorktrees: mergedWorktrees,
+                worktreeStableKeysByID: candidateStableKeysByID,
                 hasValidMainWorktree: hasValidMainWorktree,
                 delta: delta
             )
@@ -500,6 +524,7 @@ extension WorkspaceMutationCoordinator {
         )
         var consumedExistingIDs = Set<UUID>()
         var preservedWorktreeIDs: [UUID] = []
+        var stableKeysByID: [UUID: String] = [:]
 
         let worktrees = candidates.map { candidate -> Worktree in
             let matchedWorktree: Worktree?
@@ -523,7 +548,7 @@ extension WorkspaceMutationCoordinator {
             if let matchedWorktree {
                 consumedExistingIDs.insert(matchedWorktree.id)
                 preservedWorktreeIDs.append(matchedWorktree.id)
-                return Worktree(
+                let updatedWorktree = Worktree(
                     id: matchedWorktree.id,
                     repoId: repositoryID,
                     name: candidate.name,
@@ -531,12 +556,17 @@ extension WorkspaceMutationCoordinator {
                     isMainWorktree: candidate.isMainWorktree,
                     note: matchedWorktree.note
                 )
+                stableKeysByID[updatedWorktree.id] = candidate.stableKey
+                return updatedWorktree
             }
-            return candidate.makeUnmatchedWorktree(repositoryID: repositoryID)
+            let unmatchedWorktree = candidate.makeUnmatchedWorktree(repositoryID: repositoryID)
+            stableKeysByID[unmatchedWorktree.id] = candidate.stableKey
+            return unmatchedWorktree
         }
         return MatchedCandidateWorktrees(
             worktrees: worktrees,
-            preservedWorktreeIDs: preservedWorktreeIDs
+            preservedWorktreeIDs: preservedWorktreeIDs,
+            stableKeysByID: stableKeysByID
         )
     }
 
@@ -560,18 +590,88 @@ extension WorkspaceMutationCoordinator {
     private func applyTopology(
         repositories: [Repo],
         watchedPaths: [WatchedPath],
-        unavailableRepositoryIDs: Set<UUID>
+        unavailableRepositoryIDs: Set<UUID>,
+        repositoryStableKeyOverrides: [UUID: String] = [:],
+        worktreeStableKeyOverrides: [UUID: String] = [:],
+        watchedPathStableKeyOverrides: [UUID: String] = [:]
     ) {
         switch RepositoryTopologyReplacement.prepare(
             repositories: repositories,
             watchedPaths: watchedPaths,
-            unavailableRepositoryIDs: unavailableRepositoryIDs
+            unavailableRepositoryIDs: unavailableRepositoryIDs,
+            stableIdentity: stableIdentity(
+                repositories: repositories,
+                watchedPaths: watchedPaths,
+                repositoryStableKeyOverrides: repositoryStableKeyOverrides,
+                worktreeStableKeyOverrides: worktreeStableKeyOverrides,
+                watchedPathStableKeyOverrides: watchedPathStableKeyOverrides
+            )
         ) {
         case .prepared(let replacement):
             repositoryTopologyAtom.replaceTopology(replacement)
         case .rejected(let rejection):
             preconditionFailure("coordinator produced invalid repository topology: \(rejection)")
         }
+    }
+
+    private func stableIdentity(
+        repositories: [Repo],
+        watchedPaths: [WatchedPath],
+        repositoryStableKeyOverrides: [UUID: String] = [:],
+        worktreeStableKeyOverrides: [UUID: String] = [:],
+        watchedPathStableKeyOverrides: [UUID: String] = [:]
+    ) -> RepositoryTopologyStableIdentity {
+        var repositoryStableKeysByID: [UUID: String] = [:]
+        var worktreeStableKeysByID: [UUID: String] = [:]
+        var watchedPathStableKeysByID: [UUID: String] = [:]
+
+        for repository in repositories {
+            if let stableKey = repositoryStableKeyOverrides[repository.id] {
+                repositoryStableKeysByID[repository.id] = stableKey
+            } else {
+                let previousRepository = repositoryTopologyAtom.repo(repository.id)
+                if previousRepository?.repoPath.standardizedFileURL == repository.repoPath.standardizedFileURL,
+                    let stableKey = repositoryTopologyAtom.repositoryStableKey(for: repository.id)
+                {
+                    repositoryStableKeysByID[repository.id] = stableKey
+                } else {
+                    repositoryStableKeysByID[repository.id] = StableKey.fromPath(repository.repoPath)
+                }
+            }
+            for worktree in repository.worktrees {
+                if let stableKey = worktreeStableKeyOverrides[worktree.id] {
+                    worktreeStableKeysByID[worktree.id] = stableKey
+                    continue
+                }
+                let previousWorktree = repositoryTopologyAtom.worktree(worktree.id)
+                if previousWorktree?.path.standardizedFileURL == worktree.path.standardizedFileURL,
+                    let stableKey = repositoryTopologyAtom.worktreeStableKey(for: worktree.id)
+                {
+                    worktreeStableKeysByID[worktree.id] = stableKey
+                } else {
+                    worktreeStableKeysByID[worktree.id] = StableKey.fromPath(worktree.path)
+                }
+            }
+        }
+        for watchedPath in watchedPaths {
+            if let stableKey = watchedPathStableKeyOverrides[watchedPath.id] {
+                watchedPathStableKeysByID[watchedPath.id] = stableKey
+                continue
+            }
+            let previousWatchedPath = repositoryTopologyAtom.watchedPath(watchedPath.id)
+            if previousWatchedPath?.path.standardizedFileURL == watchedPath.path.standardizedFileURL,
+                let stableKey = repositoryTopologyAtom.watchedPathStableKeysByID[watchedPath.id]
+            {
+                watchedPathStableKeysByID[watchedPath.id] = stableKey
+            } else {
+                watchedPathStableKeysByID[watchedPath.id] = StableKey.fromPath(watchedPath.path)
+            }
+        }
+        return RepositoryTopologyStableIdentity(
+            repositoryStableKeysByID: repositoryStableKeysByID,
+            worktreeStableKeysByID: worktreeStableKeysByID,
+            watchedPathStableKeysByID: watchedPathStableKeysByID
+        )
     }
 
     private func normalizedRepositoryNote(_ note: String?) -> String? {
@@ -609,6 +709,14 @@ private enum WorktreeReconciliationCandidate {
         }
     }
 
+    var stableKey: String {
+        switch self {
+        case .scannedMain(let candidate): candidate.stableKey
+        case .scannedLinked(let candidate): candidate.stableKey
+        case .identified(let worktree): worktree.stableKey
+        }
+    }
+
     func makeUnmatchedWorktree(repositoryID: UUID) -> Worktree {
         switch self {
         case .scannedMain(let candidate):
@@ -636,6 +744,7 @@ private enum WorktreeReconciliationCandidate {
 private struct PreparedWorktreeReconciliation {
     let repositoryIndex: Int
     let mergedWorktrees: [Worktree]
+    let worktreeStableKeysByID: [UUID: String]
     let hasValidMainWorktree: Bool
     let delta: WorktreeTopologyDelta
 }
@@ -643,6 +752,7 @@ private struct PreparedWorktreeReconciliation {
 private struct MatchedCandidateWorktrees {
     let worktrees: [Worktree]
     let preservedWorktreeIDs: [UUID]
+    let stableKeysByID: [UUID: String]
 }
 
 private enum WorktreeReconciliationPreparation {

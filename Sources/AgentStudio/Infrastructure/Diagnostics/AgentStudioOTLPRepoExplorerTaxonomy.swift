@@ -1,6 +1,35 @@
 import Foundation
 
 enum AgentStudioOTLPRepoExplorerTaxonomy {
+    static let numericAttributeKeys: Set<String> = [
+        "agentstudio.performance.forge.input.automatic.count",
+        "agentstudio.performance.forge.input.manual.count",
+        "agentstudio.performance.forge.input.follow_up.count",
+        "agentstudio.performance.forge.admission.admitted.count",
+        "agentstudio.performance.forge.admission.no_demand_rejected.count",
+        "agentstudio.performance.forge.admission.missing_origin_rejected.count",
+        "agentstudio.performance.forge.admission.active_request_coalesced.count",
+        "agentstudio.performance.forge.admission.capacity_limited.count",
+        "agentstudio.performance.forge.admission.freshness_deferred.count",
+        "agentstudio.performance.forge.admission.backoff_deferred.count",
+        "agentstudio.performance.forge.execution.started.count",
+        "agentstudio.performance.forge.execution.completed.count",
+        "agentstudio.performance.forge.execution.failed.count",
+        "agentstudio.performance.forge.execution.cancelled.count",
+        "agentstudio.performance.forge.execution.superseded.count",
+        "agentstudio.performance.forge.validation.current.count",
+        "agentstudio.performance.forge.validation.stale_generation.count",
+        "agentstudio.performance.forge.validation.stale_origin.count",
+        "agentstudio.performance.forge.validation.stale_scope.count",
+        "agentstudio.performance.forge.publication.published.count",
+        "agentstudio.performance.forge.publication.equal.count",
+        "agentstudio.performance.forge.publication.invalidated.count",
+        "agentstudio.performance.forge.deadline.scheduled.count",
+        "agentstudio.performance.forge.deadline.rescheduled.count",
+        "agentstudio.performance.forge.deadline.fired.count",
+        "agentstudio.performance.forge.deadline.cancelled.count",
+    ]
+
     static let stringAttributeKeys: Set<String> = [
         "agentstudio.performance.repo_explorer.facet",
         "agentstudio.performance.repo_explorer.key_class",
@@ -23,9 +52,11 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         switch key {
         case "agentstudio.performance.repo_explorer.stage":
             [
+                "observe_project", "distinct", "coalesce", "admission", "execute", "validate", "publish",
+                "materialize", "deadline",
                 "eager_admission", "projection_worker", "command_affected_row", "command_whole_surface",
                 "capture_rebuild", "affected_row", "membership_path", "whole_surface", "mainactor_apply",
-                "final_projection", "atom_slot",
+                "final_projection", "atom_slot", "other",
             ].contains(value)
         case "agentstudio.performance.repo_explorer.key_class":
             [
@@ -35,8 +66,12 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
             ].contains(value)
         case "agentstudio.performance.repo_explorer.outcome":
             [
-                "admitted", "published", "equal", "superseded", "cancelled", "changed",
-                "reference_equal", "reference_different",
+                "observed", "suppressed", "coalesced", "admitted", "executed", "published", "materialized",
+                "equal", "changed", "unknown", "retained", "replaced", "deferred", "rejected",
+                "capacity_limited", "started", "completed", "current", "cancelled", "superseded", "stale",
+                "stale_generation", "stale_origin", "stale_scope", "failed", "invalidated", "revoked",
+                "scheduled", "rescheduled", "fired", "relevant_key", "reference_equal",
+                "reference_different", "other",
             ].contains(value)
         case "agentstudio.performance.repo_explorer.facet":
             ["attendance", "unread"].contains(value)

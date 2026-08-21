@@ -2,6 +2,35 @@ import AgentStudioInfrastructure
 import Foundation
 import GhosttyKit
 
+package enum TerminalViewportTextReadResult: Equatable, Sendable {
+    case value(String)
+    case empty
+    case surfaceStale
+    case readFailed
+    case oversized
+}
+
+enum TerminalViewportTextReadAdmission {
+    static func preflight(rows: Int, columns: Int) -> TerminalViewportTextReadResult? {
+        guard rows > 0, columns > 0 else { return .empty }
+        let (viewportCellCount, didOverflow) = rows.multipliedReportingOverflow(by: columns)
+        guard !didOverflow,
+            viewportCellCount <= AppPolicies.TerminalOutputCapture.maxViewportCellsPerSettleRead
+        else {
+            return .oversized
+        }
+        return nil
+    }
+
+    static func classifyRawByteCount(_ rawByteCount: Int) -> TerminalViewportTextReadResult? {
+        guard rawByteCount > 0 else { return .empty }
+        guard rawByteCount <= AppPolicies.TerminalOutputCapture.maxRawViewportUTF8Bytes else {
+            return .oversized
+        }
+        return nil
+    }
+}
+
 extension SurfaceManager {
     /// Reads the raw viewport text for `surfaceID`. One MainActor Ghostty
     /// call per settled burst (never per output event, never on a timer) —
@@ -24,12 +53,17 @@ extension SurfaceManager {
     /// read has no such row math and costs the same one Ghostty call; the
     /// caller already walks the text backwards to find trailing lines.
     ///
-    /// Returns nil when the surface is unavailable, the viewport has no
-    /// rows, or the read fails.
-    package func readViewportTrailingText(forSurfaceID surfaceID: UUID) -> String? {
-        let result = withSurface(surfaceID) { surface -> String? in
+    package func readViewportTrailingText(
+        forSurfaceID surfaceID: UUID
+    ) -> TerminalViewportTextReadResult {
+        let result = withSurface(surfaceID) { surface -> TerminalViewportTextReadResult in
             let size = ghostty_surface_size(surface)
-            guard size.rows > 0 else { return nil }
+            if let rejectedResult = TerminalViewportTextReadAdmission.preflight(
+                rows: Int(size.rows),
+                columns: Int(size.columns)
+            ) {
+                return rejectedResult
+            }
             let selection = ghostty_selection_s(
                 top_left: ghostty_point_s(
                     tag: GHOSTTY_POINT_VIEWPORT,
@@ -46,13 +80,17 @@ extension SurfaceManager {
                 rectangle: false
             )
             var text = ghostty_text_s()
-            guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+            guard ghostty_surface_read_text(surface, selection, &text) else { return .readFailed }
             defer { ghostty_surface_free_text(surface, &text) }
-            guard let cText = text.text, text.text_len > 0 else { return nil }
+            if let rejectedResult = TerminalViewportTextReadAdmission.classifyRawByteCount(Int(text.text_len)) {
+                return rejectedResult
+            }
+            guard let cText = text.text else { return .readFailed }
             let bytes = UnsafeRawBufferPointer(start: UnsafeRawPointer(cText), count: Int(text.text_len))
-            return String(bytes: bytes, encoding: .utf8)
+            guard let rawText = String(bytes: bytes, encoding: .utf8) else { return .readFailed }
+            return .value(rawText)
         }
-        guard case .success(let rawText) = result else { return nil }
-        return rawText
+        guard case .success(let readResult) = result else { return .surfaceStale }
+        return readResult
     }
 }

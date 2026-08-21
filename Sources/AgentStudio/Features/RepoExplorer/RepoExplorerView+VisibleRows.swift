@@ -320,23 +320,25 @@ struct RepoExplorerRowBodyEvaluationProxy<Content: View>: View {
             rowKind: entry.rowKind,
             resolve: content
         )
-        var attributes: [String: AgentStudioTraceValue] = [
-            "agentstudio.performance.repo_explorer.row_body_evaluation.outcome": .string(
-                measurement.outcome.rawValue),
-            "agentstudio.performance.repo_explorer.row_kind": .string(measurement.rowKind.rawValue),
-            "agentstudio.performance.repo_explorer.surface": .string("repo"),
-            "agentstudio.performance.repo_explorer.scroll_active": .bool(
-                scrollInstrumentationState.isScrollActive()),
-        ]
-        if let visibleRowCountBucket = scrollInstrumentationState.latestVisibleRowCountBucket {
-            attributes["agentstudio.performance.repo_explorer.visible_row_count_bucket"] = .string(
-                visibleRowCountBucket.rawValue)
+        if RepoExplorerPerformanceTelemetry.shared.admitExactRowBodyRecord() {
+            var attributes: [String: AgentStudioTraceValue] = [
+                "agentstudio.performance.repo_explorer.row_body_evaluation.outcome": .string(
+                    measurement.outcome.rawValue),
+                "agentstudio.performance.repo_explorer.row_kind": .string(measurement.rowKind.rawValue),
+                "agentstudio.performance.repo_explorer.surface": .string("repo"),
+                "agentstudio.performance.repo_explorer.scroll_active": .bool(
+                    scrollInstrumentationState.isScrollActive()),
+            ]
+            if let visibleRowCountBucket = scrollInstrumentationState.latestVisibleRowCountBucket {
+                attributes["agentstudio.performance.repo_explorer.visible_row_count_bucket"] = .string(
+                    visibleRowCountBucket.rawValue)
+            }
+            performanceTraceRecorder?.recordDuration(
+                .repoExplorerRowBodyEvaluation,
+                duration: measurement.duration,
+                attributes: attributes
+            )
         }
-        performanceTraceRecorder?.recordDuration(
-            .repoExplorerRowBodyEvaluation,
-            duration: measurement.duration,
-            attributes: attributes
-        )
         return measurement.content
     }
 }

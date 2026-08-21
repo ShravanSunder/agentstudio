@@ -228,6 +228,7 @@ enum WorkspaceSQLiteStateBridge {
                 .init(
                     id: watchedPath.id,
                     path: watchedPath.path,
+                    stableKey: snapshot.watchedPathStableKeysByID[watchedPath.id],
                     addedAt: watchedPath.addedAt
                 )
             },
@@ -236,6 +237,7 @@ enum WorkspaceSQLiteStateBridge {
                     id: repo.id,
                     name: repo.name,
                     repoPath: repo.repoPath,
+                    stableKey: repo.stableKey,
                     createdAt: repo.createdAt,
                     isFavorite: repo.isFavorite,
                     note: repo.note,
@@ -245,6 +247,7 @@ enum WorkspaceSQLiteStateBridge {
                             repoId: worktree.repoId,
                             name: worktree.name,
                             path: worktree.path,
+                            stableKey: worktree.stableKey,
                             isMainWorktree: worktree.isMainWorktree,
                             note: worktree.note
                         )
@@ -469,6 +472,9 @@ enum WorkspaceSQLiteStateBridge {
             worktrees: topology.repos.flatMap { $0.worktrees.map(canonicalWorktree) },
             unavailableRepoIds: topology.unavailableRepoIds,
             watchedPaths: topology.watchedPaths.map(watchedPath),
+            watchedPathStableKeysByID: Dictionary(
+                uniqueKeysWithValues: topology.watchedPaths.map { ($0.id, $0.stableKey) }
+            ),
             updatedAt: updatedAt
         )
     }

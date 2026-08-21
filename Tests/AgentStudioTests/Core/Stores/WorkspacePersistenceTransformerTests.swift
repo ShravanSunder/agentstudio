@@ -50,6 +50,56 @@ struct WorkspacePersistenceTransformerTests {
         #expect(topologyAtom.worktree(worktreeID)?.note == "worktree note")
     }
 
+    @Test("topology hydration preserves stored stable identity instead of hashing paths")
+    func topologyHydrationPreservesStoredStableIdentity() {
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let watchedPathID = UUIDv7.generate()
+        let repositoryPath = URL(filePath: "/tmp/agent-studio-persisted-stable-identity")
+        let storedRepositoryKey = "stored-repo-key"
+        let storedWatchedPathKey = "stored-watch-key"
+        let snapshot = RepositoryTopologySQLiteSnapshot(
+            repos: [
+                CanonicalRepo(
+                    id: repositoryID,
+                    name: "persisted-stable-identity",
+                    repoPath: repositoryPath,
+                    stableKey: storedRepositoryKey
+                )
+            ],
+            worktrees: [
+                CanonicalWorktree(
+                    id: worktreeID,
+                    repoId: repositoryID,
+                    name: "main",
+                    path: repositoryPath,
+                    stableKey: storedRepositoryKey,
+                    isMainWorktree: true
+                )
+            ],
+            watchedPaths: [
+                WatchedPath(
+                    id: watchedPathID,
+                    path: URL(filePath: "/tmp/agent-studio-persisted-watched")
+                )
+            ],
+            watchedPathStableKeysByID: [watchedPathID: storedWatchedPathKey],
+            updatedAt: Date(timeIntervalSince1970: 10)
+        )
+        let topologyAtom = RepositoryTopologyAtom()
+
+        WorkspacePersistenceTransformer.hydrateRepositoryTopology(
+            snapshot,
+            repositoryTopologyAtom: topologyAtom
+        )
+
+        #expect(topologyAtom.repositoryStableKey(for: repositoryID) == storedRepositoryKey)
+        #expect(topologyAtom.worktreeStableKey(for: worktreeID) == storedRepositoryKey)
+        #expect(topologyAtom.repo(stableKey: storedRepositoryKey)?.id == repositoryID)
+        #expect(topologyAtom.watchedPath(stableKey: storedWatchedPathKey)?.id == watchedPathID)
+        #expect(topologyAtom.repo(stableKey: StableKey.fromPath(repositoryPath)) == nil)
+    }
+
     @Test("topology restore promotes the unique repository-root worktree without changing identity")
     func topologyRestorePromotesUniqueRepositoryRootWorktree() async throws {
         let repositoryID = UUIDv7.generate()

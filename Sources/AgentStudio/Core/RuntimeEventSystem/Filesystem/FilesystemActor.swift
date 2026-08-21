@@ -679,7 +679,8 @@ package actor FilesystemActor {
                     .repoDiscovered(
                         repoPath: repoPath,
                         parentPath: parentPath,
-                        linkedWorktrees: linkedWorktrees
+                        linkedWorktrees: linkedWorktrees,
+                        stableIdentity: .prepare(repoPath: repoPath, linkedWorktrees: linkedWorktrees)
                     )
                 )
             )
