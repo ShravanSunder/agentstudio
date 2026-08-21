@@ -2,6 +2,7 @@ import { useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
 
 import { bridgeViewerActionToolbarSurfaceClassName } from '../app/bridge-viewer-action-toolbar.js';
+import { WorktreeAnnotationMessageBody } from './worktree-annotation-message-body.js';
 import { WorktreeAnnotationOutputHistoryControl } from './worktree-annotation-output-history-control.js';
 import { annotationOutputFeedback } from './worktree-annotation-output-presentation.js';
 import {
@@ -158,9 +159,16 @@ function WorktreeAnnotationOtherSavedComments(props: {
 				>
 					{thread.context.path}:{thread.context.startLine} · {thread.context.placement}
 					{thread.messages.map((message) => (
-						<p className="text-[var(--bridge-text-primary)]" key={message.messageId}>
-							{message.savedBody}
-						</p>
+						<div className="text-[var(--bridge-text-primary)]" key={message.messageId}>
+							<WorktreeAnnotationMessageBody
+								body={message.savedBody ?? ''}
+								messageId={message.messageId}
+								messageRevision={message.messageRevision}
+								path={thread.context.path}
+								sessionId={message.sessionId}
+								sessionRevision={message.sessionRevision}
+							/>
+						</div>
 					))}
 				</div>
 			))}

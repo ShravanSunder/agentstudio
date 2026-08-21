@@ -827,7 +827,9 @@ extension WebKitSerializedTests {
 
         func makeController(
             repoURL: URL,
-            traceRecorder: BridgeProductWebKitCarrierTraceRecorder
+            traceRecorder: BridgeProductWebKitCarrierTraceRecorder,
+            worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
+            worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil
         ) -> BridgePaneController {
             let paneId = UUIDv7.generate()
             let gitReadContext = makeBridgeGitReadContext(rootURL: repoURL)
@@ -859,6 +861,8 @@ extension WebKitSerializedTests {
                 ),
                 gitReadContext: gitReadContext,
                 worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator(),
+                worktreeAnnotationStore: worktreeAnnotationStore,
+                worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
                 telemetryRuntimePolicy: .live,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
                 telemetryRecorder: traceRecorder,

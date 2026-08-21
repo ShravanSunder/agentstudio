@@ -66,6 +66,9 @@ describe('worktree annotation recovery and rail history controls', () => {
 			await settleInteraction();
 		});
 		await expect.element(rendered.getByText('Clipboard Markdown · 1 comment')).toBeVisible();
+		await expect
+			.element(rendered.getByRole('button', { name: 'Repeat output attempt 1' }))
+			.not.toBeInTheDocument();
 		expect(document.querySelector('[data-slot="popover-content"]')).toBeNull();
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Inspect output attempt 1' }).click();
@@ -85,6 +88,19 @@ describe('worktree annotation recovery and rail history controls', () => {
 		await expect.element(rendered.getByText('# Exact saved output')).toBeVisible();
 		expect(document.body.textContent).not.toContain('Root comment');
 		expect(document.body.textContent).not.toContain('Thread 1');
+
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				expectedThreadCount: 0,
+				outputHistory: [outputHistorySummary({ canMarkNotHandled: false, state: 'unknown' })],
+				revision: 3,
+				sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
+			});
+			await Promise.resolve();
+		});
+		await expect
+			.element(rendered.getByRole('button', { name: 'Repeat output attempt 1' }))
+			.toBeVisible();
 	});
 });
 
@@ -105,16 +121,21 @@ async function settleInteraction(): Promise<void> {
 	await Promise.resolve();
 }
 
-function outputHistorySummary(): WorktreeAnnotationOutputHistorySummary {
+function outputHistorySummary(
+	props: {
+		readonly canMarkNotHandled?: boolean;
+		readonly state?: WorktreeAnnotationOutputHistorySummary['state'];
+	} = {},
+): WorktreeAnnotationOutputHistorySummary {
 	return {
 		attemptId: '00000000-0000-7000-8000-000000000071',
-		canMarkNotHandled: true,
+		canMarkNotHandled: props.canMarkNotHandled ?? true,
 		createdAt: Date.UTC(2026, 7, 17, 10),
 		messageCount: 1,
 		outputKind: 'clipboard_markdown',
 		repeatedFromAttemptId: null,
 		sessionId: annotationSessionId,
-		state: 'succeeded',
+		state: props.state ?? 'succeeded',
 		updatedAt: Date.UTC(2026, 7, 17, 10),
 	};
 }

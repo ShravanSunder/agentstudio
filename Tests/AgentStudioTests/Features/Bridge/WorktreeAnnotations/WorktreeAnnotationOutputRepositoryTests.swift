@@ -173,33 +173,73 @@ struct WorktreeAnnotationOutputRepositoryTests {
         }
     }
 
-    @Test("explicit repetition reuses persisted bytes and membership after message locking")
-    func explicitRepetitionReusesPersistedAttemptWithoutRebuilding() throws {
-        let fixture = try makeOutputRepositoryFixture()
-        let prepared = try fixture.repository.prepareOutput(fixture.prepareProps())
-        let succeeded = try fixture.repository.finalizeOutputAttempt(
-            attemptID: prepared.attempt.id,
+    @Test("explicit repetition rejects attempts whose external effect is known")
+    func explicitRepetitionRejectsKnownAttempts() throws {
+        let preparedFixture = try makeOutputRepositoryFixture()
+        let prepared = try preparedFixture.repository.prepareOutput(preparedFixture.prepareProps())
+        #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
+            try preparedFixture.repository.repeatOutputAttempt(
+                sourceAttemptID: prepared.attempt.id,
+                repeatedAttemptID: .init(rawValue: testUUID(72)),
+                destinationPath: nil,
+                now: Date(timeIntervalSince1970: 5)
+            )
+        }
+
+        let succeededFixture = try makeOutputRepositoryFixture()
+        let succeededPrepared = try succeededFixture.repository.prepareOutput(
+            succeededFixture.prepareProps()
+        )
+        let succeeded = try succeededFixture.repository.finalizeOutputAttempt(
+            attemptID: succeededPrepared.attempt.id,
             eventKind: .copied,
             now: Date(timeIntervalSince1970: 4)
         )
-        let repeatedAttemptID = WorktreeAnnotationOutputAttemptID(rawValue: testUUID(72))
+        #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
+            try succeededFixture.repository.repeatOutputAttempt(
+                sourceAttemptID: succeeded.attempt.id,
+                repeatedAttemptID: .init(rawValue: testUUID(73)),
+                destinationPath: nil,
+                now: Date(timeIntervalSince1970: 5)
+            )
+        }
 
-        let repeated = try fixture.repository.repeatOutputAttempt(
-            sourceAttemptID: succeeded.attempt.id,
-            repeatedAttemptID: repeatedAttemptID,
-            destinationPath: nil,
-            now: Date(timeIntervalSince1970: 5)
+        let cancelledFixture = try makeOutputRepositoryFixture()
+        let cancelledPrepared = try cancelledFixture.repository.prepareOutput(
+            cancelledFixture.prepareProps()
         )
+        let cancelled = try cancelledFixture.repository.cancelOutputAttempt(
+            attemptID: cancelledPrepared.attempt.id,
+            effectError: "cancelled",
+            now: Date(timeIntervalSince1970: 4)
+        )
+        #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
+            try cancelledFixture.repository.repeatOutputAttempt(
+                sourceAttemptID: cancelled.attempt.id,
+                repeatedAttemptID: .init(rawValue: testUUID(74)),
+                destinationPath: nil,
+                now: Date(timeIntervalSince1970: 5)
+            )
+        }
 
-        #expect(repeated.attempt.id == repeatedAttemptID)
-        #expect(repeated.attempt.repeatedFromAttemptID == succeeded.attempt.id)
-        #expect(repeated.attempt.exactBytes == fixture.exactBytes)
-        #expect(repeated.canonicalSnapshot == fixture.snapshot)
-        #expect(repeated.memberships == succeeded.memberships)
-        #expect(
-            try fixture.repository.fetchSessionDetail(sessionID: fixture.detail.session.id)
-                .threads.first?.thread.resolution == .open
+        let finalizationFailedFixture = try makeOutputRepositoryFixture()
+        let finalizationPrepared = try finalizationFailedFixture.repository.prepareOutput(
+            finalizationFailedFixture.prepareProps()
         )
+        let finalizationFailed = try finalizationFailedFixture.repository
+            .markOutputAttemptFinalizationFailed(
+                attemptID: finalizationPrepared.attempt.id,
+                cleanupError: "history failed",
+                now: Date(timeIntervalSince1970: 4)
+            )
+        #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
+            try finalizationFailedFixture.repository.repeatOutputAttempt(
+                sourceAttemptID: finalizationFailed.attempt.id,
+                repeatedAttemptID: .init(rawValue: testUUID(75)),
+                destinationPath: nil,
+                now: Date(timeIntervalSince1970: 5)
+            )
+        }
     }
 
     @Test("history is bounded, newest first, and excludes cancelled attempts")
@@ -212,22 +252,26 @@ struct WorktreeAnnotationOutputRepositoryTests {
             now: Date(timeIntervalSince1970: 4)
         )
 
-        let succeededAttemptID = WorktreeAnnotationOutputAttemptID(rawValue: testUUID(73))
-        let succeeded = try fixture.repository.prepareOutput(
-            fixture.prepareProps(attemptID: succeededAttemptID, now: Date(timeIntervalSince1970: 5))
+        let unknownAttemptID = WorktreeAnnotationOutputAttemptID(rawValue: testUUID(73))
+        let unknown = try fixture.repository.prepareOutput(
+            fixture.prepareProps(attemptID: unknownAttemptID, now: Date(timeIntervalSince1970: 5))
         )
-        _ = try fixture.repository.finalizeOutputAttempt(
-            attemptID: succeeded.attempt.id,
-            eventKind: .copied,
-            now: Date(timeIntervalSince1970: 6)
+        #expect(
+            try fixture.repository.markPreparedOutputAttemptsUnknown(
+                now: Date(timeIntervalSince1970: 6)
+            ) == 1
         )
         let repeated = try fixture.repository.repeatOutputAttempt(
-            sourceAttemptID: succeeded.attempt.id,
+            sourceAttemptID: unknown.attempt.id,
             repeatedAttemptID: .init(rawValue: testUUID(74)),
             destinationPath: nil,
             now: Date(timeIntervalSince1970: 7)
         )
-        #expect(try fixture.repository.markPreparedOutputAttemptsUnknown(now: Date(timeIntervalSince1970: 8)) == 1)
+        #expect(
+            try fixture.repository.markPreparedOutputAttemptsUnknown(
+                now: Date(timeIntervalSince1970: 8)
+            ) == 1
+        )
 
         let history = try fixture.repository.fetchOutputHistory(
             sessionID: fixture.detail.session.id,

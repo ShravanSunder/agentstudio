@@ -630,9 +630,9 @@ enum BridgeProductWebKitCarrierTestSupport {
 
     static func withHostedController<Value>(
         _ controller: BridgePaneController,
+        frame: NSRect = NSRect(x: 0, y: 0, width: 960, height: 720),
         operation: @MainActor (BridgePaneController) async throws -> Value
     ) async throws -> BridgeProductWebKitCarrierRunResult<Value> {
-        let frame = NSRect(x: 0, y: 0, width: 960, height: 720)
         let window = NSWindow(
             contentRect: frame,
             styleMask: [.borderless],

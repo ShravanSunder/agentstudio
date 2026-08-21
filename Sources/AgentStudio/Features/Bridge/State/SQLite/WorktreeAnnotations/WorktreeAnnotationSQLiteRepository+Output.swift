@@ -243,10 +243,7 @@ extension WorktreeAnnotationSQLiteRepository {
     ) throws -> PreparedOutput {
         try databaseWriter.write { database in
             let source = try loadPreparedOutput(database, attemptID: sourceAttemptID)
-            guard
-                source.attempt.state == .succeeded || source.attempt.state == .unknown
-                    || source.attempt.state == .finalizationFailed
-            else {
+            guard source.attempt.state == .unknown else {
                 throw WorktreeAnnotationRepositoryError.invalidState
             }
             try ensureNoPreparedOutputAttempt(

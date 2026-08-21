@@ -464,3 +464,24 @@ Next: commit this final proof receipt, push without force, then verify local HEA
 equals remote feature HEAD and the branch remains 0 behind `origin/main`
 Notes: only the three unrelated PR2 research files remain untracked; they were
 not staged or modified
+
+### 2026-08-21 04:48 EDT — Independent-review remediation one
+
+State: three accepted implementation findings corrected; fresh exact-HEAD gate
+and replacement independent review still pending
+Head before correction: `58e052bdd`
+Owns: Repeat recovery authority, Other saved-comment rendering, and packaged
+Share proof
+Changed: repository Repeat accepts only unknown attempts; terminal History rows
+do not offer Repeat; Other saved comments use the safe saved-message Markdown
+renderer; the packaged 640px WKWebView journey crosses real Copy and Export
+effects with exact clipboard/JSON byte inspection
+Proof: red reproduction for succeeded Repeat, terminal Repeat presentation,
+and raw Markdown; output repository 9/9; targeted browser 7/7; complete browser
+264 passed with 5 established skips; packaged Share journey 1/1; complete
+serialized WebKit lane exited 0 in 123.06 seconds
+Needs from other lane: none
+Next: commit the bounded remediation, run exact-HEAD `mise run test`, then obtain
+one fresh complete implementation review before PR creation
+Notes: the packaged debug process was stopped; the three unrelated PR2 research
+files remain untracked and untouched

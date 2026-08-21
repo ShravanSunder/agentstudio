@@ -4,7 +4,10 @@ export interface WorktreeAnnotationShareMessageFacts {
 	readonly draft: object | null;
 	readonly handled: boolean;
 	readonly messageId: string;
+	readonly messageRevision: number;
 	readonly savedBody: string | null;
+	readonly sessionId: string;
+	readonly sessionRevision: number;
 }
 
 export interface WorktreeAnnotationShareThreadFacts<

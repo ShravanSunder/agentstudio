@@ -3,6 +3,12 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 
+import type { BridgeMarkdownRenderWorkerClient } from '../app/markdown/worker/bridge-markdown-render-worker-client.js';
+import type {
+	BridgeMarkdownRenderWorkerRequest,
+	BridgeMarkdownRenderWorkerSuccessResponse,
+} from '../app/markdown/worker/bridge-markdown-render-worker-rpc.js';
+
 const toastSpies = vi.hoisted(() => ({
 	default: vi.fn<(message: string) => void>(),
 	error: vi.fn<(message: string) => void>(),
@@ -128,6 +134,24 @@ describe('worktree annotation Share comments integrated surface', () => {
 		},
 	);
 
+	test('renders Other saved comments through the safe Markdown renderer', async () => {
+		const markdownWorkerClient = immediateMarkdownWorkerClient();
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(
+			<ShareSurfaceFixture markdownWorkerClient={markdownWorkerClient} surface={surface} />,
+		);
+		await publishShareProjection(surface);
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Share comments' }).click(),
+		);
+		await settleInteraction();
+
+		await expect
+			.element(rendered.getByRole('heading', { level: 2, name: 'Unavailable heading' }))
+			.toBeVisible();
+		await expect.element(rendered.getByText('Preserved list item')).toBeVisible();
+	});
+
 	test('keeps failure and cancellation in Share, but closes partial success with a warning toast', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('review');
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
@@ -198,10 +222,14 @@ describe('worktree annotation Share comments integrated surface', () => {
 });
 
 function ShareSurfaceFixture(props: {
+	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient;
 	readonly surface: RecordingAnnotationBrowserSurface;
 }): ReactElement {
 	return (
-		<WorktreeAnnotationSurfaceProvider surfaceClient={props.surface.client}>
+		<WorktreeAnnotationSurfaceProvider
+			markdownWorkerClient={props.markdownWorkerClient}
+			surfaceClient={props.surface.client}
+		>
 			<div data-testid="review-or-file-header">
 				<WorktreeAnnotationShareHeaderControl />
 			</div>
@@ -255,7 +283,7 @@ async function publishShareProjection(
 			context: unavailableContext,
 			messages: [
 				savedMessage({
-					body: 'Unavailable saved comment',
+					body: '## Unavailable saved comment\n\n- Preserved list item',
 					handled: false,
 					messageId: unavailableMessageId,
 					threadId: unavailableThreadId,
@@ -307,6 +335,50 @@ function findLastOperation(
 	kind: 'output.handled.clear' | 'output.scope.commit',
 ): BridgeProductWorktreeAnnotationOperation | undefined {
 	return surface.sentOperations.findLast((operation): boolean => operation.kind === kind);
+}
+
+function immediateMarkdownWorkerClient(): BridgeMarkdownRenderWorkerClient {
+	let nextRequestId = 0;
+	return {
+		abort: (): void => {},
+		dispose: (): void => {},
+		startRender: (props) => {
+			nextRequestId += 1;
+			const identity = {
+				requestId: `other-saved-comment-${nextRequestId}`,
+				sourceIdentity: props.sourceIdentity,
+				contentCacheKey: props.contentCacheKey,
+				contentHash: props.contentHash,
+				...(props.abortKey === undefined ? {} : { abortKey: props.abortKey }),
+			};
+			const request = {
+				schemaVersion: 1,
+				method: 'markdown.render',
+				...identity,
+				markdownText: props.markdownText,
+				sourcePath: props.sourcePath,
+			} satisfies BridgeMarkdownRenderWorkerRequest;
+			const response = {
+				schemaVersion: 1,
+				method: 'markdown.render',
+				ok: true,
+				...identity,
+				htmlCandidate: '<h2>Unavailable heading</h2><ul><li>Preserved list item</li></ul>',
+				mermaidDiagrams: [],
+				metrics: {
+					durationMilliseconds: 1,
+					inputBytes: props.markdownText.length,
+					outputBytes: 80,
+					mermaidDiagramCount: 0,
+				},
+			} satisfies BridgeMarkdownRenderWorkerSuccessResponse;
+			return {
+				identity,
+				request,
+				completed: Promise.resolve({ status: 'success', identity, response }),
+			};
+		},
+	};
 }
 
 function isToastAction(value: unknown): value is {

@@ -148,13 +148,15 @@ function WorktreeAnnotationOutputHistory(props: {
 						>
 							Inspect
 						</BridgeViewerButton>
-						<BridgeViewerButton
-							aria-label={`Repeat output attempt ${attemptIndex + 1}`}
-							disabled={props.isOutputPending || summary.state !== 'unknown'}
-							onClick={() => props.onRepeat(summary.attemptId)}
-						>
-							Repeat
-						</BridgeViewerButton>
+						{summary.state === 'unknown' ? (
+							<BridgeViewerButton
+								aria-label={`Repeat output attempt ${attemptIndex + 1}`}
+								disabled={props.isOutputPending}
+								onClick={() => props.onRepeat(summary.attemptId)}
+							>
+								Repeat
+							</BridgeViewerButton>
+						) : null}
 						{summary.canMarkNotHandled ? (
 							<BridgeViewerButton onClick={() => props.onMarkNotHandled(summary)}>
 								Mark as not handled

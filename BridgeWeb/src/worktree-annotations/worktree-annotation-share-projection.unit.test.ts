@@ -78,7 +78,10 @@ interface MessageFixture {
 	readonly draft: { readonly body: string } | null;
 	readonly handled: boolean;
 	readonly messageId: string;
+	readonly messageRevision: number;
 	readonly savedBody: string | null;
+	readonly sessionId: string;
+	readonly sessionRevision: number;
 	readonly status: 'editable' | 'locked';
 }
 
@@ -90,7 +93,10 @@ function messageFixture(
 		draft: null,
 		handled: false,
 		messageId,
+		messageRevision: 1,
 		savedBody: `Saved body for ${messageId}`,
+		sessionId: 'session-1',
+		sessionRevision: 1,
 		status: 'editable',
 		...overrides,
 	};
