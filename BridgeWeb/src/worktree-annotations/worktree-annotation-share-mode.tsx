@@ -2,8 +2,14 @@ import { Share2 } from 'lucide-react';
 import type { KeyboardEvent, ReactElement } from 'react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert.js';
-import { Button } from '@/components/ui/button.js';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.js';
+
+import { BridgeViewerActionToolbar } from '../app/bridge-viewer-action-toolbar.js';
+import { BridgeViewerButton, BridgeViewerIcon } from '../app/bridge-viewer-button.js';
+import {
+	bridgeViewerChromeSegmentButtonClassName,
+	bridgeViewerChromeSegmentedControlClassName,
+} from '../app/bridge-viewer-chrome.js';
 
 export type WorktreeAnnotationShareScope = 'new' | 'all';
 
@@ -12,10 +18,12 @@ export function WorktreeAnnotationShareTrigger(props: {
 	readonly onOpen: () => void;
 }): ReactElement {
 	return (
-		<Button disabled={props.disabled} size="xs" variant="secondary" onClick={props.onOpen}>
-			<Share2 aria-hidden="true" data-icon="inline-start" />
+		<BridgeViewerButton disabled={props.disabled} onClick={props.onOpen}>
+			<BridgeViewerIcon>
+				<Share2 />
+			</BridgeViewerIcon>
 			Share comments
-		</Button>
+		</BridgeViewerButton>
 	);
 }
 
@@ -39,48 +47,53 @@ export function WorktreeAnnotationShareModeRow(props: {
 	};
 
 	return (
-		<section
-			aria-label="Share comments"
-			className="w-full border-y border-comment-border bg-comment-surface px-3 py-2"
-			data-testid="worktree-annotation-share-mode"
+		<BridgeViewerActionToolbar
+			ariaLabel="Share comments"
+			testId="worktree-annotation-share-mode"
 			onKeyDown={handleKeyDown}
 		>
-			<div className="flex flex-wrap items-center gap-2">
-				<p className="mr-auto text-xs font-medium text-comment-foreground">Share comments</p>
+			<div className="flex w-full flex-wrap items-center gap-2">
+				<p className="mr-auto text-[11px] font-medium text-[var(--bridge-text-primary)]">
+					Share comments
+				</p>
 				<ToggleGroup
 					aria-label="Comments to share"
 					onValueChange={(scopes): void => {
 						const nextScope = scopes[0];
 						if (nextScope === 'new' || nextScope === 'all') props.onScopeChange(nextScope);
 					}}
+					className={bridgeViewerChromeSegmentedControlClassName}
 					role="group"
 					size="sm"
 					spacing={0}
 					value={[props.scope]}
-					variant="outline"
+					variant="default"
 				>
-					<ToggleGroupItem aria-label={`New comments, ${props.newCount}`} value="new">
+					<ToggleGroupItem
+						aria-label={`New comments, ${props.newCount}`}
+						className={bridgeViewerChromeSegmentButtonClassName}
+						value="new"
+					>
 						New ({props.newCount})
 					</ToggleGroupItem>
-					<ToggleGroupItem aria-label={`All comments, ${props.allCount}`} value="all">
+					<ToggleGroupItem
+						aria-label={`All comments, ${props.allCount}`}
+						className={bridgeViewerChromeSegmentButtonClassName}
+						value="all"
+					>
 						All ({props.allCount})
 					</ToggleGroupItem>
 				</ToggleGroup>
 				<div className="flex items-center gap-1">
-					<Button
-						disabled={outputDisabled}
-						size="sm"
-						variant="secondary"
-						onClick={() => props.onCopy(props.scope)}
-					>
+					<BridgeViewerButton disabled={outputDisabled} onClick={() => props.onCopy(props.scope)}>
 						{props.isOutputPending ? 'Working…' : 'Copy Markdown'}
-					</Button>
-					<Button disabled={outputDisabled} size="sm" onClick={() => props.onExport(props.scope)}>
+					</BridgeViewerButton>
+					<BridgeViewerButton disabled={outputDisabled} onClick={() => props.onExport(props.scope)}>
 						Export JSON
-					</Button>
-					<Button disabled={props.isOutputPending} size="sm" variant="ghost" onClick={props.onDone}>
+					</BridgeViewerButton>
+					<BridgeViewerButton disabled={props.isOutputPending} onClick={props.onDone}>
 						Done
-					</Button>
+					</BridgeViewerButton>
 				</div>
 			</div>
 			{props.error === null ? null : (
@@ -88,6 +101,6 @@ export function WorktreeAnnotationShareModeRow(props: {
 					<AlertDescription>{props.error}</AlertDescription>
 				</Alert>
 			)}
-		</section>
+		</BridgeViewerActionToolbar>
 	);
 }

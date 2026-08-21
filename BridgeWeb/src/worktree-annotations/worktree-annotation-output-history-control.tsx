@@ -1,13 +1,14 @@
 import { useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
 
-import { Button } from '@/components/ui/button.js';
 import {
 	Collapsible,
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from '@/components/ui/collapsible.js';
 
+import { bridgeViewerActionToolbarSurfaceClassName } from '../app/bridge-viewer-action-toolbar.js';
+import { BridgeViewerButton } from '../app/bridge-viewer-button.js';
 import {
 	annotationOutputFeedback,
 	annotationOutputHistoryStatus,
@@ -96,15 +97,12 @@ export function WorktreeAnnotationOutputHistoryControl(): ReactElement | null {
 
 	return (
 		<Collapsible>
-			<section
-				aria-label="Output history"
-				className="border-b border-comment-border bg-comment-surface px-3 py-2"
-			>
-				<CollapsibleTrigger render={<Button size="sm" variant="ghost" />}>
+			<section aria-label="Output history" className={bridgeViewerActionToolbarSurfaceClassName}>
+				<CollapsibleTrigger render={<BridgeViewerButton />}>
 					History ({history.length})
 				</CollapsibleTrigger>
 				<CollapsibleContent className="mt-2 space-y-2">
-					<p className="text-xs text-comment-muted">
+					<p className="text-[11px] text-[var(--bridge-text-secondary)]">
 						Inspect or repeat exact durable output. History never changes comment placement.
 					</p>
 					<WorktreeAnnotationOutputHistory
@@ -132,44 +130,45 @@ function WorktreeAnnotationOutputHistory(props: {
 	return (
 		<div className="space-y-2">
 			{props.history.map((summary, attemptIndex) => (
-				<div className="rounded-md border border-comment-border p-1.5" key={summary.attemptId}>
-					<p className="text-xs font-medium">
+				<div
+					className="rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-control-bg)] p-1.5"
+					key={summary.attemptId}
+				>
+					<p className="text-[11px] font-medium text-[var(--bridge-text-primary)]">
 						{summary.outputKind === 'clipboard_markdown' ? 'Clipboard Markdown' : 'JSON file'} ·{' '}
 						{commentCountLabel(summary.messageCount)}
 					</p>
-					<p className="text-xs text-comment-muted">
+					<p className="text-[11px] text-[var(--bridge-text-secondary)]">
 						{annotationOutputHistoryStatus(summary.state, summary.outputKind)}
 					</p>
 					<div className="flex gap-1">
-						<Button
+						<BridgeViewerButton
 							aria-label={`Inspect output attempt ${attemptIndex + 1}`}
-							size="xs"
-							variant="ghost"
 							onClick={() => props.onInspect(summary.attemptId)}
 						>
 							Inspect
-						</Button>
-						<Button
+						</BridgeViewerButton>
+						<BridgeViewerButton
 							aria-label={`Repeat output attempt ${attemptIndex + 1}`}
-							disabled={props.isOutputPending || summary.state === 'prepared'}
-							size="xs"
-							variant="ghost"
+							disabled={props.isOutputPending || summary.state !== 'unknown'}
 							onClick={() => props.onRepeat(summary.attemptId)}
 						>
 							Repeat
-						</Button>
+						</BridgeViewerButton>
 						{summary.canMarkNotHandled ? (
-							<Button size="xs" variant="ghost" onClick={() => props.onMarkNotHandled(summary)}>
+							<BridgeViewerButton onClick={() => props.onMarkNotHandled(summary)}>
 								Mark as not handled
-							</Button>
+							</BridgeViewerButton>
 						) : null}
 					</div>
 					{props.inspection?.attemptId !== summary.attemptId ? null : props.inspection.kind ===
 					  'loading' ? (
-						<p className="mt-1 text-xs text-comment-muted">Loading exact bytes…</p>
+						<p className="mt-1 text-[11px] text-[var(--bridge-text-secondary)]">
+							Loading exact bytes…
+						</p>
 					) : (
 						<div className="mt-1" data-testid="annotation-output-inspection">
-							<p className="text-xs text-comment-muted">
+							<p className="text-[11px] text-[var(--bridge-text-secondary)]">
 								Exact saved output · {props.inspection.byteLength} bytes ·{' '}
 								{props.inspection.contentType}
 							</p>

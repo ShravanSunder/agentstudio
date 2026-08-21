@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
 
+import { bridgeViewerActionToolbarSurfaceClassName } from '../app/bridge-viewer-action-toolbar.js';
 import { WorktreeAnnotationOutputHistoryControl } from './worktree-annotation-output-history-control.js';
 import { annotationOutputFeedback } from './worktree-annotation-output-presentation.js';
 import {
@@ -145,14 +146,19 @@ function WorktreeAnnotationOtherSavedComments(props: {
 	return (
 		<section
 			aria-label="Other saved comments"
-			className="border-b border-comment-border bg-comment-surface px-3 py-2"
+			className={bridgeViewerActionToolbarSurfaceClassName}
 		>
-			<p className="text-xs font-medium">Other saved comments</p>
+			<p className="text-[11px] font-medium text-[var(--bridge-text-primary)]">
+				Other saved comments
+			</p>
 			{props.threads.map((thread) => (
-				<div className="mt-1 text-xs text-comment-muted" key={thread.context.threadId}>
+				<div
+					className="mt-1 text-[11px] text-[var(--bridge-text-secondary)]"
+					key={thread.context.threadId}
+				>
 					{thread.context.path}:{thread.context.startLine} · {thread.context.placement}
 					{thread.messages.map((message) => (
-						<p className="text-comment-foreground" key={message.messageId}>
+						<p className="text-[var(--bridge-text-primary)]" key={message.messageId}>
 							{message.savedBody}
 						</p>
 					))}
