@@ -333,7 +333,7 @@ authoritative setup instructions and are not bulk-rewritten.
 | `docs/guides/agent_resources.md` setup section | Replace the claim that fresh clones and linked worktrees bootstrap identically with the three-role model, failure cases, recovery, and explicit local-vendor escape hatch. `mise run setup` is the only documented hydration entry point. |
 | `docs/guides/agent_resources.md` generated-artifact table | Distinguish primary-produced outputs from linked projections/copies and correct the current false claim that `mise run build` generates them. |
 | `docs/guides/agent_resources.md` Zig guidance | State that vendor build investigation and the Xcode/Zig workaround apply to the primary, standalone CI, and explicit local-vendor worktrees, not shared linked consumers. |
-| `docs/architecture/session_lifecycle.md` actionable vendor-source note | Direct source verification to the primary worktree when the current checkout is linked and unhydrated. |
+| `docs/architecture/runtime/session_lifecycle.md` actionable vendor-source note | Direct source verification to the primary worktree when the current checkout is linked and unhydrated. |
 | `docs/debugging/zmx-environment-isolation.md` actionable local zmx commands | Describe the stable linked projection path and primary preparation prerequisite. Historical investigation evidence remains unchanged. |
 | `Sources/AgentStudio/Resources/terminfo-src/xterm-256color.src` comments | Replace stale build-script wording with primary-generated versus tracked-resource ownership. |
 

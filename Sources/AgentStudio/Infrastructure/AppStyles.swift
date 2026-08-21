@@ -1,6 +1,6 @@
 // Native design-system source of truth. Keep its convention-based correlation with
 // BridgeWeb/src/app/bridge-app.css aligned through
-// docs/architecture/bridgeweb_design_token_architecture.md.
+// docs/architecture/bridge/bridgeweb_design_token_architecture.md.
 
 import SwiftUI
 
@@ -97,6 +97,7 @@ package enum AppStyles {
 
     package enum Shell {
         package enum Sidebar {
+            package static let pendingFactsSymbolEffectSpeed = 0.35
             package static let statusUnavailableForegroundOpacity: CGFloat = 0.7
             package static let minimumWidth: CGFloat = 200
             package static let shadowOpacity: CGFloat = 0
@@ -107,15 +108,16 @@ package enum AppStyles {
             package static let rowVerticalInset: CGFloat = 6
             package static let listRowLeadingInset: CGFloat = 2
             package static let groupIconSize: CGFloat = 14
-            package static let groupIconColumnWidth: CGFloat = 18
-            package static let groupIconTitleSpacing: CGFloat = AppStyles.General.Spacing.standard
+            package static let groupIconTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
             package static let rowLeadingIconColumnWidth: CGFloat = AppStyles.General.Typography.textBase
+            package static let groupIconColumnWidth: CGFloat = rowLeadingIconColumnWidth
+            package static let rowIdentityIconSize: CGFloat = 11
             package static let sectionHeaderChevronColumnWidth: CGFloat = AppStyles.General.Typography.textBase
-            package static let sectionHeaderChevronLabelSpacing: CGFloat = AppStyles.General.Spacing.tight
+            package static let sectionHeaderChevronLabelSpacing: CGFloat = groupIconTitleSpacing
             package static let groupOrganizationFontSize: CGFloat = AppStyles.General.Typography.textSm
             package static let groupTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
             package static let groupOrganizationMaxWidth: CGFloat = 120
-            package static let worktreeIconSize: CGFloat = 11
+            package static let worktreeIconSize: CGFloat = rowIdentityIconSize
             package static let branchIconSize: CGFloat = 10
             package static let branchFontSize: CGFloat = AppStyles.General.Typography.textSm
             package static let rowHorizontalInset: CGFloat = AppStyles.General.Spacing.tight / 2
@@ -137,6 +139,7 @@ package enum AppStyles {
             package static let chipVerticalPadding: CGFloat = 2
             package static let chipFontSize: CGFloat = AppStyles.General.Typography.textXs
             package static let chipIconSize: CGFloat = 8
+            package static let chipLineHeight: CGFloat = chipFontSize + (chipVerticalPadding * 2)
             package static let syncChipIconSize: CGFloat = 7
             package static let chipBackgroundOpacity: CGFloat = AppStyles.General.Fill.hover
             package static let chipBorderOpacity: CGFloat = AppStyles.General.Fill.muted
@@ -179,10 +182,16 @@ package enum AppStyles {
                 package static let hoverFillOpacity = AppStyles.General.Fill.hover
                 package static let pressedFillOpacity = AppStyles.General.Fill.pressed
                 package static let activeFillOpacity = AppStyles.General.Fill.active
+                package static let segmentedControlSpacing: CGFloat = 1
+                package static let segmentedControlPadding: CGFloat = 2
                 package static let groupingContentSpacing = AppStyles.General.Spacing.tight
                 package static let groupingHorizontalPadding = AppStyles.General.Spacing.standard
                 package static let groupingLabelMinimumWidth: CGFloat = 32
                 package static let groupingChevronSize: CGFloat = 8
+                package static let selectionTransitionDuration = AppStyles.General.Animation.standard
+                package static let labelRevealDelay = selectionTransitionDuration
+                package static let labelRevealDuration = AppStyles.General.Animation.fast
+                package static let labelSlideDistance = AppStyles.General.Spacing.tight
                 package static let dividerHeight: CGFloat = 16
                 package static let popoverRowCornerRadius = AppStyles.General.CornerRadius.button
                 package static let popoverRowHorizontalPadding = AppStyles.General.Spacing.standard
@@ -192,16 +201,28 @@ package enum AppStyles {
 
             package static let groupChildRowLeadingInset: CGFloat =
                 listRowLeadingInset
-                + AppStyles.General.Typography.textBase
-                + AppStyles.General.Spacing.tight
+                + sectionHeaderChevronColumnWidth
+                + sectionHeaderChevronLabelSpacing
 
             package static let statusRowLeadingIndent: CGFloat =
-                rowLeadingIconColumnWidth + AppStyles.General.Spacing.tight
+                rowLeadingIconColumnWidth + groupIconTitleSpacing
 
             package static let chipInfoColor = Color(red: 0.47, green: 0.69, blue: 0.96)
+            package static let recencyMediumBlue = Color(red: 0.55, green: 0.68, blue: 0.84)
+            package static let recencyMutedBlue = Color(red: 0.56, green: 0.64, blue: 0.75)
+            package static let recencyFaintBlue = Color(red: 0.57, green: 0.61, blue: 0.66)
             package static let chipSuccessColor = Color(red: 0.42, green: 0.84, blue: 0.50)
             package static let chipWarningColor = Color(red: 0.93, green: 0.71, blue: 0.34)
             package static let chipDangerColor = Color(red: 0.93, green: 0.41, blue: 0.41)
+            // Anchor rule (SIDEBAR-VISUAL-CONTRACT.md): By Repo's palette is the reference; other
+            // surfaces synchronize to it. By Repo's second-line text (branch/placement lines
+            // rendered through SidebarMetadataLine) uses SidebarMetadataProminence.secondary,
+            // whose color is the system Color.secondary with no opacity modifier. Reference that
+            // same system token directly here rather than a custom accent-derived value, so the
+            // tab-group header icon matches the exact shade By Repo's own text lines already use.
+            // (SharedComponents cannot be imported from Infrastructure, so this points at the
+            // shared underlying system color rather than at SidebarMetadataProminence itself.)
+            package static let tabGroupIconColor = Color.secondary
             package static let accentPaletteHexes: [String] = [
                 "#F5C451",
                 "#58C4FF",
@@ -210,13 +231,21 @@ package enum AppStyles {
                 "#FB923C",
                 "#F472B6",
             ]
-
             package static func paletteColor(at index: Int) -> Color {
                 let hex =
                     accentPaletteHexes.indices.contains(index)
                     ? accentPaletteHexes[index]
                     : accentPaletteHexes.first ?? ""
                 return Color(nsColor: NSColor(hex: hex) ?? AppStyles.General.Accent.primaryNSColor)
+            }
+
+            /// The automatic checkout palette's first color (`accentPaletteHexes[0]`, a yellow/gold
+            /// accent). `RepoPresentationGrouping.checkoutColorHex` resolves every singleton-worktree
+            /// repo to this same entry, which is what By Repo's favorite-star icon renders for the
+            /// common case. Anchor rule (SIDEBAR-VISUAL-CONTRACT.md): other surfaces reference this
+            /// same token rather than duplicating the hex literal.
+            package static var checkoutDefaultAccentColor: Color {
+                paletteColor(at: 0)
             }
         }
 
@@ -288,6 +317,10 @@ package enum AppStyles {
             package static let labeledActionTrailingPadding: CGFloat = AppStyles.General.Spacing.standard
             package static let dividerHeight: CGFloat = 16
             package static let dividerHorizontalPadding = AppStyles.General.Spacing.standard
+            package static let statusClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
+            package static let statusValueSpacing: CGFloat = AppStyles.General.Spacing.tight
+            package static let statusIconSize: CGFloat = AppStyles.General.Typography.textSm
+            package static let statusFontSize: CGFloat = AppStyles.General.Typography.textXs
         }
 
         package enum ManagementLayer {
@@ -403,6 +436,12 @@ package enum AppStyles {
             package static let horizontalPadding: CGFloat = 12
             package static let topPadding: CGFloat = AppStyles.General.Spacing.loose
             package static let bottomPadding: CGFloat = AppStyles.General.Spacing.tight
+        }
+
+        package enum PaneNote {
+            package static let minimumWidth: CGFloat = 380
+            package static let minimumHeight: CGFloat = 220
+            package static let paneSizeRatio: CGFloat = 0.60
         }
 
         package enum EditorChooser {

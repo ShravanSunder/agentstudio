@@ -97,8 +97,8 @@ package enum WorkspaceActionCommand: Equatable, Hashable {
 
     /// Move a tab by a relative delta (positive=right, negative=left).
     case moveTab(tabId: UUID, delta: Int)
-    /// Move a tab to an absolute tab-bar index.
-    case reorderTab(tabId: UUID, newIndex: Int)
+    /// Move a tab to a pre-removal tab-bar insertion slot.
+    case reorderTab(tabId: UUID, insertionIndex: Int)
 
     /// Resize a pane by keyboard delta (Ghostty's resize_split action).
     case resizePaneByDelta(

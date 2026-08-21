@@ -1,5 +1,11 @@
 import Observation
 
+package enum RepoSidebarGroupingMode: String, CaseIterable, Codable, Hashable, Sendable {
+    case repo
+    case pane
+    case tab
+}
+
 @MainActor
 @Observable
 package final class WorkspaceSidebarMemoryAtom {
@@ -7,6 +13,7 @@ package final class WorkspaceSidebarMemoryAtom {
     private(set) var isFilterVisible: Bool = false
     private(set) var sidebarCollapsed: Bool = false
     private(set) var sidebarSurface: SidebarSurface = .repos
+    private(set) var repoGroupingMode: RepoSidebarGroupingMode = .repo
 
     func setFilterText(_ text: String) {
         filterText = text
@@ -24,16 +31,22 @@ package final class WorkspaceSidebarMemoryAtom {
         sidebarSurface = surface
     }
 
+    func setRepoGroupingMode(_ groupingMode: RepoSidebarGroupingMode) {
+        repoGroupingMode = groupingMode
+    }
+
     func hydrate(
         filterText: String,
         isFilterVisible: Bool,
         sidebarCollapsed: Bool = false,
-        sidebarSurface: SidebarSurface = .repos
+        sidebarSurface: SidebarSurface = .repos,
+        repoGroupingMode: RepoSidebarGroupingMode = .repo
     ) {
         self.filterText = filterText
         self.isFilterVisible = isFilterVisible
         self.sidebarCollapsed = sidebarCollapsed
         self.sidebarSurface = sidebarSurface
+        self.repoGroupingMode = repoGroupingMode
     }
 
     func clear() {
@@ -41,6 +54,7 @@ package final class WorkspaceSidebarMemoryAtom {
         isFilterVisible = false
         sidebarCollapsed = false
         sidebarSurface = .repos
+        repoGroupingMode = .repo
     }
 }
 
@@ -88,6 +102,10 @@ package final class WorkspaceSidebarState {
         memoryAtom.sidebarSurface
     }
 
+    package var repoGroupingMode: RepoSidebarGroupingMode {
+        memoryAtom.repoGroupingMode
+    }
+
     package var sidebarHasFocus: Bool {
         focusAtom.sidebarHasFocus
     }
@@ -108,6 +126,10 @@ package final class WorkspaceSidebarState {
         memoryAtom.setSidebarSurface(surface)
     }
 
+    package func setRepoGroupingMode(_ groupingMode: RepoSidebarGroupingMode) {
+        memoryAtom.setRepoGroupingMode(groupingMode)
+    }
+
     package func setSidebarHasFocus(_ hasFocus: Bool) {
         focusAtom.setSidebarHasFocus(hasFocus)
     }
@@ -116,13 +138,15 @@ package final class WorkspaceSidebarState {
         filterText: String,
         isFilterVisible: Bool,
         sidebarCollapsed: Bool = false,
-        sidebarSurface: SidebarSurface = .repos
+        sidebarSurface: SidebarSurface = .repos,
+        repoGroupingMode: RepoSidebarGroupingMode = .repo
     ) {
         memoryAtom.hydrate(
             filterText: filterText,
             isFilterVisible: isFilterVisible,
             sidebarCollapsed: sidebarCollapsed,
-            sidebarSurface: sidebarSurface
+            sidebarSurface: sidebarSurface,
+            repoGroupingMode: repoGroupingMode
         )
         focusAtom.clear()
     }

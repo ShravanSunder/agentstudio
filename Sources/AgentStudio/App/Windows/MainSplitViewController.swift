@@ -14,6 +14,7 @@ struct SidebarRootViewDependencies {
     let sidebarCache: SidebarCacheState
     let inboxSidebarState: InboxSidebarState
     let inboxAtom: InboxNotificationAtom
+    let paneActivityStatusAtom: PaneActivityStatusAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let repoCache: RepoCacheAtom
     let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
@@ -49,6 +50,7 @@ class MainSplitViewController: NSSplitViewController {
                 sidebarCache: dependencies.sidebarCache,
                 inboxSidebarState: dependencies.inboxSidebarState,
                 inboxAtom: dependencies.inboxAtom,
+                paneActivityStatusAtom: dependencies.paneActivityStatusAtom,
                 prefsAtom: dependencies.prefsAtom,
                 repoCache: dependencies.repoCache,
                 repoExplorerSidebarPrefs: dependencies.repoExplorerSidebarPrefs,
@@ -235,6 +237,7 @@ class MainSplitViewController: NSSplitViewController {
                 sidebarCache: atom(\.sidebarCache),
                 inboxSidebarState: inboxSidebarState,
                 inboxAtom: inboxAtom,
+                paneActivityStatusAtom: atom(\.paneActivityStatus),
                 prefsAtom: inboxPrefsAtom,
                 repoCache: repoCache,
                 repoExplorerSidebarPrefs: repoExplorerSidebarPrefs,

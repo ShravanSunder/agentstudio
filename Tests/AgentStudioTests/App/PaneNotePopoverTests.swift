@@ -1,9 +1,59 @@
+import AgentStudioInfrastructure
+import AppKit
 import Testing
 
 @testable import AgentStudio
 
 @Suite
 struct PaneNotePopoverTests {
+    @Test("toolbar-anchored presentation preserves the requested pane identity until consumed")
+    @MainActor
+    func toolbarAnchoredPresentationRoutesByPaneIdentity() throws {
+        let presentation = PaneNotePresentation.toolbarAnchored()
+        let paneId = UUIDv7.generate()
+
+        presentation.present(paneId)
+
+        let request = try #require(presentation.pendingRequest())
+        #expect(request.paneId == paneId)
+        presentation.clearRequest(request)
+        #expect(presentation.pendingRequest() == nil)
+    }
+
+    @Test("popover uses sixty percent of the pane with existing dimensions as minimums")
+    @MainActor
+    func preferredSizeUsesPaneRatioAndMinimums() {
+        #expect(PaneNotePopover.preferredSize(owningPaneSize: nil) == CGSize(width: 380, height: 220))
+        #expect(
+            PaneNotePopover.preferredSize(owningPaneSize: CGSize(width: 1000, height: 800))
+                == CGSize(width: 600, height: 480)
+        )
+    }
+
+    @Test("multiline note Return inserts a newline while rename Return commits")
+    @MainActor
+    func returnBehaviorRespectsMultilineMode() {
+        let noteView = RenameWrappingTextView(frame: .zero)
+        noteView.allowsNewlines = true
+        noteView.string = "First"
+        noteView.setSelectedRange(NSRange(location: noteView.string.utf16.count, length: 0))
+        var noteCommitCount = 0
+        noteView.onCommit = { noteCommitCount += 1 }
+
+        noteView.insertNewline(nil)
+
+        #expect(noteView.string == "First\n")
+        #expect(noteCommitCount == 0)
+
+        let renameView = RenameWrappingTextView(frame: .zero)
+        var renameCommitCount = 0
+        renameView.onCommit = { renameCommitCount += 1 }
+
+        renameView.insertNewline(nil)
+
+        #expect(renameCommitCount == 1)
+    }
+
     @Test("cancel never commits edited text")
     func cancelNeverCommitsEditedText() {
         var draft = PaneNotePopoverDraft(currentNote: "Before")

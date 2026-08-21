@@ -21,6 +21,17 @@ package actor ForgeActor {
         var pendingFollowUpEligibleAt: Duration?
         var consecutiveFailureCount = 0
         var lastPublishedFactsByBranch: [String: PullRequestFacts]?
+        /// Consecutive non-`.complete` provider outcomes (truncated, rate
+        /// limited, or failed), independent of `consecutiveFailureCount`
+        /// which drives `.failed`-specific backoff timing. Crossing
+        /// `AppPolicies.Forge.consecutiveFailureHonestyThreshold` resolves
+        /// this repository to terminal-unavailable.
+        var consecutiveUnsuccessfulAttempts = 0
+        /// True once a terminal `.pullRequestsUnavailable` fact has been
+        /// emitted for the repository's current origin generation. Guards
+        /// against re-emitting on every subsequent failure; cleared whenever
+        /// a fresh origin arrives or a query succeeds.
+        var hasEmittedUnavailable = false
     }
 
     private struct ProviderRequest: Sendable {
@@ -190,6 +201,8 @@ package actor ForgeActor {
         state.pendingFollowUpRequiresRefresh = false
         state.pendingFollowUpEligibleAt = nil
         state.consecutiveFailureCount = 0
+        state.consecutiveUnsuccessfulAttempts = 0
+        state.hasEmittedUnavailable = false
         state.lastPublishedFactsByBranch = nil
         refreshStateByRepoId[repoId] = state
 
@@ -363,8 +376,17 @@ package actor ForgeActor {
         rescheduleDeadline()
     }
 
+    /// Confirms a repository has no resolvable git remote. This is a terminal
+    /// outcome, not a mid-flight invalidation: no automatic query will ever
+    /// fire again for this repo (an empty origin fails the `requestRefreshIfDemanded`
+    /// origin guard), so the repo must resolve to unavailable rather than
+    /// stay pending forever. Runs on both the very first time a worktree with
+    /// no remote is seen (state did not exist yet) and on later loss of a
+    /// previously known origin; either way the terminal fact is emitted at
+    /// most once per transition into this state.
     private func clearOrigin(repoId: UUID) async {
-        guard var state = refreshStateByRepoId[repoId], state.origin != nil else { return }
+        var state = refreshStateByRepoId[repoId] ?? RepositoryRefreshState()
+        guard state.origin != nil || !state.hasEmittedUnavailable else { return }
         cancelProviderRequest(repoId: repoId)
         state.generation &+= 1
         state.origin = nil
@@ -376,12 +398,14 @@ package actor ForgeActor {
         state.pendingFollowUpRequiresRefresh = false
         state.pendingFollowUpEligibleAt = nil
         state.consecutiveFailureCount = 0
+        state.consecutiveUnsuccessfulAttempts = 0
         state.lastPublishedFactsByBranch = nil
+        state.hasEmittedUnavailable = true
         refreshStateByRepoId[repoId] = state
         await emitForgeEvent(
             repoId: repoId,
             correlationId: nil,
-            event: .pullRequestRepositoryInvalidated(repoId: repoId)
+            event: .pullRequestsUnavailable(repoId: repoId)
         )
         rescheduleDeadline()
     }
@@ -459,9 +483,85 @@ package actor ForgeActor {
 
         let statusProvider = self.statusProvider
         providerTasksByRepoId[repoId] = Task { [weak self, statusProvider] in
-            let outcome = await statusProvider.pullRequests(origin: request.origin)
             guard let self else { return }
+            await self.providerRequestDidStart(request)
+            let outcome = await statusProvider.pullRequests(origin: request.origin)
             await self.completeProviderRequest(request, outcome: outcome)
+        }
+    }
+
+    private func providerRequestDidStart(_ request: ProviderRequest) async {
+        guard !isShuttingDown,
+            let state = refreshStateByRepoId[request.repoId],
+            state.activeRequestId == request.id,
+            state.generation == request.generation,
+            state.origin == request.origin
+        else { return }
+        await emitForgeEvent(
+            repoId: request.repoId,
+            correlationId: request.correlationId,
+            event: .pullRequestRefreshStateChanged(repoId: request.repoId, isLoading: true)
+        )
+    }
+
+    /// Applies one provider outcome to `state` and returns the per-outcome
+    /// fact to publish, if any. Does not touch the shared honesty-threshold
+    /// bookkeeping (`hasEmittedUnavailable`); the caller applies that
+    /// uniformly across all outcome kinds after this returns.
+    private func applyOutcome(
+        _ outcome: ForgePullRequestQueryOutcome,
+        to state: inout RepositoryRefreshState,
+        request: ProviderRequest,
+        completionTime: Duration
+    ) -> ForgeEvent? {
+        switch outcome {
+        case .complete(let pullRequests):
+            state.lastSuccessfulRefreshAt = completionTime
+            state.backoffUntil = nil
+            state.consecutiveFailureCount = 0
+            state.consecutiveUnsuccessfulAttempts = 0
+            state.hasEmittedUnavailable = false
+            let stillRepresentedRequestedBranches = request.demandedBranches.intersection(
+                representedBranches(repoId: request.repoId)
+            )
+            let factsByBranch = ForgePullRequestFactsProjector.project(
+                pullRequests: pullRequests,
+                demandedBranches: stillRepresentedRequestedBranches
+            )
+            let factsChanged = state.lastPublishedFactsByBranch != factsByBranch
+            state.lastPublishedFactsByBranch = factsByBranch
+            if !factsChanged {
+                recordForgeOutcome(stage: "facts_publication", outcome: "equal")
+            }
+            return factsChanged
+                ? .pullRequestsChanged(repoId: request.repoId, factsByBranch: factsByBranch)
+                : nil
+        case .truncated:
+            state.consecutiveUnsuccessfulAttempts += 1
+            state.backoffUntil = minimumRetryAt(state: state, completionTime: completionTime)
+            return .refreshFailed(
+                repoId: request.repoId,
+                error: "GitHub pull request result reached the 200-item cap"
+            )
+        case .rateLimited(let retryAfterSeconds):
+            state.consecutiveUnsuccessfulAttempts += 1
+            let retryAfterDeadline = retryAfterSeconds.map {
+                completionTime + .seconds(Int64($0))
+            }
+            state.backoffUntil = max(
+                minimumRetryAt(state: state, completionTime: completionTime),
+                retryAfterDeadline ?? .zero
+            )
+            return .rateLimited(repoId: request.repoId, retryAfterSeconds: retryAfterSeconds)
+        case .failed(let message):
+            state.consecutiveFailureCount += 1
+            state.consecutiveUnsuccessfulAttempts += 1
+            state.backoffUntil =
+                completionTime
+                + AppPolicies.ForgeRefresh.failureBackoffDelay(
+                    forConsecutiveFailureCount: state.consecutiveFailureCount
+                )
+            return .refreshFailed(repoId: request.repoId, error: message)
         }
     }
 
@@ -482,61 +582,49 @@ package actor ForgeActor {
         providerTasksByRepoId.removeValue(forKey: request.repoId)
         state.activeRequestId = nil
         let completionTime = monotonicNow()
-        var event: ForgeEvent?
+        let event = applyOutcome(outcome, to: &state, request: request, completionTime: completionTime)
 
-        switch outcome {
-        case .complete(let pullRequests):
-            state.lastSuccessfulRefreshAt = completionTime
-            state.backoffUntil = nil
-            state.consecutiveFailureCount = 0
-            let stillRepresentedRequestedBranches = request.demandedBranches.intersection(
-                representedBranches(repoId: request.repoId)
-            )
-            let factsByBranch = ForgePullRequestFactsProjector.project(
-                pullRequests: pullRequests,
-                demandedBranches: stillRepresentedRequestedBranches
-            )
-            let factsChanged = state.lastPublishedFactsByBranch != factsByBranch
-            state.lastPublishedFactsByBranch = factsByBranch
-            if !factsChanged {
-                recordForgeOutcome(stage: "facts_publication", outcome: "equal")
-            }
-            event =
-                factsChanged
-                ? .pullRequestsChanged(repoId: request.repoId, factsByBranch: factsByBranch)
-                : nil
-        case .truncated:
-            state.backoffUntil = minimumRetryAt(state: state, completionTime: completionTime)
-            event = .refreshFailed(
-                repoId: request.repoId,
-                error: "GitHub pull request result reached the 200-item cap"
-            )
-        case .rateLimited(let retryAfterSeconds):
-            let retryAfterDeadline = retryAfterSeconds.map {
-                completionTime + .seconds(Int64($0))
-            }
-            state.backoffUntil = max(
-                minimumRetryAt(state: state, completionTime: completionTime),
-                retryAfterDeadline ?? .zero
-            )
-            event = .rateLimited(repoId: request.repoId, retryAfterSeconds: retryAfterSeconds)
-        case .failed(let message):
-            state.consecutiveFailureCount += 1
-            state.backoffUntil =
-                completionTime
-                + AppPolicies.ForgeRefresh.failureBackoffDelay(
-                    forConsecutiveFailureCount: state.consecutiveFailureCount
-                )
-            event = .refreshFailed(repoId: request.repoId, error: message)
+        // Bounded retries keep running at the normal backoff cadence past this
+        // point; only the row's honesty signal changes. Emit the terminal fact
+        // once per crossing so a still-loading UI never lies about "pending".
+        let shouldEmitUnavailable =
+            !state.hasEmittedUnavailable
+            && state.consecutiveUnsuccessfulAttempts >= AppPolicies.Forge.consecutiveFailureHonestyThreshold
+        if shouldEmitUnavailable {
+            state.hasEmittedUnavailable = true
+            // The unavailable transition discards the repository's cached facts on
+            // RepoCacheAtom's side (see markPullRequestsUnavailable). Forget this actor's own
+            // last-published baseline too, so a later success resolving to the exact same facts
+            // as before the outage is not equal-content-suppressed and still republishes — the
+            // same forced-recovery pattern clearOrigin/setOrigin already apply for origin
+            // transitions.
+            state.lastPublishedFactsByBranch = nil
         }
 
         refreshStateByRepoId[request.repoId] = state
-        if let event {
-            await emitForgeEvent(
-                repoId: request.repoId,
-                correlationId: request.correlationId,
-                event: event
-            )
+        // Commit the accepted completion before the external bus await. ForgeActor is
+        // reentrant across that await, and a concurrent manual refresh must observe the
+        // completed request rather than append a follow-up to stale active-request state.
+        await emitForgeEvent(
+            repoId: request.repoId,
+            correlationId: request.correlationId,
+            event: .pullRequestRefreshStateChanged(repoId: request.repoId, isLoading: false)
+        )
+        if requestRemainsCurrentForResultPublication(request) {
+            if let event {
+                await emitForgeEvent(
+                    repoId: request.repoId,
+                    correlationId: request.correlationId,
+                    event: event
+                )
+            }
+            if shouldEmitUnavailable {
+                await emitForgeEvent(
+                    repoId: request.repoId,
+                    correlationId: request.correlationId,
+                    event: .pullRequestsUnavailable(repoId: request.repoId)
+                )
+            }
         }
 
         guard var currentState = refreshStateByRepoId[request.repoId],
@@ -569,6 +657,16 @@ package actor ForgeActor {
             }
         }
         rescheduleDeadline()
+    }
+
+    private func requestRemainsCurrentForResultPublication(_ request: ProviderRequest) -> Bool {
+        guard !isShuttingDown,
+            let currentState = refreshStateByRepoId[request.repoId],
+            currentState.generation == request.generation,
+            currentState.origin == request.origin
+        else { return false }
+
+        return demandedBranches(repoId: request.repoId) == request.demandedBranches
     }
 
     private func minimumRetryAt(

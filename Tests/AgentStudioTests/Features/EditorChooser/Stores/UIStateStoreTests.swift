@@ -20,6 +20,7 @@ struct UIStateStoreTests {
         atom.setFilterVisible(true)
         atom.setSidebarCollapsed(true)
         atom.setSidebarSurface(.inbox)
+        atom.setRepoGroupingMode(.tab)
         atom.setSidebarHasFocus(true)
 
         try await store.flushAsync(for: workspaceId)
@@ -30,6 +31,7 @@ struct UIStateStoreTests {
         #expect(restoredAtom.isFilterVisible)
         #expect(restoredAtom.sidebarCollapsed)
         #expect(restoredAtom.sidebarSurface == .inbox)
+        #expect(restoredAtom.repoGroupingMode == .tab)
         #expect(restoredAtom.sidebarHasFocus == false)
     }
 
@@ -42,6 +44,7 @@ struct UIStateStoreTests {
         atom.setFilterVisible(true)
         atom.setSidebarCollapsed(true)
         atom.setSidebarSurface(.inbox)
+        atom.setRepoGroupingMode(.pane)
         atom.setSidebarHasFocus(true)
 
         await UIStateStore(
@@ -53,6 +56,7 @@ struct UIStateStoreTests {
         #expect(atom.isFilterVisible == false)
         #expect(atom.sidebarCollapsed == false)
         #expect(atom.sidebarSurface == .repos)
+        #expect(atom.repoGroupingMode == .repo)
         #expect(atom.sidebarHasFocus == false)
     }
 
@@ -62,6 +66,7 @@ struct UIStateStoreTests {
         let atom = WorkspaceSidebarState()
         atom.setFilterText("stale")
         atom.setSidebarSurface(.inbox)
+        atom.setRepoGroupingMode(.pane)
         var reportedRecoveries: [PersistenceRecoveryEvent] = []
 
         await UIStateStore(
@@ -74,6 +79,7 @@ struct UIStateStoreTests {
 
         #expect(atom.filterText.isEmpty)
         #expect(atom.sidebarSurface == .repos)
+        #expect(atom.repoGroupingMode == .repo)
         #expect(
             reportedRecoveries.contains { recovery in
                 recovery.store == .uiState
@@ -99,12 +105,14 @@ struct UIStateStoreTests {
 
         atom.setFilterText("terminal")
         atom.setSidebarSurface(.inbox)
+        atom.setRepoGroupingMode(.tab)
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(10))
 
         await assertEventuallyMain("sidebar state should autosave") {
             guard let state = try? fixture.repository.fetchSidebarState() else { return false }
             return state.filterText == "terminal" && state.sidebarSurface == .inbox
+                && state.repoGroupingMode == .tab
         }
     }
 

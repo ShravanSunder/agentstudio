@@ -13,7 +13,7 @@ protocol WorkspaceCommandHandling: AnyObject {
     func canExecute(_ command: AppCommand) -> Bool
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func bridgePaneCommandTarget(worktreeId: UUID) -> BridgePaneCommandTarget?
-    func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?)
+    func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabInsertionIndex: Int?)
     func executeMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)
     func executeQuickOpenDirectory(_ directory: URL, placement: QuickOpenDirectoryPlacement)
     func repoExplorerCommandCapabilities(

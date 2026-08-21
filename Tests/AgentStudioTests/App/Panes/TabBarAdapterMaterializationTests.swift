@@ -365,7 +365,7 @@ final class TabBarAdapterMaterializationTests {
         )
         let initialProjectionCount = projectionController.projectionCount
 
-        store.moveTab(fromId: thirdTab.id, toIndex: 0)
+        store.moveTab(fromId: thirdTab.id, insertionIndex: 0)
 
         #expect(
             await waitForOutput {

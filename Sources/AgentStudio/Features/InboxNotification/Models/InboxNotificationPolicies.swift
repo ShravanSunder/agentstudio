@@ -11,6 +11,15 @@ enum InboxNotificationTextPolicy {
         case processSpawnBlocked
     }
 
+    /// The body generic terminal-activity notifications carry. It restates the notification kind and tells the
+    /// reader nothing, so surfaces that quote a notification's own words treat it as absent.
+    static let genericActivityBody = "Output appeared while you were away"
+
+    static func contentBearingBody(_ body: String?) -> String? {
+        guard let body = body.trimmedNonEmpty, body != genericActivityBody else { return nil }
+        return body
+    }
+
     static func bounded(title: String, body: String?) -> (title: String, body: String?) {
         let boundedTitle = limited(
             title.trimmedNonEmpty ?? title,

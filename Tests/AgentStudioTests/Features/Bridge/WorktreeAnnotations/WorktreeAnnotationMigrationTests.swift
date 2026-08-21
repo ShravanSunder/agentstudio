@@ -149,7 +149,7 @@ struct WorktreeAnnotationMigrationTests {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrator.migrate(
             databaseQueue,
-            upTo: "005_create_worktree_annotation_schema"
+            upTo: "006_create_worktree_annotation_schema"
         )
         let sessionId = UUIDv7.generate().uuidString
         let threadId = UUIDv7.generate().uuidString

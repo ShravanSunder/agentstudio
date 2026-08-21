@@ -14,6 +14,19 @@ package struct KeyboardRoutingContext: Equatable, Sendable {
         self.activeSurface = activeSurface
         self.workspaceWindowId = workspaceWindowId
     }
+
+    /// True only when the main pane chain itself genuinely owns keyboard input right now: the
+    /// workspace window is key, the management layer is inactive, the sidebar is not focused, and
+    /// no transient surface (command bar, arrangement panel, rename field, etc.) is presented.
+    /// Package-level accessor so callers outside Core (e.g. the RepoExplorer sidebar's active-pane
+    /// composition) can gate on this exact fact without `ActiveKeyboardSurface`/`KeyboardOwner`
+    /// case matching being exposed more broadly than this one check needs.
+    package var isStableMainWindowChain: Bool {
+        if case .stable(.mainWindowChain) = activeSurface {
+            return true
+        }
+        return false
+    }
 }
 
 extension KeyboardRoutingContext {

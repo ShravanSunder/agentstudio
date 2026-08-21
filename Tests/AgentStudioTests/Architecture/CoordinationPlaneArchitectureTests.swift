@@ -429,11 +429,11 @@ struct CoordinationPlaneArchitectureTests {
             encoding: .utf8
         )
         let runtimeArchitectureSource = try String(
-            contentsOf: projectRoot.appending(path: "docs/architecture/pane_runtime_architecture.md"),
+            contentsOf: projectRoot.appending(path: "docs/architecture/runtime/pane_runtime_architecture.md"),
             encoding: .utf8
         )
         let eventBusDesignSource = try String(
-            contentsOf: projectRoot.appending(path: "docs/architecture/pane_runtime_eventbus_design.md"),
+            contentsOf: projectRoot.appending(path: "docs/architecture/runtime/pane_runtime_eventbus_design.md"),
             encoding: .utf8
         )
 

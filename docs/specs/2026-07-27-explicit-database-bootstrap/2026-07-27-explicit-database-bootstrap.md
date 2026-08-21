@@ -457,9 +457,9 @@ The implementation plan must provide:
 Implementation must update:
 
 - `AGENTS.md` component ownership and boot contract;
-- `docs/architecture/workspace_data_architecture.md` preparation order and
+- `docs/architecture/state/workspace_data_architecture.md` preparation order and
   core/local failure semantics;
-- `docs/architecture/component_architecture.md` datastore, factory, store, and
+- `docs/architecture/structure/component_architecture.md` datastore, factory, store, and
   repository boundaries;
 - stale boot comments that imply RepoCache is the local bundle opener;
 - stale global-versus-workspace local-row descriptions.

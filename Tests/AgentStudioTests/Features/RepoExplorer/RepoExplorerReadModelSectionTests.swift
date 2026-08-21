@@ -27,8 +27,8 @@ extension RepoExplorerReadModelTests {
         #expect(rowIndex.entries.map(\.id) == ["section-header:tabs"])
     }
 
-    @Test("all grouping modes keep their normal section header after favorites")
-    func allGroupingModesKeepTheirNormalSectionHeaderAfterFavorites() {
+    @Test("repository-owned modes keep empty normal sections while By Tab keeps stored tab order")
+    func groupingModesKeepTheirOwnedSectionShape() {
         let repoId = UUIDv7.generate()
         let favoriteWorktree = worktree(repoId: repoId)
         let favoriteRepository = repo(
@@ -78,12 +78,14 @@ extension RepoExplorerReadModelTests {
 
         #expect(projections[0].sections.map(\.kind) == [.favorites, .repositories])
         #expect(projections[1].sections.map(\.kind) == [.favorites, .panes])
-        #expect(projections[2].sections.map(\.kind) == [.favorites, .tabs])
-        #expect(projections.allSatisfy { $0.sections.last?.resolvedGroups.isEmpty == true })
+        #expect(projections[2].sections.map(\.kind) == [.tabs])
+        #expect(projections[0].sections.last?.resolvedGroups.isEmpty == true)
+        #expect(projections[1].sections.last?.resolvedGroups.isEmpty == true)
+        #expect(projections[2].sections[0].resolvedGroups.map(\.id) == ["tab:\(tabId.uuidString)"])
     }
 
-    @Test("tab favorites are a top-level partition instead of nested section headers")
-    func tabFavoritesAreTopLevelInsteadOfNestedSectionHeaders() {
+    @Test("By Tab does not split panes by repository favorite state")
+    func tabFavoritesDoNotPartitionPaneRows() {
         let favoriteRepoId = UUIDv7.generate()
         let regularRepoId = UUIDv7.generate()
         let favoriteWorktree = worktree(repoId: favoriteRepoId, name: "favorite")
@@ -135,35 +137,16 @@ extension RepoExplorerReadModelTests {
             isFiltering: false
         )
 
-        #expect(projection.sections.map(\.kind) == [.favorites, .tabs])
-        #expect(rowIndex.entries.first?.id == "section-header:favorites")
+        #expect(projection.sections.map(\.kind) == [.tabs])
+        #expect(rowIndex.entries.first?.id == "section-header:tabs")
         #expect(rowIndex.entries.allSatisfy { !$0.id.hasPrefix("group-section-header:") })
         #expect(
             rowIndex.entries.compactMap { entry -> UUID? in
-                guard case .resolvedWorktreeRow(_, let repoId, _, _) = entry else { return nil }
-                return repoId
+                guard case .resolvedPaneRow(_, let identity, _) = entry else { return nil }
+                return identity.repoId
             } == [favoriteRepoId, regularRepoId]
         )
-
-        let favoriteEntry = rowIndex.entries.first { entry in
-            guard case .resolvedWorktreeRow(_, let repoId, _, _) = entry else { return false }
-            return repoId == favoriteRepoId
-        }
-        guard
-            let favoriteEntry,
-            case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId, let rowId) = favoriteEntry
-        else {
-            Issue.record("Expected the favorite tab row")
-            return
-        }
-        #expect(
-            rowIndex.resolve(
-                groupId: groupId,
-                repoId: repoId,
-                worktreeId: worktreeId,
-                rowId: rowId
-            )?.placementContext?.tabId == tabId
-        )
+        #expect(projection.resolvedGroups.map(\.id) == ["tab:\(tabId.uuidString)"])
     }
 
     @Test("repository-owned modes omit empty favorite partitions")
@@ -288,13 +271,65 @@ extension RepoExplorerReadModelTests {
 
         #expect(projection.sections.map(\.kind) == [.favorites, .repositories])
         #expect(projection.loadingRepos.isEmpty)
+        let groupId = "remote:askluna/\(favoriteRepo.name)"
         #expect(
             rowIndex.entries.map(\.id) == [
                 "section-header:favorites",
-                "group:repo:\(favoriteId.uuidString)",
-                "worktree:repo:\(favoriteId.uuidString):\(favoriteId.uuidString):\(favoriteWorktree.id.uuidString):inactive",
+                "group:\(groupId)",
+                "worktree:\(groupId):\(favoriteId.uuidString):\(favoriteWorktree.id.uuidString):inactive",
                 "section-header:repositories",
             ])
+    }
+
+    @Test("By Tab and All Panes show the true empty state, never loading worktree rows, during a scan")
+    func paneAndTabModesShowTrueEmptyStateDuringMassRegistrationScan() {
+        // Reproduces the owner-reported defect: registering many worktrees while none are resolved yet
+        // (and no panes/tabs exist) must never leak By-Repo loading placeholders into pane/tab-owned
+        // sections. Contract item 3: By Tab/All Panes render panes only, plus item 13's true empty state.
+        let unresolvedRepos = (0..<40).map { index -> RepoPresentationItem in
+            repo(
+                id: UUIDv7.generate(),
+                name: "unresolved-repo-\(index)",
+                worktrees: [worktree(repoId: UUIDv7.generate(), name: "unresolved-repo-\(index)")]
+            )
+        }
+        let enrichment = Dictionary(
+            uniqueKeysWithValues: unresolvedRepos.map { ($0.id, RepoEnrichment.awaitingOrigin(repoId: $0.id)) }
+        )
+
+        let tabProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: unresolvedRepos,
+                repoEnrichmentByRepoId: enrichment,
+                groupingMode: .tab,
+                query: ""
+            )
+        )
+        let paneProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: unresolvedRepos,
+                repoEnrichmentByRepoId: enrichment,
+                groupingMode: .pane,
+                query: ""
+            )
+        )
+
+        #expect(tabProjection.loadingRepos.isEmpty)
+        #expect(tabProjection.emptyState == .noTabs)
+        #expect(paneProjection.loadingRepos.isEmpty)
+        #expect(paneProjection.emptyState == .noPanes)
+
+        let tabRowIndex = RepoExplorerRowIndex(projection: tabProjection, collapsedGroupIds: [], isFiltering: false)
+        let paneRowIndex = RepoExplorerRowIndex(
+            projection: paneProjection, collapsedGroupIds: [], isFiltering: false)
+
+        #expect(tabRowIndex.entries.map(\.id) == ["section-header:tabs"])
+        #expect(paneRowIndex.entries.map(\.id) == ["section-header:panes"])
+        for entry in tabRowIndex.entries + paneRowIndex.entries {
+            if case .loadingRepoRow = entry {
+                Issue.record("By Tab/All Panes must never render a loading repo row: \(entry)")
+            }
+        }
     }
 
     @Test("loading rows flatten under their section scanning label")

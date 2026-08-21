@@ -206,7 +206,9 @@ extension WorkspaceStore {
     package func appendTab(_ tab: Tab) { tabLayoutAtom.appendTab(tab) }
     package func removeTab(_ tabId: UUID) { tabLayoutAtom.removeTab(tabId) }
     package func insertTab(_ tab: Tab, at index: Int) { tabLayoutAtom.insertTab(tab, at: index) }
-    package func moveTab(fromId: UUID, toIndex: Int) { tabLayoutAtom.moveTab(fromId: fromId, toIndex: toIndex) }
+    package func moveTab(fromId: UUID, insertionIndex: Int) {
+        tabLayoutAtom.moveTab(fromId: fromId, insertionIndex: insertionIndex)
+    }
     package func moveTabByDelta(tabId: UUID, delta: Int) { tabLayoutAtom.moveTabByDelta(tabId: tabId, delta: delta) }
     package func setActiveTab(_ tabId: UUID?) { tabLayoutAtom.setActiveTab(tabId) }
     package func renameTab(_ tabId: UUID, name: String) { tabLayoutAtom.renameTab(tabId, name: name) }

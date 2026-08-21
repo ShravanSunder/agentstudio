@@ -29,7 +29,7 @@ enum ArchitectureAllowlists {
     static let rawRepoCacheMembers = Set([
         "repoEnrichmentByRepoId",
         "worktreeEnrichmentByWorktreeId",
-        "pullRequestCountByWorktreeId",
+        "pullRequestFactsByBranch",
     ])
 
     static let repoCacheAllowedPathSuffixes = [

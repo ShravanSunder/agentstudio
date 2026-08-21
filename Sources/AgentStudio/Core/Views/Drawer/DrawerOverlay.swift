@@ -6,9 +6,13 @@ import SwiftUI
 /// overlay across all panes without being clipped by the pane's bounds.
 package struct DrawerOverlay: View {
     package struct TrailingActions {
+        let editPaneNoteAction: TargetedCommandControlAction?
+        let notePopoverPresented: Binding<Bool>
+        let notePopoverContent: AnyView?
         let openEditorMenuAction: TargetedCommandControlAction?
         let openFinderAction: TargetedCommandControlAction?
         let copyPathAction: TargetedCommandControlAction?
+        let gitStatusPresentation: PaneSurfaceGitStatusPresentation?
         let pullRequestBlockerIndicator: PaneSurfaceToolbarStatusIndicator?
         let openPullRequestAction: PaneSurfaceToolbarAction?
         let showPaneInboxAction: TargetedCommandControlAction?
@@ -20,9 +24,13 @@ package struct DrawerOverlay: View {
         let inboxUnreadBadge: PaneInboxUnreadBadge?
 
         package init(
+            editPaneNoteAction: TargetedCommandControlAction? = nil,
+            notePopoverPresented: Binding<Bool> = .constant(false),
+            notePopoverContent: AnyView? = nil,
             openEditorMenuAction: TargetedCommandControlAction?,
             openFinderAction: TargetedCommandControlAction?,
             copyPathAction: TargetedCommandControlAction?,
+            gitStatusPresentation: PaneSurfaceGitStatusPresentation? = nil,
             pullRequestBlockerIndicator: PaneSurfaceToolbarStatusIndicator? = nil,
             openPullRequestAction: PaneSurfaceToolbarAction? = nil,
             showPaneInboxAction: TargetedCommandControlAction? = nil,
@@ -33,9 +41,13 @@ package struct DrawerOverlay: View {
             inboxPopoverContent: AnyView? = nil,
             inboxUnreadBadge: PaneInboxUnreadBadge? = nil
         ) {
+            self.editPaneNoteAction = editPaneNoteAction
+            self.notePopoverPresented = notePopoverPresented
+            self.notePopoverContent = notePopoverContent
             self.openEditorMenuAction = openEditorMenuAction
             self.openFinderAction = openFinderAction
             self.copyPathAction = copyPathAction
+            self.gitStatusPresentation = gitStatusPresentation
             self.pullRequestBlockerIndicator = pullRequestBlockerIndicator
             self.openPullRequestAction = openPullRequestAction
             self.showPaneInboxAction = showPaneInboxAction
@@ -90,6 +102,14 @@ package struct DrawerOverlay: View {
                 paneSurfaceActions: paneSurfaceActions,
                 paneContextActions: paneContextActions
             )
+            .popover(
+                isPresented: trailingActions?.inboxPopoverPresented ?? .constant(false),
+                arrowEdge: .bottom
+            ) {
+                if let inboxPopoverContent = trailingActions?.inboxPopoverContent {
+                    inboxPopoverContent
+                }
+            }
         }
     }
 }

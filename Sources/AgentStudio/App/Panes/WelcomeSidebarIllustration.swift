@@ -56,7 +56,8 @@ private let ghosttyMainStatus = GitBranchStatus(
     syncState: .synced,
     prCount: 2,
     linesAdded: 0,
-    linesDeleted: 0
+    linesDeleted: 0,
+    untrackedFileCount: 0
 )
 
 private let uvMainStatus = GitBranchStatus(
@@ -64,7 +65,8 @@ private let uvMainStatus = GitBranchStatus(
     syncState: .behind(3),
     prCount: 0,
     linesAdded: 5,
-    linesDeleted: 2
+    linesDeleted: 2,
+    untrackedFileCount: 0
 )
 
 private let gpuRendererStatus = GitBranchStatus(
@@ -72,7 +74,8 @@ private let gpuRendererStatus = GitBranchStatus(
     syncState: .ahead(3),
     prCount: 1,
     linesAdded: 86,
-    linesDeleted: 12
+    linesDeleted: 12,
+    untrackedFileCount: 0
 )
 
 private let fixKeybindsStatus = GitBranchStatus(
@@ -80,7 +83,8 @@ private let fixKeybindsStatus = GitBranchStatus(
     syncState: .synced,
     prCount: 1,
     linesAdded: 24,
-    linesDeleted: 8
+    linesDeleted: 8,
+    untrackedFileCount: 0
 )
 
 private let fixResolverStatus = GitBranchStatus(
@@ -88,7 +92,8 @@ private let fixResolverStatus = GitBranchStatus(
     syncState: .ahead(1),
     prCount: 1,
     linesAdded: 12,
-    linesDeleted: 3
+    linesDeleted: 3,
+    untrackedFileCount: 0
 )
 
 // MARK: - Color Helpers

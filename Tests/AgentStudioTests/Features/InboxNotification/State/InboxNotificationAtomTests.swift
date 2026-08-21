@@ -1,8 +1,19 @@
 import AgentStudioInfrastructure
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudioInboxNotification
+
+private final class InboxLatestMessageInvalidationCounter: @unchecked Sendable {
+    private(set) var count = 0
+    private(set) var hasRecordedInvalidation = false
+
+    func record() {
+        count += 1
+        hasRecordedInvalidation = true
+    }
+}
 
 @MainActor
 @Suite("InboxNotificationAtom")
@@ -17,14 +28,16 @@ struct InboxNotificationAtomTests {
         claimKey: InboxNotificationClaimKey? = nil,
         isRead: Bool = false,
         isDismissedFromPaneInbox: Bool = false,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        title: String = "Test",
+        body: String? = nil
     ) -> InboxNotification {
         InboxNotification(
             id: id,
             timestamp: timestamp,
             kind: kind,
-            title: "Test",
-            body: nil,
+            title: title,
+            body: body,
             source: makeSource(
                 paneId: paneId,
                 repoId: repoId,
@@ -81,6 +94,69 @@ struct InboxNotificationAtomTests {
         atom.append(retry)
 
         #expect(atom.notifications == [retry])
+    }
+
+    @Test("latest pane message prefers the newest content body and replaces generic activity")
+    func latestPaneMessagePrefersNewestContentBody() {
+        let firstPaneId = UUIDv7.generate()
+        let secondPaneId = UUIDv7.generate()
+        let atom = InboxNotificationAtom()
+
+        atom.append(
+            makeInboxNotification(
+                paneId: firstPaneId,
+                kind: .unseenActivity,
+                timestamp: Date(timeIntervalSince1970: 30),
+                title: "New terminal activity"
+            )
+        )
+        atom.append(
+            makeInboxNotification(
+                paneId: firstPaneId,
+                timestamp: Date(timeIntervalSince1970: 20),
+                title: "Command finished",
+                body: "Tests passed"
+            )
+        )
+        atom.append(
+            makeInboxNotification(
+                paneId: secondPaneId,
+                kind: .unseenActivity,
+                timestamp: Date(timeIntervalSince1970: 40),
+                title: "New terminal activity",
+                body: "Output appeared while you were away"
+            )
+        )
+
+        #expect(atom.latestMessageText(forPaneId: firstPaneId) == "Tests passed")
+        #expect(atom.latestMessageText(forPaneId: secondPaneId) == "output activity")
+        #expect(atom.latestMessageText(forPaneId: UUIDv7.generate()) == nil)
+
+        atom.clearAll()
+
+        #expect(atom.latestMessageText(forPaneId: firstPaneId) == nil)
+        #expect(atom.latestMessageText(forPaneId: secondPaneId) == nil)
+    }
+
+    @Test("latest pane message observation invalidates only its pane key")
+    func latestPaneMessageObservationIsKeyed() {
+        let watchedPaneId = UUIDv7.generate()
+        let unrelatedPaneId = UUIDv7.generate()
+        let atom = InboxNotificationAtom()
+        let invalidationCounter = InboxLatestMessageInvalidationCounter()
+        atom.append(makeInboxNotification(paneId: watchedPaneId, body: "Watched"))
+
+        withObservationTracking {
+            _ = atom.latestMessageText(forPaneId: watchedPaneId)
+        } onChange: {
+            invalidationCounter.record()
+        }
+
+        atom.append(makeInboxNotification(paneId: unrelatedPaneId, body: "Unrelated"))
+        #expect(!invalidationCounter.hasRecordedInvalidation)
+
+        atom.append(makeInboxNotification(paneId: watchedPaneId, body: "Changed"))
+        #expect(invalidationCounter.count == 1)
     }
 
     @Test("replaceAll replaces entries and recalculates unread count")

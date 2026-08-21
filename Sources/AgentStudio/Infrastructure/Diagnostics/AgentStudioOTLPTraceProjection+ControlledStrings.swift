@@ -9,6 +9,9 @@ extension AgentStudioOTLPTraceProjection {
         if let isAllowed = AgentStudioOTLPRepoExplorerTaxonomy.isAllowedValue(key: key, value: value) {
             return isAllowed
         }
+        if let isAllowed = AgentStudioOTLPPaneDropTaxonomy.isAllowedValue(key: key, value: value) {
+            return isAllowed
+        }
         switch key {
         case "agentstudio.performance.sidebar.surface":
             return ["inbox", "repo"].contains(value)

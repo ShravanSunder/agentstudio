@@ -58,6 +58,13 @@ enum TerminalActivitySourceInput: Sendable, Equatable {
 /// coalesced follow-up batch.
 package actor TerminalActivityProjector {
     typealias OutcomeSink = @MainActor @Sendable ([TerminalActivityProjectionOutcome]) -> Void
+    /// Reads the raw trailing viewport text for a surface, bounded to a
+    /// small row window — one Ghostty call per settled burst. The projector
+    /// owns all Contract 7 line-level contraction on that text
+    /// (`TerminalLastOutputLineContract`): learned prompt-signature
+    /// exclusion and unchanged-line suppression both need per-pane settle
+    /// state that only the projector holds.
+    typealias LastOutputLineReader = @MainActor @Sendable (_ surfaceID: UUID) -> String?
 
     private struct ActivityWindow: Sendable {
         let id: UUID
@@ -91,12 +98,17 @@ package actor TerminalActivityProjector {
         var agentCandidate: ActivityWindow?
         var agentSettledLatestRows: Int?
         var isAgentSettledSuppressed = false
+        /// The last contracted output-line candidate published at this
+        /// pane's previous settle, used to suppress an unchanged repeat.
+        var previousLastOutputLine: String?
     }
 
     private let unseenQuietDuration: Duration
     private let agentSettledQuietDuration: Duration
     private let delay: AsyncDelay
+    private let nowMilliseconds: @Sendable () -> Int64
     private var outcomeSink: OutcomeSink?
+    private var lastOutputLineReader: LastOutputLineReader?
     private var paneStates: [UUID: PaneState] = [:]
     private var unseenCloseTasks: [UUID: Task<Void, Never>] = [:]
     private var agentCloseTasks: [UUID: Task<Void, Never>] = [:]
@@ -106,14 +118,22 @@ package actor TerminalActivityProjector {
     init(
         unseenQuietDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
         agentSettledQuietDuration: Duration = AppPolicies.InboxNotification.agentSettledQuietDuration,
-        clock: (any Clock<Duration> & Sendable)? = nil
+        clock: (any Clock<Duration> & Sendable)? = nil,
+        nowMilliseconds: @escaping @Sendable () -> Int64 = {
+            Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
+        }
     ) {
         self.unseenQuietDuration = unseenQuietDuration
         self.agentSettledQuietDuration = agentSettledQuietDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
+        self.nowMilliseconds = nowMilliseconds
     }
 
-    func configure(outcomeSink: @escaping OutcomeSink) {
+    func configure(
+        lastOutputLineReader: LastOutputLineReader? = nil,
+        outcomeSink: @escaping OutcomeSink
+    ) {
+        self.lastOutputLineReader = lastOutputLineReader
         self.outcomeSink = outcomeSink
     }
 
@@ -132,6 +152,57 @@ package actor TerminalActivityProjector {
             context: context
         )
         await emit(outcomes)
+    }
+
+    /// A `terminal.commandFinished` shell-integration signal is a contracted semantic "this pane's
+    /// current command just completed" fact (Contract 7 exact-fact route) — independent of
+    /// scrollbar-derived activity evidence, and not gated by attention state. The scrollbar/unseen-
+    /// window path above deliberately excludes attended panes (see `consumeAggregateState`'s
+    /// `context.isAttended` branch), which is exactly the common case this signal exists to cover:
+    /// typing into the pane you're looking at. It settles the pane's current burst immediately — if
+    /// scrollbar evidence was already accumulating, close that window now instead of waiting out its
+    /// remaining debounce; otherwise synthesize a minimal settle carrying just the resolved
+    /// last-output-line, so a pane with zero scrollbar signal still reaches the existing settle path
+    /// (status-fact write, notification lane, and all of that lane's suppression rules) unchanged.
+    func commandFinished(surfaceID: UUID, paneID: UUID) async {
+        var closedWindow: ActivityWindow?
+        if var state = paneStates[paneID], state.surfaceID == surfaceID,
+            let window = state.unseenWindow, window.rowsAdded > 0
+        {
+            cancelUnseenWindow(for: paneID)
+            state.unseenWindow = nil
+            paneStates[paneID] = state
+            closedWindow = window
+        }
+
+        let lastOutputLine = await resolveLastOutputLine(
+            surfaceID: surfaceID,
+            paneID: paneID,
+            learnPromptSignature: true
+        )
+        guard closedWindow != nil || lastOutputLine != nil else { return }
+
+        let activity: TerminalSettledActivity
+        if let closedWindow {
+            activity = settledActivity(closedWindow, quietDuration: unseenQuietDuration, lastOutputLine: lastOutputLine)
+        } else {
+            let now = nowMilliseconds()
+            let scrollbarState = paneStates[paneID]?.scrollbarState
+            activity = TerminalSettledActivity(
+                burstWindowId: UUIDv7.generate(),
+                thresholdRows: AppPolicies.InboxNotification.terminalActivityOutputBurstThresholdRows,
+                debounceMilliseconds: 0,
+                startedAtMilliseconds: now,
+                settledAtMilliseconds: now,
+                eventCount: 0,
+                rowsAdded: 0,
+                baselineRows: scrollbarState?.total ?? 0,
+                latestRows: scrollbarState?.total ?? 0,
+                isPinnedToBottom: paneStates[paneID]?.isPinnedToBottom ?? true,
+                lastOutputLine: lastOutputLine
+            )
+        }
+        await emit([.unseenActivitySettled(surfaceID: surfaceID, paneID: paneID, activity: activity)])
     }
 
     private func consumeAggregateState(
@@ -361,6 +432,7 @@ package actor TerminalActivityProjector {
         agentRetirementTasks.removeAll()
         paneStates.removeAll()
         outcomeSink = nil
+        lastOutputLineReader = nil
         for task in closeTasks { await task.value }
         for task in retirementTasks { await task.value }
     }
@@ -499,11 +571,16 @@ package actor TerminalActivityProjector {
         state.unseenWindow = nil
         paneStates[target.paneID] = state
         guard window.rowsAdded > 0 else { return }
+        let lastOutputLine = await resolveLastOutputLine(
+            surfaceID: window.surfaceID,
+            paneID: target.paneID,
+            learnPromptSignature: false
+        )
         await emit([
             .unseenActivitySettled(
                 surfaceID: window.surfaceID,
                 paneID: target.paneID,
-                activity: settledActivity(window, quietDuration: unseenQuietDuration)
+                activity: settledActivity(window, quietDuration: unseenQuietDuration, lastOutputLine: lastOutputLine)
             )
         ])
     }
@@ -525,13 +602,51 @@ package actor TerminalActivityProjector {
         }
         state.agentSettledLatestRows = candidate.latestRows
         paneStates[target.paneID] = state
+        let lastOutputLine = await resolveLastOutputLine(
+            surfaceID: candidate.surfaceID,
+            paneID: target.paneID,
+            learnPromptSignature: false
+        )
         await emit([
             .agentSettledActivityPromoted(
                 surfaceID: candidate.surfaceID,
                 paneID: target.paneID,
-                activity: settledActivity(candidate, quietDuration: agentSettledQuietDuration)
+                activity: settledActivity(
+                    candidate,
+                    quietDuration: agentSettledQuietDuration,
+                    lastOutputLine: lastOutputLine
+                )
             )
         ])
+    }
+
+    /// Reads the literal trailing non-empty viewport line and applies unchanged-line suppression.
+    /// Always re-fetches pane state after the reader's MainActor hop because the actor is reentrant
+    /// across that suspension point.
+    private func resolveLastOutputLine(
+        surfaceID: UUID,
+        paneID: UUID,
+        learnPromptSignature _: Bool
+    ) async -> String? {
+        guard let lastOutputLineReader else { return nil }
+        let rawText = await lastOutputLineReader(surfaceID)
+
+        var state: PaneState
+        if let existingState = paneStates[paneID], existingState.surfaceID == surfaceID {
+            state = existingState
+        } else {
+            // A commandFinished-driven settle can be the first thing this pane
+            // ever sees (no prior scrollbar ingestion, e.g. right after boot) —
+            // still track state so the learned signature persists into later
+            // settles, matching the default-state pattern `consumeAggregateState`
+            // already uses for a pane's first scrollbar sample.
+            state = PaneState(surfaceID: surfaceID, outputBurst: .unknown)
+        }
+        let candidate = rawText.flatMap(TerminalLastOutputLineContract.contractedLastLine)
+        let isUnchanged = candidate == state.previousLastOutputLine
+        state.previousLastOutputLine = candidate
+        paneStates[paneID] = state
+        return isUnchanged ? nil : candidate
     }
 
     private func isAgentSettledCandidate(_ candidate: ActivityWindow) -> Bool {
@@ -546,7 +661,11 @@ package actor TerminalActivityProjector {
             || activeDuration >= Int64(minimumActive)
     }
 
-    private func settledActivity(_ window: ActivityWindow, quietDuration: Duration) -> TerminalSettledActivity {
+    private func settledActivity(
+        _ window: ActivityWindow,
+        quietDuration: Duration,
+        lastOutputLine: String?
+    ) -> TerminalSettledActivity {
         let debounceMilliseconds = Self.milliseconds(quietDuration)
         return TerminalSettledActivity(
             burstWindowId: window.id,
@@ -558,7 +677,8 @@ package actor TerminalActivityProjector {
             rowsAdded: window.rowsAdded,
             baselineRows: window.baselineRows,
             latestRows: window.latestRows,
-            isPinnedToBottom: window.latestIsPinnedToBottom
+            isPinnedToBottom: window.latestIsPinnedToBottom,
+            lastOutputLine: lastOutputLine
         )
     }
 

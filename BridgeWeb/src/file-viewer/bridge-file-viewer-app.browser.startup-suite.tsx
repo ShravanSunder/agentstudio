@@ -150,7 +150,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				)}
 			/>,
 		);
-		await waitForBridgeViewerTreeItemButton('src/app.ts');
+		await waitForFileViewerTreeItemButtonInAct({ path: 'src/app.ts' });
 
 		const toolbar = await waitForFileViewerHTMLElement({
 			selector: '[data-testid="bridge-file-viewer-rail-toolbar"]',

@@ -10,6 +10,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
+    init() {
+        installTestCoreAtomsIfNeeded()
+    }
+
     @Test("coordinator injects its runtime registry into Ghostty action routing")
     func coordinatorInjectsGhosttyRuntimeRegistry() {
         let tempDir = FileManager.default.temporaryDirectory

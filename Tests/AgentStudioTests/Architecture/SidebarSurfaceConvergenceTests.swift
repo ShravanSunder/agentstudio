@@ -107,9 +107,9 @@ struct SidebarSurfaceConvergenceTests {
         )
         #expect(repoSource.contains("} toolbarRow: {"))
         #expect(repoSource.contains("repoSidebarSortButton"))
-        #expect(repoSource.contains("repoSidebarGroupingButton"))
+        #expect(repoSource.contains("repoSidebarGroupingControl"))
         #expect(repoSource.contains("RepoExplorerGroupingMode.allCases"))
-        #expect(repoSource.contains("LocalActionSpec.groupRepoExplorerWorktrees.actionSpec"))
+        #expect(!repoSource.contains("LocalActionSpec.groupRepoExplorerWorktrees.actionSpec"))
         #expect(repoSource.contains("RepoExplorerToolbarCommandPresentation.resolve("))
         #expect(repoSource.contains("commandPresentation.command(.setRepoSidebarSortOrder)"))
         #expect(repoSource.contains("label: sortCommand.commandSpec.label"))
@@ -162,11 +162,17 @@ struct SidebarSurfaceConvergenceTests {
         #expect(toolbarSource.contains(".tint(Color.secondary)"))
     }
 
-    @Test("repo and inbox grouping controls share the labeled trigger and selectable popover")
-    func repoAndInboxGroupingControlsShareLabeledTriggerAndSelectablePopover() throws {
+    @Test("repo grouping uses shared segments while inbox keeps its selectable popover")
+    func repoGroupingUsesSharedSegmentsAndInboxKeepsSelectablePopover() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let repoSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+        let commandToolbarSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift"
+            ),
             encoding: .utf8
         )
         let inboxSource = try String(
@@ -178,22 +184,31 @@ struct SidebarSurfaceConvergenceTests {
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/SharedComponents/SidebarSortButton.swift"),
             encoding: .utf8
         )
+        let segmentedControlSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift"),
+            encoding: .utf8
+        )
         let popoverSource = try String(
             contentsOf: projectRoot.appending(
                 path: "Sources/AgentStudio/SharedComponents/SelectablePopover/SidebarGroupingPopover.swift"),
             encoding: .utf8
         )
 
-        #expect(repoSource.contains("SidebarToolbarGroupingButton("))
+        #expect(repoSource.contains("SidebarToolbarSegmentedControl("))
         #expect(inboxSource.contains("SidebarToolbarGroupingButton("))
-        #expect(repoSource.contains("SidebarGroupingPopover("))
+        #expect(!repoSource.contains("SidebarGroupingPopover("))
         #expect(inboxSource.contains("SidebarGroupingPopover("))
-        #expect(repoSource.contains("groupingMode.title"))
+        #expect(commandToolbarSource.contains("AppEntityIcon.repo"))
+        #expect(commandToolbarSource.contains("AppEntityIcon.pane"))
+        #expect(commandToolbarSource.contains("AppEntityIcon.tab"))
         #expect(inboxSource.contains("label: { groupingCommandSpec(for: $0).label }"))
-        #expect(repoSource.contains("label: { groupingMode in"))
+        #expect(repoSource.contains("label: groupingMode.title"))
         #expect(!inboxSource.contains("label: { $0.commandLabel }"))
         #expect(!inboxSource.contains(")\n\n            Divider()\n\n            InboxSidebarContent("))
         #expect(toolbarSource.contains("struct SidebarToolbarGroupingButton"))
+        #expect(segmentedControlSource.contains("struct SidebarToolbarSegmentedControl"))
+        #expect(segmentedControlSource.contains(".controlHelp(segment.tooltipValue)"))
         #expect(popoverSource.contains("SelectablePopoverKeyboardBridge("))
     }
 }

@@ -355,6 +355,64 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
         )
     }
 
+    @Test
+    func tabBarPaneDropProjectionKeepsBoundedIngressFacts() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 606,
+            severityText: .info,
+            body: "performance.tabbar.pane_drop",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.tabbar.pane_drop.phase": .string("commit"),
+                "agentstudio.performance.tabbar.pane_drop.outcome": .string("rejected"),
+                "agentstudio.performance.tabbar.pane_drop.reason": .string("target_unresolved"),
+                "agentstudio.performance.management_layer.is_active": .bool(true),
+                "agentstudio.performance.tabbar.pane_drop.target_resolved": .bool(false),
+                "agentstudio.performance.tabbar.pane_drop.frame.count": .int(2),
+                "agentstudio.performance.tabbar.tab.count": .int(3),
+                "agentstudio.performance.tabbar.pane_drop.pane_id": .string(
+                    "01987654-3210-7abc-8def-0123456789ab"
+                ),
+                "agentstudio.performance.tabbar.pane_drop.pointer_x": .double(42),
+                "agentstudio.performance.tabbar.pane_drop.path": .string("/private/example"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(
+            projection.attributes["agentstudio.performance.tabbar.pane_drop.phase"]
+                == .string("commit")
+        )
+        #expect(
+            projection.attributes["agentstudio.performance.tabbar.pane_drop.outcome"]
+                == .string("rejected")
+        )
+        #expect(
+            projection.attributes["agentstudio.performance.tabbar.pane_drop.reason"]
+                == .string("target_unresolved")
+        )
+        #expect(
+            projection.attributes["agentstudio.performance.management_layer.is_active"]
+                == .bool(true)
+        )
+        #expect(
+            projection.attributes["agentstudio.performance.tabbar.pane_drop.target_resolved"]
+                == .bool(false)
+        )
+        #expect(
+            projection.attributes["agentstudio.performance.tabbar.pane_drop.frame.count"] == .int(2)
+        )
+        #expect(projection.attributes["agentstudio.performance.tabbar.tab.count"] == .int(3))
+        #expect(projection.attributes["agentstudio.performance.tabbar.pane_drop.pane_id"] == nil)
+        #expect(projection.attributes["agentstudio.performance.tabbar.pane_drop.pointer_x"] == nil)
+        #expect(projection.attributes["agentstudio.performance.tabbar.pane_drop.path"] == nil)
+    }
+
     private func performanceProjectionRecord(worktreeID: UUID) -> AgentStudioTraceRecord {
         AgentStudioTraceRecord(
             timeUnixNano: 600,

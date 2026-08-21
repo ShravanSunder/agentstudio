@@ -11,7 +11,7 @@ final class MockCommandHandler: WorkspaceCommandHandling {
     var quickOpenDirectoryRequests: [(directory: URL, placement: QuickOpenDirectoryPlacement)] = []
     var canExecuteResult: Bool = true
     var targetedCanExecuteResult: Bool?
-    var extractedPaneRequests: [(tabId: UUID, paneId: UUID, targetTabIndex: Int?)] = []
+    var extractedPaneRequests: [(tabId: UUID, paneId: UUID, targetTabInsertionIndex: Int?)] = []
     var movePaneRequests: [(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)] = []
     var repoExplorerCapabilityRequestBatches: [Set<RepoExplorerCommandPresentationRequest>] = []
 
@@ -45,8 +45,8 @@ final class MockCommandHandler: WorkspaceCommandHandling {
         return Dictionary(uniqueKeysWithValues: requests.map { ($0, true) })
     }
 
-    func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
-        extractedPaneRequests.append((tabId, paneId, targetTabIndex))
+    func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabInsertionIndex: Int?) {
+        extractedPaneRequests.append((tabId, paneId, targetTabInsertionIndex))
     }
 
     func executeMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {

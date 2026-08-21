@@ -10,10 +10,15 @@ struct SidebarMetadataLineTests {
     @Test("metadata line builds with and without icon")
     @MainActor
     func metadataLineBuildsWithAndWithoutIcon() {
-        let withIcon = SidebarMetadataLine(iconSystemName: "terminal", text: "Tab 2 · Pane 1")
+        let withSystemIcon = SidebarMetadataLine(icon: .systemName("terminal"), text: "Tab 2 · Pane 1")
+        let withOcticon = SidebarMetadataLine(
+            icon: .octicon(name: "octicon-git-branch", loader: makeSharedComponentsTestOcticonLoader()),
+            text: "main"
+        )
         let withoutIcon = SidebarMetadataLine(text: "agent-studio")
 
-        #expect(String(describing: type(of: withIcon)).contains("SidebarMetadataLine"))
+        #expect(String(describing: type(of: withSystemIcon)).contains("SidebarMetadataLine"))
+        #expect(String(describing: type(of: withOcticon)).contains("SidebarMetadataLine"))
         #expect(String(describing: type(of: withoutIcon)).contains("SidebarMetadataLine"))
     }
 

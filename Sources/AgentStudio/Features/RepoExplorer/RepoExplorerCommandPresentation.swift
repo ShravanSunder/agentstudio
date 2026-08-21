@@ -201,35 +201,49 @@ package struct RepoExplorerToolbarCommandPresentation {
     private let commandsByIdentity: [AppCommand: RepoExplorerPresentedCommand]
 
     package static func requests(
-        nextSortOrder: RepoExplorerSortOrder
+        nextSortOrder _: RepoExplorerSortOrder
     ) -> Set<RepoExplorerCommandPresentationRequest> {
-        Set(
-            toolbarCommands.map { command in
-                let arguments: RepoExplorerCommandPresentationArguments =
-                    switch command {
-                    case .setRepoSidebarSortOrder:
-                        .repoSidebarSortOrder(nextSortOrder)
-                    default:
-                        .noArguments
-                    }
+        var requests = Set(
+            toolbarCommands.compactMap { command -> RepoExplorerCommandPresentationRequest? in
+                guard command != .setRepoSidebarSortOrder else { return nil }
                 return RepoExplorerCommandPresentationRequest(
                     command: command,
                     surface: .inlineControl,
                     target: nil,
                     targetType: nil,
-                    arguments: arguments
+                    arguments: .noArguments
                 )
-            })
+            }
+        )
+        for sortOrder in RepoExplorerSortOrder.allCases {
+            requests.insert(
+                RepoExplorerCommandPresentationRequest(
+                    command: .setRepoSidebarSortOrder,
+                    surface: .inlineControl,
+                    target: nil,
+                    targetType: nil,
+                    arguments: .repoSidebarSortOrder(sortOrder)
+                )
+            )
+        }
+        return requests
     }
 
     static func resolve(
         nextSortOrder: RepoExplorerSortOrder,
         snapshot: RepoExplorerCommandPresentationSnapshot
     ) -> Self {
-        let presentedCommands = requests(
-            nextSortOrder: nextSortOrder
-        ).compactMap { request in
-            RepoExplorerCommandPresentation.presentedCommand(for: request, snapshot: snapshot)
+        let presentedCommands = toolbarCommands.compactMap { command in
+            let request = RepoExplorerCommandPresentationRequest(
+                command: command,
+                surface: .inlineControl,
+                target: nil,
+                targetType: nil,
+                arguments: command == .setRepoSidebarSortOrder
+                    ? .repoSidebarSortOrder(nextSortOrder)
+                    : .noArguments
+            )
+            return RepoExplorerCommandPresentation.presentedCommand(for: request, snapshot: snapshot)
         }
         return Self(
             commandsByIdentity: Dictionary(

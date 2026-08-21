@@ -1,0 +1,368 @@
+# Atom Persistence Boundaries
+
+This document defines when Agent Studio uses Observation atoms for **shared UI
+state**, which AtomLib primitive to pick, and how already-justified UI-observed
+state maps onto SQLite when a durable lane requires a snapshot. Atoms are not
+SQL tables. It keeps Observation atoms, derived readers, and repository row
+projections in distinct ownership roles.
+
+## Need An Atom?
+
+Atoms are inspired by Jotai: **shared UI state** that subscribers observe and
+wake on. Read [`Sources/AgentStudio/Infrastructure/AtomLib/`](../../../Sources/AgentStudio/Infrastructure/AtomLib) and
+[AtomLib Observation Primitives](#atomlib-observation-primitives).
+
+Product atoms are `@MainActor @Observable` owners that hold values (Jotai
+atoms are config; a Provider/Store holds values). Derived reads use declared
+`AtomRevision` inputs, not Jotai `get()` tracking. Use an atom only when
+SwiftUI, a command surface, or a derived/eager projection must observe the
+value and wake on change. An atom does not have to be backed by SQLite.
+Observation is why it exists; persistence is a later lifecycle-lane choice.
+Runtime and presentation atoms are observed and never stored.
+
+If the work is CRUD, query, coalesce, or retention and nothing subscribes, use a
+SQLite repository. Do not add an atom to own SQL, and do not add SQL because an
+atom exists.
+
+Existing pane/tab graph atoms stay: they are UI-observed, and SQLite is how that
+durable graph survives restart. Many other atoms have no table. Inbox is the
+mixed pattern: the log is a repository; `InboxNotificationAtom` exists because
+the sidebar observes the list.
+
+| If you need… | Use | Do not use |
+| --- | --- | --- |
+| CRUD / query / retention, no subscriber that must wake | SQLite `*Repository` (and a store only if there is a load/save boundary) | Any atom |
+| Shared UI fact; multiple views or commands must observe one value | Source atom: `AtomValue` or keyed `AtomFamily` inside a product owner. SQLite only if a durable lane later requires a snapshot | A table-shaped atom, SQL from the view, or assuming every atom needs a table |
+| Cheap composed read from already-observed atoms | `DerivedAtom` or a `*Derived` reader | `EagerDerivedAtomFamily`, or copying fields onto another atom |
+| Expensive keyed UI projection that must stay current off-main | Existing `EagerDerivedAtomFamily` seam (`TabBarAdapter`, `RepoExplorerProjectionAdapter`) | A new eager primitive, eager-as-source, or eager-for-SQL |
+| Durable copy of UI-observed state | Store snapshots the atom; SQL is the snapshot | Atom methods that talk to GRDB |
+
+Ask the user before adding an atom or store. Survey does not mean persist.
+
+### Shared UI, local view state, or SQLite only
+
+Choose in this order. Ground the choice in [`Infrastructure/AtomLib/`](../../../Sources/AgentStudio/Infrastructure/AtomLib) and a live
+owner, not in Jotai's Provider/Store.
+
+1. **Local view or session UI** when only one control or one host owns the
+   fact and nothing else must observe it. Use `@State` for hover, tooltip
+   frames, and one-off layout (see `DrawerIconBar`, tab-bar hover). Use a
+   host-owned `@Observable` object when one panel owns a session of UI, as
+   `CommandBarPanelController` owns `CommandBarState`. Do not promote that
+   into Core.
+2. **Shared UI atom** when SwiftUI, a command surface, or a derived/eager
+   projection in another owner must observe the value and wake on change.
+   `CommandBarSurfaceAtom` is the Core atom next to `CommandBarState` because
+   keyboard routing observes whether the bar is open. Pane zoom lives on
+   `WorkspacePanePresentationAtom` because layout and commands observe it;
+   it is runtime-only and has no SQLite table.
+3. **Atom plus store snapshot** when that shared UI fact must survive
+   restart. The atom stays the live owner. A store captures an immutable
+   snapshot and the datastore writes SQL. `WorkspaceStore` snapshots the
+   pane/tab graph; `InboxNotificationStore` snapshots `InboxNotificationAtom`;
+   `UIStateStore` snapshots sidebar shell memory. Atom methods never talk to
+   GRDB.
+4. **SQLite repository only** when the work is CRUD, query, coalesce, or
+   retention and no UI subscriber must wake. `InboxNotificationSQLiteRepository`
+   is the row owner for the log. Do not add an atom to wrap those queries.
+   If a list later needs Observation, add an atom for the observed projection
+   and keep the repository as the snapshot/row owner (the inbox mixed
+   pattern).
+
+Do not start at SQL and invent an atom to match the table. Do not start at an
+atom and invent a table because the atom exists.
+
+### Which primitive
+
+Read the primitive source before using it. Product owners are `@MainActor
+@Observable` classes that hold values; AtomLib types are the slots inside them.
+
+| Need | Primitive / reader | Why, in this codebase | Live owner |
+| --- | --- | --- | --- |
+| One scalar or one cohesive observed value | `AtomValue` inside a product owner, or `private(set)` on the owner for a trivial field | Observation wakes on unequal write. Writes need a content comparator except the trivial scalar allowlist. | `CommandBarSurfaceAtom.activeSurface` is owner `private(set)`; use `AtomValue` when the slot needs an explicit comparator |
+| Many keys, one row should wake | `AtomFamily` | A sidebar row reads `value(for: worktreeId)` and must not invalidate on every other key. Membership revision is separate from per-key revision. | `RepositoryTopologyAtom`, `RepoCacheAtom` enrichment maps, `WorkspacePaneGraphAtom` pane slots, `InboxNotificationAtom` unread counts |
+| Cheap compose of already-observed atoms | `*Derived` reader, or `DerivedAtom` with declared `AtomRevision` inputs | Pull on next read. Do not hide `atom(\...)` inside compute. Product code today uses reader structs more than the `DerivedAtom` class. | `WorkspacePaneDerived`, `CommandContextDerived`, `WorkspaceTabLayoutDerived` |
+| Expensive keyed UI that must stay current off-main | Existing `EagerDerivedAtomFamily` seam only | Push: admit a request, project off MainActor, publish current or equal. Not a source atom and not SQL. | `TabBarAdapter`, `RepoExplorerProjectionAdapter` |
+| Grouped writes across slots in one owner | `AtomMutationContext` | Bump the aggregate revision once after accepted changes. Not a state kind. | Pane-graph commits filling `AtomFamily` slots |
+
+Do not add a third eager seam. Do not use `EagerDerivedAtomFamily` as a cache
+or as a SQL layer. Pane-graph commits that fill structural `AtomFamily` slots
+are source-family population, not eager derivation.
+
+## Roles
+
+Every affected type or field must have an explicit role:
+
+- **Write-owner atom state**: mutable `@MainActor` state with one lifecycle and
+  one semantic write path.
+- **Derived read model**: composed values for UI, command snapshots, validators,
+  and tests. Derived readers are never persistence owners.
+- **SQLite row projection**: repository-facing table shape used by current
+  SQLite repositories only.
+
+No type may quietly mean both live atom state and a SQLite row projection.
+
+## Lifecycle Lanes
+
+```text
+core graph
+  Durable workspace structure and validated semantic state.
+
+local UX memory
+  Workspace-keyed continuation and feature rows, window/sidebar memory keyed by
+  window, and other non-authoritative interaction memory.
+
+settings
+  User preferences whose storage follows their real owner: workspace-keyed
+  feature rows or the independently owned global preferences file.
+
+cache
+  Application-global rebuildable repository, worktree, and pull-request facts.
+
+entity recency
+  Application-global repository/worktree interaction facts and workspace-keyed
+  pane interaction facts. Non-authoritative local UX memory.
+
+runtime / presentation
+  Transient UI, keyboard, focus, health, pending-request, and display facts.
+  Not persisted.
+
+derived read model
+  Composed UI/validator values built from the lanes above. Never a write owner.
+```
+
+Classifying a field does not mean persisting it. Only durable core, local UX,
+settings, and cache lanes have storage.
+
+## Local recovery
+
+`core.sqlite` is authoritative. Boot prepares core and the one app-root
+`local.sqlite` before hydration, then retains one writable owner for each
+accepted database. A committed core transaction is complete independently of
+local state.
+
+Local recovery is exactly: quarantine the present database/WAL/SHM set, then
+create and migrate a fresh `local.sqlite`. Recovery is attempted only for
+classified corruption (`SQLITE_CORRUPT` / `SQLITE_NOTADB`) or an orphan sidecar
+set. Non-corruption open failures must not move database sidecars. Quarantine or
+fresh-creation failure leaves local unavailable for the launch with no
+same-process retry. Preparation results and source-scrubbed diagnostics are
+emitted once and cached.
+
+Boot-sequence ordering lives in [Workspace Data Architecture — App Boot](workspace_data_architecture.md#app-boot-implemented). Do not reconstruct that list here.
+
+## Writer-Owned Atoms
+
+This grouping rule applies only after [Need An Atom?](#need-an-atom) is
+satisfied. SQL lives in repositories. An atom is not a table and is not created
+to own SQL.
+
+A write-owner atom that is already UI-observed, such as the pane/tab graph, may
+project to several normalized SQLite tables when one validated user command must
+update those rows coherently. The rejected alternative is "one atom per SQL
+table." That would split ordinary commands such as pane insertion or drawer
+attach across table-shaped fragments like `pane`, `drawer_pane`, `tab_pane`, and
+`arrangement_layout_pane`. The coordinator would then need to orchestrate many
+low-level atoms for one semantic mutation, and SwiftUI/validator readers would
+have more opportunities to observe half-updated state. Keep normalized storage
+in repositories; keep atom writes cohesive by lifecycle.
+
+## AtomLib Observation Primitives
+
+[`Infrastructure/AtomLib`](../../../Sources/AgentStudio/Infrastructure/AtomLib) owns generic observation primitives only. Product
+state, registry fields, cache semantics, and feature-specific derived readers
+stay in Core or Features.
+
+Lint rule `agentstudio_atomlib_is_generic` enforces this boundary for
+[`Infrastructure/AtomLib`](../../../Sources/AgentStudio/Infrastructure/AtomLib). Product atoms, feature imports, and concrete
+`AtomRegistry`, `CoreAtoms`, and `CoreAtomScope` references stay out of the
+generic primitive library. Core owns its concrete graph and typed ambient
+access; App owns the internal registry and explicit Feature roots.
+
+Use the primitive that matches the read surface:
+
+| Primitive | Pull or push | Use for | Rule |
+| --- | --- | --- | --- |
+| `AtomValue<Value>` | Source; Observation wakes on unequal write | one scalar or one cohesive UI value | writes require an explicit content comparator except for trivial scalar allowlist types |
+| `AtomFamily<Key, Value>` | Source; per-key Observation | keyed entity families such as repo enrichment, worktree enrichment, and PR counts | hot UI reads use `value(for:)`; dictionary snapshots are bridge surfaces |
+| `DerivedAtom<Value>` | Lazy derived; recompute on next read if input revisions changed | cheap memoized read models | compute from declared input revisions; do not reach back into `CoreAtomScope` or `atom(\...)` |
+| `EagerDerivedAtom` / `EagerDerivedAtomFamily` | Push: admit request, project off-main, publish current or equal | variable-cost keyed UI that cannot wait for the next pull | reuse the shipped Tab Bar and Repo Explorer seams; not a source atom and not a SQL layer |
+| `AtomMutationContext` | Mutation grouping, not a state kind | grouped mutations across primitive updates inside one owner | bump the aggregate revision once after accepted changes |
+| `AtomRevision` | Revision token, not a state kind | declared derived inputs and equality-suppressed publication | do not treat as product state |
+| `AtomPerformanceTelemetry` | Instrumentation helper, not a state kind | atom-lane probes selected by `AGENTSTUDIO_TRACE_TAGS=atoms` | not a write-owner and not a SQL layer |
+
+Pane-graph commits that fill structural `AtomFamily` slots are source-family
+population. That is not `EagerDerivedAtomFamily`.
+
+The derived-read contract is enforced by
+`agentstudio_derived_atom_declared_inputs`: a `DerivedAtom` compute closure
+must be a pure function of declared revisions/inputs, not a hidden atom read
+through `CoreAtomScope`, `CoreAtoms`, or `atom(\...)`.
+
+`AtomFamily` is the internal atom-family primitive. It stores a private
+dictionary for snapshots, but each key has its own observable slot. A row that
+reads `worktreeEnrichment(for: worktreeId)` should wake only when that
+worktree's enrichment changes, or when it read an absent key and that same key
+later appears. Surfaces that need PR badges use `pullRequestFacts(for:)` keyed
+by `RepoBranchKey`, not a worktree-id count map. There is no `worktreeFacts(for:)`.
+Membership changes are tracked separately from per-key value changes.
+
+Do not expose raw observable dictionaries as hot UI contracts. Dictionary-shaped
+APIs are allowed for persistence projections, tests,
+batch reconciliation, and explicitly measured cold paths. Production UI,
+command-bar, tab-bar, and sidebar rows should prefer keyed readers or a derived
+read model that uses keyed readers internally.
+
+Lint rule `agentstudio_repo_cache_keyed_reads` rejects hot
+`repoEnrichmentByRepoId`, `worktreeEnrichmentByWorktreeId`, and
+`pullRequestFactsByBranch` dictionary reads outside the allowed cold-path
+surfaces.
+
+`RepoEnrichmentCacheAtom` is the reference implementation: repo enrichment,
+worktree enrichment, and PR facts are owned as separate `AtomFamily`
+instances; `RepoCacheAtom` exposes keyed reads for hot consumers and snapshot
+methods for persistence/cold bulk bridges.
+
+`WorkspacePaneGraphAtom` uses the same keyed vocabulary for two paired views of
+each pane. `paneStateMap` is the canonical `AtomFamily<UUID, PaneGraphState>`;
+`paneStructuralFactsMap` is the structural
+`AtomFamily<UUID, PaneStructuralFacts>` used by hot consumers that need only
+residency, content type, Bridge eligibility, CWD, or drawer placement. Every
+accepted pane mutation inserts, updates, or removes both slots through one
+`AtomMutationContext`, then advances `acceptedCommitRevision` once. Readers
+therefore cannot observe a canonical pane revision without its matching
+structural facts. The commit eagerly populates structural slots for the full
+accepted pane-id set; it does not wait for the first row read.
+
+Hot pane consumers call `paneState(_:)` or `paneStructuralFacts(_:)` for the
+declared pane id. Full `paneStateSnapshot()` and `AtomFamily.snapshot()` reads
+remain cold bridges for persistence, batch mutation, validation, and explicit
+whole-graph derivation; they are not observation-capture contracts.
+`PaneObservationResolver` accepts pane/drawer lookup closures and resolves the
+currently attended or rendered pane ids without materializing every rich
+`Pane`. `TabBarAdapter` separately observes tab membership, registers one
+generation-guarded keyed observer and eager projection slot per retained tab,
+and removes both when that tab leaves membership. Collection publication waits
+until every retained slot has a current value, so no partial retained set is
+published.
+
+Worktree enrichment diffing must use the narrow comparator helpers rather than
+raw `WorktreeEnrichment` equality. Lint rule
+`agentstudio_worktree_enrichment_comparator` protects that performance boundary
+so non-rendering metadata changes do not wake hot rows.
+
+## Module And State Access Boundary
+
+The concrete `AtomRegistry` belongs only to the `AgentStudio` App target. It
+holds one `CoreAtoms` plus explicit Feature roots for composition, but it is not
+ambient and is not a cross-target lookup API. `CoreAtomScope` belongs only to
+`AgentStudioCore` and exposes typed `KeyPath<CoreAtoms, Value>` reads for Core
+state.
+
+Feature mutable state crosses composition boundaries through exact initializer
+or property injection. Cross-Feature facts are consumer-owned read-only
+projections supplied by App. Do not introduce an ambient Feature scope, a
+registry resolver, a service locator, or sibling Feature imports.
+
+Declarations intentionally consumed by another target in this package use
+`package` access. Keep implementation details `internal` or `private`, and do
+not promote atom graphs, mutation owners, or persistence surfaces broadly to
+`public`.
+
+## Atom And Actor Placement
+
+AtomLib is not a cross-actor state runtime. Canonical UI-observed facts remain
+in `@MainActor` atoms. External or fleet-scale work belongs behind actor or
+store boundaries and should cross back to the main actor as compact, Sendable
+facts, snapshots, deltas, or intents.
+
+| Question | Placement |
+| --- | --- |
+| Is this canonical UI-observed state? | `@MainActor` atom |
+| Does a SwiftUI row need to wake for one key? | `AtomFamily` slot in the owning atom |
+| Does it perform git, filesystem, SQLite, network, or process work? | runtime/store/off-main actor |
+| Does it canonicalize many paths or diff many repos/worktrees/panes/tabs? | actor or measured MainActor exception |
+| Is it final application of compact actor output? | owning `@MainActor` atom or coordinator |
+| Is it a snapshot for persistence or batch reconciliation? | snapshot bridge, not hot UI observation |
+
+## Current Ownership Map
+
+| Surface | Write owners | Derived/read surface |
+| --- | --- | --- |
+| application repository topology | `RepositoryTopologyAtom` | direct keyed/by-id topology reads; `WorkspaceStore` references the shared owner |
+| workspace identity | `WorkspaceIdentityAtom` | direct identity reads |
+| window memory | `WorkspaceWindowMemoryAtom` | direct window-memory reads |
+| `WorkspacePaneAtom` | paired canonical `PaneGraphState` and `PaneStructuralFacts` families in `WorkspacePaneGraphAtom`, plus `WorkspaceDrawerCursorAtom` | keyed structural reads, `PaneObservationResolver`, and rich `WorkspacePaneDerived` composition |
+| `WorkspaceTabShellAtom` | `WorkspaceTabShellAtom`, `WorkspaceTabCursorAtom` | `WorkspaceTabLayoutDerived` |
+| `WorkspaceTabArrangementAtom` | `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom` | `WorkspaceTabLayoutDerived` |
+| `RepoCacheAtom` | `RepoEnrichmentCacheAtom` | repo/sidebar read models |
+| application entity recency | `ApplicationEntityRecencyAtom` | Command Bar and launcher projections resolved through live topology |
+| workspace entity recency | `WorkspaceEntityRecencyAtom` | Command Bar pane projection resolved through the active workspace pane graph |
+| `WorkspaceSidebarState` | window-keyed `WorkspaceSidebarMemoryAtom`, runtime-only `SidebarFocusRuntimeAtom` | sidebar read model |
+| `SidebarCacheState` | `SidebarExpandedGroupAtom`; `SidebarCheckoutColorAtom` is cleanup-only, not a live write owner | sidebar shell read model |
+| `EditorChooserState` | `EditorPreferenceAtom`, `EditorChooserRuntimeAtom` | editor chooser read model |
+| `InboxSidebarState` | `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom` | inbox sidebar read model |
+
+## Domain Type Role Matrix
+
+| Type or field | Write-owner state | Derived reader | Current SQLite projection |
+| --- | --- | --- | --- |
+| `Pane` | `PaneGraphState` in `WorkspacePaneGraphAtom` | `Pane` from `WorkspacePaneDerived` | `pane`, `pane_content_*`, `pane_tag` |
+| `Drawer` identity and membership | `DrawerGraphState` in `WorkspacePaneGraphAtom` | `Drawer` from `WorkspacePaneDerived` | `drawer`, `drawer_pane` |
+| `Drawer.isExpanded` | `WorkspaceDrawerCursorAtom` | `Drawer` from `WorkspacePaneDerived` | `local_drawer_cursor.is_expanded` |
+| `PaneMetadata` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | pane launch directory, title, checkout, note, and tag columns |
+| `PaneContextFacets` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `facet_repo_id`, `facet_worktree_id`, cwd, tags |
+| `TerminalState.zmxSessionId` | `PaneGraphState.content` | `Pane` from `WorkspacePaneDerived` | `pane_content_terminal.zmx_session_id` text column |
+| `PaneContextFacets` display fields | none | `WorkspacePaneDerived` from topology plus `RepoEnrichmentCacheAtom` | `cache_repo_enrichment`, `cache_worktree_enrichment` |
+| `Tab` shell | `WorkspaceTabShellAtom` | `Tab` from `WorkspaceTabLayoutDerived` | `tab_shell` |
+| `Tab.activeArrangementId` | `WorkspaceArrangementCursorAtom` | `Tab` from `WorkspaceTabLayoutDerived` | `local_tab_cursor.active_arrangement_id` |
+| `Tab.zoomedPaneId` | `WorkspacePanePresentationAtom` | `Tab` from `WorkspaceTabLayoutDerived` | none; runtime-only |
+| `PaneArrangement` graph | `ArrangementGraphState` in `WorkspaceTabGraphAtom` | `PaneArrangement` from `WorkspaceTabLayoutDerived` | `tab_arrangement`, `arrangement_layout_*`, `arrangement_minimized_pane`, `arrangement_drawer_view` |
+| `PaneArrangement.activePaneId` | `WorkspaceArrangementCursorAtom` | `PaneArrangement` from `WorkspaceTabLayoutDerived` | `local_arrangement_cursor.active_pane_id` |
+| `DrawerView` graph | `DrawerViewGraphState` in `WorkspaceTabGraphAtom` | `DrawerView` from `WorkspaceTabLayoutDerived` | `drawer_view_layout_*`, `drawer_view_minimized_pane` |
+| `DrawerView.activeChildId` | `WorkspaceArrangementCursorAtom` | `DrawerView` from `WorkspaceTabLayoutDerived` | `local_arrangement_drawer_cursor.active_child_id` |
+
+## Runtime And Shortcut Surfaces
+
+The pane-shortcuts and command-bar work added or expanded several runtime
+surfaces. These are classified, but not persisted:
+
+| Surface | Lane | Persistence decision |
+| --- | --- | --- |
+| `ArrangementPanelPresentationAtom.pendingRequest` | runtime / presentation | no SQLite table; pending one-shot presentation request |
+| `ArrangementPanelPresentationPlacement` | runtime / presentation | no SQLite table; placement is display intent |
+| `CommandBarSurfaceAtom.activeSurface` | runtime / presentation | no SQLite table; command bar scope is transient |
+| `TransientKeyboardSurfaceAtom.surfaces` | runtime / presentation | no SQLite table; token-scoped shortcut surface stack |
+| `TransientKeyboardSurfaceKind.paneNote` | runtime / presentation | no SQLite table; pane-note editor surface only |
+| `PaneNotePresentation` and `PaneNotePopoverDraft` | runtime / presentation | no SQLite table; draft is local UI state |
+| `KeyboardRoutingContext` and `ActiveKeyboardSurface` | derived read model | no SQLite table; derived from stable owner plus runtime surfaces |
+| `PaneOrdinalMap` | derived helper | no SQLite table; derived from ordered pane ids |
+
+Pane note text itself is different: `PaneMetadata.note` is durable pane graph
+metadata and belongs with the current `pane.note` column.
+
+## Validation Boundary
+
+Command validators and `ActionStateSnapshot` must consume rich composed values
+through derived readers after atom splits. They must not independently reach
+into graph, cursor, cache, and presentation atoms to recreate UI/domain state at
+each call site.
+
+## Update Rule
+
+When a new atom, state surface, or persisted field is added:
+
+0. If nothing observes this and nothing derives from it, stop. Use a
+   repository. See [Need An Atom?](#need-an-atom).
+1. Classify the field into one lifecycle lane.
+2. Name its role: write-owner state, derived read model, or current row
+   projection.
+3. Choose the observation surface: scalar value, keyed `AtomFamily`, lazy
+   `DerivedAtom`, existing eager family seam, or snapshot bridge.
+4. Define the content comparator so equal data does not fire atom invalidation.
+5. If persisted, identify the owning store/repository and reset semantics.
+6. If runtime-only, document that it is never written to SQLite.
+7. Apply the actor-placement gate above before putting expensive work on the
+   main actor.
+8. Add or update focused tests when the classification changes command
+   routing, persistence, or derived reader behavior.

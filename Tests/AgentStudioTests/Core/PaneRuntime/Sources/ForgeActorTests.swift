@@ -575,6 +575,7 @@ struct ForgeActorTests {
         await fixture.actor.shutdown()
         await fixture.stopObserving()
     }
+
 }
 
 struct ForgeActorFixture {
@@ -650,54 +651,30 @@ final class ManualForgeMonotonicNow: @unchecked Sendable {
     }
 }
 
-actor GatedForgeStatusProvider: ForgeStatusProvider {
-    private struct PendingCall {
-        let origin: String
-        let continuation: CheckedContinuation<ForgePullRequestQueryOutcome, Never>
-    }
-
-    private var calls: [PendingCall] = []
-
-    var callCount: Int { calls.count }
-    var origins: [String] { calls.map(\.origin) }
-
-    func pullRequests(origin: String) async -> ForgePullRequestQueryOutcome {
-        await withCheckedContinuation { continuation in
-            calls.append(PendingCall(origin: origin, continuation: continuation))
-        }
-    }
-
-    func resolve(callAt index: Int, with outcome: ForgePullRequestQueryOutcome) {
-        guard calls.indices.contains(index) else {
-            Issue.record("No Forge provider call at index \(index); recorded \(calls.count)")
-            return
-        }
-        calls[index].continuation.resume(returning: outcome)
-    }
-
-    func resolveIfPresent(callAt index: Int, with outcome: ForgePullRequestQueryOutcome) {
-        guard calls.indices.contains(index) else { return }
-        calls[index].continuation.resume(returning: outcome)
-    }
-
-    func waitForCallCount(_ expectedCount: Int, maxTurns: Int = 500) async -> Bool {
-        for _ in 0..<maxTurns {
-            if calls.count >= expectedCount { return true }
-            await Task.yield()
-        }
-        Issue.record("Expected \(expectedCount) Forge provider calls, received \(calls.count)")
-        return false
-    }
-}
-
 actor ObservedForgeEvents {
-    private var recordedEvents: [ForgeEvent] = []
+    // Internal so focused Forge test files can add scoped read helpers.
+    var recordedEvents: [ForgeEvent] = []
+    private var eventChangeWaiters: [CheckedContinuation<Void, Never>] = []
 
     func record(_ envelope: RuntimeEnvelope) {
         guard case .worktree(let worktreeEnvelope) = envelope,
             case .forge(let forgeEvent) = worktreeEnvelope.event
         else { return }
         recordedEvents.append(forgeEvent)
+        let waiters = eventChangeWaiters
+        eventChangeWaiters.removeAll(keepingCapacity: true)
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    func waitForRecordedEvent(matching predicate: () -> Bool) async -> Bool {
+        while !predicate() {
+            await withCheckedContinuation { continuation in
+                eventChangeWaiters.append(continuation)
+            }
+        }
+        return true
     }
 
     func facts(for repoId: UUID, branch: String) -> PullRequestFacts? {
@@ -713,15 +690,11 @@ actor ObservedForgeEvents {
     func waitForFacts(
         repoId: UUID,
         branch: String,
-        expected: PullRequestFacts,
-        maxTurns: Int = 500
+        expected: PullRequestFacts
     ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if facts(for: repoId, branch: branch) == expected { return true }
-            await Task.yield()
+        await waitForRecordedEvent {
+            facts(for: repoId, branch: branch) == expected
         }
-        Issue.record("Expected Forge facts for branch \(branch)")
-        return false
     }
 
     func invalidatedBranches(for repoId: UUID) -> Set<String> {
@@ -733,27 +706,19 @@ actor ObservedForgeEvents {
         }
     }
 
-    func waitForBranchInvalidation(repoId: UUID, branch: String, maxTurns: Int = 500) async -> Bool {
-        for _ in 0..<maxTurns {
-            if invalidatedBranches(for: repoId).contains(branch) { return true }
-            await Task.yield()
+    func waitForBranchInvalidation(repoId: UUID, branch: String) async -> Bool {
+        await waitForRecordedEvent {
+            invalidatedBranches(for: repoId).contains(branch)
         }
-        Issue.record("Expected branch invalidation for \(branch)")
-        return false
     }
 
-    func waitForRepositoryInvalidation(repoId: UUID, maxTurns: Int = 500) async -> Bool {
-        for _ in 0..<maxTurns {
-            if recordedEvents.contains(where: { event in
+    func waitForRepositoryInvalidation(repoId: UUID) async -> Bool {
+        await waitForRecordedEvent {
+            recordedEvents.contains(where: { event in
                 guard case .pullRequestRepositoryInvalidated(let eventRepoId) = event else { return false }
                 return eventRepoId == repoId
-            }) {
-                return true
-            }
-            await Task.yield()
+            })
         }
-        Issue.record("Expected repository invalidation")
-        return false
     }
 
     func repositoryInvalidationCount(repoId: UUID) -> Int {
@@ -765,43 +730,29 @@ actor ObservedForgeEvents {
 
     func waitForRepositoryInvalidationCount(
         repoId: UUID,
-        expectedCount: Int,
-        maxTurns: Int = 500
+        expectedCount: Int
     ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if repositoryInvalidationCount(repoId: repoId) == expectedCount { return true }
-            await Task.yield()
+        await waitForRecordedEvent {
+            repositoryInvalidationCount(repoId: repoId) == expectedCount
         }
-        Issue.record("Expected \(expectedCount) repository invalidations")
-        return false
     }
 
-    func waitForRefreshFailure(repoId: UUID, maxTurns: Int = 500) async -> Bool {
-        for _ in 0..<maxTurns {
-            if recordedEvents.contains(where: { event in
+    func waitForRefreshFailure(repoId: UUID) async -> Bool {
+        await waitForRecordedEvent {
+            recordedEvents.contains(where: { event in
                 guard case .refreshFailed(let eventRepoId, _) = event else { return false }
                 return eventRepoId == repoId
-            }) {
-                return true
-            }
-            await Task.yield()
+            })
         }
-        Issue.record("Expected Forge refresh failure")
-        return false
     }
 
-    func waitForRateLimit(repoId: UUID, retryAfterSeconds: Int, maxTurns: Int = 500) async -> Bool {
-        for _ in 0..<maxTurns {
-            if recordedEvents.contains(where: { event in
+    func waitForRateLimit(repoId: UUID, retryAfterSeconds: Int) async -> Bool {
+        await waitForRecordedEvent {
+            recordedEvents.contains(where: { event in
                 guard case .rateLimited(let eventRepoId, let eventRetryAfter) = event else { return false }
                 return eventRepoId == repoId && eventRetryAfter == retryAfterSeconds
-            }) {
-                return true
-            }
-            await Task.yield()
+            })
         }
-        Issue.record("Expected typed Forge rate limit")
-        return false
     }
 
     func containsExactURL(_ url: URL) -> Bool {
@@ -831,18 +782,13 @@ actor ObservedForgeEvents {
 
     func waitForRefreshFailureCount(
         repoId: UUID,
-        expectedCount: Int,
-        maxTurns: Int = 500
+        expectedCount: Int
     ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if refreshFailureCount(for: repoId) >= expectedCount { return true }
-            await Task.yield()
+        await waitForRecordedEvent {
+            refreshFailureCount(for: repoId) >= expectedCount
         }
-        Issue.record("Expected (expectedCount) Forge refresh failures")
-        return false
     }
 }
-
 private actor SuspendedForgeStatusProvider: ForgeStatusProvider {
     private struct PendingCall {
         let continuation: CheckedContinuation<ForgePullRequestQueryOutcome, Never>

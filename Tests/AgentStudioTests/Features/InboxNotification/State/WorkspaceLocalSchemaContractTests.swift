@@ -38,7 +38,6 @@ struct WorkspaceLocalSchemaContractTests {
         let repository = WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: databaseQueue)
         let repoPreferences = try #require(
             WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
-                groupingMode: "pane",
                 sortOrder: "descending",
                 visibilityMode: "legacy-favorites-only"
             )
@@ -63,14 +62,6 @@ struct WorkspaceLocalSchemaContractTests {
         try databaseQueue.write { database in
             try database.execute(
                 sql: """
-                        UPDATE local_repo_explorer_preferences
-                        SET grouping_mode = 'unsupported'
-                        WHERE workspace_id = ?
-                    """,
-                arguments: [workspaceId.uuidString]
-            )
-            try database.execute(
-                sql: """
                     UPDATE local_inbox_notification_preferences
                     SET pane_content_mode = 'unsupported'
                     WHERE workspace_id = ?
@@ -78,7 +69,7 @@ struct WorkspaceLocalSchemaContractTests {
                 arguments: [workspaceId.uuidString]
             )
         }
-        #expect(try repository.fetchRepoExplorerPreferences() == .default)
+        #expect(try repository.fetchRepoExplorerPreferences() == repoPreferences)
         #expect(try repository.fetchInboxNotificationPreferences() == .default)
     }
 
@@ -163,7 +154,8 @@ private let localSchemaExpectedColumns: [String: [(String, Int)]] = [
     "local_window_state": [
         ("window_id", 1), ("window_role", 0), ("sidebar_width", 0),
         ("window_frame_json", 0), ("filter_text", 0), ("is_filter_visible", 0),
-        ("sidebar_collapsed", 0), ("sidebar_surface", 0), ("updated_at", 0),
+        ("sidebar_collapsed", 0), ("sidebar_surface", 0), ("repo_grouping_mode", 0),
+        ("updated_at", 0),
     ],
     "local_window_sidebar_collapsed_group": [
         ("window_id", 1), ("group_key", 2),
@@ -199,8 +191,7 @@ private let localSchemaExpectedColumns: [String: [(String, Int)]] = [
         ("workspace_id", 1), ("bookmarked_editor_id", 0), ("updated_at", 0),
     ],
     "local_repo_explorer_preferences": [
-        ("workspace_id", 1), ("grouping_mode", 0), ("sort_order", 0),
-        ("visibility_mode", 0), ("updated_at", 0),
+        ("workspace_id", 1), ("sort_order", 0), ("visibility_mode", 0), ("updated_at", 0),
     ],
     "local_inbox_notification_preferences": [
         ("workspace_id", 1), ("grouping", 0), ("sort_order", 0), ("bell_enabled", 0),
@@ -227,7 +218,9 @@ private let localSchemaExpectedTypes: [String: [String]] = [
     "local_arrangement_cursor": ["TEXT", "TEXT", "TEXT", "REAL"],
     "local_drawer_cursor": ["TEXT", "TEXT", "INTEGER", "REAL"],
     "local_arrangement_drawer_cursor": ["TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
-    "local_window_state": ["TEXT", "TEXT", "REAL", "TEXT", "TEXT", "INTEGER", "INTEGER", "TEXT", "REAL"],
+    "local_window_state": [
+        "TEXT", "TEXT", "REAL", "TEXT", "TEXT", "INTEGER", "INTEGER", "TEXT", "TEXT", "REAL",
+    ],
     "local_window_sidebar_collapsed_group": ["TEXT", "TEXT"],
     "local_entity_recency": ["TEXT", "TEXT", "TEXT", "REAL"],
     "local_workspace_entity_recency": ["TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
@@ -239,7 +232,7 @@ private let localSchemaExpectedTypes: [String: [String]] = [
         "TEXT", "TEXT", "INTEGER", "INTEGER",
     ],
     "local_editor_preferences": ["TEXT", "TEXT", "REAL"],
-    "local_repo_explorer_preferences": ["TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
+    "local_repo_explorer_preferences": ["TEXT", "TEXT", "TEXT", "REAL"],
     "local_inbox_notification_preferences": [
         "TEXT", "TEXT", "TEXT", "INTEGER", "TEXT", "TEXT", "TEXT", "TEXT", "REAL",
     ],
@@ -256,7 +249,7 @@ private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
     "local_arrangement_drawer_cursor": ["workspace_id", "arrangement_id", "drawer_id", "updated_at"],
     "local_window_state": [
         "window_role", "sidebar_width", "filter_text", "is_filter_visible", "sidebar_collapsed",
-        "sidebar_surface", "updated_at",
+        "sidebar_surface", "repo_grouping_mode", "updated_at",
     ],
     "local_window_sidebar_collapsed_group": ["window_id", "group_key"],
     "local_entity_recency": [
@@ -271,7 +264,7 @@ private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
         "is_dismissed_from_pane_inbox",
     ],
     "local_editor_preferences": ["updated_at"],
-    "local_repo_explorer_preferences": ["grouping_mode", "sort_order", "visibility_mode", "updated_at"],
+    "local_repo_explorer_preferences": ["sort_order", "visibility_mode", "updated_at"],
     "local_inbox_notification_preferences": [
         "grouping", "sort_order", "bell_enabled", "global_content_mode", "global_row_state_filter",
         "pane_content_mode", "pane_row_state_filter", "updated_at",
@@ -309,7 +302,12 @@ private func assertColumnContracts(in databaseQueue: DatabaseQueue) throws {
                 return (row["name"] as String, defaultValue)
             }
         )
-        let expectedDefaults = tableName == "cache_metadata" ? ["source_revision": "0"] : [:]
+        let expectedDefaults: [String: String] =
+            switch tableName {
+            case "cache_metadata": ["source_revision": "0"]
+            case "local_window_state": ["repo_grouping_mode": "'repo'"]
+            default: [:]
+            }
         #expect(declaredDefaults == expectedDefaults)
     }
 }

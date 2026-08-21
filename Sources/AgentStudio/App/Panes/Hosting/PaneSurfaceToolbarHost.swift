@@ -8,6 +8,7 @@ import SwiftUI
 struct DrawerToolbarCommandPresentation {
     let toggleDrawer: TargetedCommandControlAction?
     let addDrawerPane: TargetedCommandControlAction?
+    let editPaneNote: TargetedCommandControlAction?
     let openEditorMenu: TargetedCommandControlAction?
     let openFinder: TargetedCommandControlAction?
     let copyPath: TargetedCommandControlAction?
@@ -32,6 +33,12 @@ struct DrawerToolbarCommandPresentation {
                 .addDrawerPane,
                 commandSurface,
                 anchorPaneId,
+                .pane
+            ),
+            editPaneNote: actionResolver(
+                .editPaneNote,
+                commandSurface,
+                locationTargetPaneId,
                 .pane
             ),
             openEditorMenu: actionResolver(
@@ -81,12 +88,15 @@ struct PaneSurfaceToolbarHost: View {
     let octiconLoader: OcticonLoader
     let editorChooser: EditorChooserState
     let paneInboxPresentation: PaneInboxPresentation?
+    let paneNotePresentation: PaneNotePresentation?
     let workspaceWindowId: UUID?
+    let owningPaneSize: CGSize?
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let targetedCommandActionResolver: TargetedCommandControlActionResolver
 
     @State private var paneInboxPopoverOpen = false
+    @State private var paneNotePopoverOpen = false
 
     @MainActor
     static func resolveTargetedCommandAction(
@@ -116,7 +126,9 @@ struct PaneSurfaceToolbarHost: View {
         octiconLoader: OcticonLoader,
         editorChooser: EditorChooserState,
         paneInboxPresentation: PaneInboxPresentation?,
+        paneNotePresentation: PaneNotePresentation? = nil,
         workspaceWindowId: UUID?,
+        owningPaneSize: CGSize? = nil,
         actionDispatcher: PaneActionDispatching,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         targetedCommandActionResolver: @escaping TargetedCommandControlActionResolver =
@@ -133,7 +145,9 @@ struct PaneSurfaceToolbarHost: View {
         self.octiconLoader = octiconLoader
         self.editorChooser = editorChooser
         self.paneInboxPresentation = paneInboxPresentation
+        self.paneNotePresentation = paneNotePresentation
         self.workspaceWindowId = workspaceWindowId
+        self.owningPaneSize = owningPaneSize
         self.actionDispatcher = actionDispatcher
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.targetedCommandActionResolver = targetedCommandActionResolver
@@ -156,11 +170,41 @@ struct PaneSurfaceToolbarHost: View {
             repoCache: repoCache,
             commandAction: commandPresentation.openPullRequest
         )
+        let gitStatusPresentation = PaneGitStatusToolbarResolver.resolve(
+            paneId: locationTargetPaneId,
+            store: store,
+            repoCache: repoCache
+        )
+        let paneNotePopoverContent = store.paneAtom.pane(locationTargetPaneId).map { pane in
+            AnyView(
+                PaneNotePopover(
+                    currentNote: pane.metadata.note,
+                    owningPaneSize: owningPaneSize,
+                    onCommit: { note in
+                        store.paneAtom.updatePaneNote(locationTargetPaneId, note: note)
+                        paneNotePopoverOpen = false
+                    },
+                    onCancel: {
+                        paneNotePopoverOpen = false
+                    }
+                )
+                .transientKeyboardSurface(
+                    .paneNote(paneId: locationTargetPaneId),
+                    workspaceWindowId: workspaceWindowId,
+                    onDismiss: {
+                        paneNotePopoverOpen = false
+                    }
+                )
+                .tint(AppStyles.General.Accent.primaryColor)
+            )
+        }
         let trailingActions = DrawerEditorChooserFactory.makeTrailingActions(
             editorChooser: editorChooser,
             paneId: locationTargetPaneId,
             workspaceWindowId: workspaceWindowId,
             commandPresentation: commandPresentation,
+            notePopoverPresented: $paneNotePopoverOpen,
+            notePopoverContent: paneNotePopoverContent,
             refreshInstalledTargets: {
                 ExternalEditorTarget.refreshInstalledTargets()
             },
@@ -168,6 +212,7 @@ struct PaneSurfaceToolbarHost: View {
                 guard let targetPath = locationContext.targetPath else { return }
                 _ = ExternalWorkspaceOpener.openInEditor(id: editorId, path: targetPath)
             },
+            gitStatusPresentation: gitStatusPresentation,
             pullRequestBlockerIndicator: pullRequestPresentation?.blockerIndicator,
             openPullRequestAction: pullRequestPresentation?.openAction
         )
@@ -207,6 +252,12 @@ struct PaneSurfaceToolbarHost: View {
                 isPresented
             )
         }
+        .onAppear {
+            consumePendingPaneNoteRequest()
+        }
+        .onChange(of: paneNotePresentation?.pendingRequest()?.id) { _, _ in
+            consumePendingPaneNoteRequest()
+        }
     }
 
     private func consumePendingPaneInboxRequest(in scope: PaneInboxScope) {
@@ -222,6 +273,13 @@ struct PaneSurfaceToolbarHost: View {
             paneInboxPresentation?.setPresented(scope.parentPaneId, scope.paneIds, false)
         }
         paneInboxPresentation?.clearRequest(request)
+    }
+
+    private func consumePendingPaneNoteRequest() {
+        guard let request = paneNotePresentation?.pendingRequest() else { return }
+        guard request.paneId == locationTargetPaneId else { return }
+        paneNotePopoverOpen = true
+        paneNotePresentation?.clearRequest(request)
     }
 
 }

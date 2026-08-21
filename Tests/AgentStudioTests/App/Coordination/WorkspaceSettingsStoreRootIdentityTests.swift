@@ -11,7 +11,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceSettingsStoreRootIdentityTests {
     @Test
-    func appCompositionPersistsTheExactRootFeatureAtoms() async throws {
+    func appCompositionPersistsOnlySettingsOwnedRootFeatureAtoms() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atomStore = AtomRegistry()
@@ -30,9 +30,9 @@ struct WorkspaceSettingsStoreRootIdentityTests {
         try await settingsStore.flush(for: workspaceId)
 
         #expect(try fixture.repository.fetchEditorPreferences().bookmarkedEditorId == "cursor")
-        #expect(try fixture.repository.fetchRepoExplorerPreferences().groupingMode == "pane")
         #expect(try fixture.repository.fetchRepoExplorerPreferences().sortOrder == "descending")
         #expect(try fixture.repository.fetchRepoExplorerPreferences().visibilityMode == "all")
+        #expect(try fixture.repository.hasSidebarState() == false)
         #expect(try fixture.repository.fetchInboxNotificationPreferences().grouping == "byRepo")
         #expect(try fixture.repository.fetchInboxNotificationPreferences().bellEnabled)
     }

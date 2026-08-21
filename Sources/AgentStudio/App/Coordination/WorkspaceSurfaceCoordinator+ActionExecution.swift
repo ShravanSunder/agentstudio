@@ -286,8 +286,8 @@ extension WorkspaceSurfaceCoordinator {
         case .moveTab(let tabId, let delta):
             store.tabLayoutAtom.moveTabByDelta(tabId: tabId, delta: delta)
 
-        case .reorderTab(let tabId, let newIndex):
-            store.tabLayoutAtom.reorderTab(tabId, to: newIndex)
+        case .reorderTab(let tabId, let insertionIndex):
+            store.tabLayoutAtom.reorderTab(tabId, insertionIndex: insertionIndex)
             store.tabLayoutAtom.setActiveTab(tabId)
 
         case .minimizePane(let tabId, let paneId):

@@ -11,6 +11,12 @@ struct RepoExplorerEmptyStateView: View {
         switch emptyState {
         case .content:
             "folder"
+        case .noRepositories:
+            "folder"
+        case .noPanes:
+            "square.split.2x1"
+        case .noTabs:
+            "rectangle.stack"
         case .searchNoResults:
             "magnifyingglass"
         }
@@ -20,6 +26,12 @@ struct RepoExplorerEmptyStateView: View {
         switch emptyState {
         case .content:
             ""
+        case .noRepositories:
+            "No repositories"
+        case .noPanes:
+            "No panes"
+        case .noTabs:
+            "No tabs"
         case .searchNoResults:
             "No results"
         }

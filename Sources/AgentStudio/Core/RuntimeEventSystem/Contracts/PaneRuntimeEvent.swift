@@ -51,6 +51,12 @@ package struct TerminalSettledActivity: Sendable, Equatable {
     package let baselineRows: Int
     package let latestRows: Int
     package let isPinnedToBottom: Bool
+    /// The last non-empty, contracted line of terminal output observed at
+    /// settle time, bounded and prompt-filtered at the Terminal source
+    /// boundary (see `TerminalLastOutputLineContract`). Nil when no
+    /// printable output was found or the line is unchanged from the pane's
+    /// previous settle.
+    package let lastOutputLine: String?
 
     package init(
         burstWindowId: UUID,
@@ -62,7 +68,8 @@ package struct TerminalSettledActivity: Sendable, Equatable {
         rowsAdded: Int,
         baselineRows: Int,
         latestRows: Int,
-        isPinnedToBottom: Bool
+        isPinnedToBottom: Bool,
+        lastOutputLine: String? = nil
     ) {
         self.burstWindowId = burstWindowId
         self.thresholdRows = thresholdRows
@@ -74,6 +81,7 @@ package struct TerminalSettledActivity: Sendable, Equatable {
         self.baselineRows = baselineRows
         self.latestRows = latestRows
         self.isPinnedToBottom = isPinnedToBottom
+        self.lastOutputLine = lastOutputLine
     }
 }
 

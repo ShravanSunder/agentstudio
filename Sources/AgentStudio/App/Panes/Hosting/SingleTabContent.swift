@@ -17,6 +17,7 @@ struct SingleTabContent: View {
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onFocusPane: (UUID) -> Void
     let paneInboxPresentation: PaneInboxPresentation?
+    let paneNotePresentation: PaneNotePresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
@@ -38,6 +39,7 @@ struct SingleTabContent: View {
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onFocusPane: @escaping (UUID) -> Void,
         paneInboxPresentation: PaneInboxPresentation? = nil,
+        paneNotePresentation: PaneNotePresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         workspaceWindowId: UUID? = nil,
@@ -59,6 +61,7 @@ struct SingleTabContent: View {
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.onFocusPane = onFocusPane
         self.paneInboxPresentation = paneInboxPresentation
+        self.paneNotePresentation = paneNotePresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
@@ -109,6 +112,7 @@ struct SingleTabContent: View {
                         viewRegistry: viewRegistry,
                         appLifecycleStore: appLifecycleStore,
                         paneInboxPresentation: paneInboxPresentation,
+                        paneNotePresentation: paneNotePresentation,
                         onOpenPaneGitHub: onOpenPaneGitHub,
                         notificationCountForWorktree: notificationCountForWorktree,
                         workspaceWindowId: workspaceWindowId,
@@ -174,6 +178,7 @@ struct SingleTabContent: View {
                 appLifecycleStore: appLifecycleStore,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 paneInboxPresentation: paneInboxPresentation,
+                paneNotePresentation: paneNotePresentation,
                 workspaceWindowId: workspaceWindowId,
                 actionDispatcher: actionDispatcher,
                 arrangementInlineRenameState: arrangementInlineRenameState,
@@ -219,6 +224,7 @@ struct SingleTabContent: View {
                 notificationCountForWorktree: notificationCountForWorktree,
                 dropTargetCoordinateSpace: "tabContainer",
                 paneInboxPresentation: child.paneId == sourcePaneId ? paneInboxPresentation : nil,
+                paneNotePresentation: child.paneId == sourcePaneId ? paneNotePresentation : nil,
                 ordinal: ordinalMap.ordinal(forPaneId: child.paneId),
                 workspaceWindowId: workspaceWindowId,
                 toolbarPresentation: child.toolbarPresentation,

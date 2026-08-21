@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { afterAll, afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
@@ -7,6 +7,7 @@ import '../app/bridge-app.css';
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import { waitForBridgeViewerTreeItemButton } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
+import { waitForFileViewerTreeItemButtonInAct } from './bridge-file-viewer-app-startup.browser.test-support.js';
 import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
 import {
 	makeFileContent,
@@ -18,7 +19,6 @@ import {
 import {
 	actFrame,
 	actUpdate,
-	installBridgeFileViewerNoopResizeObserver,
 	makeTestTelemetryRecorder,
 	requireMetadataPublisher,
 	settleBridgeFileViewerBrowserUpdates,
@@ -28,13 +28,7 @@ import {
 	waitForVisibleCodeText,
 } from './bridge-file-viewer-browser-test-harness.js';
 
-const originalResizeObserver = globalThis.ResizeObserver;
-
 describe('Bridge File activation telemetry', () => {
-	beforeEach((): void => {
-		installBridgeFileViewerNoopResizeObserver();
-	});
-
 	afterEach(async () => {
 		await settleBridgeFileViewerBrowserUpdates();
 		await act(async (): Promise<void> => {
@@ -44,10 +38,6 @@ describe('Bridge File activation telemetry', () => {
 		await actFrame();
 		document.body.replaceChildren();
 		terminateBridgePierreWorkerPoolSingletonForTest();
-	});
-
-	afterAll((): void => {
-		Object.assign(globalThis, { ResizeObserver: originalResizeObserver });
 	});
 
 	test('records File TTFI when metadata arrives after the mounted tree setup frame', async () => {
@@ -161,10 +151,10 @@ describe('Bridge File activation telemetry', () => {
 				fileProductSession={fileProductSession}
 			/>,
 		);
-		expect(await waitForBridgeViewerTreeItemButton('src/context-switcher-ready.ts')).not.toBeNull();
+		await waitForFileViewerTreeItemButtonInAct({ path: 'src/context-switcher-ready.ts' });
 		const activationStartedAtPerfNow = performance.now();
 
-		await act(async (): Promise<void> => {
+		await actUpdate(async () => {
 			await rerender(
 				<BridgeFileViewerApp
 					activationCause="context_switcher"
@@ -177,8 +167,8 @@ describe('Bridge File activation telemetry', () => {
 					fileProductSession={fileProductSession}
 				/>,
 			);
-			await Promise.resolve();
 		});
+		await actFrame();
 
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('contextSwitcherReady');

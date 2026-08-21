@@ -14,6 +14,10 @@ let package = Package(
         ),
         .executable(name: "agentstudio-ipc", targets: ["AgentStudioIPCClient"]),
         .executable(name: "agentstudio-pane-agent", targets: ["AgentStudioPaneAgent"]),
+        .executable(
+            name: "agentstudio-sqlite-crash-fixture",
+            targets: ["AgentStudioSQLiteCrashFixture"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
@@ -292,6 +296,16 @@ let package = Package(
                 "AgentStudioIPCClientCore"
             ],
             path: "Sources/AgentStudioPaneAgent",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .executableTarget(
+            name: "AgentStudioSQLiteCrashFixture",
+            dependencies: [
+                .product(name: "GRDB", package: "GRDB.swift")
+            ],
+            path: "Tests/AgentStudioSQLiteCrashFixture",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

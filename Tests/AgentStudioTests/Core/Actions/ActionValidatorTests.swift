@@ -466,13 +466,13 @@ final class WorkspaceCommandValidatorTests {
 
     @Test
 
-    func test_reorderTab_validIndex_succeeds() {
+    func test_reorderTab_finalInsertionIndex_succeeds() {
         let (firstTab, firstTabId, _) = makeSinglePaneTab()
         let (secondTab, _, _) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [firstTab, secondTab])
 
         let result = WorkspaceCommandValidator.validate(
-            .reorderTab(tabId: firstTabId, newIndex: 1),
+            .reorderTab(tabId: firstTabId, insertionIndex: 2),
             state: snapshot
         )
 
@@ -481,16 +481,16 @@ final class WorkspaceCommandValidatorTests {
 
     @Test
 
-    func test_reorderTab_outOfRange_fails() {
+    func test_reorderTab_insertionIndexPastFinalSlot_fails() {
         let (tab, tabId, _) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
 
         let result = WorkspaceCommandValidator.validate(
-            .reorderTab(tabId: tabId, newIndex: 1),
+            .reorderTab(tabId: tabId, insertionIndex: 2),
             state: snapshot
         )
 
-        if case .failure(.tabReorderIndexOutOfRange(index: 1)) = result { return }
+        if case .failure(.tabReorderIndexOutOfRange(index: 2)) = result { return }
         Issue.record("Expected tabReorderIndexOutOfRange error")
     }
 
