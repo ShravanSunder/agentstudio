@@ -35,15 +35,16 @@ named proof both passed; editing the source alone does not complete an item.
 ### 2026-08-21 detached slideshow surface experiment
 
 Current result: `APPROVED FOR RELEASE`. The owner accepted the full-row dark
-frost direction, selected-dot treatment, one-way entrance morph, and dot-free
-compact header. Deployment remains separate.
+frost direction, selected-dot treatment, dot-free compact header, and
+scroll-position strong-glass band. Deployment remains separate.
 
 - [x] Morph the existing product plate itself; do not place it inside another
       frame. Preserve its selectors, images, captions, geometry, and interaction.
-- [x] As the plate enters the viewport, progress its lift, translucent ground,
-      restrained border, radius, and depth shadow toward the established
-      detached title-bar treatment. Hold the fully detached state while
-      scrolling downward; reverse only when the user scrolls back upward.
+- [x] Drive one reversible strong-glass band entirely from showcase position:
+      0% when its bottom reaches the viewport bottom, smooth ramp to 100%, hold
+      100% from 35% through 65% of the bookend travel, then smooth ramp to 0%
+      when its top reaches the 96px visible-top boundary. Use the same positions
+      in reverse when scrolling upward, with no direction state or timer.
 - [x] Keep every product screenshot opaque and sharp. Expose glass only through
       the desktop selector rail and responsive title, arrow, and caption chrome.
       Do not add a separate frost or
@@ -65,11 +66,11 @@ compact header. Deployment remains separate.
 - [x] Run focused browser proof, the complete website quality suite, production
       build, and independent visual review before requesting owner acceptance.
 
-Verification before independent review:
+Verification:
 
 - `pnpm --dir web run check`: type-aware Oxlint, Oxfmt, Astro/typecheck, 10
   capture masters and 6 responsive crops, pixel audit, and 12 unit tests pass.
-- `pnpm --dir web run test:browser`: 63 passed and 1 expected skip across the
+- `pnpm --dir web run test:browser`: 65 passed and 1 expected skip across the
   desktop and mobile projects.
 - `pnpm --dir web run build`: two static routes and 50 optimized image variants
   build successfully.
@@ -77,6 +78,11 @@ Verification before independent review:
   at `1600x1000` and `390x844` across Pane drawer, Quick Find, Review, scroll
   transition, fully floating, and reduced-motion states. No material blockers;
   reviewer workspace access remained read-only.
+- Independent motion review `glass-band-visual-review-retry`: `PASS` at
+  `1600x1000` and `390x844`. Ramp-up and ramp-down were perceptible and smooth,
+  the 35%-65% full-glass plateau held, and matching forward/reverse positions
+  produced identical progress with no lag, snap, hysteresis, or discontinuity.
+  Reviewer workspace access remained read-only.
 
 ### 2026-08-20 phone carousel hierarchy correction
 

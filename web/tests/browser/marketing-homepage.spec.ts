@@ -850,8 +850,17 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
   await expect(page.locator(".showcase-surface-frost")).toHaveCount(0);
   await expect(showcaseSurface).toHaveAttribute("data-visual-state", "resting");
 
-  await showcaseSurface.evaluate((surface) => {
-    surface.scrollIntoView({ behavior: "instant", block: "start" });
+  await showcaseSurface.evaluate(async (surface) => {
+    const surfaceStyle = getComputedStyle(surface);
+    const lift = Number.parseFloat(surfaceStyle.getPropertyValue("--showcase-surface-lift")) || 0;
+    const bounds = surface.getBoundingClientRect();
+    const documentTop = window.scrollY + bounds.top - lift;
+    const bottomBookendTop = window.innerHeight - bounds.height;
+    const midpointTop = (bottomBookendTop + 96) / 2;
+    window.scrollTo({ top: documentTop - midpointTop, behavior: "instant" });
+    await new Promise<void>((resolve) =>
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())),
+    );
   });
   await expect(showcaseSurface).toHaveAttribute("data-visual-state", "floating");
 
@@ -921,6 +930,60 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
   expect(liftedSurface.surfaceOwnsPlate).toBe(true);
   expect(liftedSurface.progress).toBeGreaterThanOrEqual(0.98);
   expect(liftedSurface.transform).not.toBe("none");
+});
+
+test("holds a reversible strong-glass band between visible bookends", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto("/");
+
+  const showcaseSurface = page.locator("[data-showcase-surface]");
+  await expect
+    .poll(() =>
+      showcaseSurface
+        .locator('[data-product-plate-panel="parallel-work"] img')
+        .evaluate((image) => (image instanceof HTMLImageElement ? image.naturalWidth : 0)),
+    )
+    .toBeGreaterThan(0);
+
+  const geometry = await showcaseSurface.evaluate((surface) => {
+    const bounds = surface.getBoundingClientRect();
+    return {
+      height: bounds.height,
+      viewportHeight: window.innerHeight,
+    };
+  });
+
+  const readProgressAt = async (surfaceTop: number): Promise<number> => {
+    await showcaseSurface.evaluate(async (surface, targetSurfaceTop) => {
+      const surfaceStyle = getComputedStyle(surface);
+      const lift = Number.parseFloat(surfaceStyle.getPropertyValue("--showcase-surface-lift")) || 0;
+      const documentTop = window.scrollY + surface.getBoundingClientRect().top - lift;
+      window.scrollTo({ top: documentTop - targetSurfaceTop, behavior: "instant" });
+      await new Promise<void>((resolve) =>
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())),
+      );
+    }, surfaceTop);
+    return showcaseSurface.evaluate((surface) =>
+      Number(getComputedStyle(surface).getPropertyValue("--showcase-surface-progress")),
+    );
+  };
+
+  const bottomBookendTop = geometry.viewportHeight - geometry.height;
+  const visibleTop = 96;
+  const travel = bottomBookendTop - visibleTop;
+  const plateauStartTop = bottomBookendTop - travel * 0.35;
+  const midpointTop = bottomBookendTop - travel * 0.5;
+  const plateauEndTop = bottomBookendTop - travel * 0.65;
+
+  expect(await readProgressAt(bottomBookendTop)).toBeLessThanOrEqual(0.02);
+  expect(await readProgressAt(plateauStartTop)).toBeGreaterThanOrEqual(0.98);
+  expect(await readProgressAt(midpointTop)).toBeGreaterThanOrEqual(0.98);
+  expect(await readProgressAt(plateauEndTop)).toBeGreaterThanOrEqual(0.98);
+  expect(await readProgressAt(visibleTop)).toBeLessThanOrEqual(0.02);
+  expect(await readProgressAt(plateauEndTop)).toBeGreaterThanOrEqual(0.98);
+  expect(await readProgressAt(midpointTop)).toBeGreaterThanOrEqual(0.98);
+  expect(await readProgressAt(plateauStartTop)).toBeGreaterThanOrEqual(0.98);
+  expect(await readProgressAt(bottomBookendTop)).toBeLessThanOrEqual(0.02);
 });
 
 test("keeps the glass slideshow surface static with reduced motion", async ({ page }) => {
