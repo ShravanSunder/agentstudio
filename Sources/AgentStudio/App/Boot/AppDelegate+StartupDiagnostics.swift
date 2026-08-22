@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import AgentStudioTerminal
 import AppKit
 import Foundation
@@ -378,48 +379,80 @@ extension AppDelegate {
         private func runSidebarPerformanceProofDiagnostic(
             action: AgentStudioStartupDiagnosticAction
         ) async {
-            guard await prepareSidebarPerformanceProofFixture(action: action) != nil else {
-                return
-            }
-
-            let repoCount = store.repositoryTopologyAtom.repos.count
-            let worktreeCount = store.repositoryTopologyAtom.repos.reduce(0) { count, repo in
-                count + repo.worktrees.count
-            }
-            let tabCount = store.tabLayoutAtom.tabs.count
-            let paneCount = store.paneAtom.graphAtom.paneIDs.count
-            let projectionProofSucceeded =
-                repoCount == AppPolicies.SidebarPerformanceProof.repositoryCount
-                && worktreeCount == AppPolicies.SidebarPerformanceProof.worktreeCount
-                && tabCount == AppPolicies.SidebarPerformanceProof.tabCount
-                && paneCount == AppPolicies.SidebarPerformanceProof.paneCount
-                && AppPolicies.SidebarPerformanceProof.activePTYCount == 1
+            let result = await RepoExplorerNativeTablePilot.run(
+                performanceTraceRecorder: performanceTraceRecorder
+            )
             let projectionTrigger = AppPolicies.SidebarProjection.Trigger.startupDiagnostic
             let attributes = startupDiagnosticTraceAttributes(for: action).merging(
                 [
-                    "agentstudio.startup_diagnostic.fixture.repo.count": .int(repoCount),
-                    "agentstudio.startup_diagnostic.fixture.worktree.count": .int(worktreeCount),
-                    "agentstudio.startup_diagnostic.fixture.tab.count": .int(tabCount),
-                    "agentstudio.startup_diagnostic.fixture.pane.count": .int(paneCount),
-                    "agentstudio.startup_diagnostic.fixture.active_pty.count": .int(
-                        AppPolicies.SidebarPerformanceProof.activePTYCount
+                    "agentstudio.startup_diagnostic.native_table_pilot.policy_id": .string(
+                        result.policyID
                     ),
-                    "agentstudio.startup_diagnostic.fixture.sidebar_surface.count": .int(1),
-                    "agentstudio.startup_diagnostic.fixture.terminal_pane.count": .int(1),
-                    "agentstudio.startup_diagnostic.projection_proof.succeeded": .bool(
-                        projectionProofSucceeded
+                    "agentstudio.startup_diagnostic.native_table_pilot.policy_version": .int(
+                        result.policyVersion
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.result_version": .int(
+                        RepoExplorerNativeTablePilotResult.resultVersion
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.scale.count": .int(
+                        result.scaleCount
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.liveness_projection.count": .int(
+                        result.livenessProjectionCount
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.drain_completed.count": .int(
+                        result.drainedScaleCount
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.template_pair.count": .int(
+                        result.templatePairCount
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.warmup_transaction.count": .int(
+                        result.warmupTransactionCountPerScale
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.measured_transaction.count": .int(
+                        result.measuredTransactionCountPerScale
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.baseline_measurement.count": .int(
+                        result.baselineMeasurementCount
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.doubled_measurement.count": .int(
+                        result.doubledMeasurementCount
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.baseline_p95_ms": .double(
+                        result.baselineMembershipP95Milliseconds
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.doubled_p95_ms": .double(
+                        result.doubledMembershipP95Milliseconds
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.growth_percent": .double(
+                        result.doubledOffscreenGrowthPercent
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.exactness": .int(
+                        result.exactness ? 1 : 0
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.completed": .int(
+                        result.completed ? 1 : 0
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.passed": .int(
+                        result.passed ? 1 : 0
+                    ),
+                    "agentstudio.startup_diagnostic.native_table_pilot.failure_reason": .string(
+                        result.failureReason?.rawValue ?? "none"
                     ),
                     "agentstudio.performance.sidebar.surface": .string("repo"),
                     "agentstudio.performance.sidebar.phase": .string(projectionTrigger.rawValue),
                     "agentstudio.performance.sidebar.query_state": .string("empty"),
                     "agentstudio.performance.sidebar.group_mode": .string("repo"),
-                    "agentstudio.performance.sidebar.input.count": .int(repoCount + worktreeCount),
+                    "agentstudio.performance.sidebar.input.count": .int(
+                        AppPolicies.SidebarPerformanceProof.repositoryCount
+                            + AppPolicies.SidebarPerformanceProof.worktreeCount
+                    ),
                 ]
             ) { _, newValue in newValue }
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.command_exercised",
                 phase: "startup_diagnostic_action",
-                outcome: "succeeded",
+                outcome: result.passed ? "succeeded" : "failed",
                 attributes: attributes
             )
             performanceTraceRecorder?.record(
@@ -429,7 +462,7 @@ extension AppDelegate {
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.completed",
                 phase: "startup_diagnostic_action",
-                outcome: "succeeded",
+                outcome: result.passed ? "succeeded" : "failed",
                 attributes: attributes
             )
         }

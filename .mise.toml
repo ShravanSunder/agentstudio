@@ -689,6 +689,10 @@ run = "/bin/bash scripts/verify-git-refresh-performance-workload.sh"
 description = "Run AgentStudio sidebar semantic and performance workload proof"
 run = "/bin/bash scripts/verify-sidebar-performance-workload.sh --sidebar-proof"
 
+[tasks.verify-sidebar-native-table-pilot]
+description = "Run the marker-scoped Repo Explorer native table pilot proof"
+run = "/bin/bash scripts/verify-sidebar-native-table-pilot.sh"
+
 [tasks.verify-title-pane-performance-workload]
 description = "Run one marker-scoped terminal-title and pane-observation proof"
 run = "/bin/bash scripts/verify-title-pane-performance-workload.sh --proof"

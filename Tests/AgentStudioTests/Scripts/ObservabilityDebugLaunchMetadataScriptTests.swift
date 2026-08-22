@@ -32,10 +32,11 @@ struct ObservabilityDebugLaunchMetadataScriptTests {
         #expect(script.contains("sidebar-performance-proof"))
         #expect(script.contains("sidebar-performance-proof requires background LaunchServices activation mode"))
         #expect(script.contains("sidebar-performance-proof requires authenticated IPC auth mode"))
-        #expect(script.contains("agentstudio.startup_diagnostic.fixture.tab.count"))
-        #expect(script.contains("agentstudio.startup_diagnostic.fixture.pane.count"))
-        #expect(script.contains("agentstudio.startup_diagnostic.fixture.active_pty.count"))
-        #expect(script.contains("agentstudio.startup_diagnostic.projection_proof.succeeded"))
+        #expect(script.contains("agentstudio.startup_diagnostic.native_table_pilot.scale.count"))
+        #expect(script.contains("agentstudio.startup_diagnostic.native_table_pilot.passed"))
+        #expect(script.contains("agentstudio.startup_diagnostic.native_table_pilot.completed"))
+        #expect(!script.contains("agentstudio.startup_diagnostic.projection_proof.succeeded"))
+        #expect(script.contains("\\\"true\\\"|true|\\\"1\\\"|1"))
         #expect(!script.contains("agentstudio.startup_diagnostic.fixture.inbox_notification.count"))
     }
 }

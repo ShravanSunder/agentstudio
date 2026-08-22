@@ -40,11 +40,22 @@ package enum AppPolicies {
     }
 
     package enum SidebarPerformanceProof {
+        package static let nativeTablePilotPolicyID = "sidebar-native-table-pilot"
+        package static let nativeTablePilotPolicyVersion: Int = 1
         package static let repositoryCount: Int = 150
         package static let worktreeCount: Int = 180
+        package static let doubledWorktreeCount: Int = 360
         package static let tabCount: Int = 12
         package static let paneCount: Int = 36
         package static let activePTYCount: Int = 1
+        package static let representedRowCount: Int = 24
+        package static let warmupTransactionCountPerScale: Int = 20
+        package static let measuredTransactionCountPerScale: Int = 200
+        package static let maximumMembershipP95Milliseconds: Double = 4
+        package static let maximumDoubledOffscreenGrowthPercent: Double = 20
+        package static let nativeTablePilotCompletionTimeout: Duration = .seconds(30)
+        package static let scaleWorktreeCounts = [worktreeCount, doubledWorktreeCount]
+        package static let invalidatesWholePopulationOnFailure = true
         package static let maximumProcessCPUPercent: Double = 30
     }
 

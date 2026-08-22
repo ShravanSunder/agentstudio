@@ -6,6 +6,44 @@ import Testing
 
 @Suite
 struct SidebarPerformanceWorkloadScriptTests {
+    @Test("native table pilot verifier consumes projected policy without overrides")
+    func nativeTablePilotVerifierConsumesProjectedPolicyWithoutOverrides() async throws {
+        let pilotScriptPath = "scripts/verify-sidebar-native-table-pilot.sh"
+        let syntax = try await runSidebarScript(arguments: ["-n", pilotScriptPath])
+        #expect(syntax.exitCode == 0, Comment(rawValue: syntax.stderr))
+
+        let source = try String(contentsOfFile: pilotScriptPath, encoding: .utf8)
+        let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+
+        #expect(source.contains("sidebar-performance-proof"))
+        #expect(source.contains("performance.repo_explorer.native_table_pilot"))
+        #expect(source.contains("agent.proof.marker"))
+        #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_PID"))
+        #expect(source.contains("git rev-parse HEAD"))
+        #expect(source.contains("policy_id"))
+        #expect(source.contains("policy_version"))
+        #expect(source.contains("warmup_transaction_count"))
+        #expect(source.contains("measured_transaction_count"))
+        #expect(source.contains("baseline_p95_ms"))
+        #expect(source.contains("doubled_p95_ms"))
+        #expect(source.contains("growth_percent"))
+        #expect(source.contains("exactness"))
+        #expect(source.contains("trace_loss_count"))
+        let markerReadinessWait = try #require(source.range(of: "wait_for_marker_record"))
+        #expect(source.contains("agentstudio.performance.trace_queue.dropped_record.count"))
+        let genericVerifier = try #require(
+            source.range(of: "scripts/verify-debug-observability.sh")
+        )
+        #expect(markerReadinessWait.lowerBound < genericVerifier.lowerBound)
+        #expect(!source.contains("REPOSITORY_COUNT="))
+        #expect(!source.contains("WORKTREE_COUNT="))
+        #expect(!source.contains("MAXIMUM_P95="))
+        #expect(!source.contains("MAXIMUM_GROWTH="))
+        #expect(!source.contains("AGENTSTUDIO_NATIVE_TABLE_PILOT_"))
+        #expect(miseConfig.contains("[tasks.verify-sidebar-native-table-pilot]"))
+        #expect(miseConfig.contains("scripts/verify-sidebar-native-table-pilot.sh"))
+    }
+
     @Test("sidebar workload proof script has stable safety contract and bash syntax")
     // swiftlint:disable:next function_body_length
     func sidebarWorkloadProofScriptHasStableSafetyContractAndBashSyntax() async throws {

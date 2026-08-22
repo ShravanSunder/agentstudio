@@ -59,6 +59,17 @@ enum RepoExplorerNativeTransactionApplier {
         apply(plan: plan, to: RepoExplorerNativeTableViewTransactionTarget(tableView: tableView))
     }
 
+    @discardableResult
+    static func apply(
+        tablePlan: RepoExplorerNativeTableUpdatePlan,
+        to tableView: NSTableView
+    ) -> Bool {
+        apply(
+            tablePlan: tablePlan,
+            to: RepoExplorerNativeTableViewTransactionTarget(tableView: tableView)
+        )
+    }
+
     private static func tableUpdatePlan(
         from plan: RepoExplorerNativeUpdatePlan
     ) -> RepoExplorerNativeTableUpdatePlan? {

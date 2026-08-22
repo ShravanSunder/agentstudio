@@ -255,6 +255,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             )
         }
         appendRepoExplorerInstrumentDimensions(record: record, dimensions: &dimensions)
+        appendRepoExplorerNativeTablePilotDimensions(record: record, dimensions: &dimensions)
         appendStageOutcomeDimensions(record: record, dimensions: &dimensions)
         if record.body == "performance.git.status_unavailable",
             case .string(let reason) = record.attributes["agentstudio.performance.git.status_unavailable.reason"],
@@ -355,6 +356,24 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             ("outcome", "agentstudio.performance.repo_explorer.outcome"),
             ("facet", "agentstudio.performance.repo_explorer.facet"),
             ("row_relation", "agentstudio.performance.repo_explorer.row_relation"),
+        ] {
+            appendSafeStringDimension(
+                name: name,
+                attributeKey: attributeKey,
+                record: record,
+                dimensions: &dimensions
+            )
+        }
+    }
+
+    private static func appendRepoExplorerNativeTablePilotDimensions(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard record.body == "performance.repo_explorer.native_table_pilot" else { return }
+        for (name, attributeKey) in [
+            ("scale", "agentstudio.performance.repo_explorer.native_table_pilot.scale"),
+            ("outcome", "agentstudio.performance.repo_explorer.native_table_pilot.outcome"),
         ] {
             appendSafeStringDimension(
                 name: name,

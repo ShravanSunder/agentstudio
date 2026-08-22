@@ -1,7 +1,44 @@
 import Foundation
 
 enum AgentStudioOTLPRepoExplorerTaxonomy {
+    static let controlledIdentifierAttributeKeys: Set<String> = [
+        "agentstudio.performance.repo_explorer.native_table_pilot.policy_id",
+        "agentstudio.startup_diagnostic.native_table_pilot.policy_id",
+    ]
+
     static let numericAttributeKeys: Set<String> = [
+        "agentstudio.performance.repo_explorer.native_table_pilot.baseline_measurement.count",
+        "agentstudio.performance.repo_explorer.native_table_pilot.baseline_p95_ms",
+        "agentstudio.performance.repo_explorer.native_table_pilot.completed",
+        "agentstudio.performance.repo_explorer.native_table_pilot.drain_completed.count",
+        "agentstudio.performance.repo_explorer.native_table_pilot.doubled_measurement.count",
+        "agentstudio.performance.repo_explorer.native_table_pilot.doubled_p95_ms",
+        "agentstudio.performance.repo_explorer.native_table_pilot.exactness",
+        "agentstudio.performance.repo_explorer.native_table_pilot.growth_percent",
+        "agentstudio.performance.repo_explorer.native_table_pilot.liveness_projection.count",
+        "agentstudio.performance.repo_explorer.native_table_pilot.measured.count",
+        "agentstudio.performance.repo_explorer.native_table_pilot.membership_p95_ms",
+        "agentstudio.performance.repo_explorer.native_table_pilot.passed",
+        "agentstudio.performance.repo_explorer.native_table_pilot.policy_version",
+        "agentstudio.performance.repo_explorer.native_table_pilot.result_version",
+        "agentstudio.performance.repo_explorer.native_table_pilot.template_pair.count",
+        "agentstudio.performance.repo_explorer.native_table_pilot.warmup.count",
+        "agentstudio.startup_diagnostic.native_table_pilot.baseline_measurement.count",
+        "agentstudio.startup_diagnostic.native_table_pilot.baseline_p95_ms",
+        "agentstudio.startup_diagnostic.native_table_pilot.completed",
+        "agentstudio.startup_diagnostic.native_table_pilot.drain_completed.count",
+        "agentstudio.startup_diagnostic.native_table_pilot.doubled_measurement.count",
+        "agentstudio.startup_diagnostic.native_table_pilot.doubled_p95_ms",
+        "agentstudio.startup_diagnostic.native_table_pilot.exactness",
+        "agentstudio.startup_diagnostic.native_table_pilot.growth_percent",
+        "agentstudio.startup_diagnostic.native_table_pilot.liveness_projection.count",
+        "agentstudio.startup_diagnostic.native_table_pilot.measured_transaction.count",
+        "agentstudio.startup_diagnostic.native_table_pilot.passed",
+        "agentstudio.startup_diagnostic.native_table_pilot.policy_version",
+        "agentstudio.startup_diagnostic.native_table_pilot.result_version",
+        "agentstudio.startup_diagnostic.native_table_pilot.scale.count",
+        "agentstudio.startup_diagnostic.native_table_pilot.template_pair.count",
+        "agentstudio.startup_diagnostic.native_table_pilot.warmup_transaction.count",
         "agentstudio.performance.forge.input.automatic.count",
         "agentstudio.performance.forge.input.manual.count",
         "agentstudio.performance.forge.input.follow_up.count",
@@ -31,6 +68,12 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
     ]
 
     static let stringAttributeKeys: Set<String> = [
+        "agentstudio.performance.repo_explorer.native_table_pilot.failure_reason",
+        "agentstudio.performance.repo_explorer.native_table_pilot.outcome",
+        "agentstudio.performance.repo_explorer.native_table_pilot.policy_id",
+        "agentstudio.performance.repo_explorer.native_table_pilot.scale",
+        "agentstudio.startup_diagnostic.native_table_pilot.failure_reason",
+        "agentstudio.startup_diagnostic.native_table_pilot.policy_id",
         "agentstudio.performance.repo_explorer.facet",
         "agentstudio.performance.repo_explorer.key_class",
         "agentstudio.performance.repo_explorer.outcome",
@@ -50,6 +93,24 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
 
     static func isAllowedValue(key: String, value: String) -> Bool? {
         switch key {
+        case "agentstudio.startup_diagnostic.native_table_pilot.failure_reason":
+            [
+                "none", "completion_timeout", "fixture_invalid", "transaction_invalid",
+                "measurement_count_mismatch", "membership_p95_exceeded", "doubled_growth_exceeded",
+            ].contains(value)
+        case "agentstudio.startup_diagnostic.native_table_pilot.policy_id":
+            value == "sidebar-native-table-pilot"
+        case "agentstudio.performance.repo_explorer.native_table_pilot.failure_reason":
+            [
+                "none", "completion_timeout", "fixture_invalid", "transaction_invalid",
+                "measurement_count_mismatch", "membership_p95_exceeded", "doubled_growth_exceeded",
+            ].contains(value)
+        case "agentstudio.performance.repo_explorer.native_table_pilot.outcome":
+            ["completed", "passed", "failed"].contains(value)
+        case "agentstudio.performance.repo_explorer.native_table_pilot.policy_id":
+            value == "sidebar-native-table-pilot"
+        case "agentstudio.performance.repo_explorer.native_table_pilot.scale":
+            ["baseline", "doubled", "summary"].contains(value)
         case "agentstudio.performance.repo_explorer.stage":
             [
                 "observe_project", "distinct", "coalesce", "admission", "execute", "validate", "publish",

@@ -6,6 +6,68 @@ import Testing
 @Suite
 struct AgentStudioOTLPInstrumentationTaxonomyTests {
     @Test
+    func nativeTablePilotProjectsOnlyBoundedPolicyAndAggregateValues() {
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 4,
+                severityText: .info,
+                body: "performance.repo_explorer.native_table_pilot",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.trace.tag": .string("performance"),
+                    "agentstudio.performance.repo_explorer.native_table_pilot.policy_id": .string(
+                        "sidebar-native-table-pilot"
+                    ),
+                    "agentstudio.performance.repo_explorer.native_table_pilot.policy_version": .int(1),
+                    "agentstudio.performance.repo_explorer.native_table_pilot.scale": .string("baseline"),
+                    "agentstudio.performance.repo_explorer.native_table_pilot.outcome": .string("passed"),
+                    "agentstudio.performance.repo_explorer.native_table_pilot.measured.count": .int(200),
+                    "agentstudio.performance.repo_explorer.native_table_pilot.liveness_projection.count": .int(1),
+                    "agentstudio.performance.repo_explorer.native_table_pilot.drain_completed.count": .int(1),
+                    "agentstudio.performance.repo_explorer.native_table_pilot.template_pair.count": .int(1),
+                    "agentstudio.performance.repo_explorer.native_table_pilot.membership_p95_ms": .double(1.5),
+                    "agentstudio.performance.repo_explorer.native_table_pilot.private_row_id": .string("secret"),
+                ]
+            )
+        )
+
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.repo_explorer.native_table_pilot.policy_id"
+            ] == .string("sidebar-native-table-pilot")
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.repo_explorer.native_table_pilot.measured.count"
+            ] == .int(200)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.repo_explorer.native_table_pilot.liveness_projection.count"
+            ] == .int(1)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.repo_explorer.native_table_pilot.drain_completed.count"
+            ] == .int(1)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.repo_explorer.native_table_pilot.template_pair.count"
+            ] == .int(1)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.repo_explorer.native_table_pilot.private_row_id"
+            ] == nil
+        )
+    }
+
+    @Test
     func repoExplorerInstrumentDimensionsAreAllowlistedAndBounded() {
         let projection = AgentStudioOTLPTraceProjection.project(
             AgentStudioTraceRecord(

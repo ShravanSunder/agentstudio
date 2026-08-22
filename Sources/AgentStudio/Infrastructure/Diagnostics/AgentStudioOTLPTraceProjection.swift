@@ -837,7 +837,13 @@ extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributeValue(key: String, value: AgentStudioTraceValue)
         -> AgentStudioTraceValue?
     {
-        guard !isIdentifierKey(key), !isErrorKey(key) else {
+        guard
+            !isIdentifierKey(key)
+                || AgentStudioOTLPRepoExplorerTaxonomy.controlledIdentifierAttributeKeys.contains(
+                    key
+                ),
+            !isErrorKey(key)
+        else {
             return nil
         }
         switch value {

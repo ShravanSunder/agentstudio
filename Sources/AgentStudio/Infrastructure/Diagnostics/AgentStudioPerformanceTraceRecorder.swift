@@ -206,6 +206,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case paneViewRestoreVisible = "performance.pane_view.restore_visible"
         case repoExplorerCommandPresentation = "performance.repo_explorer.command_presentation"
         case repoExplorerKeyedWake = "performance.repo_explorer.keyed_wake"
+        case repoExplorerNativeTablePilot = "performance.repo_explorer.native_table_pilot"
         case repoExplorerStageSnapshot = "performance.repo_explorer.stage_snapshot"
         case repoExplorerOutlineApplyProxy = "performance.repo_explorer.outline_apply_proxy"
         case repoExplorerRowBodyEvaluation = "performance.repo_explorer.row_body_evaluation"

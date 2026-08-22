@@ -9,6 +9,32 @@ import Testing
 @testable import AgentStudioTestSupport
 
 struct AgentStudioStartupDiagnosticActionTests {
+    @Test("sidebar performance selector invokes only the package native pilot facade")
+    func sidebarPerformanceSelectorInvokesOnlyNativePilotFacade() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/App/Boot/AppDelegate+StartupDiagnostics.swift",
+            encoding: .utf8
+        )
+        let diagnosticStart = try #require(
+            source.range(of: "private func runSidebarPerformanceProofDiagnostic(")
+        )
+        let diagnosticEnd = try #require(
+            source.range(
+                of: "private func prepareSidebarPerformanceProofFixture(",
+                range: diagnosticStart.upperBound..<source.endIndex
+            )
+        )
+        let diagnosticSource = source[diagnosticStart.lowerBound..<diagnosticEnd.lowerBound]
+
+        #expect(diagnosticSource.contains("await RepoExplorerNativeTablePilot.run("))
+        #expect(diagnosticSource.contains("performanceTraceRecorder:"))
+        #expect(!diagnosticSource.contains("RepoExplorerProjectionAdapter"))
+        #expect(!diagnosticSource.contains("RepoExplorerMaterializationHost"))
+        #expect(!diagnosticSource.contains("NSTableView"))
+        #expect(!diagnosticSource.contains("RepoExplorerNativeTransactionApplier"))
+        #expect(!diagnosticSource.contains("retry"))
+    }
+
     @Test("repo explorer key mutation fixture waits for launch restore before topology readiness")
     func repoExplorerKeyMutationFixtureWaitsForLaunchRestoreBeforeTopologyReadiness() throws {
         let source = try String(
