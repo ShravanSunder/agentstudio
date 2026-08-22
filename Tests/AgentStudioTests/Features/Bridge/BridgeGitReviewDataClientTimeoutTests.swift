@@ -362,6 +362,12 @@ private actor NonCooperativeDiffAgentStudioGitClient: AgentStudioGitLocalClient 
         return GitDiffSnapshot(files: [])
     }
 
+    func countCommitRange(_: GitCommitRangeCountRequest) async throws(GitDataPlaneError)
+        -> GitCommitRangeCount
+    {
+        throw GitDataPlaneError.unsupported(message: "not used")
+    }
+
     func recordedDiffInvocationCount() -> Int {
         diffInvocationCount
     }

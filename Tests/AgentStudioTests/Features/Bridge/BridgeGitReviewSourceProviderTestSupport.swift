@@ -39,6 +39,7 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private let reviewComparisonTargetCapture: GitReviewComparisonTargetCapture?
     private var contributionDiffSnapshot: GitContributionDiffSnapshot?
     private var directReviewComparisonSnapshot: GitDirectReviewComparisonSnapshot?
+    private let commitRangeCount: GitCommitRangeCount?
     private var diffSnapshot: GitDiffSnapshot
     private let diffFailure: GitDataPlaneError?
     private var contentByLocator: [GitContentLocator: GitContentPayload]
@@ -61,11 +62,13 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private var reviewComparisonTargetRequests: [GitReviewComparisonTargetCaptureRequest] = []
     private var contributionDiffRequests: [GitContributionDiffRequest] = []
     private var directReviewComparisonRequests: [GitDirectReviewComparisonRequest] = []
+    private var commitRangeCountRequests: [GitCommitRangeCountRequest] = []
 
     init(
         reviewComparisonTargetCapture: GitReviewComparisonTargetCapture? = nil,
         contributionDiffSnapshot: GitContributionDiffSnapshot? = nil,
         directReviewComparisonSnapshot: GitDirectReviewComparisonSnapshot? = nil,
+        commitRangeCount: GitCommitRangeCount? = nil,
         diffSnapshot: GitDiffSnapshot = GitDiffSnapshot(files: []),
         diffFailure: GitDataPlaneError? = nil,
         contentByLocator: [GitContentLocator: GitContentPayload] = [:],
@@ -84,6 +87,7 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         self.reviewComparisonTargetCapture = reviewComparisonTargetCapture
         self.contributionDiffSnapshot = contributionDiffSnapshot
         self.directReviewComparisonSnapshot = directReviewComparisonSnapshot
+        self.commitRangeCount = commitRangeCount
         self.diffSnapshot = diffSnapshot
         self.diffFailure = diffFailure
         self.contentByLocator = contentByLocator
@@ -231,6 +235,16 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
             throw diffFailure
         }
         return diffSnapshot
+    }
+
+    func countCommitRange(_ request: GitCommitRangeCountRequest) async throws(GitDataPlaneError)
+        -> GitCommitRangeCount
+    {
+        commitRangeCountRequests.append(request)
+        guard let commitRangeCount else {
+            throw GitDataPlaneError.unsupported(message: "commit range count not configured")
+        }
+        return commitRangeCount
     }
 
     func contributionDiff(_ request: GitContributionDiffRequest) async throws(GitDataPlaneError)
