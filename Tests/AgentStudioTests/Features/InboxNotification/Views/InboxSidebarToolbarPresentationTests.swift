@@ -7,30 +7,17 @@ import Testing
 
 @Suite("InboxSidebarToolbarPresentation")
 struct InboxSidebarToolbarPresentationTests {
-    @Test("sidebar command presentation includes exact contextual inline controls")
+    @Test("retired sidebar command presentation exposes no inline controls")
     @MainActor
     func sidebarCommandPresentationIncludesExactContextualInlineControls() {
         let presentation = InboxSidebarCommandPresentation(commandContext: .empty)
 
-        #expect(presentation.sort?.command == .toggleInboxNotificationSort)
-        #expect(presentation.rowStateFilter?.command == .setInboxRowStateFilter)
-        #expect(presentation.contentMode?.command == .setInboxContentMode)
-        #expect(presentation.clearRead?.command == .clearReadInboxNotifications)
-        #expect(presentation.clearAll?.command == .clearAllInboxNotifications)
-        #expect(
-            presentation.groupingOptions.map(\.grouping) == [
-                .byTab,
-                .byRepo,
-                .byPane,
-                .none,
-            ])
-        #expect(
-            presentation.groupingOptions.map(\.spec.command) == [
-                .setInboxGroupingTab,
-                .setInboxGroupingRepo,
-                .setInboxGroupingPane,
-                .setInboxGroupingNone,
-            ])
+        #expect(presentation.sort == nil)
+        #expect(presentation.rowStateFilter == nil)
+        #expect(presentation.contentMode == nil)
+        #expect(presentation.clearRead == nil)
+        #expect(presentation.clearAll == nil)
+        #expect(presentation.groupingOptions.isEmpty)
     }
 
     @Test("sidebar command capability remains separate from presentation")
@@ -42,7 +29,7 @@ struct InboxSidebarToolbarPresentationTests {
         let presentation = InboxSidebarCommandPresentation(commandContext: .empty)
         let capability = InboxSidebarCommandCapability(dispatcher: dispatcher)
 
-        #expect(presentation.clearAll != nil)
+        #expect(presentation.clearAll == nil)
         #expect(capability.canDispatch(.clearReadInboxNotifications))
         #expect(!capability.canDispatch(.clearAllInboxNotifications))
     }
@@ -86,19 +73,12 @@ struct InboxSidebarToolbarPresentationTests {
         #expect(capabilities[.setInboxContentMode] == true)
     }
 
-    @Test("delete command rows source presentation from command specs")
+    @Test("retired delete commands have no sidebar presentation")
     @MainActor
     func deleteCommandRowsSourcePresentationFromCommandSpecs() throws {
         let presentation = InboxSidebarCommandPresentation(commandContext: .empty)
-        let clearRead = try #require(presentation.clearRead)
-        let clearAll = try #require(presentation.clearAll)
-
-        #expect(clearRead.label == AppCommand.clearReadInboxNotifications.definition.label)
-        #expect(clearRead.icon == AppCommand.clearReadInboxNotifications.definition.icon)
-        #expect(clearRead.helpText == AppCommand.clearReadInboxNotifications.definition.helpText)
-        #expect(clearAll.label == AppCommand.clearAllInboxNotifications.definition.label)
-        #expect(clearAll.icon == AppCommand.clearAllInboxNotifications.definition.icon)
-        #expect(clearAll.helpText == AppCommand.clearAllInboxNotifications.definition.helpText)
+        #expect(presentation.clearRead == nil)
+        #expect(presentation.clearAll == nil)
     }
 
     @Test("inbox header controls use distinct symbols and grouped row indentation")
@@ -108,11 +88,11 @@ struct InboxSidebarToolbarPresentationTests {
         let rowStateAction = AppCommand.setInboxRowStateFilter.definition
         let contentModeAction = AppCommand.setInboxContentMode.definition
 
-        #expect(sortIcon == .system(.arrowUpArrowDown))
-        #expect(rowStateAction.icon == .system(.envelopeBadge))
+        #expect(AppCommand.toggleInboxNotificationSort.definition.surfacePolicy == .notPresented)
+        #expect(rowStateAction.surfacePolicy == .notPresented)
         #expect(InboxSidebarHeader.rowStateButtonLabel(rowStateFilter: .unreadOnly) == "Show All Inbox Notifications")
         #expect(InboxSidebarHeader.rowStateButtonLabel(rowStateFilter: .all) == "Show Unread Only")
-        #expect(contentModeAction.icon == .system(.dotCircleViewfinder))
+        #expect(contentModeAction.surfacePolicy == .notPresented)
         #expect(InboxSidebarHeader.contentModeButtonLabel(contentMode: .all) == "Show Attention Notifications")
         #expect(InboxSidebarHeader.contentModeButtonLabel(contentMode: .rollUpAlerts) == "Show All Notifications")
         #expect(LocalActionSpec.groupInboxNotifications.actionSpec.icon == .system(.squareStack3dUp))

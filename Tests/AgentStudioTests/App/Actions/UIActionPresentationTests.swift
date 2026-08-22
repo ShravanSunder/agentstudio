@@ -118,12 +118,12 @@ struct UIActionPresentationTests {
     }
 
     @Test
-    func paneInboxToolTip_usesOverrideWithShortcut() {
+    func retiredPaneInboxToolTip_hasNoShortcut() {
         let toolTip = AppCommand.showPaneInboxNotifications.definition.controlToolTip(
             textOverride: "Open pane inbox"
         )
 
-        #expect(toolTip == "Open pane inbox (⌘⇧U)")
+        #expect(toolTip == "Open pane inbox")
     }
 
     @Test

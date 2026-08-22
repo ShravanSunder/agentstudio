@@ -1,5 +1,4 @@
 import AgentStudioCore
-import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import Foundation
 import Observation
@@ -83,7 +82,6 @@ final class TabBarAdapter {
 
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
-    private let inboxAtom: InboxNotificationAtom
     private let projectionTelemetry: TabBarProjectionTelemetry
     @ObservationIgnored private let onProjectionCompletion:
         @MainActor @Sendable (TabBarMaterializedProjection.ProjectionCompletion) -> Void
@@ -109,7 +107,6 @@ final class TabBarAdapter {
     init(
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        inboxAtom: InboxNotificationAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         project: @escaping @Sendable (TabBarProjectionRequest) throws(CancellationError) -> TabBarProjection =
             { try TabBarProjector.project($0) },
@@ -125,7 +122,6 @@ final class TabBarAdapter {
             }
         self.store = store
         self.repoCache = repoCache
-        self.inboxAtom = inboxAtom
         self.projectionTelemetry = projectionTelemetry
         self.onProjectionCompletion = onProjectionCompletion
         self.materializedProjectionFamily = TabBarMaterializedProjectionFamily(
@@ -225,9 +221,7 @@ final class TabBarAdapter {
                     request: TabBarProjectionRequest(
                         generation: generation,
                         coreRequest: coreRequest,
-                        inboxAttentionLane: inboxAtom.attentionLane(
-                            forPaneIds: coreRequest.paneIds
-                        )
+                        inboxAttentionLane: nil
                     )
                 )
             }

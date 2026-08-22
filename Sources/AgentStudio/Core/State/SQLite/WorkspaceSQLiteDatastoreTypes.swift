@@ -137,10 +137,6 @@ extension WorkspaceSQLiteDatastore {
             LocalSettingsValue<
                 WorkspaceLocalRepository.RepoExplorerPreferencesRecord
             >
-        package private(set) var inboxNotification:
-            LocalSettingsValue<
-                WorkspaceLocalRepository.InboxNotificationPreferencesRecord
-            >
     }
 
     package enum LocalRepositoryOperationResult<Output: Sendable>: Sendable {

@@ -286,12 +286,7 @@ struct AppBootSequenceTests {
                 viewRegistry: viewRegistry,
                 bridgePaneAttendance: atoms.bridgePaneAttendance,
                 editorChooser: atoms.editorChooser,
-                inboxNotification: atoms.inboxNotification,
-                inboxNotificationPrefs: atoms.inboxNotificationPrefs,
-                inboxSidebarState: atoms.inboxSidebarState,
-                paneInboxPresentationState: atoms.paneInboxPresentationState,
                 repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
-                paneInboxNotificationPresenter: PaneInboxNotificationPresenter(),
                 performanceTraceRecorder: performanceTraceRecorder,
                 closeTransitionCoordinator: PaneCloseTransitionCoordinator()
             )
@@ -634,8 +629,8 @@ struct AppBootSequenceTests {
         }
     }
 
-    @Test("inbox notification autosave observes memory, not runtime handoff state")
-    func inboxNotificationAutosaveObservesMemoryNotRuntimeHandoffState() throws {
+    @Test("dormant Inbox boot is not composed into application startup")
+    func dormantInboxBootIsNotComposedIntoApplicationStartup() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let inboxBootSourceURL = projectRoot.appending(
             path: "Sources/AgentStudio/App/Boot/AppDelegate+InboxNotificationBoot.swift"
@@ -645,13 +640,16 @@ struct AppBootSequenceTests {
             encoding: .utf8
         )
 
-        #expect(appDelegateSource.contains("_ = atomStore.inboxSidebarState.collapsedGroups"))
-        #expect(!appDelegateSource.contains("_ = atomStore.inboxNotificationPrefs.grouping"))
-        #expect(!appDelegateSource.contains("_ = atomStore.inboxNotificationPrefs.sort"))
-        #expect(!appDelegateSource.contains("_ = atomStore.inboxNotificationPrefs.bellEnabled"))
-        #expect(!appDelegateSource.contains("pendingFilter"))
-        #expect(!appDelegateSource.contains("peekPendingFilter"))
-        #expect(!appDelegateSource.contains("consumePendingFilter"))
+        #expect(appDelegateSource.contains("Inbox presentation and ingestion are intentionally retired"))
+
+        let workspaceBootSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"
+            ),
+            encoding: .utf8
+        )
+        #expect(!workspaceBootSource.contains("bootLoadInboxNotificationStore()"))
+        #expect(!workspaceBootSource.contains("bootStartInboxNotificationRouter"))
     }
 
     @Test("production code avoids generic clock-based sleep overloads")

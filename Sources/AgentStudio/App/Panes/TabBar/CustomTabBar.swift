@@ -783,8 +783,7 @@ struct TabBarEmptyState: View {
             )
             let adapter = TabBarAdapter(
                 store: store,
-                repoCache: RepoCacheAtom(),
-                inboxAtom: atomRegistry.inboxNotification
+                repoCache: RepoCacheAtom()
             )
 
             return VStack(spacing: 0) {

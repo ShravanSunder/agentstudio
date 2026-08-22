@@ -9,9 +9,7 @@ extension AppDelegate: ShellCommandHandling {
         }
         guard atomStore != nil else { return false }
         switch (request.command, request.arguments) {
-        case (.setRepoSidebarSortOrder, .repoSidebarSortOrder),
-            (.setInboxRowStateFilter, .inboxRowStateFilter),
-            (.setInboxContentMode, .inboxContentMode):
+        case (.setRepoSidebarSortOrder, .repoSidebarSortOrder):
             return true
         default:
             return false
@@ -21,10 +19,8 @@ extension AppDelegate: ShellCommandHandling {
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
         case .watchFolder, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .toggleInboxNotificationSort,
-            .clearReadInboxNotifications, .clearAllInboxNotifications, .showWorktreeSidebar,
+            .showWorktreeSidebar,
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos:
@@ -57,7 +53,11 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
+            .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
+            .setInboxGroupingNone,
             .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .setRepoSidebarSortOrder,
@@ -79,29 +79,24 @@ extension AppDelegate: ShellCommandHandling {
             mainWindowController?.showSidebarFilter()
             return true
         case .showInboxNotifications:
-            mainWindowController?.showInboxNotifications(commandBarIsKey: commandBarController.isKeyWindow)
-            return true
+            return false
         case .toggleInboxNotificationSort:
-            guard let atomStore else { return true }
-            atomStore.inboxNotificationPrefs.setSort(
-                atomStore.inboxNotificationPrefs.sort == .newestFirst ? .oldestFirst : .newestFirst
-            )
-            return true
+            return false
         case .clearReadInboxNotifications:
-            atomStore?.inboxNotification.clearReadHistory()
-            return true
+            return false
         case .clearAllInboxNotifications:
-            atomStore?.inboxNotification.clearAll()
-            return true
+            return false
         case .showWorktreeSidebar:
             mainWindowController?.showWorktreeSidebar()
             return true
-        case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone:
+        case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab:
             return executeSidebarGroupingCommand(command) == .applied
         case .setRepoSidebarSortOrder:
             return false
         case .setInboxRowStateFilter, .setInboxContentMode:
+            return false
+        case .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
+            .setInboxGroupingNone:
             return false
         case .newWindow:
             newWindow()
@@ -220,27 +215,18 @@ extension AppDelegate: ShellCommandHandling {
         switch (request.command, request.arguments) {
         case (.showWorktreeSidebar, .noArguments) where request.executionContext == .headlessIPC:
             return executeHeadlessRepoSidebarCommand()
-        case (.showInboxNotifications, .noArguments) where request.executionContext == .headlessIPC:
-            return executeHeadlessInboxSidebarCommand()
         case (.setRepoSidebarSortOrder, .repoSidebarSortOrder(let order)):
             return executeRepoSidebarSortOrderCommand(order)
-        case (.setInboxRowStateFilter, .inboxRowStateFilter(let filter)):
-            guard let inboxNotificationPrefs = atomStore?.inboxNotificationPrefs else {
-                return .stateUnavailable
-            }
-            inboxNotificationPrefs.setGlobalInboxRowStateFilter(filter)
-            return .applied
-        case (.setInboxContentMode, .inboxContentMode(let mode)):
-            guard let inboxNotificationPrefs = atomStore?.inboxNotificationPrefs else {
-                return .stateUnavailable
-            }
-            inboxNotificationPrefs.setGlobalInboxContentMode(mode)
-            return .applied
         case (.setRepoSidebarGroupingRepo, .noArguments), (.setRepoSidebarGroupingPane, .noArguments),
-            (.setRepoSidebarGroupingTab, .noArguments), (.setInboxGroupingTab, .noArguments),
-            (.setInboxGroupingRepo, .noArguments), (.setInboxGroupingPane, .noArguments),
-            (.setInboxGroupingNone, .noArguments):
+            (.setRepoSidebarGroupingTab, .noArguments):
             return executeSidebarGroupingCommand(request.command)
+        case (.showInboxNotifications, _), (.toggleInboxNotificationSort, _),
+            (.clearReadInboxNotifications, _), (.clearAllInboxNotifications, _),
+            (.showPaneInboxNotifications, _), (.clearPaneInboxNotifications, _),
+            (.setInboxGroupingTab, _), (.setInboxGroupingRepo, _),
+            (.setInboxGroupingPane, _), (.setInboxGroupingNone, _),
+            (.setInboxRowStateFilter, _), (.setInboxContentMode, _):
+            return .unsupportedCommand
         default:
             return execute(request.command) ? .applied : .unsupportedCommand
         }
@@ -258,18 +244,6 @@ extension AppDelegate: ShellCommandHandling {
         case .setRepoSidebarGroupingTab:
             atomStore.repoExplorerSidebarPrefs.setGroupingMode(.tab)
             return atomStore.repoExplorerSidebarPrefs.groupingMode == .tab ? .applied : .stateUnavailable
-        case .setInboxGroupingTab:
-            atomStore.inboxNotificationPrefs.setGrouping(.byTab)
-            return atomStore.inboxNotificationPrefs.grouping == .byTab ? .applied : .stateUnavailable
-        case .setInboxGroupingRepo:
-            atomStore.inboxNotificationPrefs.setGrouping(.byRepo)
-            return atomStore.inboxNotificationPrefs.grouping == .byRepo ? .applied : .stateUnavailable
-        case .setInboxGroupingPane:
-            atomStore.inboxNotificationPrefs.setGrouping(.byPane)
-            return atomStore.inboxNotificationPrefs.grouping == .byPane ? .applied : .stateUnavailable
-        case .setInboxGroupingNone:
-            atomStore.inboxNotificationPrefs.setGrouping(.none)
-            return atomStore.inboxNotificationPrefs.grouping == .none ? .applied : .stateUnavailable
         default:
             return .unsupportedCommand
         }
@@ -281,19 +255,6 @@ extension AppDelegate: ShellCommandHandling {
         mainWindowController?.expandSidebar()
         guard
             atomStore.core.workspaceSidebarState.sidebarSurface == .repos,
-            atomStore.core.workspaceSidebarState.sidebarCollapsed == false
-        else {
-            return .stateUnavailable
-        }
-        return .applied
-    }
-
-    private func executeHeadlessInboxSidebarCommand() -> AppCommandExecutionOutcome {
-        guard let atomStore else { return .stateUnavailable }
-        atomStore.core.workspaceSidebarState.setSidebarSurface(.inbox)
-        mainWindowController?.expandSidebar()
-        guard
-            atomStore.core.workspaceSidebarState.sidebarSurface == .inbox,
             atomStore.core.workspaceSidebarState.sidebarCollapsed == false
         else {
             return .stateUnavailable

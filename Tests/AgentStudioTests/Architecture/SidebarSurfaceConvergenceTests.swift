@@ -10,8 +10,8 @@ import Testing
 
 @Suite("Sidebar surface convergence")
 struct SidebarSurfaceConvergenceTests {
-    @Test("inbox grouping uses protocol dispatch and App-owned typed callback adaptation")
-    func inboxGroupingUsesProtocolDispatchAndAppOwnedTypedCallbackAdaptation() throws {
+    @Test("dormant Inbox controls remain feature-owned and disconnected from App")
+    func dormantInboxControlsRemainFeatureOwnedAndDisconnectedFromApp() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let inboxSource = try String(
             contentsOf: projectRoot.appending(
@@ -38,12 +38,10 @@ struct SidebarSurfaceConvergenceTests {
         #expect(inboxSource.contains("onCycleContentMode: { setContentMode(nextContentMode) }"))
         #expect(inboxSource.contains("onSetRowStateFilter(rowStateFilter)"))
         #expect(inboxSource.contains("onSetContentMode(contentMode)"))
-        #expect(appHostSource.contains("onSetRowStateFilter: { filter in"))
-        #expect(appHostSource.contains("command: .setInboxRowStateFilter"))
-        #expect(appHostSource.contains("arguments: .inboxRowStateFilter(filter)"))
-        #expect(appHostSource.contains("onSetContentMode: { mode in"))
-        #expect(appHostSource.contains("command: .setInboxContentMode"))
-        #expect(appHostSource.contains("arguments: .inboxContentMode(mode)"))
+        #expect(!appHostSource.contains("AgentStudioInboxNotification"))
+        #expect(!appHostSource.contains("setInboxRowStateFilter"))
+        #expect(!appHostSource.contains("setInboxContentMode"))
+        #expect(!appHostSource.contains("InboxNotificationSidebarView"))
     }
 
     @Test("repo and inbox sidebars share the repo-matched outer chrome and list policy")

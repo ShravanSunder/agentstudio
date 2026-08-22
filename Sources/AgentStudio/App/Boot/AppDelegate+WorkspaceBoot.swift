@@ -226,7 +226,6 @@ extension AppDelegate {
             }
         )
         workspaceSettingsStore = makeWorkspaceSettingsStore(sqliteDatastore: sqliteDatastore)
-        paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
         switch await store.loadCanonicalComposition() {
         case .loaded(let acceptance), .initializedDefaultWorkspace(let acceptance):
@@ -284,7 +283,6 @@ extension AppDelegate {
         WorkspaceSettingsStore(
             editorPreferenceAtom: atomStore.editorPreference,
             repoExplorerSidebarPrefsAtom: atomStore.repoExplorerSidebarPrefs,
-            inboxNotificationPrefsAtom: atomStore.inboxNotificationPrefs,
             sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
@@ -303,7 +301,6 @@ extension AppDelegate {
     private func bootLoadUIStore() async {
         await workspaceSettingsStore.restoreAsync(for: store.identityAtom.workspaceId)
         await uiStateStore.restoreAsync(for: store.identityAtom.workspaceId)
-        await bootLoadInboxNotificationStore()
     }
 
     private func bootEstablishRuntimeBus(
@@ -389,11 +386,9 @@ extension AppDelegate {
                     placement: placement
                 )
             },
-            notificationInboxCommands: makeInboxNotificationCommands(),
             commandBarSurface: atomStore.core.commandBarSurface,
             performanceTraceRecorder: performanceTraceRecorder
         )
-        bootStartInboxNotificationRouter(bus: paneRuntimeBus)
         bootStartTerminalActivityRouter(bus: paneRuntimeBus)
         AppCommandDispatcher.shared.appCommandRouter = self
         oauthService = OAuthService()

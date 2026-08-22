@@ -69,7 +69,6 @@ extension AppDelegate {
                     ),
                     sidebarPort: AgentStudioIPCSidebarAdapter(
                         repoPrefs: atomStore.repoExplorerSidebarPrefs,
-                        inboxPrefs: atomStore.inboxNotificationPrefs,
                         sidebarState: atomStore.core.workspaceSidebarState
                     ),
                     permissionApprovalPort: AgentStudioIPCHumanApprovalPort()

@@ -229,7 +229,7 @@ struct ApplicationEntrypointArchitectureTests {
                 "await waitForRepoExplorerProjectionReadiness(fixture: fixture)"))
         let readinessIndex = try #require(
             diagnosticSource.range(
-                of: "settleRepoExplorerProjection(fixture: fixture, action: action)"
+                of: "await settleRepoExplorerProjection("
             )?.lowerBound)
         let mutationIndex = try #require(
             diagnosticSource.range(of: "self.runRenderedRepoFavoriteMutations()")?.lowerBound)

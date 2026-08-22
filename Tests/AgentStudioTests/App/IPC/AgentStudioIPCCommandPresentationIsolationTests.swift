@@ -21,7 +21,7 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
 
         #expect(
             encodedCommandListSHA256
-                == "bb030fb8ff7db1b95ff89f8b0f6d926bdac822b8cab59c64bc331fdbd229a100"
+                == "e1a46ccfd3fc7240328348c8d119f44d63fdc42b4beb572620bbb3b2c4d83450"
         )
     }
 
@@ -41,13 +41,7 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
                     requiredPrivilege: .layoutMutate
                 )
         )
-        #expect(
-            AppCommand.showInboxNotifications.ipcSpec.exposure
-                == .headlessAndInteractive(
-                    durableTarget: .targetless,
-                    requiredPrivilege: .sidebarStateMutate
-                )
-        )
+        #expect(AppCommand.showInboxNotifications.ipcSpec.exposure == .notExposed)
         #expect(
             AppCommand.splitRight.ipcSpec.exposure
                 == .interactive(

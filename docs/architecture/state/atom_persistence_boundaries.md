@@ -25,7 +25,7 @@ SQLite repository. Do not add an atom to own SQL, and do not add SQL because an
 atom exists.
 
 Existing pane/tab graph atoms stay: they are UI-observed, and SQLite is how that
-durable graph survives restart. Many other atoms have no table. Inbox is the
+durable graph survives restart. Many other atoms have no table. The retained Inbox is the
 mixed pattern: the log is a repository; `InboxNotificationAtom` exists because
 the sidebar observes the list.
 
@@ -60,14 +60,14 @@ owner, not in Jotai's Provider/Store.
    restart. The atom stays the live owner. A store captures an immutable
    snapshot and the datastore writes SQL. `WorkspaceStore` snapshots the
    pane/tab graph; `InboxNotificationStore` snapshots `InboxNotificationAtom`;
-   `UIStateStore` snapshots sidebar shell memory. Atom methods never talk to
-   GRDB.
+   `UIStateStore` snapshots sidebar shell memory. The Inbox store is retained
+   source only and is not activated by App boot. Atom methods never talk to GRDB.
 4. **SQLite repository only** when the work is CRUD, query, coalesce, or
    retention and no UI subscriber must wake. `InboxNotificationSQLiteRepository`
    is the row owner for the log. Do not add an atom to wrap those queries.
    If a list later needs Observation, add an atom for the observed projection
-   and keep the repository as the snapshot/row owner (the inbox mixed
-   pattern).
+   and keep the repository as the snapshot/row owner. The dormant Inbox
+   repository remains an example of this retained boundary, not an active lane.
 
 Do not start at SQL and invent an atom to match the table. Do not start at an
 atom and invent a table because the atom exists.
@@ -301,7 +301,7 @@ facts, snapshots, deltas, or intents.
 | `WorkspaceSidebarState` | window-keyed `WorkspaceSidebarMemoryAtom`, runtime-only `SidebarFocusRuntimeAtom` | sidebar read model |
 | `SidebarCacheState` | `SidebarExpandedGroupAtom`; `SidebarCheckoutColorAtom` is cleanup-only, not a live write owner | sidebar shell read model |
 | `EditorChooserState` | `EditorPreferenceAtom`, `EditorChooserRuntimeAtom` | editor chooser read model |
-| `InboxSidebarState` | `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom` | inbox sidebar read model |
+| Retained `InboxSidebarState` | `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom` | dormant source only; not composed by App |
 
 ## Domain Type Role Matrix
 

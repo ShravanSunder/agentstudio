@@ -51,7 +51,7 @@ struct WorkspaceLauncherProjectorTests {
                 tabLayoutAtom: atoms.core.workspaceTabLayout,
                 mutationCoordinator: atoms.core.workspaceMutationCoordinator
             )
-            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
             #expect(result.kind == .noFolders)
             #expect(result.recentCards.isEmpty)
@@ -65,7 +65,7 @@ struct WorkspaceLauncherProjectorTests {
             let store = makeStore(atoms: atoms)
             atoms.core.welcome.beginFolderScan(URL(fileURLWithPath: "/tmp/scanning-root"))
 
-            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
             #expect(result.kind == .scanning(URL(fileURLWithPath: "/tmp/scanning-root")))
             #expect(result.recentCards.isEmpty)
@@ -81,7 +81,7 @@ struct WorkspaceLauncherProjectorTests {
                 discoveredRepoCount: 0
             )
 
-            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
             #expect(result.kind == .scanEmpty(URL(fileURLWithPath: "/tmp/empty-root")))
             #expect(result.recentCards.isEmpty)
@@ -99,7 +99,7 @@ struct WorkspaceLauncherProjectorTests {
                 discoveredRepoCount: 0
             )
 
-            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
             #expect(result.kind == .launcher)
         }
@@ -111,7 +111,7 @@ struct WorkspaceLauncherProjectorTests {
             let store = makeStore(atoms: atoms)
             atoms.core.welcome.beginChoosingFolder()
 
-            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
             #expect(result.kind == .choosingFolder)
             #expect(result.recentCards.isEmpty)
@@ -125,7 +125,7 @@ struct WorkspaceLauncherProjectorTests {
             atoms.core.welcome.beginChoosingFolder()
             atoms.core.welcome.beginFolderScan(URL(fileURLWithPath: "/tmp/scanning-root"))
 
-            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
             #expect(result.kind == .scanning(URL(fileURLWithPath: "/tmp/scanning-root")))
         }
@@ -138,7 +138,7 @@ struct WorkspaceLauncherProjectorTests {
             _ = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             atoms.core.welcome.beginChoosingFolder()
 
-            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
             #expect(result.kind == .launcher)
         }
@@ -224,7 +224,7 @@ struct WorkspaceLauncherProjectorTests {
             )
             try recordWorktreeRecency(atoms: atoms, worktree: worktree)
 
-            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
             #expect(result.kind == .launcher)
             #expect(result.recentCards.count == 1)
@@ -233,7 +233,6 @@ struct WorkspaceLauncherProjectorTests {
             #expect(result.recentCards[0].checkoutIconKind == .mainCheckout)
             #expect(result.recentCards[0].iconColorHex == RepoPresentationGrouping.automaticPaletteHexes[0])
             #expect(result.recentCards[0].statusChips?.branchStatus.prCount == 3)
-            #expect(result.recentCards[0].statusChips?.notificationCount == 2)
             #expect(result.showsOpenAll == false)
         }
     }
@@ -264,7 +263,7 @@ struct WorkspaceLauncherProjectorTests {
             store.tabLayoutAtom.appendTab(Tab(paneId: pane.id))
             try recordWorktreeRecency(atoms: atoms, worktree: worktree)
 
-            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
             #expect(result.kind == .launcher)
             #expect(result.recentCards.isEmpty)
@@ -294,7 +293,7 @@ struct WorkspaceLauncherProjectorTests {
                 )
             }
 
-            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
             #expect(result.recentCards.count == 15)
             #expect(result.showsOpenAll == true)
@@ -322,7 +321,7 @@ struct WorkspaceLauncherProjectorTests {
             )
             store.reconcileDiscoveredWorktrees(repo.id, worktrees: [liveWorktree])
 
-            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
             #expect(result.recentCards.count == 1)
             #expect(
@@ -360,7 +359,6 @@ struct WorkspaceLauncherProjectorTests {
 
             let result = WorkspaceLauncherProjector.project(
                 store: store,
-                inboxAtom: atoms.inboxNotification
             )
             let activationWorktree = WorkspaceLauncherProjector.resolveActivationWorktree(
                 target: .repository(repositoryStableKey: repo.stableKey),
@@ -423,7 +421,6 @@ struct WorkspaceLauncherProjectorTests {
 
             let result = WorkspaceLauncherProjector.project(
                 store: store,
-                inboxAtom: atoms.inboxNotification
             )
             let repositoryActivation = WorkspaceLauncherProjector.resolveActivationWorktree(
                 target: .repository(repositoryStableKey: repository.stableKey),

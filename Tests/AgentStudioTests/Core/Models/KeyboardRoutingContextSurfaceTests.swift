@@ -148,7 +148,7 @@ struct KeyboardRoutingContextSurfaceTests {
             transientKeyboardSurface: transientSurface
         )
 
-        #expect(context.stableOwner == .sidebar(.inbox))
-        #expect(context.activeSurface == .stable(.sidebar(.inbox)))
+        #expect(context.stableOwner == .sidebar(.repos))
+        #expect(context.activeSurface == .stable(.sidebar(.repos)))
     }
 }

@@ -768,46 +768,36 @@ extension AppCommand {
                 targeting: .contextual
             )
         case .showInboxNotifications:
-            return windowDefinition(
-                shortcut: .showInboxNotifications,
-                label: "Toggle Inbox",
-                icon: .system(.bell),
-                helpText: "Show or hide the notification inbox in the sidebar",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.app)]),
-                targeting: .contextual
-            )
+            return retiredGlobalInboxDefinition()
         case .toggleInboxNotificationSort:
-            return inboxActionDefinition(
+            return retiredInboxDefinition(
                 label: "Toggle Inbox Sort Order",
                 icon: .system(.arrowUpArrowDown),
-                helpText: "Switch the inbox between newest-first and oldest-first order"
+                helpText: "The notification inbox is retired"
             )
         case .clearReadInboxNotifications:
-            return inboxActionDefinition(
+            return retiredInboxDefinition(
                 label: "Clear Read Inbox Notifications",
                 icon: .system(.deleteLeft),
-                helpText: "Remove read notifications from the inbox history"
+                helpText: "The notification inbox is retired"
             )
         case .clearAllInboxNotifications:
-            return inboxActionDefinition(
+            return retiredInboxDefinition(
                 label: "Clear All Inbox Notifications",
                 icon: .system(.deleteLeft),
-                helpText: "Remove every notification from the inbox history"
+                helpText: "The notification inbox is retired"
             )
         case .showPaneInboxNotifications:
-            return paneInboxDefinition(
-                shortcut: .showPaneInboxNotifications,
+            return retiredInboxDefinition(
                 label: "Toggle Pane Inbox",
                 icon: .system(.bellBadge),
-                helpText: "Show notifications for the active pane and its drawer children",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)])
+                helpText: "The pane notification inbox is retired"
             )
         case .clearPaneInboxNotifications:
-            return paneInboxDefinition(
+            return retiredInboxDefinition(
                 label: "Clear Pane Inbox",
                 icon: .system(.deleteLeft),
-                helpText: "Clear notifications for the active pane and its drawer children",
-                surfacePolicy: .exposed([.commandBar, .inlineControl])
+                helpText: "The pane notification inbox is retired"
             )
         case .showWorktreeSidebar:
             return windowDefinition(
@@ -839,33 +829,41 @@ extension AppCommand {
         case .setRepoSidebarSortOrder:
             return repoSidebarSortOrderDefinition()
         case .setInboxGroupingTab:
-            return inboxGroupingDefinition(
+            return retiredInboxDefinition(
                 label: "Tab",
                 icon: .system(.rectangleStack),
-                helpTarget: "tab"
+                helpText: "The notification inbox is retired"
             )
         case .setInboxGroupingRepo:
-            return inboxGroupingDefinition(
+            return retiredInboxDefinition(
                 label: "Repo",
                 icon: .system(.folder),
-                helpTarget: "repo"
+                helpText: "The notification inbox is retired"
             )
         case .setInboxGroupingPane:
-            return inboxGroupingDefinition(
+            return retiredInboxDefinition(
                 label: "Pane",
                 icon: .system(.rectangleSplit2x1),
-                helpTarget: "pane"
+                helpText: "The notification inbox is retired"
             )
         case .setInboxGroupingNone:
-            return inboxGroupingDefinition(
+            return retiredInboxDefinition(
                 label: "None",
                 icon: .system(.line3Horizontal),
-                helpTarget: "a flat list"
+                helpText: "The notification inbox is retired"
             )
         case .setInboxRowStateFilter:
-            return inboxRowStateFilterDefinition()
+            return retiredInboxDefinition(
+                label: "Set Inbox Row Filter",
+                icon: .system(.line3Horizontal),
+                helpText: "The notification inbox is retired"
+            )
         case .setInboxContentMode:
-            return inboxContentModeDefinition()
+            return retiredInboxDefinition(
+                label: "Set Inbox Content Mode",
+                icon: .system(.line3Horizontal),
+                helpText: "The notification inbox is retired"
+            )
         case .newFloatingTerminal:
             return windowDefinition(
                 label: "New Floating Terminal",

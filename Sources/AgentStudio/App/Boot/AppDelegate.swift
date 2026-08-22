@@ -47,12 +47,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.core.repoCache }
     var uiState: WorkspaceSidebarState! { atomStore.core.workspaceSidebarState }
+    // Inbox presentation and ingestion are intentionally retired. These dormant
+    // references remain only for the later data-safe source removal.
     var inboxNotificationStore: InboxNotificationStore!
     var inboxNotificationRouter: InboxNotificationRouter!
     var inboxPaneFocusTracker: PaneFocusTracker!
     var paneInboxNotificationPresenter: PaneInboxNotificationPresenter!
-    var pendingPersistenceRecoveryEvents: [PersistenceRecoveryEvent] = []
-    var hasLoadedInboxNotificationStore = false
     var terminalActivityRouter: TerminalActivityRouter!
     var traceRuntime: AgentStudioTraceRuntime!
     var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!

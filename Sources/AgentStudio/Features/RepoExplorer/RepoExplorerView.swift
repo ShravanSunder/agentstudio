@@ -94,8 +94,8 @@ package struct RepoExplorerView: View {
         onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void,
         onRefocusActivePane: @escaping () -> Void,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
-        onShowNotificationsForWorktree: @escaping (Worktree) -> Void,
-        unreadCount: @escaping (Worktree) -> Int,
+        onShowNotificationsForWorktree: @escaping (Worktree) -> Void = { _ in },
+        unreadCount: @escaping (Worktree) -> Int = { _ in 0 },
         latestPaneMessageSnapshot: @escaping LatestPaneMessageSnapshot = { _ in nil },
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         recencyNow: @escaping @MainActor @Sendable () -> Date = Date.init,
@@ -272,7 +272,11 @@ package struct RepoExplorerView: View {
         }
 
         _ = groupingMode
-        _ = repoExplorerPrefs.sortOrder
+        if groupingMode != .tab
+            || repositoryIDs.contains(where: { repoCache.repoEnrichment(for: $0) == nil })
+        {
+            _ = repoExplorerPrefs.sortOrder
+        }
         _ = sidebarCache.collapsedGroups
         if observesPanePresentation {
             _ = atom(\.workspaceEntityRecency).recentEntities

@@ -19,7 +19,6 @@ struct SingleTabContent: View {
     let paneInboxPresentation: PaneInboxPresentation?
     let paneNotePresentation: PaneNotePresentation?
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
     let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
     let zoomPaneSurfaceToolbarPresentation: (UUID, ZoomViewerPresentation) -> PaneSurfaceToolbarPresentation
@@ -41,7 +40,6 @@ struct SingleTabContent: View {
         paneInboxPresentation: PaneInboxPresentation? = nil,
         paneNotePresentation: PaneNotePresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
-        notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         workspaceWindowId: UUID? = nil,
         paneSurfaceToolbarPresentation: @escaping (UUID) -> PaneSurfaceToolbarPresentation,
         zoomPaneSurfaceToolbarPresentation:
@@ -63,7 +61,6 @@ struct SingleTabContent: View {
         self.paneInboxPresentation = paneInboxPresentation
         self.paneNotePresentation = paneNotePresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
-        self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
         self.paneSurfaceToolbarPresentation = paneSurfaceToolbarPresentation
         self.zoomPaneSurfaceToolbarPresentation = zoomPaneSurfaceToolbarPresentation
@@ -114,7 +111,6 @@ struct SingleTabContent: View {
                         paneInboxPresentation: paneInboxPresentation,
                         paneNotePresentation: paneNotePresentation,
                         onOpenPaneGitHub: onOpenPaneGitHub,
-                        notificationCountForWorktree: notificationCountForWorktree,
                         workspaceWindowId: workspaceWindowId,
                         paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation
                     )
@@ -185,7 +181,6 @@ struct SingleTabContent: View {
                 onPaneFocusTrigger: onPaneFocusTrigger,
                 onFocusPane: onFocusPane,
                 onOpenPaneGitHub: onOpenPaneGitHub,
-                notificationCountForWorktree: notificationCountForWorktree,
                 viewRegistry: viewRegistry,
                 surfaceId: "zoom:\(tabId)",
                 renderedPaneIds: Set(renderState.children.map(\.paneId))
@@ -221,7 +216,6 @@ struct SingleTabContent: View {
                 actionDispatcher: actionDispatcher,
                 onPaneFocusTrigger: onPaneFocusTrigger,
                 onOpenPaneGitHub: onOpenPaneGitHub,
-                notificationCountForWorktree: notificationCountForWorktree,
                 dropTargetCoordinateSpace: "tabContainer",
                 paneInboxPresentation: child.paneId == sourcePaneId ? paneInboxPresentation : nil,
                 paneNotePresentation: child.paneId == sourcePaneId ? paneNotePresentation : nil,

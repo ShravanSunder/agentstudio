@@ -292,8 +292,8 @@ struct InboxNotificationSidebarViewTests {
         )
     }
 
-    @Test("mounted inbox sidebar places delete menu before rightmost grouping control")
-    func mountedInboxSidebarPlacesDeleteMenuBeforeRightmostGroupingControl() async throws {
+    @Test("mounted dormant Inbox sidebar omits retired command controls")
+    func mountedDormantInboxSidebarOmitsRetiredCommandControls() async throws {
         let router = MockAppCommandRouter()
         router.appCommands = [.clearReadInboxNotifications]
         try await withIsolatedCommandDispatcher(
@@ -333,10 +333,16 @@ struct InboxNotificationSidebarViewTests {
 
                 #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarSearchRow") == 1)
                 #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarToolbarRow") == 1)
-                #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarDeleteMenu") == 1)
+                #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarDeleteMenu") == 0)
                 #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarClearButton") == 0)
                 #expect(
                     inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarSortButtonFrame") == 0)
+                guard
+                    inboxSidebarAccessibleElementCount(
+                        in: hostingView,
+                        identifier: "inboxSidebarDeleteMenu"
+                    ) > 0
+                else { return }
                 guard
                     let searchRow = inboxSidebarDescendant(
                         in: hostingView,

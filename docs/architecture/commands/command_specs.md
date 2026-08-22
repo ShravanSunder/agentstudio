@@ -21,6 +21,12 @@ and
 Display:
 [Tooltips, help text, and compact control copy](#tooltips-help-text-and-compact-control-copy).
 
+Inbox command identities are intentionally retained but retired. Their catalog
+definitions are `.notPresented`, carry no shortcut, and the independent IPC
+projection is unexposed. App shell and pane owners reject them without reading
+or mutating Inbox state. Do not reconnect those identities to UI, shortcuts,
+IPC, or runtime composition without a new product decision.
+
 ## Files to load
 
 These source files own the system. Architecture claims should link here so

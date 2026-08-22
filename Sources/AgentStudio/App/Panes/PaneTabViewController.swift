@@ -109,7 +109,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let viewRegistry: ViewRegistry
     private let bridgePaneAttendance: BridgePaneAttendanceAtom
     private let editorChooser: EditorChooserState
-    private let inboxAtom: InboxNotificationAtom
     private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -230,7 +229,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         viewRegistry: ViewRegistry,
         bridgePaneAttendance: BridgePaneAttendanceAtom,
         editorChooser: EditorChooserState,
-        inboxAtom: InboxNotificationAtom,
         paneInboxPresentation: PaneInboxPresentation? = nil,
         installedEditorTargetsProvider: @escaping @MainActor () -> [ExternalEditorTarget] = {
             ExternalEditorTarget.refreshInstalledTargets()
@@ -277,7 +275,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.viewRegistry = viewRegistry
         self.bridgePaneAttendance = bridgePaneAttendance
         self.editorChooser = editorChooser
-        self.inboxAtom = inboxAtom
         self.paneInboxPresentation = paneInboxPresentation
         self.installedEditorTargetsProvider = installedEditorTargetsProvider
         self.openEditorHandler = openEditorHandler
@@ -1227,7 +1224,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 viewRegistry.ensureSlot(for: paneId)
             }
         }
-        let inboxAtom = inboxAtom
         let contentView = SingleTabContent(
             tabId: tabId,
             octiconLoader: octiconLoader,
@@ -1251,12 +1247,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             paneNotePresentation: paneNotePresentation,
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
-            },
-            notificationCountForWorktree: { worktreeId in
-                WorkspaceNotificationCountProjection.rollUpAlertCount(
-                    worktreeId: worktreeId,
-                    inboxAtom: inboxAtom
-                )
             },
             workspaceWindowId: workspaceWindowId,
             paneSurfaceToolbarPresentation: { [weak self] paneId in
@@ -1727,10 +1717,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     // MARK: - Empty State
 
     private var emptyStateModel: WorkspaceEmptyStateModel {
-        WorkspaceLauncherProjector.project(
-            store: store,
-            inboxAtom: inboxAtom
-        )
+        WorkspaceLauncherProjector.project(store: store)
     }
 
     private func createEmptyStateView() -> NSHostingView<AnyView> {
@@ -4851,13 +4838,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         return PaneManagementContext.project(
             paneId: paneId,
-            store: store,
-            notificationCountForWorktree: { worktreeId in
-                WorkspaceNotificationCountProjection.rollUpAlertCount(
-                    worktreeId: worktreeId,
-                    inboxAtom: inboxAtom
-                )
-            }
+            store: store
         )
     }
 

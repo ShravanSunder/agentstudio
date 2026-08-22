@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces facts on `EventBus<RuntimeEnvelope>`. Subscribers declare the fact topics they consume: `WorkspaceCacheCoordinator` owns topology and enrichment-cache effects, while the surface coordinator, forge projector, terminal activity router, and inbox router consume their own matched facts. The sidebar is a pure reader of the state owners via `@Observable` binding — zero imperative fetches, zero mutations.
+Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces facts on `EventBus<RuntimeEnvelope>`. Subscribers declare the fact topics they consume: `WorkspaceCacheCoordinator` owns topology and enrichment-cache effects, while the surface coordinator, forge projector, and terminal activity router consume their own matched facts. Repo Explorer is the sole sidebar and is a pure reader of state owners via `@Observable` binding — zero imperative fetches, zero mutations.
 
 Normal boot explicitly prepares authoritative `core.sqlite` and the one app-root
 `local.sqlite` before any hydration, then retains one writable owner for each
@@ -20,6 +20,11 @@ decode failure defaults only its logical slice. Neither changes or blocks
 accepted core startup. Historical
 core GRDB migrations remain so valid older core databases can open;
 `preferences.global.json` remains independently owned.
+
+Inbox source, schema, preference rows, and history rows are retained but
+dormant. Normal boot does not load, observe, route, promote, present, or write
+them. Unrelated settings saves must leave every retained row and timestamp
+unchanged; reconnecting this lane requires a new product decision.
 
 ---
 
@@ -43,13 +48,10 @@ TIER B: APPLICATION LOCAL DATABASE (rebuildable enrichment + entity recency)
               paths for application recency, attended-pane transitions for pane recency
   Contains: global repo enrichment, worktree enrichment, PR counts,
            global repository/worktree recency, and workspace-keyed pane recency
-           (notification unread counts are derived from
-            InboxNotificationAtom.unreadCount(forWorktreeId:)
-            per LUNA-361)
 
 TIER C: UI STATE (preferences, non-structural + composition state)
   Live source: ~/.agentstudio/local.sqlite
-  Owner: WorkspaceSidebarMemoryAtom and feature-local preference/inbox owners
+  Owner: WorkspaceSidebarMemoryAtom and active feature-local preferences
   Mutated by: sidebar view actions, MainSplitViewController
               (publishing sidebar collapsed state), composite commands
               (⌘I / ⌘S), and repo sidebar filter actions
@@ -232,8 +234,8 @@ struct WorkspaceUIState: Codable {
                                            //   from the legacy UserDefaults
                                            //   value. UserDefaults key is
                                            //   dead code after LUNA-361.
-    var sidebarSurface: SidebarSurface     // .repos | .inbox; new surfaces
-                                           //   extend the enum monotonically
+    var sidebarSurface: SidebarSurface     // live value is always .repos;
+                                           // legacy .inbox input normalizes
     // sidebarHasFocus is NOT persisted — runtime-only, resets to false
     // on launch. Published by each sidebar surface view via @FocusState.
 }

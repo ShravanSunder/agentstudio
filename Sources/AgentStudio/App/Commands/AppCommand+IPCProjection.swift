@@ -207,20 +207,24 @@ extension AppCommand {
                 .notExposed
             case .openPullRequest:
                 .notExposed
+            case .showInboxNotifications, .toggleInboxNotificationSort,
+                .clearReadInboxNotifications, .clearAllInboxNotifications,
+                .showPaneInboxNotifications, .clearPaneInboxNotifications,
+                .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
+                .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode:
+                .notExposed
             case .reloadBridgeWebView:
                 .headless(
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
                 )
-            case .showInboxNotifications, .showWorktreeSidebar:
+            case .showWorktreeSidebar:
                 .headlessAndInteractive(
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
                 )
             case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-                .setRepoSidebarSortOrder,
-                .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
-                .setInboxRowStateFilter, .setInboxContentMode:
+                .setRepoSidebarSortOrder:
                 .headless(
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
@@ -256,9 +260,7 @@ extension AppCommand {
                 .managementLayerEnterDrawer, .managementLayerExitDrawer,
                 .managementLayerOpenDrawer, .managementLayerCreateTerminal,
                 .managementLayerCreateBrowser, .managementLayerExit,
-                .toggleSidebar, .toggleInboxNotificationSort,
-                .clearReadInboxNotifications, .clearAllInboxNotifications,
-                .showPaneInboxNotifications, .clearPaneInboxNotifications,
+                .toggleSidebar,
                 .newFloatingTerminal, .newWindow, .closeWindow,
                 .showCommandBarQuickOpen, .openWebview,
                 .showBridgeReview, .showBridgeFiles,

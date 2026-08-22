@@ -11,8 +11,43 @@ import Testing
 /// tests for the active-pane chip's real-attention composition (F5) and its keyboard-routing/
 /// observation-admission extensions (N2a, N2b from the sidebar-grouping re-audit).
 extension RepoExplorerViewProjectionHelperTests {
-    @Test("visible Repo observation consumes its registration when surface demand is lost")
-    func visibleRepoObservationTracksDemandLoss() {
+    @Test("By Tab does not observe Repo-only sort changes")
+    func byTabDoesNotObserveRepoOnlySortChanges() {
+        withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let preferences = RepoExplorerSidebarPrefsAtom()
+            preferences.setGroupingMode(.tab)
+            let view = RepoExplorerView(
+                store: store,
+                octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                repoExplorerPrefs: preferences,
+                bridgeAttendanceSnapshot: { _ in nil },
+                commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
+                onSetSortOrder: { _ in },
+                onRefocusActivePane: {},
+                onSidebarVisibleWorktreesChanged: {},
+                onShowNotificationsForWorktree: { _ in },
+                unreadCount: { _ in 0 }
+            )
+            let invalidationRecorder = RepoProjectionInvalidationRecorder()
+
+            withObservationTracking {
+                _ = view.projectionInputRevision
+            } onChange: {
+                invalidationRecorder.record()
+            }
+            preferences.setSortOrder(.descending)
+
+            #expect(invalidationRecorder.invalidationCount == 0)
+        }
+    }
+
+    @Test("legacy Inbox selection does not revoke sole Repo surface demand")
+    func legacyInboxSelectionKeepsRepoSurfaceDemand() {
         withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
@@ -40,7 +75,8 @@ extension RepoExplorerViewProjectionHelperTests {
             }
             atoms.workspaceSidebarState.setSidebarSurface(.inbox)
 
-            #expect(invalidationRecorder.invalidationCount == 1)
+            #expect(atoms.workspaceSidebarState.sidebarSurface == .repos)
+            #expect(invalidationRecorder.invalidationCount == 0)
         }
     }
 

@@ -41,8 +41,8 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
         )
     }
 
-    @Test("Cmd-Shift-U app-owned key event reaches PaneInbox command dispatch")
-    func cmdShiftUKeyEventOpensPaneInboxForActiveParentScope() async throws {
+    @Test("retired Cmd-Shift-U shortcut does not dispatch PaneInbox")
+    func retiredCmdShiftUKeyEventDoesNotOpenPaneInbox() async throws {
         try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -58,14 +58,11 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
                     let tab = Tab(paneId: parentPane.id)
                     harness.store.appendTab(tab)
                     harness.store.setActiveTab(tab.id)
-                    let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+                    _ = try #require(harness.store.addDrawerPane(to: parentPane.id))
                     let event = try #require(cmdShiftUEvent())
 
-                    #expect(harness.controller.handleAppOwnedKeyEvent(event))
-
-                    #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
-                    #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
-                    #expect(harness.paneInboxPresenter.request?.intent == .open)
+                    #expect(!harness.controller.handleAppOwnedKeyEvent(event))
+                    #expect(harness.paneInboxPresenter.request == nil)
                 }
             )
         }

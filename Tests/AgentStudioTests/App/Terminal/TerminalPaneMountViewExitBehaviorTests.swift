@@ -72,12 +72,10 @@ struct TerminalPaneMountViewExitBehaviorTests {
             tabBarAdapter: TabBarAdapter(
                 store: store,
                 repoCache: RepoCacheAtom(),
-                inboxAtom: inboxAtom
             ),
             viewRegistry: viewRegistry,
             bridgePaneAttendance: BridgePaneAttendanceAtom(),
             editorChooser: editorChooser,
-            inboxAtom: inboxAtom,
             registersAsCommandHandler: false,
             appEventBus: appEventBus
         )
