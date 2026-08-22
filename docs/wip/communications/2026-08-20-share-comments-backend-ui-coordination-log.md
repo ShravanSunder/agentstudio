@@ -822,3 +822,30 @@ Next: UI owner fixes or hands back the Share failure/cleanup contamination; then
 rerun the full packaged suite and exact-HEAD aggregate gate.
 Notes: backend did not edit UI, Share behavior, security/auth, routes, scheduler,
 polling, persistence, compatibility, or PR2 files.
+
+### 2026-08-22 14:58 EDT — Installed Review annotation projection restored
+
+State: the comm-worker/backend Review annotation projection blocker is fixed;
+the complete BridgeWeb gate is green
+Head: `26f89e06a`
+Owns: installed Review identity adaptation and backend proof harnesses only; no
+visual UI product files changed
+Changed: the comm worker now projects the parsed
+`reviewPublicationInstalled` command to its exact five-field annotation identity
+before strict product transport. Previously the compile-time `Pick` retained the
+seven command-envelope keys at runtime, causing strict projection-query
+validation to fail locally before HTTP. Test harnesses now also model one
+identity-stable multi-window candidate with one final ready barrier, and the
+static hydration-order assertion identifies the intended post-initial traversal.
+Proof: installed-source red test observed 12 keys and now passes with exactly
+five; focused Review annotation Swift-backend + Vite + Chrome E2E passes through
+projection query/content and reload; focused browser burst passes 1/1; static
+router contract passes 28/28. Complete `mise run test:bridge-web` passes 1,950
+unit, 19 Node integration, 265 browser integration, and 8 real Vite E2E tests.
+Needs from UI lane: the earlier packaged Share journey failure at `review-new`
+still needs the UI owner's correction; the backend annotation projection path is
+no longer blocking it.
+Next: rerun the full packaged WKWebView suite after the UI lane lands, then the
+exact-HEAD aggregate gate and independent implementation review.
+Notes: no new route, retry, polling, state bank, compatibility, security/auth,
+persistence, or PR2 change.
