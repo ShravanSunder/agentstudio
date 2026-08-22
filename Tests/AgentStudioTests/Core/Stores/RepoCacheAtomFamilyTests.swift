@@ -48,6 +48,22 @@ private func observePullRequestLoading(
 }
 
 @MainActor
+private func observePullRequestUnavailability(
+    in cacheAtom: RepoEnrichmentCacheAtom,
+    repoId: UUID,
+    counter: RepoCacheAtomFamilyInvalidationCounter
+) {
+    withObservationTracking {
+        _ = cacheAtom.isPullRequestDataUnavailable(forRepository: repoId)
+    } onChange: {
+        MainActor.assumeIsolated {
+            counter.record()
+            observePullRequestUnavailability(in: cacheAtom, repoId: repoId, counter: counter)
+        }
+    }
+}
+
+@MainActor
 @Suite(.serialized)
 struct RepoCacheAtomFamilyTests {
     @Test("unrelated repository projection does not invalidate keyed loading reader")
@@ -70,6 +86,28 @@ struct RepoCacheAtomFamilyTests {
         #expect(!invalidationCounter.didFire)
         #expect(cacheAtom.isPullRequestLoading(forRepository: unrelatedRepoId))
         #expect(!cacheAtom.isPullRequestLoading(forRepository: watchedRepoId))
+    }
+
+    @Test("unrelated repository projection does not invalidate keyed unavailability reader")
+    func unrelatedRepositoryProjectionPreservesUnavailabilityReader() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let watchedRepoId = UUIDv7.generate()
+        let unrelatedRepoId = UUIDv7.generate()
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
+        observePullRequestUnavailability(
+            in: cacheAtom,
+            repoId: watchedRepoId,
+            counter: invalidationCounter
+        )
+
+        cacheAtom.applyPullRequestRepositoryProjection(
+            .stable(.unavailable(previousConfirmedFactsByBranch: [:])),
+            forRepository: unrelatedRepoId
+        )
+
+        #expect(!invalidationCounter.didFire)
+        #expect(cacheAtom.isPullRequestDataUnavailable(forRepository: unrelatedRepoId))
+        #expect(!cacheAtom.isPullRequestDataUnavailable(forRepository: watchedRepoId))
     }
 
     @Test("repository projection atomically completes loading with confirmed facts")

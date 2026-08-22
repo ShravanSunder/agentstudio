@@ -55,9 +55,22 @@ struct RepoExplorerHotPathArchitectureTests {
             ),
             encoding: .utf8
         )
+        let adapterInputLifecycleSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionAdapter+InputLifecycle.swift"
+            ),
+            encoding: .utf8
+        )
+        let completeAdapterSource = adapterSource + adapterInputLifecycleSource
         let captureSource = try String(
             contentsOf: projectRoot.appending(
                 path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionInputCapture.swift"
+            ),
+            encoding: .utf8
+        )
+        let sidebarHostSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift"
             ),
             encoding: .utf8
         )
@@ -65,11 +78,13 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!source.contains(".onChange(of: projectionRequestKey)"))
         #expect(!source.contains("withObservationTracking"))
         #expect(!source.contains("private func observeProjectionInputs("))
-        #expect(adapterSource.contains("withObservationTracking"))
-        #expect(adapterSource.contains("func updateDemand("))
-        #expect(adapterSource.contains("func suspendDemand()"))
-        #expect(adapterSource.contains("RepoExplorerObservationRegistration"))
-        #expect(adapterSource.contains("scheduleRecencyDeadline"))
+        #expect(completeAdapterSource.contains("withObservationTracking"))
+        #expect(completeAdapterSource.contains("func updateDemand("))
+        #expect(completeAdapterSource.contains("func suspendDemand()"))
+        #expect(completeAdapterSource.contains("RepoExplorerObservationRegistration"))
+        #expect(completeAdapterSource.contains("scheduleRecencyDeadline"))
+        #expect(completeAdapterSource.contains("RepoExplorerPendingInvalidation"))
+        #expect(completeAdapterSource.contains("registerObservation("))
         #expect(!source.contains("projectionInputRevision"))
         #expect(!source.contains("private var projectionRequest:"))
         #expect(!source.contains("private func startProjectionObservation"))
@@ -84,10 +99,12 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!source.contains("repoCache.unavailablePullRequestRepoIds"))
         #expect(!source.contains("paneRecencyDisplayCadence"))
         #expect(!source.contains("while !Task.isCancelled"))
-        #expect(adapterSource.contains("admitDelta("))
-        #expect(adapterSource.contains("stage: \"capture_rebuild\""))
+        #expect(completeAdapterSource.contains("admitDelta("))
+        #expect(completeAdapterSource.contains("stage: \"affected_row\""))
+        #expect(captureSource.contains(".recency(for: .pane(paneID:"))
         #expect(source.contains(".onChange(of: debouncedQuery)"))
         #expect(source.contains("projectionAdapter.updateDemand("))
+        #expect(sidebarHostSource.contains("isProjectionDemanded: !sidebarState.sidebarCollapsed"))
     }
 
     @Test("Repo Explorer capture consumes stored topology identity")

@@ -19,6 +19,14 @@ final class RepoExplorerProjectionInputCapture {
     let latestPaneMessageSnapshot: LatestPaneMessageSnapshot
 
     private var paneDisplayTitleCache = RepoExplorerPaneDisplayTitleCache()
+    private(set) var fullCaptureCount = 0
+    var presentationCaptureCount = 0
+    var scopedCaptureCount = 0
+    private(set) var paneFactCaptureCount = 0
+
+    var isRepoSurfaceVisible: Bool {
+        sidebarState.sidebarSurface == .repos
+    }
 
     init(
         store: WorkspaceStore,
@@ -40,91 +48,6 @@ final class RepoExplorerProjectionInputCapture {
         self.latestPaneMessageSnapshot = latestPaneMessageSnapshot
     }
 
-    func observeInputs(isVisible: Bool) -> RepoExplorerObservationRegistration {
-        guard isVisible, sidebarState.sidebarSurface == .repos else { return .hidden }
-
-        let repositoryIDs = store.repositoryTopologyAtom.repositoryIdsInOrder
-        let groupingMode = preferences.groupingMode
-        var worktreeIDs = Set<UUID>()
-        _ = Self.observeRepoEnrichmentInputs(repositoryIDs: repositoryIDs, repoCache: repoCache)
-        for repositoryID in repositoryIDs {
-            _ = repoCache.isPullRequestLoading(forRepository: repositoryID)
-            _ = repoCache.isPullRequestDataUnavailable(forRepository: repositoryID)
-            guard let repository = store.repositoryTopologyAtom.repo(repositoryID) else { continue }
-            for worktree in repository.worktrees {
-                worktreeIDs.insert(worktree.id)
-                let enrichment = repoCache.worktreeEnrichment(for: worktree.id)
-                if let enrichment,
-                    let branchKey = RepoBranchKey(repoId: enrichment.repoId, branch: enrichment.branch)
-                {
-                    _ = repoCache.pullRequestFacts(for: branchKey)
-                }
-            }
-        }
-
-        _ = groupingMode
-        if groupingMode != .tab
-            || repositoryIDs.contains(where: { repoCache.repoEnrichment(for: $0) == nil })
-        {
-            _ = preferences.sortOrder
-        }
-        _ = sidebarCache.collapsedGroups
-
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        let paneGraph = store.paneAtom.graphAtom
-        var paneIDs = Set<UUID>()
-        var tabIDs = Set<UUID>()
-        for tab in workspaceTab.tabs {
-            tabIDs.insert(tab.id)
-            _ = store.tabLayoutAtom.tab(tab.id)
-            if groupingMode == .tab {
-                _ = coreAtoms.tabDisplay.displayTitle(
-                    for: tab,
-                    workspacePane: store.paneAtom,
-                    workspaceRepositoryTopology: store.repositoryTopologyAtom,
-                    repoCache: repoCache
-                )
-            }
-            for paneID in tab.allPaneIds {
-                paneIDs.insert(paneID)
-                _ = paneGraph.paneStructuralFacts(paneID)
-                _ = bridgeAttendanceSnapshot(paneID)
-                if groupingMode != .repo {
-                    _ = store.paneAtom.pane(paneID)
-                    _ = latestPaneMessageSnapshot(paneID)
-                }
-            }
-        }
-        for paneID in paneGraph.paneIDs {
-            paneIDs.insert(paneID)
-            _ = paneGraph.paneStructuralFacts(paneID)
-        }
-
-        if groupingMode != .repo {
-            _ = coreAtoms.workspaceEntityRecency.recentEntities
-            _ = KeyboardRoutingContext.current(
-                windowLifecycle: coreAtoms.windowLifecycle,
-                managementLayer: coreAtoms.managementLayer,
-                uiState: sidebarState,
-                commandBarSurface: coreAtoms.commandBarSurface,
-                transientKeyboardSurface: coreAtoms.transientKeyboardSurface
-            )
-            _ = coreAtoms.attendedPane.attendedPaneId
-        }
-
-        return RepoExplorerObservationRegistration.make(
-            isVisible: true,
-            groupingMode: groupingMode,
-            repositoryIDs: Set(repositoryIDs),
-            worktreeIDs: worktreeIDs,
-            paneIDs: paneIDs,
-            tabIDs: tabIDs
-        )
-    }
-
     static func observeRepoEnrichmentInputs(
         repositoryIDs: [UUID],
         repoCache: RepoCacheAtom
@@ -140,6 +63,7 @@ final class RepoExplorerProjectionInputCapture {
         referenceDate: Date,
         trigger: AppPolicies.SidebarProjection.Trigger
     ) -> RepoExplorerProjectionRequest {
+        fullCaptureCount += 1
         let repos = sidebarRepos()
         let worktreeEnrichmentSnapshot = Self.worktreeEnrichmentSnapshot(
             for: repos.flatMap(\.worktrees).map(\.id),
@@ -179,6 +103,252 @@ final class RepoExplorerProjectionInputCapture {
             loadingPullRequestRepoIds: repositoryIDs.filter {
                 repoCache.isPullRequestLoading(forRepository: $0)
             }
+        )
+    }
+
+    func capturePresentationRequest(
+        previous: RepoExplorerProjectionRequest,
+        query: String,
+        referenceDate: Date
+    ) -> RepoExplorerProjectionRequest {
+        presentationCaptureCount += 1
+        let groupingMode = preferences.groupingMode
+        let sortOrder = groupingMode == .tab ? previous.snapshot.sortOrder : preferences.sortOrder
+        let groupingChanged = groupingMode != previous.snapshot.groupingMode
+        let paneFacts: [UUID: RepoExplorerPaneRowFacts]
+        let tabFacts: [UUID: RepoExplorerTabGroupFacts]
+        if groupingChanged {
+            let paneIDs = demandedPaneIDs(in: previous.snapshot)
+            let tabIDs = demandedTabIDs(in: previous.snapshot)
+            paneFacts =
+                groupingMode == .repo
+                ? [:]
+                : Dictionary(
+                    uniqueKeysWithValues: paneIDs.compactMap { paneID in
+                        capturePaneFact(paneID: paneID, now: referenceDate).map { (paneID, $0) }
+                    }
+                )
+            tabFacts =
+                groupingMode == .tab
+                ? Dictionary(
+                    uniqueKeysWithValues: tabIDs.compactMap { tabID in
+                        captureTabFact(tabID: tabID).map { (tabID, $0) }
+                    }
+                )
+                : [:]
+        } else {
+            paneFacts = previous.paneRowFactsByPaneId
+            tabFacts = previous.tabGroupFactsByTabId
+        }
+        return previous.replacing(
+            snapshot: previous.snapshot.replacing(
+                groupingMode: groupingMode,
+                sortOrder: sortOrder,
+                query: query
+            ),
+            collapsedGroupIds: Set(sidebarCache.collapsedGroups.map(\.rawValue)),
+            isFiltering: !query.isEmpty,
+            paneRowFactsByPaneId: paneFacts,
+            tabGroupFactsByTabId: tabFacts
+        )
+    }
+
+    func captureScoped(
+        _ invalidation: RepoExplorerInputInvalidation,
+        previous: RepoExplorerProjectionRequest,
+        referenceDate: Date
+    ) -> RepoExplorerScopedCapture? {
+        scopedCaptureCount += 1
+        switch invalidation {
+        case .structural, .presentation:
+            return nil
+        case .repository(let repositoryID):
+            return captureRepositoryChange(repositoryID, previous: previous)
+        case .worktree(let worktreeID):
+            return captureWorktreeChange(worktreeID, previous: previous)
+        case .pane(let paneID):
+            return capturePaneChanges([paneID], previous: previous, referenceDate: referenceDate)
+        case .tab(let tabID):
+            guard previous.snapshot.groupingMode == .tab,
+                let fact = captureTabFact(tabID: tabID),
+                previous.tabGroupFactsByTabId[tabID] != fact
+            else { return unchangedScopedCapture(previous) }
+            var tabFacts = previous.tabGroupFactsByTabId
+            tabFacts[tabID] = fact
+            return RepoExplorerScopedCapture(
+                request: previous.replacing(tabGroupFactsByTabId: tabFacts),
+                changes: [.tab(tabID)],
+                requiresFullProjection: false
+            )
+        case .attention:
+            let previousFocusedPaneIDs = Set(
+                previous.paneRowFactsByPaneId.compactMap { paneID, facts in facts.isActive ? paneID : nil }
+            )
+            let nextFocusedPaneID = focusedPaneID()
+            let affectedPaneIDs = previousFocusedPaneIDs.union(nextFocusedPaneID.map { [$0] } ?? [])
+            return capturePaneChanges(
+                affectedPaneIDs,
+                previous: previous,
+                referenceDate: referenceDate
+            )
+        }
+    }
+
+    private func captureRepositoryChange(
+        _ repositoryID: UUID,
+        previous: RepoExplorerProjectionRequest
+    ) -> RepoExplorerScopedCapture? {
+        guard let repositoryIndex = previous.snapshot.repos.firstIndex(where: { $0.id == repositoryID }),
+            let repository = store.repositoryTopologyAtom.repo(repositoryID),
+            let stableKey = store.repositoryTopologyAtom.repositoryStableKey(for: repositoryID)
+        else { return nil }
+        let previousRepository = previous.snapshot.repos[repositoryIndex]
+        let updatedRepository = RepoPresentationItem(
+            repo: repository,
+            stableKey: stableKey,
+            worktreeStableKeysByID: store.repositoryTopologyAtom.worktreeStableKeysByID
+        )
+        guard previousRepository.worktrees.map(\.id) == updatedRepository.worktrees.map(\.id) else { return nil }
+
+        var repositories = previous.snapshot.repos
+        repositories[repositoryIndex] = updatedRepository
+        var repoEnrichment = previous.snapshot.repoEnrichmentSnapshotByRepoId
+        let previousRepoEnrichment = repoEnrichment[repositoryID]
+        repoEnrichment[repositoryID] = repoCache.repoEnrichment(for: repositoryID)
+        let request = captureRepositoryRuntimeFacts(
+            repositoryID,
+            worktreeIDs: updatedRepository.worktrees.map(\.id),
+            previous: previous.replacing(
+                snapshot: previous.snapshot.replacing(
+                    repos: repositories,
+                    repoEnrichmentByRepoId: repoEnrichment
+                )
+            )
+        )
+        let repositoryPresentationChanged = previousRepository != updatedRepository
+        let repoEnrichmentChanged = previousRepoEnrichment != repoEnrichment[repositoryID]
+        let worktreeChanges = Set(
+            updatedRepository.worktrees.map { RepoExplorerScopedProjectionChange.worktreeFact($0.id) })
+        let changes = worktreeChanges.union(repositoryPresentationChanged ? [.repo(repositoryID)] : [])
+        return RepoExplorerScopedCapture(
+            request: request,
+            changes: changes,
+            requiresFullProjection: repoEnrichmentChanged
+        )
+    }
+
+    private func captureWorktreeChange(
+        _ worktreeID: UUID,
+        previous: RepoExplorerProjectionRequest
+    ) -> RepoExplorerScopedCapture? {
+        guard
+            let repository = previous.snapshot.repos.first(where: { repo in
+                repo.worktrees.contains(where: { $0.id == worktreeID })
+            })
+        else { return nil }
+        let request = captureRepositoryRuntimeFacts(
+            repository.id,
+            worktreeIDs: [worktreeID],
+            previous: previous
+        )
+        return RepoExplorerScopedCapture(
+            request: request,
+            changes: request == previous ? [] : [.worktreeFact(worktreeID)],
+            requiresFullProjection: false
+        )
+    }
+
+    private func captureRepositoryRuntimeFacts(
+        _ repositoryID: UUID,
+        worktreeIDs: [UUID],
+        previous: RepoExplorerProjectionRequest
+    ) -> RepoExplorerProjectionRequest {
+        var worktreeEnrichment = previous.worktreeEnrichmentSnapshot
+        for worktreeID in worktreeIDs {
+            worktreeEnrichment[worktreeID] = repoCache.worktreeEnrichment(for: worktreeID)
+        }
+        var pullRequestFacts = previous.pullRequestFactsSnapshot.filter { $0.key.repoId != repositoryID }
+        for enrichment in worktreeEnrichment.values where enrichment.repoId == repositoryID {
+            guard let branchKey = RepoBranchKey(repoId: repositoryID, branch: enrichment.branch),
+                let facts = repoCache.pullRequestFacts(for: branchKey)
+            else { continue }
+            pullRequestFacts[branchKey] = facts
+        }
+        var unavailableRepositories = previous.unavailablePullRequestRepoIds
+        var loadingRepositories = previous.loadingPullRequestRepoIds
+        if repoCache.isPullRequestDataUnavailable(forRepository: repositoryID) {
+            unavailableRepositories.insert(repositoryID)
+        } else {
+            unavailableRepositories.remove(repositoryID)
+        }
+        if repoCache.isPullRequestLoading(forRepository: repositoryID) {
+            loadingRepositories.insert(repositoryID)
+        } else {
+            loadingRepositories.remove(repositoryID)
+        }
+        return previous.replacing(
+            worktreeEnrichmentSnapshot: worktreeEnrichment,
+            pullRequestFactsSnapshot: pullRequestFacts,
+            unavailablePullRequestRepoIds: unavailableRepositories,
+            loadingPullRequestRepoIds: loadingRepositories
+        )
+    }
+
+    private func capturePaneChanges(
+        _ paneIDs: Set<UUID>,
+        previous: RepoExplorerProjectionRequest,
+        referenceDate: Date
+    ) -> RepoExplorerScopedCapture {
+        guard previous.snapshot.groupingMode != .repo else { return unchangedScopedCapture(previous) }
+        var paneFacts = previous.paneRowFactsByPaneId
+        var bridgeCandidates = previous.snapshot.bridgePaneCommandCandidatesByWorktreeId
+        var changes = Set<RepoExplorerScopedProjectionChange>()
+        for paneID in paneIDs where paneFacts[paneID] != nil {
+            let nextFact = capturePaneFact(paneID: paneID, now: referenceDate)
+            if paneFacts[paneID] != nextFact {
+                paneFacts[paneID] = nextFact
+                changes.insert(.pane(paneID))
+            }
+            for (worktreeID, locations) in previous.snapshot.paneLocationsByWorktreeId
+            where locations.contains(where: { $0.paneId == paneID }) {
+                let nextCandidates = bridgePaneCommandCandidatesByWorktreeId(
+                    paneLocationsByWorktreeId: [worktreeID: locations]
+                )[worktreeID, default: []]
+                if bridgeCandidates[worktreeID, default: []] != nextCandidates {
+                    bridgeCandidates[worktreeID] = nextCandidates
+                    changes.insert(.worktreeFact(worktreeID))
+                }
+            }
+        }
+        return RepoExplorerScopedCapture(
+            request: previous.replacing(
+                snapshot: previous.snapshot.replacing(
+                    bridgePaneCommandCandidatesByWorktreeId: bridgeCandidates
+                ),
+                paneRowFactsByPaneId: paneFacts
+            ),
+            changes: changes,
+            requiresFullProjection: false
+        )
+    }
+
+    private func unchangedScopedCapture(
+        _ previous: RepoExplorerProjectionRequest
+    ) -> RepoExplorerScopedCapture {
+        RepoExplorerScopedCapture(request: previous, changes: [], requiresFullProjection: false)
+    }
+
+    func demandedPaneIDs(in snapshot: RepoExplorerSnapshot) -> Set<UUID> {
+        Set(
+            snapshot.paneLocationsByWorktreeId.values.flatMap { $0.map(\.paneId) }
+                + snapshot.unassociatedPaneLocations.map(\.paneId)
+        )
+    }
+
+    func demandedTabIDs(in snapshot: RepoExplorerSnapshot) -> Set<UUID> {
+        Set(
+            snapshot.paneLocationsByWorktreeId.values.flatMap { $0.map(\.tabId) }
+                + snapshot.unassociatedPaneLocations.map(\.tabId)
         )
     }
 
@@ -322,14 +492,53 @@ final class RepoExplorerProjectionInputCapture {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        let recentPaneInteractions =
-            coreAtoms.workspaceEntityRecency.recentEntities.compactMap { recency -> (UUID, Date)? in
-                guard case .pane(let paneID) = recency.entity else { return nil }
-                return (paneID, recency.lastInteractedAt)
+        let allPaneIDs = workspaceTab.tabs.flatMap(\.allPaneIds)
+        let facts = Dictionary(
+            uniqueKeysWithValues: allPaneIDs.compactMap { paneID in
+                capturePaneFact(paneID: paneID, now: now).map { (paneID, $0) }
             }
-        let lastInteractionByPaneID: [UUID: Date] = Dictionary(
-            uniqueKeysWithValues: recentPaneInteractions
         )
+        paneDisplayTitleCache.retainOnly(paneIds: Set(allPaneIDs))
+        return facts
+    }
+
+    func capturePaneFact(
+        paneID: UUID,
+        now: Date
+    ) -> RepoExplorerPaneRowFacts? {
+        paneFactCaptureCount += 1
+        guard let pane = store.paneAtom.pane(paneID) else { return nil }
+        let terminalTitle = paneDisplayTitleCache.resolve(
+            paneId: paneID,
+            liveTitle: pane.title,
+            cwd: pane.metadata.facets.cwd,
+            shellExecutablePath: pane.metadata.contentType == .terminal
+                ? SessionConfiguration.defaultShell()
+                : nil
+        )
+        let referenceDate =
+            coreAtoms.workspaceEntityRecency
+            .recency(for: .pane(paneID: paneID))?.lastInteractedAt
+            ?? pane.metadata.createdAt
+        return RepoExplorerPaneRowFacts(
+            terminalTitle: terminalTitle,
+            noteText: pane.metadata.note,
+            latestMessageText: latestPaneMessageSnapshot(paneID),
+            recencyReferenceDate: referenceDate,
+            recencyText: RepoExplorerPaneRecencyText.display(
+                lastInteractedAt: referenceDate,
+                now: now
+            ),
+            recencyTier: RepoExplorerPaneRecencyTier.classify(
+                referenceDate: referenceDate,
+                now: now
+            ),
+            isActive: paneID == focusedPaneID(),
+            isDrawerPane: store.paneAtom.graphAtom.paneState(paneID)?.isDrawerChild == true
+        )
+    }
+
+    func focusedPaneID() -> UUID? {
         let routingContext = KeyboardRoutingContext.current(
             windowLifecycle: coreAtoms.windowLifecycle,
             managementLayer: coreAtoms.managementLayer,
@@ -337,46 +546,9 @@ final class RepoExplorerProjectionInputCapture {
             commandBarSurface: coreAtoms.commandBarSurface,
             transientKeyboardSurface: coreAtoms.transientKeyboardSurface
         )
-        let focusedPaneID =
-            routingContext.isStableMainWindowChain
+        return routingContext.isStableMainWindowChain
             ? coreAtoms.attendedPane.attendedPaneId
             : nil
-        let allPaneIDs = workspaceTab.tabs.flatMap(\.allPaneIds)
-        let facts: [UUID: RepoExplorerPaneRowFacts] = Dictionary(
-            uniqueKeysWithValues: allPaneIDs.compactMap { paneID -> (UUID, RepoExplorerPaneRowFacts)? in
-                guard let pane = store.paneAtom.pane(paneID) else { return nil }
-                let terminalTitle = paneDisplayTitleCache.resolve(
-                    paneId: paneID,
-                    liveTitle: pane.title,
-                    cwd: pane.metadata.facets.cwd,
-                    shellExecutablePath: pane.metadata.contentType == .terminal
-                        ? SessionConfiguration.defaultShell()
-                        : nil
-                )
-                let referenceDate = lastInteractionByPaneID[paneID] ?? pane.metadata.createdAt
-                return (
-                    paneID,
-                    RepoExplorerPaneRowFacts(
-                        terminalTitle: terminalTitle,
-                        noteText: pane.metadata.note,
-                        latestMessageText: latestPaneMessageSnapshot(paneID),
-                        recencyReferenceDate: referenceDate,
-                        recencyText: RepoExplorerPaneRecencyText.display(
-                            lastInteractedAt: referenceDate,
-                            now: now
-                        ),
-                        recencyTier: RepoExplorerPaneRecencyTier.classify(
-                            referenceDate: referenceDate,
-                            now: now
-                        ),
-                        isActive: paneID == focusedPaneID,
-                        isDrawerPane: store.paneAtom.graphAtom.paneState(paneID)?.isDrawerChild == true
-                    )
-                )
-            }
-        )
-        paneDisplayTitleCache.retainOnly(paneIds: Set(allPaneIDs))
-        return facts
     }
 
     private func tabGroupFactsByTabId() -> [UUID: RepoExplorerTabGroupFacts] {
@@ -385,19 +557,21 @@ final class RepoExplorerProjectionInputCapture {
             arrangementAtom: store.tabArrangementAtom
         )
         return Dictionary(
-            uniqueKeysWithValues: workspaceTab.tabs.map { tab in
-                (
-                    tab.id,
-                    RepoExplorerTabGroupFacts(
-                        displayTitle: coreAtoms.tabDisplay.displayTitle(
-                            for: tab,
-                            workspacePane: store.paneAtom,
-                            workspaceRepositoryTopology: store.repositoryTopologyAtom,
-                            repoCache: repoCache
-                        )
-                    )
-                )
+            uniqueKeysWithValues: workspaceTab.tabs.compactMap { tab in
+                captureTabFact(tabID: tab.id).map { (tab.id, $0) }
             }
+        )
+    }
+
+    func captureTabFact(tabID: UUID) -> RepoExplorerTabGroupFacts? {
+        guard let tab = store.tabLayoutAtom.tab(tabID) else { return nil }
+        return RepoExplorerTabGroupFacts(
+            displayTitle: coreAtoms.tabDisplay.displayTitle(
+                for: tab,
+                workspacePane: store.paneAtom,
+                workspaceRepositoryTopology: store.repositoryTopologyAtom,
+                repoCache: repoCache
+            )
         )
     }
 }

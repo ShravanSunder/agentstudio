@@ -45,6 +45,7 @@ struct SidebarSurfaceHost: View {
     let store: WorkspaceStore
     let octiconLoader: OcticonLoader
     let paneActivityStatusAtom: PaneActivityStatusAtom
+    let sidebarState: WorkspaceSidebarState
     let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -64,7 +65,7 @@ struct SidebarSurfaceHost: View {
                 store: store,
                 octiconLoader: octiconLoader,
                 repoExplorerPrefs: repoExplorerSidebarPrefs,
-                isProjectionDemanded: true,
+                isProjectionDemanded: !sidebarState.sidebarCollapsed,
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 commandDispatcher: AppCommandDispatcher.shared,
                 commandPresentationSnapshot: repoCommandPresentationBatch?.snapshot ?? .empty,

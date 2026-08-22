@@ -196,8 +196,8 @@ package final class WorkspaceTabArrangementAtom {
         Set(arrangementStates.flatMap(\.allPaneIds))
     }
 
-    func arrangementState(_ tabId: UUID) -> TabArrangementState? {
-        arrangementStates.first { $0.tabId == tabId }
+    package func arrangementState(_ tabId: UUID) -> TabArrangementState? {
+        composedArrangementState(tabId: tabId)
     }
 
     func tabContaining(paneId: UUID) -> TabArrangementState? {

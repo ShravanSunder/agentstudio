@@ -214,4 +214,25 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         self.unassociatedPaneLocations = unassociatedPaneLocations
         self.bridgePaneCommandCandidatesByWorktreeId = bridgePaneCommandCandidatesByWorktreeId
     }
+
+    func replacing(
+        repos: [RepoPresentationItem]? = nil,
+        repoEnrichmentByRepoId: [UUID: RepoEnrichment]? = nil,
+        groupingMode: RepoExplorerGroupingMode? = nil,
+        sortOrder: RepoExplorerSortOrder? = nil,
+        query: String? = nil,
+        bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]]? = nil
+    ) -> Self {
+        Self(
+            repos: repos ?? self.repos,
+            repoEnrichmentByRepoId: repoEnrichmentByRepoId ?? repoEnrichmentSnapshotByRepoId,
+            groupingMode: groupingMode ?? self.groupingMode,
+            sortOrder: sortOrder ?? self.sortOrder,
+            query: query ?? self.query,
+            paneLocationsByWorktreeId: paneLocationsByWorktreeId,
+            unassociatedPaneLocations: unassociatedPaneLocations,
+            bridgePaneCommandCandidatesByWorktreeId: bridgePaneCommandCandidatesByWorktreeId
+                ?? self.bridgePaneCommandCandidatesByWorktreeId
+        )
+    }
 }

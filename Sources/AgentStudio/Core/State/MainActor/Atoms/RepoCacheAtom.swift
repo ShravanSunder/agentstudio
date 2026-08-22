@@ -28,6 +28,10 @@ package final class RepoEnrichmentCacheAtom {
         telemetryLabel: "pull_request_loading",
         isContentEqual: ==
     )
+    @ObservationIgnored private let pullRequestUnavailableMap = AtomFamily<UUID, Bool>(
+        telemetryLabel: "pull_request_unavailable",
+        isContentEqual: ==
+    )
     @ObservationIgnored private let cacheRevisionAtom = AtomRevision()
     @ObservationIgnored private let repoEnrichmentRevisionAtom = AtomRevision()
     @ObservationIgnored private let worktreeEnrichmentRevisionAtom = AtomRevision()
@@ -104,8 +108,7 @@ package final class RepoEnrichmentCacheAtom {
     }
 
     package func isPullRequestDataUnavailable(forRepository repoId: UUID) -> Bool {
-        _ = pullRequestUnavailabilityRevisionAtom.value
-        return pullRequestUnavailableRepoIds.contains(repoId)
+        pullRequestUnavailableMap.value(for: repoId) ?? false
     }
 
     package func isPullRequestLoading(forRepository repoId: UUID) -> Bool {
@@ -203,8 +206,10 @@ package final class RepoEnrichmentCacheAtom {
             }
             if materialized.isUnavailable {
                 pullRequestUnavailableRepoIds.insert(repoId)
+                pullRequestUnavailableMap.setValue(true, for: repoId, mutation: mutation)
             } else {
                 pullRequestUnavailableRepoIds.remove(repoId)
+                pullRequestUnavailableMap.removeValue(for: repoId, mutation: mutation)
             }
             if factsDidChange {
                 pullRequestFactsRevisionAtom.bump()
@@ -250,6 +255,7 @@ package final class RepoEnrichmentCacheAtom {
                 pullRequestFactsMap.removeValue(for: key, mutation: mutation)
             }
             let didInsert = pullRequestUnavailableRepoIds.insert(repoId).inserted
+            pullRequestUnavailableMap.setValue(true, for: repoId, mutation: mutation)
             if didInsert || !staleFactKeys.isEmpty {
                 mutation.recordAcceptedChange()
             }
@@ -266,8 +272,10 @@ package final class RepoEnrichmentCacheAtom {
     /// pending state so the next successful forge query can resolve real
     /// facts.
     package func clearPullRequestsUnavailable(forRepository repoId: UUID) {
-        guard pullRequestUnavailableRepoIds.remove(repoId) != nil else { return }
+        guard pullRequestUnavailableRepoIds.contains(repoId) else { return }
         mutate { mutation in
+            pullRequestUnavailableRepoIds.remove(repoId)
+            pullRequestUnavailableMap.removeValue(for: repoId, mutation: mutation)
             mutation.recordAcceptedChange()
             pullRequestUnavailabilityRevisionAtom.bump()
         }
@@ -349,6 +357,7 @@ package final class RepoEnrichmentCacheAtom {
             worktreeEnrichmentMap.removeAll(mutation: mutation)
             pullRequestFactsMap.removeAll(mutation: mutation)
             pullRequestLoadingMap.removeAll(mutation: mutation)
+            pullRequestUnavailableMap.removeAll(mutation: mutation)
             pullRequestUnavailableRepoIds.removeAll(keepingCapacity: false)
             if sourceRevision != 0 || lastRebuiltAt != nil {
                 sourceRevision = 0

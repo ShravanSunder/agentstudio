@@ -45,9 +45,10 @@ extension RepoExplorerViewProjectionHelperTests {
                 atoms: atoms
             )
             let invalidationRecorder = RepoProjectionInvalidationRecorder()
+            let request = capture.captureRequest(query: "", referenceDate: Date(), trigger: .dataRefresh)
 
             withObservationTracking {
-                _ = capture.observeInputs(isVisible: true)
+                capture.observe(.presentation, request: request)
             } onChange: {
                 invalidationRecorder.record()
             }
@@ -74,7 +75,7 @@ extension RepoExplorerViewProjectionHelperTests {
             let invalidationRecorder = RepoProjectionInvalidationRecorder()
 
             withObservationTracking {
-                _ = capture.observeInputs(isVisible: true)
+                capture.observe(.demand, request: nil)
             } onChange: {
                 invalidationRecorder.record()
             }
@@ -102,16 +103,11 @@ extension RepoExplorerViewProjectionHelperTests {
             let windowId = UUIDv7.generate()
             atoms.windowLifecycle.recordWindowRegistered(windowId)
             atoms.windowLifecycle.recordWindowBecameKey(windowId)
-            let invalidationRecorder = RepoProjectionInvalidationRecorder()
-
-            withObservationTracking {
-                _ = capture.observeInputs(isVisible: true)
-            } onChange: {
-                invalidationRecorder.record()
-            }
+            let request = capture.captureRequest(query: "", referenceDate: Date(), trigger: .dataRefresh)
+            let tokens = capture.observationTokens(for: request)
             atoms.commandBarSurface.present(scope: .everything, workspaceWindowId: windowId)
 
-            #expect(invalidationRecorder.invalidationCount == 0)
+            #expect(!tokens.contains(.attention))
         }
     }
 
@@ -131,12 +127,10 @@ extension RepoExplorerViewProjectionHelperTests {
                 atoms: atoms
             )
             let invalidationRecorder = RepoProjectionInvalidationRecorder()
+            let adapter = RepoExplorerProjectionAdapter(inputCapture: capture)
+            defer { adapter.stop() }
 
-            withObservationTracking {
-                _ = capture.observeInputs(isVisible: false)
-            } onChange: {
-                invalidationRecorder.record()
-            }
+            adapter.updateDemand(isVisible: false, query: "")
             atoms.commandBarSurface.present(
                 scope: .everything,
                 workspaceWindowId: UUIDv7.generate()
@@ -144,6 +138,7 @@ extension RepoExplorerViewProjectionHelperTests {
             preferences.setGroupingMode(.tab)
 
             #expect(invalidationRecorder.invalidationCount == 0)
+            #expect(adapter.observationTokens.isEmpty)
         }
     }
 
@@ -272,7 +267,7 @@ extension RepoExplorerViewProjectionHelperTests {
 
             let invalidationRecorder = RepoProjectionInvalidationRecorder()
             withObservationTracking {
-                _ = capture.observeInputs(isVisible: true)
+                capture.observe(.attention, request: nil)
             } onChange: {
                 invalidationRecorder.record()
             }

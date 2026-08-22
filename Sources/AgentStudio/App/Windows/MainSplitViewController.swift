@@ -10,6 +10,7 @@ struct SidebarRootViewDependencies {
     let store: WorkspaceStore
     let octiconLoader: OcticonLoader
     let paneActivityStatusAtom: PaneActivityStatusAtom
+    let sidebarState: WorkspaceSidebarState
     let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -39,6 +40,7 @@ class MainSplitViewController: NSSplitViewController {
                 store: dependencies.store,
                 octiconLoader: dependencies.octiconLoader,
                 paneActivityStatusAtom: dependencies.paneActivityStatusAtom,
+                sidebarState: dependencies.sidebarState,
                 repoExplorerSidebarPrefs: dependencies.repoExplorerSidebarPrefs,
                 bridgeAttendanceSnapshot: dependencies.bridgeAttendanceSnapshot,
                 performanceTraceRecorder: dependencies.performanceTraceRecorder,
@@ -203,6 +205,7 @@ class MainSplitViewController: NSSplitViewController {
                 store: store,
                 octiconLoader: octiconLoader,
                 paneActivityStatusAtom: atom(\.paneActivityStatus),
+                sidebarState: uiState,
                 repoExplorerSidebarPrefs: repoExplorerSidebarPrefs,
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 performanceTraceRecorder: performanceTraceRecorder,

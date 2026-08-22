@@ -10,13 +10,31 @@ import Testing
 private final class RepoExplorerProjectionExecutionRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var storedExecutionCount = 0
+    private var storedFullExecutionCount = 0
+    private var storedDeltaExecutionCount = 0
 
     var executionCount: Int {
         lock.withLock { storedExecutionCount }
     }
 
-    func recordExecution() {
-        lock.withLock { storedExecutionCount += 1 }
+    var fullExecutionCount: Int {
+        lock.withLock { storedFullExecutionCount }
+    }
+
+    var deltaExecutionCount: Int {
+        lock.withLock { storedDeltaExecutionCount }
+    }
+
+    func recordExecution(_ work: RepoExplorerProjectionWork) {
+        lock.withLock {
+            storedExecutionCount += 1
+            switch work {
+            case .full:
+                storedFullExecutionCount += 1
+            case .delta:
+                storedDeltaExecutionCount += 1
+            }
+        }
     }
 }
 
@@ -39,6 +57,13 @@ struct RepoExplorerProjectionDemandTests {
                 facets: PaneContextFacets(cwd: worktree.path)
             )
             store.appendTab(Tab(paneId: pane.id))
+            atoms.repoCache.setRepoEnrichment(
+                .resolvedLocal(
+                    repoId: repo.id,
+                    identity: RemoteIdentityNormalizer.localIdentity(repoName: repo.name),
+                    updatedAt: Date()
+                )
+            )
             let preferences = RepoExplorerSidebarPrefsAtom()
             preferences.setGroupingMode(.repo)
             let capture = RepoExplorerProjectionInputCapture(
@@ -57,7 +82,7 @@ struct RepoExplorerProjectionDemandTests {
             let adapter = RepoExplorerProjectionAdapter(
                 inputCapture: capture,
                 project: { work throws(CancellationError) in
-                    recorder.recordExecution()
+                    recorder.recordExecution(work)
                     do {
                         return try RepoExplorerProjectionWorker.project(work)
                     } catch is CancellationError {
@@ -87,6 +112,236 @@ struct RepoExplorerProjectionDemandTests {
 
             #expect(recorder.executionCount == baselineExecutionCount)
             #expect(adapter.publishedRevision == baselineRevision)
+        }
+    }
+
+    @MainActor
+    @Test("By Pane title change captures one pane delta without a full source rebuild")
+    func byPaneTitleChangeUsesOneKeyedDelta() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let repo = store.addRepo(at: URL(filePath: "/tmp/repo-explorer-pane-keyed-delta"))
+            let worktree = try #require(repo.worktrees.first)
+            let pane = store.createPane(
+                launchDirectory: worktree.path,
+                title: "before",
+                facets: PaneContextFacets(cwd: worktree.path)
+            )
+            store.appendTab(Tab(paneId: pane.id))
+            atoms.repoCache.setRepoEnrichment(
+                .resolvedLocal(
+                    repoId: repo.id,
+                    identity: RemoteIdentityNormalizer.localIdentity(repoName: repo.name),
+                    updatedAt: Date()
+                )
+            )
+            let preferences = RepoExplorerSidebarPrefsAtom()
+            preferences.setGroupingMode(.pane)
+            let capture = RepoExplorerProjectionInputCapture(
+                store: store,
+                preferences: preferences,
+                repoCache: atoms.repoCache,
+                sidebarState: atoms.workspaceSidebarState,
+                sidebarCache: atoms.sidebarCache,
+                coreAtoms: atoms,
+                bridgeAttendanceSnapshot: { _ in nil },
+                latestPaneMessageSnapshot: { paneID in
+                    atoms.paneActivityStatus.status(for: paneID)?.lastOutputLine
+                }
+            )
+            let recorder = RepoExplorerProjectionExecutionRecorder()
+            let adapter = RepoExplorerProjectionAdapter(
+                inputCapture: capture,
+                project: { work throws(CancellationError) in
+                    recorder.recordExecution(work)
+                    do {
+                        return try RepoExplorerProjectionWorker.project(work)
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        preconditionFailure("Unexpected projection failure: \(error)")
+                    }
+                }
+            )
+            defer { adapter.stop() }
+
+            adapter.updateDemand(isVisible: true, query: "")
+            for _ in 0..<200 where adapter.publishedRevision < 1 { await Task.yield() }
+            #expect(capture.fullCaptureCount == 1)
+            #expect(recorder.fullExecutionCount == 1)
+            #expect(recorder.deltaExecutionCount == 0)
+            store.paneAtom.updatePaneTitle(pane.id, title: "after")
+            for _ in 0..<400
+            where adapter.publishedResult?.paneRowFactsByPaneId[pane.id]?.terminalTitle != "after" {
+                await Task.yield()
+            }
+
+            #expect(capture.fullCaptureCount == 1)
+            #expect(capture.scopedCaptureCount == 1)
+            #expect(recorder.fullExecutionCount == 1)
+            #expect(recorder.deltaExecutionCount == 1)
+            #expect(adapter.cachedProjectionRequest?.paneRowFactsByPaneId[pane.id]?.terminalTitle == "after")
+            #expect(
+                adapter.materializedProjection?.latestAcceptedValue?
+                    .paneRowFactsByPaneId[pane.id]?.terminalTitle == "after"
+            )
+            #expect(adapter.publishedResult?.paneRowFactsByPaneId[pane.id]?.terminalTitle == "after")
+            #expect(adapter.publishedResult?.projectionDuration == .zero)
+        }
+    }
+
+    @MainActor
+    @Test("sort and grouping changes reuse adapter topology and add only demanded registrations")
+    func presentationChangesReuseTopologyCapture() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let repo = store.addRepo(at: URL(filePath: "/tmp/repo-explorer-presentation-reuse"))
+            let worktree = try #require(repo.worktrees.first)
+            atoms.repoCache.setRepoEnrichment(
+                .resolvedLocal(
+                    repoId: repo.id,
+                    identity: RemoteIdentityNormalizer.localIdentity(repoName: repo.name),
+                    updatedAt: Date()
+                )
+            )
+            let pane = store.createPane(
+                launchDirectory: worktree.path,
+                facets: PaneContextFacets(cwd: worktree.path)
+            )
+            let tab = Tab(paneId: pane.id)
+            store.appendTab(tab)
+            let preferences = RepoExplorerSidebarPrefsAtom()
+            preferences.setGroupingMode(.repo)
+            let capture = RepoExplorerProjectionInputCapture(
+                store: store,
+                preferences: preferences,
+                repoCache: atoms.repoCache,
+                sidebarState: atoms.workspaceSidebarState,
+                sidebarCache: atoms.sidebarCache,
+                coreAtoms: atoms,
+                bridgeAttendanceSnapshot: { _ in nil },
+                latestPaneMessageSnapshot: { _ in nil }
+            )
+            let adapter = RepoExplorerProjectionAdapter(inputCapture: capture)
+            defer { adapter.stop() }
+
+            adapter.updateDemand(isVisible: true, query: "")
+            for _ in 0..<200 where adapter.publishedRevision < 1 { await Task.yield() }
+            #expect(capture.fullCaptureCount == 1)
+            #expect(adapter.observationRegistration.paneIDs.isEmpty)
+            #expect(adapter.observationRegistration.tabIDs.isEmpty)
+
+            adapter.updateDemand(isVisible: true, query: "needle")
+            for _ in 0..<200 where adapter.cachedProjectionRequest?.isFiltering != true { await Task.yield() }
+            #expect(adapter.cachedProjectionRequest?.snapshot.query == "needle")
+            #expect(adapter.cachedProjectionRequest?.isFiltering == true)
+            adapter.updateDemand(isVisible: true, query: "")
+            for _ in 0..<200 where adapter.cachedProjectionRequest?.isFiltering != false { await Task.yield() }
+            #expect(adapter.cachedProjectionRequest?.snapshot.query.isEmpty == true)
+            #expect(adapter.cachedProjectionRequest?.isFiltering == false)
+
+            let presentationCountBeforeSort = capture.presentationCaptureCount
+            preferences.setSortOrder(.descending)
+            for _ in 0..<200 where capture.presentationCaptureCount == presentationCountBeforeSort {
+                await Task.yield()
+            }
+            #expect(capture.fullCaptureCount == 1)
+
+            preferences.setGroupingMode(.pane)
+            for _ in 0..<300 where adapter.observationRegistration.paneIDs.isEmpty { await Task.yield() }
+            #expect(capture.fullCaptureCount == 1)
+            #expect(adapter.observationRegistration.paneIDs == [pane.id])
+            #expect(adapter.observationRegistration.tabIDs.isEmpty)
+            let paneFactCaptureCountAfterGrouping = capture.paneFactCaptureCount
+
+            let presentationCountBeforePaneSort = capture.presentationCaptureCount
+            preferences.setSortOrder(.ascending)
+            for _ in 0..<200 where capture.presentationCaptureCount == presentationCountBeforePaneSort {
+                await Task.yield()
+            }
+            #expect(capture.paneFactCaptureCount == paneFactCaptureCountAfterGrouping)
+
+            preferences.setGroupingMode(.tab)
+            for _ in 0..<300
+            where adapter.observationRegistration.tabIDs.isEmpty
+                || adapter.publishedResult?.snapshot.groupingMode != .tab
+            {
+                await Task.yield()
+            }
+            #expect(capture.fullCaptureCount == 1)
+            #expect(adapter.observationRegistration.paneIDs == [pane.id])
+            #expect(adapter.observationRegistration.tabIDs == [tab.id])
+            #expect(adapter.publishedResult?.snapshot.groupingMode == .tab)
+
+            let fullCaptureCountBeforeTabRename = capture.fullCaptureCount
+            let scopedCaptureCountBeforeTabRename = capture.scopedCaptureCount
+            let publishedRevisionBeforeTabRename = adapter.publishedRevision
+            store.tabLayoutAtom.renameTab(tab.id, name: "Renamed")
+            for _ in 0..<300
+            where adapter.publishedRevision == publishedRevisionBeforeTabRename
+                || adapter.publishedResult?.tabGroupFactsByTabId[tab.id]?.displayTitle != "Renamed"
+            {
+                await Task.yield()
+            }
+            #expect(capture.fullCaptureCount == fullCaptureCountBeforeTabRename)
+            #expect(capture.scopedCaptureCount == scopedCaptureCountBeforeTabRename + 1)
+            #expect(adapter.publishedRevision == publishedRevisionBeforeTabRename + 1)
+            #expect(adapter.publishedResult?.projectionDuration == .zero)
+
+            let captureCountBeforeHiding = capture.fullCaptureCount + capture.scopedCaptureCount
+            adapter.updateDemand(isVisible: false, query: "")
+            #expect(adapter.observationTokens.isEmpty)
+            #expect(adapter.observationRegistration == .hidden)
+            #expect(adapter.recencyDeadlineTask == nil)
+            store.paneAtom.updatePaneTitle(pane.id, title: "hidden change")
+            for _ in 0..<100 { await Task.yield() }
+            #expect(capture.fullCaptureCount + capture.scopedCaptureCount == captureCountBeforeHiding)
+        }
+    }
+
+    @MainActor
+    @Test("pane membership change promotes to one full capture")
+    func membershipChangePromotesToFullCapture() async {
+        await withAsyncTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let initialPane = store.createPane(title: "initial")
+            store.appendTab(Tab(paneId: initialPane.id))
+            let preferences = RepoExplorerSidebarPrefsAtom()
+            preferences.setGroupingMode(.pane)
+            let capture = RepoExplorerProjectionInputCapture(
+                store: store,
+                preferences: preferences,
+                repoCache: atoms.repoCache,
+                sidebarState: atoms.workspaceSidebarState,
+                sidebarCache: atoms.sidebarCache,
+                coreAtoms: atoms,
+                bridgeAttendanceSnapshot: { _ in nil },
+                latestPaneMessageSnapshot: { _ in nil }
+            )
+            let adapter = RepoExplorerProjectionAdapter(inputCapture: capture)
+            defer { adapter.stop() }
+
+            adapter.updateDemand(isVisible: true, query: "")
+            for _ in 0..<200 where adapter.publishedResult == nil { await Task.yield() }
+            #expect(capture.fullCaptureCount == 1)
+
+            _ = store.createPane(title: "new membership")
+            for _ in 0..<300 where capture.fullCaptureCount < 2 { await Task.yield() }
+
+            #expect(capture.fullCaptureCount == 2)
+            #expect(capture.scopedCaptureCount == 0)
         }
     }
 
