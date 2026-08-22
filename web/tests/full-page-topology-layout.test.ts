@@ -14,11 +14,11 @@ describe("topology row ownership", () => {
       reservedRows: new Set([0, 2, 4, 6, 10, 11, 14, 16, 17, 18, 20]),
       rowCount: 21,
       worktrees: [
-        { endRow: 18, id: "a", lane: 1, startRow: 2 },
-        { endRow: 10, id: "b", lane: 2, startRow: 4 },
-        { endRow: 20, id: "c", lane: 3, startRow: 6 },
-        { endRow: 16, id: "d", lane: 4, startRow: 14 },
-        { endRow: 17, id: "e", lane: 2, startRow: 11 },
+        { endRow: 18, id: "a", priority: 1, startRow: 2 },
+        { endRow: 10, id: "b", priority: 2, startRow: 4 },
+        { endRow: 20, id: "c", priority: 3, startRow: 6 },
+        { endRow: 16, id: "d", priority: 4, startRow: 14 },
+        { endRow: 17, id: "e", priority: 2, startRow: 11 },
       ],
     });
 
@@ -49,11 +49,11 @@ describe("side-specific worktree lane allocation", () => {
     expect(
       assignWorktreeLanes(
         [
-          { endKind: "open", endSlot: 18, forkSlot: 2, id: "a" },
-          { endKind: "merge", endSlot: 10, forkSlot: 4, id: "b" },
-          { endKind: "merge", endSlot: 20, forkSlot: 8, id: "c" },
-          { endKind: "open", endSlot: 16, forkSlot: 14, id: "d" },
-          { endKind: "open", endSlot: 17, forkSlot: 11, id: "e" },
+          { endKind: "open", endRow: 18, forkRow: 2, id: "a" },
+          { endKind: "merge", endRow: 10, forkRow: 4, id: "b" },
+          { endKind: "merge", endRow: 20, forkRow: 8, id: "c" },
+          { endKind: "open", endRow: 16, forkRow: 14, id: "d" },
+          { endKind: "open", endRow: 17, forkRow: 11, id: "e" },
         ],
         4,
       ),
@@ -70,9 +70,9 @@ describe("side-specific worktree lane allocation", () => {
     expect(
       assignWorktreeLanes(
         [
-          { endKind: "merge", endSlot: 6, forkSlot: 2, id: "a" },
-          { endKind: "merge", endSlot: 10, forkSlot: 4, id: "b" },
-          { endKind: "open", endSlot: 12, forkSlot: 7, id: "c" },
+          { endKind: "merge", endRow: 6, forkRow: 2, id: "a" },
+          { endKind: "merge", endRow: 10, forkRow: 4, id: "b" },
+          { endKind: "open", endRow: 12, forkRow: 7, id: "c" },
         ],
         4,
       ),
@@ -87,8 +87,8 @@ describe("side-specific worktree lane allocation", () => {
     expect(
       assignWorktreeLanes(
         [
-          { endKind: "open", endSlot: 20, forkSlot: 10, id: "late" },
-          { endKind: "merge", endSlot: 5, forkSlot: 2, id: "early" },
+          { endKind: "open", endRow: 20, forkRow: 10, id: "late" },
+          { endKind: "merge", endRow: 5, forkRow: 2, id: "early" },
         ],
         3,
       ),
@@ -102,8 +102,8 @@ describe("side-specific worktree lane allocation", () => {
     expect(
       assignWorktreeLanes(
         [
-          { endKind: "open", endSlot: 6, forkSlot: 2, id: "open" },
-          { endKind: "merge", endSlot: 10, forkSlot: 7, id: "later" },
+          { endKind: "open", endRow: 6, forkRow: 2, id: "open" },
+          { endKind: "merge", endRow: 10, forkRow: 7, id: "later" },
         ],
         3,
       ),
@@ -117,8 +117,8 @@ describe("side-specific worktree lane allocation", () => {
     expect(
       assignWorktreeLanes(
         [
-          { endKind: "open", endSlot: 12, forkSlot: 2, id: "a" },
-          { endKind: "merge", endSlot: 10, forkSlot: 2, id: "b" },
+          { endKind: "open", endRow: 12, forkRow: 2, id: "a" },
+          { endKind: "merge", endRow: 10, forkRow: 2, id: "b" },
         ],
         3,
       ),
@@ -241,7 +241,7 @@ describe("full-page topology grid measurement", () => {
         ],
         grid,
       }),
-    ).toEqual({ firstCrossRow: 5, lastCrossRow: 27, slotCount: 20 });
+    ).toEqual({ firstCrossRow: 5, lastCrossRow: 27 });
   });
 
   it("rejects glass geometry that cannot hold the authored 20-slot composition", () => {

@@ -6,15 +6,14 @@
   "scripts": {
     "audit:captures": "node --experimental-strip-types scripts/audit-capture-pixels.ts",
     "build": "ASTRO_TELEMETRY_DISABLED=1 astro build && node --experimental-strip-types scripts/stage-cloudflare-build-config.ts",
-    "check": "pnpm run lint && pnpm run fmt:check && pnpm run typecheck && pnpm run verify:captures && pnpm run audit:captures && pnpm run test:unit",
+    "check": "pnpm run lint && pnpm run fmt:check && pnpm run typecheck && pnpm run verify:captures && pnpm run audit:captures && pnpm run test:unit && pnpm run test:browser",
     "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev --host 127.0.0.1",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
     "lint": "oxlint --type-aware src scripts tests",
     "normalize:captures": "node --experimental-strip-types scripts/stamp-srgb-color-profile.ts",
     "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview --host 127.0.0.1",
-    "test:browser": "playwright test",
-    "test:browser-unit": "vitest run --project browser",
+    "test:browser": "vitest run --project browser",
     "test:unit": "vitest run --project unit",
     "typecheck": "ASTRO_TELEMETRY_DISABLED=1 astro check",
     "verify:captures": "node --experimental-strip-types scripts/verify-capture-assets.ts"
@@ -22,7 +21,6 @@
   "devDependencies": {
     "@astrojs/check": "0.9.10",
     "@cloudflare/vite-plugin": "^1.53.0",
-    "@playwright/test": "1.62.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "26.1.1",
     "@vitest/browser-playwright": "4.1.10",

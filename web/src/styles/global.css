@@ -14,6 +14,7 @@
   --color-ink-faint: #9ba1ad;
   --color-primary: #89b4fa;
   --color-glyph: #74c7ec;
+  --color-parallel: #ef9f76;
   --color-line: rgb(255 255 255 / 10%);
   --color-line-strong: rgb(255 255 255 / 20%);
 
@@ -47,6 +48,7 @@
   --spacing-section: clamp(80px, 6vw, 96px);
 
   --breakpoint-phone: 38.75rem;
+  --breakpoint-topology: 114rem;
 }
 
 @layer base {

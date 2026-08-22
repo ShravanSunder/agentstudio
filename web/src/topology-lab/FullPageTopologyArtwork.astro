@@ -1,7 +1,6 @@
 ---
-type RouteAccent = "cyan" | "peach";
-type RouteEndKind = "merge" | "open";
-type TopologyVariant = "compact" | "expanded" | "standard";
+import { authoredTopologyRoutes } from "./full-page-topology-contract";
+import { maximumRenderedTopologyRowCount } from "./full-page-topology-model";
 
 interface Props {
   readonly mainlineAnchorSelector?: string;
@@ -9,142 +8,11 @@ interface Props {
   readonly portalSurfaceSelector?: string;
 }
 
-interface AuthoredWorktreeBase {
-  readonly accent: RouteAccent;
-  readonly endSlot: number;
-  readonly forkSlot: number;
-  readonly id: string;
-  readonly nodeSlots: readonly number[];
-  readonly variants: readonly TopologyVariant[];
-}
-
-type OptionalPageEndAnchor =
-  | { readonly endPageOffset?: never; readonly endPageRow?: never }
-  | { readonly endPageOffset: number; readonly endPageRow?: never }
-  | { readonly endPageOffset?: never; readonly endPageRow: number };
-
-type LocalRightWorktree = AuthoredWorktreeBase &
-  OptionalPageEndAnchor & {
-    readonly endGlassIndex?: never;
-    readonly endKind: RouteEndKind;
-    readonly forkGlassIndex?: never;
-    readonly forkPageRow?: number;
-    readonly placement: "local-right";
-  };
-
-type CrossGlassLeftWorktree =
-  | (AuthoredWorktreeBase & {
-      readonly endGlassIndex: number;
-      readonly endKind: "merge";
-      readonly endPageOffset?: never;
-      readonly endPageRow?: never;
-      readonly forkGlassIndex: number;
-      readonly forkPageRow?: never;
-      readonly placement: "cross-glass-left";
-    })
-  | (AuthoredWorktreeBase &
-      OptionalPageEndAnchor & {
-        readonly endGlassIndex?: never;
-        readonly endKind: "open";
-        readonly forkGlassIndex: number;
-        readonly forkPageRow?: never;
-        readonly placement: "cross-glass-left";
-      });
-
-type AuthoredWorktree = CrossGlassLeftWorktree | LocalRightWorktree;
-
 const { mainlineAnchorSelector, portalFrameSelector, portalSurfaceSelector } = Astro.props;
-const worktrees: readonly AuthoredWorktree[] = [
-  {
-    accent: "peach",
-    endKind: "merge",
-    endPageRow: 15,
-    endSlot: 5,
-    forkPageRow: 2,
-    forkSlot: 0,
-    id: "worktree-a",
-    nodeSlots: [],
-    placement: "local-right",
-    variants: ["compact", "standard", "expanded"],
-  },
-  {
-    accent: "cyan",
-    endKind: "merge",
-    endPageRow: 16,
-    endSlot: 6,
-    forkPageRow: 4,
-    forkSlot: 1,
-    id: "worktree-b",
-    nodeSlots: [],
-    placement: "local-right",
-    variants: ["standard", "expanded"],
-  },
-  {
-    accent: "peach",
-    endGlassIndex: 3,
-    endKind: "merge",
-    endSlot: 20,
-    forkGlassIndex: 0,
-    forkSlot: 0,
-    id: "worktree-c",
-    nodeSlots: [],
-    placement: "cross-glass-left",
-    variants: ["standard", "expanded"],
-  },
-  {
-    accent: "cyan",
-    endKind: "open",
-    endSlot: 16,
-    endPageOffset: 4,
-    forkGlassIndex: 1,
-    forkSlot: 6,
-    id: "worktree-d",
-    nodeSlots: [],
-    placement: "cross-glass-left",
-    variants: ["expanded"],
-  },
-  {
-    accent: "peach",
-    endKind: "merge",
-    endPageOffset: 3,
-    endSlot: 18,
-    forkPageRow: 17,
-    forkSlot: 7,
-    id: "worktree-e",
-    nodeSlots: [],
-    placement: "local-right",
-    variants: ["expanded"],
-  },
-  {
-    accent: "cyan",
-    endKind: "open",
-    endPageOffset: 2,
-    endSlot: 19,
-    forkPageRow: 18,
-    forkSlot: 8,
-    id: "worktree-f",
-    nodeSlots: [],
-    placement: "local-right",
-    variants: ["expanded"],
-  },
-  {
-    accent: "peach",
-    endKind: "open",
-    endPageOffset: 1,
-    endSlot: 19,
-    forkGlassIndex: 2,
-    forkSlot: 14,
-    id: "worktree-g",
-    nodeSlots: [],
-    placement: "cross-glass-left",
-    variants: ["expanded"],
-  },
-] as const;
-
 ---
 
 <svg
-  class="block h-full w-full opacity-90"
+  class="block h-full w-full opacity-80"
   data-full-page-topology
   data-mainline-anchor-selector={mainlineAnchorSelector}
   data-portal-frame-selector={portalFrameSelector}
@@ -182,7 +50,7 @@ const worktrees: readonly AuthoredWorktree[] = [
   </g>
 
   {
-    worktrees.map((worktree) => (
+    authoredTopologyRoutes.map((worktree) => (
       <g
         class={`topology-route accent-${worktree.accent}`}
         data-topology-route-group
@@ -190,10 +58,8 @@ const worktrees: readonly AuthoredWorktree[] = [
         data-route-accent={worktree.accent}
         data-route-placement={worktree.placement}
         data-topology-variants={worktree.variants.join(" ")}
-        data-fork-slot={worktree.forkSlot}
         data-fork-glass-index={worktree.forkGlassIndex}
         data-fork-page-row={worktree.forkPageRow}
-        data-end-slot={worktree.endSlot}
         data-end-glass-index={worktree.endGlassIndex}
         data-end-page-offset={worktree.endPageOffset}
         data-end-page-row={worktree.endPageRow}
@@ -221,15 +87,6 @@ const worktrees: readonly AuthoredWorktree[] = [
           data-topology-node-progress="1"
           r="4"
         />
-        {worktree.nodeSlots.map((slot) => (
-          <circle
-            data-node
-            data-node-position="target"
-            data-node-slot={slot}
-            data-topology-node-progress="1"
-            r="4"
-          />
-        ))}
         <circle
           class={worktree.endKind === "merge" ? "accent-main" : undefined}
           data-node
@@ -260,17 +117,19 @@ const worktrees: readonly AuthoredWorktree[] = [
     <circle class="node-terminal-halo" r="7" />
     <circle class="node-terminal" r="7" />
   </g>
-  {
-    Array.from({ length: 64 }, (_, index) => (
-      <circle
-        class="accent-main"
-        data-node
-        data-mainline-fill-index={index}
-        data-topology-node-progress="1"
-        r="4"
-      />
-    ))
-  }
+  <g data-mainline-fill-nodes>
+    {
+      Array.from({ length: maximumRenderedTopologyRowCount }, (_, index) => (
+        <circle
+          class="accent-main"
+          data-node
+          data-mainline-fill-index={index}
+          data-topology-node-progress="1"
+          r="4"
+        />
+      ))
+    }
+  </g>
   </g>
 </svg>
 
@@ -298,12 +157,12 @@ const worktrees: readonly AuthoredWorktree[] = [
   }
 
   .topology-mainline {
-    stroke: rgb(137 180 250 / 46%);
-    stroke-width: 1.5px;
+    stroke: color-mix(in srgb, var(--color-primary) 46%, transparent);
+    stroke-width: 2px;
   }
 
   .topology-route > path {
-    stroke-width: 1px;
+    stroke-width: 1.5px;
   }
 
   .topology-route > .topology-clearance {
@@ -332,23 +191,23 @@ const worktrees: readonly AuthoredWorktree[] = [
   }
 
   .accent-peach {
-    color: #ef9f76;
+    color: var(--color-parallel);
   }
 
   .accent-cyan {
-    color: #74c7ec;
+    color: var(--color-glyph);
   }
 
   .accent-main {
-    color: #89b4fa;
+    color: var(--color-primary);
   }
 
   .accent-peach > path {
-    stroke: rgb(239 159 118 / 34%);
+    stroke: color-mix(in srgb, var(--color-parallel) 34%, transparent);
   }
 
   .accent-cyan > path {
-    stroke: rgb(116 199 236 / 36%);
+    stroke: color-mix(in srgb, var(--color-glyph) 36%, transparent);
   }
 
   [data-node] {
@@ -357,8 +216,8 @@ const worktrees: readonly AuthoredWorktree[] = [
   }
 
   .node-terminal {
-    fill: #89b4fa;
-    stroke: #89b4fa;
+    fill: var(--color-primary);
+    stroke: var(--color-primary);
   }
 
   .node-terminal-halo {

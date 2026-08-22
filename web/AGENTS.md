@@ -174,6 +174,12 @@ of exact floating-point geometry. Synchronize on the resulting DOM,
 accessibility, or visual state; fixed sleeps or animation-frame counts are not
 completion signals.
 
+Vitest Browser Mode owns automated browser integration tests. Playwright is
+only the browser provider underneath Vitest; do not add `@playwright/test`, a
+parallel Playwright configuration, or `.spec.ts` E2E suites. Test controllers
+and browser-dependent layout through focused DOM fixtures, and use the
+mandatory live-browser review for complete-page visual acceptance.
+
 Website work is incomplete until the changed scope has evidence for:
 
 - Astro and strict TypeScript checking;

@@ -1,6 +1,7 @@
-const authoredBandSlotCount = 20;
+const minimumGlassBandRowSpan = 20;
 const columnUnit = 96;
-const maximumGutterColumnCount = 4;
+export const maximumGutterColumnCount = 4;
+export const maximumRenderedTopologyRowCount = 128;
 const minimumUsableColumnCount = 2;
 export const topologyRowUnit = 96;
 
@@ -44,13 +45,12 @@ interface ResolveTopologyGlassBandProps {
 export interface TopologyGlassBand {
   readonly firstCrossRow: number;
   readonly lastCrossRow: number;
-  readonly slotCount: number;
 }
 
 export interface WorktreeLifecycle {
+  readonly endRow: number;
   readonly endKind: WorktreeEndKind;
-  readonly endSlot: number;
-  readonly forkSlot: number;
+  readonly forkRow: number;
   readonly id: string;
 }
 
@@ -64,7 +64,7 @@ interface AssignedWorktreeLifecycle extends AssignedWorktreeColumn, WorktreeLife
 export interface TopologyRowWorktree {
   readonly endRow: number;
   readonly id: string;
-  readonly lane: number;
+  readonly priority: number;
   readonly startRow: number;
 }
 
@@ -92,12 +92,12 @@ export function assignTopologyRowOwners(
       (worktree) => worktree.startRow < row && worktree.endRow > row,
     );
     const candidates = [
-      ...activeWorktrees.map((worktree) => ({ id: worktree.id, lane: worktree.lane })),
-      { id: "main", lane: 0 },
+      ...activeWorktrees.map((worktree) => ({ id: worktree.id, priority: worktree.priority })),
+      { id: "main", priority: 0 },
     ].toSorted((left, right) => {
       const countDifference =
         (assignedCounts.get(left.id) ?? 0) - (assignedCounts.get(right.id) ?? 0);
-      return countDifference === 0 ? right.lane - left.lane : countDifference;
+      return countDifference === 0 ? right.priority - left.priority : countDifference;
     });
     const owner = candidates[0];
     if (owner === undefined) {
@@ -109,14 +109,20 @@ export function assignTopologyRowOwners(
 }
 
 function variantForColumnCount(usableColumnCount: number): FullPageTopologyVariant {
-  if (usableColumnCount >= 4) {
+  if (usableColumnCount >= topologyVariantColumnCapacities.expanded) {
     return "expanded";
   }
-  if (usableColumnCount >= 3) {
+  if (usableColumnCount >= topologyVariantColumnCapacities.standard) {
     return "standard";
   }
   return "compact";
 }
+
+export const topologyVariantColumnCapacities = {
+  compact: 2,
+  expanded: 4,
+  standard: 3,
+} as const satisfies Record<FullPageTopologyVariant, number>;
 
 export function assignWorktreeLanes(
   lifecycles: readonly WorktreeLifecycle[],
@@ -128,24 +134,24 @@ export function assignWorktreeLanes(
 
   const assigned: AssignedWorktreeLifecycle[] = [];
   const ids = new Set<string>();
-  const forkSlots = new Set<number>();
+  const forkRows = new Set<number>();
   for (const lifecycle of lifecycles) {
     if (
       ids.has(lifecycle.id) ||
-      forkSlots.has(lifecycle.forkSlot) ||
-      lifecycle.forkSlot < 0 ||
-      lifecycle.endSlot <= lifecycle.forkSlot
+      forkRows.has(lifecycle.forkRow) ||
+      lifecycle.forkRow < 0 ||
+      lifecycle.endRow <= lifecycle.forkRow
     ) {
       return undefined;
     }
     ids.add(lifecycle.id);
-    forkSlots.add(lifecycle.forkSlot);
+    forkRows.add(lifecycle.forkRow);
   }
 
-  for (const lifecycle of lifecycles.toSorted((left, right) => left.forkSlot - right.forkSlot)) {
+  for (const lifecycle of lifecycles.toSorted((left, right) => left.forkRow - right.forkRow)) {
     const occupiedLanes = new Set(
       assigned
-        .filter((prior) => prior.endKind === "open" || prior.endSlot >= lifecycle.forkSlot)
+        .filter((prior) => prior.endKind === "open" || prior.endRow >= lifecycle.forkRow)
         .map((prior) => prior.lane),
     );
     const lane = Array.from({ length: laneCount }, (_, laneIndex) => laneIndex).find(
@@ -258,10 +264,10 @@ export function resolveTopologyGlassBand(
   if (
     firstCrossRow === undefined ||
     lastCrossRow === undefined ||
-    lastCrossRow - firstCrossRow < authoredBandSlotCount ||
+    lastCrossRow - firstCrossRow < minimumGlassBandRowSpan ||
     lastCrossRow >= grid.finalRow
   ) {
     return undefined;
   }
-  return { firstCrossRow, lastCrossRow, slotCount: authoredBandSlotCount };
+  return { firstCrossRow, lastCrossRow };
 }

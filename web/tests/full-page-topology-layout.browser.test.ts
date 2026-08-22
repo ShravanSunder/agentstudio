@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { layoutFullPageTopology } from "../src/topology-lab/full-page-topology-layout";
+import { maximumRenderedTopologyRowCount } from "../src/topology-lab/full-page-topology-model";
 
 const fixtures: HTMLDivElement[] = [];
 
@@ -28,17 +29,17 @@ function createArtwork(frameLeft: number, frameRight: number): SVGSVGElement {
         data-route-accent="peach"
         data-route-placement="local-right"
         data-topology-variants="compact standard expanded"
-        data-fork-slot="2"
-        data-end-slot="18"
+        data-fork-page-row="2"
+        data-end-page-offset="4"
         data-end-kind="open"
       >
         <path data-route data-topology-path-role="core"></path>
         <circle data-node data-node-position="fork" r="4"></circle>
-        <circle data-node data-node-position="target" data-node-slot="3" r="4"></circle>
         <circle data-node data-node-position="end" r="4"></circle>
       </g>
       <g data-node data-mainline-node="start"></g>
       <g data-node data-mainline-node="end"></g>
+      <g data-mainline-fill-nodes></g>
     </svg>
   `;
   document.body.append(host);
@@ -48,11 +49,15 @@ function createArtwork(frameLeft: number, frameRight: number): SVGSVGElement {
   if (artwork === null) {
     throw new Error("Full-page topology fixture is missing its artwork");
   }
-  for (let fillIndex = 0; fillIndex < 64; fillIndex += 1) {
+  const fillContainer = artwork.querySelector<SVGGElement>("[data-mainline-fill-nodes]");
+  if (fillContainer === null) {
+    throw new Error("Full-page topology fixture is missing its fill-node container");
+  }
+  for (let fillIndex = 0; fillIndex < maximumRenderedTopologyRowCount; fillIndex += 1) {
     const fillNode = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     fillNode.dataset["node"] = "";
     fillNode.dataset["mainlineFillIndex"] = String(fillIndex);
-    artwork.append(fillNode);
+    fillContainer.append(fillNode);
   }
   return artwork;
 }
@@ -113,9 +118,7 @@ describe("full-page topology layout", () => {
     expandedRoute.dataset["routeId"] = "expanded-earlier";
     expandedRoute.dataset["topologyVariants"] = "expanded";
     expandedRoute.dataset["forkPageRow"] = "1";
-    expandedRoute.dataset["forkSlot"] = "1";
     expandedRoute.dataset["endPageOffset"] = "4";
-    expandedRoute.querySelector('[data-node-position="target"]')?.remove();
     artwork.append(expandedRoute);
 
     expect(layoutFullPageTopology(artwork)).toBe(true);
@@ -142,7 +145,6 @@ describe("full-page topology layout", () => {
     if (firstRoute === null) {
       throw new Error("Full-page topology fixture route is missing");
     }
-    firstRoute.querySelector('[data-node-position="target"]')?.remove();
     firstRoute.dataset["forkPageRow"] = "2";
     firstRoute.dataset["endPageOffset"] = "3";
 
@@ -152,9 +154,7 @@ describe("full-page topology layout", () => {
     }
     secondRoute.dataset["routeId"] = "d";
     secondRoute.dataset["forkPageRow"] = "4";
-    secondRoute.dataset["forkSlot"] = "4";
     secondRoute.dataset["endPageOffset"] = "4";
-    secondRoute.dataset["endSlot"] = "17";
     secondRoute.dataset["topologyVariants"] = "expanded";
     artwork.append(secondRoute);
 
@@ -186,9 +186,15 @@ describe("full-page topology layout", () => {
     if (route === null) {
       throw new Error("Full-page topology route is missing");
     }
-    expect(route.getAttribute("d")).toBe(
-      "M 1760 768 C 1673.6 775.68 1664 777.6 1664 864 L 1664 2496",
-    );
+    const routeGroup = route.closest<SVGGElement>("[data-topology-route-group]");
+    if (routeGroup === null) {
+      throw new Error("Full-page topology route group is missing");
+    }
+    const routeStart = route.getPointAtLength(0);
+    const routeEnd = route.getPointAtLength(route.getTotalLength());
+    expect(routeStart.x).toBe(Number(routeGroup.dataset["resolvedSourceX"]));
+    expect(routeEnd.x).toBe(Number(routeGroup.dataset["resolvedTargetX"]));
+    expect(routeStart.y).toBeLessThan(routeEnd.y);
 
     const resolvedRows = [...artwork.querySelectorAll<SVGGraphicsElement>("[data-node]")]
       .filter((node) => getComputedStyle(node).display !== "none")
@@ -205,5 +211,14 @@ describe("full-page topology layout", () => {
     expect(artwork.style.visibility).toBe("hidden");
     expect(artwork.dataset["topologyHiddenReason"]).toBe("insufficient-gutter-capacity");
     expect(artwork.dataset["topologyVariant"]).toBeUndefined();
+  });
+
+  it("fails closed when the page exceeds the statically styled row capacity", () => {
+    const artwork = createArtwork(576, 1424);
+    artwork.style.height = `${(maximumRenderedTopologyRowCount + 10) * 96}px`;
+
+    expect(layoutFullPageTopology(artwork)).toBe(true);
+    expect(artwork.style.visibility).toBe("hidden");
+    expect(artwork.dataset["topologyHiddenReason"]).toBe("insufficient-mainline-fill-nodes");
   });
 });

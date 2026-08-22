@@ -1,5 +1,3 @@
-import { layoutWorktreeTopology } from "./topology-layout";
-
 type LayoutTopologyArtwork = (artwork: SVGSVGElement) => boolean;
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -8,7 +6,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 export function initializeTopologyScrollReveal(
   artwork: SVGSVGElement,
-  layoutArtwork: LayoutTopologyArtwork = layoutWorktreeTopology,
+  layoutArtwork: LayoutTopologyArtwork,
 ): () => void {
   const revealPaths = [...artwork.querySelectorAll<SVGPathElement>("[data-topology-path-start]")];
   const revealNodes = [
@@ -17,6 +15,9 @@ export function initializeTopologyScrollReveal(
   const routeGroups = [...artwork.querySelectorAll<SVGGElement>("[data-topology-route-group]")];
   const verticalRevealSolid = artwork.querySelector<SVGRectElement>("[data-topology-reveal-solid]");
   const verticalRevealFade = artwork.querySelector<SVGRectElement>("[data-topology-reveal-fade]");
+  if (verticalRevealSolid === null || verticalRevealFade === null) {
+    throw new Error("Topology vertical reveal mask is incomplete");
+  }
   const lifecycle = new AbortController();
   const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   let lastLayoutHeight = 0;
@@ -106,7 +107,6 @@ export function initializeTopologyScrollReveal(
     const maximumScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
     const scrollProgress = clamp(window.scrollY / maximumScroll, 0, 1);
     const revealProgress = reducedMotionQuery.matches ? 1 : scrollProgress;
-    const leadingBuffer = revealProgress === 0 ? 0 : Math.min(0.06, revealProgress * 0.8);
     const atStart = !reducedMotionQuery.matches && window.scrollY <= 0;
     artwork.dataset["topologyScrollProgress"] = String(scrollProgress);
 
@@ -116,95 +116,42 @@ export function initializeTopologyScrollReveal(
       !reducedMotionQuery.matches && scrollProgress >= 0.9999,
     );
 
-    if (verticalRevealSolid !== null && verticalRevealFade !== null) {
-      const topologyStartY = Number(artwork.dataset["topologyStartY"]);
-      const topologyEndY = Number(artwork.dataset["topologyEndY"]);
-      if (!Number.isFinite(topologyStartY) || !Number.isFinite(topologyEndY)) {
-        return;
-      }
-      if (atStart) {
-        verticalRevealSolid.setAttribute("height", String(artwork.clientHeight));
-        verticalRevealFade.setAttribute("y", String(topologyStartY));
-        verticalRevealFade.setAttribute("height", "0");
-        artwork.dataset["topologyRevealEdgeY"] = String(topologyStartY);
-        for (const path of revealPaths) {
-          path.style.visibility = "hidden";
-          path.style.strokeDasharray = "0 1";
-          path.style.strokeDashoffset = "0";
-        }
-        for (const node of revealNodes) {
-          node.style.opacity = node.dataset["topologyNodeProgress"] === "0" ? "1" : "0";
-        }
-        updateCurrentNodes(revealProgress, false);
-        return;
-      }
-      const revealY = topologyStartY + (topologyEndY - topologyStartY) * revealProgress;
-      const fadeHeight =
-        revealProgress >= 1
-          ? 0
-          : Math.min(288, Math.max(96, (topologyEndY - topologyStartY) * 0.06));
-      verticalRevealSolid.setAttribute(
-        "height",
-        String(revealProgress >= 1 ? artwork.clientHeight : revealY),
-      );
-      verticalRevealFade.setAttribute("y", String(revealY));
-      verticalRevealFade.setAttribute("height", String(fadeHeight));
-      artwork.dataset["topologyRevealEdgeY"] = String(revealY);
-
-      for (const path of revealPaths) {
-        const leadingBand = path.dataset["topologyPathRole"] === "leading-band";
-        path.style.visibility = leadingBand ? "hidden" : "visible";
-        path.style.strokeDasharray = leadingBand ? "0 1" : "none";
-        path.style.strokeDashoffset = "0";
-      }
-      for (const node of revealNodes) {
-        node.style.opacity = "1";
-      }
-      updateCurrentNodes(revealProgress, !reducedMotionQuery.matches);
+    const topologyStartY = Number(artwork.dataset["topologyStartY"]);
+    const topologyEndY = Number(artwork.dataset["topologyEndY"]);
+    if (!Number.isFinite(topologyStartY) || !Number.isFinite(topologyEndY)) {
       return;
     }
-
-    for (const path of revealPaths) {
-      const totalLength = path.getTotalLength();
-      const start = Number(path.dataset["topologyPathStart"]);
-      const end = Number(path.dataset["topologyPathEnd"]);
-      const duration = Math.max(end - start, 0.001);
-      const localProgressAt = (progress: number): number =>
-        clamp((progress - start) / duration, 0, 1);
-      const role = path.dataset["topologyPathRole"];
-
-      if (role === "leading-band") {
-        if (leadingBuffer <= 0 || revealProgress >= 1 || (start > 0 && revealProgress <= start)) {
-          path.style.visibility = "hidden";
-          continue;
-        }
-
-        const bandStart = Number(path.dataset["topologyLeadStart"]);
-        const bandEnd = Number(path.dataset["topologyLeadEnd"]);
-        const localBandStart = localProgressAt(revealProgress + leadingBuffer * bandStart);
-        const localBandEnd = localProgressAt(revealProgress + leadingBuffer * bandEnd);
-        const bandLength = Math.max(localBandEnd - localBandStart, 0);
-        path.style.visibility = bandLength > 0.0001 ? "visible" : "hidden";
-        path.style.strokeDasharray = `${bandLength * totalLength} ${totalLength}`;
-        path.style.strokeDashoffset = String(-localBandStart * totalLength);
-        continue;
+    if (atStart) {
+      verticalRevealSolid.setAttribute("height", String(artwork.clientHeight));
+      verticalRevealFade.setAttribute("y", String(topologyStartY));
+      verticalRevealFade.setAttribute("height", "0");
+      artwork.dataset["topologyRevealEdgeY"] = String(topologyStartY);
+      for (const path of revealPaths) {
+        path.style.visibility = "hidden";
       }
-
-      const pathRevealProgress =
-        role === "clearance" && revealProgress > start
-          ? revealProgress + leadingBuffer
-          : revealProgress;
-      const localProgress = localProgressAt(pathRevealProgress);
-      path.style.visibility = localProgress > 0.0001 ? "visible" : "hidden";
-      path.style.strokeDasharray = `${localProgress * totalLength} ${totalLength}`;
-      path.style.strokeDashoffset = "0";
+      for (const node of revealNodes) {
+        node.style.opacity = node.dataset["topologyNodeProgress"] === "0" ? "1" : "0";
+      }
+      updateCurrentNodes(revealProgress, false);
+      return;
     }
-
+    const revealY = topologyStartY + (topologyEndY - topologyStartY) * revealProgress;
+    const fadeHeight =
+      revealProgress >= 1 ? 0 : Math.min(288, Math.max(96, (topologyEndY - topologyStartY) * 0.06));
+    verticalRevealSolid.setAttribute(
+      "height",
+      String(revealProgress >= 1 ? artwork.clientHeight : revealY),
+    );
+    verticalRevealFade.setAttribute("y", String(revealY));
+    verticalRevealFade.setAttribute("height", String(fadeHeight));
+    artwork.dataset["topologyRevealEdgeY"] = String(revealY);
+    for (const path of revealPaths) {
+      path.style.visibility = "visible";
+    }
     for (const node of revealNodes) {
-      const nodeProgress = Number(node.dataset["topologyNodeProgress"]);
-      node.style.opacity = nodeProgress === 0 || revealProgress >= nodeProgress ? "1" : "0";
+      node.style.opacity = "1";
     }
-    updateCurrentNodes(revealProgress, !reducedMotionQuery.matches && !atStart);
+    updateCurrentNodes(revealProgress, !reducedMotionQuery.matches);
   };
 
   const scheduleRender = (): void => {
