@@ -2,6 +2,24 @@
 
 Requirements: [requirements.md](requirements.md)
 
+```text
+Interactive and sidebar users
+  -> real-size workspace, search, grouping, hide/show, tab selection
+  -> [ Agent Studio as an opaque system ]
+  <- current rows, focus, scrolling, Git/PR state, responsive interaction
+
+Operators and maintainers
+  -> bounded marker-scoped performance workload
+  -> [ Agent Studio as an opaque system ]
+  <- safe CPU distributions, stage outcomes, validity controls, zero-drop evidence
+
+Outside this contract
+  security/auth redesign, persistence redesign, Bridge transport, visual redesign,
+  reduced fixtures, hidden demanded UI, or terminal/agent work mixed into CPU gates
+```
+
+In this contract, **read-model binding** means accepting a current derived result into the observable sidebar projection. **Visible UI update** means the subsequent row identity, diffing, layout, focus, accessibility, and rendering work. Evidence and waste ratios MUST keep those boundaries distinct.
+
 ## Observable Contract
 
 ### Classification And Admission
@@ -40,25 +58,84 @@ An exact `commandFinished` fact required to settle a pane MUST NOT cross a lossy
 
 **S13.** Expensive grouping, row indexing, branch/status merging, and render comparison MUST remain off MainActor. Execution MUST be single-flight per owned projection key with at most one latest pending invalidation; cooperative cancellation MUST settle the predecessor before a successor begins execution for that key. Superseded identity, scope, or generation MUST be rejected before publication. [U-ISOLATION-1, U-PRESERVATION-1]
 
-**S14.** MainActor publication MUST be one compact changed result or affected-key delta. Content-equal results MUST retain the current materialized value without SwiftUI invalidation. The equality contract MUST include every value capable of changing rendered output in the current grouping, including pane title/message/note, recency text/tier, real-attention state, drawer state, and branch presentation. Unaffected keyed rows MUST retain identity and MUST NOT be reconstructed solely because an unrelated key changed. [U-PERF-1, U-CURRENTNESS-1]
+**S14.** MainActor publication and read-model binding MUST accept only a compact changed result or affected-key delta. Content-equal results MUST retain the current bound value without visible UI invalidation. A visible UI update MUST be proportional to changed membership or changed row content, not total workspace size when membership is unchanged. The equality contract MUST include every value capable of changing rendered output in the current grouping, including pane title/message/note, recency text/tier, real-attention state, drawer state, and branch presentation. Unaffected keyed rows MUST retain identity and MUST NOT be reconstructed, re-identified, re-laid-out, or re-entered into focus navigation solely because an unrelated key changed. [U-PERF-1, U-CURRENTNESS-1]
 
 ### Performance And Observability
 
-**S15.** Under one recorded real-size workload representing the owner's affected workspace, settled stable operation MUST normally remain below 30% process CPU, MUST improve over `v0.0.89` and `v0.0.90`, and MUST be no worse than the recorded `v0.0.88` control for interaction latency, terminal projection round trip, and MainActor queue wait. No single synthetic fixture may substitute for this proof. [U-PERF-1]
+**S15.** Under one recorded real-size workspace with zero terminal or agent workload, settled process CPU p99 MUST be `<10%` in both required variants: no mounted terminal processes, and mounted but quiescent terminal processes producing no commands or output. The settled measurement MUST begin only after startup, topology construction, initial projection, rendering, and telemetry export have positively quiesced. Scheduled recency, refresh, persistence, observability, idle-shell, or other background work remains part of settled CPU when it fires during the measured window. [U-PERF-1]
 
-**S16.** Every affected stage MUST emit bounded outcomes sufficient to calculate: input-to-semantic-fact contraction, semantic-fact-to-capture admission, capture-to-execution admission, execution-to-publication, and publication-to-materialization waste ratios. Equal, coalesced, deferred, capacity-limited, cancelled, superseded, stale, failed, and published outcomes MUST remain distinct. [U-OBSERVABILITY-1]
+**S16.** Under the same recorded real-size workspace with zero terminal or agent workload, each ordinary action class MUST have process CPU p95 `<20%` when measured independently: a complete sidebar search-and-clear cycle, sidebar grouping switching, sidebar visibility hide/show, and tab switching. Each accepted population MUST contain at least 100 successful state-changing actions or cycles and at least 200 usable one-second action samples, and MUST calculate p95 by the nearest-rank method over that population only. Every issued action MUST traverse the production input path defined below and include its complete state-changing interval through generation-matched semantic and native settled-state readback. Suppressing an action, delaying its visible result beyond ordinary interaction pacing, issuing a no-op, omitting a demanded update, or excluding its settle work from the population cannot satisfy the CPU bound. [U-PERF-1, U-CURRENTNESS-1]
 
-**S17.** Telemetry MUST use controlled bounded dimensions and MUST NOT export raw paths, UUIDs, terminal text, prompts, payloads, errors, or tool output. An often/heavy diagnostic lane MUST aggregate, sample, or source-admit before the trace queue. The performance proof MUST have zero app trace-queue drops and zero collector-side loss attributable to the measured lane. [U-OBSERVABILITY-1]
+**S17.** Idle variants, action classes, startup, fixture construction, terminal or agent execution, exact-attribution diagnostics, and unrelated system load MUST NOT be combined into one acceptance percentile. The repaired build MUST improve over `v0.0.89` and `v0.0.90`; `v0.0.88` is a historical comparison and cannot substitute for either absolute CPU bound. Every accepted population MUST bind workload identity, hardware, power mode, build identity, standard instrumentation configuration, marker window, sample cadence, ordinary-use pacing policy, action-attribution policy, and a predeclared host-validity envelope covering unrelated host CPU, thermal state, and sampler gaps under one versioned proof-policy identity. That complete policy identity MUST govern the repaired build and its comparisons, MUST be fixed before candidate measurement, and MUST NOT be relaxed or replaced after a failed run. Breaching it invalidates the complete population rather than permitting sample trimming. [U-PERF-1, U-OBSERVABILITY-1]
 
-**S18.** The proof surface MUST attribute each test mutation to the affected admission stage without requiring high-volume atom logging in the primary benchmark. Dedicated diagnostic runs MAY enable narrower instrumentation if they demonstrate that instrumentation does not materially perturb the claimed workload. [U-OBSERVABILITY-1]
+**S18.** Every affected stage MUST emit bounded outcomes sufficient to calculate input-to-semantic-fact contraction, semantic-fact-to-capture admission, capture-to-execution admission, execution-to-publication, publication-to-read-model-binding, and read-model-binding-to-visible-UI-update waste ratios. Observed, equal, coalesced, admitted, deferred, capacity-limited, cancelled, superseded, stale, failed, published, bound, and visibly updated outcomes MUST remain distinct. [U-OBSERVABILITY-1]
+
+**S19.** Telemetry MUST use controlled bounded dimensions and MUST NOT export raw paths, UUIDs, terminal text, prompts, payloads, errors, or tool output. An often/heavy diagnostic lane MUST aggregate, sample, or source-admit before the trace queue. The performance proof MUST have zero app trace-queue drops and zero collector-side loss attributable to the measured lane. [U-OBSERVABILITY-1]
+
+**S20.** The proof surface MUST attribute each test mutation to the affected admission, read-model-binding, and visible-UI-update stage without requiring high-volume exact-event logging in the primary benchmark. The standard instrumentation population alone MUST establish each CPU percentile. Dedicated diagnostic populations MAY enable narrower instrumentation only in separate marker windows, MUST report their measured CPU and interaction-time difference from a paired standard population, and MUST NOT be pooled with or substituted for the standard population. [U-OBSERVABILITY-1]
+
+### Ordinary-Action Population Contract
+
+Every action population uses contiguous, non-overlapping one-second process-CPU sampling intervals from the standard instrumentation configuration. An action window begins immediately before its first production input event and ends only after both the semantic state and the corresponding native visible state report the intended generation as settled. Every complete one-second sample whose interval intersects that window belongs to that action population; if an action spans multiple samples, all of them belong. A sample that intersects only the pacing gap between completed actions does not belong. Partial sampler intervals, post-hoc boundary changes, sample trimming, and overlapping actions are prohibited. The first input of an action starts on a sampler boundary. After settlement, the next action starts on the first eligible sampler boundary and never more than one sampling interval later, so deliberate idle time cannot dilute the percentile. A population continues until both its action floor and its usable-sample floor are met.
+
+| Population | Deterministic production input | Required semantic and native readback |
+| --- | --- | --- |
+| Search and clear | Begin with an empty filter. Invoke the existing Filter Sidebar command to reveal and focus the actual Repo Explorer search field; deliver one predeclared eight-character fixture query as native text-entry events at one fixed ordinary typing cadence between 80 and 120 milliseconds per character; after the query's result is visibly settled, clear it through that same text-entry control without an artificial hold. Direct filter-state mutation, a query-setting IPC method, paste-as-one-mutation, or bypass of the production debounce/filter/render path is prohibited. | The query read model and native field equal the eight-character query, the visible rows equal the generation-matched filtered result, then the read model and field are empty and the visible rows equal the generation-matched unfiltered result. One entry-and-clear round trip is one cycle; at least 100 cycles are required. |
+| Grouping switch | Execute the existing Repo sidebar grouping commands through their production command-dispatch path in a predeclared Repo → Pane → Tab round-robin; the counts for the three destinations differ by at most one. Direct preference or projection mutation is prohibited. | The semantic grouping value, selected native grouping control, and visible group/row projection all match the requested generation and mode. At least 100 non-no-op switches are required. |
+| Sidebar hide/show | Execute the existing Worktree Sidebar visibility command through its production command-dispatch path, alternating visible → hidden → visible with equal hide/show counts after an even action floor. Direct split-view or visibility-state mutation is prohibited. | Semantic collapsed/visible state and the native sidebar presence, geometry, focus disposition, and demanded-projection state match the requested generation before the next toggle. At least 100 non-no-op toggles are required. |
+| Tab switch | Execute the existing targeted tab-selection command through its production command-dispatch path, alternating between two predeclared populated fixture tabs. Direct selection-atom or tab-view mutation is prohibited. | Semantic active-tab identity, native selected-tab presentation, visible pane content, and focus disposition all match the requested generation before the next switch. At least 100 non-no-op switches are required. |
+
+The query value, typing cadence, two tab identities, action sequence, sampler phase, readback timeout, settle definition, host-validity envelope, standard instrumentation configuration, and permitted diagnostic-instrumentation perturbation MUST be fixed in the proof-policy identity before any comparison run. A timeout, no-op, failed command, wrong generation, missing semantic readback, missing native readback, cross-class sample, sampler gap, or validity-envelope breach rejects the complete population; it MUST NOT be retried away, omitted from the denominator, converted into idle, or used to revise the policy. Diagnostic instrumentation is admissible only when its predeclared perturbation bound holds against a paired standard population; regardless of that result, only the standard population determines CPU acceptance.
+
+## Requirement Coverage
+
+```text
+U-PERF-1
+  -> P1 unnecessary derived, binding, and visible UI update work consumes the machine
+  -> O1 idle and ordinary UI actions leave compute available for agents/terminals
+  -> S3, S4, S7, S13-S17
+  -> C1 both idle-variant p99s <10%; each of four action-class p95s <20%
+  -> V1 separated real-size CPU populations + native/readback + marker-bound profiles
+
+U-ADMISSION-1 + U-BOUNDS-1
+  -> P2 source cadence becomes unnecessary capture/execution/publication
+  -> O2 only current demanded semantic work crosses expensive boundaries
+  -> S1-S6, S8-S9, S11-S12
+  -> C2 keyed demand, equality, one active/one pending, bounded deadlines
+  -> V2 deterministic admission/currentness sequences + stage contraction metrics
+
+U-CURRENTNESS-1 + U-PRESERVATION-1
+  -> P3 suppression/coalescing can lose or misclassify visible state
+  -> O3 latest demanded pane/Git/PR/sidebar meaning remains exact
+  -> S5-S14, S16
+  -> C3 R-INV equivalence, honest PR states, exact settle, preserved sidebar UX
+  -> V3 controlled sequences + reference projection + native final-state readback
+
+U-ISOLATION-1
+  -> P4 fleet derivation and identity work occupies MainActor
+  -> O4 MainActor applies only compact current state and visible-bounded UI work
+  -> S4, S7, S12-S14
+  -> C4 no filesystem/provider/fleet diff on MainActor
+  -> V4 architecture checks + duration probes + marker-bound stack/Instruments evidence
+
+U-OBSERVABILITY-1
+  -> P5 high-rate diagnostics can perturb or lose performance evidence
+  -> O5 attribution remains bounded, safe, complete, and measurement-valid
+  -> S17-S20
+  -> C5 separated markers, bounded dimensions, zero drops, perturbation control
+  -> V5 OTLP allowlist/canary + stage ratios + standard/attribution comparison
+```
 
 ## Failure Contract
 
-- Loss of demand cancels or defers future work without deleting current materialized facts.
+- Loss of demand cancels or defers future work without deleting current bound read-model facts.
 - Cancellation, timeout, provider failure, or stale completion never counts as equality or suppression.
 - Capacity limitation retains bounded latest required intent and exposes a capacity outcome; it never silently converts demand into unavailable product state.
 - A missing or failed optional telemetry sink never blocks ordinary application startup, but a strict performance proof fails when required evidence is absent or dropped.
 - If a compact fact cannot prove equality, the owning lane executes or retains one pending invalidation; it does not guess that the change is irrelevant.
+- An idle or action CPU population that includes terminal commands or output, agent work, fixture construction, startup, another action class, a different terminal-mount variant, diagnostic instrumentation, a partial sampler interval, an unbound action sample, or a breach of its declared proof-policy identity is invalid rather than passing or failing.
+- If a CPU threshold fails, the proof retains its marker, samples, workload metadata, and bound profile evidence. It does not discard high samples, widen the percentile, reduce the workspace, slow actions beyond ordinary use, or relabel action time as idle.
+- If any issued ordinary action is a no-op, fails, times out, produces the wrong generation, or lacks either semantic or native readback, the population is rejected without replacing that action or recomputing the percentile from the remaining samples.
 
 ## Proof Obligations
 
@@ -69,12 +146,14 @@ An exact `commandFinished` fact required to settle a pane MUST NOT cross a lossy
 - **Concurrency/currentness:** burst and cancellation tests prove one active plus one latest pending work item, obsolete result rejection, latest changed fact delivery, and loading-state recovery.
 - **Forge publication equivalence:** in-flight demand sequences including A → B → A prove that rejected completions leave freshness/publication baselines unchanged and that a later identical valid result still reaches the materialized cache; loading completion and facts appear atomically.
 - **Exact terminal delivery:** bounded-pressure integration proves `commandFinished` cannot be lost before settle/status publication and that diagnostic routing cannot bypass typed source admission.
-- **End-to-end tagged comparison:** the same real-size marker-scoped workload runs against the `v0.0.88` control, faulty `v0.0.89`/`v0.0.90` evidence, and repaired build; it records CPU, capture cadence, MainActor held/queue time, terminal round trip, projection waste, interaction behavior, and trace loss.
-- **Native behavior:** By Pane/By Tab activity, focus, recency, Git/PR presentation, sidebar switching, and terminal interaction remain visibly current in the packaged debug app.
+- **Settled idle performance:** after a positive quiescence boundary, one separately marked population of at least 1,000 one-second usable samples for each required terminal-mount variant—no mounted terminals and mounted but quiescent terminals—must prove process CPU p99 `<10%`, record scheduled background work that fires, and retain the complete sample distribution, marker identity, terminal-mount count, sampler gaps, host pressure, power mode, and thermal state. The 1,000-sample floor exposes at least ten observations in the empirical one-percent tail instead of allowing a p99 claim to rest on only three tail observations.
+- **Ordinary-action performance:** each independently marked search-and-clear, grouping-switch, sidebar-hide/show, and tab-switch population must meet both floors—at least 100 successful cycles or state changes and at least 200 complete one-second action-bearing samples—and prove nearest-rank process CPU p95 `<20%`; exact production input routing; generation-matched semantic and native settled-state readback; fixed ordinary-use pacing; complete action-window attribution; MainActor occupancy; and zero idle, failed-action, partial-window, or cross-class dilution.
+- **End-to-end tagged comparison:** the same real-size workspace runs against faulty `v0.0.89`/`v0.0.90` evidence, the historical `v0.0.88` control where reproducible, and the repaired build; it records CPU, capture cadence, MainActor held/queue time, read-model-binding and visible-UI-update waste, interaction behavior, instrumentation configuration, and trace loss.
+- **Native behavior:** By Repository, By Pane, and By Tab content; search and clearing; grouping and collapse; sidebar hide/show; tab switching; focus and commands; scrolling; accessibility; appearance; recency; Git/PR presentation; and terminal interaction remain visibly current and behaviorally unchanged in the packaged debug app.
 - **Telemetry safety:** OTLP projection tests and current-marker negative checks prove bounded dimensions and absence of sensitive values.
 
 ## Non-Goals
 
 - No generic admission framework, new service, persistence schema, feature flag, compatibility route, or fleet-wide polling.
 - No removal of intended sidebar activity or honest PR-loading behavior.
-- No unrelated Git, Bridge, authentication, security, release, or visual redesign.
+- No unrelated Git, Bridge, authentication, security, release, visual/product redesign, or repair of the separate By Tab unassociated-pane correctness bug. An internal rendering or viewport-demand replacement is in scope only when it preserves the existing sidebar contract and is required by the CPU bounds.
