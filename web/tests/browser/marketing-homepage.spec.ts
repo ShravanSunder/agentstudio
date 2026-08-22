@@ -128,6 +128,10 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   await expect(sessionRestoreVideo).toHaveAttribute("playsinline", "");
   await expect(sessionRestoreVideo).toHaveAttribute("preload", "metadata");
   await expect(sessionRestoreVideo.locator('source[type="video/mp4"]')).toHaveCount(1);
+  await expect(sessionRestoreVideo.locator("a")).toHaveCount(0);
+  await expect(sessionRestoreVideo.locator("span")).toHaveText(
+    "This browser cannot play the session restore video.",
+  );
 
   const videoGeometry = await persistencePanel.evaluate((panel) => {
     const video = panel.querySelector("[data-session-restore-video]");

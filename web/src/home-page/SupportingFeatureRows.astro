@@ -67,7 +67,7 @@ const mediaByFeatureId = {
                   class="block aspect-video h-auto w-full rounded-control bg-black object-contain"
                 >
                   <source src={sessionRestoreVideoUrl} type="video/mp4" />
-                  <a href={sessionRestoreVideoUrl}>Open the session restore video.</a>
+                  <span>This browser cannot play the session restore video.</span>
                 </video>
               ) : item.id === "arrangements" ? (
                 <PersistenceProof
