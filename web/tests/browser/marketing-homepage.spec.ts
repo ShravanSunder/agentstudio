@@ -38,7 +38,7 @@ interface PhoneProductPlateComposition {
   readonly imageIsInsetWithinPlate: boolean;
   readonly imagePaneIsOutlined: boolean;
   readonly imagePaneIsRounded: boolean;
-  readonly imageUsesUncroppedMaster: boolean;
+  readonly imageUsesPortraitCrop: boolean;
   readonly panelAnimationName: string;
   readonly selectedDotDisplay: string;
   readonly sharedWrapperIsTransparent: boolean;
@@ -708,7 +708,7 @@ test("presents the phone carousel as title, image, then matching caption", async
         captionUsesNeutralSurface: captionStyle.backgroundColor === imagePaneStyle.backgroundColor,
         imagePaneIsOutlined: Number.parseFloat(imagePaneStyle.borderTopWidth) > 0,
         imagePaneIsRounded: Number.parseFloat(imagePaneStyle.borderTopLeftRadius) > 0,
-        imageUsesUncroppedMaster: Math.abs(image.naturalWidth / image.naturalHeight - 1.6) < 0.01,
+        imageUsesPortraitCrop: Math.abs(image.naturalWidth / image.naturalHeight - 0.8) < 0.01,
         panelAnimationName: getComputedStyle(panel).animationName,
         selectedDotDisplay: getComputedStyle(selectedStory, "::after").display,
         sharedWrapperIsTransparent:
@@ -729,7 +729,7 @@ test("presents the phone carousel as title, image, then matching caption", async
     imageIsInsetWithinPlate: true,
     imagePaneIsOutlined: true,
     imagePaneIsRounded: true,
-    imageUsesUncroppedMaster: true,
+    imageUsesPortraitCrop: true,
     panelAnimationName: "none",
     selectedDotDisplay: "none",
     sharedWrapperIsTransparent: true,
@@ -945,7 +945,7 @@ test("presents supporting features as text and product media without numbered di
   );
 
   const arrangementsPanel = page.locator(".feature-detail").filter({
-    has: page.getByRole("heading", { name: "Get your panes in order." }),
+    has: page.getByRole("heading", { name: "Go big on one pane." }),
   });
   const savedLayoutButton = arrangementsPanel.getByRole("button", { name: "Saved layout" });
   const paneZoomButton = arrangementsPanel.getByRole("button", { name: "Pane Zoom" });
