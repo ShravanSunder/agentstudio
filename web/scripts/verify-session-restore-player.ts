@@ -31,4 +31,8 @@ if (sessionVideoTag.includes("data-scroll-autoplay-video")) {
   throw new Error("Rendered session-restore video must remain visitor-controlled.");
 }
 
+if (/\sautoplay(?:\s|=|>)/u.test(sessionVideoTag)) {
+  throw new Error("Rendered session-restore video must not use native autoplay.");
+}
+
 console.log("Verified the rendered session-restore player contract.");
