@@ -667,3 +667,28 @@ Notes: the repository's broad real-worktree verifier now reaches a deterministic
 pre-existing CodeView/Pierre hydration timeout also present before the candidate
 bank. Its proof gate is not weakened. No security/auth, polling, persistence,
 compatibility, or PR2 change.
+
+### 2026-08-22 10:43 EDT — Refresh lifecycle evidence checkpoint
+
+State: backend lifecycle evidence is implemented and checkpointed; UI composition
+and final broad runtime/package proof remain open
+Head: `5b0a3a80f` (`fix: complete review refresh runtime proof seams`)
+Owns: native classification/source cleanup, main candidate lifecycle, existing
+telemetry projection, and worker-replacement cleanup wiring
+Changed: the existing Bridge telemetry plane now records scrubbed classification,
+ready, held, install intent/terminal, supersession, receipt failure, and cleanup
+facts; only class/reason, generation, duration, and aggregate counts cross it.
+Worker replacement now notifies the installation gate through one local store
+lifecycle subscription. Late admission replies use one dispatch-scoped slot
+instead of an accumulating orphan map.
+Proof: BridgeWeb check exited 0; unit 1,936/1,936; focused Swift lifecycle/schema/
+impact proof 17/17; scoped Swift format, SwiftLint, architecture lint, TypeScript
+format/typecheck, and diff checks passed
+Needs from UI lane: consume the already-published typed presentation/actions and
+publish semantic attention from existing Review owners. Do not add telemetry,
+another lifecycle store, route, scheduler, or polling path in the UI lane.
+Next: combine UI-owner work, add the refresh-specific real-worktree evidence
+sequence, then packaged WKWebView and exact-HEAD aggregate proof
+Notes: dev-server OTLP allowlisting for these controlled fields is landing in the
+next small proof checkpoint. The broad CodeView/Pierre hydration blocker remains
+separate and unchanged.
