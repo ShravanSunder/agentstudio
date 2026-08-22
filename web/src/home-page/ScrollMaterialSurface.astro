@@ -81,4 +81,15 @@ const { class: className, ...attributes } = Astro.props;
       will-change: auto;
     }
   }
+
+  @media (width < 64rem) {
+    :global(.scroll-material-pane-compact) {
+      background: var(--scroll-material-pane-background);
+      box-shadow: inset 0 1px rgb(255 255 255 / var(--scroll-material-highlight-alpha));
+      backdrop-filter: blur(var(--scroll-material-blur))
+        saturate(var(--scroll-material-saturation));
+      -webkit-backdrop-filter: blur(var(--scroll-material-blur))
+        saturate(var(--scroll-material-saturation));
+    }
+  }
 </style>

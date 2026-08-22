@@ -120,7 +120,7 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   await expect(page.getByRole("tabpanel", { name: /Git and PR context/ })).toBeVisible();
 
   const persistencePanel = page.locator(".feature-detail").filter({
-    has: page.getByRole("heading", { name: "Close the app. Keep your place." }),
+    has: page.getByRole("heading", { name: "Close the app, not your sessions." }),
   });
   const beforeFrameButton = persistencePanel.getByRole("button", { name: "Before close" });
   const restoredFrameButton = persistencePanel.getByRole("button", { name: "Restored" });
@@ -705,14 +705,14 @@ test("presents supporting features as text and product media without numbered di
   await expect(page.locator(".feature-detail__media img")).toHaveCount(5);
   await expect(featureDetails.first().locator("picture source")).toHaveCount(0);
   await expect(featureDetails.first().getByRole("heading")).toHaveText(
-    "Keep tabs on your code with Files and Review.",
+    "Keep tabs on your code.",
   );
   await expect(page.getByRole("heading", { name: "Run the agents you already use." })).toHaveCount(
     0,
   );
 
   const arrangementsPanel = page.locator(".feature-detail").filter({
-    has: page.getByRole("heading", { name: "Give every pane its place." }),
+    has: page.getByRole("heading", { name: "Get your panes in order." }),
   });
   const savedLayoutButton = arrangementsPanel.getByRole("button", { name: "Saved layout" });
   const paneZoomButton = arrangementsPanel.getByRole("button", { name: "Pane Zoom" });
@@ -725,35 +725,52 @@ test("presents supporting features as text and product media without numbered di
   const featureGeometry = await featureDetails.evaluateAll((features) =>
     features.map((feature) => {
       const copy = feature.querySelector(".feature-detail__copy");
+      const title = feature.querySelector(".feature-detail__title");
+      const description = feature.querySelector(".feature-detail__description");
       const media = feature.querySelector(".feature-detail__media");
-      if (!(copy instanceof HTMLElement) || !(media instanceof HTMLElement)) {
+      if (
+        !(copy instanceof HTMLElement) ||
+        !(title instanceof HTMLElement) ||
+        !(description instanceof HTMLElement) ||
+        !(media instanceof HTMLElement)
+      ) {
         throw new Error("Supporting feature is missing copy or media");
       }
 
       const copyBounds = copy.getBoundingClientRect();
+      const titleBounds = title.getBoundingClientRect();
+      const descriptionBounds = description.getBoundingClientRect();
       const mediaBounds = media.getBoundingClientRect();
       const copyStyle = getComputedStyle(copy);
+      const titleStyle = getComputedStyle(title);
+      const descriptionStyle = getComputedStyle(description);
       const mediaStyle = getComputedStyle(media);
       const featureStyle = getComputedStyle(feature);
       const compactLayout = window.matchMedia("(width < 64rem)").matches;
+      const visiblePaneStyles = compactLayout
+        ? [titleStyle, mediaStyle, descriptionStyle]
+        : [copyStyle, mediaStyle];
       return {
         compactLayout,
-        copyWidth: copyBounds.width,
+        copyWidth: compactLayout ? titleBounds.width : copyBounds.width,
+        descriptionAfterMedia: descriptionBounds.top >= mediaBounds.bottom,
         hasScrollMaterialOwner: feature.hasAttribute("data-scroll-material-surface"),
         paneGap: Number.parseFloat(featureStyle.gap),
-        panesAreOutlined:
-          Number.parseFloat(copyStyle.borderTopWidth) > 0 &&
-          Number.parseFloat(mediaStyle.borderTopWidth) > 0,
-        panesAreRounded:
-          Number.parseFloat(copyStyle.borderTopLeftRadius) > 0 &&
-          Number.parseFloat(mediaStyle.borderTopLeftRadius) > 0,
-        panesShareMaterial: copyStyle.backgroundColor === mediaStyle.backgroundColor,
-        stackedTopToBottom: mediaBounds.top >= copyBounds.bottom,
+        panesAreOutlined: visiblePaneStyles.every(
+          (style) => Number.parseFloat(style.borderTopWidth) > 0,
+        ),
+        panesAreRounded: visiblePaneStyles.every(
+          (style) => Number.parseFloat(style.borderTopLeftRadius) > 0,
+        ),
+        panesShareMaterial: visiblePaneStyles.every(
+          (style) => style.backgroundColor === visiblePaneStyles[0]?.backgroundColor,
+        ),
         sideBySide: mediaBounds.left >= copyBounds.right,
+        titleBeforeMedia: titleBounds.bottom <= mediaBounds.top,
         desktopHeightDelta: Math.abs(copyBounds.height - mediaBounds.height),
         mediaWidth: mediaBounds.width,
         mediaFollowsCopy:
-          mediaBounds.left >= copyBounds.right || mediaBounds.top >= copyBounds.bottom,
+          mediaBounds.left >= copyBounds.right || titleBounds.bottom <= mediaBounds.top,
       };
     }),
   );
@@ -768,7 +785,8 @@ test("presents supporting features as text and product media without numbered di
     expect(geometry.panesAreRounded).toBe(true);
     expect(geometry.panesShareMaterial).toBe(true);
     if (geometry.compactLayout) {
-      expect(geometry.stackedTopToBottom).toBe(true);
+      expect(geometry.titleBeforeMedia).toBe(true);
+      expect(geometry.descriptionAfterMedia).toBe(true);
     } else {
       expect(geometry.sideBySide).toBe(true);
       expect(geometry.desktopHeightDelta).toBeLessThanOrEqual(1);

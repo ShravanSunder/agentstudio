@@ -81,9 +81,11 @@ Deployment remains a separate decision.
       the complete rounded border and inset geometry after it detaches, and
       preserve the existing desktop attached state at `64rem` and above.
 - [x] Rebuild each “More of the workspace” item as two peer glass panes inside
-      `ScrollMaterialSurface`: copy/media side-by-side on desktop and copy above
-      media below `64rem`. Keep both panes equal-height on desktop, independently
-      rounded and outlined, with the same 4px chassis seam.
+      `ScrollMaterialSurface`: copy/media side-by-side on desktop. Below `64rem`,
+      split the copy without duplication into title above media and summary plus
+      detail below media, matching the slideshow's title-proof-explanation order.
+      Keep visible panes independently rounded and outlined with the same 4px
+      chassis seam.
 - [x] Keep the complete 16:10 Files and Review master at compact widths. Reject
       the 4:5 derivative because it clips the left review/task context instead
       of preserving the complete workspace relationship.
