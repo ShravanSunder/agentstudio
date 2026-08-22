@@ -4,11 +4,13 @@ import SwiftUI
 
 struct RepoExplorerPresentationHostView: NSViewRepresentable {
     let projectionAdapter: RepoExplorerProjectionAdapter
+    let octiconLoader: OcticonLoader
     let onVisibleWorktreeIDsChange: @MainActor (Set<UUID>) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             projectionAdapter: projectionAdapter,
+            octiconLoader: octiconLoader,
             onVisibleWorktreeIDsChange: onVisibleWorktreeIDsChange
         )
     }
@@ -24,6 +26,7 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
         context.coordinator.update(
             materializationHost: materializationHost,
             projectionAdapter: projectionAdapter,
+            octiconLoader: octiconLoader,
             onVisibleWorktreeIDsChange: onVisibleWorktreeIDsChange
         )
     }
@@ -39,13 +42,16 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
     final class Coordinator {
         private weak var projectionAdapter: RepoExplorerProjectionAdapter?
         private weak var materializationHost: RepoExplorerMaterializationHost?
+        private let octiconLoader: OcticonLoader
         private var onVisibleWorktreeIDsChange: @MainActor (Set<UUID>) -> Void
 
         init(
             projectionAdapter: RepoExplorerProjectionAdapter,
+            octiconLoader: OcticonLoader,
             onVisibleWorktreeIDsChange: @escaping @MainActor (Set<UUID>) -> Void
         ) {
             self.projectionAdapter = projectionAdapter
+            self.octiconLoader = octiconLoader
             self.onVisibleWorktreeIDsChange = onVisibleWorktreeIDsChange
         }
 
@@ -54,6 +60,7 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
             guard let projectionAdapter else {
                 preconditionFailure("Repo Explorer projection adapter released before host creation")
             }
+            let stableOcticonLoader = octiconLoader
             let host = RepoExplorerMaterializationHost(
                 lifetimeID: RepoExplorerMaterializationHostLifetimeID(
                     rawValue: UUIDv7.generate()
@@ -62,6 +69,7 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
                 initialPresentation: .noRepositories,
                 makeContentChild: { [weak self] in
                     RepoExplorerTableMaterializer(
+                        octiconLoader: stableOcticonLoader,
                         onVisibleWorktreeIDsChange: { worktreeIDs in
                             self?.onVisibleWorktreeIDsChange(worktreeIDs)
                         }
@@ -82,10 +90,12 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
         func update(
             materializationHost: RepoExplorerMaterializationHost,
             projectionAdapter: RepoExplorerProjectionAdapter,
+            octiconLoader: OcticonLoader,
             onVisibleWorktreeIDsChange: @escaping @MainActor (Set<UUID>) -> Void
         ) {
             precondition(self.materializationHost === materializationHost)
             precondition(self.projectionAdapter === projectionAdapter)
+            precondition(self.octiconLoader === octiconLoader)
             self.onVisibleWorktreeIDsChange = onVisibleWorktreeIDsChange
         }
 

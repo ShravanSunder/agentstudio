@@ -263,6 +263,7 @@ func nativePlanSnapshot(
             let presentation = RepoExplorerMaterializedRowPresentation.groupHeader(
                 RepoExplorerMaterializedGroupHeaderPresentation(
                     groupID: identity,
+                    icon: .repo,
                     title: changedTitles.contains(identity) ? "\(identity)-changed" : identity,
                     organizationName: nil,
                     colorHex: nil,

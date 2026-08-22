@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AppKit
 
 struct RepoExplorerTableScrollAnchor: Equatable {
@@ -20,6 +21,7 @@ final class RepoExplorerTableMaterializer: NSObject,
 
     let view: NSView
     private(set) var nativeTransactionApplyCount = 0
+    private(set) var hostedCellCreationCount = 0
 
     var numberOfRows: Int { snapshot?.rows.count ?? 0 }
 
@@ -50,6 +52,7 @@ final class RepoExplorerTableMaterializer: NSObject,
 
     private let tableView = NSTableView()
     private let scrollView: NSScrollView
+    private let octiconLoader: OcticonLoader
     private let measureVisibleRowHeight: VisibleRowHeightMeasurer
     private let onVisibleWorktreeIDsChange: @MainActor (Set<UUID>) -> Void
     private var snapshot: RepoExplorerMaterializationSnapshot?
@@ -65,9 +68,11 @@ final class RepoExplorerTableMaterializer: NSObject,
     private var isDetached = false
 
     init(
+        octiconLoader: OcticonLoader,
         onVisibleWorktreeIDsChange: @escaping @MainActor (Set<UUID>) -> Void,
         measureVisibleRowHeight: @escaping VisibleRowHeightMeasurer = { _, _ in nil }
     ) {
+        self.octiconLoader = octiconLoader
         self.onVisibleWorktreeIDsChange = onVisibleWorktreeIDsChange
         self.measureVisibleRowHeight = measureVisibleRowHeight
         scrollView = NSScrollView(frame: .zero)
@@ -107,6 +112,37 @@ final class RepoExplorerTableMaterializer: NSObject,
         row: Int
     ) -> Any? {
         row
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        viewFor tableColumn: NSTableColumn?,
+        row rowIndex: Int
+    ) -> NSView? {
+        guard let row = snapshot?.rows[safe: rowIndex], let visibleGeneration else {
+            return nil
+        }
+        let cell: RepoExplorerTableRowCell
+        if let reused = tableView.makeView(
+            withIdentifier: RepoExplorerTableRowCell.reuseIdentifier,
+            owner: self
+        ) as? RepoExplorerTableRowCell {
+            cell = reused
+        } else {
+            cell = RepoExplorerTableRowCell(octiconLoader: octiconLoader)
+            hostedCellCreationCount += 1
+        }
+        cell.bind(row: row, visibleGeneration: visibleGeneration)
+        return cell
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        false
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard let tableView = notification.object as? NSTableView else { return }
+        tableView.deselectAll(nil)
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow rowIndex: Int) -> CGFloat {
@@ -182,6 +218,7 @@ final class RepoExplorerTableMaterializer: NSObject,
         completion: @escaping (RepoExplorerMaterializationChildDisposition) -> Void
     ) {
         invalidateScheduledViewportPublication()
+        clearRepresentedCellsForReuse()
         clearViewportDemand()
         completion(.accepted)
     }
@@ -189,11 +226,13 @@ final class RepoExplorerTableMaterializer: NSObject,
     func suspendDemand() {
         guard !isDetached else { return }
         invalidateScheduledViewportPublication()
+        clearRepresentedCellsForReuse()
         clearViewportDemand()
     }
 
     func resumeDemand(visibleGeneration: UInt64) {
         guard !isDetached, self.visibleGeneration == visibleGeneration else { return }
+        rebindRepresentedCells()
         scheduleViewportPublication()
     }
 
@@ -201,6 +240,7 @@ final class RepoExplorerTableMaterializer: NSObject,
         guard !isDetached else { return }
         isDetached = true
         invalidateScheduledViewportPublication()
+        clearRepresentedCellsForReuse()
         clearViewportDemand()
         if let boundsObserver {
             NotificationCenter.default.removeObserver(boundsObserver)
@@ -266,6 +306,7 @@ final class RepoExplorerTableMaterializer: NSObject,
         if !visibleHeightRows.isEmpty {
             tableView.noteHeightOfRows(withIndexesChanged: visibleHeightRows)
         }
+        rebindRepresentedCells()
         pendingReloadRows.removeAll()
         pendingHeightRows.removeAll()
     }
@@ -375,6 +416,37 @@ final class RepoExplorerTableMaterializer: NSObject,
         let upperBound = min(NSMaxRange(range), numberOfRows)
         guard range.location < upperBound else { return [] }
         return IndexSet(integersIn: range.location..<upperBound)
+    }
+
+    private func rebindRepresentedCells() {
+        guard let snapshot, let visibleGeneration else { return }
+        for rowIndex in representedRowIndexes() {
+            guard
+                let cell = tableView.view(
+                    atColumn: 0,
+                    row: rowIndex,
+                    makeIfNecessary: false
+                ) as? RepoExplorerTableRowCell
+            else {
+                continue
+            }
+            cell.bind(row: snapshot.rows[rowIndex], visibleGeneration: visibleGeneration)
+        }
+    }
+
+    private func clearRepresentedCellsForReuse() {
+        for rowIndex in representedRowIndexes() {
+            guard
+                let cell = tableView.view(
+                    atColumn: 0,
+                    row: rowIndex,
+                    makeIfNecessary: false
+                ) as? RepoExplorerTableRowCell
+            else {
+                continue
+            }
+            cell.clearBindingForReuse()
+        }
     }
 
     private func updateTableFrame() {

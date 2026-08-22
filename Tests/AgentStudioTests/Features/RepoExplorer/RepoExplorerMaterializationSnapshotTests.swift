@@ -35,6 +35,46 @@ struct RepoExplorerMaterializationSnapshotTests {
         )
     }
 
+    @Test("group icon is an immutable materialized fact from captured grouping mode")
+    func groupIconComesFromCapturedGroupingMode() throws {
+        let repoID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let request = makeRepoRequest(repoID: repoID, worktreeID: worktreeID)
+        let result = try RepoExplorerProjectionWorker.project(request)
+        let repoGroup = try #require(
+            result.materializationSnapshot.rows.compactMap { row -> RepoExplorerMaterializedGroupHeaderPresentation? in
+                guard case .groupHeader(let group) = row.presentation else { return nil }
+                return group
+            }.first
+        )
+        let tabSnapshot = RepoExplorerSnapshot(
+            repos: request.snapshot.repos,
+            repoEnrichmentByRepoId: request.snapshot.repoEnrichmentSnapshotByRepoId,
+            groupingMode: .tab,
+            query: request.snapshot.query
+        )
+        let tabMaterialization = RepoExplorerMaterializationSnapshot.build(
+            rowIndex: result.rowIndex,
+            inputs: RepoExplorerMaterializationInputs(
+                snapshot: tabSnapshot,
+                projection: result.projection,
+                branchStatusByWorktreeID: result.branchStatusByWorktreeId,
+                branchNameByWorktreeID: result.branchNameByWorktreeId,
+                bridgeCommandResolutionByWorktreeID: result.bridgeCommandResolutionByWorktreeId,
+                paneRowFactsByPaneID: result.paneRowFactsByPaneId
+            )
+        )
+        let tabGroup = try #require(
+            tabMaterialization.rows.compactMap { row -> RepoExplorerMaterializedGroupHeaderPresentation? in
+                guard case .groupHeader(let group) = row.presentation else { return nil }
+                return group
+            }.first
+        )
+
+        #expect(repoGroup.icon == .repo)
+        #expect(tabGroup.icon == .tabGroup)
+    }
+
     @Test("layout facts are stable and only declared wrapping rows request visible measurement")
     func layoutFactsAreStableAndWrappingIsExplicit() throws {
         let repoID = UUIDv7.generate()

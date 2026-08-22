@@ -203,6 +203,64 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(repoExplorerView.contains("RepoExplorerVisibleRowsBridge("))
     }
 
+    @Test("hosted row cells keep one root and fence reuse without command or ambient state")
+    func hostedRowCellsArePersistentBoundedAndCommandNeutral() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let featureRoot = projectRoot.appending(
+            path: "Sources/AgentStudio/Features/RepoExplorer"
+        )
+        let cell = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerTableRowCell.swift"),
+            encoding: .utf8
+        )
+        let renderer = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerMaterializedRowView.swift"),
+            encoding: .utf8
+        )
+        let table = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerTableMaterializer.swift"),
+            encoding: .utf8
+        )
+        let repoExplorerView = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+        let hostedSources = cell + renderer
+
+        #expect(cell.components(separatedBy: "NSHostingView(").count == 2)
+        #expect(cell.contains(".id(binding.identity.rowID)"))
+        #expect(cell.contains("guard currentBindingIdentity == identity"))
+        #expect(!cell.contains("rootView ="))
+        #expect(table.contains("tableView.makeView("))
+        #expect(table.contains("rebindRepresentedCells()"))
+        #expect(!table.contains("snapshot.rows.map"))
+        #expect(!repoExplorerView.contains("RepoExplorerPresentationHostView("))
+        for forbidden in [
+            "atom(",
+            "RepoCache",
+            "RepoExplorerProjectionAdapter",
+            "RepoExplorerView",
+            "AppCommand",
+            "AppCommandDispatcher",
+            "commandPresentation",
+        ] {
+            #expect(!hostedSources.contains(forbidden))
+        }
+        for presentationCase in [
+            ".sectionHeader",
+            ".loadingSectionHeader",
+            ".loadingRepository",
+            ".groupHeader",
+            ".worktree",
+            ".associatedPane",
+            ".unassociatedPane",
+            ".topologyFault",
+            ".unresolved",
+        ] {
+            #expect(renderer.contains("case \(presentationCase)"))
+        }
+    }
+
     @Test("RepoExplorerView renders from row index instead of walking groups per row")
     func repoExplorerViewRendersFromRowIndex() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

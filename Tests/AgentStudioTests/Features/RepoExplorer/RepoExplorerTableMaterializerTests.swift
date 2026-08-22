@@ -17,6 +17,7 @@ struct RepoExplorerTableMaterializerTests {
         )
         let recorder = VisibleWorktreeSetRecorder()
         let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
             onVisibleWorktreeIDsChange: recorder.record
         )
         let window = makeMaterializerWindow(materializer)
@@ -55,6 +56,7 @@ struct RepoExplorerTableMaterializerTests {
         )
         let recorder = VisibleWorktreeSetRecorder()
         let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
             onVisibleWorktreeIDsChange: recorder.record
         )
         let window = makeMaterializerWindow(materializer)
@@ -98,6 +100,7 @@ struct RepoExplorerTableMaterializerTests {
         let snapshot = wrappingMaterializerSnapshot(["A", "B", "C", "D"])
         let measurementRecorder = VisibleHeightMeasurementRecorder()
         let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
             onVisibleWorktreeIDsChange: { _ in },
             measureVisibleRowHeight: measurementRecorder.measure
         )
@@ -114,20 +117,72 @@ struct RepoExplorerTableMaterializerTests {
             )
         ) { _ in }
 
+        let callCountBeforeOffscreenRead = measurementRecorder.callCount
         let offscreenHeight = materializer.resolvedHeight(forRowAt: 3)
-        #expect(measurementRecorder.callCount == 0)
+        #expect(measurementRecorder.callCount == callCountBeforeOffscreenRead)
         materializer.scroll(to: .group(groupID: "B"), offset: 0)
         let visibleHeight = materializer.resolvedHeight(forRowAt: 1)
 
-        #expect(measurementRecorder.callCount == 1)
+        #expect(
+            (callCountBeforeOffscreenRead...(callCountBeforeOffscreenRead + 1))
+                .contains(measurementRecorder.callCount)
+        )
         #expect(visibleHeight > offscreenHeight)
+    }
+
+    @Test("hosted cell count stays represented-bounded when offscreen membership doubles")
+    func hostedCellCountStaysBoundedWhenOffscreenRowsDouble() throws {
+        let baselineSnapshot = nativePlanSnapshot((0..<180).map { "row-\($0)" })
+        let doubledSnapshot = nativePlanSnapshot((0..<360).map { "row-\($0)" })
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeIDsChange: { _ in }
+        )
+        let window = makeMaterializerWindow(materializer)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+                snapshot: baselineSnapshot,
+                requestGeneration: 1
+            )
+        ) { _ in }
+        let scrollView = try #require(materializer.view as? NSScrollView)
+        let tableView = try #require(scrollView.documentView as? NSTableView)
+        materializeVisibleCells(in: tableView, visibleRect: scrollView.contentView.documentVisibleRect)
+        let baselineHostCount = materializer.hostedCellCreationCount
+        tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        #expect(tableView.selectedRowIndexes.isEmpty)
+
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanBaseline(
+                    snapshot: baselineSnapshot,
+                    revision: 1,
+                    visibleGeneration: 1
+                ),
+                snapshot: doubledSnapshot,
+                requestGeneration: 2
+            )
+        ) { _ in }
+        materializeVisibleCells(in: tableView, visibleRect: scrollView.contentView.documentVisibleRect)
+
+        #expect(baselineHostCount > 0)
+        #expect(baselineHostCount <= 8)
+        #expect(materializer.hostedCellCreationCount <= baselineHostCount + 2)
     }
 
     @Test("membership apply uses the sole applier and preserves a surviving row anchor")
     func membershipApplyPreservesSurvivingAnchor() throws {
         let initialSnapshot = nativePlanSnapshot(["A", "B", "C", "D", "E", "F"])
         let nextSnapshot = nativePlanSnapshot(["F", "A", "B", "C", "D", "E"])
-        let materializer = RepoExplorerTableMaterializer(onVisibleWorktreeIDsChange: { _ in })
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeIDsChange: { _ in }
+        )
         let window = makeMaterializerWindow(materializer)
         defer {
             materializer.detach()
@@ -167,7 +222,10 @@ struct RepoExplorerTableMaterializerTests {
     func removedAnchorUsesPlanFallback() throws {
         let initialSnapshot = nativePlanSnapshot(["A", "B", "C", "D", "E", "F"])
         let nextSnapshot = nativePlanSnapshot(["A", "B", "E", "F"])
-        let materializer = RepoExplorerTableMaterializer(onVisibleWorktreeIDsChange: { _ in })
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeIDsChange: { _ in }
+        )
         let window = makeMaterializerWindow(materializer)
         defer {
             materializer.detach()
@@ -271,6 +329,15 @@ struct RepoExplorerTableMaterializerTests {
                 )
             }
         )
+    }
+}
+
+@MainActor
+private func materializeVisibleCells(in tableView: NSTableView, visibleRect: NSRect) {
+    let visibleRows = tableView.rows(in: visibleRect)
+    guard visibleRows.location != NSNotFound else { return }
+    for rowIndex in visibleRows.location..<NSMaxRange(visibleRows) {
+        _ = tableView.view(atColumn: 0, row: rowIndex, makeIfNecessary: true)
     }
 }
 

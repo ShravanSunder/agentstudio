@@ -14,6 +14,7 @@ struct RepoExplorerPresentationHostViewTests {
             rootView: AnyView(
                 RepoExplorerPresentationHostView(
                     projectionAdapter: adapter,
+                    octiconLoader: makeRepoExplorerTestOcticonLoader(),
                     onVisibleWorktreeIDsChange: { _ in }
                 )
                 .frame(width: 320, height: 180)
@@ -66,6 +67,7 @@ struct RepoExplorerPresentationHostViewTests {
             rootView: AnyView(
                 RepoExplorerPresentationHostView(
                     projectionAdapter: adapter,
+                    octiconLoader: makeRepoExplorerTestOcticonLoader(),
                     onVisibleWorktreeIDsChange: { _ in }
                 )
                 .frame(width: 320, height: 180)

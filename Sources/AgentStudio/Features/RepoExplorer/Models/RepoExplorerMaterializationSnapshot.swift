@@ -5,6 +5,7 @@ import Foundation
 
 struct RepoExplorerMaterializedGroupHeaderPresentation: Equatable, Sendable {
     let groupID: String
+    let icon: AppEntityIcon
     let title: String
     let organizationName: String?
     let colorHex: String?
@@ -301,6 +302,7 @@ extension RepoExplorerMaterializationSnapshot {
             return .groupHeader(
                 RepoExplorerMaterializedGroupHeaderPresentation(
                     groupID: group.id,
+                    icon: inputs.snapshot.groupingMode == .tab ? .tabGroup : .repo,
                     title: group.repoTitle,
                     organizationName: group.organizationName,
                     colorHex: RepoPresentationColoring.sourceGroupColorHex(for: group),

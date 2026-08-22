@@ -160,6 +160,7 @@ private func makeContentPresentation(
     let presentation = RepoExplorerMaterializedRowPresentation.groupHeader(
         RepoExplorerMaterializedGroupHeaderPresentation(
             groupID: groupID,
+            icon: .repo,
             title: groupID,
             organizationName: nil,
             colorHex: nil,
