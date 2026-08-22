@@ -16,27 +16,40 @@ Ghostty callback
 RepositoryTopologyAtom -- materialized keys --------+ 
 RepoCacheAtom ---------- keyed Git/PR facts --------+--> RepoExplorerProjectionAdapter
 workspace focus/recency - keyed demanded facts -----+      demand + invalidation owner
+                                                            semantic baseline owner +
+                                                            acknowledged-native-baseline broker
                                                             |
-                                                            | admitted immutable full/delta request
+                                                            | admitted latest full/delta intent
                                                             v
                                                    EagerDerivedAtomFamily
-                                                   one active + one latest pending
+                                                   one active/awaiting-settlement +
+                                                   one latest pending intent
                                                             |
+                                                            | adapter envelopes intent with
+                                                            | lifetime + demand epoch +
+                                                            | acknowledged native baseline
                                                             v
                                                    RepoExplorerProjectionWorker
-                                                   off-main full/delta projection
+                                                   off-main semantic result +
+                                                   R→R or proposed R→R+1 native plan
                                                             |
                                                             v
                                                    complete rendered equality
-                                                   generation/currentness validation
+                                                   lifetime/epoch/generation/baseline validation
                                                             |
                                                             v
                                                    one compact MainActor read-model binding
                                                             |
                                                             v
-                                                   RepoExplorerTableMaterializer
-                                                   native visible-row reuse +
-                                                   viewport-scoped demand
+                                                   RepoExplorerMaterializationHost
+                                                   persistent empty/content acceptance authority
+                                                   + table child + viewport demand
+                                                            |
+                                                            | accepted-baseline acknowledgment
+                                                            v
+                                                   RepoExplorerProjectionAdapter
+                                                   caches R or R+1; settles Eager barrier;
+                                                   next pending intent is re-enveloped
 
 App RepoExplorerCommandPresentationBatch
   -> visible-worktree generation + favorite/capability/request projection
@@ -63,6 +76,7 @@ The system is legacy-ownership-bound, not greenfield:
 - [`RepoExplorerVisibleRowsBridge`](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+VisibleRows.swift) discovers SwiftUI's backing `NSTableView` after materialization and reports its visible row range. It cannot prevent the earlier whole-list identity/diff/layout/focus work and makes viewport demand depend on an implementation detail it does not own.
 - [`RepoExplorerListEntry.id`](../../../Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerListEntry.swift) constructs interpolated strings on repeated framework reads instead of carrying a stored typed identity produced off-main.
 - `RepoExplorerProjectionAdapter` and `EagerDerivedAtomFamily` now own materialized projection state with one-active/one-pending execution; the remaining dominant cost is downstream UI materialization, not the projection worker.
+- Current source has three non-interchangeable clocks. Request `generation` is admission/currentness identity; adapter `publishedRevision` advances after a changed projection publication; native materialization revision can advance only after a future AppKit transaction succeeds. Full work currently carries no baseline, delta promotion collapses to bare full work, equal completion advances the adapter's semantic baseline without advancing `publishedRevision`, and Eager starts pending work immediately after projection settlement. Therefore neither request generation nor `publishedRevision` can truthfully identify the table's accepted old state.
 - `TerminalLocalActionAccumulator` and `TerminalActivityProjector` already own bounded raw-signal contraction; `PaneActivityStatusAtom` is the keyed MainActor read owner but discards changed values inside its interval.
 - `ForgeActor` already owns demand, freshness, backoff, origin/generation validation, one active provider task, and one pending follow-up. `v0.0.90` exposes its loading edges as separate events and mutates success/publication baselines before final scope validation.
 - `RepositoryTopologyAtom` already owns stable-key indexes, but `RepoPresentationItem.init(repo:)` recomputes path-derived keys during hot capture.
@@ -86,31 +100,39 @@ The crux is where a source change becomes a consumer-relevant semantic invalidat
 | Feature-owned view-based `NSTableView` | Consume immutable rows through a direct table data source, reuse hosted visible cells, apply precomputed update scope, and own the exact visible range | Removes generic outline diffing while preserving native scrolling, focus, accessibility, row reuse, and exact viewport demand | Larger feature-local AppKit boundary and cell lifecycle to maintain | Selected for UI materialization |
 | New generic derived-state scheduler | Central admission/deadline/control service | Uniform mechanics | New authority/control plane, broad migration, and scope beyond the confirmed goal | Rejected |
 
-The selected direction spends complexity in two feature-owned boundaries: the existing projection adapter bears key-observation/capture policy, and the table materializer bears visible-row lifecycle and native presentation. Domain owners continue to bear semantic equality and currentness. No generic UI framework is introduced. Revisit `LazyVStack` only if the direct table cannot preserve measured action performance or existing SwiftUI row composition without excessive hosting churn; revisit a broader scheduler only if at least three unrelated consumers require the identical invalidation/deadline semantics and the local owners cannot share the existing primitives without duplicating policy.
+The selected direction spends complexity in the existing adapter and one persistent host with a conditional table child. Domain owners retain semantic currentness; no generic UI framework is introduced. Revisit `LazyVStack` only if this host misses performance/row composition, and a broader scheduler only if three unrelated consumers require identical policy.
 
 ## Components, Ownership, And Interfaces
 
 ```text
 Repo Explorer feature
   RepoExplorerProjectionAdapter
-    owns: demand, keyed invalidation, capture admission, current publication
-    consumed by: RepoExplorerView
-    changes when: source-to-projection admission/currentness policy changes
+    owns: lifetime/demand epoch, keyed invalidation, semantic baseline, current publication,
+          acknowledged materialization-baseline brokerage
+    consumed by: Eager execution lane, RepoExplorerView, table acknowledgment
+    changes when: source admission, currentness, or baseline-broker policy changes
 
   RepoExplorerProjectionWorker
-    owns: off-main grouping, row content, stored row identity/index, native update plan
-    consumed by: adapter and table materializer through immutable result
-    changes when: derived sidebar meaning or off-main update planning changes
+    owns: off-main grouping, row content, stored row identity/index, plan derivation
+    consumed by: adapter and materialization host through immutable result
+    changes when: derived sidebar meaning or off-main plan derivation changes;
+                  never owns acceptance or increments accepted revision
 
   RepoExplorerView
-    owns: SwiftUI shell composition, filter/toolbar, empty/content selection
+    owns: SwiftUI shell composition and filter/toolbar wiring
     consumed by: SidebarSurfaceHost
     changes when: product composition or interaction wiring changes
 
+  RepoExplorerMaterializationHost
+    owns: persistent materialization lifetime, accepted empty/content snapshot,
+          visible generation/readiness, acceptance acknowledgment
+    consumed by: RepoExplorerView, adapter acknowledgment
+    changes when: presentation acceptance or demanded-host lifecycle changes
+
   RepoExplorerTableMaterializer
-    owns: native table membership application, visible cell reuse, viewport demand
-    consumed by: RepoExplorerView and visible-worktree demand callback
-    changes when: native materialization, scrolling, focus, or viewport policy changes
+    owns: non-empty child transaction, visible cells, scrolling, viewport demand
+    consumed by: persistent materialization host
+    changes when: row transaction, scrolling, focus, or viewport policy changes
 
   RepoExplorerTableRowCell
     owns: one reusable native cell and persistent SwiftUI row-content slot
@@ -120,11 +142,11 @@ Repo Explorer feature
 App composition
   RepoExplorerCommandPresentationBatch
     owns: visible-worktree capability/favorite/request projection and generation
-    consumed by: Repo Explorer toolbar and table materializer through an injected value
+    consumed by: Repo Explorer toolbar and content-table child through an injected value
     changes when: App-owned command-presentation composition changes
 ```
 
-Projection truth remains in the adapter/worker result. Native rows are consumers, not a second model. The component split exists because projection policy, shell composition, native viewport lifecycle, and reusable row hosting have different reasons to change and different proof boundaries.
+Semantic projection truth remains in the adapter's latest current worker result. Visible accepted-presentation truth belongs to the persistent host's acknowledged empty-or-content baseline; it is not inferred from semantic publication. The table and cells are conditional consumers of that baseline, not another acceptance owner.
 
 ### RepoExplorerProjectionAdapter — demand, invalidation, and binding owner
 
@@ -132,19 +154,27 @@ Projection truth remains in the adapter/worker result. Native rows are consumers
 
 It owns:
 
+- one adapter lifetime identity and the registered materialization-host lifetime identity;
+- the current demand epoch, advanced on every demand loss/reentry boundary;
 - current surface demand and grouping mode;
 - observation generation and exact observed repository/worktree/pane/tab keys;
 - one bounded `RepoExplorerPendingInvalidation` accumulator;
 - earliest demanded recency deadline;
 - capture admission and current request generation;
-- final validated materialized result.
+- the latest current semantic delta baseline, including equal completions;
+- the last host-acknowledged immutable presentation baseline;
+- final validated observable result and the host-settlement barrier.
 
 It exposes:
 
 ```text
 start(demandSource, factSources)
-updateDemand(surface, grouping, renderedKeys)
+registerMaterializationHost(lifetime, explicitEmptyBaseline | retainedBaseline)
+updateDemand(surface, grouping, renderedKeys, hostLifetime)
 invalidate(scope, cause)
+hostDidAccept(candidateIdentity, acceptedBaseline)
+hostDidReject(candidateIdentity, reason)
+hostDidDetach(lifetime)
 stop()
 publishedResult
 ```
@@ -168,66 +198,76 @@ Membership is the bootstrap authority; rendered keys refine an already establish
 | Bridge attendance/capability facts | observe only the exact repository/worktree command-presentation keys declared by the rendered row/menu model | observe exact pane-row keys when rendered | observe exact pane-row keys when rendered | affected command/row key; never implicit full capture |
 | grouping, sort, search, collapsed-group inputs | observe | observe | observe | grouping/membership full, or presentation-only delta when structure is unchanged |
 
-On first mount, hidden-to-visible transition, grouping change, or materialized-baseline loss, the adapter reads topology membership IDs and performs one demanded full capture. After publication it registers exact rendered repository/worktree/pane/tab keys for that grouping. While hidden it unregisters every hot fact observer and cancels the recency deadline; a later visible transition always bootstraps from current membership rather than trusting cached rendered keys.
+On first mount, hidden-to-visible transition, grouping change, or baseline loss, the adapter admits one demanded full intent. Demand loss advances epoch, revokes active/awaiting work, discards pending intent, unregisters hot facts, and cancels the recency deadline. A surviving host retains and re-acknowledges its accepted empty/content snapshot under the new epoch; a replacement host registers a new lifetime and explicit rowless R0. Rendered keys refine demand only after this bootstrap.
 
 ### RepoExplorerPendingInvalidation — bounded consumer scope
 
-This is a feature-private value, not a generic framework or state service:
-
-```text
-none
-affected repositories: Set<RepoID>
-affected worktrees: Set<WorktreeID>
-affected panes: Set<PaneID>
-affected tabs: Set<TabID>
-membership/full
-```
-
-Unions preserve required scope. Membership/full subsumes narrower keys. The sets are bounded by current demanded topology; loss of demand clears irrelevant keys. Cause is a bounded diagnostic enum and does not affect equality or authority.
+This feature-private value is either empty, affected repository/worktree/pane/tab ID sets, or membership/full; it is not a generic framework or state service. Unions preserve required scope, membership/full subsumes narrower keys, sets are bounded by current demanded topology, and loss of demand clears irrelevant keys. Its bounded diagnostic cause does not affect equality or authority.
 
 ### RepoExplorer capture — full and delta values
 
-The adapter captures one of two immutable `Sendable` values:
+The adapter captures pure `RepoExplorerProjectionIntent` data: latest complete semantic request/facts, latest intent identity, affected scope, and a promotion class of full or scoped delta with structural-target key. It contains no baseline or effectful closure. Two compatible scoped intents with the same structural target union scope and keep latest facts; any incompatible target/promotion becomes the latest full intent. Baseline compatibility is decided only during execution preparation.
 
-- `RepoExplorerFullProjectionRequest` for grouping/query/sort/membership changes;
-- `RepoExplorerProjectionDelta` for changed repository, worktree, pane, tab, loading, focus, or recency keys.
-
-The executable work value is closed and self-contained:
+Eager owns one active/awaiting-settlement intent and one latest pending intent. Immediately before an intent starts execution, the adapter encloses it in a closed immutable `RepoExplorerProjectionWork`:
 
 ```text
 RepoExplorerProjectionWork
-  full(targetGeneration, completeCapture)
+  common:
+    adapterLifetime
+    materializationHostLifetime
+    demandEpoch
+    requestGeneration
+    acceptedMaterializationBaseline(
+      hostLifetime, demandEpoch, revision, presentationKind,
+      rowCount, membershipFingerprint, immutablePresentationSnapshot
+    )
+    proposedChangedRevision = acceptedMaterializationBaseline.revision + 1
+
+  full(common, completeCapture)
+
   delta(
-    baselineRevision,
-    immutableBaselineResult,
-    targetGeneration,
+    common,
+    semanticBaseline(sequence, immutableProjectionResult),
     latestFactsByAffectedKey,
     affectedScope
   )
 ```
 
-The baseline is the adapter's last published immutable result and revision captured on MainActor. The worker reads no mutable UI state. Delta merge is owned by `RepoExplorerProjectionAdapter`: equal baseline revisions union affected scope and retain the newest fact per key; a structural invalidation, different baseline, removal that changes membership, or unsupported combination promotes the pending work to a demanded full capture. Worker completion returns one complete result derived from that baseline. Publication requires both the baseline revision and target generation to remain current; mismatch records `stale_baseline` and re-arms one full invalidation.
+The native and semantic baselines are deliberately different. `RepoExplorerMaterializationHost` is authoritative for accepted empty/content presentation because it alone spans every visible state and knows its child update completed. The adapter caches its immutable acknowledgment and separately owns the latest current semantic result; every validated completion, including rendered-equal work, advances semantic sequence without necessarily consuming native revision.
+
+The worker reads no mutable UI state. Pending delta merge is valid only when adapter/host lifetime, demand epoch, acknowledged baseline identity, and semantic baseline sequence/result match; it unions scope and retains latest facts. Structural invalidation, mismatch, removal, or unsupported combination promotes to full while retaining the acknowledgment; promotion never becomes a bare request.
+
+Worker completion returns a complete semantic result and presentation candidate. Publication validates adapter/host lifetime, epoch, generation, baseline revision/count/fingerprint, and delta semantic sequence. Mismatch cannot become Eager equality/value state and re-arms one full intent from the current acknowledgment.
 
 Full capture reads only current demanded keys. Delta capture reads only accumulated affected keys. Both consume already-materialized stable keys and domain facts. Neither invokes `StableKey.fromPath`, filesystem APIs, Git, SQLite, process, or network work.
 
 `RepositoryTopologyAtom` remains the stable-identity read owner, but it never produces identity by touching a path. Topology admission carries explicit immutable repository/worktree stable-key facts alongside the admitted models. Persistence hydration supplies the existing stored stable keys; filesystem/runtime discovery canonicalizes and hashes paths before crossing to MainActor. `RepositoryTopologyReplacement` validates the supplied identity maps against model IDs, and the atom stores both `stable key -> ID` and `ID -> stable key` indexes from those facts. `RepoPresentationItem` receives the stored value explicitly. No persistence schema changes, and `StableKey.fromPath` is forbidden in hot capture and MainActor topology-index rebuild.
 
-### EagerDerivedAtom and EagerDerivedAtomFamily — execution owner
+### EagerDerivedAtom and EagerDerivedAtomFamily — one closed shared interface
 
-Each materialized key owns exactly:
+The current concrete-`Request`, commit-before-callback API is replaced by one generic behavioral shape:
 
 ```text
-current value
-active request/task?       at most one
-latest pending request?    at most one
-revision / readiness / revocation epoch
+EagerDerivedAtom<Intent, IntentIdentity, Work, Candidate, Value>
+  admit(Intent)
+  prepare(Intent, revocationEpoch) -> prepared(Work) | rejected(outcome)
+  project(Work) off-main -> Candidate
+  classify(Candidate, current Value?) ->
+    equalCurrent(Value) | changedAwaitingOwner(Value) |
+    immediateAccepted(Value) | rejected(revoked | stale | failed)
+  onAwaitingOwner(candidateToken, Candidate, proposed Value)
+  settle(candidateToken, accepted(Value) | rejected(outcome))
 ```
 
-Admission while idle starts execution. Admission while active replaces the pending request after merging any owner-required scope; it does not start another task. Cancellation requests cooperative stop, but the pending successor begins only after predecessor termination is observed. Completion validates request identity and revocation epoch, then yields `published`, `equal`, `failed`, `cancelled`, or `superseded`; afterward it starts the latest pending request if still demanded.
+`admit` assigns identity/generation and stores or purely combines only the latest pending `Intent`. When the lane may start, the owner-provided MainActor `prepare` converts that intent to immutable `Sendable Work` from then-current baselines; rejection is terminal for that attempt and starts no task. `project` returns `Candidate` without mutating value, latest-accepted value, readiness, equality, or revision. Configured behavior functions live once on the primitive; Intent/Work/Candidate store no effectful closures.
 
-Each admission increments a per-key accepted generation immediately. Active work retains the generation it began with. Accepting any newer pending request therefore revokes active publication even while cooperative cancellation is still settling: the older completion is always `superseded` and cannot bind. `EagerDerivedAtom` receives an owner-supplied pending-request combiner. Repo Explorer's combiner delegates to the adapter's baseline/scope rule above; Tab Bar requests are complete snapshots and use latest complete replacement with no scope union. The combiner cannot inspect mutable owner state or perform effects.
+After validation, equal commits latest-accepted/current readiness without revision; immediate acceptance commits changed value/current readiness/revision. Awaiting-owner mints one opaque token, stores Candidate/proposed Value, invokes the configured owner callback, and stays unsettled. `settle` accepts only that token: acceptance commits proposed state; rejection retains stored value but leaves admitted identity invalidated/not-ready, then prepares pending Intent or reports terminal outcome. Late/duplicate tokens are controlled no-ops.
 
-This hard-cuts the prior overlap semantics for both Repo Explorer and Tab Bar. Tab Bar retains its per-tab keys and changed-only collection publication; its existing semantics require explicit regression proof because it shares the primitive.
+Demand revocation advances epoch, cancels active work, rejects awaiting settlement, discards pending intent, and retains last committed value as declared by the owner. Family removal does the same and removes readiness/slot authority while retaining an in-flight task only for drainage; `stop` is terminal for every slot. Eager remains the sole active/pending owner—never the adapter, a stored closure, or a second scheduler.
+
+Repo Explorer maps `Intent` to the pure schema above; `prepare` adds current semantic/native baselines and promotes incompatible scoped intent to full. Its classifier returns equal-current, changed-awaiting-owner, or rejected. Newer intent before host apply revokes the candidate; synchronous host apply cannot interleave on MainActor.
+
+Tab Bar maps the same interface to latest-complete Intent, preparation to its existing complete request, and projection Candidate to `TabBarProjection`. Equality returns `equalCurrent`; change returns `immediateAccepted`. Per-key readiness appears only after settlement, equal work preserves value/revision, the aggregate publishes only when every ordered tab is ready, changed aggregate publication remains suppressed when equal, and a partial tab list is never published.
 
 ### RepoExplorerProjectionWorker — off-main structural derivation
 
@@ -239,7 +279,10 @@ The worker also prepares the materialization input consumed after publication:
 
 ```text
 RepoExplorerMaterializationSnapshot
-  generation + revision + membership fingerprint
+  candidateIdentity(
+    adapterLifetime, hostLifetime, demandEpoch, requestGeneration,
+    acceptedBaselineRevision, proposedRevision
+  )
   rows: [RepoExplorerMaterializedRow]
     stored RepoExplorerRowID
     immutable row presentation
@@ -248,25 +291,34 @@ RepoExplorerMaterializationSnapshot
     optional represented worktree ID
   rowIndexByID
   rowIDsByWorktreeID + rowIDsByRepoID
+  presentation: empty(typed empty state) | content(rows)
   RepoExplorerNativeUpdatePlan
 ```
 
-`RepoExplorerRowID` is a stored typed identity assembled from existing section/group/repository/worktree/pane identities. It does not interpolate UUID strings during MainActor or framework identity reads. The worker computes row identities, ordering, stable layout classes, fixed metric inputs, row-index maps, repo/worktree occurrence indexes, content revisions, and the complete native update plan off-main. MainActor does not compare, hash, sort, or diff the row fleet. Width-dependent text measurement is deliberately excluded from the worker and is bounded to represented visible rows by the table owner below.
+`RepoExplorerRowID` is a stored typed identity assembled from existing section/group/repository/worktree/pane identities. It includes a typed unresolved/topology-fault identity; the existing adapter comparator's `unresolved(String)` mechanically becomes `unresolved(RepoExplorerRowID)` rather than converting the new identity back to an interpolated string. The worker computes row identities, ordering, stable layout classes, fixed metric inputs, row-index maps, repo/worktree occurrence indexes, content revisions, and the complete native update plan off-main. MainActor does not compare, hash, sort, or diff the row fleet. Width-dependent text measurement is deliberately excluded from the worker and is bounded to represented visible rows by the table owner below.
+
+Typed identity and fleet-work removal become one complete architecture boundary only at the hard UI cutover. An intermediate typed-ID contract may compile while the old SwiftUI `List` and its MainActor previous/next ID arrays still exist, but that slice is not green for S14 or the performance objective. The cutover removes those fleet arrays with the old container; the typed-ID slice must not claim the MainActor prohibition early, and the final slice must not leave the arrays for later cleanup.
 
 ### RepoExplorerNativeUpdatePlan — exact native transaction
 
 The worker emits one closed discriminated value; the planner does not choose diff or index semantics:
 
 ```text
-equal(oldRevision == newRevision, count, membershipFingerprint)
+equal(
+  lifetime, demandEpoch, requestGeneration,
+  oldRevision R, newRevision R, count, membershipFingerprint
+)
 
 content(
-  oldRevision, newRevision, unchangedCount, membershipFingerprint,
+  lifetime, demandEpoch, requestGeneration,
+  oldRevision R, proposedRevision R+1,
+  unchangedCount, membershipFingerprint,
   reloadRowsInNewSpace, heightReloadRowsInNewSpace
 )
 
 membership(
-  oldRevision, newRevision, oldCount, newCount,
+  lifetime, demandEpoch, requestGeneration,
+  oldRevision R, proposedRevision R+1, oldCount, newCount,
   oldMembershipFingerprint, newMembershipFingerprint,
   removeRowsInOldSpace,
   insertRowsInNewSpace,
@@ -274,23 +326,39 @@ membership(
   reloadRowsInNewSpace,
   heightReloadRowsInNewSpace
 )
+
+presentation(
+  emptyToContent(tablePlan) | contentToEmpty(typedEmpty) |
+  changedEmptyToEmpty(typedEmpty)
+)
 ```
 
-The plan's private off-main constructor validates bounds, unique row IDs, disjoint remove/insert/move participation, move identity, and that applying the simultaneous old-space removals, new-space insertions, and old-to-new survivor moves produces the exact new ordered membership and fingerprint. Reload and height-reload indexes always address the final new snapshot. The value is immutable and cannot be constructed without that validation.
+The plan's private off-main constructor validates bounds, unique row IDs, disjoint remove/insert/move participation, move identity, and that applying the simultaneous old-space removals, new-space insertions, and old-to-new survivor moves to the exact acknowledged immutable baseline produces the candidate rows and fingerprint. Reload and height-reload indexes always address the final candidate snapshot. The value is immutable and cannot be constructed without that validation. The worker emits `.equal R→R` or `.changed R→R+1`; `R+1` is only a proposed acceptance. Superseded candidates may propose the same numeric `R+1`; the worker never increments or owns accepted revision.
 
-MainActor preflight is O(1): the plan's old revision/count/fingerprint must equal the accepted snapshot, its new revision/count/fingerprint must equal the candidate snapshot, and its generation must still be current. A stale generation or superseded revision is rejected before AppKit and requests one current replacement plan. A structurally malformed current plan is an internal invariant failure and terminates before entering AppKit; it is not converted into a broad reload.
+MainActor preflight is O(1): adapter/host lifetime, epoch, generation, and old revision/count/fingerprint must equal the host baseline; proposed identity must equal the candidate. Stale input is rejected before child update, while malformed current plans fail invariant precondition rather than broad reload.
 
-For `content`, the candidate snapshot becomes the data-source snapshot, represented visible rows in `reloadRowsInNewSpace` are reloaded, represented visible wrapping rows in `heightReloadRowsInNewSpace` are height-invalidated, and the candidate becomes accepted only after both calls return. For `membership`, the host captures scroll/focus/accessibility anchors, exposes the candidate snapshot to the data source, then performs one `beginUpdates`/`endUpdates` transaction: remove the old-space index set, insert the new-space index set, and issue the prevalidated old-to-new moves in ascending destination-index order; after `endUpdates`, it applies final-new-space content and height reloads, restores anchors by row ID, and only then advances the accepted revision/generation and viewport publication. Interaction and viewport callbacks are generation-gated while the candidate is in flight.
+For `equal`, no host child or acknowledgment advances revision. Changed content delegates represented reload/height work to the table; changed membership delegates the exact anchored transaction. After the child succeeds, the host replaces accepted presentation, publishes visible generation, and acknowledges R+1. Callbacks remain lifetime/epoch/generation-gated.
 
 No ordinary update calls broad `reloadData`. Initial empty-to-current installation may use the same insertion transaction only after a cell-free pilot proves the API boundary. Objective-C/AppKit consistency exceptions are fatal process conditions, not recoverable Swift returns; correctness is provided by the off-main plan constructor, O(1) preflight, deterministic transaction proof, and the pilot. Before hosted cells or command integration depend on this boundary, the pilot runs the real 150/180/12/36 membership plans with a fixed visible-row count and then doubles offscreen rows. It falsifies the table design if app-owned fleet iteration appears, native membership MainActor p95 exceeds the `AppPolicies` four-millisecond bound, or p95 grows by more than twenty percent when only offscreen membership doubles. A falsifier returns to Program Design rather than permitting `reloadData` or a MainActor diff.
 
-### RepoExplorerTableMaterializer — native visible-row and viewport owner
+### RepoExplorerMaterializationHost — total empty/content acceptance
 
-The materializer replaces the SwiftUI `List`/`ForEach` container and the table-discovery bridge with one feature-owned view-based `NSTableView` boundary hosted by `RepoExplorerView`.
+`RepoExplorerView` mounts one feature-owned host for every demanded Repo Explorer state. Its lifetime and accepted immutable snapshot persist across initial empty, populated content, no-results, no-repositories, loading/empty variants, and transitions among them. The native table is only its non-empty child; a typed rowless shell child renders empty presentation with explicit generation/readiness.
 
 It owns:
 
-- the current immutable `RepoExplorerMaterializationSnapshot` reference;
+- one host lifetime identity and the immutable accepted presentation baseline;
+- at most one candidate snapshot while its synchronous native transaction runs;
+- one rowless empty-shell or non-empty table child;
+- visible generation/readiness for both child kinds;
+- synchronous accepted/rejected acknowledgment to the adapter.
+
+On creation the host installs and acknowledges explicit rowless R0 before first work starts. Empty equal R→R makes no child or revision change. Changed empty→empty updates the typed empty child and acknowledges R+1 after layout/accessibility readiness. Empty→content installs the table child and applies the insertion plan before acknowledging; content→empty installs the rowless child, clears viewport demand, disposes table cells only after anchor/focus disposition, then acknowledges. Content→content delegates its row plan to the table child. No empty state accepts through SwiftUI conditionals or a second owner.
+
+### RepoExplorerTableMaterializer — non-empty child
+
+The table replaces SwiftUI `List`/`ForEach` and backing-table discovery only for content presentation. It owns:
+
 - native table data source/delegate lifecycle and one sidebar-styled column;
 - visible-cell creation, reuse, stable/fixed row geometry, visible wrapping-row measurement, and content-slot binding;
 - application of replacement-membership or affected-row update scope;
@@ -305,11 +373,12 @@ Behavioral interface:
 
 ```text
 apply(snapshot)
-  precondition: snapshot generation is the adapter's current published generation
+  precondition: candidate lifetime/epoch/generation and old baseline match
   membership: execute RepoExplorerNativeUpdatePlan.membership exactly
   content: execute RepoExplorerNativeUpdatePlan.content exactly
-  equal: no native table, layout, focus, accessibility, or viewport invalidation
-  stale generation: reject without changing cells or viewport demand
+  equal: no call and no native-baseline acknowledgment
+  accepted changed: return child-applied to host
+  stale/revoked: return rejected without changing table state or viewport
 
 visibleWorktreeIDs
   exact set represented by the table's current visible row range
@@ -357,6 +426,12 @@ The batch advances generation only after it has resolved the complete current re
 
 The table accepts a command delta only when its target materialization generation and visible revision match the accepted table/viewport and its command generation is newer than the last accepted command generation. Using the worker's `rowIDsByWorktreeID`, `rowIDsByRepoID`, and per-row request identities, it intersects the affected IDs with represented visible slots and rebinds only those occurrences. Favorite changes include both the former and current add/remove-favorite request identities; capability changes include the current worktree request set. Toolbar changes update the toolbar from the same complete snapshot independently of table visibility. A stale delta is rejected and causes the App batch to observe the current visible snapshot; it never rebinds old capabilities. Hidden/offscreen rows perform no update and resolve the latest accepted complete snapshot when reused. Presentation is advisory only: every enabled row or toolbar action re-enters `AppCommandDispatcher`, which performs current targeting and authority validation.
 
+### Materialization acknowledgment and viewport demand
+
+Acceptance feedback is a feature-private typed interface, not an atom, store, EventBus fact, notification, public state, or second scheduling plane. Its accepted case carries candidate identity plus the host-owned immutable empty/content baseline: host lifetime, demand epoch, revision, presentation kind, row count/fingerprint, and snapshot. Its rejected case carries bounded reason. The adapter accepts feedback only for its current lifetime/epoch and awaiting token; duplicates and late acknowledgments are controlled no-ops.
+
+For every invoked changed `apply`, the host delivers exactly one accepted or rejected disposition synchronously before returning. Missing/duplicate current disposition is an invariant failure. Before invocation, demand loss, supersession, host detach, or stop rejects the waiting candidate.
+
 ### RepoExplorerViewportDemand — bounded visible-set projection
 
 Viewport demand is part of the table materializer rather than a separate view that searches for SwiftUI's private backing table. It observes the owned scroll view's clip bounds, asks the owned table for its visible row range, maps only those bounded rows through the precomputed optional worktree IDs, and equality-publishes the resulting set.
@@ -365,15 +440,7 @@ Scroll callbacks are a burst of samples. One latest pending viewport calculation
 
 ### PaneActivityStatusAtom — keyed latest-state publication
 
-The atom remains the MainActor keyed read owner. Per pane it owns:
-
-```text
-unknown
-committed(value, publishedAt)
-committed(value, publishedAt) + pending(latestValue, eligibleAt)
-```
-
-Equal input is suppressed without consuming eligibility. A changed input that is eligible commits immediately. A changed ineligible input replaces the one pending value and schedules the earliest pending eligibility through one reschedulable task for the atom, using the injected clock/delay seam. At the deadline the latest pending value commits if still distinct. Clear removes committed and pending state for the pane and recomputes the next deadline.
+The atom remains the MainActor keyed read owner. Per pane it owns unknown, committed value/publication time, and optionally one latest pending value/eligibility. Equal input is suppressed without consuming eligibility. A changed eligible input commits immediately; a changed ineligible input replaces the pending value and one atom-wide reschedulable task targets the earliest deadline through the injected clock/delay seam. The deadline commits the latest still-distinct value; clear removes both states and recomputes that deadline.
 
 The atom reports `equal`, `published`, `deferred`, `replaced`, `deadline_fired`, and `cleared`; it never reports a distinct drop as equality.
 
@@ -394,29 +461,7 @@ Upstream Ghostty documents viewport-relative selection and labels text extractio
 
 ### ForgeActor and PullRequestRepositoryProjection — execution versus published state
 
-Forge keeps provider lifecycle private. Per repository it distinguishes:
-
-```text
-execution state: demand, origin, generation, active request, latest follow-up,
-                 freshness and backoff
-published projection: unknown | loading(previous facts) |
-                      ready(current facts) | unavailable(previous facts)
-```
-
-Provider start may change the published projection to `loading`; provider completion constructs a candidate projection but does not mutate successful freshness or last-published equality state until origin, generation, live membership, and publication scope validate.
-
-Stable and transient presentation state are explicit:
-
-```text
-PullRequestStablePresentation
-  unknown
-  ready(confirmedFacts)          // an empty fact set is confirmed empty
-  unavailable(previousConfirmedFacts?)
-
-PullRequestRepositoryProjection
-  stable(PullRequestStablePresentation)
-  loading(baseline: PullRequestStablePresentation, requestIdentity)
-```
+Forge keeps provider lifecycle private. Per repository, execution owns demand, origin, generation, active/latest-follow-up requests, freshness, and backoff. Published `PullRequestStablePresentation` is unknown, ready (including confirmed empty), or unavailable with prior confirmed facts; `loading` wraps that exact stable baseline plus request identity. Provider completion constructs a candidate but mutates no successful freshness or last-published equality state until origin, generation, live membership, and publication scope validate.
 
 Loading always wraps the exact stable baseline; unknown, confirmed empty, ready facts, and unavailable are never inferred from an empty collection.
 
@@ -455,8 +500,11 @@ Allowed:
 Terminal owners -> compact Core pane-status fact
 Core/App fact projections -> injected Repo Explorer read interfaces
 Repo Explorer adapter -> Core keyed reads and feature worker
-Repo Explorer worker -> immutable materialization snapshot and update scope
-RepoExplorerView -> feature-owned table materializer
+Repo Explorer adapter -> Eager pending intent + execution-time baseline envelope
+Repo Explorer worker -> immutable semantic/native candidate and update plan
+RepoExplorerView -> persistent materialization host for every demanded state
+materialization host -> rowless shell | non-empty table child
+materialization host -> feature-private accepted/rejected baseline acknowledgment -> adapter
 table materializer -> reusable row cell slots + visible-worktree demand callback
 table materializer -> typed visible-worktree generation snapshot -> App command-presentation batch
 App command-presentation batch -> injected generation-validated delta -> Feature table/toolbar
@@ -471,6 +519,11 @@ Forbidden:
 Terminal/Core/Forge -> Repo Explorer row formatting
 RepoExplorerView -> filesystem/Git/provider work or broad observation lifecycle
 MainActor/table host -> fleet diff, sort, identity construction, content comparison, or projection-owner reads
+worker -> accepted revision increment, visible acceptance, or mutable adapter/host state
+adapter -> assume projected/read-model-bound candidate is native accepted
+successor execution -> unacknowledged candidate baseline
+table/SwiftUI empty branch -> acceptance acknowledgment bypassing persistent host
+materialization acknowledgment -> atom/store/EventBus/public state/second scheduler
 reusable row cell -> atoms, topology/cache lookup, projection policy, or stale-row actions
 viewport demand -> private SwiftUI backing-view discovery, per-row geometry fleet scan, or uncoalesced bounds publication
 Feature table/cell -> App composition state or capability resolution
@@ -491,47 +544,45 @@ Architecture lint/tests enforce imports and forbidden hot-path calls. Behavioral
 
 | Current state | Input | Transition | Output |
 | --- | --- | --- | --- |
-| idle/current | admitted request | running(request) | execution started |
-| running generation A | newer request B | advance accepted generation; running A + pending B; request A cancellation | A publication revoked; retained pending count one |
-| running A + pending B | newer request C | merge/replace pending through owner combiner; advance accepted generation | one complete pending intent retained |
-| running A, no newer accepted generation | completion current/changed | idle/current(new) | published |
-| running A, no newer accepted generation | completion current/equal | idle/current(existing) | equal |
+| idle/current at acknowledged R | admitted intent A | adapter envelopes A from R; running(A,R) | execution started |
+| running A | newer intent B | advance request generation; running A + pending B; request A cancellation | A publication revoked; retained pending intent one |
+| running A + pending B | newer intent C | merge/replace pending intent through owner combiner | one complete latest intent retained; no work envelope frozen |
+| running A, still current | completion `.equal R→R` | advance semantic baseline; settle Eager | no read-model/native invalidation; pending re-enveloped from R |
+| running A, still current | completion `.changed R→R+1` | validate and bind read model; awaitingNative(A,R+1) | pending remains blocked |
+| awaitingNative(A,R+1) | host accepts | cache acknowledged R+1; settle Eager | pending re-enveloped from R+1 and may start |
+| awaitingNative(A,R+1) | rejection/revocation | keep acknowledged R; do not commit Eager candidate | one current full rearm from R |
+| awaitingNative(A,R+1) | newer intent B before `apply` | revoke A; retain/merge B; reject A against R | B becomes the one full rearm from R after A settles |
 | running A | completion after B/C accepted | current unchanged | superseded; cannot bind |
 | running | cancelled/superseded/failed | idle/current(existing) | exact terminal outcome |
-| any completion + pending demanded | terminal predecessor observed | running(pending) | successor starts |
-| any | stop/removal | revoked; cancel then drain | no later binding |
+| demanded lane | demand loss | advance demand epoch; revoke active/awaiting; discard pending | no late read-model/native acceptance |
+| any | stop/removal | retire adapter lifetime; revoke/cancel/drain | no later binding or acknowledgment |
 
 No two executions for one key overlap. Different keys may execute concurrently under their existing family bounds.
 
-### Native row materialization
+### Materialization host and native rows
 
 | Current state | Input | Transition | Output |
 | --- | --- | --- | --- |
-| no snapshot | valid initial membership plan | expose candidate; execute insertion transaction; restore anchors; accept after completion | read model bound; represented cells requested from current rows |
-| accepted revision R | valid content plan R→R+1 | expose candidate; reload final-space represented rows/heights; accept after completion | unaffected rows/cells retain identity; bounded visible update |
-| accepted revision R | valid membership plan R→R+1 | capture anchors; expose candidate; exact batch transaction; final-space reload; restore; accept | only AppKit-requested represented cells bind; viewport recomputed once |
-| generation G | equal snapshot | no state change | no table/layout/focus invalidation |
-| generation/revision mismatch | stale plan or command delta | reject and request current owner output | accepted cells, anchors, and viewport unchanged |
+| new host lifetime | install rowless shell; register/acknowledge empty R0 | visible empty R0 ready | first full intent may start from R0 |
+| empty R | equal empty plan R→R | no child/readiness/revision change | equal settles immediately |
+| empty R | changed empty→empty R+1 | update rowless shell; acknowledge when ready | R+1 accepted without table |
+| empty R | empty→content R+1 | install table; apply insertion plan; acknowledge | content R+1 ready |
+| content R | content→empty R+1 | install rowless shell; clear table/viewport; acknowledge | empty R+1 ready |
+| accepted revision R | valid content plan R→R+1 | expose candidate; reload final-space represented rows/heights; acknowledge after completion | R+1 accepted; unaffected rows/cells retain identity |
+| accepted revision R | valid membership plan R→R+1 | capture anchors; exact batch transaction; restore; acknowledge after completion | R+1 accepted; viewport recomputed once |
+| accepted revision R | equal plan R→R | no host state change or acknowledgment | no table/layout/focus invalidation |
+| lifetime/epoch/generation/revision mismatch | stale plan or command delta | reject candidate; keep R | accepted cells, anchors, and viewport unchanged |
 | any | bounds burst | replace one pending viewport calculation | one latest visible-worktree set per coalesced turn |
 | represented wrapping row + new width revision | measure that cell; height-reload its current index; restore scroll anchor | no offscreen/fleet measurement |
 | any | cell reuse | `prepareForReuse`; clear identity state; install fresh keyed subtree | no stale state, action, focus, or accessibility value |
-| any | hide/teardown | cancel pending viewport turn; clear visible demand; detach observers | cached projection remains outside the host |
+| surviving host | demand loss/hide | clear viewport, retain empty/content R, reject late candidate | reentry re-acknowledges R under new demand epoch |
+| teardown | detach host lifetime | clear child/candidate; adapter discards baseline | replacement host registers new lifetime + empty R0 |
 
-The immutable snapshot is the consistency boundary. Table membership, cells, and viewport demand always refer to one accepted generation. MainActor application is serialized; off-main work cannot mutate a live cell. Snapshot acceptance is the **read-model binding** boundary. The subsequent membership call, represented-cell slot changes, AppKit layout/focus/accessibility work, and viewport publication are the **visible UI update** boundary; their outcomes and durations are never reported as binding.
+Assignment to `publishedResult` is **read-model binding**. The host's prior baseline remains visible authority until empty-shell/table update, layout/focus/accessibility, viewport publication, and R+1 acknowledgment complete; those are **visible UI update** outcomes. MainActor serialization prevents child-state interleaving.
 
 ### Pane activity publication per pane
 
-| State | Input | Result |
-| --- | --- | --- |
-| unknown | non-empty value | commit now |
-| committed X | X | equal, no deadline change |
-| committed X, eligible | Y | commit Y |
-| committed X, ineligible | Y | pending Y at eligibility |
-| committed X + pending Y | Z | replace pending with Z, keep eligibility |
-| committed X + pending Y | deadline | commit Y if still distinct |
-| any | clear | remove committed/pending and reschedule global earliest deadline |
-
-This is a deferral gate: first demanded checkpoint equals the ungated latest sequence.
+The state chain is `unknown -> committed`; equal input stays committed, eligible change commits, ineligible change installs/replaces one latest pending value, its deadline commits if still distinct, and clear returns to unknown while recomputing the earliest deadline. This deferral gate equals the ungated latest sequence at the first demanded checkpoint.
 
 ### Forge completion order
 
@@ -579,13 +630,18 @@ source keyed fact change
 TARGET
 source keyed fact change
   -> [intentionally unchanged] RepoExplorerProjectionAdapter keyed admission
-  -> [intentionally unchanged] EagerDerivedAtom + worker full/delta projection
-  -> [changed] worker emits stored typed row IDs, occurrence indexes, layout classes,
-               and exact RepoExplorerNativeUpdatePlan
-  -> [changed] one MainActor immutable read-model snapshot binding
+  -> [changed] adapter creates latest full/delta intent under lifetime + demand epoch
+  -> [changed] Eager starts only after adapter envelopes intent with acknowledged native R
+  -> [changed] worker emits semantic candidate, typed rows/layout indexes,
+               and exact `.equal R→R` or `.changed R→R+1` plan
+  -> [changed] adapter validates lifetime/epoch/generation/native R/semantic baseline
+  -> [changed] equal advances semantic baseline only; changed binds read model
   -> [removed] generic SwiftUI List/OutlineListCoordinator fleet diff
-  -> [added] RepoExplorerTableMaterializer executes exact native transaction,
-              represented-row reload, visible-only height measurement, and anchor restore
+  -> [added] persistent host applies empty/content presentation;
+              content delegates exact row transaction to table child
+  -> [added] host acknowledges accepted immutable empty/content R+1 to adapter
+  -> [added] adapter caches R+1 and releases Eager settlement barrier
+  -> [changed] only now may pending intent be re-enveloped and start from R+1
   -> [added] reusable native cells host row-ID-reset SwiftUI content
   -> [changed] viewport publishes materialization generation + visible revision + worktrees
   -> [added] App command batch returns generation-validated affected presentation delta
@@ -646,20 +702,25 @@ Unchanged and preserved: demand projection, active/follow-up bound, provider bat
 
 ## Failure And Recovery
 
-- **Lost demand:** adapter removes hot observations and cancels/dequeues work after active termination; materialized rows/facts remain cached. Returning demand revalidates sources and captures current keys before display.
-- **Cancellation:** exact `cancelled` outcome; never equality. Pending latest starts only after predecessor termination. Stop/revocation prevents late binding.
+- **Lost demand:** adapter advances demand epoch, removes hot observations, revokes active/awaiting work, discards pending intent, and blocks late binding/acknowledgment. Returning demand first registers the same-host retained baseline or new-host empty baseline, then performs one current full capture.
+- **Cancellation:** exact `cancelled` outcome; never equality. Pending latest starts only after predecessor projection and owner settlement terminate. Stop/revocation prevents late binding.
 - **Unknown equality:** owner retains one invalidation or executes. It never suppresses on absence of proof.
 - **Terminal read failure/oversize/stale surface:** status remains last confirmed; controlled outcome is reported; a later settle can recover. No empty value overwrites confirmed content.
 - **Exact settle pressure:** the private ordered control is not lossy. Duplicate controls are idempotent by settle generation; out-of-order/stale surface generations are rejected.
 - **Forge stale completion:** candidate is discarded before freshness/accepted baseline mutation; the exact stable loading baseline is restored unless a successor is admitted, and latest follow-up remains eligible.
 - **Forge failure/rate limit:** current facts remain; loading restores the exact pre-loading stable state for ordinary failure/rate limit, while terminal current-origin unavailability uses the explicit unavailable state; existing backoff and next-deadline owner recovers.
 - **Atomic cache apply failure:** no partial loading/facts revision is committed. The next changed repository projection or demand refresh can recover from Forge's authoritative current state.
-- **Stale materialization snapshot:** generation mismatch is rejected before backing snapshot or cells change. The adapter's current published snapshot remains authoritative and the next current publication can recover.
+- **Stale materialization candidate:** mismatch is rejected before child change. The host's last acknowledged R remains visible authority; semantic result is not promoted, and one full intent recovers from R.
+- **Stale semantic or native baseline:** lifetime, demand epoch, generation, native revision/count/fingerprint, and semantic sequence are validated before binding. Rejection mutates neither Eager value/equality state nor acknowledged native baseline and re-arms one full intent from the current acknowledgment.
+- **Acknowledgment loss/duplication:** an invoked changed `apply` must synchronously return exactly one disposition; missing or duplicate current disposition is an invariant failure. Before invocation, demand loss, supersession, detach, or stop rejects the waiting candidate from the still-acknowledged baseline. Duplicate or late stale acknowledgments fail candidate identity and do nothing.
+- **Demand loss while projecting or awaiting native acceptance:** advance the demand epoch, revoke active/awaiting work, discard pending intent, and reject late binding/acknowledgment. Same-host hidden state may retain only its last acknowledged baseline; no unacknowledged candidate becomes reentry authority.
+- **Host empty/content transition failure:** preflight rejection retains prior accepted child/baseline. A malformed current transition is an invariant failure. Empty presentation never bypasses the host, and content→empty clears viewport only as part of the acknowledged transition.
+- **Host teardown/replacement:** detach retires its lifetime and baseline. A replacement host synchronously installs/acknowledges empty R0. Numeric generations/revisions may repeat, but old work cannot pass lifetime validation.
 - **Native plan rejection versus fatal inconsistency:** stale revision/generation is rejected before AppKit and recovers through one current replacement plan. A malformed current plan fails its constructor or MainActor invariant precondition. An AppKit consistency exception is fatal and has no recoverable return path; the cell-free pilot and transaction tests prevent shipping that condition. No path falls back to `reloadData` or SwiftUI `List`.
 - **Cell reuse race:** `prepareForReuse` clears the prior slot and identity-keyed subtree before installing the next row. Delayed hover, accessibility, measurement, or command callbacks validate generation, row ID, and reuse token and otherwise do nothing.
 - **Width/height race:** a measurement carries row ID, content revision, and width revision. Mismatch is discarded; a current changed height invalidates only the represented current row and restores the row-ID scroll anchor.
 - **Command-presentation race:** a delta with stale materialization generation, visible revision, or command generation is rejected. Current visible demand re-arms the App batch. Offscreen rows bind the latest accepted complete presentation on reuse, and dispatcher execution remains authoritative.
-- **Viewport callback after replacement/teardown:** pending work carries the accepted generation and host lifetime; mismatch cancels publication and teardown clears visible-worktree demand.
+- **Viewport callback after replacement/teardown:** pending work carries host lifetime, epoch, accepted revision, and generation; mismatch cancels publication and teardown clears demand.
 - **Accessibility or focus regression:** candidate materialization fails native proof and does not ship. Recovery is implementation correction inside the selected native host, not restoration of the measured generic-list path.
 - **Telemetry sink loss:** application remains fail-open. Strict proof fails when stage evidence or zero-drop condition is absent.
 
@@ -672,7 +733,8 @@ This is a hard in-process cutover with no persisted schema or version skew:
 3. Pane activity distinct-drop state is replaced by committed-plus-latest-pending state; no migration is needed because it is runtime-only.
 4. Separate Forge loading events are removed. The changed repository projection is the sole Forge presentation publication; cache application is atomic.
 5. Hot stable-key derivation is removed; topology index materialization is authoritative immediately on hydration/mutation.
-6. `RepoExplorerTableMaterializer` becomes the only non-empty Repo Explorer row container. SwiftUI `List`, `RepoExplorerVisibleRowsBridge` backing-table discovery, and computed string row identity are removed together; no runtime old/new UI path remains.
+6. `RepoExplorerMaterializationHost` becomes the persistent empty/content acceptance owner; its table child is the only non-empty row container. SwiftUI conditional ownership, `List`, backing-table discovery, and computed string identity are removed together.
+7. The feature-private host acknowledgment and replacement Eager settlement interface become the only acceptance path. Projected/read-model-bound candidates are never accepted baselines, and no pending successor starts before settlement.
 
 Rollback is binary rollback to the preceding app version, not a runtime dual path. No candidate build may mix old and new projection/loading authority.
 
@@ -699,34 +761,11 @@ One real-size fixture identity contains 150 repositories, 180 worktrees, 12 tabs
 
 The descriptor is safely projected through the existing startup diagnostic with a policy version/hash and controlled values only, so the verifier binds evidence to the candidate's actual policy identity instead of duplicating or overriding it through environment values. Timing, threshold, admission, and validity constants have no environment override.
 
-The descriptor includes one predeclared host-validity envelope: the allowed unrelated-host CPU ceiling, required memory-pressure class, required thermal class, required and unchanged power mode, maximum sampler gap, and forbidden concurrent workload classes (agent, terminal command/output producer, build, test, and profiler except during the separate attribution marker). Those values are fixed before the faulty/control/candidate series begins. The verifier may reject a population when any bound is breached, but cannot trim samples, relax a value, or substitute a new descriptor after seeing a result. App behavior and acceptance thresholds have no runtime environment override; diagnostics may select an authorized phase, never rewrite its policy.
-
-The verifier owns a host-pressure precondition and concurrent validity guard. It records logical core count, load average, total system CPU, memory/compression pressure, power source/mode, and thermal state. A run with excessive external pressure, a sampler gap beyond policy, a candidate identity mismatch, or another build/test/profiler process is invalid and retained as evidence; it is neither a product pass nor a product failure. The candidate's own CPU remains inside the product measurement.
+The verifier records logical cores, load/system CPU, memory/compression pressure, power mode, thermal state, sampler gaps, and forbidden concurrent processes against that fixed descriptor. Any breach invalidates and retains the whole population; it cannot trim samples, relax/replace policy, or exclude candidate CPU.
 
 Quiescence is positive, not a wall-clock guess. After the startup diagnostic completes, the verifier requires projection capture/execution/publication/read-model-binding/visible-UI-update counters and trace-export backlog to remain unchanged for the policy quiescence interval while the mounted UI remains demanded. The acceptance window starts only after this observation succeeds.
 
-```text
-settled zero-PTY marker
-  deterministic real-size workspace + Repo Explorer visible
-  no mounted terminal process, no agent work
-  positive quiescence
-  >= 1,000 usable one-second samples
-  gate: nearest-rank process CPU p99 < 10%
-
-settled quiescent-PTY marker
-  same workspace and visible sidebar
-  mounted idle terminals, zero commands/output, no agent work
-  positive quiescence
-  >= 1,000 usable one-second samples
-  gate: nearest-rank process CPU p99 < 10%
-
-four independent ordinary-action markers
-  search type/clear | grouping switch | sidebar hide/show | tab switch
-  no terminal commands/output and no agent work
-  >= 100 successful state-changing actions/cycles and >= 200 complete action-bearing samples per marker
-  exact semantic and visible final-state readback per action
-  gate: process CPU p95 < 20% for every marker
-```
+Fresh markers keep zero-PTY idle, quiescent-PTY idle, search/clear, grouping, hide/show, and tab switching as six independent populations. Both positively quiesced idle populations use at least 1,000 one-second samples and nearest-rank p99 `<10%`; each action population uses at least 100 successful actions/cycles plus 200 complete action-bearing samples and nearest-rank p95 `<20%`, with zero terminal output/commands or agent work and exact semantic/native readback.
 
 Idle and action distributions never combine. Search, grouping, visibility, and tab switching never combine with each other. A no-op, failed readback, delayed/missing publication, hidden sidebar during the visible-idle phase, or slowed-beyond-policy action does not count toward the sample/action floor.
 
@@ -810,13 +849,15 @@ Each often/heavy domain owns a non-observable fixed-state accumulator before the
 | S1-S5 | RepoExplorerProjectionAdapter, topology stable-key index | deterministic grouping/key invalidation tests; forbidden-call architecture check; marker stage ratios |
 | S6-S8 | Ghostty disposition/accumulator/projector, PaneActivityStatusAtom | exact-pressure integration; latest-sequence R-INV; pinned Ghostty tail-read contract; deadline test |
 | S9-S12 | ForgeActor repository projection, coalesced coordinator apply, RepoCacheAtom | A→B→A controlled provider; atomic cache observation; unrelated-repo isolation; one-active/one-follow-up |
-| S13-S14 | EagerDerivedAtomFamily, projection worker, rendered row model, native update plan, table materializer, App command-presentation batch | maximum concurrent execution probe; complete-row equality reference; off-main plan equivalence; cell-free AppKit pilot; unaffected-row/cell identity; command-generation routing; visible-only height/row hosting |
+| S13-S14 | adapter broker, replacement Eager intent/work/candidate interface, projection worker, persistent empty/content host, acknowledged baseline, native plan/table child, App command batch | A/B/C and settlement tokens; initial empty/empty↔content/changed-empty/equal-empty; R→R/R+1 oracle; semantic/native non-poisoning; hide/reentry/new-lifetime; Tab Bar immediate settlement/no-partial-list; AppKit pilot; visible-only rows |
 | S15 | idle fixture, quiescence detector, host-pressure guard, process sampler | separate zero-PTY and quiescent-PTY markers; complete distributions; p99 gate; scheduled-background-work and zero-drop evidence |
 | S16 | existing command dispatch, debug-only native search driver, semantic/table readiness observation | separate search/grouping/visibility/tab markers; 100-action and 200-sample floors; boundary attribution; nearest-rank p95; whole-population invalidation |
 | S17 | immutable versioned `AppPolicies.SidebarPerformanceProof` descriptor and verifier | exact tags/pacing/timeout/host envelope/perturbation; external-load and sampler-gap rejection; historical comparison without threshold substitution |
 | S18-S20 | owning emitters and OTLP safe projection | outcome-matrix tests, binding-to-visible-update ratios, perturbation comparison, zero-drop verifier, sensitive canary and allowlist tests |
 
-Unit tests may replace clocks/providers/projectors at designed seams. Performance acceptance keeps actual topology, pane fleet, adapter, worker, native table materializer, viewport demand, MainActor read-model binding, EventBus, cache, process sampler, OTLP collector, and Victoria paths real. Native UI proof binds the exact debug PID and verifies appearance, scrolling, hover, collapse, context menus, commands, focus/key loop, and accessibility. Paired stack sampling and Instruments bind the same marker/PID mid-idle and mid-action for attribution; visual feel alone is never performance proof.
+The S13-S14 protocol proof covers initial empty R0; empty→content; content→every empty kind; changed/equal empty; A/B/C; equal-before-delta; pre-apply supersession; accepted/rejected/late-duplicate settlement; demand revoke, family remove, stop, same/new-host reentry; Tab Bar current/equal/changed-only/no-partial-list; and a randomized plan oracle. Acknowledged revision advances iff one changed host presentation completes and is acknowledged.
+
+Unit tests may replace clocks/providers/projectors at designed seams. Performance acceptance keeps topology, pane fleet, adapter, worker, persistent host, table child, viewport, binding, EventBus, cache, sampler, OTLP, and Victoria real. Native proof binds the exact debug PID for empty/content presentation, appearance, scrolling, hover, collapse, menus, commands, focus, and accessibility; paired profiles bind the same marker/PID.
 
 ## External Boundary Note
 
@@ -828,17 +869,19 @@ DeepWiki inspection of `ghostty-org/ghostty` identifies `ghostty_surface_read_te
 | --- | --- | --- |
 | U-PERF-1 | covered | keyed pre-capture admission, visible-only native materialization, separate idle/action CPU gates |
 | U-ADMISSION-1 | covered | source disposition, invalidation accumulator, repository projection coalescing |
-| U-CURRENTNESS-1 | covered | complete rendered equality, deferred latest pane fact, validate-before-Forge-mutation, atomic cache apply |
+| U-CURRENTNESS-1 | covered | complete equality, persistent empty/content acceptance, deferred pane fact, validated Forge/cache apply |
 | U-ISOLATION-1 | covered | materialized capture, topology-owned keys, off-main worker/update planning, visible-bounded MainActor table apply |
 | U-BOUNDS-1 | covered | one active/one pending, bounded invalidation sets, deadline state machines |
 | U-OBSERVABILITY-1 | covered | bounded stage evidence, aggregate hot diagnostics, zero-drop proof |
-| U-PRESERVATION-1 | covered | explicit preserved mechanisms and unchanged edges in each call path |
+| U-PRESERVATION-1 | covered | explicit preserved edges plus Tab Bar immediate settlement/no-partial-list |
 
 ## Tradeoffs And Revisit Signals
 
 - Key-specific observations add lifecycle bookkeeping to the adapter. The adapter owns this cost because it alone knows grouping and rendered demand. Revisit only if observation registration itself becomes an often/heavy measured lane.
-- The feature-owned table replaces a concise generic `List` with explicit AppKit cell and viewport lifecycle. Repo Explorer pays that maintenance cost because the generic outline owner consumes the measured CPU budget and cannot express affected-row application. Revisit `LazyVStack` only if direct table hosting cannot preserve existing row composition or misses the action CPU target after visible-only updates.
+- The persistent host and table child replace a concise conditional empty/`List` tree. Repo Explorer pays explicit shell/cell/viewport lifecycle so every visible state has one acceptance owner; revisit only if it misses UX or CPU targets.
 - Full grouping, sort, search, or membership replacement uses the exact off-main `RepoExplorerNativeUpdatePlan`; AppKit receives prevalidated old/new index spaces while cells remain visible-bounded. This increases plan proof and anchor complexity, paid by Repo Explorer. The mandatory cell-free pilot is the falsifier: failure returns to design rather than licensing broad reload or MainActor diff.
+- Native acceptance adds one feature-private acknowledgment and holds the existing Eager lane open through downstream settlement. The cost is slightly longer pending latency and explicit lifetime/demand/baseline state; the gain is that no successor can plan from unaccepted rows. Revisit only if synchronous native application demonstrably makes the barrier unnecessary; do not replace it with a second scheduler or generation-as-revision shortcut.
+- The adapter retains two baselines: latest current semantic result and last native acknowledgment. This is intentional rather than duplicated truth because equal semantic changes can feed the next delta without changing rendered rows. The invariant is that semantic sequence may advance on equal, while native revision advances iff a changed AppKit transaction acknowledges success.
 - Stable layout classes avoid fleet measurement, while wrapping rows pay one represented-visible width measurement and possible anchored height correction. Repo Explorer owns the small correction risk; offscreen eager measurement is forbidden.
 - The App command-presentation batch remains a separate App-owned projection and therefore adds generation/visible-revision routing into the Feature. App pays that composition bookkeeping; Feature rows stay direct-value consumers and dispatcher execution remains authoritative.
 - Viewport demand from native visible rows is exact but MainActor-bound because AppKit geometry is MainActor-owned. It is coalesced once per turn and bounded by visible rows. Revisit only if scroll proof shows this bounded calculation exceeds its performance classification.
