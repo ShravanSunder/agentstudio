@@ -265,8 +265,7 @@ export const websiteCaptureSuite = {
       id: "layout-saved",
       assetPath: "../assets/captures/layout-saved.png",
       phoneAssetPath: "../assets/captures/layout-saved-phone.png",
-      alternativeText:
-        "Agent Studio Layout 1 showing two terminal panes side by side with the global sidebar hidden.",
+      alternativeText: "Agent Studio with the named Layout 1 active.",
       source: {
         productRevision: "0.0.90-beta.30 (151)",
         fixtureIdentity: "owner-prepared-beta-layout-2026-08-22",

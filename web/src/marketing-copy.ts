@@ -149,8 +149,7 @@ export const marketingCopy = {
         detail: "When one task needs your full attention, Pane Zoom gives it the workspace.",
         savedArrangementLabel: "Saved layout",
         paneZoomLabel: "Pane Zoom",
-        savedArrangementImageDescription:
-          "Agent Studio Layout 1 showing two terminal panes side by side with the global sidebar hidden.",
+        savedArrangementImageDescription: "Agent Studio with the named Layout 1 active.",
         paneZoomImageDescription:
           "The same Agent Studio task in Pane Zoom with its terminal, code, and Files context filling the workspace.",
       },

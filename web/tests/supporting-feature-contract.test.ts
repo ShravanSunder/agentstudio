@@ -48,5 +48,13 @@ describe("supporting feature campaign", () => {
     expect(captureById.get("git-context-files")).toHaveProperty("phonePixelSize", [810, 570]);
     expect(captureById.get("layout-saved")).toHaveProperty("phonePixelSize", [640, 400]);
     expect(captureById.get("layout-pane-zoom")).toHaveProperty("phonePixelSize", [640, 400]);
+    expect(captureById.get("layout-saved")).toHaveProperty(
+      "alternativeText",
+      "Agent Studio with the named Layout 1 active.",
+    );
+    expect(marketingCopy.featureDetails.items.at(-1)).toHaveProperty(
+      "savedArrangementImageDescription",
+      "Agent Studio with the named Layout 1 active.",
+    );
   });
 });
