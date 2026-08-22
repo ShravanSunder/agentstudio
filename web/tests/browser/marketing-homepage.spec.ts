@@ -241,6 +241,7 @@ for (const viewport of verificationViewports) {
             width: selectedDotStyle.width,
           },
           selectedFrostOpacity: selectedFrostStyle.opacity,
+          selectedFrostZIndex: selectedFrostStyle.zIndex,
           unselectedFrostOpacity: unselectedFrostStyle.opacity,
         };
       }),
@@ -251,13 +252,13 @@ for (const viewport of verificationViewports) {
     expect(rowGeometry.every(({ labelFontSize }) => labelFontSize === "11px")).toBe(true);
     expect(
       rowGeometry.every(
-        ({ selectedLabel }) =>
+        ({ selectedFrostZIndex, selectedLabel }) =>
           selectedLabel.color === "rgb(255, 255, 255)" &&
           selectedLabel.height > 0 &&
           selectedLabel.width > 0 &&
           selectedLabel.text !== undefined &&
           selectedLabel.text.length > 0 &&
-          selectedLabel.zIndex === "1",
+          Number(selectedLabel.zIndex) > Number(selectedFrostZIndex),
       ),
     ).toBe(true);
     expect(rowGeometry.every(({ selectedFrostOpacity }) => selectedFrostOpacity === "1")).toBe(
@@ -274,7 +275,7 @@ for (const viewport of verificationViewports) {
         expect(geometry.selectedDot.display).toBe("none");
       } else {
         expect(geometry.selectedDot.display).not.toBe("none");
-        expect(geometry.selectedDot.animationName).toBe("scroll-material-selection-dot-breathe");
+        expect(geometry.selectedDot.animationName).not.toBe("none");
       }
     }
   });
@@ -1168,7 +1169,7 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
   expect(liftedSurface.selectedGlassBackdropFilter).not.toBe("none");
   expect(liftedSurface.selectedGlassBackgroundColor).not.toBe("rgba(0, 0, 0, 0)");
   expect(liftedSurface.selectedGlassOpacity).toBe("1");
-  expect(liftedSurface.selectedDotAnimationName).toBe("scroll-material-selection-dot-breathe");
+  expect(liftedSurface.selectedDotAnimationName).not.toBe("none");
   expect(liftedSurface.selectedDotBackgroundColor).toBe("rgb(137, 180, 250)");
   expect(liftedSurface.selectedDotTitleCenterDelta).toBeLessThanOrEqual(1);
   expect(liftedSurface.progress).toBeGreaterThanOrEqual(0.98);

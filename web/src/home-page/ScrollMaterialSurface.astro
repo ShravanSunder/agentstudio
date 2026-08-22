@@ -116,13 +116,6 @@ const { class: className, ...attributes } = Astro.props;
     animation: scroll-material-selection-dot-breathe 3.2s ease-in-out infinite;
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .scroll-material-surface {
-      transform: none;
-      will-change: auto;
-    }
-  }
-
   @media (width < 64rem) {
     :global(.scroll-material-pane-compact) {
       background: var(--scroll-material-pane-background);
@@ -130,7 +123,7 @@ const { class: className, ...attributes } = Astro.props;
       backdrop-filter: blur(var(--scroll-material-blur))
         saturate(var(--scroll-material-saturation));
       -webkit-backdrop-filter: blur(var(--scroll-material-blur))
-      saturate(var(--scroll-material-saturation));
+        saturate(var(--scroll-material-saturation));
     }
 
     :global(.scroll-material-selection-control)::after {
@@ -149,6 +142,11 @@ const { class: className, ...attributes } = Astro.props;
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .scroll-material-surface {
+      transform: none;
+      will-change: auto;
+    }
+
     :global(.scroll-material-selection-control)::before {
       transition: none;
     }
