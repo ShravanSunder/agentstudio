@@ -393,8 +393,79 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
       return mainline.getPointAtLength(lowerLength).x;
     };
     const resolvedRows = visibleNodes.map((node) => Number(node.dataset["resolvedRow"]));
+    const fillerOwnerIds = [...svg.querySelectorAll<SVGCircleElement>("[data-mainline-fill-index]")]
+      .filter((node) => getComputedStyle(node).display !== "none")
+      .map((node) => node.dataset["nodeOwner"]);
+    const ownerPaths = new Map<string, SVGPathElement>([["main", mainline]]);
+    const ownerColors = new Map<string, string>();
+    const ownerSpans = new Map<string, { endRow: number; startRow: number }>();
+    const mainStartNode = svg.querySelector<SVGGraphicsElement>('[data-mainline-node="start"]');
+    if (mainStartNode === null) {
+      throw new Error("Topology lab mainline color owner is missing");
+    }
+    ownerColors.set("main", getComputedStyle(mainStartNode).color);
+    for (const group of visibleGroups) {
+      const routeId = group.dataset["routeId"];
+      const routePath = group.querySelector<SVGPathElement>(
+        '[data-route][data-topology-path-role="core"]',
+      );
+      if (routeId === undefined || routePath === null) {
+        throw new Error("Topology lab filler owner route is missing");
+      }
+      const forkNode = group.querySelector<SVGGraphicsElement>('[data-node-position="fork"]');
+      const endNode = group.querySelector<SVGGraphicsElement>('[data-node-position="end"]');
+      if (forkNode === null || endNode === null) {
+        throw new Error("Topology lab filler owner span is missing");
+      }
+      ownerPaths.set(routeId, routePath);
+      ownerColors.set(routeId, getComputedStyle(group).color);
+      ownerSpans.set(routeId, {
+        endRow: Number(endNode.dataset["resolvedRow"]),
+        startRow: Number(forkNode.dataset["resolvedRow"]),
+      });
+    }
+    const visibleFillers = [
+      ...svg.querySelectorAll<SVGCircleElement>("[data-mainline-fill-index]"),
+    ].filter((node) => getComputedStyle(node).display !== "none");
+    const fillerOwnerPathDistances = visibleFillers.map((node) => {
+      const ownerId = node.dataset["nodeOwner"];
+      const ownerPath = ownerId === undefined ? undefined : ownerPaths.get(ownerId);
+      if (ownerPath === undefined) {
+        throw new Error("Topology lab filler node has no rendered owner path");
+      }
+      const targetY = Number(node.getAttribute("cy"));
+      const totalLength = ownerPath.getTotalLength();
+      let lowerLength = 0;
+      let upperLength = totalLength;
+      for (let iteration = 0; iteration < 24; iteration += 1) {
+        const middleLength = lowerLength + (upperLength - lowerLength) / 2;
+        if (ownerPath.getPointAtLength(middleLength).y <= targetY) {
+          lowerLength = middleLength;
+        } else {
+          upperLength = middleLength;
+        }
+      }
+      const ownerPoint = ownerPath.getPointAtLength(lowerLength);
+      return Math.hypot(ownerPoint.x - Number(node.getAttribute("cx")), ownerPoint.y - targetY);
+    });
+    const fillerColorMismatchCount = visibleFillers.filter((node) => {
+      const ownerId = node.dataset["nodeOwner"];
+      return ownerId === undefined || getComputedStyle(node).color !== ownerColors.get(ownerId);
+    }).length;
+    const inactiveWorktreeOwnerCount = visibleFillers.filter((node) => {
+      const ownerId = node.dataset["nodeOwner"];
+      if (ownerId === undefined || ownerId === "main") {
+        return false;
+      }
+      const span = ownerSpans.get(ownerId);
+      const row = Number(node.dataset["resolvedRow"]);
+      return span === undefined || row <= span.startRow || row >= span.endRow;
+    }).length;
     return {
       duplicateRowCount: resolvedRows.length - new Set(resolvedRows).size,
+      fillerColorMismatchCount,
+      fillerOwnerIds,
+      inactiveWorktreeOwnerCount,
       maximumForkMainlineDelta: Math.max(
         ...visibleGroups.map((group) => {
           const fork = group.querySelector<SVGCircleElement>('[data-node-position="fork"]');
@@ -419,6 +490,12 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
           ),
         ),
       ),
+      maximumFillerOwnerPathDistance: Math.max(...fillerOwnerPathDistances),
+      nonMainFillerOffMainlineCount: visibleFillers.filter(
+        (node) =>
+          node.dataset["nodeOwner"] !== "main" &&
+          Math.abs(Number(node.getAttribute("cx")) - mainline.getPointAtLength(0).x) > 0.01,
+      ).length,
       mainlineForkX: routeFacts[0]?.forkX,
       rowCount: Number(svg.dataset["rowCount"]),
       routeFacts,
@@ -431,12 +508,22 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
   expect(state.worktreeCount).toBe(5);
   expect(state.visibleNodeCount).toBe(state.rowCount);
   expect(state.duplicateRowCount).toBe(0);
+  expect(new Set(state.fillerOwnerIds)).toEqual(
+    new Set(["main", "worktree-a", "worktree-b", "worktree-c", "worktree-d", "worktree-e"]),
+  );
+  expect(state.fillerOwnerIds.filter((ownerId) => ownerId === "main").length).toBeLessThan(
+    state.fillerOwnerIds.length,
+  );
+  expect(state.fillerColorMismatchCount).toBe(0);
+  expect(state.inactiveWorktreeOwnerCount).toBe(0);
   expect(state.routeFacts.map((route) => route.lane)).toEqual([1, 2, 3, 4, 2]);
   expect(new Set(state.routeFacts.map((route) => route.forkX)).size).toBe(1);
   expect(state.mainlineForkX).toBe(2800 - 144);
   expect(state.maximumForkMainlineDelta).toBeLessThanOrEqual(0.01);
   expect(state.maximumLocalLaneSpacingError).toBeLessThanOrEqual(0.01);
   expect(state.maximumMainlineXDrift).toBeLessThanOrEqual(0.01);
+  expect(state.maximumFillerOwnerPathDistance).toBeLessThanOrEqual(0.01);
+  expect(state.nonMainFillerOffMainlineCount).toBeGreaterThan(0);
   expect(state.routeFacts.every((route) => route.startDelta <= 0.01)).toBe(true);
   expect(state.routeFacts.every((route) => route.endDelta <= 0.01)).toBe(true);
   expect(state.routeFacts.every((route) => Math.abs(route.minimumX - route.targetX) <= 0.01)).toBe(

@@ -1,4 +1,5 @@
 import {
+  assignTopologyRowOwners,
   assignWorktreeColumns,
   closestTopologySurfaceRow,
   measureFullPageTopologyGrid,
@@ -28,6 +29,15 @@ interface ResolvedRouteGeometry {
   readonly pathData: string;
   readonly sourceX: number;
   readonly targetX: number;
+}
+
+interface ResolvedRowWorktree {
+  readonly accentClass: string;
+  readonly endRow: number;
+  readonly id: string;
+  readonly lane: number;
+  readonly path: SVGPathElement;
+  readonly startRow: number;
 }
 
 function requiredDatasetNumber(element: HTMLElement | SVGElement, key: string): number {
@@ -380,6 +390,7 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
   const progressForY = (y: number): number =>
     Math.min(Math.max((y - grid.topPadding) / (topologyEndY - grid.topPadding), 0), 1);
   const occupiedNodeRows = new Set<number>();
+  const resolvedRowWorktrees: ResolvedRowWorktree[] = [];
   const reserveNodeRow = (row: number): boolean => {
     if (occupiedNodeRows.has(row)) {
       return false;
@@ -430,6 +441,18 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
     if (corePath === null) {
       return hideTopology(artwork, "missing-core-route");
     }
+    const routeAccent = group.dataset["routeAccent"];
+    if (routeAccent !== "cyan" && routeAccent !== "peach") {
+      return hideTopology(artwork, "missing-route-accent");
+    }
+    resolvedRowWorktrees.push({
+      accentClass: `accent-${routeAccent}`,
+      endRow: geometry.endRow,
+      id: dataset.id,
+      lane,
+      path: corePath,
+      startRow: geometry.forkRow,
+    });
 
     for (const node of group.querySelectorAll<SVGGraphicsElement>("[data-node]")) {
       const position = node.dataset["nodePosition"];
@@ -463,24 +486,31 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
     }
   }
 
-  const remainingRows = Array.from({ length: grid.rowCount }, (_, row) => row).filter(
-    (row) => !occupiedNodeRows.has(row),
-  );
+  const rowOwners = assignTopologyRowOwners({
+    reservedRows: occupiedNodeRows,
+    rowCount: grid.rowCount,
+    worktrees: resolvedRowWorktrees,
+  });
   const fillNodes = [...artwork.querySelectorAll<SVGCircleElement>("[data-mainline-fill-index]")];
-  if (remainingRows.length > fillNodes.length) {
+  if (rowOwners.length > fillNodes.length) {
     return hideTopology(artwork, "insufficient-mainline-fill-nodes");
   }
   for (const [fillIndex, fillNode] of fillNodes.entries()) {
-    const row = remainingRows[fillIndex];
-    fillNode.style.display = row === undefined ? "none" : "";
-    if (row === undefined) {
+    const rowOwner = rowOwners[fillIndex];
+    fillNode.style.display = rowOwner === undefined ? "none" : "";
+    if (rowOwner === undefined) {
       continue;
     }
+    const { ownerId, row } = rowOwner;
+    const ownerWorktree = resolvedRowWorktrees.find((worktree) => worktree.id === ownerId);
+    const ownerPath = ownerWorktree?.path ?? mainlineCore;
     const y = yForRow(row);
-    const point = pathPointAtY(mainlineCore, y);
+    const point = pathPointAtY(ownerPath, y);
     setNodePosition(fillNode, point.x, y);
+    fillNode.setAttribute("class", ownerWorktree?.accentClass ?? "accent-main");
+    fillNode.dataset["nodeOwner"] = ownerId;
     fillNode.dataset["resolvedRow"] = String(row);
-    fillNode.dataset["topologyNodeProgress"] = String(pathLengthFractionAtY(mainlineCore, y));
+    fillNode.dataset["topologyNodeProgress"] = String(progressForY(y));
     occupiedNodeRows.add(row);
   }
   if (occupiedNodeRows.size !== grid.rowCount) {

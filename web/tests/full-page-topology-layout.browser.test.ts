@@ -25,6 +25,7 @@ function createArtwork(frameLeft: number, frameRight: number): SVGSVGElement {
       <g
         data-topology-route-group
         data-route-id="a"
+        data-route-accent="peach"
         data-minimum-columns="2"
         data-fork-slot="2"
         data-end-slot="18"

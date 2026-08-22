@@ -1,10 +1,47 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assignTopologyRowOwners,
   assignWorktreeColumns,
   measureFullPageTopologyGrid,
   resolveTopologyGlassBand,
 } from "../src/topology-lab/full-page-topology-model";
+
+describe("topology row ownership", () => {
+  it("distributes unreserved row dots across active worktrees and main", () => {
+    const owners = assignTopologyRowOwners({
+      reservedRows: new Set([0, 2, 4, 6, 10, 11, 14, 16, 17, 18, 20]),
+      rowCount: 21,
+      worktrees: [
+        { endRow: 18, id: "a", lane: 1, startRow: 2 },
+        { endRow: 10, id: "b", lane: 2, startRow: 4 },
+        { endRow: 20, id: "c", lane: 3, startRow: 6 },
+        { endRow: 16, id: "d", lane: 4, startRow: 14 },
+        { endRow: 17, id: "e", lane: 2, startRow: 11 },
+      ],
+    });
+
+    expect(owners).toHaveLength(10);
+    expect(new Set(owners.map((owner) => owner.row)).size).toBe(owners.length);
+    expect(new Set(owners.map((owner) => owner.ownerId))).toEqual(
+      new Set(["main", "a", "b", "c", "d", "e"]),
+    );
+    expect(owners.filter((owner) => owner.ownerId === "main").length).toBeLessThan(owners.length);
+  });
+
+  it("uses main only when no worktree is active", () => {
+    expect(
+      assignTopologyRowOwners({
+        reservedRows: new Set([0, 3]),
+        rowCount: 4,
+        worktrees: [],
+      }),
+    ).toEqual([
+      { ownerId: "main", row: 1 },
+      { ownerId: "main", row: 2 },
+    ]);
+  });
+});
 
 describe("hardcoded worktree lane allocation", () => {
   it("uses the nearest free column when every worktree forks from main", () => {

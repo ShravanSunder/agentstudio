@@ -55,6 +55,53 @@ export interface AssignedWorktreeColumn {
 
 interface AssignedWorktreeLifecycle extends AssignedWorktreeColumn, WorktreeLifecycle {}
 
+export interface TopologyRowWorktree {
+  readonly endRow: number;
+  readonly id: string;
+  readonly lane: number;
+  readonly startRow: number;
+}
+
+export interface TopologyRowOwner {
+  readonly ownerId: string;
+  readonly row: number;
+}
+
+interface AssignTopologyRowOwnersProps {
+  readonly reservedRows: ReadonlySet<number>;
+  readonly rowCount: number;
+  readonly worktrees: readonly TopologyRowWorktree[];
+}
+
+export function assignTopologyRowOwners(
+  props: AssignTopologyRowOwnersProps,
+): readonly TopologyRowOwner[] {
+  const { reservedRows, rowCount, worktrees } = props;
+  const assignedCounts = new Map<string, number>();
+  return Array.from({ length: rowCount }, (_, row) => row).flatMap((row) => {
+    if (reservedRows.has(row)) {
+      return [];
+    }
+    const activeWorktrees = worktrees.filter(
+      (worktree) => worktree.startRow < row && worktree.endRow > row,
+    );
+    const candidates = [
+      ...activeWorktrees.map((worktree) => ({ id: worktree.id, lane: worktree.lane })),
+      { id: "main", lane: 0 },
+    ].toSorted((left, right) => {
+      const countDifference =
+        (assignedCounts.get(left.id) ?? 0) - (assignedCounts.get(right.id) ?? 0);
+      return countDifference === 0 ? right.lane - left.lane : countDifference;
+    });
+    const owner = candidates[0];
+    if (owner === undefined) {
+      return [];
+    }
+    assignedCounts.set(owner.id, (assignedCounts.get(owner.id) ?? 0) + 1);
+    return [{ ownerId: owner.id, row }];
+  });
+}
+
 function variantForColumnCount(usableColumnCount: number): FullPageTopologyVariant {
   if (usableColumnCount >= 4) {
     return "expanded";
