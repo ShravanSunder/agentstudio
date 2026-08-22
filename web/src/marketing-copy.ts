@@ -89,13 +89,13 @@ export const marketingCopy = {
         id: "persistence",
         title: {
           kind: "accented",
-          beforeAccent: "Close the app, not your ",
-          accent: "sessions",
+          beforeAccent: "Close the app without stopping your ",
+          accent: "persistent sessions",
           afterAccent: ".",
         },
-        summary: "Terminal sessions keep running after Agent Studio closes.",
+        summary: "Persistent terminal sessions keep running after Agent Studio closes.",
         detail:
-          "Reopen the app to restore your tabs, panes, drawers, arrangements, and visible terminal sessions.",
+          "Reopen the app to restore your tabs, panes, drawers, arrangements, and visible persistent terminal sessions.",
       },
       {
         id: "navigation",

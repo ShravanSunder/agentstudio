@@ -77,7 +77,8 @@ const mediaByFeatureId = {
             <div class="scroll-material-pane feature-detail__pane feature-detail__media min-w-0 overflow-clip rounded-material-pane border border-line p-1 max-lg:order-2">
               {item.id === "persistence" ? (
                 <ScrollAutoplayVideo
-                  accessibilityLabel="Agent Studio session restore demonstration"
+                  accessibilityLabel="Agent Studio persistent session restore demonstration"
+                  autoplayOnScroll={false}
                   fallbackText="This browser cannot play the session restore video."
                   poster={sessionRestorePoster}
                   source={sessionRestoreVideoUrl}

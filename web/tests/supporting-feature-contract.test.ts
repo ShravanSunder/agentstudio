@@ -17,7 +17,7 @@ describe("supporting feature campaign", () => {
         (item) => `${item.title.beforeAccent}${item.title.accent}${item.title.afterAccent}`,
       ),
     ).toEqual([
-      "Close the app, not your sessions.",
+      "Close the app without stopping your persistent sessions.",
       "Find your way around.",
       "Give your tools a home.",
       "Keep your Git close.",

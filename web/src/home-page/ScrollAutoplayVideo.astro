@@ -4,6 +4,7 @@ import type { HTMLAttributes } from "astro/types";
 
 interface Props extends Omit<HTMLAttributes<"video">, "class" | "poster" | "src"> {
   readonly accessibilityLabel: string;
+  readonly autoplayOnScroll?: boolean;
   readonly class?: string;
   readonly fallbackText?: string;
   readonly poster?: ImageMetadata | string;
@@ -16,6 +17,7 @@ interface Props extends Omit<HTMLAttributes<"video">, "class" | "poster" | "src"
 
 const {
   accessibilityLabel,
+  autoplayOnScroll = true,
   class: className,
   fallbackText = "This browser cannot play this video.",
   poster,
@@ -39,10 +41,10 @@ const posterUrl = typeof poster === "string" ? poster : poster?.src;
   poster={posterUrl}
   aria-label={accessibilityLabel}
   class={className}
-  data-scroll-autoplay-video
-  data-scroll-autoplay-start-progress={startProgress}
-  data-scroll-autoplay-stop-progress={stopProgress}
-  data-scroll-autoplay-replay-delay-ms={replayDelayMs}
+  data-scroll-autoplay-video={autoplayOnScroll ? "" : undefined}
+  data-scroll-autoplay-start-progress={autoplayOnScroll ? startProgress : undefined}
+  data-scroll-autoplay-stop-progress={autoplayOnScroll ? stopProgress : undefined}
+  data-scroll-autoplay-replay-delay-ms={autoplayOnScroll ? replayDelayMs : undefined}
 >
   <source src={source} type={sourceType} />
   <span>{fallbackText}</span>

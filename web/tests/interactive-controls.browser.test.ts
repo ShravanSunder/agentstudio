@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createScrollAutoplayVideoController } from "../src/home-page/scroll-autoplay-video-controller";
 import { initializeInstallCommand } from "../src/install-command/install-command-controller";
 import { marketingCopy } from "../src/marketing-copy";
 import { initializePersistenceProof } from "../src/product-plate/persistence-proof-controller";
@@ -64,6 +65,17 @@ afterEach(() => {
 });
 
 describe("interactive website controllers", () => {
+  it("leaves visitor-controlled videos out of scroll autoplay", () => {
+    const fixture = addFixture(`<video data-session-restore-video></video>`);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const controller = createScrollAutoplayVideoController(fixture);
+
+    controller.synchronize(1, true);
+
+    expect(play).not.toHaveBeenCalled();
+    controller.dispose();
+  });
+
   it("enhances the product stories with synchronized tabs, panels, and keyboard movement", () => {
     vi.spyOn(window, "matchMedia").mockImplementation(
       (query): MediaQueryList =>
