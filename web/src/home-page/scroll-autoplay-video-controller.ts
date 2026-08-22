@@ -4,11 +4,12 @@ interface ScrollAutoplayVideoController {
 }
 
 type PlaybackIntent = "auto" | "manual-pause" | "manual-play";
-type AutomaticTransition = "pause" | "play";
 
 interface VideoPlaybackState {
-  automaticTransition: AutomaticTransition | undefined;
+  automaticPauseEventPending: boolean;
+  automaticPlayEventPending: boolean;
   autoplayEnabled: boolean;
+  awaitingReplay: boolean;
   intent: PlaybackIntent;
   latestProgress: number;
   replayTimer: number | undefined;
@@ -40,8 +41,10 @@ function createVideoPlaybackController(video: HTMLVideoElement): ScrollAutoplayV
     defaultReplayDelayMs,
   );
   const state: VideoPlaybackState = {
-    automaticTransition: undefined,
+    automaticPauseEventPending: false,
+    automaticPlayEventPending: false,
     autoplayEnabled: true,
+    awaitingReplay: video.ended,
     intent: video.paused ? "auto" : "manual-play",
     latestProgress: 0,
     replayTimer: undefined,
@@ -59,11 +62,9 @@ function createVideoPlaybackController(video: HTMLVideoElement): ScrollAutoplayV
     if (!video.paused || state.intent !== "auto") {
       return;
     }
-    state.automaticTransition = "play";
+    state.automaticPlayEventPending = true;
     void video.play().catch((): void => {
-      if (state.automaticTransition === "play") {
-        state.automaticTransition = undefined;
-      }
+      state.automaticPlayEventPending = false;
     });
   };
 
@@ -71,13 +72,18 @@ function createVideoPlaybackController(video: HTMLVideoElement): ScrollAutoplayV
     if (video.paused || state.intent === "manual-play") {
       return;
     }
-    state.automaticTransition = "pause";
+    state.automaticPauseEventPending = true;
     video.pause();
   };
 
   const replayIfEligible = (): void => {
-    clearReplayTimer();
-    if (!state.autoplayEnabled || state.intent !== "auto" || state.latestProgress < startProgress) {
+    if (
+      state.replayTimer !== undefined ||
+      !state.awaitingReplay ||
+      !state.autoplayEnabled ||
+      state.intent !== "auto" ||
+      state.latestProgress < startProgress
+    ) {
       return;
     }
     state.replayTimer = window.setTimeout((): void => {
@@ -89,35 +95,43 @@ function createVideoPlaybackController(video: HTMLVideoElement): ScrollAutoplayV
       ) {
         return;
       }
-      video.currentTime = 0;
+      state.awaitingReplay = false;
       playAutomatically();
     }, replayDelayMs);
   };
 
   const handlePlay = (): void => {
-    if (state.automaticTransition === "play") {
-      state.automaticTransition = undefined;
+    if (state.automaticPlayEventPending) {
+      state.automaticPlayEventPending = false;
+      if (!state.autoplayEnabled || state.latestProgress < stopProgress) {
+        pauseAutomatically();
+      }
       return;
     }
     clearReplayTimer();
+    state.awaitingReplay = false;
     state.intent = "manual-play";
   };
 
   const handlePause = (): void => {
-    if (state.automaticTransition === "pause") {
-      state.automaticTransition = undefined;
+    if (state.automaticPauseEventPending) {
+      state.automaticPauseEventPending = false;
       return;
     }
     if (video.ended) {
       return;
     }
     clearReplayTimer();
+    state.awaitingReplay = false;
     state.intent = "manual-pause";
   };
 
   const handleEnded = (): void => {
-    state.automaticTransition = undefined;
+    state.automaticPauseEventPending = false;
+    state.automaticPlayEventPending = false;
+    state.awaitingReplay = true;
     state.intent = "auto";
+    video.currentTime = 0;
     replayIfEligible();
   };
 
@@ -156,7 +170,7 @@ function createVideoPlaybackController(video: HTMLVideoElement): ScrollAutoplayV
       if (progress < startProgress || state.intent === "manual-pause") {
         return;
       }
-      if (video.ended) {
+      if (state.awaitingReplay) {
         replayIfEligible();
         return;
       }

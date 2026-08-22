@@ -265,7 +265,7 @@ test("coordinates session video playback with glass focus and manual intent", as
   await expect.poll(async () => (await readVideoState()).paused).toBe(true);
 
   await moveSurfaceToProgress(0.96);
-  await expect.poll(async () => (await readVideoState()).paused).toBe(false);
+  await expect.poll(async () => (await readVideoState()).paused, { timeout: 500 }).toBe(false);
 
   await moveSurfaceToProgress(0.92);
   await expect.poll(async () => (await readVideoState()).paused).toBe(false);
@@ -283,15 +283,30 @@ test("coordinates session video playback with glass focus and manual intent", as
     }
     element.currentTime = Math.max(0, element.duration - 0.1);
   });
-  await expect.poll(async () => (await readVideoState()).ended).toBe(true);
+  await expect
+    .poll(async () => {
+      const state = await readVideoState();
+      return state.paused && state.currentTime < 0.1;
+    })
+    .toBe(true);
   await page.waitForTimeout(3200);
-  await expect.poll(async () => (await readVideoState()).ended).toBe(true);
+  await expect
+    .poll(async () => {
+      const state = await readVideoState();
+      return state.paused && state.currentTime < 0.1;
+    })
+    .toBe(true);
 
   await moveSurfaceToProgress(0.96);
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(700);
   await expect.poll(async () => (await readVideoState()).paused).toBe(true);
-  await page.waitForTimeout(2200);
-  await expect.poll(async () => (await readVideoState()).paused).toBe(false);
+  await moveSurfaceToProgress(0.97);
+  await page.waitForTimeout(700);
+  await moveSurfaceToProgress(0.96);
+  await page.waitForTimeout(700);
+  await moveSurfaceToProgress(0.97);
+  await page.waitForTimeout(1200);
+  await expect.poll(async () => (await readVideoState()).paused, { timeout: 500 }).toBe(false);
 
   await pauseManually();
   await moveSurfaceToProgress(0.92);
