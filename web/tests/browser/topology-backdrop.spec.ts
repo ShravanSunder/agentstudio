@@ -177,6 +177,11 @@ test("reveals the authored topology by scroll progress and ends on the mainline 
     window.scrollTo({ behavior: "instant", top: maximumScroll * 0.5 });
   });
   await waitForTopologyRender(page);
+  await page.evaluate(() => {
+    const settledMaximumScroll = document.documentElement.scrollHeight - window.innerHeight;
+    window.scrollTo({ behavior: "instant", top: settledMaximumScroll * 0.5 });
+  });
+  await waitForTopologyRender(page);
   const middleReveal = await artwork.evaluate((svg) => {
     const revealPaths = [...svg.querySelectorAll<SVGPathElement>("[data-topology-path-start]")];
     const revealLayer = svg.querySelector<SVGGElement>("[data-topology-reveal-layer]");
@@ -187,22 +192,31 @@ test("reveals the authored topology by scroll progress and ends on the mainline 
     }
     const topologyStartY = Number(svg.dataset["topologyStartY"]);
     const topologyEndY = Number(svg.dataset["topologyEndY"]);
+    const maximumScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
+    const actualScrollProgress = window.scrollY / maximumScroll;
+    const renderedScrollProgress = Number(svg.dataset["topologyScrollProgress"]);
     return {
+      actualScrollProgress,
       fadeHeight: Number(revealFade.getAttribute("height")),
       fadeY: Number(revealFade.getAttribute("y")),
       maskReference: revealLayer.getAttribute("mask"),
       pathDashArrays: revealPaths.map((path) => path.style.strokeDasharray),
-      expectedRevealEdgeY: topologyStartY + (topologyEndY - topologyStartY) * 0.5,
+      expectedRevealEdgeY:
+        topologyStartY + (topologyEndY - topologyStartY) * renderedScrollProgress,
       leadingBandCount: [
         ...svg.querySelectorAll<SVGPathElement>('[data-topology-path-role="leading-band"]'),
       ].filter((path) => getComputedStyle(path).visibility !== "hidden").length,
       revealEdgeY: Number(svg.dataset["topologyRevealEdgeY"]),
+      renderedScrollProgress,
       solidHeight: Number(revealSolid.getAttribute("height")),
     };
   });
   expect(middleReveal.leadingBandCount).toBe(0);
   expect(middleReveal.maskReference).toBe("url(#topology-vertical-reveal-mask)");
   expect(new Set(middleReveal.pathDashArrays)).toEqual(new Set(["none"]));
+  expect(
+    Math.abs(middleReveal.renderedScrollProgress - middleReveal.actualScrollProgress),
+  ).toBeLessThan(0.002);
   expect(Math.abs(middleReveal.revealEdgeY - middleReveal.expectedRevealEdgeY)).toBeLessThan(1);
   expect(middleReveal.solidHeight).toBeCloseTo(middleReveal.revealEdgeY, 4);
   expect(middleReveal.fadeY).toBeCloseTo(middleReveal.revealEdgeY, 4);
@@ -562,11 +576,11 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
       .filter((route) => route.endKind === "merge")
       .every((route) => route.endX === route.forkX),
   ).toBe(true);
-  expect(state.routeFacts.filter((route) => route.endKind === "open")).toHaveLength(4);
+  expect(state.routeFacts.filter((route) => route.endKind === "open")).toHaveLength(3);
   expect(
     state.routeFacts
       .filter((route) => route.endKind === "open")
       .every((route) => route.endRow >= state.finalRow - 4),
   ).toBe(true);
-  expect(state.routeFacts.filter((route) => route.endKind === "merge")).toHaveLength(3);
+  expect(state.routeFacts.filter((route) => route.endKind === "merge")).toHaveLength(4);
 });

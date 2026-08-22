@@ -38,6 +38,7 @@ export function initializeTopologyScrollReveal(
     const scrollProgress = clamp(window.scrollY / maximumScroll, 0, 1);
     const revealProgress = reducedMotionQuery.matches ? 1 : scrollProgress;
     const leadingBuffer = revealProgress === 0 ? 0 : Math.min(0.06, revealProgress * 0.8);
+    artwork.dataset["topologyScrollProgress"] = String(scrollProgress);
 
     artwork.toggleAttribute(
       "data-topology-at-start",

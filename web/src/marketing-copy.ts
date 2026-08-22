@@ -66,7 +66,7 @@ export const marketingCopy = {
   },
   featureDetails: {
     eyebrow: "More of the workspace",
-    headline: "The work around each agent matters too.",
+    headline: "Keep the rest of the work together.",
     description: "Files, reviews, sessions, and layouts stay part of the same workspace.",
     items: [
       {
@@ -75,35 +75,37 @@ export const marketingCopy = {
           kind: "accented",
           beforeAccent: "Keep ",
           accent: "tabs",
-          afterAccent: " on your code with Files and Review.",
+          afterAccent: " on your code.",
         },
-        summary: "Browse source and inspect every changed file without leaving the workspace.",
+        summary: "Browse source and review every changed file without leaving the workspace.",
         detail:
-          "Use Files to browse the repository and Review to move through every changed file in one continuous diff.",
+          "Files keeps the repository tree close. Review puts every changed file into one continuous diff.",
         imageDescription:
           "Agent Studio with Files and Review tabs above a changed-files tree and continuous diff, with the global sidebar hidden.",
       },
       {
         id: "persistence",
         title: {
-          kind: "no-wrap-tail",
-          beforeTail: "Close the app. Keep ",
-          tail: "your place.",
+          kind: "accented",
+          beforeAccent: "Close the app, not your ",
+          accent: "sessions",
+          afterAccent: ".",
         },
-        summary: "Terminal processes keep running after the app closes.",
+        summary: "Terminal sessions keep running after Agent Studio closes.",
         detail:
-          "Reopen Agent Studio and return to the same tabs, panes, drawers, arrangements, and visible terminal sessions.",
+          "Reopen the app to restore your tabs, panes, drawers, arrangements, and visible terminal sessions.",
       },
       {
         id: "arrangements",
         title: {
-          kind: "no-wrap-tail",
-          beforeTail: "Give every pane ",
-          tail: "its place.",
+          kind: "accented",
+          beforeAccent: "Get your ",
+          accent: "panes",
+          afterAccent: " in order.",
         },
-        summary: "Use named arrangements, or zoom one pane when you need focus.",
+        summary: "Save arrangements for the way you work, or zoom one pane when you need focus.",
         detail:
-          "Switch between saved arrangements without stopping the work in other panes, then return to the wider workspace when you are ready.",
+          "Switch arrangements without stopping work in other panes, then return to the wider workspace when you are ready.",
         savedArrangementLabel: "Saved layout",
         paneZoomLabel: "Pane Zoom",
         savedArrangementImageDescription:

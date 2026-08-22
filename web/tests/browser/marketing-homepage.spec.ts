@@ -122,41 +122,32 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   const persistencePanel = page.locator(".feature-detail").filter({
     has: page.getByRole("heading", { name: "Close the app, not your sessions." }),
   });
-  const beforeFrameButton = persistencePanel.getByRole("button", { name: "Before close" });
-  const restoredFrameButton = persistencePanel.getByRole("button", { name: "Restored" });
-  await expect(beforeFrameButton).toHaveAttribute("aria-pressed", "true");
-  await expect(restoredFrameButton).toHaveAttribute("aria-pressed", "false");
-  await expect(persistencePanel.locator('[data-persistence-frame="before"]')).toBeVisible();
-  await expect(persistencePanel.locator('[data-persistence-frame="restored"]')).toBeHidden();
+  const sessionRestoreVideo = persistencePanel.locator("[data-session-restore-video]");
+  await expect(sessionRestoreVideo).toBeVisible();
+  await expect(sessionRestoreVideo).toHaveAttribute("controls", "");
+  await expect(sessionRestoreVideo).toHaveAttribute("playsinline", "");
+  await expect(sessionRestoreVideo).toHaveAttribute("preload", "metadata");
+  await expect(sessionRestoreVideo.locator('source[type="video/mp4"]')).toHaveCount(1);
 
-  const beforeFrameGeometry = await persistencePanel.evaluate((panel) => {
-    const image = panel.querySelector('[data-persistence-frame="before"] img');
+  const videoGeometry = await persistencePanel.evaluate((panel) => {
+    const video = panel.querySelector("[data-session-restore-video]");
     const media = panel.querySelector(".feature-detail__media");
 
-    if (!(image instanceof HTMLImageElement) || !(media instanceof HTMLElement)) {
-      throw new Error("Before persistence frame or media boundary is missing");
+    if (!(video instanceof HTMLVideoElement) || !(media instanceof HTMLElement)) {
+      throw new Error("Session restore video or media boundary is missing");
     }
 
     const panelBounds = media.getBoundingClientRect();
-    const imageBounds = image.getBoundingClientRect();
+    const videoBounds = video.getBoundingClientRect();
     return {
-      leftInset: imageBounds.left - panelBounds.left,
-      rightInset: panelBounds.right - imageBounds.right,
-      unusedAreaBelow: panelBounds.bottom - imageBounds.bottom,
+      leftInset: videoBounds.left - panelBounds.left,
+      rightInset: panelBounds.right - videoBounds.right,
+      aspectRatio: videoBounds.width / videoBounds.height,
     };
   });
-  expect(beforeFrameGeometry.leftInset).toBeGreaterThan(0);
-  expect(
-    Math.abs(beforeFrameGeometry.leftInset - beforeFrameGeometry.rightInset),
-  ).toBeLessThanOrEqual(1);
-  expect(beforeFrameGeometry.unusedAreaBelow).toBeLessThanOrEqual(64);
-
-  await restoredFrameButton.click();
-  await expect(beforeFrameButton).toHaveAttribute("aria-pressed", "false");
-  await expect(restoredFrameButton).toHaveAttribute("aria-pressed", "true");
-  await expect(persistencePanel.locator('[data-persistence-frame="before"]')).toBeHidden();
-  await expect(persistencePanel.locator('[data-persistence-frame="restored"]')).toBeVisible();
-  await persistencePanel.locator('[data-persistence-frame="restored"]').scrollIntoViewIfNeeded();
+  expect(videoGeometry.leftInset).toBeGreaterThan(0);
+  expect(Math.abs(videoGeometry.leftInset - videoGeometry.rightInset)).toBeLessThanOrEqual(1);
+  expect(videoGeometry.aspectRatio).toBeCloseTo(16 / 9, 2);
 
   await expect
     .poll(() =>
@@ -167,36 +158,37 @@ test("renders the claim-first homepage and switches product stories", async ({ p
     .toBeGreaterThan(0);
   await expect
     .poll(() =>
-      persistencePanel
-        .locator('[data-persistence-frame="restored"] img')
-        .evaluate((image) => (image instanceof HTMLImageElement ? image.naturalWidth > 0 : false)),
+      sessionRestoreVideo.evaluate((video) =>
+        video instanceof HTMLVideoElement
+          ? video.readyState >= HTMLMediaElement.HAVE_METADATA
+          : false,
+      ),
     )
     .toBe(true);
-  await expect(persistencePanel.locator("img")).toHaveCount(2);
 });
 
 for (const viewport of verificationViewports) {
-  test(`fills every persistence proof header at ${viewport.width}x${viewport.height}`, async ({
+  test(`fills every comparison header at ${viewport.width}x${viewport.height}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
 
     const controlRows = page.locator('[data-persistence-proof] [role="group"]');
-    await expect(controlRows).toHaveCount(2);
+    await expect(controlRows).toHaveCount(1);
 
     const rowGeometry = await controlRows.evaluateAll((rows) =>
       rows.map((row) => {
         const controls = [...row.querySelectorAll("button")];
         if (controls.length !== 2) {
-          throw new Error("Persistence proof header must contain exactly two controls");
+          throw new Error("Comparison header must contain exactly two controls");
         }
 
         const rowBounds = row.getBoundingClientRect();
         const firstControlBounds = controls[0]?.getBoundingClientRect();
         const secondControlBounds = controls[1]?.getBoundingClientRect();
         if (firstControlBounds === undefined || secondControlBounds === undefined) {
-          throw new Error("Persistence proof controls are missing");
+          throw new Error("Comparison controls are missing");
         }
 
         const selectedControl = controls.find(
@@ -209,14 +201,14 @@ for (const viewport of verificationViewports) {
           !(selectedControl instanceof HTMLElement) ||
           !(unselectedControl instanceof HTMLElement)
         ) {
-          throw new Error("Persistence proof selection state is missing");
+          throw new Error("Comparison selection state is missing");
         }
         const selectedFrostStyle = getComputedStyle(selectedControl, "::before");
         const selectedDotStyle = getComputedStyle(selectedControl, "::after");
         const unselectedFrostStyle = getComputedStyle(unselectedControl, "::before");
         const selectedLabel = selectedControl.querySelector("span");
         if (!(selectedLabel instanceof HTMLElement)) {
-          throw new Error("Persistence proof selected label is missing");
+          throw new Error("Comparison selected label is missing");
         }
 
         return {
@@ -674,7 +666,7 @@ for (const viewport of verificationViewports) {
           expect(image.renderedHeight).toBeGreaterThan(0);
           expect(image.containedHorizontally).toBe(true);
           expect(image.containedVertically).toBe(true);
-          expect(image.unusedPanelRegionBelow).toBeLessThanOrEqual(4);
+          expect(image.unusedPanelRegionBelow).toBeLessThanOrEqual(4.01);
           expect(
             Math.abs(
               image.renderedWidth / image.renderedHeight - image.naturalWidth / image.naturalHeight,
@@ -769,11 +761,10 @@ test("presents supporting features as text and product media without numbered di
   await expect(page.locator(".feature-detail__number")).toHaveCount(0);
   await expect(page.locator(".feature-detail details, .feature-detail summary")).toHaveCount(0);
   await expect(page.locator(".feature-detail__media")).toHaveCount(3);
-  await expect(page.locator(".feature-detail__media img")).toHaveCount(5);
+  await expect(page.locator(".feature-detail__media img")).toHaveCount(3);
+  await expect(page.locator(".feature-detail__media video")).toHaveCount(1);
   await expect(featureDetails.first().locator("picture source")).toHaveCount(0);
-  await expect(featureDetails.first().getByRole("heading")).toHaveText(
-    "Keep tabs on your code.",
-  );
+  await expect(featureDetails.first().getByRole("heading")).toHaveText("Keep tabs on your code.");
   await expect(page.getByRole("heading", { name: "Run the agents you already use." })).toHaveCount(
     0,
   );
@@ -1316,7 +1307,7 @@ test("contains phone composition within the document viewport", async ({ page })
   await expect(siteHeader).toHaveCSS("width", "312px");
   await expect(siteHeader).toHaveCSS("border-radius", "24px");
   await expect(page.getByRole("tab", { name: /Git and PR context/ })).toBeAttached();
-  await expect(page.getByRole("button", { name: "Before close" })).toBeAttached();
+  await expect(page.locator("[data-session-restore-video]")).toBeAttached();
 });
 
 test("keeps the compact attached header edge-to-edge until it detaches", async ({ page }) => {

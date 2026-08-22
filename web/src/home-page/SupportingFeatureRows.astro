@@ -4,8 +4,8 @@ import { Image } from "astro:assets";
 import arrangementSavedImage from "@/assets/captures/arrangement-saved.png";
 import filesReviewTabsImage from "@/assets/captures/files-review-tabs.png";
 import paneZoomImage from "@/assets/captures/pane-zoom.png";
-import persistentBeforeImage from "@/assets/captures/persistence-claude-before.png";
-import persistentRestoredImage from "@/assets/captures/persistence-claude-restored.png";
+import sessionRestorePoster from "@/assets/media/session-restore-poster.jpg";
+import sessionRestoreVideoUrl from "@/assets/media/session-restore.mp4?url";
 import { marketingCopy } from "@/marketing-copy";
 import PersistenceProof from "@/product-plate/PersistenceProof.astro";
 
@@ -40,20 +40,9 @@ const mediaByFeatureId = {
             <div class="scroll-material-pane feature-detail__pane feature-detail__copy flex flex-col items-stretch justify-center rounded-material-pane border border-line p-[clamp(28px,3.5vw,52px)] max-lg:contents">
               <div class="scroll-material-pane-compact feature-detail__title max-w-[440px] max-lg:order-1 max-lg:max-w-none max-lg:rounded-material-pane max-lg:border max-lg:border-line max-lg:p-7 max-phone:p-5">
                 <h3 class="m-0 text-[clamp(28px,3.2vw,48px)] leading-none tracking-[-0.045em] text-ink max-phone:text-2xl">
-                  {
-                    item.title.kind === "accented" ? (
-                      <>
-                        {item.title.beforeAccent}
-                        <span class="text-primary">{item.title.accent}</span>
-                        {item.title.afterAccent}
-                      </>
-                    ) : (
-                      <>
-                        {item.title.beforeTail}
-                        <span class="whitespace-nowrap">{item.title.tail}</span>
-                      </>
-                    )
-                  }
+                  {item.title.beforeAccent}
+                  <span class="text-primary">{item.title.accent}</span>
+                  {item.title.afterAccent}
                 </h3>
               </div>
               <div class="scroll-material-pane-compact feature-detail__description mt-12 max-w-[440px] max-lg:order-3 max-lg:mt-0 max-lg:max-w-none max-lg:rounded-material-pane max-lg:border max-lg:border-line max-lg:p-7 max-phone:p-5">
@@ -68,10 +57,18 @@ const mediaByFeatureId = {
 
             <div class="scroll-material-pane feature-detail__pane feature-detail__media min-w-0 overflow-clip rounded-material-pane border border-line p-1 max-lg:order-2">
               {item.id === "persistence" ? (
-                <PersistenceProof
-                  beforeImage={persistentBeforeImage}
-                  restoredImage={persistentRestoredImage}
-                />
+                <video
+                  controls
+                  playsinline
+                  preload="metadata"
+                  poster={sessionRestorePoster.src}
+                  aria-label="Agent Studio session restore demonstration"
+                  data-session-restore-video
+                  class="block aspect-video h-auto w-full rounded-control bg-black object-contain"
+                >
+                  <source src={sessionRestoreVideoUrl} type="video/mp4" />
+                  <a href={sessionRestoreVideoUrl}>Open the session restore video.</a>
+                </video>
               ) : item.id === "arrangements" ? (
                 <PersistenceProof
                   beforeImage={arrangementSavedImage}
