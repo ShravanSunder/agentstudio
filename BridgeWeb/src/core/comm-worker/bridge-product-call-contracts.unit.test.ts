@@ -11,6 +11,8 @@ import {
 	bridgeProductReviewComparisonTargetsQueryResultSchema,
 	bridgeProductReviewIntakeReadyRequestSchema,
 	bridgeProductReviewPublicationAppliedRequestSchema,
+	bridgeProductReviewPublicationInstallAdmissionRequestSchema,
+	bridgeProductReviewPublicationInstallAdmissionResultSchema,
 } from './bridge-product-call-contracts.js';
 import { BRIDGE_PRODUCT_MAXIMUM_REVIEW_COMPARISON_TARGET_BYTES } from './bridge-product-content-contracts.js';
 
@@ -424,6 +426,49 @@ describe('Bridge product call contracts', () => {
 		]) {
 			expect(
 				bridgeProductReviewPublicationAppliedRequestSchema.safeParse(invalidRequest).success,
+			).toBe(false);
+		}
+	});
+
+	test('defines exact strict Review publication install admission contracts', () => {
+		for (const testCase of validProductSessionCorpus.reviewPublicationInstallAdmissionCases) {
+			expect(
+				bridgeProductReviewPublicationInstallAdmissionRequestSchema.parse(testCase.request.request),
+			).toEqual(testCase.request.request);
+			expect(bridgeProductCallRequestSchema.parse(testCase.request)).toEqual(testCase.request);
+			expect(
+				bridgeProductReviewPublicationInstallAdmissionResultSchema.parse(testCase.result.result),
+			).toEqual(testCase.result.result);
+			expect(bridgeProductCallResultSchema.parse(testCase.result)).toEqual(testCase.result);
+		}
+
+		for (const invalidRequest of [
+			{},
+			{ candidatePublicationId: '00000000-0000-7000-8000-000000000018' },
+			{ candidatePublicationId: '', expectedDisplayedPublicationId: null },
+			{
+				candidatePublicationId: '00000000-0000-4000-8000-000000000018',
+				expectedDisplayedPublicationId: null,
+			},
+			{
+				candidatePublicationId: '00000000-0000-7000-8000-000000000018',
+				expectedDisplayedPublicationId: '',
+			},
+			{
+				candidatePublicationId: '00000000-0000-7000-8000-000000000018',
+				expectedDisplayedPublicationId: null,
+				extra: true,
+			},
+		]) {
+			expect(
+				bridgeProductReviewPublicationInstallAdmissionRequestSchema.safeParse(invalidRequest)
+					.success,
+			).toBe(false);
+		}
+
+		for (const invalidResult of [{}, { status: 'unknown' }, { extra: true, status: 'admitted' }]) {
+			expect(
+				bridgeProductReviewPublicationInstallAdmissionResultSchema.safeParse(invalidResult).success,
 			).toBe(false);
 		}
 	});

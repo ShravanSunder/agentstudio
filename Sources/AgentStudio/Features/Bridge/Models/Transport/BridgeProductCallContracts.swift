@@ -223,6 +223,93 @@ struct BridgeProductReviewPublicationAppliedRequest: Codable, Equatable, Sendabl
     }
 }
 
+struct BridgeProductReviewInstallAdmissionRequest: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case candidatePublicationId
+        case expectedDisplayedPublicationId
+    }
+
+    let expectedDisplayedPublicationId: UUID?
+    let candidatePublicationId: UUID
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "review.publication.install.admit request"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.candidatePublicationId = try BridgeProductReviewPublicationIdContract.decode(
+            container.decode(String.self, forKey: .candidatePublicationId),
+            codingPath: decoder.codingPath
+        )
+        if let expectedDisplayedPublicationIdValue = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .expectedDisplayedPublicationId,
+            from: container,
+            codingPath: decoder.codingPath
+        ) {
+            self.expectedDisplayedPublicationId = try BridgeProductReviewPublicationIdContract.decode(
+                expectedDisplayedPublicationIdValue,
+                codingPath: decoder.codingPath
+            )
+        } else {
+            self.expectedDisplayedPublicationId = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(
+            BridgeProductReviewPublicationIdContract.encode(candidatePublicationId),
+            forKey: .candidatePublicationId
+        )
+        if let expectedDisplayedPublicationId {
+            try container.encode(
+                BridgeProductReviewPublicationIdContract.encode(expectedDisplayedPublicationId),
+                forKey: .expectedDisplayedPublicationId
+            )
+        } else {
+            try container.encodeNil(forKey: .expectedDisplayedPublicationId)
+        }
+    }
+}
+
+enum BridgeProductReviewInstallAdmissionStatus: String, Codable, Equatable, Sendable {
+    case admitted
+    case rejected
+}
+
+struct BridgeProductReviewInstallAdmissionResult: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case status
+    }
+
+    let status: BridgeProductReviewInstallAdmissionStatus
+
+    init(status: BridgeProductReviewInstallAdmissionStatus) {
+        self.status = status
+    }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "review.publication.install.admit result"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.status = try container.decode(
+            BridgeProductReviewInstallAdmissionStatus.self,
+            forKey: .status
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(status, forKey: .status)
+    }
+}
+
 struct BridgeProductReviewIntakeReadyRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case reason
@@ -387,6 +474,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
     case reviewComparisonTargetsQuery(BridgeProductReviewComparisonTargetsQueryRequest)
     case reviewIntakeReady(BridgeProductReviewIntakeReadyRequest)
     case reviewMarkFileViewed(BridgeProductReviewMarkFileViewedRequest)
+    case reviewPublicationInstallAdmission(BridgeProductReviewInstallAdmissionRequest)
     case reviewPublicationApplied(BridgeProductReviewPublicationAppliedRequest)
     case reviewAnnotationsCommand(BridgeProductWorktreeAnnotationCommandRequest)
     case reviewAnnotationsOutputInspect(BridgeProductAnnotationOutputInspectRequest)
@@ -410,6 +498,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         case .reviewComparisonTargetsQuery: "review.comparisonTargets.query"
         case .reviewIntakeReady: "review.intake.ready"
         case .reviewMarkFileViewed: "review.markFileViewed"
+        case .reviewPublicationInstallAdmission: "review.publication.install.admit"
         case .reviewPublicationApplied: "review.publication.applied"
         case .reviewAnnotationsCommand: "review.annotations.command"
         case .reviewAnnotationsOutputInspect: "review.annotations.output.inspect"
@@ -427,7 +516,8 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
             .file
         case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewComparisonTargetsQuery, .reviewIntakeReady,
             .reviewMarkFileViewed,
-            .reviewPublicationApplied, .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
+            .reviewPublicationInstallAdmission, .reviewPublicationApplied,
+            .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
             .reviewAnnotationsProjectionQuery:
             .review
         }
@@ -538,6 +628,13 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
                     forKey: .request
                 )
             )
+        case "review.publication.install.admit":
+            return .reviewPublicationInstallAdmission(
+                try container.decode(
+                    BridgeProductReviewInstallAdmissionRequest.self,
+                    forKey: .request
+                )
+            )
         case "review.annotations.command":
             let request = try container.decode(
                 BridgeProductWorktreeAnnotationCommandRequest.self,
@@ -609,6 +706,8 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
             try container.encode(request, forKey: .request)
         case .reviewPublicationApplied(let request):
             try container.encode(request, forKey: .request)
+        case .reviewPublicationInstallAdmission(let request):
+            try container.encode(request, forKey: .request)
         }
     }
 }
@@ -625,6 +724,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
     case reviewComparisonTargetsQuery(BridgeProductReviewComparisonTargetsQueryResult)
     case reviewIntakeReady
     case reviewMarkFileViewed
+    case reviewPublicationInstallAdmission(BridgeProductReviewInstallAdmissionResult)
     case reviewPublicationApplied
     case reviewAnnotationsCommand(BridgeProductWorktreeAnnotationCommandResult)
     case reviewAnnotationsOutputInspect(BridgeProductWorktreeAnnotationOutputInspectResult)
@@ -648,6 +748,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         case .reviewComparisonTargetsQuery: "review.comparisonTargets.query"
         case .reviewIntakeReady: "review.intake.ready"
         case .reviewMarkFileViewed: "review.markFileViewed"
+        case .reviewPublicationInstallAdmission: "review.publication.install.admit"
         case .reviewPublicationApplied: "review.publication.applied"
         case .reviewAnnotationsCommand: "review.annotations.command"
         case .reviewAnnotationsOutputInspect: "review.annotations.output.inspect"
@@ -665,7 +766,8 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
             .file
         case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewComparisonTargetsQuery, .reviewIntakeReady,
             .reviewMarkFileViewed,
-            .reviewPublicationApplied, .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
+            .reviewPublicationInstallAdmission, .reviewPublicationApplied,
+            .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
             .reviewAnnotationsProjectionQuery:
             .review
         }
@@ -777,6 +879,13 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
             return .reviewPublicationApplied
+        case "review.publication.install.admit":
+            return .reviewPublicationInstallAdmission(
+                try container.decode(
+                    BridgeProductReviewInstallAdmissionResult.self,
+                    forKey: .result
+                )
+            )
         case "review.annotations.command":
             return .reviewAnnotationsCommand(
                 try container.decode(BridgeProductWorktreeAnnotationCommandResult.self, forKey: .result)
@@ -866,6 +975,8 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
             .reviewIntakeReady, .reviewMarkFileViewed, .reviewPublicationApplied:
             try container.encodeNil(forKey: .result)
         case .reviewComparisonTargetsQuery(let result):
+            try container.encode(result, forKey: .result)
+        case .reviewPublicationInstallAdmission(let result):
             try container.encode(result, forKey: .result)
         }
     }

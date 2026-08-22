@@ -9,6 +9,11 @@ enum BridgePaneSurfaceSelectionStreamAbsenceDisposition: Equatable, Sendable {
 
 // swiftlint:disable type_body_length
 actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
+    let admitReviewPublicationInstallation:
+        @MainActor @Sendable (
+            BridgeProductReviewInstallAdmissionRequest,
+            BridgeProductAdmissionContext
+        ) -> BridgeReviewDisplayInstallAdmissionResult
     let applyActiveViewerModeUpdate:
         @MainActor @Sendable (
             BridgeProductCallRequest,
@@ -40,7 +45,8 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     let markReviewItemViewed: @MainActor @Sendable (String, BridgeProductAdmissionContext) -> Void
     let metadataCoordinator: BridgePaneProductMetadataCoordinator
     let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
-    let recordReviewPublicationApplication: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
+    let recordReviewPublicationApplication:
+        @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> BridgeReviewDisplayedApplicationResult
     nonisolated let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     private let reviewContentSource: any BridgePaneProductReviewContentProducing
     let reviewComparisonTargetCatalogProducer: any BridgeReviewComparisonTargetCatalogProducing
@@ -59,8 +65,14 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             BridgeReviewCommittedPublication? = { _ in nil },
         isReviewPublicationCurrent:
             @escaping @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool = { _, _ in true },
+        admitReviewPublicationInstallation:
+            @escaping @MainActor @Sendable (
+                BridgeProductReviewInstallAdmissionRequest,
+                BridgeProductAdmissionContext
+            ) -> BridgeReviewDisplayInstallAdmissionResult = { _, _ in .rejected },
         recordReviewPublicationApplication:
-            @escaping @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool = { _, _ in false },
+            @escaping @MainActor @Sendable (UUID, BridgeProductAdmissionContext) ->
+            BridgeReviewDisplayedApplicationResult = { _, _ in .rejected },
         markReviewItemViewed: @escaping @MainActor @Sendable (String, BridgeProductAdmissionContext) -> Void,
         handleReviewIntakeReady:
             @escaping @MainActor @Sendable (
@@ -130,6 +142,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         )
         self.lifecycleTraceRecorder = lifecycleTraceRecorder
         self.markReviewItemViewed = markReviewItemViewed
+        self.admitReviewPublicationInstallation = admitReviewPublicationInstallation
         self.recordReviewPublicationApplication = recordReviewPublicationApplication
         self.refreshWorkAdmissionSource = refreshWorkAdmissionSource
         self.reviewContentSource = reviewContentSource
@@ -258,6 +271,25 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             return try .callCompleted(correlating: request, result: .reviewIntakeReady)
         case .reviewPublicationApplied:
             return try .callCompleted(correlating: request, result: .reviewPublicationApplied)
+        case .reviewPublicationInstallAdmission(let admissionRequest):
+            let admissionStatus: BridgeProductReviewInstallAdmissionStatus =
+                if let productAdmission {
+                    switch await admitReviewPublicationInstallation(
+                        admissionRequest,
+                        productAdmission
+                    ) {
+                    case .admitted: .admitted
+                    case .rejected: .rejected
+                    }
+                } else {
+                    .rejected
+                }
+            return try .callCompleted(
+                correlating: request,
+                result: .reviewPublicationInstallAdmission(
+                    BridgeProductReviewInstallAdmissionResult(status: admissionStatus)
+                )
+            )
         case .reviewAnnotationsCommand(let annotationRequest):
             guard let productAdmission else {
                 return try annotationOutputUnavailableError(for: request)

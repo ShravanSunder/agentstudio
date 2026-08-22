@@ -352,6 +352,40 @@
       }
     }
   ],
+  "reviewPublicationInstallAdmissionCases": [
+    {
+      "name": "admitted-with-displayed-predecessor",
+      "request": {
+        "method": "review.publication.install.admit",
+        "request": {
+          "candidatePublicationId": "00000000-0000-7000-8000-000000000018",
+          "expectedDisplayedPublicationId": "00000000-0000-7000-8000-000000000017"
+        }
+      },
+      "result": {
+        "method": "review.publication.install.admit",
+        "result": {
+          "status": "admitted"
+        }
+      }
+    },
+    {
+      "name": "rejected-without-displayed-predecessor",
+      "request": {
+        "method": "review.publication.install.admit",
+        "request": {
+          "candidatePublicationId": "00000000-0000-7000-8000-000000000018",
+          "expectedDisplayedPublicationId": null
+        }
+      },
+      "result": {
+        "method": "review.publication.install.admit",
+        "result": {
+          "status": "rejected"
+        }
+      }
+    }
+  ],
   "controlRequests": [
     {
       "kind": "workerSession.open",

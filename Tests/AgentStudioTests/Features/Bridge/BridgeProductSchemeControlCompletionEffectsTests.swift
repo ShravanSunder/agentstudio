@@ -167,7 +167,7 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
             recordReviewPublicationApplication: { publicationId, _ in
                 recorder.record(publicationId)
-                return true
+                return .advanced
             },
             markReviewItemViewed: { _, _ in },
             refreshWorkAdmissionSource: refreshWorkAdmission.source
@@ -211,6 +211,77 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
         #expect(
             await recorder.publicationIds
                 == [UUID(uuidString: "11111111-1111-7111-8111-111111111111")!]
+        )
+    }
+
+    @Test("Review publication install admission linearizes in the response and does not replay")
+    func reviewPublicationInstallAdmissionReturnsExactResponseWithoutReplay() async throws {
+        // Arrange
+        let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
+        let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes)
+        let session = try BridgeProductSession(
+            paneSessionId: bridgeProductTestPaneSessionId,
+            workerInstanceId: bridgeProductTestWorkerInstanceId,
+            capabilityBytes: capabilityBytes
+        )
+        let recorder = await MainActor.run { BridgeProductCallMutationRecorder() }
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        let provider = BridgePaneProductSchemeProvider(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            admitReviewPublicationInstallation: { request, _ in
+                recorder.record(request)
+                return .admitted
+            },
+            markReviewItemViewed: { _, _ in },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
+        )
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
+        let dispatcher = makeBridgeProductSchemeControlDispatcher(
+            session: session,
+            provider: provider,
+            productAdmission: productAdmission
+        )
+        let callBody = bridgeProductCompletionEffectsPublicationInstallAdmissionBody()
+        let decodedCall = try BridgeProductStrictJSON.decode(
+            BridgeProductControlRequest.self,
+            from: callBody
+        )
+
+        // Act
+        let responseWithoutAdmission = await provider.response(for: decodedCall)
+        _ = try await dispatcher.dispatch(
+            exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
+            presentedCapability: capabilityHeader
+        )
+        let firstDispatch = try await dispatcher.dispatch(
+            exactRequestBytes: callBody,
+            presentedCapability: capabilityHeader
+        )
+        let replayDispatch = try await dispatcher.dispatch(
+            exactRequestBytes: callBody,
+            presentedCapability: capabilityHeader
+        )
+
+        // Assert
+        guard case .callCompleted(let completionWithoutAdmission) = responseWithoutAdmission,
+            case .reviewPublicationInstallAdmission(let rejectedResult) = completionWithoutAdmission.call
+        else {
+            Issue.record("Expected a typed rejected Review install-admission response")
+            return
+        }
+        #expect(rejectedResult.status == .rejected)
+        #expect(firstDispatch == replayDispatch)
+        #expect(await recorder.admissionRequests.count == 1)
+        let recordedRequest = try #require(await recorder.admissionRequests.first)
+        #expect(
+            recordedRequest.expectedDisplayedPublicationId
+                == UUID(uuidString: "11111111-1111-7111-8111-111111111111")
+        )
+        #expect(
+            recordedRequest.candidatePublicationId
+                == UUID(uuidString: "22222222-2222-7222-8222-222222222222")
         )
     }
 
@@ -574,6 +645,7 @@ private final class BridgeProductCallMutationRecorder {
     }
 
     private(set) var annotationCalls: [AnnotationCall] = []
+    private(set) var admissionRequests: [BridgeProductReviewInstallAdmissionRequest] = []
     private(set) var itemIds: [String] = []
     private(set) var publicationIds: [UUID] = []
     var count: Int { itemIds.count }
@@ -584,6 +656,10 @@ private final class BridgeProductCallMutationRecorder {
 
     func record(_ publicationId: UUID) {
         publicationIds.append(publicationId)
+    }
+
+    func record(_ request: BridgeProductReviewInstallAdmissionRequest) {
+        admissionRequests.append(request)
     }
 
     func record(
@@ -628,6 +704,29 @@ private func bridgeProductCompletionEffectsPublicationAppliedBody() -> Data {
           "kind": "product.call",
           "paneSessionId": "\(bridgeProductTestPaneSessionId)",
           "requestId": "review-publication-applied-1",
+          "requestSequence": 2,
+          "wireVersion": 2,
+          "workerDerivationEpoch": 0,
+          "workerInstanceId": "\(bridgeProductTestWorkerInstanceId)"
+        }
+        """.utf8
+    )
+}
+
+private func bridgeProductCompletionEffectsPublicationInstallAdmissionBody() -> Data {
+    Data(
+        """
+        {
+          "call": {
+            "method": "review.publication.install.admit",
+            "request": {
+              "candidatePublicationId": "22222222-2222-7222-8222-222222222222",
+              "expectedDisplayedPublicationId": "11111111-1111-7111-8111-111111111111"
+            }
+          },
+          "kind": "product.call",
+          "paneSessionId": "\(bridgeProductTestPaneSessionId)",
+          "requestId": "review-publication-install-admit-1",
           "requestSequence": 2,
           "wireVersion": 2,
           "workerDerivationEpoch": 0,

@@ -495,6 +495,13 @@ function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKin
 				throw new Error('Bridge product comparison-target query returned a cross-wired result.');
 			}
 			return call.result;
+		case 'review.publication.install.admit':
+			if (call.method !== 'review.publication.install.admit') {
+				throw new Error(
+					'Bridge product Review publication install admission returned a cross-wired result.',
+				);
+			}
+			return call.result;
 		case 'review.annotations.command':
 			if (call.method !== 'review.annotations.command') {
 				throw new Error('Bridge product Review annotation command returned a cross-wired result.');

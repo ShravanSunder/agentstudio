@@ -150,6 +150,7 @@ const surfaceByCallKind = {
 	'review.intake.ready': 'review',
 	'review.markFileViewed': 'review',
 	'review.publication.applied': 'review',
+	'review.publication.install.admit': 'review',
 	'review.annotations.command': 'review',
 	'review.annotations.output.inspect': 'review',
 	'review.annotations.projection.query': 'review',
@@ -207,6 +208,9 @@ const reviewComparisonTargetsQueryCallSurface: 'review' = bridgeProductSurfaceFo
 const reviewPublicationAppliedCallSurface: 'review' = bridgeProductSurfaceForCallKind(
 	'review.publication.applied',
 );
+const reviewPublicationInstallAdmissionCallSurface: 'review' = bridgeProductSurfaceForCallKind(
+	'review.publication.install.admit',
+);
 const reviewActiveModeCallSurface: 'review' = bridgeProductSurfaceForCallKind(
 	'review.activeViewerMode.update',
 );
@@ -234,6 +238,7 @@ void reviewIntakeReadyCallSurface;
 void reviewComparisonUpdateCallSurface;
 void reviewComparisonTargetsQueryCallSurface;
 void reviewPublicationAppliedCallSurface;
+void reviewPublicationInstallAdmissionCallSurface;
 void reviewActiveModeCallSurface;
 void fileActiveModeCallSurface;
 void fileSourceCurrentCallSurface;
@@ -277,6 +282,12 @@ const reviewPublicationAppliedResult: Promise<null> = productTransport.call(
 	{ publicationId: '00000000-0000-7000-8000-000000000017' },
 );
 void reviewPublicationAppliedResult;
+const reviewPublicationInstallAdmissionResult: Promise<{ status: 'admitted' | 'rejected' }> =
+	productTransport.call('review.publication.install.admit', {
+		candidatePublicationId: '00000000-0000-7000-8000-000000000018',
+		expectedDisplayedPublicationId: '00000000-0000-7000-8000-000000000017',
+	});
+void reviewPublicationInstallAdmissionResult;
 const reviewAnnotationProjectionQueryResult: Promise<
 	BridgeProductCallResult<'review.annotations.projection.query'>
 > = productTransport.call('review.annotations.projection.query', {

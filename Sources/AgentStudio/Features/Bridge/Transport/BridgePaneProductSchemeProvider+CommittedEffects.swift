@@ -180,6 +180,8 @@ extension BridgePaneProductSchemeProvider {
                     appliedRequest.publicationId,
                     productAdmission
                 )
+            case .reviewPublicationInstallAdmission:
+                break
             }
             return
         }

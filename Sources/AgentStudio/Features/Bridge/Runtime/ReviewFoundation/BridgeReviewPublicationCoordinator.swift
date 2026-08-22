@@ -187,10 +187,23 @@ struct BridgeReviewPublicationDiagnostic: Equatable, Sendable {
 
 struct BridgeReviewPublicationStateSnapshot: Equatable, Sendable {
     let active: BridgeReviewPublicationDiagnostic?
+    let acknowledgedDisplayed: BridgeReviewPublicationDiagnostic?
+    let admitted: BridgeReviewPublicationDiagnostic?
     let pending: BridgeReviewPublicationDiagnostic?
     let retiring: [BridgeReviewPublicationDiagnostic]
     let activeContentLeaseCount: Int
     let isClosed: Bool
+}
+
+enum BridgeReviewDisplayInstallAdmissionResult: Equatable, Sendable {
+    case admitted
+    case rejected
+}
+
+enum BridgeReviewDisplayedApplicationResult: Equatable, Sendable {
+    case advanced
+    case duplicate
+    case rejected
 }
 
 struct BridgeReviewPublicationCloseDrain: Sendable {
@@ -242,6 +255,8 @@ final class BridgeReviewPublicationCoordinator {
     }
 
     private var activePublication: Publication?
+    private var acknowledgedDisplayedPublicationId: UUID?
+    private var admittedDisplayPublicationId: UUID?
     private var contentLeaseById: [UUID: BridgeReviewContentAuthorityLease] = [:]
     private var pendingPublication: PendingPublication?
     private var retiringPublicationById: [UUID: RetiringPublication] = [:]
@@ -252,6 +267,10 @@ final class BridgeReviewPublicationCoordinator {
     var diagnosticSnapshot: BridgeReviewPublicationStateSnapshot {
         BridgeReviewPublicationStateSnapshot(
             active: activePublication.map(Self.diagnostic),
+            acknowledgedDisplayed: publication(
+                identifiedBy: acknowledgedDisplayedPublicationId
+            ).map(Self.diagnostic),
+            admitted: publication(identifiedBy: admittedDisplayPublicationId).map(Self.diagnostic),
             pending: pendingPublication.map { Self.diagnostic($0.publication) },
             retiring: retiringPublicationById.values
                 .map { Self.diagnostic($0.publication) }
@@ -384,6 +403,7 @@ final class BridgeReviewPublicationCoordinator {
             activePublication = pendingPublication.publication
             self.pendingPublication = nil
             beginRetiringAuthority(previousActive)
+            releaseSupersededUnprotectedRetiringPublications()
 
             let presentation = captureCommittedPresentation(
                 pendingPublication.publication.preparedPublication.package
@@ -540,36 +560,88 @@ final class BridgeReviewPublicationCoordinator {
         return replayPublication
     }
 
-    @discardableResult
-    func recordWorkerApplication(
-        publicationId: UUID,
+    func admitDisplayInstallation(
+        expectedDisplayedPublicationId: UUID?,
+        candidatePublicationId: UUID,
         productAdmission: BridgeProductAdmissionContext
-    ) -> Bool {
+    ) -> BridgeReviewDisplayInstallAdmissionResult {
         guard !isClosed,
+            acknowledgedDisplayedPublicationId == expectedDisplayedPublicationId,
             activeMatches(
-                publicationId: publicationId,
+                publicationId: candidatePublicationId,
                 productAdmission: productAdmission
-            )
+            ),
+            admittedDisplayPublicationId == nil
+                || admittedDisplayPublicationId == candidatePublicationId
         else {
-            return false
+            return .rejected
         }
         return productAdmission.withValidAdmission {
-            guard
+            guard !isClosed,
+                acknowledgedDisplayedPublicationId == expectedDisplayedPublicationId,
                 activeMatches(
-                    publicationId: publicationId,
+                    publicationId: candidatePublicationId,
                     productAdmission: productAdmission
-                )
+                ),
+                admittedDisplayPublicationId == nil
+                    || admittedDisplayPublicationId == candidatePublicationId
             else {
-                return false
+                return BridgeReviewDisplayInstallAdmissionResult.rejected
             }
-            closeRetiringContentAdmission()
-            return true
-        } ?? false
+            admittedDisplayPublicationId = candidatePublicationId
+            return .admitted
+        } ?? .rejected
+    }
+
+    func recordDisplayedApplication(
+        publicationId: UUID,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> BridgeReviewDisplayedApplicationResult {
+        guard !isClosed,
+            let displayedPublication = publication(identifiedBy: publicationId),
+            displayedPublication.productAdmission.matches(productAdmission)
+        else {
+            return .rejected
+        }
+        return productAdmission.withValidAdmission {
+            guard !isClosed,
+                let displayedPublication = publication(identifiedBy: publicationId),
+                displayedPublication.productAdmission.matches(productAdmission)
+            else {
+                return BridgeReviewDisplayedApplicationResult.rejected
+            }
+            if acknowledgedDisplayedPublicationId == publicationId {
+                return .duplicate
+            }
+            if let admittedDisplayPublicationId,
+                admittedDisplayPublicationId != publicationId
+            {
+                return .rejected
+            }
+            if let acknowledgedDisplayedPublication = publication(
+                identifiedBy: acknowledgedDisplayedPublicationId
+            ),
+                !Self.canFollow(
+                    displayedPublication.preparedPublication.package,
+                    floor: acknowledgedDisplayedPublication.preparedPublication.package
+                )
+            {
+                return .rejected
+            }
+            acknowledgedDisplayedPublicationId = publicationId
+            if admittedDisplayPublicationId == publicationId {
+                admittedDisplayPublicationId = nil
+            }
+            closeRetiringContentAdmission(olderThan: displayedPublication)
+            return .advanced
+        } ?? .rejected
     }
 
     func close() -> BridgeReviewPublicationCloseDrain {
         guard !isClosed else { return .empty }
         isClosed = true
+        acknowledgedDisplayedPublicationId = nil
+        admittedDisplayPublicationId = nil
         let artifactPins = ownedArtifactPins()
         let priorReleaseTask = takeArtifactPinReleaseTask()
         activePublication = nil
@@ -607,6 +679,14 @@ final class BridgeReviewPublicationCoordinator {
             && activePublication.productAdmission.matches(productAdmission)
     }
 
+    private func publication(identifiedBy publicationId: UUID?) -> Publication? {
+        guard let publicationId else { return nil }
+        if activePublication?.publicationId == publicationId {
+            return activePublication
+        }
+        return retiringPublicationById[publicationId]?.publication
+    }
+
     private func beginRetiringAuthority(
         _ publication: Publication?
     ) {
@@ -636,6 +716,24 @@ final class BridgeReviewPublicationCoordinator {
             retiringPublicationById.removeValue(forKey: lease.publicationId)
         } else {
             retiringPublicationById[lease.publicationId] = retiringPublication
+        }
+    }
+
+    private func releaseSupersededUnprotectedRetiringPublications() {
+        for publicationId in Array(retiringPublicationById.keys) {
+            guard publicationId != acknowledgedDisplayedPublicationId,
+                publicationId != admittedDisplayPublicationId,
+                var retiringPublication = retiringPublicationById[publicationId]
+            else {
+                continue
+            }
+            retiringPublication.acceptsNewContentLeases = false
+            if retiringPublication.activeContentLeaseIds.isEmpty {
+                releasePublication(retiringPublication.publication)
+                retiringPublicationById.removeValue(forKey: publicationId)
+            } else {
+                retiringPublicationById[publicationId] = retiringPublication
+            }
         }
     }
 
@@ -681,9 +779,16 @@ final class BridgeReviewPublicationCoordinator {
             && publication.preparedPublication.package.query.queryId == sourceIdentity
     }
 
-    private func closeRetiringContentAdmission() {
+    private func closeRetiringContentAdmission(olderThan displayedPublication: Publication) {
         for publicationId in Array(retiringPublicationById.keys) {
-            guard var retiringPublication = retiringPublicationById[publicationId] else { continue }
+            guard var retiringPublication = retiringPublicationById[publicationId],
+                Self.canFollow(
+                    displayedPublication.preparedPublication.package,
+                    floor: retiringPublication.publication.preparedPublication.package
+                )
+            else {
+                continue
+            }
             retiringPublication.acceptsNewContentLeases = false
             if retiringPublication.activeContentLeaseIds.isEmpty {
                 releasePublication(retiringPublication.publication)

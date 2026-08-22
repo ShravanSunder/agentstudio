@@ -233,8 +233,15 @@ extension BridgeDevelopmentProductHost {
                     productAdmission: productAdmission
                 )
             },
+            admitReviewPublicationInstallation: { request, productAdmission in
+                dependencies.reviewPublicationCoordinator.admitDisplayInstallation(
+                    expectedDisplayedPublicationId: request.expectedDisplayedPublicationId,
+                    candidatePublicationId: request.candidatePublicationId,
+                    productAdmission: productAdmission
+                )
+            },
             recordReviewPublicationApplication: { publicationId, productAdmission in
-                dependencies.reviewPublicationCoordinator.recordWorkerApplication(
+                dependencies.reviewPublicationCoordinator.recordDisplayedApplication(
                     publicationId: publicationId,
                     productAdmission: productAdmission
                 )

@@ -77,7 +77,8 @@ final class BridgePaneProductCommittedCallTarget {
             sourceProtocol = .review
             update = request
         case .reviewComparisonUpdate, .reviewIntakeReady, .reviewMarkFileViewed,
-            .reviewPublicationApplied, .reviewComparisonTargetsQuery:
+            .reviewPublicationInstallAdmission, .reviewPublicationApplied,
+            .reviewComparisonTargetsQuery:
             return
         }
         let activeSource = update.activeSource.map {
@@ -497,23 +498,19 @@ extension BridgePaneController {
             fileMetadataSource: fileMetadataSource,
             reviewMetadataSource: BridgePaneProductReviewMetadataSource(),
             reviewContentSource: reviewContentSource,
-            reviewPublicationReplay: { productAdmission in
-                input.reviewPublicationCoordinator.committedPublicationForReplay(
+            reviewPublicationReplay:
+                input.reviewPublicationCoordinator.committedPublicationForReplay,
+            isReviewPublicationCurrent:
+                input.reviewPublicationCoordinator.isCurrentPublication,
+            admitReviewPublicationInstallation: { request, productAdmission in
+                input.reviewPublicationCoordinator.admitDisplayInstallation(
+                    expectedDisplayedPublicationId: request.expectedDisplayedPublicationId,
+                    candidatePublicationId: request.candidatePublicationId,
                     productAdmission: productAdmission
                 )
             },
-            isReviewPublicationCurrent: { publicationId, productAdmission in
-                input.reviewPublicationCoordinator.isCurrentPublication(
-                    publicationId: publicationId,
-                    productAdmission: productAdmission
-                )
-            },
-            recordReviewPublicationApplication: { publicationId, productAdmission in
-                input.reviewPublicationCoordinator.recordWorkerApplication(
-                    publicationId: publicationId,
-                    productAdmission: productAdmission
-                )
-            },
+            recordReviewPublicationApplication:
+                input.reviewPublicationCoordinator.recordDisplayedApplication,
             markReviewItemViewed: { itemId, productAdmission in
                 _ = productAdmission.withValidAdmission {
                     input.runtime.paneState.review.markFileViewed(itemId)

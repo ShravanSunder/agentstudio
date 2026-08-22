@@ -62,6 +62,15 @@ export const bridgeProductReviewPublicationAppliedRequestSchema = z
 	.object({ publicationId: bridgeProductReviewPublicationIdSchema })
 	.strict();
 export const bridgeProductReviewPublicationAppliedResultSchema = z.null();
+export const bridgeProductReviewPublicationInstallAdmissionRequestSchema = z
+	.object({
+		candidatePublicationId: bridgeProductReviewPublicationIdSchema,
+		expectedDisplayedPublicationId: bridgeProductReviewPublicationIdSchema.nullable(),
+	})
+	.strict();
+export const bridgeProductReviewPublicationInstallAdmissionResultSchema = z
+	.object({ status: z.enum(['admitted', 'rejected']) })
+	.strict();
 
 export const bridgeProductReviewComparisonUpdateRequestSchema = z
 	.object({ target: bridgeProductReviewComparisonTargetSchema })
@@ -342,6 +351,11 @@ export type BridgeProductCallRegistry = {
 		readonly result: z.infer<typeof bridgeProductReviewPublicationAppliedResultSchema>;
 		readonly surface: 'review';
 	};
+	readonly 'review.publication.install.admit': {
+		readonly request: z.infer<typeof bridgeProductReviewPublicationInstallAdmissionRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductReviewPublicationInstallAdmissionResultSchema>;
+		readonly surface: 'review';
+	};
 	readonly 'review.activeViewerMode.update': {
 		readonly request: z.infer<typeof bridgeProductReviewActiveViewerModeUpdateRequestSchema>;
 		readonly result: z.infer<typeof bridgeProductActiveViewerModeUpdateResultSchema>;
@@ -393,6 +407,7 @@ const bridgeProductSurfaceByCallKind = {
 	'review.intake.ready': 'review',
 	'review.markFileViewed': 'review',
 	'review.publication.applied': 'review',
+	'review.publication.install.admit': 'review',
 	'review.annotations.command': 'review',
 	'review.annotations.output.inspect': 'review',
 	'review.annotations.projection.query': 'review',
@@ -480,6 +495,12 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.publication.applied'),
 			request: bridgeProductReviewPublicationAppliedRequestSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.publication.install.admit'),
+			request: bridgeProductReviewPublicationInstallAdmissionRequestSchema,
 		})
 		.strict(),
 	z
@@ -579,6 +600,12 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.publication.applied'),
 			result: bridgeProductReviewPublicationAppliedResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.publication.install.admit'),
+			result: bridgeProductReviewPublicationInstallAdmissionResultSchema,
 		})
 		.strict(),
 	z

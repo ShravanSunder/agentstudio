@@ -205,10 +205,10 @@ struct BridgePaneProductReviewContentSourceTests {
             )
         )
         #expect(
-            fixture.coordinator.recordWorkerApplication(
+            fixture.coordinator.recordDisplayedApplication(
                 publicationId: committedReplacement.publicationId,
                 productAdmission: fixture.productAdmission.context
-            )
+            ) == .advanced
         )
 
         await #expect(throws: BridgePaneProductReviewContentSourceError.unavailablePackage) {

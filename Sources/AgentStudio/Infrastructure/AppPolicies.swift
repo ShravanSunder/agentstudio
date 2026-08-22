@@ -83,6 +83,9 @@ package enum AppPolicies {
         package static let reviewComparisonTargetRecencyWindow: Duration = .seconds(30 * 24 * 60 * 60)
         package static let reviewComparisonTargetMaximumRows: Int = 2000
         package static let reviewComparisonTargetMaximumEncodedBytes: Int = 1 * 1024 * 1024
+        package static let reviewRefreshPromotionImportedCommitCount: Int = 10
+        package static let reviewRefreshPromotionAffectedFileCount: Int = 25
+        package static let reviewRefreshPromotionChangedLineCount: Int = 1000
         /// Retention cap for one content body: a single item must never evict
         /// the whole byte cache, and larger bodies render as oversized.
         package static let contentMaxBytesPerItem: Int = 16 * 1024 * 1024

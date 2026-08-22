@@ -65,20 +65,20 @@ private final class BridgeProductWebKitCarrierControllerTarget {
     func recordApplication(
         _ publicationId: UUID,
         productAdmission: BridgeProductAdmissionContext
-    ) -> Bool {
-        let accepted =
-            controller?.reviewPublicationCoordinator.recordWorkerApplication(
+    ) -> BridgeReviewDisplayedApplicationResult {
+        let result =
+            controller?.reviewPublicationCoordinator.recordDisplayedApplication(
                 publicationId: publicationId,
                 productAdmission: productAdmission
-            ) == true
+            ) ?? .rejected
         applicationReceipts.append(
             BridgeProductWebKitCarrierApplicationReceipt(
-                accepted: accepted,
+                accepted: result != .rejected,
                 publicationId: publicationId
             )
         )
         resumeApplicationReceiptWaitersIfReady()
-        return accepted
+        return result
     }
 
     func waitForAcceptedApplication(

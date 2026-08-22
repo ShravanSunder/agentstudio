@@ -234,6 +234,57 @@ describe('Bridge product session authority', () => {
 		);
 	});
 
+	test('serializes an exact Review publication install admission through the typed call mux', async () => {
+		const candidatePublicationId = '22222222-2222-7222-8222-222222222222';
+		const expectedDisplayedPublicationId = '11111111-1111-7111-8111-111111111111';
+		const fetchSpy = vi
+			.spyOn(globalThis, 'fetch')
+			.mockResolvedValueOnce(responseWithJSON(workerSessionAcceptedResponse()))
+			.mockResolvedValueOnce(
+				responseWithJSON({
+					...workerSessionResponseIdentity(),
+					call: {
+						method: 'review.publication.install.admit',
+						result: { status: 'admitted' },
+					},
+					kind: 'call.completed',
+					requestId: 'publication-install-admit-1',
+					requestSequence: 2,
+				}),
+			);
+		const authority = installAuthority();
+		const mux = new BridgeProductControlMux({
+			authority,
+			createRequestId: (): string => 'publication-install-admit-1',
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
+		});
+
+		await expect(
+			mux.call({
+				method: 'review.publication.install.admit',
+				request: { candidatePublicationId, expectedDisplayedPublicationId },
+				workerDerivationEpoch: 7,
+			}),
+		).resolves.toEqual({ status: 'admitted' });
+
+		const callRequest = fetchSpy.mock.calls[1];
+		expect(JSON.parse(new TextDecoder().decode(requireUint8Array(callRequest?.[1]?.body)))).toEqual(
+			{
+				call: {
+					method: 'review.publication.install.admit',
+					request: { candidatePublicationId, expectedDisplayedPublicationId },
+				},
+				kind: 'product.call',
+				paneSessionId: 'pane-session-1',
+				requestId: 'publication-install-admit-1',
+				requestSequence: 2,
+				wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
+				workerDerivationEpoch: 7,
+				workerInstanceId: 'worker-instance-1',
+			},
+		);
+	});
+
 	test('retries an ambiguous call failure with identical request identity and bytes', async () => {
 		const fetchSpy = vi
 			.spyOn(globalThis, 'fetch')
