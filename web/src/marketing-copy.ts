@@ -13,16 +13,24 @@ export const marketingCopy = {
     eyebrow: "Organized parallelism",
     headline: "Keep parallel work separate, but visible.",
     description:
-      "Agent Studio makes the repository and worktree, not the terminal tab, the unit of organization.",
+      "Agent Studio organizes your work by repository and worktree, not by terminal tab.",
     accessibilityLabel: "Workspace views",
   },
   stories: {
     parallelWork: {
       label: "Parallel agents",
-      description: "See which repository, worktree, branch, and directory each agent is using.",
-      phoneDescription: "See every agent's repo and branch.",
+      description: "See which repo, worktree, branch, and directory each of your agents is using.",
+      phoneDescription: "See every agent's repo, worktree, and branch.",
       imageDescription:
         "Agent Studio All Panes showing active Codex and Claude Code sessions with repository, worktree, branch, and activity context.",
+    },
+    watchFolders: {
+      label: "Watch folders",
+      description:
+        "Choose your folders once. Agent Studio finds and keeps their repos and worktrees current.",
+      phoneDescription: "Watch your folders. Agent Studio keeps their repos and worktrees current.",
+      imageDescription:
+        "Agent Studio welcome screen explaining Watch Folder discovery beside an example repository and worktree map.",
     },
     paneDrawer: {
       label: "Pane drawer",
@@ -33,14 +41,22 @@ export const marketingCopy = {
     },
     quickFind: {
       label: "Command bar",
-      description: "Press Cmd+P to find a repository, pane, or command.",
-      phoneDescription: "Find repos, panes, and commands from the command bar.",
+      description: "Press Cmd+P to find your repositories, worktrees, panes, tabs, and commands.",
+      phoneDescription: "Find your repos, panes, and commands.",
       imageDescription:
         "Agent Studio command bar showing recent repositories and command, pane, and repository scopes with the global sidebar hidden.",
     },
+    files: {
+      label: "Files",
+      description: "Browse your repository without leaving the task you're working on.",
+      phoneDescription: "Keep source beside the task.",
+      imageDescription:
+        "Agent Studio Files showing a source file beside its repository tree, with Review available as the adjacent tab and the global sidebar hidden.",
+    },
     review: {
       label: "Review",
-      description: "Review every changed file in one continuous diff with its file tree beside it.",
+      description:
+        "Review every changed file in one continuous diff, with the Changed Files tree beside it.",
       phoneDescription: "Browse changed files beside the diff.",
       imageDescription:
         "Agent Studio Review showing an AGENTS.md diff and its Changed Files tree, with the global sidebar hidden.",
@@ -65,9 +81,9 @@ export const marketingCopy = {
     },
   },
   featureDetails: {
-    eyebrow: "More of the workspace",
-    headline: "Keep the rest of the work together.",
-    description: "Files, reviews, sessions, and layouts stay part of the same workspace.",
+    eyebrow: "More for your workspace",
+    headline: "Keep the rest of your work within reach.",
+    description: "Sessions, source, reviews, and layouts stay close to the work that needs them.",
     items: [
       {
         id: "pane-types",
@@ -99,13 +115,13 @@ export const marketingCopy = {
         id: "arrangements",
         title: {
           kind: "accented",
-          beforeAccent: "Get your ",
-          accent: "panes",
-          afterAccent: " in order.",
+          beforeAccent: "Go big on ",
+          accent: "one pane",
+          afterAccent: ".",
         },
-        summary: "Save arrangements for the way you work, or zoom one pane when you need focus.",
+        summary: "Save arrangements for the layouts you return to.",
         detail:
-          "Switch arrangements without stopping work in other panes, then return to the wider workspace when you are ready.",
+          "When one pane needs your full attention, Pane Zoom gives it the whole workspace without stopping work in your other panes.",
         savedArrangementLabel: "Saved layout",
         paneZoomLabel: "Pane Zoom",
         savedArrangementImageDescription:

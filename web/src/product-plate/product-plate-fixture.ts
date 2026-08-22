@@ -2,10 +2,14 @@ import type { ImageMetadata } from "astro";
 
 import commandBarPhoneImage from "@/assets/captures/command-bar-phone.png";
 import commandBarImage from "@/assets/captures/command-bar.png";
-import gitContextImage from "@/assets/captures/git-pull-request-context.png";
-import paneDrawerImage from "@/assets/captures/pane-drawer.png";
+import filesPhoneImage from "@/assets/captures/files-phone.png";
+import filesImage from "@/assets/captures/files.png";
 import parallelAgentsImage from "@/assets/captures/parallel-agents.png";
+import parallelWorkPhoneImage from "@/assets/captures/parallel-work-phone.png";
+import reviewPhoneImage from "@/assets/captures/review-phone.png";
 import reviewImage from "@/assets/captures/review.png";
+import watchFolderPhoneImage from "@/assets/captures/watch-folder-phone.png";
+import watchFolderImage from "@/assets/captures/watch-folder.png";
 import { marketingCopy } from "@/marketing-copy";
 
 import type { ProductPlateStoryId } from "./product-plate-contract";
@@ -31,16 +35,18 @@ export const productPlateStories = [
     description: marketingCopy.stories.parallelWork.description,
     phoneDescription: marketingCopy.stories.parallelWork.phoneDescription,
     image: parallelAgentsImage,
+    phoneImage: parallelWorkPhoneImage,
     alternativeText: marketingCopy.stories.parallelWork.imageDescription,
   },
   {
     kind: "single-image",
-    id: "pane-drawer",
-    label: marketingCopy.stories.paneDrawer.label,
-    description: marketingCopy.stories.paneDrawer.description,
-    phoneDescription: marketingCopy.stories.paneDrawer.phoneDescription,
-    image: paneDrawerImage,
-    alternativeText: marketingCopy.stories.paneDrawer.imageDescription,
+    id: "watch-folder",
+    label: marketingCopy.stories.watchFolders.label,
+    description: marketingCopy.stories.watchFolders.description,
+    phoneDescription: marketingCopy.stories.watchFolders.phoneDescription,
+    image: watchFolderImage,
+    phoneImage: watchFolderPhoneImage,
+    alternativeText: marketingCopy.stories.watchFolders.imageDescription,
   },
   {
     kind: "single-image",
@@ -54,20 +60,22 @@ export const productPlateStories = [
   },
   {
     kind: "single-image",
+    id: "files",
+    label: marketingCopy.stories.files.label,
+    description: marketingCopy.stories.files.description,
+    phoneDescription: marketingCopy.stories.files.phoneDescription,
+    image: filesImage,
+    phoneImage: filesPhoneImage,
+    alternativeText: marketingCopy.stories.files.imageDescription,
+  },
+  {
+    kind: "single-image",
     id: "review",
     label: marketingCopy.stories.review.label,
     description: marketingCopy.stories.review.description,
     phoneDescription: marketingCopy.stories.review.phoneDescription,
     image: reviewImage,
+    phoneImage: reviewPhoneImage,
     alternativeText: marketingCopy.stories.review.imageDescription,
-  },
-  {
-    kind: "single-image",
-    id: "git-context",
-    label: marketingCopy.stories.gitContext.label,
-    description: marketingCopy.stories.gitContext.description,
-    phoneDescription: marketingCopy.stories.gitContext.phoneDescription,
-    image: gitContextImage,
-    alternativeText: marketingCopy.stories.gitContext.imageDescription,
   },
 ] as const satisfies readonly ProductPlateStory[];

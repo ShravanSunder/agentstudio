@@ -2,10 +2,10 @@ import { expect, test } from "@playwright/test";
 
 const productStoryCases = [
   { id: "parallel-work", accessibleName: /Parallel agents/ },
-  { id: "pane-drawer", accessibleName: /Pane drawer/ },
+  { id: "watch-folder", accessibleName: /Watch folders/ },
   { id: "quick-find", accessibleName: /Command bar/ },
+  { id: "files", accessibleName: /^Files/ },
   { id: "review", accessibleName: /Review/ },
-  { id: "git-context", accessibleName: /Git and PR context/ },
 ] as const;
 
 const verificationViewports = [
@@ -121,18 +121,18 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   }
 
   const originalUrl = page.url();
-  await page.getByRole("tab", { name: /Pane drawer/ }).click();
-  await expect(page.getByRole("tabpanel", { name: /Pane drawer/ })).toBeVisible();
+  await page.getByRole("tab", { name: /Watch folders/ }).click();
+  await expect(page.getByRole("tabpanel", { name: /Watch folders/ })).toBeVisible();
   expect(page.url()).toBe(originalUrl);
 
-  await page.getByRole("tab", { name: /Pane drawer/ }).press("ArrowRight");
+  await page.getByRole("tab", { name: /Watch folders/ }).press("ArrowRight");
   await expect(page.getByRole("tab", { name: /Command bar/ })).toHaveAttribute(
     "aria-selected",
     "true",
   );
 
-  await page.getByRole("tab", { name: /Git and PR context/ }).click();
-  await expect(page.getByRole("tabpanel", { name: /Git and PR context/ })).toBeVisible();
+  await page.getByRole("tab", { name: /Review/ }).click();
+  await expect(page.getByRole("tabpanel", { name: /Review/ })).toBeVisible();
 
   const persistencePanel = page.locator(".feature-detail").filter({
     has: page.getByRole("heading", { name: "Close the app, not your sessions." }),
@@ -564,12 +564,12 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
   expect(collapsedGeometry.storyOffsets[1]).toBeCloseTo(collapsedGeometry.selectorWidth, 0);
 
   await nextStory.click();
-  await expect(page.locator('[data-product-plate-selector="pane-drawer"]')).toHaveAttribute(
+  await expect(page.locator('[data-product-plate-selector="watch-folder"]')).toHaveAttribute(
     "aria-selected",
     "true",
   );
-  await expect(page.locator('[data-product-plate-panel="pane-drawer"]')).toBeVisible();
-  await expect(page.locator('[data-product-plate-caption="pane-drawer"]')).toBeVisible();
+  await expect(page.locator('[data-product-plate-panel="watch-folder"]')).toBeVisible();
+  await expect(page.locator('[data-product-plate-caption="watch-folder"]')).toBeVisible();
   await expect(page.locator('[data-product-plate-caption="parallel-work"]')).toBeHidden();
   await expect
     .poll(async () =>
@@ -593,11 +593,11 @@ test("synchronizes collapsed product-story text and imagery as one carousel", as
   await expect(page.locator('[data-product-plate-caption="quick-find"]')).toBeVisible();
 
   await previousStory.click();
-  await expect(page.locator('[data-product-plate-selector="pane-drawer"]')).toHaveAttribute(
+  await expect(page.locator('[data-product-plate-selector="watch-folder"]')).toHaveAttribute(
     "aria-selected",
     "true",
   );
-  await expect(page.locator('[data-product-plate-caption="pane-drawer"]')).toBeVisible();
+  await expect(page.locator('[data-product-plate-caption="watch-folder"]')).toBeVisible();
 
   await page.setViewportSize({ width: 1600, height: 1000 });
   await expect(previousStory).toBeHidden();
@@ -723,10 +723,10 @@ test("presents the phone carousel as title, image, then matching caption", async
   expect((await readPhoneComposition()).stageHeight).toBeLessThanOrEqual(96);
 
   await nextStory.click();
-  await expect(page.locator('[data-product-plate-caption="pane-drawer"]')).toBeVisible();
+  await expect(page.locator('[data-product-plate-caption="watch-folder"]')).toBeVisible();
   expect(await readPhoneComposition()).toMatchObject({
-    captionStoryId: "pane-drawer",
-    imageStoryId: "pane-drawer",
+    captionStoryId: "watch-folder",
+    imageStoryId: "watch-folder",
     visibleCaptionCount: 1,
   });
 });
@@ -1466,7 +1466,7 @@ test("contains phone composition within the document viewport", async ({ page })
   await expect(siteHeader).toHaveAttribute("data-visual-state", "floating");
   await expect(siteHeader).toHaveCSS("width", "312px");
   await expect(siteHeader).toHaveCSS("border-radius", "24px");
-  await expect(page.getByRole("tab", { name: /Git and PR context/ })).toBeAttached();
+  await expect(page.getByRole("tab", { name: /^Files/ })).toBeAttached();
   await expect(page.locator("[data-session-restore-video]")).toBeAttached();
 });
 

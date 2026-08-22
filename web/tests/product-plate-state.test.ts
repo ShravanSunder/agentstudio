@@ -20,8 +20,8 @@ describe("product plate state", () => {
     const activeState = reduceProductPlateState(initialProductPlateState, { kind: "activate" });
 
     expect(
-      reduceProductPlateState(activeState, { kind: "select", storyId: "pane-drawer" }),
-    ).toEqual({ kind: "active", selectedStoryId: "pane-drawer" });
+      reduceProductPlateState(activeState, { kind: "select", storyId: "watch-folder" }),
+    ).toEqual({ kind: "active", selectedStoryId: "watch-folder" });
   });
 
   it("wraps keyboard selection across the closed story set", () => {
@@ -33,7 +33,7 @@ describe("product plate state", () => {
 
     expect(previousState).toEqual({
       kind: "active",
-      selectedStoryId: "git-context",
+      selectedStoryId: "review",
     });
     expect(reduceProductPlateState(previousState, { kind: "move", direction: "next" })).toEqual({
       kind: "active",
@@ -52,7 +52,7 @@ describe("product plate state", () => {
     ).toEqual({ kind: "active", selectedStoryId: "parallel-work" });
     expect(
       reduceProductPlateState(selectedReviewState, { kind: "move", direction: "last" }),
-    ).toEqual({ kind: "active", selectedStoryId: "git-context" });
+    ).toEqual({ kind: "active", selectedStoryId: "review" });
   });
 
   it("rolls back to an honest static state", () => {

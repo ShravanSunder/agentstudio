@@ -60,7 +60,7 @@ export function reduceProductPlateState(
         return { kind: "active", selectedStoryId: "parallel-work" };
       }
       if (event.direction === "last") {
-        return { kind: "active", selectedStoryId: "git-context" };
+        return { kind: "active", selectedStoryId: "review" };
       }
 
       return {

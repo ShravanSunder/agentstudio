@@ -1,5 +1,7 @@
 export type WebsiteCaptureId =
   | "parallel-work"
+  | "watch-folder"
+  | "files"
   | "pane-drawer"
   | "quick-find"
   | "review"
@@ -94,6 +96,50 @@ export const websiteCaptureSuite = {
       focusRadiusPixels: null,
       focusRail: false,
       settledAtSeconds: 55,
+    },
+    {
+      id: "watch-folder",
+      assetPath: "../assets/captures/watch-folder.png",
+      phoneAssetPath: "../assets/captures/watch-folder-phone.png",
+      alternativeText:
+        "Agent Studio welcome screen explaining Watch Folder discovery beside an example repository and worktree map.",
+      source: {
+        productRevision: "1ab11ef1d9a28ff6cf3c9673d8ce72d15db5aa7b",
+        fixtureIdentity: "website-welcome-20260821",
+        bundleIdentifier: "com.agentstudio.app.debug.dnj1k",
+        executableSha256: "2824226e702bbb579be3c71069000beba3babaaa7f34950ffaaf2cb4fac25778",
+      },
+      processGeneration: "B",
+      sourceSha256: "98e937b791dcf03b81cb1b0b1aaa14c38332b0714f3f0b8a6ff7044c6dcb7d0b",
+      normalizedMasterSha256: "41c3451448cb7ea3470b5aa500530d2c0dff814ac6cd863281364be416aa5bc1",
+      websiteAssetSha256: "41c3451448cb7ea3470b5aa500530d2c0dff814ac6cd863281364be416aa5bc1",
+      phoneWebsiteAssetSha256: "8fab3ffc081d1a1085ef40b69284fac177c09a11408406eb9b63bfea551c678e",
+      focusRegion: null,
+      focusRadiusPixels: null,
+      focusRail: false,
+      settledAtSeconds: 1,
+    },
+    {
+      id: "files",
+      assetPath: "../assets/captures/files.png",
+      phoneAssetPath: "../assets/captures/files-phone.png",
+      alternativeText:
+        "Agent Studio Files showing a source file beside its repository tree, with Review available as the adjacent tab and the global sidebar hidden.",
+      source: {
+        productRevision: "0.0.90-beta.30 (151)",
+        fixtureIdentity: "owner-prepared-beta-files-2026-08-22",
+        bundleIdentifier: "com.agentstudio.app.beta",
+        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
+      },
+      processGeneration: "B",
+      sourceSha256: "816a4ee88c399398b5997517d952e14d42a9d2784b7c05ac2cfccbeb0c020626",
+      normalizedMasterSha256: "89def9d7bb825767fadbb2a207da6b141c940a6e1457c958a65bb8ac1a678c8b",
+      websiteAssetSha256: "89def9d7bb825767fadbb2a207da6b141c940a6e1457c958a65bb8ac1a678c8b",
+      phoneWebsiteAssetSha256: "f6406f4d6adf0fba141612a1456508f27b47cf3eed35c6116bb9df7880f6f7fd",
+      focusRegion: null,
+      focusRadiusPixels: null,
+      focusRail: false,
+      settledAtSeconds: 1,
     },
     {
       id: "pane-drawer",

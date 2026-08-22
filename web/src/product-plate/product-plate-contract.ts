@@ -1,9 +1,9 @@
 export const productPlateStoryIds = [
   "parallel-work",
-  "pane-drawer",
+  "watch-folder",
   "quick-find",
+  "files",
   "review",
-  "git-context",
 ] as const;
 
 export type ProductPlateStoryId = (typeof productPlateStoryIds)[number];
