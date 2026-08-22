@@ -4,6 +4,7 @@ import {
 	createBridgeCommWorkerInstalledReviewSource,
 	type BridgeWorkerInstalledReviewIdentity,
 } from './bridge-comm-worker-installed-review-source.js';
+import { encodeBridgeWorkerReviewPublicationInstalledCommand } from './bridge-comm-worker-protocol.js';
 
 describe('Bridge comm worker installed Review source', () => {
 	test('advances exact annotation identity only at main installation and retains it across metadata failure', () => {
@@ -19,7 +20,13 @@ describe('Bridge comm worker installed Review source', () => {
 		}));
 
 		installedSource.handleMetadataFailure('before-install');
-		installedSource.recordInstallation(installedCommand(7));
+		installedSource.recordInstallation(
+			encodeBridgeWorkerReviewPublicationInstalledCommand({
+				epoch: 9,
+				...installedCommand(7),
+				requestId: 'installed-review-source-test',
+			}),
+		);
 		installedSource.handleMetadataFailure('candidate-failed');
 
 		expect(unavailableErrors).toEqual(['before-install']);

@@ -29,8 +29,15 @@ export function createBridgeCommWorkerInstalledReviewSource(
 			}
 		},
 		recordInstallation: (command): void => {
-			installedIdentity = command;
-			readProductController()?.setReviewAnnotationProjectionIdentity(command);
+			const identity: BridgeWorkerInstalledReviewIdentity = {
+				packageId: command.packageId,
+				publicationId: command.publicationId,
+				reviewGeneration: command.reviewGeneration,
+				revision: command.revision,
+				sourceIdentity: command.sourceIdentity,
+			};
+			installedIdentity = identity;
+			readProductController()?.setReviewAnnotationProjectionIdentity(identity);
 		},
 	};
 }

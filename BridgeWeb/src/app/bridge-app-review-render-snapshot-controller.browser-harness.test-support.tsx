@@ -100,7 +100,10 @@ export function FileDisplaySourceProbe(props: {
 
 export interface ReviewSurfaceHarness {
 	readonly lifecycleStore: BridgeWorkerRpcLifecycleStore;
-	readonly publish: (message: BridgeWorkerServerToMainMessage) => void;
+	readonly publish: (
+		message: BridgeWorkerServerToMainMessage,
+		options?: { readonly completesReviewPublication?: boolean },
+	) => void;
 	readonly reviewClient: BridgePaneSurfaceClient;
 	readonly sentCommands: BridgeWorkerRpcCommandInput[];
 }
@@ -142,10 +145,14 @@ export function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
 	let messageListener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
 	return {
 		lifecycleStore,
-		publish: (message): void => {
+		publish: (message, options): void => {
 			if (messageListener === null) throw new Error('Expected the Review message listener.');
 			messageListener(message);
-			if (message.kind === 'reviewDisplayPatch' && message.reviewPublicationIdentity !== null) {
+			if (
+				message.kind === 'reviewDisplayPatch' &&
+				message.reviewPublicationIdentity !== null &&
+				options?.completesReviewPublication !== false
+			) {
 				const identity = message.reviewPublicationIdentity;
 				messageListener(
 					buildBridgeWorkerReviewCandidateReadyEvent({
@@ -285,6 +292,7 @@ export function fileDisplayEvent(props: {
 export function reviewDisplayEvent(props: {
 	readonly itemId: string;
 	readonly path: string;
+	readonly publicationRevision?: number;
 	readonly projectionRevision: number;
 	readonly sequence: number;
 	readonly startIndex: number;
@@ -297,7 +305,7 @@ export function reviewDisplayEvent(props: {
 		kind: 'reviewDisplayPatch',
 		reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentity(
 			'review-browser-harness-package',
-			props.projectionRevision,
+			props.publicationRevision ?? props.projectionRevision,
 			'review-browser-harness-source',
 		),
 		patches: [
@@ -309,7 +317,7 @@ export function reviewDisplayEvent(props: {
 					metadataWindowIdentity: `review-window-${props.projectionRevision}`,
 					packageId: 'review-browser-harness-package',
 					reviewGeneration: 1,
-					revision: props.projectionRevision,
+					revision: props.publicationRevision ?? props.projectionRevision,
 					status: 'ready',
 					summary: {
 						additions: 1,

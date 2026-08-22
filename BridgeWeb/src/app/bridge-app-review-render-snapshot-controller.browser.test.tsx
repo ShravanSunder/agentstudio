@@ -539,11 +539,13 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					reviewDisplayEvent({
 						itemId: `item-${windowIndex + 1}`,
 						path: `Sources/Streamed-${windowIndex + 1}.swift`,
+						publicationRevision: streamedWindowCount,
 						projectionRevision: windowIndex + 1,
 						sequence: windowIndex + 1,
 						startIndex: windowIndex,
 						totalItemCount: streamedWindowCount,
 					}),
+					{ completesReviewPublication: windowIndex === streamedWindowCount - 1 },
 				);
 			}
 			await Promise.resolve();
@@ -551,6 +553,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		// Assert
 		await expect.element(rendered.getByTestId('bridge-review-fallback-frame')).toBeInTheDocument();
 		expect(document.querySelector('[data-testid="review-viewer-shell"]')).toBeNull();
+		await expect
+			.poll(() => harness.reviewClient.renderStore.getReviewCatalogSnapshot().revision)
+			.toBe(streamedWindowCount);
 		expect(harness.reviewClient.renderStore.getReviewCatalogSnapshot()).toMatchObject({
 			itemOrderLength: streamedWindowCount,
 			revision: streamedWindowCount,
