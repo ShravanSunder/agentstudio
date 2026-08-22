@@ -875,3 +875,25 @@ Next: after the UI correction lands, rerun this six-test suite, then exact-HEAD
 `mise run test` and independent implementation review.
 Notes: backend has no remaining known functional failure. Protected PR2 files
 remain untouched.
+
+### 2026-08-22 15:13 EDT — Share unhandle race source diagnosis
+
+State: the sole remaining packaged failure is a source-proven UI coordination
+race; native handled-state CAS is correct and must not be weakened
+Head: `0654ce11d` plus packaged isolation checkpoint `124d77806`
+Observed: clipboard output succeeds and marks the saved message handled; output
+history can become visible before the independent annotation projection carries
+the output's new session semantic revision. History's “Mark as not handled”
+reads the projection revision at click time. If clicked in that window it sends
+stale `expectedSessionRevision`; native rejects the conflict, leaving All=1,
+History=1, New=0. The packaged test reaches this window intermittently.
+Evidence: Review annotation invalidation/query/content and installed identity are
+green; the output history result carries attempt/session identity but no session
+revision; `clearOutputHandled` correctly requires exact session revision.
+Needs from UI lane: preserve CAS and choose the smallest UI-owned settlement:
+gate the history action until the output-triggered projection converges, or on
+the one explicit revision-conflict wait for the newer projection and reissue the
+same exact attempt action once. Do not add a wire field, backend retry loop, or
+loosen native admission for this race.
+Next: land the UI-owned correction, then rerun the six-test packaged suite and
+exact-HEAD aggregate gate.
