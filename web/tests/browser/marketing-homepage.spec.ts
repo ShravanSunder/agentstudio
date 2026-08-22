@@ -1328,7 +1328,10 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
   expect(liftedSurface.imageWidth).toBeGreaterThan(900);
   expect(liftedSurface.imageColumnBackground).not.toBe("rgba(0, 0, 0, 0)");
   expect(liftedSurface.imageColumnBlur).not.toBe("none");
-  expect(liftedSurface.imageInset).toEqual({ top: 4, right: 4, bottom: 4, left: 4 });
+  expect(liftedSurface.imageInset.top).toBeCloseTo(4, 2);
+  expect(liftedSurface.imageInset.right).toBeCloseTo(4, 2);
+  expect(liftedSurface.imageInset.bottom).toBeCloseTo(4, 2);
+  expect(liftedSurface.imageInset.left).toBeCloseTo(4, 2);
   expect(liftedSurface.outerGap).toBe("4px");
   expect(liftedSurface.outerPadding).toBe("4px");
   expect(liftedSurface.selectorStageHeightDelta).toBeLessThanOrEqual(1);

@@ -165,6 +165,15 @@ release and visual verification SOP after owner acceptance when deployment is
 in scope. Verification must open all five product states locally and on the
 deployed site; the default state never proves the suite.
 
+Browser tests must prove user-visible behavior or an intentional design
+contract. Do not restate Tailwind classes, CSS declarations, theme-token
+values, or other source constants as runtime assertions merely because they
+are measurable. When browser layout is the behavior under test, assert the
+smallest meaningful invariant and allow a narrow subpixel tolerance instead
+of exact floating-point geometry. Synchronize on the resulting DOM,
+accessibility, or visual state; fixed sleeps or animation-frame counts are not
+completion signals.
+
 Website work is incomplete until the changed scope has evidence for:
 
 - Astro and strict TypeScript checking;

@@ -1,17 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function waitForTopologyRender(page: Page): Promise<void> {
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
-      }),
-  );
-}
-
 async function inspectVisibleTopology(page: Page): Promise<{
   readonly bridgeSurfaceIndexes: readonly number[];
-  readonly artworkOpacity: number;
   readonly columnCount: number;
   readonly duplicateNodeRowCount: number;
   readonly leftColumnCount: number;
@@ -83,7 +73,6 @@ async function inspectVisibleTopology(page: Page): Promise<{
       })
       .toSorted((left, right) => left - right);
     return {
-      artworkOpacity: Number(getComputedStyle(svg).opacity),
       bridgeSurfaceIndexes,
       columnCount: Number(svg.dataset["columnCount"]),
       duplicateNodeRowCount: resolvedRows.length - new Set(resolvedRows).size,
@@ -120,10 +109,12 @@ interface ExpectedTopologyVariant {
 
 async function expectTopologyVariant(page: Page, expected: ExpectedTopologyVariant): Promise<void> {
   await page.setViewportSize({ height: 1066, width: expected.width });
-  await waitForTopologyRender(page);
+  await expect(page.locator("[data-full-page-topology]")).toHaveAttribute(
+    "data-topology-variant",
+    expected.expectedVariant,
+  );
   const state = await inspectVisibleTopology(page);
   expect(state.columnCount).toBe(expected.expectedColumns);
-  expect(state.artworkOpacity).toBe(0.9);
   expect(state.topologyVariant).toBe(expected.expectedVariant);
   expect(state.visibleWorktreeCount).toBe(expected.expectedWorktrees);
   expect(state.worktreeCount).toBe(expected.expectedWorktrees);
@@ -142,14 +133,13 @@ async function expectTopologyVariant(page: Page, expected: ExpectedTopologyVaria
 test("hides the complete topology until both gutters fit two usable columns", async ({ page }) => {
   await page.setViewportSize({ height: 1066, width: 1823 });
   await page.goto("/");
-  await waitForTopologyRender(page);
 
   const artwork = page.locator("[data-full-page-topology]");
-  await expect(artwork).toBeHidden();
   await expect(artwork).toHaveAttribute(
     "data-topology-hidden-reason",
     "insufficient-gutter-capacity",
   );
+  await expect(artwork).toBeHidden();
 });
 
 test("switches centered capacity tiers at the exact gutter thresholds", async ({ page }) => {
@@ -163,7 +153,10 @@ test("switches centered capacity tiers at the exact gutter thresholds", async ({
     { columnCount: 4, variant: "expanded", width: 2208 },
   ] as const) {
     await page.setViewportSize({ height: 1066, width: expected.width });
-    await waitForTopologyRender(page);
+    await expect(page.locator("[data-full-page-topology]")).toHaveAttribute(
+      "data-topology-variant",
+      expected.variant,
+    );
     const state = await inspectVisibleTopology(page);
     expect(state.columnCount).toBe(expected.columnCount);
     expect(state.topologyVariant).toBe(expected.variant);
@@ -224,19 +217,30 @@ test("reveals the authored topology by scroll progress and ends on the mainline 
 }) => {
   await page.setViewportSize({ height: 1066, width: 2400 });
   await page.goto("/");
-  await waitForTopologyRender(page);
 
   const artwork = page.locator("[data-full-page-topology]");
+  await expect(artwork).toHaveAttribute("data-topology-variant", "expanded");
   await page.evaluate(() => {
     const maximumScroll = document.documentElement.scrollHeight - window.innerHeight;
     window.scrollTo({ behavior: "instant", top: maximumScroll * 0.5 });
   });
-  await waitForTopologyRender(page);
   await page.evaluate(() => {
     const settledMaximumScroll = document.documentElement.scrollHeight - window.innerHeight;
     window.scrollTo({ behavior: "instant", top: settledMaximumScroll * 0.5 });
   });
-  await waitForTopologyRender(page);
+  await expect
+    .poll(() =>
+      artwork.evaluate((svg) => {
+        const maximumScroll = Math.max(
+          document.documentElement.scrollHeight - window.innerHeight,
+          1,
+        );
+        return Math.abs(
+          Number(svg.dataset["topologyScrollProgress"]) - window.scrollY / maximumScroll,
+        );
+      }),
+    )
+    .toBeLessThan(0.002);
   const middleReveal = await artwork.evaluate((svg) => {
     const revealPaths = [...svg.querySelectorAll<SVGPathElement>("[data-topology-path-start]")];
     const revealLayer = svg.querySelector<SVGGElement>("[data-topology-reveal-layer]");
@@ -323,7 +327,7 @@ test("reveals the authored topology by scroll progress and ends on the mainline 
   await page.evaluate(() =>
     window.scrollTo({ behavior: "instant", top: document.documentElement.scrollHeight }),
   );
-  await waitForTopologyRender(page);
+  await expect(artwork).toHaveAttribute("data-topology-at-end", "");
   const finalState = await artwork.evaluate((svg) => {
     const finalNode = svg.querySelector('[data-mainline-node="end"]');
     const finalHalo = finalNode?.querySelector(".node-terminal-halo");
@@ -348,7 +352,7 @@ test("reveals the authored topology by scroll progress and ends on the mainline 
   });
 
   await page.evaluate(() => window.scrollTo({ behavior: "instant", top: 0 }));
-  await waitForTopologyRender(page);
+  await expect(artwork).toHaveAttribute("data-topology-at-start", "");
   const reversedState = await artwork.evaluate((svg) => {
     const revealSolid = svg.querySelector<SVGRectElement>("[data-topology-reveal-solid]");
     const revealFade = svg.querySelector<SVGRectElement>("[data-topology-reveal-fade]");
@@ -405,8 +409,22 @@ test("keeps the topology hidden below xl and static for reduced motion", async (
 
   await page.setViewportSize({ height: 1066, width: 2400 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await waitForTopologyRender(page);
-  const state = await page.locator("[data-full-page-topology]").evaluate((svg) => {
+  const artwork = page.locator("[data-full-page-topology]");
+  await expect(artwork).toHaveAttribute("data-topology-variant", "expanded");
+  await expect
+    .poll(() =>
+      artwork.evaluate((svg) => {
+        const nodes = [
+          ...svg.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]"),
+        ].filter((node) => {
+          const group = node.closest<SVGGElement>("[data-topology-route-group]");
+          return group === null || getComputedStyle(group).display !== "none";
+        });
+        return nodes.every((node) => Number(getComputedStyle(node).opacity) > 0);
+      }),
+    )
+    .toBe(true);
+  const state = await artwork.evaluate((svg) => {
     const nodes = [
       ...svg.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]"),
     ].filter((node) => {
@@ -429,9 +447,10 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
   await page.evaluate(() =>
     window.scrollTo({ behavior: "instant", top: document.documentElement.scrollHeight }),
   );
-  await waitForTopologyRender(page);
+  const artwork = page.locator("[data-full-page-topology]");
+  await expect(artwork).toHaveAttribute("data-topology-at-end", "");
 
-  const state = await page.locator("[data-full-page-topology]").evaluate((svg) => {
+  const state = await artwork.evaluate((svg) => {
     const svgBounds = svg.getBoundingClientRect();
     const frameBounds = document
       .querySelector<HTMLElement>("[data-topology-lab-frame]")
