@@ -618,7 +618,7 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
     diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,$file_view_diagnostic_fields,$file_view_click_fields,$file_view_stress_fields,$file_view_worker_fields,agentstudio.startup_diagnostic.render_proof.succeeded"
   fi
   if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
-    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.fixture.repo.count,agentstudio.startup_diagnostic.fixture.worktree.count,agentstudio.startup_diagnostic.fixture.inbox_notification.count,agentstudio.startup_diagnostic.fixture.sidebar_surface.count,agentstudio.startup_diagnostic.projection_proof.succeeded"
+    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.fixture.repo.count,agentstudio.startup_diagnostic.fixture.worktree.count,agentstudio.startup_diagnostic.fixture.tab.count,agentstudio.startup_diagnostic.fixture.pane.count,agentstudio.startup_diagnostic.fixture.active_pty.count,agentstudio.startup_diagnostic.fixture.sidebar_surface.count,agentstudio.startup_diagnostic.projection_proof.succeeded"
   fi
   diagnostic_command_response="$(
     wait_for_log_query \

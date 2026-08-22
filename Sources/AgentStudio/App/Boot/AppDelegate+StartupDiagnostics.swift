@@ -388,6 +388,12 @@ extension AppDelegate {
             }
             let tabCount = store.tabLayoutAtom.tabs.count
             let paneCount = store.paneAtom.graphAtom.paneIDs.count
+            let projectionProofSucceeded =
+                repoCount == AppPolicies.SidebarPerformanceProof.repositoryCount
+                && worktreeCount == AppPolicies.SidebarPerformanceProof.worktreeCount
+                && tabCount == AppPolicies.SidebarPerformanceProof.tabCount
+                && paneCount == AppPolicies.SidebarPerformanceProof.paneCount
+                && AppPolicies.SidebarPerformanceProof.activePTYCount == 1
             let projectionTrigger = AppPolicies.SidebarProjection.Trigger.startupDiagnostic
             let attributes = startupDiagnosticTraceAttributes(for: action).merging(
                 [
@@ -400,6 +406,9 @@ extension AppDelegate {
                     ),
                     "agentstudio.startup_diagnostic.fixture.sidebar_surface.count": .int(1),
                     "agentstudio.startup_diagnostic.fixture.terminal_pane.count": .int(1),
+                    "agentstudio.startup_diagnostic.projection_proof.succeeded": .bool(
+                        projectionProofSucceeded
+                    ),
                     "agentstudio.performance.sidebar.surface": .string("repo"),
                     "agentstudio.performance.sidebar.phase": .string(projectionTrigger.rawValue),
                     "agentstudio.performance.sidebar.query_state": .string("empty"),
