@@ -5,6 +5,32 @@ import Foundation
 private let libGit2NotFoundErrorCode: Int32 = -3
 
 extension AgentStudioGitBridgeReviewDataClient {
+    func loadGitCommitRangeCount(
+        _ request: GitCommitRangeCountRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitCommitRangeCount {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(domain: "commit-range-count", request: request),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.countCommitRange(request)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
     func loadGitReviewDefaultTarget(
         freshnessKey: BridgeGitReadFreshnessKey
     ) async throws -> GitReviewComparisonBranchTarget? {
@@ -362,5 +388,27 @@ extension AgentStudioGitBridgeReviewDataClient {
 
     func unexpectedGitDataPlaneErrorMessage(_ error: Error) -> String {
         "gitDataPlane:unexpected:\(String(describing: type(of: error)))"
+    }
+}
+
+extension AgentStudioGitBridgeReviewDataClient: BridgeReviewRefreshImpactDataClient {
+    func countCommitRange(
+        _ request: GitCommitRangeCountRequest,
+        candidateGeneration: BridgeReviewGeneration
+    ) async throws -> GitCommitRangeCount {
+        try await loadGitCommitRangeCount(
+            request,
+            freshnessKey: gitReadFreshnessKey(for: candidateGeneration)
+        )
+    }
+
+    func diff(
+        _ request: GitDiffRequest,
+        candidateGeneration: BridgeReviewGeneration
+    ) async throws -> GitDiffSnapshot {
+        try await loadGitDiff(
+            request,
+            freshnessKey: gitReadFreshnessKey(for: candidateGeneration)
+        )
     }
 }

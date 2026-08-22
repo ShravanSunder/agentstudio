@@ -103,6 +103,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         let comparisonPresentationRevision: Int
         let package: BridgeReviewPackage
         let publicationId: UUID
+        let refreshImpact: BridgeReviewRefreshImpact
         let reviewComparison: BridgePaneReviewComparisonPresentation?
         let operationCorrelationID: String?
     }
@@ -182,6 +183,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                 comparisonPresentationRevision: 1,
                 package: package,
                 publicationId: publicationId,
+                refreshImpact: .initial,
                 reviewComparison: nil,
                 operationCorrelationID: nil
             )
@@ -229,6 +231,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                     comparisonPresentationRevision: publication.comparisonPresentationRevision,
                     package: package,
                     publicationId: reservation.publicationId,
+                    refreshImpact: publication.refreshImpact,
                     reviewComparison: publication.reviewComparison,
                     operationCorrelationID: publication.operationCorrelationID
                 ),
@@ -463,6 +466,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                     comparisonPresentationRevision: nextPublication.comparisonPresentationRevision,
                     package: nextPackage,
                     publicationId: nextPublication.publicationId,
+                    refreshImpact: nextPublication.refreshImpact,
                     reviewComparison: nextPublication.reviewComparison,
                     operationCorrelationID: nextPublication.operationCorrelationID
                 )
@@ -471,6 +475,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             fromRevision: currentPackage.revision,
             operations: operations,
             presentationRevision: nextPublication.comparisonPresentationRevision,
+            refreshImpact: nextPublication.refreshImpact,
             reviewComparison: nextPublication.reviewComparison,
             summary: try productSummary(nextPackage.summary),
             toRevision: nextPackage.revision
@@ -567,6 +572,7 @@ private struct ReviewPackageProjection {
     let items: [ReviewProjectedItem]
     let presentationRevision: Int
     let query: BridgeProductReviewQueryValue
+    let refreshImpact: BridgeReviewRefreshImpact
     let reviewComparison: BridgePaneReviewComparisonPresentation?
     let reviewedSubjectLabel: String?
     let summary: BridgeProductReviewPackageSummaryValue
@@ -583,6 +589,7 @@ private struct ReviewPackageProjection {
         self.items = try reviewItems.map { try ReviewProjectedItem(item: $0, package: package) }
         self.presentationRevision = publication.comparisonPresentationRevision
         self.query = try productQuery(package.query)
+        self.refreshImpact = publication.refreshImpact
         self.reviewComparison = publication.reviewComparison
         self.reviewedSubjectLabel = package.reviewedSubjectLabel
         self.summary = try productSummary(package.summary)
@@ -624,6 +631,7 @@ private struct ReviewPackageProjection {
                     itemWindow: itemWindow,
                     presentationRevision: isFinalBarrier ? presentationRevision : nil,
                     query: query,
+                    refreshImpact: isFinalBarrier ? refreshImpact : nil,
                     reviewComparison: isFinalBarrier ? reviewComparison : nil,
                     reviewedSubjectLabel: reviewedSubjectLabel,
                     summary: summary,
@@ -640,6 +648,7 @@ private struct ReviewPackageProjection {
                 itemMetadata: itemSlice.map(\.metadata),
                 itemWindow: itemWindow,
                 presentationRevision: isFinalBarrier ? presentationRevision : nil,
+                refreshImpact: isFinalBarrier ? refreshImpact : nil,
                 reviewComparison: isFinalBarrier ? reviewComparison : nil,
                 summary: summary,
                 treeRows: treeSlice,

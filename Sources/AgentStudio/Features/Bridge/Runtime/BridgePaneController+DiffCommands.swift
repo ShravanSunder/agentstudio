@@ -545,7 +545,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         )
     }
 
-    private func recordReviewContentRegisterTelemetry(
+    func recordReviewContentRegisterTelemetry(
         traceContext: BridgeTraceContext?,
         contentRegisterStart: ContinuousClock.Instant
     ) async {
@@ -699,7 +699,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             }
 
             var reviewLoadStage = "delta"
-            let load = try await makeReviewPackageLoadData(
+            let preparedLoad = try await makeReviewPackageLoadData(
                 constructionResult: constructionResult,
                 contentHandles: result.registeredContentHandles,
                 productAdmission: productAdmission,
@@ -717,42 +717,39 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     productAdmission: productAdmission
                 )
             else {
-                await load.releaseArtifactPin()
+                await preparedLoad.releaseArtifactPin()
                 return .stale
             }
-            guard !Self.isUnchangedSameLineageLoad(load, currentPublication: currentPublication)
+            guard !Self.isUnchangedSameLineageLoad(preparedLoad, currentPublication: currentPublication)
             else {
-                await load.releaseArtifactPin()
+                await preparedLoad.releaseArtifactPin()
                 settleReviewComparisonAttempt(
                     reviewGeneration: refreshGeneration,
                     package: currentPackage
                 )
                 return .succeeded
             }
-            let contentRegisterStart = ContinuousClock.now
-            await recordReviewContentRegisterTelemetry(
-                traceContext: packageTraceContext,
-                contentRegisterStart: contentRegisterStart
-            )
-            let disposition = await commitReviewPackageLoad(
+            guard
+                let load = try await classifyReviewPackageRefresh(
+                    preparedLoad,
+                    currentPublication: currentPublication,
+                    refreshGeneration: refreshGeneration,
+                    foregroundWorkAdmission: foregroundWorkAdmission,
+                    productAdmission: productAdmission,
+                    reservation: reservation
+                )
+            else {
+                await preparedLoad.releaseArtifactPin()
+                return .stale
+            }
+            return await commitClassifiedReviewPackageRefresh(
                 load,
-                expectedReviewGeneration: refreshGeneration,
-                expectedReviewAuthorityGeneration: reservation.authorityGeneration,
-                operationCorrelationID: reservation.operationCorrelationID,
+                refreshGeneration: refreshGeneration,
+                reservation: reservation,
                 productAdmission: productAdmission,
-                traceContext: packageTraceContext,
+                packageTraceContext: packageTraceContext,
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
-            guard case .committed = disposition else {
-                return failCurrentReviewComparisonRefresh(
-                    refreshGeneration,
-                    failureKind: "publicationRejected",
-                    reservation: reservation,
-                    foregroundWorkAdmission: foregroundWorkAdmission,
-                    productAdmission: productAdmission
-                )
-            }
-            return .succeeded
         } catch BridgeProviderFailure.providerUnavailable {
             bridgeDiffCommandLogger.debug("Skipped bridge review refresh: provider unavailable")
             return failCurrentReviewComparisonRefresh(
@@ -778,7 +775,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         }
     }
 
-    private func failCurrentReviewComparisonRefresh(
+    func failCurrentReviewComparisonRefresh(
         _ reviewGeneration: BridgeReviewGeneration,
         failureKind: String,
         reservation: BridgePaneRefreshCatchUpReservation,

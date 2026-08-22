@@ -59,9 +59,13 @@ extension BridgeGitReviewDataClient {
 
 actor BridgeGitReviewSourceProvider: BridgeReviewSourceProvider {
     private let client: any BridgeGitReviewDataClient
+    private let refreshImpactProvider: BridgeReviewRefreshImpactProvider?
 
     init(client: any BridgeGitReviewDataClient) {
         self.client = client
+        self.refreshImpactProvider = (client as? any BridgeReviewRefreshImpactDataClient).map(
+            BridgeReviewRefreshImpactProvider.init(dataClient:)
+        )
     }
 
     func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
@@ -115,6 +119,23 @@ actor BridgeGitReviewSourceProvider: BridgeReviewSourceProvider {
             request,
             chunkByteCount: chunkByteCount,
             emitChunk: emitChunk
+        )
+    }
+}
+
+extension BridgeGitReviewSourceProvider: BridgeReviewRefreshImpactSourceProvider {
+    func measureRefreshImpact(
+        displayedPackage: BridgeReviewPackage,
+        candidatePackage: BridgeReviewPackage,
+        candidateGeneration: BridgeReviewGeneration
+    ) async throws -> BridgeReviewRefreshImpact {
+        guard let refreshImpactProvider else {
+            return .unknown(displayedPackage: displayedPackage, candidatePackage: candidatePackage)
+        }
+        return try await refreshImpactProvider.measure(
+            displayedPackage: displayedPackage,
+            candidatePackage: candidatePackage,
+            candidateGeneration: candidateGeneration
         )
     }
 }

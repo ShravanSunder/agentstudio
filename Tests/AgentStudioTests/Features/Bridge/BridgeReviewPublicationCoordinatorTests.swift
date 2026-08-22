@@ -958,4 +958,40 @@ struct DisplayInstallationTests {
         #expect(coordinator.diagnosticSnapshot.retiring.map(\.packageId) == [publicationB.package.packageId])
     }
 
+    @Test("impact lookup resolves acknowledged displayed A after native current advances to C")
+    func resolvesAcknowledgedDisplayedPublicationBehindNativeCurrent() async throws {
+        let coordinator = BridgeReviewPublicationCoordinator()
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let publicationA = try await makeReviewPreparedPublication(suffix: "impact-a", reviewGeneration: 1)
+        let publicationB = try await makeReviewPreparedPublication(suffix: "impact-b", reviewGeneration: 2)
+        let publicationC = try await makeReviewPreparedPublication(suffix: "impact-c", reviewGeneration: 3)
+        let committedA = try commitObserved(
+            publicationA,
+            in: coordinator,
+            productAdmission: productAdmission.context
+        )
+        #expect(
+            coordinator.recordDisplayedApplication(
+                publicationId: committedA.publicationId,
+                productAdmission: productAdmission.context
+            ) == .advanced
+        )
+        _ = try commitObserved(publicationB, in: coordinator, productAdmission: productAdmission.context)
+        let committedC = try commitObserved(
+            publicationC,
+            in: coordinator,
+            productAdmission: productAdmission.context
+        )
+
+        let displayed = coordinator.acknowledgedDisplayedPublication(
+            productAdmission: productAdmission.context
+        )
+        let nativeCurrent = coordinator.committedPublicationForReplay(
+            productAdmission: productAdmission.context
+        )
+
+        #expect(displayed?.publicationId == committedA.publicationId)
+        #expect(nativeCurrent?.publicationId == committedC.publicationId)
+    }
+
 }

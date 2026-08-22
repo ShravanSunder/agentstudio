@@ -17,6 +17,13 @@ struct BridgeReviewPackageLoadData {
     func releaseArtifactPin() async {
         await preparedPublication.artifactPin?.releaseAndWait()
     }
+
+    func classified(with refreshImpact: BridgeReviewRefreshImpact) -> Self {
+        Self(
+            preparedPublication: preparedPublication.classified(with: refreshImpact),
+            changeIndexLoad: changeIndexLoad
+        )
+    }
 }
 
 struct ReviewEndpointSelection {

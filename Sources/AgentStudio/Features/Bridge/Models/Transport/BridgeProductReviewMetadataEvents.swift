@@ -236,10 +236,16 @@ struct BridgeProductReviewSourceAcceptedEvent: Codable, Equatable, Sendable {
 
 struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case addedLineCount
+        case affectedFileCount
+        case affectedStableFileIdentities
         case baseEndpoint
         case comparisonOrigin
+        case deletedLineCount
         case headEndpoint
         case itemWindow
+        case newlyImportedCommitCount
+        case preDeliveryPresentationClass
         case presentationRevision
         case query
         case reviewComparison
@@ -257,6 +263,7 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
     let itemWindow: BridgeProductReviewItemWindow
     let presentationRevision: Int?
     let query: BridgeProductReviewQueryValue
+    let refreshImpact: BridgeReviewRefreshImpact?
     let reviewComparison: BridgePaneReviewComparisonPresentation?
     let reviewedSubjectLabel: String?
     let summary: BridgeProductReviewPackageSummaryValue
@@ -274,6 +281,7 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
         itemWindow: BridgeProductReviewItemWindow,
         presentationRevision: Int? = nil,
         query: BridgeProductReviewQueryValue,
+        refreshImpact: BridgeReviewRefreshImpact? = nil,
         reviewComparison: BridgePaneReviewComparisonPresentation? = nil,
         reviewedSubjectLabel: String? = nil,
         summary: BridgeProductReviewPackageSummaryValue,
@@ -290,6 +298,7 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
         self.itemWindow = itemWindow
         self.presentationRevision = presentationRevision
         self.query = query
+        self.refreshImpact = refreshImpact ?? (presentationRevision == nil ? nil : .initial)
         self.reviewComparison = reviewComparison
         self.reviewedSubjectLabel = reviewedSubjectLabel
         self.summary = summary
@@ -299,6 +308,7 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
         try validateWindowPayload(codingPath: [])
         try validatePublicationCommit(
             hasReviewComparisonKey: presentationRevision != nil || reviewComparison != nil,
+            hasRefreshImpact: self.refreshImpact != nil,
             codingPath: []
         )
         guard itemWindow.startIndex == 0, treeWindow.startIndex == 0 else {
@@ -336,6 +346,10 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
         self.itemWindow = try container.decode(BridgeProductReviewItemWindow.self, forKey: .itemWindow)
         self.presentationRevision = try container.decodeIfPresent(Int.self, forKey: .presentationRevision)
         self.query = try container.decode(BridgeProductReviewQueryValue.self, forKey: .query)
+        self.refreshImpact =
+            try BridgeReviewRefreshImpactWireContract.containsAny(in: decoder)
+            ? BridgeReviewRefreshImpactWireContract.decodeRequired(from: decoder)
+            : nil
         self.reviewComparison = try container.decodeIfPresent(
             BridgePaneReviewComparisonPresentation.self,
             forKey: .reviewComparison
@@ -348,6 +362,7 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
         try validateWindowPayload(codingPath: decoder.codingPath)
         try validatePublicationCommit(
             hasReviewComparisonKey: container.contains(.reviewComparison),
+            hasRefreshImpact: refreshImpact != nil,
             codingPath: decoder.codingPath
         )
         guard itemWindow.startIndex == 0, treeWindow.startIndex == 0 else {
@@ -371,6 +386,13 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
         if let presentationRevision {
             try container.encode(presentationRevision, forKey: .presentationRevision)
             try container.encode(reviewComparison, forKey: .reviewComparison)
+            guard let refreshImpact else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Review final display barrier requires refresh impact",
+                    codingPath: encoder.codingPath
+                )
+            }
+            try BridgeReviewRefreshImpactWireContract.encode(refreshImpact, to: encoder)
         }
         try container.encode(query, forKey: .query)
         try container.encodeIfPresent(reviewedSubjectLabel, forKey: .reviewedSubjectLabel)
@@ -398,11 +420,12 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
 
     private func validatePublicationCommit(
         hasReviewComparisonKey: Bool,
+        hasRefreshImpact: Bool,
         codingPath: [any CodingKey]
     ) throws {
         let isFinalBarrier = itemWindow.finalWindow && treeWindow.finalWindow
-        let hasCompleteComparisonCommit = presentationRevision != nil && hasReviewComparisonKey
-        let hasNoComparisonCommit = presentationRevision == nil && !hasReviewComparisonKey
+        let hasCompleteComparisonCommit = presentationRevision != nil && hasReviewComparisonKey && hasRefreshImpact
+        let hasNoComparisonCommit = presentationRevision == nil && !hasReviewComparisonKey && !hasRefreshImpact
         guard isFinalBarrier ? hasCompleteComparisonCommit : hasNoComparisonCommit else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Review publication comparison must appear exactly on the final display barrier",
@@ -421,7 +444,13 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
 
 struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case addedLineCount
+        case affectedFileCount
+        case affectedStableFileIdentities
+        case deletedLineCount
         case itemWindow
+        case newlyImportedCommitCount
+        case preDeliveryPresentationClass
         case presentationRevision
         case reviewComparison
         case treeWindow
@@ -433,6 +462,7 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
     let itemMetadata: [BridgeProductReviewItemMetadataValue]
     let itemWindow: BridgeProductReviewItemWindow
     let presentationRevision: Int?
+    let refreshImpact: BridgeReviewRefreshImpact?
     let reviewComparison: BridgePaneReviewComparisonPresentation?
     let summary: BridgeProductReviewPackageSummaryValue
     let treeRows: [BridgeProductReviewTreeRowValue]
@@ -445,6 +475,7 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
         itemMetadata: [BridgeProductReviewItemMetadataValue],
         itemWindow: BridgeProductReviewItemWindow,
         presentationRevision: Int? = nil,
+        refreshImpact: BridgeReviewRefreshImpact? = nil,
         reviewComparison: BridgePaneReviewComparisonPresentation? = nil,
         summary: BridgeProductReviewPackageSummaryValue,
         treeRows: [BridgeProductReviewTreeRowValue],
@@ -456,6 +487,7 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
         self.itemMetadata = itemMetadata
         self.itemWindow = itemWindow
         self.presentationRevision = presentationRevision
+        self.refreshImpact = refreshImpact ?? (presentationRevision == nil ? nil : .initial)
         self.reviewComparison = reviewComparison
         self.summary = summary
         self.treeRows = treeRows
@@ -469,6 +501,7 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
         }
         try validatePublicationCommit(
             hasReviewComparisonKey: presentationRevision != nil || reviewComparison != nil,
+            hasRefreshImpact: self.refreshImpact != nil,
             codingPath: []
         )
     }
@@ -493,6 +526,10 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
         self.itemMetadata = payload.itemMetadata
         self.itemWindow = try container.decode(BridgeProductReviewItemWindow.self, forKey: .itemWindow)
         self.presentationRevision = try container.decodeIfPresent(Int.self, forKey: .presentationRevision)
+        self.refreshImpact =
+            try BridgeReviewRefreshImpactWireContract.containsAny(in: decoder)
+            ? BridgeReviewRefreshImpactWireContract.decodeRequired(from: decoder)
+            : nil
         self.reviewComparison = try container.decodeIfPresent(
             BridgePaneReviewComparisonPresentation.self,
             forKey: .reviewComparison
@@ -509,6 +546,7 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
         }
         try validatePublicationCommit(
             hasReviewComparisonKey: container.contains(.reviewComparison),
+            hasRefreshImpact: refreshImpact != nil,
             codingPath: decoder.codingPath
         )
     }
@@ -523,6 +561,13 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
         if let presentationRevision {
             try container.encode(presentationRevision, forKey: .presentationRevision)
             try container.encode(reviewComparison, forKey: .reviewComparison)
+            guard let refreshImpact else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Review final display barrier requires refresh impact",
+                    codingPath: encoder.codingPath
+                )
+            }
+            try BridgeReviewRefreshImpactWireContract.encode(refreshImpact, to: encoder)
         }
         try container.encode(treeWindow, forKey: .treeWindow)
     }
@@ -539,11 +584,12 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
 
     private func validatePublicationCommit(
         hasReviewComparisonKey: Bool,
+        hasRefreshImpact: Bool,
         codingPath: [any CodingKey]
     ) throws {
         let isFinalBarrier = itemWindow.finalWindow && treeWindow.finalWindow
-        let hasCompleteComparisonCommit = presentationRevision != nil && hasReviewComparisonKey
-        let hasNoComparisonCommit = presentationRevision == nil && !hasReviewComparisonKey
+        let hasCompleteComparisonCommit = presentationRevision != nil && hasReviewComparisonKey && hasRefreshImpact
+        let hasNoComparisonCommit = presentationRevision == nil && !hasReviewComparisonKey && !hasRefreshImpact
         guard isFinalBarrier ? hasCompleteComparisonCommit : hasNoComparisonCommit else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Review publication comparison must appear exactly on the final display barrier",

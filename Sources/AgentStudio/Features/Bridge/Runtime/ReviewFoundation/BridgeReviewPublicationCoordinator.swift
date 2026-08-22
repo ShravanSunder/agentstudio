@@ -7,17 +7,20 @@ struct BridgeReviewPublicationCandidate: Equatable, Sendable {
     let delta: BridgeReviewDelta?
     let contentHandles: [BridgeContentHandle]
     let artifactPin: BridgeReviewPublicationArtifactPin?
+    let refreshImpact: BridgeReviewRefreshImpact?
 
     init(
         package: BridgeReviewPackage,
         delta: BridgeReviewDelta?,
         contentHandles: [BridgeContentHandle],
-        artifactPin: BridgeReviewPublicationArtifactPin? = nil
+        artifactPin: BridgeReviewPublicationArtifactPin? = nil,
+        refreshImpact: BridgeReviewRefreshImpact? = nil
     ) {
         self.package = package
         self.delta = delta
         self.contentHandles = contentHandles
         self.artifactPin = artifactPin
+        self.refreshImpact = refreshImpact
     }
 }
 
@@ -28,6 +31,7 @@ struct BridgeReviewPreparedPublication: Equatable, Sendable {
     let delta: BridgeReviewDelta?
     let contentHandles: [BridgeContentHandle]
     let artifactPin: BridgeReviewPublicationArtifactPin?
+    let refreshImpact: BridgeReviewRefreshImpact?
 
     private let contentHandleById: [String: BridgeContentHandle]
 
@@ -90,7 +94,35 @@ struct BridgeReviewPreparedPublication: Equatable, Sendable {
         self.delta = delta
         self.contentHandles = contentHandles
         artifactPin = candidate.artifactPin
+        refreshImpact = candidate.refreshImpact
         contentHandleById = suppliedHandleById
+    }
+
+    func classified(with refreshImpact: BridgeReviewRefreshImpact) -> Self {
+        Self(
+            package: package,
+            delta: delta,
+            contentHandles: contentHandles,
+            artifactPin: artifactPin,
+            refreshImpact: refreshImpact,
+            contentHandleById: contentHandleById
+        )
+    }
+
+    private init(
+        package: BridgeReviewPackage,
+        delta: BridgeReviewDelta?,
+        contentHandles: [BridgeContentHandle],
+        artifactPin: BridgeReviewPublicationArtifactPin?,
+        refreshImpact: BridgeReviewRefreshImpact?,
+        contentHandleById: [String: BridgeContentHandle]
+    ) {
+        self.package = package
+        self.delta = delta
+        self.contentHandles = contentHandles
+        self.artifactPin = artifactPin
+        self.refreshImpact = refreshImpact
+        self.contentHandleById = contentHandleById
     }
 
     fileprivate func contentHandle(
@@ -119,6 +151,7 @@ struct BridgeReviewCommittedPublication: Equatable, Sendable {
     let comparisonPresentationRevision: Int
     let reviewComparison: BridgePaneReviewComparisonPresentation?
     let operationCorrelationID: String?
+    let refreshImpact: BridgeReviewRefreshImpact
 
     init(
         publicationId: UUID,
@@ -127,7 +160,8 @@ struct BridgeReviewCommittedPublication: Equatable, Sendable {
         contentHandles: [BridgeContentHandle],
         comparisonPresentationRevision: Int,
         reviewComparison: BridgePaneReviewComparisonPresentation?,
-        operationCorrelationID: String? = nil
+        operationCorrelationID: String? = nil,
+        refreshImpact: BridgeReviewRefreshImpact = .initial
     ) {
         self.publicationId = publicationId
         self.package = package
@@ -136,6 +170,7 @@ struct BridgeReviewCommittedPublication: Equatable, Sendable {
         self.comparisonPresentationRevision = comparisonPresentationRevision
         self.reviewComparison = reviewComparison
         self.operationCorrelationID = operationCorrelationID
+        self.refreshImpact = refreshImpact
     }
 
     var retainedReplay: Self {
@@ -146,7 +181,8 @@ struct BridgeReviewCommittedPublication: Equatable, Sendable {
             contentHandles: contentHandles,
             comparisonPresentationRevision: comparisonPresentationRevision,
             reviewComparison: reviewComparison,
-            operationCorrelationID: nil
+            operationCorrelationID: nil,
+            refreshImpact: refreshImpact
         )
     }
 }
@@ -560,6 +596,20 @@ final class BridgeReviewPublicationCoordinator {
         return replayPublication
     }
 
+    func acknowledgedDisplayedPublication(
+        productAdmission: BridgeProductAdmissionContext
+    ) -> BridgeReviewCommittedPublication? {
+        guard !isClosed else { return nil }
+        var displayedPublication: BridgeReviewCommittedPublication?
+        _ = productAdmission.withValidAdmission {
+            guard let publication = publication(identifiedBy: acknowledgedDisplayedPublicationId),
+                publication.productAdmission.matches(productAdmission)
+            else { return }
+            displayedPublication = publication.committedPublication
+        }
+        return displayedPublication
+    }
+
     func admitDisplayInstallation(
         expectedDisplayedPublicationId: UUID?,
         candidatePublicationId: UUID,
@@ -849,7 +899,8 @@ final class BridgeReviewPublicationCoordinator {
             contentHandles: publication.preparedPublication.contentHandles,
             comparisonPresentationRevision: presentation.presentationRevision,
             reviewComparison: presentation.reviewComparison,
-            operationCorrelationID: publication.operationCorrelationID
+            operationCorrelationID: publication.operationCorrelationID,
+            refreshImpact: publication.preparedPublication.refreshImpact ?? .initial
         )
     }
 

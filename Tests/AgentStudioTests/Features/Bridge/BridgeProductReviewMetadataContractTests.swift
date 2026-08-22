@@ -37,6 +37,7 @@ struct BridgeProductReviewMetadataContractTests {
             ],
         ]
         delta["presentationRevision"] = 19
+        addReviewRefreshImpact(to: &delta)
         delta["reviewComparison"] = reviewComparisonPresentationObject()
         delta["summary"] = reviewSummaryObject()
         delta["toRevision"] = 11
@@ -189,7 +190,21 @@ struct BridgeProductReviewMetadataContractTests {
         #expect(decodedTerminal.presentationRevision == 19)
         #expect(decodedTerminal.reviewComparison == nil)
 
-        for missingKey in ["presentationRevision", "reviewComparison"] {
+        var unknownImpact = reviewSnapshotObject()
+        unknownImpact["preDeliveryPresentationClass"] = ["kind": "promoted", "reason": "unknown"]
+        unknownImpact["newlyImportedCommitCount"] = NSNull()
+        unknownImpact["affectedFileCount"] = NSNull()
+        unknownImpact["addedLineCount"] = NSNull()
+        unknownImpact["deletedLineCount"] = NSNull()
+        unknownImpact["affectedStableFileIdentities"] = ["review-item-1"]
+        guard case .snapshot(let decodedUnknownImpact) = try decodeReviewMetadataEvent(unknownImpact) else {
+            Issue.record("Expected terminal Review snapshot with unknown impact")
+            return
+        }
+        #expect(decodedUnknownImpact.refreshImpact?.preDeliveryPresentationClass == .promoted(reason: .unknown))
+        #expect(decodedUnknownImpact.refreshImpact?.newlyImportedCommitCount == nil)
+
+        for missingKey in ["presentationRevision", "reviewComparison"] + reviewRefreshImpactWireKeys {
             var invalidTerminal = reviewSnapshotObject()
             invalidTerminal.removeValue(forKey: missingKey)
             #expect(throws: (any Error).self) {
@@ -204,6 +219,9 @@ struct BridgeProductReviewMetadataContractTests {
         nonterminalSnapshot["itemWindow"] = itemWindow
         nonterminalSnapshot.removeValue(forKey: "presentationRevision")
         nonterminalSnapshot.removeValue(forKey: "reviewComparison")
+        for refreshImpactKey in reviewRefreshImpactWireKeys {
+            nonterminalSnapshot.removeValue(forKey: refreshImpactKey)
+        }
         _ = try decodeReviewMetadataEvent(nonterminalSnapshot)
 
         for commitKey in ["presentationRevision", "reviewComparison"] {
@@ -218,7 +236,7 @@ struct BridgeProductReviewMetadataContractTests {
             }
         }
 
-        for missingKey in ["presentationRevision", "reviewComparison"] {
+        for missingKey in ["presentationRevision", "reviewComparison"] + reviewRefreshImpactWireKeys {
             var invalidDelta = reviewDeltaObject()
             invalidDelta.removeValue(forKey: missingKey)
             #expect(throws: (any Error).self) {
@@ -309,6 +327,7 @@ private func reviewIdentityObject(eventKind: String) -> [String: Any] {
     [
         "eventKind": eventKind,
         "generation": 7,
+        "operationCorrelationId": NSNull(),
         "packageId": "review-package-1",
         "publicationId": "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa",
         "revision": 11,
@@ -341,6 +360,7 @@ private func reviewSnapshotObject() -> [String: Any] {
     ]
     snapshot["query"] = reviewQueryObject()
     snapshot["presentationRevision"] = 19
+    addReviewRefreshImpact(to: &snapshot)
     snapshot["reviewComparison"] = reviewComparisonPresentationObject()
     snapshot["summary"] = reviewSummaryObject()
     snapshot["treeRows"] = [reviewTreeRowObject()]
@@ -368,10 +388,29 @@ private func reviewDeltaObject(
     delta["fromRevision"] = 10
     delta["operations"] = operations
     delta["presentationRevision"] = 19
+    addReviewRefreshImpact(to: &delta)
     delta["reviewComparison"] = reviewComparisonPresentationObject()
     delta["summary"] = reviewSummaryObject()
     delta["toRevision"] = 11
     return delta
+}
+
+private let reviewRefreshImpactWireKeys = [
+    "preDeliveryPresentationClass",
+    "newlyImportedCommitCount",
+    "affectedFileCount",
+    "addedLineCount",
+    "deletedLineCount",
+    "affectedStableFileIdentities",
+]
+
+private func addReviewRefreshImpact(to event: inout [String: Any]) {
+    event["preDeliveryPresentationClass"] = ["kind": "ordinary"]
+    event["newlyImportedCommitCount"] = 0
+    event["affectedFileCount"] = 0
+    event["addedLineCount"] = 0
+    event["deletedLineCount"] = 0
+    event["affectedStableFileIdentities"] = []
 }
 
 private func reviewComparisonPresentationObject() -> [String: Any] {
@@ -529,6 +568,7 @@ private func reviewMetadataFrameObject(event: [String: Any]) -> [String: Any] {
         "interestSha256": String(repeating: "a", count: 64),
         "kind": "subscription.data",
         "metadataStreamId": "metadata-stream-1",
+        "operationCorrelationId": NSNull(),
         "paneSessionId": "pane-session-1",
         "sourceGeneration": 7,
         "streamSequence": 1,

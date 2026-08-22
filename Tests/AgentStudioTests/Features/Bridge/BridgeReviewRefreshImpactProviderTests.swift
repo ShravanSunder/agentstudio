@@ -1,0 +1,400 @@
+import AgentStudioGit
+import Foundation
+import Testing
+
+@testable import AgentStudioBridge
+
+@Suite("Bridge Review refresh impact provider")
+struct BridgeReviewRefreshImpactProviderTests {
+    @Test(
+        "classifies exact threshold boundaries",
+        arguments: [
+            (9, 24, 500, 499, BridgeReviewPreDeliveryPresentationClass.ordinary),
+            (10, 1, 1, 1, .promoted(reason: .commits)),
+            (1, 25, 1, 1, .promoted(reason: .files)),
+            (1, 1, 500, 500, .promoted(reason: .lines)),
+        ]
+    )
+    func classifiesThresholdBoundaries(
+        commitCount: Int,
+        fileCount: Int,
+        addedLineCount: Int,
+        deletedLineCount: Int,
+        expectedClass: BridgeReviewPreDeliveryPresentationClass
+    ) {
+        let impact = BridgeReviewRefreshImpact.exact(
+            newlyImportedCommitCount: commitCount,
+            affectedFileCount: fileCount,
+            addedLineCount: addedLineCount,
+            deletedLineCount: deletedLineCount,
+            affectedStableFileIdentities: ["stable-file"]
+        )
+
+        #expect(impact.preDeliveryPresentationClass == expectedClass)
+    }
+
+    @Test("measures the displayed publication to candidate and maps rename and delete identities on both sides")
+    func measuresDisplayedToCandidateWithBothIdentitySides() async throws {
+        let displayed = makeImpactPackage(
+            reviewGeneration: 1,
+            revision: 1,
+            reviewedHeadOID: "displayed-head",
+            items: [
+                impactItem(itemId: "displayed-renamed", basePath: "old.swift", headPath: "old.swift"),
+                impactItem(itemId: "displayed-deleted", basePath: "deleted.swift", headPath: "deleted.swift"),
+            ]
+        )
+        let candidate = makeImpactPackage(
+            reviewGeneration: 3,
+            revision: 3,
+            reviewedHeadOID: "candidate-head",
+            items: [
+                impactItem(itemId: "candidate-renamed", basePath: "old.swift", headPath: "new.swift"),
+                impactItem(itemId: "candidate-deleted", basePath: "deleted.swift", headPath: nil),
+            ]
+        )
+        let dataClient = BridgeReviewRefreshImpactDataClientFake(
+            commitRangeCount: .exact(2),
+            diff: GitDiffSnapshot(
+                files: [
+                    impactDiffFile(
+                        fileId: "rename",
+                        path: "new.swift",
+                        previousPath: "old.swift",
+                        changeKind: .renamed,
+                        additions: 4,
+                        deletions: 2
+                    ),
+                    impactDiffFile(
+                        fileId: "delete",
+                        path: "deleted.swift",
+                        previousPath: nil,
+                        changeKind: .deleted,
+                        additions: 0,
+                        deletions: 3
+                    ),
+                ]
+            )
+        )
+        let provider = BridgeReviewRefreshImpactProvider(dataClient: dataClient)
+
+        let impact = try await provider.measure(
+            displayedPackage: displayed,
+            candidatePackage: candidate,
+            candidateGeneration: candidate.reviewGeneration
+        )
+
+        #expect(impact.newlyImportedCommitCount == 2)
+        #expect(impact.affectedFileCount == 2)
+        #expect(impact.addedLineCount == 4)
+        #expect(impact.deletedLineCount == 5)
+        #expect(
+            impact.affectedStableFileIdentities == [
+                "candidate-deleted",
+                "candidate-renamed",
+                "displayed-deleted",
+                "displayed-renamed",
+            ]
+        )
+        let requests = await dataClient.requests()
+        #expect(requests.commitRange?.base == .named("displayed-head"))
+        #expect(requests.commitRange?.candidate == .named("candidate-head"))
+        #expect(requests.commitRange?.maximumCount == 10)
+        #expect(requests.diff?.base == .commit("displayed-head"))
+        #expect(requests.diff?.compare == .commit("candidate-head"))
+    }
+
+    @Test("unrelated or incomplete source facts promote unknown and conservatively affect both packages")
+    func promotesUnknownForUnrelatedSourceFacts() async throws {
+        let displayed = makeImpactPackage(
+            reviewGeneration: 1,
+            revision: 1,
+            reviewedHeadOID: "displayed-head",
+            items: [impactItem(itemId: "displayed-file", basePath: "file.swift", headPath: "file.swift")]
+        )
+        let candidate = makeImpactPackage(
+            reviewGeneration: 2,
+            revision: 2,
+            reviewedHeadOID: "candidate-head",
+            items: [impactItem(itemId: "candidate-file", basePath: "file.swift", headPath: "file.swift")]
+        )
+        let provider = BridgeReviewRefreshImpactProvider(
+            dataClient: BridgeReviewRefreshImpactDataClientFake(
+                commitRangeCount: .unrelated,
+                diff: GitDiffSnapshot(files: [])
+            )
+        )
+
+        let impact = try await provider.measure(
+            displayedPackage: displayed,
+            candidatePackage: candidate,
+            candidateGeneration: candidate.reviewGeneration
+        )
+
+        #expect(impact.preDeliveryPresentationClass == .promoted(reason: .unknown))
+        #expect(impact.newlyImportedCommitCount == nil)
+        #expect(impact.affectedFileCount == nil)
+        #expect(impact.addedLineCount == nil)
+        #expect(impact.deletedLineCount == nil)
+        #expect(impact.affectedStableFileIdentities == ["candidate-file", "displayed-file"])
+    }
+
+    @Test("carries the capped commit count as a conservative promotion lower bound")
+    func carriesCappedCommitCountAsLowerBound() async throws {
+        let displayed = makeImpactPackage(
+            reviewGeneration: 1,
+            revision: 1,
+            reviewedHeadOID: "displayed-head",
+            items: []
+        )
+        let candidate = makeImpactPackage(
+            reviewGeneration: 2,
+            revision: 2,
+            reviewedHeadOID: "candidate-head",
+            items: []
+        )
+        let provider = BridgeReviewRefreshImpactProvider(
+            dataClient: BridgeReviewRefreshImpactDataClientFake(
+                commitRangeCount: .atLeastLimit(10),
+                diff: GitDiffSnapshot(files: [])
+            )
+        )
+
+        let impact = try await provider.measure(
+            displayedPackage: displayed,
+            candidatePackage: candidate,
+            candidateGeneration: candidate.reviewGeneration
+        )
+
+        #expect(impact.newlyImportedCommitCount == 10)
+        #expect(impact.preDeliveryPresentationClass == .promoted(reason: .commits))
+    }
+
+    @Test("provider failure promotes unknown while cancellation remains stale control flow")
+    func separatesUnknownFailureFromCancellation() async throws {
+        let displayed = makeImpactPackage(
+            reviewGeneration: 1,
+            revision: 1,
+            reviewedHeadOID: "displayed-head",
+            items: [impactItem(itemId: "displayed-file", basePath: "file.swift", headPath: "file.swift")]
+        )
+        let candidate = makeImpactPackage(
+            reviewGeneration: 2,
+            revision: 2,
+            reviewedHeadOID: "candidate-head",
+            items: [impactItem(itemId: "candidate-file", basePath: "file.swift", headPath: "file.swift")]
+        )
+        let failedProvider = BridgeReviewRefreshImpactProvider(
+            dataClient: BridgeReviewRefreshImpactDataClientFake(
+                commitRangeCount: .exact(1),
+                diff: GitDiffSnapshot(files: []),
+                injectedFailure: .failed
+            )
+        )
+        let cancelledProvider = BridgeReviewRefreshImpactProvider(
+            dataClient: BridgeReviewRefreshImpactDataClientFake(
+                commitRangeCount: .exact(1),
+                diff: GitDiffSnapshot(files: []),
+                injectedFailure: .cancelled
+            )
+        )
+
+        let failedImpact = try await failedProvider.measure(
+            displayedPackage: displayed,
+            candidatePackage: candidate,
+            candidateGeneration: candidate.reviewGeneration
+        )
+
+        #expect(failedImpact.preDeliveryPresentationClass == .promoted(reason: .unknown))
+        await #expect(throws: CancellationError.self) {
+            _ = try await cancelledProvider.measure(
+                displayedPackage: displayed,
+                candidatePackage: candidate,
+                candidateGeneration: candidate.reviewGeneration
+            )
+        }
+    }
+}
+
+private enum BridgeReviewRefreshImpactInjectedFailure: Error, Sendable {
+    case cancelled
+    case failed
+}
+
+private actor BridgeReviewRefreshImpactDataClientFake: BridgeReviewRefreshImpactDataClient {
+    nonisolated let repositoryPath = URL(fileURLWithPath: "/repository")
+
+    struct Requests: Sendable {
+        let commitRange: GitCommitRangeCountRequest?
+        let diff: GitDiffRequest?
+    }
+
+    private let commitRangeCount: GitCommitRangeCount
+    private let diffSnapshot: GitDiffSnapshot
+    private let injectedFailure: BridgeReviewRefreshImpactInjectedFailure?
+    private var commitRangeRequest: GitCommitRangeCountRequest?
+    private var diffRequest: GitDiffRequest?
+
+    init(
+        commitRangeCount: GitCommitRangeCount,
+        diff: GitDiffSnapshot,
+        injectedFailure: BridgeReviewRefreshImpactInjectedFailure? = nil
+    ) {
+        self.commitRangeCount = commitRangeCount
+        self.diffSnapshot = diff
+        self.injectedFailure = injectedFailure
+    }
+
+    func countCommitRange(
+        _ request: GitCommitRangeCountRequest,
+        candidateGeneration _: BridgeReviewGeneration
+    ) async throws -> GitCommitRangeCount {
+        commitRangeRequest = request
+        if injectedFailure == .cancelled { throw CancellationError() }
+        if injectedFailure == .failed { throw BridgeReviewRefreshImpactInjectedFailure.failed }
+        return commitRangeCount
+    }
+
+    func diff(
+        _ request: GitDiffRequest,
+        candidateGeneration _: BridgeReviewGeneration
+    ) async throws -> GitDiffSnapshot {
+        diffRequest = request
+        return diffSnapshot
+    }
+
+    func requests() -> Requests {
+        Requests(commitRange: commitRangeRequest, diff: diffRequest)
+    }
+}
+
+private func makeImpactPackage(
+    reviewGeneration: BridgeReviewGeneration,
+    revision: Int,
+    reviewedHeadOID: String,
+    items: [BridgeReviewItemDescriptor]
+) -> BridgeReviewPackage {
+    let repoId = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
+    let worktreeId = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
+    let baseEndpoint = BridgeSourceEndpoint(
+        endpointId: "impact-base",
+        kind: .gitRef,
+        repoId: repoId,
+        worktreeId: worktreeId,
+        label: "main",
+        createdAtUnixMilliseconds: 1,
+        contentSetHash: "base-oid",
+        providerIdentity: "base-oid"
+    )
+    let headEndpoint = BridgeSourceEndpoint(
+        endpointId: "impact-head",
+        kind: .workingTree,
+        repoId: repoId,
+        worktreeId: worktreeId,
+        label: "working tree",
+        createdAtUnixMilliseconds: 1,
+        contentSetHash: reviewedHeadOID,
+        providerIdentity: "working-tree"
+    )
+    return BridgeReviewPackage(
+        packageId: "impact-package",
+        schemaVersion: 1,
+        reviewGeneration: reviewGeneration,
+        revision: revision,
+        query: BridgeReviewQuery(
+            queryId: "impact-query",
+            queryKind: .compare,
+            repoId: repoId,
+            worktreeId: worktreeId,
+            baseEndpointId: baseEndpoint.endpointId,
+            headEndpointId: headEndpoint.endpointId,
+            comparisonSemantics: .workingTreeDelta,
+            pathScope: [],
+            fileTarget: nil,
+            viewFilter: BridgeViewFilter(),
+            grouping: BridgeChangeGrouping(kind: .folder),
+            provenanceFilter: BridgeProvenanceFilter()
+        ),
+        baseEndpoint: baseEndpoint,
+        headEndpoint: headEndpoint,
+        orderedItemIds: items.map(\.itemId),
+        itemsById: Dictionary(uniqueKeysWithValues: items.map { ($0.itemId, $0) }),
+        groups: [],
+        summary: BridgeReviewPackageSummary(
+            filesChanged: items.count,
+            additions: items.reduce(0) { $0 + $1.additions },
+            deletions: items.reduce(0) { $0 + $1.deletions },
+            visibleFileCount: items.count,
+            hiddenFileCount: 0
+        ),
+        filterState: BridgeViewFilter(),
+        generatedAtUnixMilliseconds: 1,
+        comparisonOrigin: .contribution(
+            BridgeReviewContributionOrigin(
+                symbolicTarget: .branch(name: "main"),
+                resolvedTargetOID: "target-oid",
+                reviewedHeadOID: reviewedHeadOID,
+                baseRole: .commonCommit,
+                baseOID: "base-oid"
+            )
+        )
+    )
+}
+
+private func impactItem(
+    itemId: String,
+    basePath: String?,
+    headPath: String?
+) -> BridgeReviewItemDescriptor {
+    BridgeReviewItemDescriptor(
+        itemId: itemId,
+        itemKind: .diff,
+        itemVersion: 1,
+        basePath: basePath,
+        headPath: headPath,
+        changeKind: headPath == nil ? .deleted : (basePath == headPath ? .modified : .renamed),
+        fileClass: .source,
+        language: "swift",
+        extension: "swift",
+        sizeBytes: 1,
+        baseContentHash: "base-\(itemId)",
+        headContentHash: headPath == nil ? nil : "head-\(itemId)",
+        contentHashAlgorithm: "git-blob-sha1",
+        additions: 1,
+        deletions: headPath == nil ? 1 : 0,
+        isHiddenByDefault: false,
+        hiddenReason: nil,
+        reviewPriority: .normal,
+        contentRoles: .init(),
+        cacheKey: "cache-\(itemId)",
+        provenance: BridgeProvenanceSummary(),
+        annotationSummary: BridgeAnnotationSummary(threadCount: 0, unresolvedThreadCount: 0, commentCount: 0),
+        reviewState: .unreviewed,
+        collapsed: false
+    )
+}
+
+private func impactDiffFile(
+    fileId: String,
+    path: String,
+    previousPath: String?,
+    changeKind: GitDiffChangeKind,
+    additions: Int,
+    deletions: Int
+) -> GitDiffFile {
+    GitDiffFile(
+        fileId: fileId,
+        path: path,
+        previousPath: previousPath,
+        changeKind: changeKind,
+        oldContentHash: "old-\(fileId)",
+        newContentHash: changeKind == .deleted ? nil : "new-\(fileId)",
+        contentHashAlgorithm: "git-blob-sha1",
+        oldMode: 0o100644,
+        newMode: changeKind == .deleted ? nil : 0o100644,
+        additions: additions,
+        deletions: deletions,
+        isBinary: false,
+        sizeBytes: 1
+    )
+}

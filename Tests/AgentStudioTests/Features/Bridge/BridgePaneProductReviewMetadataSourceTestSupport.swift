@@ -65,6 +65,7 @@ func deliverReviewPackage(
     _ package: BridgeReviewPackage,
     publicationId: UUID = reviewMetadataTestPublicationId,
     operationCorrelationID: String? = nil,
+    refreshImpact: BridgeReviewRefreshImpact = .initial,
     through source: BridgePaneProductReviewMetadataSource,
     productAdmission: BridgeProductAdmissionContext
 ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -77,7 +78,8 @@ func deliverReviewPackage(
         publication: reviewMetadataCommittedPublication(
             package,
             publicationId: publicationId,
-            operationCorrelationID: operationCorrelationID
+            operationCorrelationID: operationCorrelationID,
+            refreshImpact: refreshImpact
         ),
         reservation: reservation,
         productAdmission: productAdmission
@@ -87,7 +89,8 @@ func deliverReviewPackage(
 func reviewMetadataCommittedPublication(
     _ package: BridgeReviewPackage,
     publicationId: UUID = reviewMetadataTestPublicationId,
-    operationCorrelationID: String? = nil
+    operationCorrelationID: String? = nil,
+    refreshImpact: BridgeReviewRefreshImpact = .initial
 ) -> BridgeReviewCommittedPublication {
     BridgeReviewCommittedPublication(
         publicationId: publicationId,
@@ -96,7 +99,8 @@ func reviewMetadataCommittedPublication(
         contentHandles: [],
         comparisonPresentationRevision: 1,
         reviewComparison: nil,
-        operationCorrelationID: operationCorrelationID
+        operationCorrelationID: operationCorrelationID,
+        refreshImpact: refreshImpact
     )
 }
 

@@ -2,10 +2,16 @@ import Foundation
 
 struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case addedLineCount
+        case affectedFileCount
+        case affectedStableFileIdentities
         case contentSources
+        case deletedLineCount
         case eventKind
         case fromRevision
+        case newlyImportedCommitCount
         case operations
+        case preDeliveryPresentationClass
         case presentationRevision
         case reviewComparison
         case summary
@@ -17,6 +23,7 @@ struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
     let fromRevision: Int
     let operations: [BridgeProductReviewMetadataOperation]
     let presentationRevision: Int
+    let refreshImpact: BridgeReviewRefreshImpact
     let reviewComparison: BridgePaneReviewComparisonPresentation?
     let summary: BridgeProductReviewPackageSummaryValue
     let toRevision: Int
@@ -27,6 +34,7 @@ struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
         fromRevision: Int,
         operations: [BridgeProductReviewMetadataOperation],
         presentationRevision: Int,
+        refreshImpact: BridgeReviewRefreshImpact = .initial,
         reviewComparison: BridgePaneReviewComparisonPresentation?,
         summary: BridgeProductReviewPackageSummaryValue,
         toRevision: Int
@@ -36,6 +44,7 @@ struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
         self.fromRevision = fromRevision
         self.operations = operations
         self.presentationRevision = presentationRevision
+        self.refreshImpact = refreshImpact
         self.reviewComparison = reviewComparison
         self.summary = summary
         self.toRevision = toRevision
@@ -63,6 +72,7 @@ struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
         self.fromRevision = try container.decode(Int.self, forKey: .fromRevision)
         self.operations = try container.decode([BridgeProductReviewMetadataOperation].self, forKey: .operations)
         self.presentationRevision = try container.decode(Int.self, forKey: .presentationRevision)
+        self.refreshImpact = try BridgeReviewRefreshImpactWireContract.decodeRequired(from: decoder)
         self.reviewComparison = try BridgeProductContractDecoding.decodeRequiredNullable(
             BridgePaneReviewComparisonPresentation.self,
             forKey: .reviewComparison,
@@ -129,6 +139,7 @@ struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
         try container.encode(fromRevision, forKey: .fromRevision)
         try container.encode(operations, forKey: .operations)
         try container.encode(presentationRevision, forKey: .presentationRevision)
+        try BridgeReviewRefreshImpactWireContract.encode(refreshImpact, to: encoder)
         try container.encode(reviewComparison, forKey: .reviewComparison)
         try container.encode(summary, forKey: .summary)
         try container.encode(toRevision, forKey: .toRevision)
