@@ -326,7 +326,7 @@ const worktrees: readonly AuthoredWorktree[] = [
   }
 
   [data-topology-current-node]:not(.node-terminal-group) {
-    animation: topology-current-node-pulse 2.4s ease-in-out infinite;
+    animation: topology-current-node-pulse 2.6s ease-in-out infinite;
     transform-box: fill-box;
     transform-origin: center;
   }
@@ -391,11 +391,12 @@ const worktrees: readonly AuthoredWorktree[] = [
       transform: scale(1);
     }
 
-    50% {
-      filter: brightness(1.3) drop-shadow(0 0 3px currentColor)
-        drop-shadow(0 0 6px currentColor);
-      stroke-width: 2.25px;
-      transform: scale(1.24);
+    45%,
+    62% {
+      filter: brightness(1.55) drop-shadow(0 0 4px currentColor)
+        drop-shadow(0 0 10px currentColor);
+      stroke-width: 3.25px;
+      transform: scale(1.5);
     }
   }
 
