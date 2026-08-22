@@ -692,3 +692,33 @@ sequence, then packaged WKWebView and exact-HEAD aggregate proof
 Notes: dev-server OTLP allowlisting for these controlled fields is landing in the
 next small proof checkpoint. The broad CodeView/Pierre hydration blocker remains
 separate and unchanged.
+
+### 2026-08-22 11:31 EDT — Git performance and late-hunk Review proof checkpoint
+
+State: practical `agentstudio-git` optimization and bounded Review diff-window
+repair are committed; full document-replacement lifecycle needs one design
+decision before backend implementation continues
+Head: `694d4d901`; preceding pin checkpoint `14bacc069`; published
+`agentstudio-git` revision `83370ae74f63dda2b7e451089776cde0c603d57c`
+Owns: backend/comm-worker/Git package and proof only; no visual UI files changed
+Changed: bounded commit traversal uses allocation-free fixed-width OID keys;
+Agent Studio pins that revision; Review diff windows now anchor at the first
+changed line, retain bounded context, and preserve original hunk coordinates
+instead of comparing identical first-400-line prefixes
+Proof: `agentstudio-git` commit traversal improves approximately 10–18% CPU at
+the 256-visit bound with unchanged ~9.2 MB RSS; library build/lint and commit
+range 9/9 plus diff impact 7/7 pass; Agent Studio dependency pin 1/1 passes;
+BridgeWeb planner/verifier 60/60 and complete check pass; real worktree hydration
+now reaches 35 settled windows instead of timing out
+Needs from UI lane: continue consuming only the existing typed refresh seam;
+do not work around File→Review reload by adding UI state, a second store, or a
+parallel install path
+Next: owner concurrence on document replacement semantics. A new main document
+has no active bank while native still acknowledges displayed A, so its
+`expectedDisplayed = nil` admission is correctly rejected by the current CAS.
+The reviewed design covers worker replacement with a retained bank, not loss of
+the entire main document bank.
+Notes: the remaining raw-DOM order violation is separately classified as proof
+drift because Pierre retains sticky/pool hosts outside `getRenderedItems()`;
+correct it against Pierre's logical rendered-item range without weakening the
+authoritative catalog-order gate. Protected PR2 files remain untouched.
