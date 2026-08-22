@@ -90,6 +90,22 @@ export function WorktreeAnnotationSurfaceProvider(
 		annotationClient.getSnapshot,
 		annotationClient.getServerSnapshot,
 	);
+	const subscribeToInstalledReviewPublication = useCallback(
+		(listener: () => void): (() => void) =>
+			props.surfaceClient.surface === 'review'
+				? props.surfaceClient.renderStore.subscribeReviewRefreshPresentation(listener)
+				: () => {},
+		[props.surfaceClient],
+	);
+	const getInstalledReviewPublicationKey = useCallback(
+		(): string | null => installedReviewPublicationKey(props.surfaceClient),
+		[props.surfaceClient],
+	);
+	const installedPublicationKey = useSyncExternalStore(
+		subscribeToInstalledReviewPublication,
+		getInstalledReviewPublicationKey,
+		getInstalledReviewPublicationKey,
+	);
 	useEffect((): (() => void) | undefined => {
 		if (projection.operationCorrelationId === null || projection.revision === null)
 			return undefined;
@@ -285,10 +301,11 @@ export function WorktreeAnnotationSurfaceProvider(
 			releaseEditWhenInactive,
 		],
 	);
-	useEffect((): (() => void) => {
+	useEffect((): (() => void) => (): void => annotationClient.dispose(), [annotationClient]);
+	useEffect((): void => {
+		if (installedPublicationKey === null) return;
 		void annotationClient.execute({ kind: 'session.discover' }).catch((): void => {});
-		return (): void => annotationClient.dispose();
-	}, [annotationClient]);
+	}, [annotationClient, installedPublicationKey]);
 	return (
 		<worktreeAnnotationMarkdownClientContext.Provider value={props.markdownWorkerClient ?? null}>
 			<worktreeAnnotationSurfaceClientContext.Provider value={annotationClient}>
@@ -303,6 +320,19 @@ export function WorktreeAnnotationSurfaceProvider(
 			</worktreeAnnotationSurfaceClientContext.Provider>
 		</worktreeAnnotationMarkdownClientContext.Provider>
 	);
+}
+
+function installedReviewPublicationKey(surfaceClient: BridgePaneSurfaceClient): string | null {
+	if (surfaceClient.surface === 'fileView') return 'fileView';
+	const identity = surfaceClient.renderStore.getReviewRefreshPresentation().activeIdentity;
+	if (identity === null) return null;
+	return JSON.stringify([
+		identity.packageId,
+		identity.publicationId,
+		identity.generation,
+		identity.revision,
+		identity.sourceIdentity,
+	]);
 }
 
 function WorktreeAnnotationThreadExpansionReconciler(): null {

@@ -29,6 +29,28 @@ const CANDIDATE = reviewIdentity(2, '12');
 const SUCCESSOR = reviewIdentity(3, '13');
 
 describe('Bridge main Review publication integration', () => {
+	test('applies exact-active projection patches without staging a successor candidate', async () => {
+		// Arrange
+		const harness = createHarness();
+		await installPublication(harness, ACTIVE, 'item-a');
+
+		// Act
+		harness.receive({
+			...reviewDisplayEvent(ACTIVE, 'item-active-query'),
+			projectionRevision: 2,
+			sequence: 2,
+		});
+
+		// Assert
+		expect(harness.store.getReviewItemSnapshot('item-active-query')).toBeDefined();
+		expect(harness.store.getReviewRefreshPresentation()).toEqual({
+			activeIdentity: mainIdentity(ACTIVE),
+			candidate: null,
+		});
+		expect(harness.pendingCommandCount('reviewPublicationInstallAdmit')).toBe(0);
+		harness.dispose();
+	});
+
 	test('orders real RPC display, ready, admission, promotion, installed, and acknowledgement', async () => {
 		// Arrange
 		const harness = createHarness();

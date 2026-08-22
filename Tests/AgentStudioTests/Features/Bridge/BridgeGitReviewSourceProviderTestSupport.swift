@@ -247,6 +247,12 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         return commitRangeCount
     }
 
+    func summarizeDiffImpact(_: GitDiffImpactSummaryRequest) async throws(GitDataPlaneError)
+        -> GitDiffImpactSummary
+    {
+        throw GitDataPlaneError.unsupported(message: "diff impact summary not configured")
+    }
+
     func contributionDiff(_ request: GitContributionDiffRequest) async throws(GitDataPlaneError)
         -> GitContributionDiffSnapshot
     {

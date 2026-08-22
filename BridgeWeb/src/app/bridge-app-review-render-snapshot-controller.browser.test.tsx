@@ -9,7 +9,10 @@ import { createBridgeMainRenderFulfillmentCoordinator } from '../core/comm-worke
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
-import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
+import {
+	bridgeWorkerReviewPublicationIdentity,
+	bridgeWorkerReviewSourceContext,
+} from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import { BridgeFileViewerSurfaceClientProvider } from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
 import { createBridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
@@ -155,6 +158,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 
 		// Act
 		await act(async (): Promise<void> => {
+			harness.publish(hierarchicalReviewDisplayEvent());
+			await Promise.resolve();
+			await Promise.resolve();
 			harness.publish(reviewComparisonPanelChromeEvent());
 			await Promise.resolve();
 		});
@@ -222,6 +228,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 
 		// Act
 		await act(async (): Promise<void> => {
+			harness.publish(hierarchicalReviewDisplayEvent());
+			await Promise.resolve();
+			await Promise.resolve();
 			harness.publish(reviewComparisonPanelChromeEvent());
 			await Promise.resolve();
 		});
@@ -290,6 +299,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			/>,
 		);
 		await act(async (): Promise<void> => {
+			harness.publish(hierarchicalReviewDisplayEvent());
+			await Promise.resolve();
+			await Promise.resolve();
 			harness.publish(reviewComparisonPanelChromeEvent());
 			await Promise.resolve();
 		});
@@ -334,7 +346,11 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				direction: 'serverWorkerToMain',
 				epoch: 1,
 				kind: 'reviewDisplayPatch',
-				reviewPublicationIdentity: null,
+				reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentity(
+					'review-package-browser-test',
+					1,
+					'review-source-browser-test',
+				),
 				patches: [
 					{
 						operation: 'upsert',

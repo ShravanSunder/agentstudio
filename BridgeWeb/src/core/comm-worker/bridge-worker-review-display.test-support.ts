@@ -1,4 +1,7 @@
-import type { BridgeWorkerReviewSourceDisplayPayload } from './bridge-worker-contracts.js';
+import type {
+	BridgeWorkerReviewPublicationIdentity,
+	BridgeWorkerReviewSourceDisplayPayload,
+} from './bridge-worker-contracts.js';
 
 export type BridgeWorkerReviewSourceContext = Pick<
 	BridgeWorkerReviewSourceDisplayPayload,
@@ -65,5 +68,19 @@ export function bridgeWorkerReviewSourceContext(
 			worktreeId,
 		},
 		reviewedSubjectLabel: null,
+	};
+}
+
+export function bridgeWorkerReviewPublicationIdentity(
+	packageId: string,
+	revision = 1,
+	sourceIdentity = `${packageId}-source`,
+): BridgeWorkerReviewPublicationIdentity {
+	return {
+		packageId,
+		publicationId: `00000000-0000-7000-8000-${revision.toString().padStart(12, '0')}`,
+		reviewGeneration: 1,
+		revision,
+		sourceIdentity,
 	};
 }

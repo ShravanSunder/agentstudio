@@ -2,22 +2,29 @@ import type {
 	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerReviewDisplayPatchEvent,
 } from '../core/comm-worker/bridge-worker-contracts.js';
-import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
+import {
+	bridgeWorkerReviewPublicationIdentity,
+	bridgeWorkerReviewSourceContext,
+} from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 
 export function hierarchicalReviewDisplayEvent(): BridgeWorkerReviewDisplayPatchEvent {
 	return {
 		direction: 'serverWorkerToMain',
 		epoch: 1,
 		kind: 'reviewDisplayPatch',
-		reviewPublicationIdentity: null,
+		reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentity(
+			'test-review-package',
+			1,
+			'test-review-source',
+		),
 		patches: [
 			{
 				operation: 'upsert',
 				payload: {
-					...bridgeWorkerReviewSourceContext('review-hierarchical-package'),
-					metadataSourceId: 'review-hierarchical-source',
+					...bridgeWorkerReviewSourceContext('test-review-package'),
+					metadataSourceId: 'test-review-source',
 					metadataWindowIdentity: 'review-window-hierarchical',
-					packageId: 'review-hierarchical-package',
+					packageId: 'test-review-package',
 					reviewGeneration: 1,
 					revision: 1,
 					status: 'ready',

@@ -12,6 +12,12 @@ final class AppPoliciesBridgeTests {
         #expect(AppPolicies.Bridge.operationLifecycleMaximumTrackedStageAttempts == 4096)
     }
 
+    @Test("Review refresh impact work has explicit Git traversal and blob limits")
+    func reviewRefreshImpactWorkUsesBoundedPolicy() {
+        #expect(AppPolicies.Bridge.reviewRefreshImpactMaximumCommitTraversalCount == 256)
+        #expect(AppPolicies.Bridge.reviewRefreshImpactMaximumDiffableBlobByteCount == 1 * 1024 * 1024)
+    }
+
     @Test("Bridge content byte cache uses the approved 16 MiB per-item safety cap")
     func bridgeContentByteCacheUsesApprovedPerItemSafetyCap() {
         #expect(AppPolicies.Bridge.contentMaxBytesPerItem == 16 * 1024 * 1024)

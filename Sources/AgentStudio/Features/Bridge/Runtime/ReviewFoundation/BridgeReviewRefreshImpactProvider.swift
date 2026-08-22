@@ -134,10 +134,10 @@ protocol BridgeReviewRefreshImpactDataClient: Sendable {
         _ request: GitCommitRangeCountRequest,
         candidateGeneration: BridgeReviewGeneration
     ) async throws -> GitCommitRangeCount
-    func diff(
-        _ request: GitDiffRequest,
+    func summarizeDiffImpact(
+        _ request: GitDiffImpactSummaryRequest,
         candidateGeneration: BridgeReviewGeneration
-    ) async throws -> GitDiffSnapshot
+    ) async throws -> GitDiffImpactSummary
 }
 
 protocol BridgeReviewRefreshImpactSourceProvider: Sendable {
@@ -180,39 +180,50 @@ struct BridgeReviewRefreshImpactProvider: Sendable {
                     repositoryPath: dataClient.repositoryPath,
                     base: .named(displayedSource.reviewedHeadOID),
                     candidate: .named(candidateSource.reviewedHeadOID),
-                    maximumCount: AppPolicies.Bridge.reviewRefreshPromotionImportedCommitCount
+                    maximumCount: AppPolicies.Bridge.reviewRefreshPromotionImportedCommitCount,
+                    maximumTraversalCount: AppPolicies.Bridge
+                        .reviewRefreshImpactMaximumCommitTraversalCount
                 ),
                 candidateGeneration: candidateGeneration
             )
-            async let diff = dataClient.diff(
-                GitDiffRequest(
+            async let diffImpact = dataClient.summarizeDiffImpact(
+                GitDiffImpactSummaryRequest(
                     repositoryPath: dataClient.repositoryPath,
                     base: .commit(displayedSource.reviewedHeadOID),
-                    compare: .commit(candidateSource.reviewedHeadOID)
+                    compare: .commit(candidateSource.reviewedHeadOID),
+                    maximumChangedFileCount: AppPolicies.Bridge
+                        .reviewRefreshPromotionAffectedFileCount,
+                    maximumChangedLineCount: AppPolicies.Bridge
+                        .reviewRefreshPromotionChangedLineCount,
+                    maximumDiffableBlobByteCount: AppPolicies.Bridge
+                        .reviewRefreshImpactMaximumDiffableBlobByteCount
                 ),
                 candidateGeneration: candidateGeneration
             )
-            let (commitCountResult, diffSnapshot) = try await (commitRangeCount, diff)
+            let (commitCountResult, diffSummary) = try await (commitRangeCount, diffImpact)
             guard let commitCount = Self.boundedCommitCount(commitCountResult) else {
+                return .unknown(displayedPackage: displayedPackage, candidatePackage: candidatePackage)
+            }
+            guard diffSummary.pathsAreComplete,
+                case .exact(let affectedFileCount) = diffSummary.changedFileCount,
+                diffSummary.changedLineCount != .indeterminate,
+                let addedLineCount = diffSummary.addedLineCount,
+                let deletedLineCount = diffSummary.deletedLineCount
+            else {
                 return .unknown(displayedPackage: displayedPackage, candidatePackage: candidatePackage)
             }
             guard
                 let affectedIdentities = Self.affectedStableFileIdentities(
-                    diffFiles: diffSnapshot.files,
+                    changedPaths: diffSummary.changedPaths,
                     displayedPackage: displayedPackage,
                     candidatePackage: candidatePackage
                 )
             else {
                 return .unknown(displayedPackage: displayedPackage, candidatePackage: candidatePackage)
             }
-            guard let addedLineCount = Self.sum(diffSnapshot.files.map(\.additions)),
-                let deletedLineCount = Self.sum(diffSnapshot.files.map(\.deletions))
-            else {
-                return .unknown(displayedPackage: displayedPackage, candidatePackage: candidatePackage)
-            }
             return .exact(
                 newlyImportedCommitCount: commitCount,
-                affectedFileCount: diffSnapshot.files.count,
+                affectedFileCount: affectedFileCount,
                 addedLineCount: addedLineCount,
                 deletedLineCount: deletedLineCount,
                 affectedStableFileIdentities: affectedIdentities
@@ -239,38 +250,35 @@ struct BridgeReviewRefreshImpactProvider: Sendable {
         switch count {
         case .exact(let exactCount), .atLeastLimit(let exactCount):
             exactCount
-        case .unrelated:
+        case .traversalLimitReached, .unrelated:
             nil
         }
     }
 
     private static func affectedStableFileIdentities(
-        diffFiles: [GitDiffFile],
+        changedPaths: [GitDiffImpactPath],
         displayedPackage: BridgeReviewPackage,
         candidatePackage: BridgeReviewPackage
     ) -> [String]? {
-        var affectedIdentities: Set<String> = []
-        for file in diffFiles {
-            let affectedPaths = Set([file.path, file.previousPath].compactMap { $0 })
-            let fileIdentities = [displayedPackage, candidatePackage].flatMap { package in
-                package.itemsById.values.compactMap { item in
-                    affectedPaths.contains(item.basePath ?? "") || affectedPaths.contains(item.headPath ?? "")
-                        ? item.itemId
-                        : nil
+        var stableIdentitiesByPath: [String: Set<String>] = [:]
+        for package in [displayedPackage, candidatePackage] {
+            for item in package.itemsById.values {
+                for path in [item.basePath, item.headPath].compactMap({ $0 }) {
+                    stableIdentitiesByPath[path, default: []].insert(item.itemId)
                 }
             }
+        }
+        var affectedIdentities: Set<String> = []
+        for changedPath in changedPaths {
+            let fileIdentities = [changedPath.currentPath, changedPath.previousPath]
+                .compactMap { $0 }
+                .reduce(into: Set<String>()) { identities, path in
+                    identities.formUnion(stableIdentitiesByPath[path] ?? [])
+                }
             guard !fileIdentities.isEmpty else { return nil }
             affectedIdentities.formUnion(fileIdentities)
         }
         return affectedIdentities.sorted()
-    }
-
-    private static func sum(_ values: [Int]) -> Int? {
-        values.reduce(0) { partialResult, value in
-            guard let partialResult else { return nil }
-            let addition = partialResult.addingReportingOverflow(value)
-            return addition.overflow ? nil : addition.partialValue
-        }
     }
 }
 

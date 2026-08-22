@@ -1,6 +1,7 @@
 import { BridgeCommWorkerReviewQueryProjection } from '../../core/comm-worker/bridge-comm-worker-review-query-projection.js';
 import type {
 	BridgeWorkerReviewDisplayPatchEvent,
+	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerServerToMainMessage,
 } from '../../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeWorkerRpcCommandInput } from '../../core/comm-worker/bridge-worker-rpc-client.js';
@@ -12,6 +13,7 @@ type ReviewProjectionUpdateCommand = Extract<
 
 export class BridgeReviewProjectionWitnessRouter {
 	#activeWorkerDerivationEpoch: number | null = null;
+	#activeReviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity | null = null;
 	#listener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
 	#latestProjectionRevision = 0;
 	#latestSequence = 0;
@@ -30,7 +32,7 @@ export class BridgeReviewProjectionWitnessRouter {
 			direction: 'serverWorkerToMain',
 			epoch: this.#activeWorkerDerivationEpoch ?? command.epoch,
 			kind: 'reviewDisplayPatch',
-			reviewPublicationIdentity: null,
+			reviewPublicationIdentity: this.#activeReviewPublicationIdentity,
 			patches,
 			projectionRevision: this.#latestProjectionRevision,
 			sequence: this.#latestSequence,
@@ -42,6 +44,9 @@ export class BridgeReviewProjectionWitnessRouter {
 
 	publishRaw(event: BridgeWorkerReviewDisplayPatchEvent): void {
 		this.#activeWorkerDerivationEpoch = event.epoch;
+		if (event.reviewPublicationIdentity !== null) {
+			this.#activeReviewPublicationIdentity = event.reviewPublicationIdentity;
+		}
 		this.#latestProjectionRevision = Math.max(
 			this.#latestProjectionRevision + 1,
 			event.projectionRevision,

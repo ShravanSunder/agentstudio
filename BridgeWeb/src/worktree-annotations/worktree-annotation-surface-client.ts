@@ -205,15 +205,22 @@ export function createWorktreeAnnotationSurfaceClient(
 		operation: BridgeProductWorktreeAnnotationOperation,
 	): Promise<WorktreeAnnotationCommandOutcome> => {
 		if (isDisposed) return Promise.reject(new Error('Annotation surface client is disposed.'));
-		const workerRequestId =
-			surfaceClient.surface === 'fileView'
-				? surfaceClient.send({
-						command: 'annotationCommand',
-						epoch: currentSurfaceEpoch(surfaceClient),
-						operation,
-						surface: 'fileView',
-					})
-				: sendReviewAnnotationCommand(surfaceClient, operation);
+		let workerRequestId: string;
+		try {
+			workerRequestId =
+				surfaceClient.surface === 'fileView'
+					? surfaceClient.send({
+							command: 'annotationCommand',
+							epoch: currentSurfaceEpoch(surfaceClient),
+							operation,
+							surface: 'fileView',
+						})
+					: sendReviewAnnotationCommand(surfaceClient, operation);
+		} catch (error) {
+			return Promise.reject(
+				error instanceof Error ? error : new Error('Review annotation command admission failed.'),
+			);
+		}
 		return new Promise<WorktreeAnnotationCommandOutcome>((resolve, reject): void => {
 			const pendingCommand: PendingAnnotationCommand = {
 				productRequestId: null,

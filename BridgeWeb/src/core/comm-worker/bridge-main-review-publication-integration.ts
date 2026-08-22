@@ -362,6 +362,11 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 					if (publicationIdentity === null) props.store.applyReviewDisplayPatchEvent(message);
 					else {
 						const identity = mainReviewPublicationIdentity(publicationIdentity);
+						const activeIdentity = props.store.getReviewRefreshPresentation().activeIdentity;
+						if (activeIdentity !== null && identitiesAreExact(activeIdentity, identity)) {
+							props.store.applyReviewDisplayPatchEvent(message);
+							return true;
+						}
 						if (!props.store.stageReviewCandidateDisplayEvent({ event: message, identity })) {
 							return true;
 						}

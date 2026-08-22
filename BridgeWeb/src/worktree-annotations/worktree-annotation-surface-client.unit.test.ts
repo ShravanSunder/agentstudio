@@ -95,6 +95,19 @@ describe('worktree annotation finite projection store', () => {
 });
 
 describe('worktree annotation surface command rendezvous', () => {
+	test('rejects Review commands asynchronously until a publication is installed', async () => {
+		// Arrange
+		const harness = createSurfaceClientHarness(['worker-review-command'], 'review', false);
+
+		// Act
+		const pending = harness.client.execute({ kind: 'session.discover' });
+
+		// Assert
+		await expect(pending).rejects.toThrow('no installed publication identity');
+		expect(harness.sentCommands).toEqual([]);
+		harness.client.dispose();
+	});
+
 	test('stamps every Review command with the exact active publication identity', async () => {
 		const harness = createSurfaceClientHarness(['worker-review-command'], 'review');
 
@@ -299,6 +312,7 @@ describe('worktree annotation surface command rendezvous', () => {
 function createSurfaceClientHarness(
 	workerRequestIds: readonly string[] = ['worker-save-1'],
 	surface: 'fileView' | 'review' = 'fileView',
+	hasInstalledReviewIdentity = true,
 ): {
 	readonly client: ReturnType<typeof createWorktreeAnnotationSurfaceClient>;
 	readonly publish: (message: BridgeWorkerServerToMainMessage) => void;
@@ -310,7 +324,7 @@ function createSurfaceClientHarness(
 	const sentCommands: Parameters<BridgePaneSurfaceClient['send']>[0][] = [];
 	const telemetrySamples: BridgeTelemetrySample[] = [];
 	const renderStore = createBridgeMainRenderSnapshotStore();
-	if (surface === 'review') {
+	if (surface === 'review' && hasInstalledReviewIdentity) {
 		Object.defineProperty(renderStore, 'getReviewRefreshPresentation', {
 			value: () => ({ activeIdentity: reviewMainIdentity, candidate: null }),
 		});

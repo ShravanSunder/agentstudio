@@ -1,4 +1,7 @@
-import type { BridgeWorkerServerToMainMessage } from '../../core/comm-worker/bridge-worker-contracts.js';
+import type {
+	BridgeWorkerReviewPublicationIdentity,
+	BridgeWorkerServerToMainMessage,
+} from '../../core/comm-worker/bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from '../../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import { parseBridgeCodeViewDiffForBrowserTest } from '../code-view/bridge-code-view-browser-test-diff.js';
@@ -15,6 +18,7 @@ const TEST_REVIEW_PUBLICATION_IDENTITY = {
 export function completeReviewContentMessages(
 	file: BridgeReviewRecoveryWitnessFile,
 	publicationSequence: number,
+	reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity = TEST_REVIEW_PUBLICATION_IDENTITY,
 ): readonly BridgeWorkerServerToMainMessage[] {
 	const baseContents = reviewWitnessFileContents(file, 'BASE');
 	const headContents = reviewWitnessFileContents(file, file.contentMarker);
@@ -59,7 +63,7 @@ export function completeReviewContentMessages(
 			direction: 'serverWorkerToMain',
 			job,
 			kind: 'reviewPierreRenderJob',
-			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
+			reviewPublicationIdentity,
 			publicationSequence,
 			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
 				itemId: job.itemId,
@@ -82,7 +86,7 @@ export function completeReviewContentMessages(
 		{
 			direction: 'serverWorkerToMain',
 			kind: 'reviewRenderPatch',
-			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
+			reviewPublicationIdentity,
 			patches: [
 				{
 					itemId: file.itemId,
@@ -109,6 +113,7 @@ export function completeReviewContentMessages(
 export function completeReviewFileContentMessages(
 	file: BridgeReviewRecoveryWitnessFile,
 	publicationSequence: number,
+	reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity = TEST_REVIEW_PUBLICATION_IDENTITY,
 ): readonly BridgeWorkerServerToMainMessage[] {
 	const contents = reviewWitnessFileContents(file, file.contentMarker);
 	const contentCacheKey = `review-recovery-file-${file.itemId}`;
@@ -144,7 +149,7 @@ export function completeReviewFileContentMessages(
 			direction: 'serverWorkerToMain',
 			job,
 			kind: 'reviewPierreRenderJob',
-			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
+			reviewPublicationIdentity,
 			publicationSequence,
 			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
 				itemId: job.itemId,
@@ -167,7 +172,7 @@ export function completeReviewFileContentMessages(
 		{
 			direction: 'serverWorkerToMain',
 			kind: 'reviewRenderPatch',
-			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
+			reviewPublicationIdentity,
 			patches: [
 				{
 					itemId: file.itemId,

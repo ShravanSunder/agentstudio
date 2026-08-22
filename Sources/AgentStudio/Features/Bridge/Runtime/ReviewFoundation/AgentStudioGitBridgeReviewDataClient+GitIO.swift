@@ -31,6 +31,32 @@ extension AgentStudioGitBridgeReviewDataClient {
         }
     }
 
+    func loadGitDiffImpactSummary(
+        _ request: GitDiffImpactSummaryRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitDiffImpactSummary {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(domain: "diff-impact-summary", request: request),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.summarizeDiffImpact(request)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
     func loadGitReviewDefaultTarget(
         freshnessKey: BridgeGitReadFreshnessKey
     ) async throws -> GitReviewComparisonBranchTarget? {
@@ -402,11 +428,11 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeReviewRefreshImpactDataCli
         )
     }
 
-    func diff(
-        _ request: GitDiffRequest,
+    func summarizeDiffImpact(
+        _ request: GitDiffImpactSummaryRequest,
         candidateGeneration: BridgeReviewGeneration
-    ) async throws -> GitDiffSnapshot {
-        try await loadGitDiff(
+    ) async throws -> GitDiffImpactSummary {
+        try await loadGitDiffImpactSummary(
             request,
             freshnessKey: gitReadFreshnessKey(for: candidateGeneration)
         )

@@ -2,6 +2,10 @@ import { useMemo, type ReactElement } from 'react';
 import { vi } from 'vitest';
 
 import {
+	buildBridgeWorkerReviewCandidateReadyEvent,
+	buildBridgeWorkerReviewPublicationInstallAdmissionEvent,
+} from '../core/comm-worker/bridge-comm-worker-protocol.js';
+import {
 	createBridgeMainRenderFulfillmentCoordinator,
 	type BridgeMainRenderFulfillmentCoordinator,
 } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
@@ -12,7 +16,10 @@ import type {
 	BridgeWorkerReviewDisplayPatchEvent,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
-import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
+import {
+	bridgeWorkerReviewPublicationIdentity,
+	bridgeWorkerReviewSourceContext,
+} from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
 import {
 	createBridgeWorkerRpcLifecycleStore,
@@ -138,6 +145,22 @@ export function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
 		publish: (message): void => {
 			if (messageListener === null) throw new Error('Expected the Review message listener.');
 			messageListener(message);
+			if (message.kind === 'reviewDisplayPatch' && message.reviewPublicationIdentity !== null) {
+				const identity = message.reviewPublicationIdentity;
+				messageListener(
+					buildBridgeWorkerReviewCandidateReadyEvent({
+						affectedStableFileIdentities: [],
+						epoch: message.epoch,
+						packageId: identity.packageId,
+						preDeliveryPresentationClass: { kind: 'ordinary' },
+						publicationId: identity.publicationId,
+						reviewGeneration: identity.reviewGeneration,
+						revision: identity.revision,
+						sequence: message.sequence + 1,
+						sourceIdentity: identity.sourceIdentity,
+					}),
+				);
+			}
 		},
 		reviewClient: {
 			lifecycle: lifecycleStore,
@@ -151,6 +174,24 @@ export function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
 					surface: 'review',
 				});
 				sentCommands.push(command);
+				if (command.command === 'reviewPublicationInstallAdmit') {
+					queueMicrotask((): void => {
+						messageListener?.(
+							buildBridgeWorkerReviewPublicationInstallAdmissionEvent({
+								candidatePublicationId: command.candidatePublicationId,
+								requestId,
+								status: 'admitted',
+							}),
+						);
+					});
+				} else if (command.command === 'reviewPublicationInstalled') {
+					queueMicrotask((): void => {
+						lifecycleStore.ackRequest({
+							acknowledgedAtSequence: sentCommands.length,
+							requestId,
+						});
+					});
+				}
 				return requestId;
 			}),
 			subscribeMessages: (listener): (() => void) => {
@@ -254,7 +295,11 @@ export function reviewDisplayEvent(props: {
 		direction: 'serverWorkerToMain',
 		epoch: 1,
 		kind: 'reviewDisplayPatch',
-		reviewPublicationIdentity: null,
+		reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentity(
+			'review-browser-harness-package',
+			props.projectionRevision,
+			'review-browser-harness-source',
+		),
 		patches: [
 			{
 				operation: 'upsert',

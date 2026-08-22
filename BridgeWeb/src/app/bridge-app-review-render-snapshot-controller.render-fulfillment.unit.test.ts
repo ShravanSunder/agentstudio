@@ -29,7 +29,10 @@ import {
 	type BridgeWorkerRenderDispositionReceipt,
 } from '../core/comm-worker/bridge-worker-render-fulfillment.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
-import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
+import {
+	bridgeWorkerReviewPublicationIdentity,
+	bridgeWorkerReviewSourceContext,
+} from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import { applyBridgeWorkerMessagesToMainRenderSnapshotStore } from './bridge-app-review-render-snapshot-controller.js';
 
 describe('Bridge app Review render snapshot fulfillment admission', () => {
@@ -360,7 +363,11 @@ function makeReviewDisplayPatchEvent(props: {
 		direction: 'serverWorkerToMain',
 		epoch: props.epoch,
 		kind: 'reviewDisplayPatch',
-		reviewPublicationIdentity: null,
+		reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentity(
+			`review-package-epoch-${props.epoch}`,
+			props.epoch,
+			`review-source-epoch-${props.epoch}`,
+		),
 		patches: [
 			{
 				operation: 'upsert',

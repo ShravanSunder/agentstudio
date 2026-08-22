@@ -100,8 +100,63 @@ struct BridgeReviewRefreshImpactProviderTests {
         #expect(requests.commitRange?.base == .named("displayed-head"))
         #expect(requests.commitRange?.candidate == .named("candidate-head"))
         #expect(requests.commitRange?.maximumCount == 10)
-        #expect(requests.diff?.base == .commit("displayed-head"))
-        #expect(requests.diff?.compare == .commit("candidate-head"))
+        #expect(requests.commitRange?.maximumTraversalCount == 256)
+        #expect(requests.diffImpact?.base == .commit("displayed-head"))
+        #expect(requests.diffImpact?.compare == .commit("candidate-head"))
+        #expect(requests.diffImpact?.maximumChangedFileCount == 25)
+        #expect(requests.diffImpact?.maximumChangedLineCount == 1000)
+        #expect(requests.diffImpact?.maximumDiffableBlobByteCount == Int64(1 * 1024 * 1024))
+    }
+
+    @Test("bounded or indeterminate Git facts promote conservatively")
+    func boundedOrIndeterminateGitFactsPromoteConservatively() async throws {
+        let displayed = makeImpactPackage(
+            reviewGeneration: 1,
+            revision: 1,
+            reviewedHeadOID: "displayed-head",
+            items: [impactItem(itemId: "displayed-file", basePath: "file.swift", headPath: "file.swift")]
+        )
+        let candidate = makeImpactPackage(
+            reviewGeneration: 2,
+            revision: 2,
+            reviewedHeadOID: "candidate-head",
+            items: [impactItem(itemId: "candidate-file", basePath: "file.swift", headPath: "file.swift")]
+        )
+        let cases: [(GitCommitRangeCount, GitDiffImpactSummary)] = [
+            (
+                .traversalLimitReached(256),
+                exactImpactSummary(paths: [], addedLineCount: 0, deletedLineCount: 0)
+            ),
+            (
+                .exact(1),
+                GitDiffImpactSummary(
+                    changedPaths: [GitDiffImpactPath(currentPath: "file.swift", previousPath: nil)],
+                    pathsAreComplete: true,
+                    changedFileCount: .exact(1),
+                    changedLineCount: .indeterminate,
+                    addedLineCount: nil,
+                    deletedLineCount: nil
+                )
+            ),
+        ]
+
+        for (commitRangeCount, diffImpact) in cases {
+            let provider = BridgeReviewRefreshImpactProvider(
+                dataClient: BridgeReviewRefreshImpactDataClientFake(
+                    commitRangeCount: commitRangeCount,
+                    diffImpact: diffImpact
+                )
+            )
+
+            let impact = try await provider.measure(
+                displayedPackage: displayed,
+                candidatePackage: candidate,
+                candidateGeneration: candidate.reviewGeneration
+            )
+
+            #expect(impact.preDeliveryPresentationClass == .promoted(reason: .unknown))
+            #expect(impact.affectedStableFileIdentities == ["candidate-file", "displayed-file"])
+        }
     }
 
     @Test("unrelated or incomplete source facts promote unknown and conservatively affect both packages")
@@ -226,14 +281,14 @@ private actor BridgeReviewRefreshImpactDataClientFake: BridgeReviewRefreshImpact
 
     struct Requests: Sendable {
         let commitRange: GitCommitRangeCountRequest?
-        let diff: GitDiffRequest?
+        let diffImpact: GitDiffImpactSummaryRequest?
     }
 
     private let commitRangeCount: GitCommitRangeCount
-    private let diffSnapshot: GitDiffSnapshot
+    private let diffImpactSummary: GitDiffImpactSummary
     private let injectedFailure: BridgeReviewRefreshImpactInjectedFailure?
     private var commitRangeRequest: GitCommitRangeCountRequest?
-    private var diffRequest: GitDiffRequest?
+    private var diffImpactRequest: GitDiffImpactSummaryRequest?
 
     init(
         commitRangeCount: GitCommitRangeCount,
@@ -241,7 +296,17 @@ private actor BridgeReviewRefreshImpactDataClientFake: BridgeReviewRefreshImpact
         injectedFailure: BridgeReviewRefreshImpactInjectedFailure? = nil
     ) {
         self.commitRangeCount = commitRangeCount
-        self.diffSnapshot = diff
+        self.diffImpactSummary = impactSummary(diff: diff)
+        self.injectedFailure = injectedFailure
+    }
+
+    init(
+        commitRangeCount: GitCommitRangeCount,
+        diffImpact: GitDiffImpactSummary,
+        injectedFailure: BridgeReviewRefreshImpactInjectedFailure? = nil
+    ) {
+        self.commitRangeCount = commitRangeCount
+        self.diffImpactSummary = diffImpact
         self.injectedFailure = injectedFailure
     }
 
@@ -255,17 +320,49 @@ private actor BridgeReviewRefreshImpactDataClientFake: BridgeReviewRefreshImpact
         return commitRangeCount
     }
 
-    func diff(
-        _ request: GitDiffRequest,
+    func summarizeDiffImpact(
+        _ request: GitDiffImpactSummaryRequest,
         candidateGeneration _: BridgeReviewGeneration
-    ) async throws -> GitDiffSnapshot {
-        diffRequest = request
-        return diffSnapshot
+    ) async throws -> GitDiffImpactSummary {
+        diffImpactRequest = request
+        return diffImpactSummary
     }
 
     func requests() -> Requests {
-        Requests(commitRange: commitRangeRequest, diff: diffRequest)
+        Requests(commitRange: commitRangeRequest, diffImpact: diffImpactRequest)
     }
+}
+
+private func impactSummary(diff: GitDiffSnapshot) -> GitDiffImpactSummary {
+    let addedLineCount = diff.files.reduce(0) { $0 + $1.additions }
+    let deletedLineCount = diff.files.reduce(0) { $0 + $1.deletions }
+    return exactImpactSummary(
+        paths: diff.files.map { file in
+            GitDiffImpactPath(
+                currentPath: file.changeKind == .deleted ? nil : file.path,
+                previousPath: file.changeKind == .renamed || file.changeKind == .deleted
+                    ? (file.previousPath ?? file.path)
+                    : nil
+            )
+        },
+        addedLineCount: addedLineCount,
+        deletedLineCount: deletedLineCount
+    )
+}
+
+private func exactImpactSummary(
+    paths: [GitDiffImpactPath],
+    addedLineCount: Int,
+    deletedLineCount: Int
+) -> GitDiffImpactSummary {
+    GitDiffImpactSummary(
+        changedPaths: paths,
+        pathsAreComplete: true,
+        changedFileCount: .exact(paths.count),
+        changedLineCount: .exact(addedLineCount + deletedLineCount),
+        addedLineCount: addedLineCount,
+        deletedLineCount: deletedLineCount
+    )
 }
 
 private func makeImpactPackage(

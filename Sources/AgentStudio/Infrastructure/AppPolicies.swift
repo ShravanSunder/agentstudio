@@ -86,6 +86,13 @@ package enum AppPolicies {
         package static let reviewRefreshPromotionImportedCommitCount: Int = 10
         package static let reviewRefreshPromotionAffectedFileCount: Int = 25
         package static let reviewRefreshPromotionChangedLineCount: Int = 1000
+        /// Commit ancestry proof is only needed when the imported range stays
+        /// below the promotion threshold. A deeper or divergent walk becomes
+        /// conservative promoted-unknown instead of retaining a Git slot.
+        package static let reviewRefreshImpactMaximumCommitTraversalCount: Int = 256
+        /// Impact classification never materializes line diffs for bodies above
+        /// this cap. Oversized bodies promote conservatively.
+        package static let reviewRefreshImpactMaximumDiffableBlobByteCount: Int64 = 1 * 1024 * 1024
         /// Retention cap for one content body: a single item must never evict
         /// the whole byte cache, and larger bodies render as oversized.
         package static let contentMaxBytesPerItem: Int = 16 * 1024 * 1024
