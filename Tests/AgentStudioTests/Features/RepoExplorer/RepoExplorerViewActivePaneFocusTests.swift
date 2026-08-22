@@ -30,8 +30,6 @@ extension RepoExplorerViewProjectionHelperTests {
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
                 onSidebarVisibleWorktreesChanged: {},
-                onShowNotificationsForWorktree: { _ in },
-                unreadCount: { _ in 0 }
             )
             let invalidationRecorder = RepoProjectionInvalidationRecorder()
 
@@ -63,8 +61,6 @@ extension RepoExplorerViewProjectionHelperTests {
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
                 onSidebarVisibleWorktreesChanged: {},
-                onShowNotificationsForWorktree: { _ in },
-                unreadCount: { _ in 0 }
             )
             let invalidationRecorder = RepoProjectionInvalidationRecorder()
 
@@ -97,8 +93,6 @@ extension RepoExplorerViewProjectionHelperTests {
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
                 onSidebarVisibleWorktreesChanged: {},
-                onShowNotificationsForWorktree: { _ in },
-                unreadCount: { _ in 0 }
             )
             let windowId = UUIDv7.generate()
             atoms.windowLifecycle.recordWindowRegistered(windowId)
@@ -136,8 +130,6 @@ extension RepoExplorerViewProjectionHelperTests {
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
                 onSidebarVisibleWorktreesChanged: {},
-                onShowNotificationsForWorktree: { _ in },
-                unreadCount: { _ in 0 }
             )
             let invalidationRecorder = RepoProjectionInvalidationRecorder()
 
@@ -180,8 +172,6 @@ extension RepoExplorerViewProjectionHelperTests {
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
                 onSidebarVisibleWorktreesChanged: {},
-                onShowNotificationsForWorktree: { _ in },
-                unreadCount: { _ in 0 }
             )
             let windowId = UUIDv7.generate()
             atoms.windowLifecycle.recordWindowRegistered(windowId)
@@ -230,8 +220,6 @@ extension RepoExplorerViewProjectionHelperTests {
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
                 onSidebarVisibleWorktreesChanged: {},
-                onShowNotificationsForWorktree: { _ in },
-                unreadCount: { _ in 0 }
             )
             let windowId = UUIDv7.generate()
             atoms.windowLifecycle.recordWindowRegistered(windowId)
@@ -277,8 +265,6 @@ extension RepoExplorerViewProjectionHelperTests {
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
                 onSidebarVisibleWorktreesChanged: {},
-                onShowNotificationsForWorktree: { _ in },
-                unreadCount: { _ in 0 }
             )
             let windowId = UUIDv7.generate()
             atoms.windowLifecycle.recordWindowRegistered(windowId)

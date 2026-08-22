@@ -1,5 +1,4 @@
 import AgentStudioCore
-import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import AgentStudioTerminal
 import AppKit
@@ -389,10 +388,7 @@ extension AppDelegate {
             }
             let tabCount = store.tabLayoutAtom.tabs.count
             let paneCount = store.paneAtom.graphAtom.paneIDs.count
-            let inboxCount = atomStore.inboxNotification.notifications.count
             let projectionTrigger = AppPolicies.SidebarProjection.Trigger.startupDiagnostic
-            let inboxProjectionProof = await runInboxSidebarProjectionProof(trigger: projectionTrigger)
-            let diagnosticOutcome = inboxProjectionProof.succeeded ? "succeeded" : "blocked"
             let attributes = startupDiagnosticTraceAttributes(for: action).merging(
                 [
                     "agentstudio.startup_diagnostic.fixture.repo.count": .int(repoCount),
@@ -402,40 +398,19 @@ extension AppDelegate {
                     "agentstudio.startup_diagnostic.fixture.active_pty.count": .int(
                         AppPolicies.SidebarPerformanceProof.activePTYCount
                     ),
-                    "agentstudio.startup_diagnostic.fixture.inbox_notification.count": .int(inboxCount),
                     "agentstudio.startup_diagnostic.fixture.sidebar_surface.count": .int(1),
                     "agentstudio.startup_diagnostic.fixture.terminal_pane.count": .int(1),
-                    "agentstudio.startup_diagnostic.projection_proof.succeeded": .bool(inboxProjectionProof.succeeded),
-                    "agentstudio.performance.sidebar.surface": .string("inbox"),
+                    "agentstudio.performance.sidebar.surface": .string("repo"),
                     "agentstudio.performance.sidebar.phase": .string(projectionTrigger.rawValue),
                     "agentstudio.performance.sidebar.query_state": .string("empty"),
-                    "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
-                    "agentstudio.performance.sidebar.input.count": .int(repoCount + worktreeCount + inboxCount),
+                    "agentstudio.performance.sidebar.group_mode": .string("repo"),
+                    "agentstudio.performance.sidebar.input.count": .int(repoCount + worktreeCount),
                 ]
             ) { _, newValue in newValue }
-
-            let inboxProjectionResult = inboxProjectionProof.result
-            let projectionWorkerDuration = inboxProjectionResult.workerDuration
-            if inboxProjectionProof.succeeded {
-                performanceTraceRecorder?.recordDuration(
-                    .sidebarProjection,
-                    duration: projectionWorkerDuration,
-                    attributes: sidebarPerformanceProofAttributes(
-                        phase: "projection_worker",
-                        trigger: projectionTrigger,
-                        inputCount: inboxCount,
-                        sectionCount: inboxProjectionResult.model.sections.count,
-                        extra: [
-                            "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(
-                                AgentStudioPerformanceTraceRecorder.milliseconds(from: projectionWorkerDuration))
-                        ]
-                    )
-                )
-            }
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.command_exercised",
                 phase: "startup_diagnostic_action",
-                outcome: diagnosticOutcome,
+                outcome: "succeeded",
                 attributes: attributes
             )
             performanceTraceRecorder?.record(
@@ -445,7 +420,7 @@ extension AppDelegate {
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.completed",
                 phase: "startup_diagnostic_action",
-                outcome: diagnosticOutcome,
+                outcome: "succeeded",
                 attributes: attributes
             )
         }
@@ -517,77 +492,6 @@ extension AppDelegate {
             )
         }
 
-        private func runInboxSidebarProjectionProof(
-            trigger: AppPolicies.SidebarProjection.Trigger
-        ) async -> (
-            result: InboxNotificationListProjectionResult,
-            succeeded: Bool
-        ) {
-            let repos = store.repositoryTopologyAtom.repos
-            let repoEnrichmentByRepoId = Dictionary(
-                uniqueKeysWithValues: repos.compactMap { repo in
-                    repoCache.repoEnrichment(for: repo.id).map { (repo.id, $0) }
-                }
-            )
-            let repoPresentationByRepoId = InboxNotificationSidebarView.repoPresentationByRepoId(
-                repos: repos,
-                repoEnrichmentByRepoId: repoEnrichmentByRepoId
-            )
-            let key = InboxNotificationListProjectionKey(
-                notifications: atomStore.inboxNotification.notifications,
-                grouping: atomStore.inboxNotificationPrefs.grouping,
-                sort: atomStore.inboxNotificationPrefs.sort,
-                searchText: "",
-                filter: nil,
-                contentMode: InboxNotificationSidebarView.globalSidebarContentMode(
-                    atomStore.inboxNotificationPrefs.globalInboxContentMode
-                ),
-                rowStateFilter: atomStore.inboxNotificationPrefs.globalInboxRowStateFilter,
-                collapsedGroups: atomStore.inboxSidebarState.collapsedGroups,
-                repoPresentationFingerprint: InboxNotificationSidebarView.repoPresentationFingerprint(
-                    repoPresentationByRepoId
-                )
-            )
-            let request = InboxNotificationListProjectionRequest(
-                generation: 1,
-                key: key,
-                trigger: trigger,
-                repoPresentationByRepoId: repoPresentationByRepoId
-            )
-            do {
-                return (try await InboxNotificationListProjectionWorker().project(request), true)
-            } catch {
-                return (
-                    InboxNotificationListProjectionResult(
-                        generation: request.generation,
-                        key: key,
-                        trigger: request.trigger,
-                        model: .empty,
-                        workerDuration: .zero
-                    ),
-                    false
-                )
-            }
-        }
-
-        private func sidebarPerformanceProofAttributes(
-            phase: String,
-            trigger: AppPolicies.SidebarProjection.Trigger,
-            inputCount: Int,
-            sectionCount: Int,
-            extra: [String: AgentStudioTraceValue] = [:]
-        ) -> [String: AgentStudioTraceValue] {
-            [
-                "agentstudio.performance.sidebar.surface": .string("inbox"),
-                "agentstudio.performance.sidebar.phase": .string(phase),
-                "agentstudio.performance.sidebar.trigger": .string(trigger.rawValue),
-                "agentstudio.performance.sidebar.query_state": .string("empty"),
-                "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
-                "agentstudio.performance.sidebar.input.count": .int(inputCount),
-                "agentstudio.performance.sidebar.group.count": .int(sectionCount),
-                "agentstudio.performance.sidebar.query_character.count": .int(0),
-            ].merging(extra) { _, newValue in newValue }
-        }
     #endif
 
     private func runCrossTabMoveGeometrySmokeDiagnostic(

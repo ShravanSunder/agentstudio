@@ -27,16 +27,10 @@ struct RepoExplorerWorktreeRowContent: View {
     let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
-    let unreadCount: Int
     let showsFavoriteControl: Bool
     var isFavorite = false
     var favoriteCommandPresentation: RepoExplorerPresentedCommand?
     var onToggleFavorite: () -> Void = {}
-    var onUnreadPillTap: () -> Void = {}
-
-    static func shouldShowUnreadPill(unreadCount: Int) -> Bool {
-        unreadCount > 0
-    }
 
     static func favoriteAccessibilityLabel(isFavorite: Bool) -> String {
         favoriteActionSpec(isFavorite: isFavorite).label
@@ -71,7 +65,6 @@ struct RepoExplorerWorktreeRowContent: View {
         Self.shouldShowDiffChip(branchStatus: branchStatus)
             || Self.shouldShowSyncChip(branchStatus: branchStatus)
             || Self.shouldShowPullRequestChip(branchStatus: branchStatus)
-            || Self.shouldShowUnreadPill(unreadCount: unreadCount)
     }
 
     var body: some View {
@@ -135,17 +128,6 @@ struct RepoExplorerWorktreeRowContent: View {
                         SidebarGitStatusChips(branchStatus: branchStatus, octiconLoader: octiconLoader)
                     }
 
-                    if Self.shouldShowUnreadPill(unreadCount: unreadCount) {
-                        Button(action: onUnreadPillTap) {
-                            SidebarChip(
-                                icon: .octicon("octicon-bell"),
-                                octiconLoader: octiconLoader,
-                                text: "\(unreadCount)",
-                                style: .accent(iconColor)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .sidebarChipRowTextColumnGuide()
@@ -182,13 +164,11 @@ package struct RepoExplorerWorktreeRow: View {
     let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
-    let unreadCount: Int
     var bridgeCommandResolution: BridgePaneCommandResolution = .create
     var isFavorite = false
     let commandPresentation: RepoExplorerWorktreeCommandPresentation
     var panePresentations: [RepoExplorerPanePresentation] = []
     var onToggleFavorite: () -> Void = {}
-    var onUnreadPillTap: () -> Void = {}
     let onOpen: () -> Void
     let onOpenNew: () -> Void
     let onReview: () -> Void
@@ -210,13 +190,11 @@ package struct RepoExplorerWorktreeRow: View {
         checkoutIconKind: RepoExplorerCheckoutIconKind,
         iconColor: Color,
         branchStatus: GitBranchStatus,
-        unreadCount: Int,
         bridgeCommandResolution: BridgePaneCommandResolution = .create,
         isFavorite: Bool = false,
         commandPresentation: RepoExplorerWorktreeCommandPresentation,
         panePresentations: [RepoExplorerPanePresentation] = [],
         onToggleFavorite: @escaping () -> Void = {},
-        onUnreadPillTap: @escaping () -> Void = {},
         onOpen: @escaping () -> Void,
         onOpenNew: @escaping () -> Void,
         onReview: @escaping () -> Void,
@@ -234,13 +212,11 @@ package struct RepoExplorerWorktreeRow: View {
         self.checkoutIconKind = checkoutIconKind
         self.iconColor = iconColor
         self.branchStatus = branchStatus
-        self.unreadCount = unreadCount
         self.bridgeCommandResolution = bridgeCommandResolution
         self.isFavorite = isFavorite
         self.commandPresentation = commandPresentation
         self.panePresentations = panePresentations
         self.onToggleFavorite = onToggleFavorite
-        self.onUnreadPillTap = onUnreadPillTap
         self.onOpen = onOpen
         self.onOpenNew = onOpenNew
         self.onReview = onReview
@@ -268,12 +244,10 @@ package struct RepoExplorerWorktreeRow: View {
                 checkoutIconKind: checkoutIconKind,
                 iconColor: iconColor,
                 branchStatus: branchStatus,
-                unreadCount: unreadCount,
                 showsFavoriteControl: favoriteControlVisibility.showsInlineButton,
                 isFavorite: isFavorite,
                 favoriteCommandPresentation: inlineFavorite,
-                onToggleFavorite: onToggleFavorite,
-                onUnreadPillTap: onUnreadPillTap
+                onToggleFavorite: onToggleFavorite
             )
         }
         .onHover { isHovering = $0 }

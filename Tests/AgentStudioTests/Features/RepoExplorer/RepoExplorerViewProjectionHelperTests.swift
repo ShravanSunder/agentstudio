@@ -461,8 +461,6 @@ struct RepoExplorerViewProjectionHelperTests {
             onSetSortOrder: { _ in },
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
-            onShowNotificationsForWorktree: { _ in },
-            unreadCount: { _ in 0 }
         )
 
         view.focusPane(paneId)
@@ -495,8 +493,6 @@ struct RepoExplorerViewProjectionHelperTests {
             onSetSortOrder: { _ in },
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
-            onShowNotificationsForWorktree: { _ in },
-            unreadCount: { _ in 0 }
         )
         let paneLocationsByWorktreeId = [
             worktreeId: [
@@ -554,8 +550,6 @@ struct RepoExplorerViewProjectionHelperTests {
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
                 onSidebarVisibleWorktreesChanged: {},
-                onShowNotificationsForWorktree: { _ in },
-                unreadCount: { _ in 0 }
             )
             let invalidationRecorder = RepoProjectionInvalidationRecorder()
             withObservationTracking {
@@ -613,8 +607,6 @@ struct RepoExplorerViewProjectionHelperTests {
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
                 onSidebarVisibleWorktreesChanged: {},
-                onShowNotificationsForWorktree: { _ in },
-                unreadCount: { _ in 0 }
             )
             let renderedRepos = [
                 RepoPresentationItem(

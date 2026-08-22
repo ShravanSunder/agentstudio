@@ -88,8 +88,6 @@ struct RepoExplorerViewInjectionTests {
             onSetSortOrder: onSetSortOrder,
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
-            onShowNotificationsForWorktree: { _ in },
-            unreadCount: { _ in 0 }
         )
     }
 }

@@ -71,8 +71,6 @@ package struct RepoExplorerView: View {
     let onSetSortOrder: (RepoExplorerSortOrder) -> Void
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
-    let onShowNotificationsForWorktree: (Worktree) -> Void
-    let unreadCount: (Worktree) -> Int
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let recencyNow: @MainActor @Sendable () -> Date
     let recencyDelay: AsyncDelay
@@ -94,8 +92,6 @@ package struct RepoExplorerView: View {
         onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void,
         onRefocusActivePane: @escaping () -> Void,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
-        onShowNotificationsForWorktree: @escaping (Worktree) -> Void = { _ in },
-        unreadCount: @escaping (Worktree) -> Int = { _ in 0 },
         latestPaneMessageSnapshot: @escaping LatestPaneMessageSnapshot = { _ in nil },
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         recencyNow: @escaping @MainActor @Sendable () -> Date = Date.init,
@@ -114,8 +110,6 @@ package struct RepoExplorerView: View {
         self.onSetSortOrder = onSetSortOrder
         self.onRefocusActivePane = onRefocusActivePane
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
-        self.onShowNotificationsForWorktree = onShowNotificationsForWorktree
-        self.unreadCount = unreadCount
         self.latestPaneMessageSnapshot = latestPaneMessageSnapshot
         self.performanceTraceRecorder = performanceTraceRecorder
         self.recencyNow = recencyNow
@@ -633,7 +627,6 @@ package struct RepoExplorerView: View {
                                 branchStatus: cachedProjectionResult.branchStatusByWorktreeId[
                                     resolvedWorktreeContext.worktree.id
                                 ] ?? .unknown,
-                                unreadCount: unreadCount(resolvedWorktreeContext.worktree),
                                 bridgeCommandResolution:
                                     cachedProjectionResult
                                     .bridgeCommandResolutionByWorktreeId[
@@ -648,9 +641,6 @@ package struct RepoExplorerView: View {
                                 ),
                                 onToggleFavorite: {
                                     toggleFavorite(repoId: resolvedWorktreeContext.repo.id)
-                                },
-                                onUnreadPillTap: {
-                                    onShowNotificationsForWorktree(resolvedWorktreeContext.worktree)
                                 },
                                 onOpen: {
                                     commandDispatcher.dispatch(

@@ -64,7 +64,6 @@ struct RepoExplorerWorktreeRowTests {
                     linesDeleted: 0,
                     untrackedFileCount: 0
                 ),
-                unreadCount: 0,
                 showsFavoriteControl: false
             )
             .frame(width: 320)
@@ -362,29 +361,6 @@ struct RepoExplorerWorktreeRowTests {
             rowSource.range(of: "{", range: renderBranchStart.upperBound..<rowSource.endIndex))
         let renderBranchSource = String(rowSource[renderBranchStart.lowerBound..<renderBranchEnd.lowerBound])
         #expect(renderBranchSource.contains("!branchStatus.pullRequestDataUnavailable"))
-    }
-
-    @Test("row content accepts primitive unread count")
-    func rowContentAcceptsUnreadCount() {
-        let view = RepoExplorerWorktreeRowContent(
-            octiconLoader: makeRepoExplorerTestOcticonLoader(),
-            checkoutTitle: "agent-studio",
-            branchName: "main",
-            placementText: "Pane 2 active",
-            checkoutIconKind: .mainCheckout,
-            iconColor: .accentColor,
-            branchStatus: .unknown,
-            unreadCount: 4,
-            showsFavoriteControl: false
-        )
-
-        _ = view.body
-    }
-
-    @Test("unread pill only renders for positive counts")
-    func unreadPillVisibility() {
-        #expect(RepoExplorerWorktreeRowContent.shouldShowUnreadPill(unreadCount: 0) == false)
-        #expect(RepoExplorerWorktreeRowContent.shouldShowUnreadPill(unreadCount: 4) == true)
     }
 
     @Test("favorite state exposes explicit add and remove labels")
