@@ -30,8 +30,8 @@ workspace focus/recency - keyed demanded facts -----+      demand + invalidation
                                                             | acknowledged native baseline
                                                             v
                                                    RepoExplorerProjectionWorker
-                                                   off-main semantic result +
-                                                   R→R or proposed R→R+1 native plan
+                                                   off-main semantic result + inseparable
+                                                   presentation/plan candidate envelope
                                                             |
                                                             v
                                                    complete rendered equality
@@ -114,7 +114,7 @@ Repo Explorer feature
 
   RepoExplorerProjectionWorker
     owns: off-main grouping, row content, stored row identity/index, plan derivation
-    consumed by: adapter and materialization host through immutable result
+    consumed by: adapter and materialization host through one immutable candidate envelope
     changes when: derived sidebar meaning or off-main plan derivation changes;
                   never owns acceptance or increments accepted revision
 
@@ -275,25 +275,20 @@ The worker retains grouping, branch/status merging, row construction, row indexi
 
 Rendered equality has one source: the complete immutable rendered row model consumed by the view. The parallel incomplete `RepoExplorerRenderedRowContent` comparator is removed. Equality includes every visible field in the current grouping. An equal completion therefore proves R-INV against the same values the view renders.
 
-The worker also prepares the materialization input consumed after publication:
+The worker also prepares the complete materialization payload consumed after publication. At changed-owner handoff the broker adds the opaque delivery identity without copying or altering the worker result, producing one inseparable feature-private envelope:
 
 ```text
-RepoExplorerMaterializationSnapshot
-  candidateIdentity(
-    adapterLifetime, hostLifetime, demandEpoch, requestGeneration,
-    acceptedBaselineRevision, proposedRevision
-  )
-  rows: [RepoExplorerMaterializedRow]
-    stored RepoExplorerRowID
-    immutable row presentation
-    bounded content revision
-    stable row layout class + fixed AppStyles metric inputs
-    optional represented worktree ID
-  rowIndexByID
-  rowIDsByWorktreeID + rowIDsByRepoID
-  presentation: empty(typed empty state) | content(rows)
-  RepoExplorerNativeUpdatePlan
+RepoExplorerMaterializationCandidate
+  candidateIdentity
+  adapterLifetime + materializationHostLifetime
+  demandEpoch + requestGeneration
+  complete immutable presentation
+    rowless(typed empty state) |
+    content(snapshot: rows + row/index/worktree/repo maps + fingerprint)
+  exact worker-derived RepoExplorerNativeUpdatePlan
 ```
+
+The envelope is the only host-delivery value. The broker may validate it against the current adapter and acknowledged host baseline, but must not strip, derive, rebuild, substitute, or separately store its plan. Candidate identity and the plan therefore settle as one unit; no presentation can reach the host without the exact plan derived from its acknowledged baseline.
 
 `RepoExplorerRowID` is a stored typed identity assembled from existing section/group/repository/worktree/pane identities. It includes a typed unresolved/topology-fault identity; the existing adapter comparator's `unresolved(String)` mechanically becomes `unresolved(RepoExplorerRowID)` rather than converting the new identity back to an interpolated string. The worker computes row identities, ordering, stable layout classes, fixed metric inputs, row-index maps, repo/worktree occurrence indexes, content revisions, and the complete native update plan off-main. MainActor does not compare, hash, sort, or diff the row fleet. Width-dependent text measurement is deliberately excluded from the worker and is bounded to represented visible rows by the table owner below.
 
@@ -335,9 +330,9 @@ presentation(
 
 The plan's private off-main constructor validates bounds, unique row IDs, disjoint remove/insert/move participation, move identity, and that applying the simultaneous old-space removals, new-space insertions, and old-to-new survivor moves to the exact acknowledged immutable baseline produces the candidate rows and fingerprint. Reload and height-reload indexes always address the final candidate snapshot. The value is immutable and cannot be constructed without that validation. The worker emits `.equal R→R` or `.changed R→R+1`; `R+1` is only a proposed acceptance. Superseded candidates may propose the same numeric `R+1`; the worker never increments or owns accepted revision.
 
-MainActor preflight is O(1): adapter/host lifetime, epoch, generation, and old revision/count/fingerprint must equal the host baseline; proposed identity must equal the candidate. Stale input is rejected before child update, while malformed current plans fail invariant precondition rather than broad reload.
+MainActor preflight is O(1): adapter/host lifetime, epoch, request generation, candidate identity, old revision/count/fingerprint, proposed revision, and presentation fingerprint must match the envelope and host baseline. An equal plan is a host no-op. A changed plan's presentation kind and new count/fingerprint must match the enclosed presentation. Stale input is rejected before child update, while malformed current plans fail invariant precondition rather than broad reload.
 
-For `equal`, no host child or acknowledgment advances revision. Changed content delegates represented reload/height work to the table; changed membership delegates the exact anchored transaction. After the child succeeds, the host replaces accepted presentation, publishes visible generation, and acknowledges R+1. Callbacks remain lifetime/epoch/generation-gated.
+For `equal`, no host child or acknowledgment advances revision. The host itself applies the exact typed rowless transitions, including `contentToEmpty` whose plan identity remains present even though it has no table operations. `emptyToContent` carries an exact membership plan. Content transitions pass the table child one closed envelope containing the candidate identity/visible generation, snapshot, and exact `RepoExplorerNativeTableUpdatePlan`; the child invokes `RepoExplorerNativeTransactionApplier`, the sole production native applier, without rediff or alternate plan. Only after its one synchronous disposition returns accepted does the host replace accepted presentation, publish visible generation, and acknowledge R+1.
 
 No ordinary update calls broad `reloadData`. Initial empty-to-current installation may use the same insertion transaction only after a cell-free pilot proves the API boundary. Objective-C/AppKit consistency exceptions are fatal process conditions, not recoverable Swift returns; correctness is provided by the off-main plan constructor, O(1) preflight, deterministic transaction proof, and the pilot. Before hosted cells or command integration depend on this boundary, the pilot runs the real 150/180/12/36 membership plans with a fixed visible-row count and then doubles offscreen rows. It falsifies the table design if app-owned fleet iteration appears, native membership MainActor p95 exceeds the `AppPolicies` four-millisecond bound, or p95 grows by more than twenty percent when only offscreen membership doubles. A falsifier returns to Program Design rather than permitting `reloadData` or a MainActor diff.
 
@@ -352,6 +347,8 @@ It owns:
 - one rowless empty-shell or non-empty table child;
 - visible generation/readiness for both child kinds;
 - synchronous accepted/rejected acknowledgment to the adapter.
+
+Its only update interface is `apply(candidate)`. It performs the O(1) envelope/plan preflight above, owns rowless transitions, and passes only the exact typed content envelope to the table child. It never reconstructs a plan from presentation, advances R before child/applier completion, or accepts a plan through a side channel.
 
 On creation the host installs and acknowledges explicit rowless R0 before first work starts. Empty equal R→R makes no child or revision change. Changed empty→empty updates the typed empty child and acknowledges R+1 after layout/accessibility readiness. Empty→content installs the table child and applies the insertion plan before acknowledging; content→empty installs the rowless child, clears viewport demand, disposes table cells only after anchor/focus disposition, then acknowledges. Content→content delegates its row plan to the table child. No empty state accepts through SwiftUI conditionals or a second owner.
 
@@ -372,13 +369,13 @@ The materializer receives one stable `RepoExplorerTableInteractions` value when 
 Behavioral interface:
 
 ```text
-apply(snapshot)
-  precondition: candidate lifetime/epoch/generation and old baseline match
-  membership: execute RepoExplorerNativeUpdatePlan.membership exactly
-  content: execute RepoExplorerNativeUpdatePlan.content exactly
-  equal: no call and no native-baseline acknowledgment
-  accepted changed: return child-applied to host
-  stale/revoked: return rejected without changing table state or viewport
+apply(contentCandidate)
+  input: snapshot + exact RepoExplorerNativeTableUpdatePlan +
+         visible generation/candidate identity
+  precondition: host already matched candidate/plan kind and baseline
+  membership/content: call RepoExplorerNativeTransactionApplier exactly once
+  accepted/rejected: return exactly one synchronous disposition
+  forbidden: rediff, replacement plan, plan side channel, second native applier
 
 visibleWorktreeIDs
   exact set represented by the table's current visible row range
@@ -501,9 +498,10 @@ Terminal owners -> compact Core pane-status fact
 Core/App fact projections -> injected Repo Explorer read interfaces
 Repo Explorer adapter -> Core keyed reads and feature worker
 Repo Explorer adapter -> Eager pending intent + execution-time baseline envelope
-Repo Explorer worker -> immutable semantic/native candidate and update plan
+Repo Explorer worker -> immutable semantic result + presentation/exact-plan candidate
 RepoExplorerView -> persistent materialization host for every demanded state
 materialization host -> rowless shell | non-empty table child
+materialization host -> exact content candidate -> sole native transaction applier
 materialization host -> feature-private accepted/rejected baseline acknowledgment -> adapter
 table materializer -> reusable row cell slots + visible-worktree demand callback
 table materializer -> typed visible-worktree generation snapshot -> App command-presentation batch
@@ -519,6 +517,7 @@ Forbidden:
 Terminal/Core/Forge -> Repo Explorer row formatting
 RepoExplorerView -> filesystem/Git/provider work or broad observation lifecycle
 MainActor/table host -> fleet diff, sort, identity construction, content comparison, or projection-owner reads
+broker/host/table -> strip, rebuild, substitute, side-store, or rediff a worker plan
 worker -> accepted revision increment, visible acceptance, or mutable adapter/host state
 adapter -> assume projected/read-model-bound candidate is native accepted
 successor execution -> unacknowledged candidate baseline
@@ -566,8 +565,8 @@ No two executions for one key overlap. Different keys may execute concurrently u
 | new host lifetime | install rowless shell; register/acknowledge empty R0 | visible empty R0 ready | first full intent may start from R0 |
 | empty R | equal empty plan R→R | no child/readiness/revision change | equal settles immediately |
 | empty R | changed empty→empty R+1 | update rowless shell; acknowledge when ready | R+1 accepted without table |
-| empty R | empty→content R+1 | install table; apply insertion plan; acknowledge | content R+1 ready |
-| content R | content→empty R+1 | install rowless shell; clear table/viewport; acknowledge | empty R+1 ready |
+| empty R | exact empty→content membership envelope R+1 | install table; child invokes sole applier; acknowledge after disposition | content R+1 ready |
+| content R | exact content→empty envelope R+1 | host applies typed rowless plan; clear table/viewport; acknowledge | empty R+1 ready; plan identity retained |
 | accepted revision R | valid content plan R→R+1 | expose candidate; reload final-space represented rows/heights; acknowledge after completion | R+1 accepted; unaffected rows/cells retain identity |
 | accepted revision R | valid membership plan R→R+1 | capture anchors; exact batch transaction; restore; acknowledge after completion | R+1 accepted; viewport recomputed once |
 | accepted revision R | equal plan R→R | no host state change or acknowledgment | no table/layout/focus invalidation |
@@ -632,13 +631,14 @@ source keyed fact change
   -> [intentionally unchanged] RepoExplorerProjectionAdapter keyed admission
   -> [changed] adapter creates latest full/delta intent under lifetime + demand epoch
   -> [changed] Eager starts only after adapter envelopes intent with acknowledged native R
-  -> [changed] worker emits semantic candidate, typed rows/layout indexes,
-               and exact `.equal R→R` or `.changed R→R+1` plan
-  -> [changed] adapter validates lifetime/epoch/generation/native R/semantic baseline
+  -> [changed] worker emits semantic candidate plus typed presentation and exact
+               `.equal R→R` or `.changed R→R+1` plan in one delivery envelope
+  -> [changed] broker validates but never strips/rebuilds the envelope plan
+  -> [changed] host O(1)-validates lifetime/epoch/generation/native R/fingerprints
   -> [changed] equal advances semantic baseline only; changed binds read model
   -> [removed] generic SwiftUI List/OutlineListCoordinator fleet diff
-  -> [added] persistent host applies empty/content presentation;
-              content delegates exact row transaction to table child
+  -> [added] persistent host applies exact rowless plan or delegates the exact
+              snapshot/table-plan child envelope to the sole native applier
   -> [added] host acknowledges accepted immutable empty/content R+1 to adapter
   -> [added] adapter caches R+1 and releases Eager settlement barrier
   -> [changed] only now may pending intent be re-enveloped and start from R+1
@@ -710,7 +710,7 @@ Unchanged and preserved: demand projection, active/follow-up bound, provider bat
 - **Forge stale completion:** candidate is discarded before freshness/accepted baseline mutation; the exact stable loading baseline is restored unless a successor is admitted, and latest follow-up remains eligible.
 - **Forge failure/rate limit:** current facts remain; loading restores the exact pre-loading stable state for ordinary failure/rate limit, while terminal current-origin unavailability uses the explicit unavailable state; existing backoff and next-deadline owner recovers.
 - **Atomic cache apply failure:** no partial loading/facts revision is committed. The next changed repository projection or demand refresh can recover from Forge's authoritative current state.
-- **Stale materialization candidate:** mismatch is rejected before child change. The host's last acknowledged R remains visible authority; semantic result is not promoted, and one full intent recovers from R.
+- **Stale materialization candidate or plan mismatch:** O(1) lifetime/epoch/generation/revision/count/fingerprint, proposed-revision, presentation-kind, or presentation-fingerprint mismatch is rejected before the child. The host retains R, semantic result is not promoted, and the existing bounded broker recovery rearms one full intent from R.
 - **Stale semantic or native baseline:** lifetime, demand epoch, generation, native revision/count/fingerprint, and semantic sequence are validated before binding. Rejection mutates neither Eager value/equality state nor acknowledged native baseline and re-arms one full intent from the current acknowledgment.
 - **Acknowledgment loss/duplication:** an invoked changed `apply` must synchronously return exactly one disposition; missing or duplicate current disposition is an invariant failure. Before invocation, demand loss, supersession, detach, or stop rejects the waiting candidate from the still-acknowledged baseline. Duplicate or late stale acknowledgments fail candidate identity and do nothing.
 - **Demand loss while projecting or awaiting native acceptance:** advance the demand epoch, revoke active/awaiting work, discard pending intent, and reject late binding/acknowledgment. Same-host hidden state may retain only its last acknowledged baseline; no unacknowledged candidate becomes reentry authority.
@@ -849,13 +849,13 @@ Each often/heavy domain owns a non-observable fixed-state accumulator before the
 | S1-S5 | RepoExplorerProjectionAdapter, topology stable-key index | deterministic grouping/key invalidation tests; forbidden-call architecture check; marker stage ratios |
 | S6-S8 | Ghostty disposition/accumulator/projector, PaneActivityStatusAtom | exact-pressure integration; latest-sequence R-INV; pinned Ghostty tail-read contract; deadline test |
 | S9-S12 | ForgeActor repository projection, coalesced coordinator apply, RepoCacheAtom | A→B→A controlled provider; atomic cache observation; unrelated-repo isolation; one-active/one-follow-up |
-| S13-S14 | adapter broker, replacement Eager intent/work/candidate interface, projection worker, persistent empty/content host, acknowledged baseline, native plan/table child, App command batch | A/B/C and settlement tokens; initial empty/empty↔content/changed-empty/equal-empty; R→R/R+1 oracle; semantic/native non-poisoning; hide/reentry/new-lifetime; Tab Bar immediate settlement/no-partial-list; AppKit pilot; visible-only rows |
+| S13-S14 | adapter broker, inseparable presentation/plan candidate, replacement Eager interface, projection worker, persistent host, table child/sole native applier, acknowledged baseline, App command batch | candidate-plan transport/identity; A/B/C and settlement tokens; initial empty/empty↔content/changed-empty/equal-empty; R→R/R+1 oracle; no-rediff/sole-applier enforcement; semantic/native non-poisoning; hide/reentry/new-lifetime; Tab Bar immediate settlement/no-partial-list; AppKit pilot; visible-only rows |
 | S15 | idle fixture, quiescence detector, host-pressure guard, process sampler | separate zero-PTY and quiescent-PTY markers; complete distributions; p99 gate; scheduled-background-work and zero-drop evidence |
 | S16 | existing command dispatch, debug-only native search driver, semantic/table readiness observation | separate search/grouping/visibility/tab markers; 100-action and 200-sample floors; boundary attribution; nearest-rank p95; whole-population invalidation |
 | S17 | immutable versioned `AppPolicies.SidebarPerformanceProof` descriptor and verifier | exact tags/pacing/timeout/host envelope/perturbation; external-load and sampler-gap rejection; historical comparison without threshold substitution |
 | S18-S20 | owning emitters and OTLP safe projection | outcome-matrix tests, binding-to-visible-update ratios, perturbation comparison, zero-drop verifier, sensitive canary and allowlist tests |
 
-The S13-S14 protocol proof covers initial empty R0; empty→content; content→every empty kind; changed/equal empty; A/B/C; equal-before-delta; pre-apply supersession; accepted/rejected/late-duplicate settlement; demand revoke, family remove, stop, same/new-host reentry; Tab Bar current/equal/changed-only/no-partial-list; and a randomized plan oracle. Acknowledged revision advances iff one changed host presentation completes and is acknowledged.
+The S13-S14 protocol proof covers inseparable candidate/plan transport into the sole production applier; initial empty R0; exact empty→content and content→every empty kind; changed/equal empty; A/B/C; equal-before-delta; pre-apply supersession; rejected plan/presentation mismatch before child entry with R retained and bounded recovery; accepted/rejected/late-duplicate settlement; demand revoke, family remove, stop, same/new-host reentry; Tab Bar current/equal/changed-only/no-partial-list; and a randomized plan oracle. Acknowledged revision advances iff one changed host presentation completes through its exact plan and is acknowledged.
 
 Unit tests may replace clocks/providers/projectors at designed seams. Performance acceptance keeps topology, pane fleet, adapter, worker, persistent host, table child, viewport, binding, EventBus, cache, sampler, OTLP, and Victoria real. Native proof binds the exact debug PID for empty/content presentation, appearance, scrolling, hover, collapse, menus, commands, focus, and accessibility; paired profiles bind the same marker/PID.
 
