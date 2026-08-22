@@ -576,3 +576,23 @@ Next: implement S2 worker applied-receipt cutover and the main active-plus-one
 candidate bank on the existing worker/product routes
 Notes: no security/auth, persistence, polling, queue, route, PR2, or visual UI
 change; the checkpoint used unsigned fallback after two 1Password signing failures
+
+### 2026-08-21 23:42 EDT — Refresh S2 foundation proven; S3 capability break
+
+State: S2 typed foundation is green but intentionally uncommitted and not claimed complete
+Head: `06244c1ce`; S2 changes remain in the working tree
+Owns: comm-worker receipt cutover, existing-route lifecycle contracts, and the
+main active-plus-one normalized Review candidate bank
+Changed: worker metadata no longer owns displayed receipt; exact candidate-ready,
+install-admit, admission-result, and installed contracts exist; candidate state
+is private, lineage-fenced, successor-replacing, atomically promotable, and
+discarded on replacement/close
+Proof: complete BridgeWeb check exited 0; focused S2 regression set passed 81/81;
+runtime protocol is 996 lines, worker contracts 986, main store 775; diff check passed
+Needs from other lane: UI remains untouched; do not consume the typed state until
+the native impact carrier and installation gate are connected
+Next: owner decision is required to add a capped arbitrary-revision commit-count
+API to `agentstudio-git` and bump the Agent Studio pin
+Notes: the pinned package can compute A-to-C files, rename sides, and line counts,
+but has no arbitrary A-to-C commit count; upstream ahead count is not equivalent.
+Direct Git CLI, a second scheduler, or always-unknown promotion were rejected.
