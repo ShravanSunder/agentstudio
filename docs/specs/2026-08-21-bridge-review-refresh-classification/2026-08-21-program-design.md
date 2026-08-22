@@ -90,11 +90,13 @@ Bridge native Review refresh
 existing product transport and comm worker
   owns: strict carriage, latest-generation application, projection
   carries: install admission and existing review.publication.applied receipt
-  rule: no presentation-hold or final-class policy
+  caches: newest complete active projection and its exact candidate-ready facts
+  rule: no presentation-hold or final-class policy; after native acknowledges an
+        installed predecessor, re-expose one newer worker-current projection
 
 BridgeMainRenderSnapshotStore
   owns: visible Review bank, optional candidate bank, atomic bank promotion
-  candidate role: provisional | updateReady
+  candidate role: provisional | updateReady | installing
   consumes: candidate class, affected file identities, display patches,
             candidate-ready event,
             feature-local installation admission
@@ -275,10 +277,23 @@ admission. Once admission succeeds, that one bank remains pinned until atomic
 promotion; a successor C cannot overwrite admitted B. If native C completes
 after B is admitted, C is a successor rather than a reason to invalidate B.
 Until B's applied receipt arrives, native may retain displayed A, admitted B,
-and current C; any other superseded unleased publication is released. After B's
-receipt, the existing metadata replay owner republishes newest current C when C
-differs from B. This is source authority and replay of the one latest successor,
-not a third presentation bank or raw-message buffer.
+and current C; any other superseded unleased publication is released. The comm
+worker may already have committed complete C while main keeps admitted B pinned.
+It retains only its normal newest active projection plus the exact candidate-ready
+facts for that projection. The first C display events are allowed to miss main's
+one occupied candidate bank; they are not buffered.
+
+The existing main-to-worker installed-B command continues to the native
+`review.publication.applied(B)` call. Only after that call succeeds, the comm
+worker compares installed B with its active projection. If worker-current C is
+strictly newer, the applicator re-exposes C once as one full reset display patch
+plus its candidate-ready event, reconstructed from the existing normalized C
+projection. Re-exposure does not reapply or clone worker runtime state, request
+native metadata replay, or change worker-current. One bounded in-memory fence
+keyed by `(installed B, re-exposed C)` suppresses duplicate re-exposure on an
+idempotent B receipt; a newer worker-current identity or replacement worker has
+a different fence. This is one presentation delivery of the latest successor,
+not a third presentation bank, raw-message buffer, metadata history, or new route.
 
 The existing control mux serializes admitted product calls. A duplicate or stale
 applied receipt is idempotent and cannot move `acknowledgedDisplayed` backward.
@@ -370,6 +385,9 @@ candidate installation
   -> main-to-worker installed message                        added local command edge
   -> existing publication-applied product call               changed semantic point
   <- acknowledged | retry/reconnect                          changed result handling
+  -> compare acknowledged installed identity with worker current
+  -> re-expose newer normalized worker projection once       added local effect
+  -> existing display patch + candidate-ready events         unchanged local route
 
 installed Review annotation identity
   -> annotation projection demand/commands                   changed explicit input
@@ -415,7 +433,7 @@ installing(A, B)
 
 active(B)+receiptPending(B)
   applied receipt acknowledged -------------------> active(B)
-  applied receipt + nativeCurrent(C) --------------> active(B)+replay(C)
+  applied receipt + workerCurrent(C) --------------> active(B)+reExpose(C)
   receipt delayed/lost ---------------------------> active(B)+conservative
 
 freshMain(empty)+nativeCurrent(B)
@@ -431,7 +449,7 @@ Illegal transitions fail closed:
 - a candidate-ready event without matching candidate identity is rejected;
 - stale or duplicate candidate-ready events do not install twice;
 - an older generation cannot replace a newer candidate;
-- provisional and update-ready roles cannot coexist;
+- provisional, update-ready, and installing roles cannot coexist;
 - partial candidate state is never readable through active-store selectors;
 - install admission compares expected displayed and native-current identities;
 - a publication completing after admission is a successor.
@@ -515,8 +533,10 @@ not a third presentation class or a second bank.
   cannot mutate the active bank unless that candidate is already install-admitted.
 - An admission request changes the existing candidate role to `installing`.
   Once native admits it, successor delivery cannot replace that bank before
-  promotion. After the applied receipt, the existing native metadata replay
-  publishes only the newest current successor.
+  promotion. After native acknowledges the applied receipt, the comm worker
+  re-exposes only a strictly newer complete active projection. Exact
+  `(installed, worker-current)` pair fencing makes duplicate receipts
+  presentation-idempotent without retaining a successor history.
 - Apply now records install intent. At commit the gate uses the newest complete
   candidate present at that moment and runs the same continuity and install-admission
   checks. If no complete candidate remains, presentation returns to `Updating…`.
@@ -553,7 +573,12 @@ not a third presentation class or a second bank.
   discard the stale candidate, and admit only the newest replacement.
 - Applied receipt delay or failure: retain newly active B and its annotation
   identity, retry idempotently, and classify successors conservatively until
-  acknowledgment; never roll back to A.
+  acknowledgment; do not re-expose worker-current C before native acknowledges
+  B, and never roll back to A. A retry that succeeds runs the same bounded
+  newer-projection comparison.
+- Successor re-exposure failure: retain active B and worker-current C; do not
+  fabricate a main candidate. A later idempotent installed-B retry or replacement
+  worker re-evaluates the exact pair from current normalized state.
 - Pane close: cancel impact work, release candidate bank, admission lease, and
   continuity leases through current editor teardown; no later event may install.
 - Memory pressure: the candidate bank is bounded to one normalized Review and
