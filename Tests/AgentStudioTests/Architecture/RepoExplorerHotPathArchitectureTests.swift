@@ -26,6 +26,48 @@ struct RepoExplorerHotPathArchitectureTests {
         }
     }
 
+    @Test("Repo Explorer row identity is typed and constructed before MainActor publication")
+    func repoExplorerRowIdentityIsTypedAndWorkerOwned() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let identitySource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerRowIdentity.swift"
+            ),
+            encoding: .utf8
+        )
+        let listEntrySource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerListEntry.swift"
+            ),
+            encoding: .utf8
+        )
+        let workerSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerProjectionWorker.swift"
+            ),
+            encoding: .utf8
+        )
+        let adapterSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionAdapter.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(identitySource.contains("enum RepoExplorerRowID: Hashable, Sendable"))
+        #expect(!identitySource.contains("uuidString"))
+        #expect(!identitySource.contains("\\("))
+        #expect(listEntrySource.contains("var id: RepoExplorerRowID"))
+        #expect(!listEntrySource.contains("var id: String"))
+        #expect(adapterSource.contains("case unresolved(RepoExplorerRowID)"))
+        #expect(!adapterSource.contains("case unresolved(String)"))
+        #expect(workerSource.contains("RepoExplorerMaterializationSnapshot.build("))
+        #expect(!adapterSource.contains("uuidString"))
+
+        // The current View's previous/next row-ID arrays remain explicitly deferred to Slice 11.
+        // This slice proves only that new identity construction/materialization stays off MainActor.
+    }
+
     @Test("RepoExplorerView renders from row index instead of walking groups per row")
     func repoExplorerViewRendersFromRowIndex() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

@@ -16,7 +16,7 @@ private enum RepoExplorerRenderedRowContent: Equatable {
     case associatedPane(RepoExplorerProjectedPaneRow)
     case unassociatedPane(RepoExplorerUnassociatedPaneDestination, RepoExplorerPaneRowFacts?)
     case topologyFault(Int)
-    case unresolved(String)
+    case unresolved(RepoExplorerRowID)
 }
 
 private struct RepoExplorerRenderedGroupHeaderContent: Equatable {
@@ -24,13 +24,14 @@ private struct RepoExplorerRenderedGroupHeaderContent: Equatable {
     let title: String
     let organizationName: String?
     let colorHex: String?
+    let isExpanded: Bool
     let semanticRepoPath: URL?
     let paneDestinations: [RepoExplorerPaneDestination]
 }
 
 private struct RepoExplorerRenderedWorktreeContent: Equatable {
     let groupId: String
-    let rowId: String
+    let rowId: RepoExplorerRowID
     let repoId: UUID
     let worktreeId: UUID
     let worktreePath: URL
@@ -237,7 +238,7 @@ final class RepoExplorerProjectionAdapter {
         return attributes
     }
 
-    private nonisolated static func hasEqualRenderedContent(
+    nonisolated static func hasEqualRenderedContent(
         _ lhs: RepoExplorerProjectionResult,
         _ rhs: RepoExplorerProjectionResult
     ) -> Bool {
@@ -276,6 +277,7 @@ final class RepoExplorerProjectionAdapter {
                         title: group.repoTitle,
                         organizationName: group.organizationName,
                         colorHex: RepoPresentationColoring.sourceGroupColorHex(for: group),
+                        isExpanded: result.rowIndex.isGroupExpanded(group.id),
                         semanticRepoPath: semanticRepoPath(
                             for: group,
                             groupingMode: result.snapshot.groupingMode

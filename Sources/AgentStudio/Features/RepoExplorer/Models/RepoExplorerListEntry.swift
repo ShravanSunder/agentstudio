@@ -14,29 +14,29 @@ enum RepoExplorerListEntry: Identifiable, Equatable, Sendable {
     case loadingSectionHeader(RepoExplorerSidebarSectionKind)
     case loadingRepoRow(section: RepoExplorerSidebarSectionKind, repo: RepoPresentationItem)
     case resolvedGroupHeader(RepoPresentationGroup)
-    case resolvedWorktreeRow(groupId: String, repoId: UUID, worktreeId: UUID, rowId: String)
-    case resolvedPaneRow(groupId: String, identity: RepoExplorerPaneListEntryIdentity, rowId: String)
+    case resolvedWorktreeRow(groupId: String, repoId: UUID, worktreeId: UUID, rowId: RepoExplorerRowID)
+    case resolvedPaneRow(groupId: String, identity: RepoExplorerPaneListEntryIdentity, rowId: RepoExplorerRowID)
     case unassociatedPaneRow(RepoExplorerUnassociatedPaneDestination)
     case topologyFault(RepoExplorerTopologyFault)
 
-    var id: String {
+    var id: RepoExplorerRowID {
         switch self {
         case .sectionHeader(let kind):
-            return "section-header:\(kind.rawValue)"
+            return .sectionHeader(kind)
         case .loadingSectionHeader(let kind):
-            return "loading-header:\(kind.rawValue)"
+            return .loadingSectionHeader(kind)
         case .loadingRepoRow(let section, let repo):
-            return "loading-repo:\(section.rawValue):\(repo.id.uuidString)"
+            return .loadingRepository(section: section, repoID: repo.id)
         case .resolvedGroupHeader(let group):
-            return "group:\(group.id)"
+            return .group(groupID: group.id)
         case .resolvedWorktreeRow(_, _, _, let rowId):
             return rowId
         case .resolvedPaneRow(_, _, let rowId):
             return rowId
         case .unassociatedPaneRow(let destination):
-            return "unassociated-pane-row:\(destination.paneId.uuidString)"
+            return .unassociatedPane(paneID: destination.paneId)
         case .topologyFault:
-            return "topology-fault"
+            return .topologyFault
         }
     }
 

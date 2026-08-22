@@ -40,6 +40,79 @@ struct RepoExplorerRenderedEqualityTests {
         }
     }
 
+    @Test("group disclosure presentation participates in rendered equality")
+    func groupDisclosurePresentationParticipatesInRenderedEquality() {
+        let group = RepoPresentationGroup(
+            id: "remote:askluna/disclosure-only",
+            repoTitle: "disclosure-only",
+            organizationName: "askluna",
+            repos: []
+        )
+        let projection = RepoExplorerSidebarProjection.ready(
+            RepoExplorerSidebarContent(
+                sections: [
+                    RepoExplorerSidebarSection(
+                        kind: .repositories,
+                        resolvedGroups: [group],
+                        loadingRepos: []
+                    )
+                ],
+                resolvedGroups: [group],
+                loadingRepos: [],
+                emptyState: .content
+            )
+        )
+        let snapshot = RepoExplorerSnapshot(
+            repos: [],
+            repoEnrichmentByRepoId: [:],
+            groupingMode: .repo,
+            query: ""
+        )
+        func result(collapsedGroupIDs: Set<String>) -> RepoExplorerProjectionResult {
+            let rowIndex = RepoExplorerRowIndex(
+                projection: projection,
+                collapsedGroupIds: collapsedGroupIDs,
+                isFiltering: false
+            )
+            return RepoExplorerProjectionResult(
+                generation: collapsedGroupIDs.isEmpty ? 1 : 2,
+                snapshot: snapshot,
+                collapsedGroupIds: collapsedGroupIDs,
+                isFiltering: false,
+                trigger: .dataRefresh,
+                projection: projection,
+                rowIndex: rowIndex,
+                materializationSnapshot: RepoExplorerMaterializationSnapshot.build(
+                    rowIndex: rowIndex,
+                    inputs: RepoExplorerMaterializationInputs(
+                        snapshot: snapshot,
+                        projection: projection,
+                        branchStatusByWorktreeID: [:],
+                        branchNameByWorktreeID: [:],
+                        bridgeCommandResolutionByWorktreeID: [:],
+                        paneRowFactsByPaneID: [:]
+                    )
+                ),
+                workerDuration: .zero,
+                projectionDuration: .zero,
+                rowIndexDuration: .zero,
+                branchStatusByWorktreeId: [:],
+                branchNameByWorktreeId: [:],
+                bridgeCommandResolutionByWorktreeId: [:],
+                paneRowFactsByPaneId: [:],
+                tabGroupFactsByTabId: [:],
+                baselineRevision: nil
+            )
+        }
+
+        #expect(
+            !RepoExplorerProjectionAdapter.hasEqualRenderedContent(
+                result(collapsedGroupIDs: []),
+                result(collapsedGroupIDs: [group.id])
+            )
+        )
+    }
+
     private func publishedResult(
         generation: Int,
         from adapter: RepoExplorerProjectionAdapter

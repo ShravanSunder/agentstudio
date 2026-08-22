@@ -12,14 +12,30 @@ struct RepoExplorerOutlineApplyMeasurementTests {
         var applyCount = 0
 
         let changed = RepoExplorerView.measureOutlineApplyProxy(
-            previousRowIDs: ["repo:a", "repo:b", "repo:c"],
-            nextRowIDs: ["repo:a", "repo:c", "repo:d"],
+            previousRowIDs: [
+                .group(groupID: "repo:a"),
+                .group(groupID: "repo:b"),
+                .group(groupID: "repo:c"),
+            ],
+            nextRowIDs: [
+                .group(groupID: "repo:a"),
+                .group(groupID: "repo:c"),
+                .group(groupID: "repo:d"),
+            ],
             nowNanoseconds: { clockValues.removeFirst() },
             apply: { applyCount += 1 }
         )
         let equal = RepoExplorerView.measureOutlineApplyProxy(
-            previousRowIDs: ["repo:a", "repo:c", "repo:d"],
-            nextRowIDs: ["repo:a", "repo:c", "repo:d"],
+            previousRowIDs: [
+                .group(groupID: "repo:a"),
+                .group(groupID: "repo:c"),
+                .group(groupID: "repo:d"),
+            ],
+            nextRowIDs: [
+                .group(groupID: "repo:a"),
+                .group(groupID: "repo:c"),
+                .group(groupID: "repo:d"),
+            ],
             nowNanoseconds: { clockValues.removeFirst() },
             apply: { applyCount += 1 }
         )

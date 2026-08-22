@@ -270,9 +270,13 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(result.snapshot == snapshot)
         #expect(
             result.rowIndex.entries.map(\.id) == [
-                "section-header:repositories",
-                "group:remote:askluna/agent-studio",
-                "worktree:remote:askluna/agent-studio:\(repoId.uuidString):\(repo.worktrees[0].id.uuidString):inactive",
+                .sectionHeader(.repositories),
+                .group(groupID: "remote:askluna/agent-studio"),
+                .worktree(
+                    groupID: "remote:askluna/agent-studio",
+                    repoID: repoId,
+                    worktreeID: repo.worktrees[0].id
+                ),
             ])
         #expect(result.branchNameByWorktreeId[repo.worktrees[0].id] == "Unknown branch")
     }

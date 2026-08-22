@@ -65,8 +65,8 @@ extension RepoExplorerView {
     }
 
     static func measureOutlineApplyProxy(
-        previousRowIDs: [String],
-        nextRowIDs: [String],
+        previousRowIDs: [RepoExplorerRowID],
+        nextRowIDs: [RepoExplorerRowID],
         nowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
         apply: () -> Void
     ) -> RepoExplorerOutlineApplyMeasurement {

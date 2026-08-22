@@ -63,6 +63,7 @@ struct RepoExplorerVisibleRowsTests {
         let secondWorktreeId = UUIDv7.generate()
         let loadingRepoId = UUIDv7.generate()
         let loadingWorktreeId = UUIDv7.generate()
+        let entriesPaneID = UUIDv7.generate()
         let group = RepoPresentationGroup(
             id: groupId,
             repoTitle: "Tab 1",
@@ -90,7 +91,11 @@ struct RepoExplorerVisibleRowsTests {
                 groupId: groupId,
                 repoId: firstRepoId,
                 worktreeId: firstWorktreeId,
-                rowId: "first"
+                rowId: .worktree(
+                    groupID: groupId,
+                    repoID: firstRepoId,
+                    worktreeID: firstWorktreeId
+                )
             ),
             .loadingSectionHeader(.repositories),
             .loadingRepoRow(section: .repositories, repo: loadingRepo),
@@ -98,16 +103,25 @@ struct RepoExplorerVisibleRowsTests {
                 groupId: groupId,
                 repoId: secondRepoId,
                 worktreeId: secondWorktreeId,
-                rowId: "second"
+                rowId: .worktree(
+                    groupID: groupId,
+                    repoID: secondRepoId,
+                    worktreeID: secondWorktreeId
+                )
             ),
             .resolvedPaneRow(
                 groupId: groupId,
                 identity: RepoExplorerPaneListEntryIdentity(
                     repoId: secondRepoId,
                     worktreeId: secondWorktreeId,
-                    paneId: UUIDv7.generate()
+                    paneId: entriesPaneID
                 ),
-                rowId: "pane"
+                rowId: .associatedPane(
+                    groupID: groupId,
+                    repoID: secondRepoId,
+                    worktreeID: secondWorktreeId,
+                    paneID: entriesPaneID
+                )
             ),
         ]
 
@@ -137,6 +151,7 @@ struct RepoExplorerVisibleRowsTests {
         let secondRepoId = UUIDv7.generate()
         let firstWorktreeId = UUIDv7.generate()
         let secondWorktreeId = UUIDv7.generate()
+        let paneID = UUIDv7.generate()
         let group = RepoPresentationGroup(
             id: "remote:askluna/agent-studio",
             repoTitle: "agent-studio",
@@ -149,22 +164,35 @@ struct RepoExplorerVisibleRowsTests {
                 groupId: group.id,
                 repoId: firstRepoId,
                 worktreeId: firstWorktreeId,
-                rowId: "first"
+                rowId: .worktree(
+                    groupID: group.id,
+                    repoID: firstRepoId,
+                    worktreeID: firstWorktreeId
+                )
             ),
             .resolvedWorktreeRow(
                 groupId: group.id,
                 repoId: secondRepoId,
                 worktreeId: secondWorktreeId,
-                rowId: "second"
+                rowId: .worktree(
+                    groupID: group.id,
+                    repoID: secondRepoId,
+                    worktreeID: secondWorktreeId
+                )
             ),
             .resolvedPaneRow(
                 groupId: group.id,
                 identity: RepoExplorerPaneListEntryIdentity(
                     repoId: secondRepoId,
                     worktreeId: secondWorktreeId,
-                    paneId: UUIDv7.generate()
+                    paneId: paneID
                 ),
-                rowId: "pane"
+                rowId: .associatedPane(
+                    groupID: group.id,
+                    repoID: secondRepoId,
+                    worktreeID: secondWorktreeId,
+                    paneID: paneID
+                )
             ),
         ]
 

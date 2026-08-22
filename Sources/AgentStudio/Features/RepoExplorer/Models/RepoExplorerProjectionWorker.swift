@@ -215,6 +215,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
     let trigger: AppPolicies.SidebarProjection.Trigger
     let projection: RepoExplorerSidebarProjection
     let rowIndex: RepoExplorerRowIndex
+    let materializationSnapshot: RepoExplorerMaterializationSnapshot
     let workerDuration: Duration
     let projectionDuration: Duration
     let rowIndexDuration: Duration
@@ -251,6 +252,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
                 collapsedGroupIds: [],
                 isFiltering: false
             ),
+            materializationSnapshot: .empty,
             workerDuration: .zero,
             projectionDuration: .zero,
             rowIndexDuration: .zero,
@@ -428,6 +430,18 @@ actor RepoExplorerProjectionWorker {
             cancellationCheck: { try Task.checkCancellation() }
         )
         try Task.checkCancellation()
+        let materializationSnapshot = RepoExplorerMaterializationSnapshot.build(
+            rowIndex: rowIndex,
+            inputs: RepoExplorerMaterializationInputs(
+                snapshot: request.snapshot,
+                projection: projection,
+                branchStatusByWorktreeID: branchStatusByWorktreeId,
+                branchNameByWorktreeID: branchNameByWorktreeId,
+                bridgeCommandResolutionByWorktreeID: bridgeCommandResolutionByWorktreeId,
+                paneRowFactsByPaneID: request.paneRowFactsByPaneId
+            )
+        )
+        try Task.checkCancellation()
         return RepoExplorerProjectionResult(
             generation: request.generation,
             snapshot: request.snapshot,
@@ -436,6 +450,7 @@ actor RepoExplorerProjectionWorker {
             trigger: request.trigger,
             projection: projection,
             rowIndex: rowIndex,
+            materializationSnapshot: materializationSnapshot,
             workerDuration: workerStart.duration(to: clock.now),
             projectionDuration: projectionDuration,
             rowIndexDuration: rowIndexDuration,
@@ -626,6 +641,17 @@ actor RepoExplorerProjectionWorker {
             worktreeId: worktreeId,
             candidates: request.snapshot.bridgePaneCommandCandidatesByWorktreeId[worktreeId, default: []]
         )
+        let materializationSnapshot = RepoExplorerMaterializationSnapshot.build(
+            rowIndex: previous.rowIndex,
+            inputs: RepoExplorerMaterializationInputs(
+                snapshot: request.snapshot,
+                projection: previous.projection,
+                branchStatusByWorktreeID: branchStatuses,
+                branchNameByWorktreeID: branchNames,
+                bridgeCommandResolutionByWorktreeID: bridgeCommandResolutions,
+                paneRowFactsByPaneID: request.paneRowFactsByPaneId
+            )
+        )
         return RepoExplorerProjectionResult(
             generation: request.generation,
             snapshot: request.snapshot,
@@ -634,6 +660,7 @@ actor RepoExplorerProjectionWorker {
             trigger: request.trigger,
             projection: previous.projection,
             rowIndex: previous.rowIndex,
+            materializationSnapshot: materializationSnapshot,
             workerDuration: .zero,
             projectionDuration: .zero,
             rowIndexDuration: .zero,
@@ -786,18 +813,31 @@ actor RepoExplorerProjectionWorker {
         previous: RepoExplorerProjectionResult,
         projection: RepoExplorerSidebarProjection
     ) -> RepoExplorerProjectionResult {
-        RepoExplorerProjectionResult(
+        let rowIndex = RepoExplorerRowIndex(
+            projection: projection,
+            collapsedGroupIds: request.collapsedGroupIds,
+            isFiltering: request.isFiltering
+        )
+        let materializationSnapshot = RepoExplorerMaterializationSnapshot.build(
+            rowIndex: rowIndex,
+            inputs: RepoExplorerMaterializationInputs(
+                snapshot: request.snapshot,
+                projection: projection,
+                branchStatusByWorktreeID: previous.branchStatusByWorktreeId,
+                branchNameByWorktreeID: previous.branchNameByWorktreeId,
+                bridgeCommandResolutionByWorktreeID: previous.bridgeCommandResolutionByWorktreeId,
+                paneRowFactsByPaneID: request.paneRowFactsByPaneId
+            )
+        )
+        return RepoExplorerProjectionResult(
             generation: request.generation,
             snapshot: request.snapshot,
             collapsedGroupIds: request.collapsedGroupIds,
             isFiltering: request.isFiltering,
             trigger: request.trigger,
             projection: projection,
-            rowIndex: RepoExplorerRowIndex(
-                projection: projection,
-                collapsedGroupIds: request.collapsedGroupIds,
-                isFiltering: request.isFiltering
-            ),
+            rowIndex: rowIndex,
+            materializationSnapshot: materializationSnapshot,
             workerDuration: .zero,
             projectionDuration: .zero,
             rowIndexDuration: .zero,
@@ -821,6 +861,7 @@ extension RepoExplorerProjectionResult {
             trigger: trigger,
             projection: projection,
             rowIndex: rowIndex,
+            materializationSnapshot: materializationSnapshot,
             workerDuration: workerDuration,
             projectionDuration: projectionDuration,
             rowIndexDuration: rowIndexDuration,
