@@ -794,3 +794,31 @@ Next: checkpoint the native lifecycle correction, then add scrubbed operand/resu
 assertions to the already-green real browser document-1/document-2 transcript.
 Notes: no new route, hook, persistence, security/auth, polling, compatibility, or
 PR2 change. The three protected PR2 files remain untouched.
+
+### 2026-08-22 14:32 EDT — Packaged backend proof green; Share suite blocker isolated
+
+State: both required packaged backend journeys are green in isolation at exact
+HEAD; the broader six-test packaged suite is blocked by the UI-owned Share
+journey and its subsequent hidden-document contamination
+Head: `98fb22d21`
+Owns: packaged backend proof and test composition only; no visual UI or product
+behavior changed
+Changed: the transactional packaged-WebKit harness now forwards the existing
+`review.publication.install.admit` call to the same native coordinator admission
+owner used by app and development-host composition. The harness previously used
+the provider's explicit default rejection, so its first application could never
+complete after install admission became mandatory.
+Proof: red suite-qualified test ran 1 and failed with
+`initialPublicationDidNotApply`; green rerun ran 1 and passed in 1.104s. At
+checkpoint `98fb22d21`, the real-git bundled worker test runs 1/1 in 1.409s and
+the transactional replay test is green. Scoped format/lint/architecture checks
+pass.
+Needs from UI lane: investigate `packaged File and Review Share performs exact
+App effects and durable unhandle`, which fails at stage `review-new` with New,
+All, and History counts all zero. In the full serialized suite, the next bundled
+Review test then observes `document.visibilityState == hidden` and content stuck
+in `loading`; that same backend test passes alone at exact HEAD.
+Next: UI owner fixes or hands back the Share failure/cleanup contamination; then
+rerun the full packaged suite and exact-HEAD aggregate gate.
+Notes: backend did not edit UI, Share behavior, security/auth, routes, scheduler,
+polling, persistence, compatibility, or PR2 files.
