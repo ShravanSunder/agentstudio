@@ -1,9 +1,11 @@
 # Bridge Review Refresh Classification — Design Review Comments
 
 Date: 2026-08-21
-Result: **ready after bounded remediation** — the original 2 blockers, 6
-important findings, and 4 minor/observation findings were parent-verified and
-corrected in one remediation round. No second review was run.
+Result: **revised after closed review** — the original 2 blockers, 6 important
+findings, and 4 minor/observation findings remain parent-verified and corrected.
+The owner-authorized install-admission simplification landed afterward, so the
+original independent review does not cover that revised mechanism. No second
+review was run.
 
 ## Review identity
 
@@ -107,10 +109,10 @@ after a hold            candidate B (committed)       Review A (held)
 
 - **F1/F2:** the Specification now keeps annotation projection, placement,
   root-source validation, and output fencing on the displayed generation until
-  installation. Program Design adds retained displayed-publication authority and
-  an idempotent prepare/confirm/abort install handshake on the existing command
-  route. Pending or failed transitions classify conservatively and retain exact
-  annotation source resolution.
+  installation. Program Design uses lineage-monotonic `nativeCurrent` and
+  `acknowledgedDisplayed` registers, one exact install-admission CAS, and the
+  existing `review.publication.applied` receipt after main promotion. Divergence
+  classifies conservatively and retains exact annotation source resolution.
 - **F3/F12:** same-source is defined, every successor measures from the Review
   actually displayed, and an ordinary successor releases an older held
   candidate and installs without inheriting its bar.
@@ -118,14 +120,14 @@ after a hold            candidate B (committed)       Review A (held)
   Program Design extends the existing Pierre-owned visible-item callback without
   adding a scroll owner, observer, or polling path.
 - **F5/F6:** Apply now resolves the newest complete candidate at commit, while
-  unknown impact treats every current Review context as affected until precise
-  candidate identities arrive.
+  unknown impact treats every current Review context as affected until an exact
+  affected-file set arrives.
 - **F7:** provisional and update-ready are mutually exclusive roles of one
   candidate bank, preserving the active-plus-one bound through supersession,
   failure, close, and worker replacement.
 - **F8:** the existing pane-runtime worker-replacement edge explicitly discards
-  candidate state and promoted chrome and reconciles or aborts the native display
-  transition before replay.
+  candidate state and promoted chrome; after bootstrap main resends the existing
+  applied receipt for its retained active bank.
 - **F9/F10/F11:** state names use `updateReady`; candidate readiness is an event;
   native owns only the pre-delivery class, main owns the final effective class;
   and the event carries package identity rather than duplicating the package.
@@ -134,5 +136,9 @@ Parent verification re-read the corrected Specification and Program Design,
 checked every original finding against its new anchor, ran whitespace/diff
 checks, and confirmed that Requirements U-RRC-001 through U-RRC-008, all
 non-goals, the single update pipeline, and existing physical routes remain
-intact. The design cycle is closed as ready; planning may begin, but
-implementation acceptance is not claimed.
+intact. The post-review simplification removes transition identifiers,
+prepare/confirm/abort state, forced replacement recovery, thread-level
+affectedness, prescribed editor-field duplication, and prescribed candidate
+cloning. Planning-readiness now requires either explicit permission for a second
+independent design review or an owner decision to proceed on parent self-check
+alone; implementation acceptance is not claimed.

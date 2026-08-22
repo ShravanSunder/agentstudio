@@ -26,11 +26,12 @@ editor, and reading position. Holding work in native would make native depend
 on UI attention. Holding only React components would be too late because worker
 patches would already mutate the visible store.
 
-A hold also separates three identities that are equal today: native/worker
-current, main displayed, and annotation source. The main store remains the
-authority for what is displayed. A bounded install handshake on the existing
-command route lets native retain and resolve that displayed publication without
-making presentation wait on computation or creating another data plane.
+A hold also separates identities that are equal today. Native owns the newest
+computed publication, while the main store owns the publication actually
+displayed. Native keeps one lineage-monotonic acknowledgment of that displayed
+identity for impact and annotation source resolution. Installation uses one
+compare-and-set admission plus the existing publication-applied receipt; it is
+not a general distributed transaction.
 
 ## Alternatives
 
@@ -43,9 +44,8 @@ making presentation wait on computation or creating another data plane.
   installation is admitted.
 - Review viewer attention context reaches the store through an explicit
   feature-local admission interface.
-- Display installation uses prepare and confirm messages on the existing
-  command route so native source authority never advances merely because the
-  worker committed a candidate.
+- Display installation uses one native admission call and the existing
+  publication-applied receipt on the existing command route.
 
 Cost: memory for at most one additional normalized Review presentation.
 
@@ -83,26 +83,26 @@ Bridge native Review refresh
     uses: existing native Git/source and active/candidate Review identities
 
   BridgeReviewPublicationCoordinator
-    owns: one complete native-current candidate, retained displayed publication,
-          bounded display-install transition, and publication ordering
+    owns: nativeCurrent, acknowledgedDisplayed, optional admitted-publication
+          lease, retained publication material, and publication ordering
     rule: classification settles before candidate display delivery
 
 existing product transport and comm worker
   owns: strict carriage, latest-generation application, projection
-  carries: display-install prepare/confirm/abort commands on the existing route
+  carries: install admission and existing review.publication.applied receipt
   rule: no presentation-hold or final-class policy
 
 BridgeMainRenderSnapshotStore
   owns: visible Review bank, optional candidate bank, atomic bank promotion
   candidate role: provisional | updateReady
-  consumes: candidate class, affected item identities, display patches,
+  consumes: candidate class, affected file identities, display patches,
             candidate-ready event,
             feature-local installation admission
 
 BridgeReviewPresentationInstallationGate
   owns: final effective presentation class, ordinary/promoted installation
-        decision, and the display-install handshake
-  consumes: candidate affected-item set, Review attention-context snapshot,
+        decision, and install admission
+  consumes: candidate affected-file set, Review attention-context snapshot,
             and Apply now
 
 Worktree annotation Review source resolver
@@ -111,8 +111,8 @@ Worktree annotation Review source resolver
   consumes: installed package/generation identity and retained publication
 
 WorktreeAnnotationEditSurfaceRegistry
-  owns: ephemeral editor continuity keyed by edit token
-  preserves: editor body, origin, scheduler/in-flight persistence identity
+  owns: an opaque ephemeral continuity lease keyed by edit token
+  preserves: the existing editor owner across presentation replacement
   does not replace: SQLite durable draft/message authority
 
 Bridge Review toolbar
@@ -127,7 +127,8 @@ Forbidden edges:
 - editor continuity does not become a second durable annotation store;
 - ordinary and promoted modes do not fork comparison computation;
 - native-current publication does not imply displayed or annotation-current;
-- no annotation path falls back from an installed identity to native current.
+- no annotation path falls back from an installed identity to native current;
+- no wall-clock timestamp participates in publication ordering.
 
 ## Behavioral interfaces
 
@@ -144,12 +145,13 @@ deletedLineCount
 affectedStableFileIdentities
 ```
 
-The publication coordinator supplies the last confirmed installed publication,
-not its native-current publication, as the displayed input. The provider uses
-the existing bounded Git scheduler and retained displayed Review material.
-Counts describe the displayed-to-candidate delta. A pending display transition,
-timeout, unavailable material, or incomplete measurement returns `unknown`,
-which the coordinator maps to promoted. Results from stale generations are ignored.
+The publication coordinator supplies `acknowledgedDisplayed`, not
+`nativeCurrent`, as the displayed input. The provider uses the existing bounded
+Git scheduler and retained displayed Review material. Counts describe the
+displayed-to-candidate delta. While those registers diverge for a successor, or
+when timeout, unavailable material, or incomplete measurement prevents an exact
+base, the result is `unknown`, which maps to promoted. Results from stale
+lineages are ignored.
 The result also carries the affected stable file identities needed to decide
 whether promoted computation concerns the current Review attention context.
 
@@ -178,8 +180,12 @@ retain their current presentation contracts.
 The comm worker already observes the final Review metadata barrier. After it
 applies the final current-fenced transaction, it emits one strict internal
 candidate-ready event containing the package identity, generation, revision,
-pre-delivery presentation class, and affected item identities. This uses the
-existing worker RPC connection and adds no physical route.
+pre-delivery presentation class, and affected stable file identities. This uses
+the existing worker RPC connection and adds no physical route.
+
+The worker no longer sends or awaits `review.publication.applied` merely because
+it committed metadata. It continues consuming newer metadata, while the main
+installation gate returns that existing call only after atomic bank promotion.
 
 ### Installation admission
 
@@ -193,7 +199,7 @@ readRefreshPresentation()
 
 Every complete worker display event first targets the one candidate bank.
 Without an active editor, an ordinary candidate proceeds immediately through
-the display-install handshake with no global bar. With an active editor, the
+install admission with no global bar. With an active editor, the
 bank remains provisional until the candidate-ready event proves exact
 reattachment. Failure to prove exact reattachment escalates the same candidate
 to promoted. Numerically promoted events use the same candidate bank with role
@@ -201,45 +207,73 @@ to promoted. Numerically promoted events use the same candidate bank with role
 the one slot. The candidate-ready event allows the installation gate to install
 immediately or hold it.
 
-During known-impact computation, the impact result's affected stable file
-identities allow the gate to render `Updating…` only for relevant Review
-attention. At candidate readiness, the candidate bank derives the precise
-affected item set by comparing the active and candidate Review catalogs and
-identities. Added, removed, and changed Review items, including threads whose
-trustworthy placement changes, are affected. The gate holds only when that set
-intersects the current semantic-attention item set.
+Affected stable file identities are the complete chrome-classification set.
+Renames and deletions carry both displayed and candidate-side identities.
+Selected items, threads, editors, ranges, reading position, and related commands
+map to their owning stable file identity. The gate holds only when that file set
+intersects the current semantic-attention file set.
 
-An `unknown` promotion treats every current Review context as affected until the
-candidate-ready event replaces that conservative set with precise affected item
-identities.
+An `unknown` promotion treats every current Review context as affected until a
+later exact affected-file set replaces that conservative result.
 
-### Displayed-source install handshake
+### Two lineage registers and install admission
 
-Every visible replacement, ordinary or promoted, uses one bounded handshake:
+Native stores two independently monotonic publication identities:
+
+```text
+nativeCurrent          newest native-complete publication
+acknowledgedDisplayed  newest publication main confirmed as displayed
+```
+
+Both use the existing accepted publication-lineage rule: generation orders first,
+then revision; package, source, and publication identities are exact fences, and
+an ambiguous identity never wins. They never use wall-clock LWW. Main remains
+authoritative for the actual visible bank; the native displayed register is its
+acknowledged mirror.
+
+Bootstrap seeds both registers from the first publication main accepts as
+displayed. Before that, `acknowledgedDisplayed` is absent and same-source
+classification does not apply. Worker replacement preserves main's active bank
+and re-establishes the mirror by replaying its exact applied receipt.
+
+Every visible replacement, ordinary or promoted, follows this bounded path:
 
 ```text
 installation gate
-  -> prepareDisplayInstall(expected displayed A, candidate B, transition id)
-  <- prepared: native retains A and B; displayed authority remains A
-  -> confirmDisplayInstall(transition id, B) enqueued on the existing command route
-  -> main render store atomically promotes candidate bank B in the same
-     non-yielding main-thread turn
-  <- native displayed mirror becomes B; A may retire when no lease remains
+  -> admitInstall(expectedDisplayed: A, candidate: B)
+  <- accepted only when acknowledgedDisplayed == A
+                     and nativeCurrent == B
+  -> main render store atomically promotes candidate bank B
+  -> review.publication.applied(B) on the existing command route
+  <- acknowledgedDisplayed advances monotonically to B
 ```
 
-Prepare, confirm, and abort are idempotent for the same transition identity.
-Prepare rejects a mismatched displayed predecessor or candidate. While prepared
-but unconfirmed, native impact classification is `unknown`, annotation
-resolution remains valid for A, and both retained publications remain available.
-The gate enqueues confirm and promotes the bank without yielding, so later Review
-annotation commands on the same worker route cannot overtake confirm. If confirm
-cannot be enqueued, the store does not publish B as active.
+The candidate publication identity is the admission identity; there is no
+separate transition identifier. Admission is the linearization point and owns
+one in-memory publication lease. If native C completes after B is admitted, C is
+a successor rather than a reason to invalidate B. Until B's applied receipt
+arrives, native may retain displayed A, admitted B, and current C; any other
+superseded unleased publication is released. This is source authority, not a
+third presentation bank.
 
-Worker replacement or restart reconciles the prepared transition against the
-main store's active bank: matching A aborts the transition, matching B confirms
-it, and any mismatch retains the last complete bank and reports installation
-failure. Pane close aborts the transition and releases both candidate and
-display leases. These are bounded lifecycle states, not durable history.
+The existing control mux serializes admitted product calls. A duplicate or stale
+applied receipt is idempotent and cannot move `acknowledgedDisplayed` backward.
+A late or lost receipt leaves classification conservative and retention longer,
+but never changes main's active bank. On reconnect, main resends the applied
+receipt for its active bank. If the worker session ends before main installs an
+admitted publication, session teardown releases the admission lease and leaves
+`acknowledgedDisplayed` unchanged. No abort protocol or forced replacement is
+required.
+
+If main displays B while B's receipt is still unacknowledged, admission of a
+later C first retries B's receipt; it never guesses past the mismatched expected
+displayed identity.
+
+The existing `review.publication.applied` call moves from post-worker application
+to post-main installation; no second acknowledgment kind is added. A prior
+A-stamped annotation call enters the same serialized product-control mux before
+B's applied receipt, and A retires only after that acknowledgment plus settlement
+of every open A source lease. Commands created after installation carry B.
 
 The Review annotation projection demand and every Review annotation command
 carry the installed package/generation identity captured from the active main
@@ -251,15 +285,17 @@ SQLite authority remain unchanged.
 
 ### Editor continuity
 
-The existing edit-surface registry expands each active edit-token record from a
-count to one ephemeral continuity record. The record retains the current editor
-body, immutable origin, editor kind, draft scheduler, and in-flight persistence
-handle across CodeView item replacement. A re-mounted composer reattaches by
-edit token. Closing the editor releases the record after its existing flush/
-release contract.
+The existing edit-surface registry exposes one opaque continuity lease per active
+edit token. The current editor owner transfers that lease across CodeView item
+replacement and reclaims it on reattachment; the registry does not prescribe or
+copy editor fields. Closing the editor releases the lease through its existing
+flush/release contract.
 
-SQLite remains the durable authority. Continuity records are never history and
-are cleared on editor close, pane close, or settled command handoff.
+SQLite remains the durable authority. The default continuity realization is the
+stable editor owner plus edit token. A lease carries additional ephemeral state
+only when that state cannot remain with the editor owner and is necessary to
+preserve body or command settlement across replacement. The registry never
+becomes history, a draft store, or a second command scheduler.
 
 ## Current and proposed call-path delta
 
@@ -290,12 +326,13 @@ complete publication + classification
   -> BridgeMainRenderSnapshotStore candidate bank           added state write
 
 candidate installation
-  -> display-install prepare command                        added existing-route call
-  -> BridgeReviewPublicationCoordinator display lease       added retained authority
-  <- prepared | rejected                                    added result edge
-  -> display-install confirm + atomic bank promotion         added serialized effects
-  <- installed | failed                                     added result state
-  -> display-install abort on supersession/teardown          added cleanup edge
+  -> install admission CAS                                  added existing-route call
+  -> BridgeReviewPublicationCoordinator admission lease      added retained authority
+  <- admitted | rejected                                    added result edge
+  -> atomic candidate-bank promotion                         added visible effect
+  -> main-to-worker installed message                        added local command edge
+  -> existing publication-applied product call               changed semantic point
+  <- acknowledged | retry/reconnect                          changed result handling
 
 installed Review annotation identity
   -> annotation projection demand/commands                   changed explicit input
@@ -304,7 +341,7 @@ installed Review annotation identity
 
 Review viewer attention-context snapshot
   -> BridgeReviewPresentationInstallationGate               added local edge
-  <- candidate affected-item set                             added derived edge
+  <- candidate affected-file set                             added derived edge
   -> BridgeMainRenderSnapshotStore                          added admission edge
   -> atomic candidate-bank promotion                        added visible effect
   <- installed | held | preservation failure                added result state
@@ -321,7 +358,7 @@ The main render store owns the Review presentation state:
 ```text
 active(A)
   candidate(B, provisional)
-    B exact/ordinary + install prepared ----------> installing(A, B)
+    B exact/ordinary + install admitted ----------> installing(A, B)
     B anchor-unsafe ------------------------------> candidate(B, updateReady)
 
 active(A)
@@ -334,12 +371,14 @@ active(A)
   candidate/receiving + newer C ------------------> receiving(A, C)
 
 installing(A, B)
-  confirm enqueued + atomic promotion ------------> active(B)
-  prepare/enqueue failure ------------------------> active(A)+unavailable
-  confirm lost after promotion -------------------> active(B)+reconciling
+  admission accepted + atomic promotion ----------> active(B)+receiptPending(B)
+  admission rejected -----------------------------> active(A)+superseded
 
-receiving/candidate/installing + worker replacement
-  ------------------------------------------------> active(A)+reconciling
+active(B)+receiptPending(B)
+  applied receipt acknowledged -------------------> active(B)
+  receipt delayed/lost ---------------------------> active(B)+conservative
+
+receiving/candidate + worker replacement ----------> active(A)
 close --------------------------------------------> disposed
 ```
 
@@ -349,7 +388,9 @@ Illegal transitions fail closed:
 - stale or duplicate candidate-ready events do not install twice;
 - an older generation cannot replace a newer candidate;
 - provisional and update-ready roles cannot coexist;
-- partial candidate state is never readable through active-store selectors.
+- partial candidate state is never readable through active-store selectors;
+- install admission compares expected displayed and native-current identities;
+- a publication completing after admission is a successor.
 
 ## Review attention context
 
@@ -371,8 +412,9 @@ The attention adapter consumes that identity. It does not own scroll position,
 write `scrollTop`, install a parallel observer, or poll; Pierre remains the
 scroll and visibility owner.
 
-The installation gate intersects those semantic-attention item identities with
-the candidate affected-item set. Same-context DOM blur, Save or Share clicks,
+The installation gate maps semantic-attention items to owning stable file
+identities and intersects those with the candidate affected-file set.
+Same-context DOM blur, Save or Share clicks,
 and temporary app/window deactivation do not clear attention. Selecting an
 unaffected item, switching File/Review mode, switching pane or tab, or closing
 Review removes the affected attention and automatically installs the newest
@@ -396,10 +438,10 @@ telemetry or native boundaries.
 reviewer -> toolbar: Apply now
 toolbar -> installation gate: record install intent
 installation gate -> candidate bank: read newest complete candidate at commit
-installation gate -> edit registry: retain continuity records
-installation gate -> native: prepare displayed-source transition
-installation gate -> native: enqueue confirm on existing command route
+installation gate -> edit registry: transfer continuity leases
+installation gate -> native: admit expected displayed A and candidate B
 installation gate -> main render store: promote newest candidate bank atomically
+installation gate -> native: send existing publication-applied receipt for B
 main render store -> Review viewer: one new active snapshot
 Review viewer -> composers: reattach by edit token
 annotation projection -> source evaluator: refresh placement
@@ -407,15 +449,15 @@ source evaluator -> UI: exact | relocated | outdated | unavailable
 ```
 
 If continuity reattachment fails, the gate leaves the active bank visible,
-retains the continuity record, and exposes preservation failure. There is no
+retains the continuity lease, and exposes preservation failure. There is no
 partial bank promotion.
 
 ## Ordinary installation with an active editor
 
 Ordinary mode does not hold a complete candidate after the continuity and
-display-install decisions. The one candidate bank uses its provisional role
-while the gate validates editor reattachment and prepares the displayed-source
-transition. Exact reattachment installs immediately and silently. If
+install-admission decisions. The one candidate bank uses its provisional role
+while the gate validates editor reattachment and requests exact install
+admission. Exact reattachment installs immediately and silently. If
 reattachment is not trustworthy, the same bank changes role to `updateReady`
 and the effective class escalates to promoted. This is a correctness escalation,
 not a third presentation class or a second bank.
@@ -428,49 +470,49 @@ not a third presentation class or a second bank.
 - Newer work replaces the candidate bank; cleanup of the old candidate bank
   cannot mutate the active bank.
 - Apply now records install intent. At commit the gate uses the newest complete
-  candidate then present and runs the same continuity and display-install
+  candidate present at that moment and runs the same continuity and install-admission
   checks. If no complete candidate remains, presentation returns to `Updating…`.
-- A candidate that supersedes an in-flight prepare aborts that transition before
-  its own prepare; a stale confirm cannot promote either bank.
-- Display-install transitions and candidate replacement are serialized by the
-  main-thread gate and native transition identity.
+- Accepted admission is the newest-native-complete linearization point. A later
+  native publication is a successor even if it completes before main paints B.
+- Admission, candidate replacement, and active-bank promotion are serialized by
+  their existing native and main owners; no cross-process lock is introduced.
 - No timer forces installation while affected semantic attention remains.
 
 ## Failure and recovery
 
-- Impact timeout, unavailable facts, or a pending display transition: promote
-  conservatively and treat every Review context as affected until precise
-  candidate identities arrive; computation continues.
+- Impact timeout, unavailable facts, or divergent current/displayed registers:
+  promote conservatively and treat every Review context as affected until an
+  exact affected-file set arrives; computation continues.
 - Candidate build or validation failure: discard candidate; active bank remains;
   use existing retry classification. Render `Update unavailable` only while the
   failed promoted candidate affects the current attention context; otherwise
   keep the global bar absent and use the existing non-global refresh outcome.
 - Worker reset: the pane runtime that already observes replacement calls the
   main store's worker-replacement preparation, discards the candidate bank and
-  promoted chrome immediately, and reconciles or aborts the native display
-  transition before replaying the retained active bank.
+  promoted chrome immediately, then resends the publication-applied receipt for
+  the retained active bank after worker bootstrap.
 - Main continuity failure: do not promote the bank; preserve editor and active
   Review; expose failure.
-- Display-install prepare rejection or confirm-enqueue failure: retain the active
-  bank and annotation authority; expose installation failure; retry only through
-  a new transition identity.
-- Confirm application lost after enqueue: retain newly active B, force worker
-  replacement/bootstrap reconciliation, and never fall back to A for B-relative
-  annotation work.
-- Pane close: cancel impact work, release candidate bank, display leases, and
-  continuity records through current editor teardown; no later event may install.
+- Install-admission rejection: retain the active bank and annotation authority,
+  discard the stale candidate, and admit only the newest replacement.
+- Applied receipt delay or failure: retain newly active B and its annotation
+  identity, retry idempotently, and classify successors conservatively until
+  acknowledgment; never roll back to A.
+- Pane close: cancel impact work, release candidate bank, admission lease, and
+  continuity leases through current editor teardown; no later event may install.
 - Memory pressure: the candidate bank is bounded to one normalized Review and
   may not displace the active bank; inability to retain it becomes an explicit
   retained-Review failure.
 
 ## Cross-cutting realization
 
-- Reliability: active and candidate banks are disjoint, generation-fenced, and
-  atomically promoted after a bounded displayed-source prepare. Existing last-
-  complete and retry owners remain.
-- Performance: impact work uses existing bounded Git scheduling; candidate
-  state holds at most one extra normalized Review. No polling or duplicated
-  comparison build is introduced.
+- Reliability: active and candidate banks are lineage-fenced and atomically
+  promoted after exact install admission. Existing last-complete and retry owners
+  remain.
+- Performance: impact work uses existing bounded Git scheduling. Candidate
+  representation is implementation-owned, bounded by the memory cost of one
+  additional normalized Review, and must support atomic promotion. No clone,
+  polling, or duplicated comparison build is prescribed.
 - Accessibility: the existing Review header hosts one live status and actions;
   it never steals focus or inserts content rows.
 - Privacy: telemetry includes class, reason, safe counts/buckets, generation,
@@ -485,16 +527,18 @@ not a third presentation class or a second bank.
 
 - R-RRC-001/R-RRC-002: coordinator classification, acknowledged displayed
   publication, and shared publication path; prove displayed-to-candidate facts,
-  conservative transition fallback, one production path, and no ordinary chrome.
+  exact install admission, conservative divergence fallback, one production
+  path, and no ordinary chrome.
 - R-RRC-003/R-RRC-004: main active/candidate banks and installation gate; prove
   state transitions and real browser geometry.
 - R-RRC-005/R-RRC-006/R-RRC-007: Pierre-owned leading-edge attention signal,
   edit continuity registry, displayed-publication resolver, and existing
   immutable origin/source evaluator; prove real draft persistence, Apply now,
   displayed-generation comment/output fencing, and placement results.
-- R-RRC-008/R-RRC-009: one generation-fenced candidate bank, display-install
-  transition, and atomic bank promotion; prove ordinary successor replacement,
-  prepare/confirm failure, supersession, reset, and no partial visibility.
+- R-RRC-008/R-RRC-009: one generation-fenced candidate bank, admission lease,
+  and atomic bank promotion; prove immediately-before/after admission completion,
+  delayed receipt, ordinary successor replacement, supersession, reset, and no
+  partial visibility.
 - R-RRC-010/R-RRC-011: pure header presentation; prove accessible text,
   keyboard actions, focus, reduced motion, and no loading row.
 - R-RRC-012: bounded state and lifecycle telemetry; prove cleanup snapshots and

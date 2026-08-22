@@ -66,6 +66,12 @@ provisional, or held. If Bridge cannot establish that exact displayed base, it
 MUST classify the successor as promoted rather than silently install an
 under-measured replacement.
 
+Immediately before visible installation, Bridge MUST admit a candidate only
+when the expected displayed publication still matches and that candidate is the
+newest native-complete publication at the admission point. Admission is the
+installation linearization point: a publication completing afterward is a new
+successor and does not retroactively invalidate the admitted installation.
+
 If complete impact classification cannot be obtained, Bridge MUST continue the
 replacement and conservatively use promoted presentation.
 
@@ -113,11 +119,16 @@ Basis: U-RRC-001, U-RRC-003, U-RRC-006, U-RRC-007.
 
 ### R-RRC-005 — Affected context and semantic focus
 
-An affected Review context is a displayed file or annotation thread whose
-material or trustworthy placement changes in the candidate and which currently
-owns Review attention through selection, active range interaction, an open
-editor, an in-flight related comment command, or the current Review reading
-position.
+Affectedness is judged at stable file granularity. A file is affected when its
+stable identity participates in the displayed-to-candidate change set; renames
+and deletions MUST include the identities needed to match both the displayed and
+candidate sides. Annotation threads, editors, ranges, related commands, and
+reading position inherit the affectedness of their owning file.
+
+An affected Review context is an affected file or one of those file-owned
+contexts that currently owns Review attention through selection, active range
+interaction, an open editor, an in-flight related comment command, or the current
+Review reading position.
 
 The reading position belongs to the Review item whose content crosses the
 leading edge of the scroll viewport immediately below fixed Review chrome. If
@@ -191,10 +202,16 @@ Successful installation MUST be atomic from the reviewer’s perspective: Review
 source identity, ordered files, visible diff geometry, selection reconciliation,
 and refresh chrome MUST describe one current candidate.
 
-If Bridge cannot coordinate the displayed-source transition, it MUST retain the
-currently displayed Review and its annotation authority, discard or retry the
-incomplete transition without partial installation, and conservatively promote
-successor classification until one exact displayed source is re-established.
+If install admission or displayed acknowledgment cannot establish one exact
+displayed source, Bridge MUST retain the currently displayed Review and its
+annotation authority, discard or retry the incomplete coordination without
+partial installation, and conservatively promote successor classification until
+the displayed source is re-established.
+
+After main installs an admitted publication, it MUST acknowledge that exact
+publication through an idempotent applied receipt. A delayed or lost receipt
+MUST NOT roll back the visible Review or make annotation work use another
+publication; it may only prolong conservative promotion and source retention.
 
 If a promoted replacement fails, Bridge MUST discard its candidate and retain
 the last complete Review. While an affected context remains the reviewer’s
@@ -234,10 +251,16 @@ Basis: U-RRC-001, U-RRC-003, U-RRC-007.
 
 ### R-RRC-012 — Boundedness and evidence
 
-Impact classification and candidate retention MUST be generation-fenced and
+Impact classification and candidate retention MUST be lineage-fenced and
 bounded. The system MUST retain no more than the active Review and one newest
 non-visible candidate Review, and MUST release that candidate on installation,
 supersession, failure, close, or worker replacement.
+
+Supporting source authority MAY temporarily retain the acknowledged displayed,
+one install-admitted, and newest native-current publications when those
+identities differ. It MUST release any superseded publication that is neither
+displayed, install-admitted, native-current, nor protected by an in-flight source
+lease. This source retention MUST NOT create another presentation bank.
 
 Scrubbed operational evidence MUST distinguish ordinary from promoted,
 promotion reason, candidate ready, held, apply-now, automatic install,
@@ -250,14 +273,14 @@ Basis: U-RRC-006, U-RRC-008.
 
 ```text
 ordinary:
-  active(A) -> computing(B) -> active(B) | active(A)+failure
+  active(A) -> computing(B) -> admit(A, B) -> active(B) | active(A)+failure
 
 promoted:
   active(A)
     -> updating(A, B)
-    -> active(B)                         when focus has left affected context
+    -> admit(A, B) -> active(B)          when focus has left affected context
     -> updateReady(A, B)                 while affected context remains focused
-         -> active(B)                    focus leaves or Apply now
+         -> admit(A, B) -> active(B)     focus leaves or Apply now
          -> updateReady(A, C)            newer complete C supersedes B
          -> active(C)                    newer ordinary C installs and releases B
          -> active(A)+failure            candidate fails
@@ -288,8 +311,9 @@ promoted:
   monotonic promotion, and ordinary/promoted classification.
 - V-RRC-002 automated state/interleaving: affected-context focus before/after
   candidate readiness, semantic focus changes, Apply now, multiple completed
-  candidates including an ordinary successor to a held candidate, displayed-
-  source transition failure, stale late arrival, close, and worker replacement.
+  candidates including completion immediately before and after install
+  admission, an ordinary successor to a held candidate, delayed/lost applied
+  receipt, stale late arrival, close, and worker replacement.
 - V-RRC-003 automated integration: one real update pipeline feeds both
   presentation classes; ordinary has no bar; promoted presentation holds only
   the display swap.

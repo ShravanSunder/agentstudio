@@ -531,3 +531,27 @@ planning UI realization; no UI source file was changed here
 Next: create the repository-grounded implementation plan before code changes
 Notes: unrelated PR2 research files remain untracked and untouched; no security,
 route, persistence, polling, queue, or global-interaction expansion was added
+
+### 2026-08-21 20:33 EDT — Refresh install design simplified after closure
+
+State: Specification and Program Design revised by owner decision; prior
+independent review does not cover the simplified admission mechanism
+Head before revision: `acbd50c9f`
+Owns: strong newest-native-complete install guarantee with minimal coordination
+Changed: prepare/confirm/abort transition machinery is replaced by
+lineage-monotonic `nativeCurrent` and `acknowledgedDisplayed` registers, one
+exact install-admission CAS keyed by publication identity, and the existing
+`review.publication.applied` receipt moved to post-main installation; affected
+context is file-level; editor continuity uses an opaque minimal lease; candidate
+representation is no longer prescribed
+Proof: parent source validation confirmed existing full-lineage comparison,
+serialized product-control admission, current worker-side publication-applied
+call, and native retiring-publication leases; artifact whitespace/diff checks
+pass
+Needs from other lane: do not plan or implement from the earlier handshake text;
+consume the revised Specification and Program Design after review coverage is
+resolved
+Next: obtain explicit permission for a second independent design review, or an
+explicit owner decision to proceed on parent self-check alone
+Notes: one pipeline, active-plus-one presentation bound, existing physical
+routes, and unrelated PR2 ownership remain unchanged
