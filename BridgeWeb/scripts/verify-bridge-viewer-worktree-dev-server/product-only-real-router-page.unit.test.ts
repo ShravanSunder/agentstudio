@@ -276,6 +276,7 @@ describe('nextFreshReviewTraversalScrollTop', () => {
 					hostTopOffset: -250,
 					itemId: 'review-item-42',
 					paintIdentity: 'paint-42',
+					renderedLineCount: 42,
 				},
 			],
 		});

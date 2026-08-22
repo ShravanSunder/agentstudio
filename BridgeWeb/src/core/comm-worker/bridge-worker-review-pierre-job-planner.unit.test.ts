@@ -220,6 +220,52 @@ describe('Bridge worker review Pierre job planner', () => {
 		}
 	});
 
+	test('anchors a bounded Review diff window at a late changed hunk', () => {
+		// Arrange
+		const baseLines = Array.from({ length: 1_001 }, (_, index): string => `line ${index + 1}`);
+		const headLines = [...baseLines];
+		headLines[708] = 'line 709 changed';
+		headLines[748] = 'line 749 changed';
+
+		// Act
+		const job = planBridgeWorkerReviewPierreRenderJob({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 400,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:base',
+					lineCount: baseLines.length,
+					role: 'base',
+					text: `${baseLines.join('\n')}\n`,
+				}),
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:head',
+					lineCount: headLines.length,
+					role: 'head',
+					text: `${headLines.join('\n')}\n`,
+				}),
+			],
+			semantics: makeRenderSemantics({
+				contentLineCountsByRole: { base: baseLines.length, head: headLines.length },
+				itemKind: 'diff',
+			}),
+		});
+
+		// Assert
+		expect(job?.window.startLine).toBeGreaterThan(400);
+		expect(job?.payload.kind).toBe('codeViewDiffItem');
+		if (job?.payload.kind === 'codeViewDiffItem') {
+			expect(job.payload.item.fileDiff.hunks[0]?.additionStart).toBe(706);
+			expect(job.payload.item.fileDiff.hunks[0]?.hunkSpecs).toContain('@@ -706,8 +706,8 @@');
+			expect(job.payload.item.fileDiff.additionLines).toContain('line 709 changed\n');
+			expect(job.payload.item.fileDiff.additionLines).toContain('line 749 changed\n');
+		}
+	});
+
 	test('rejects oversized diff windows before preparing CodeView payloads', () => {
 		const job = planBridgeWorkerReviewPierreRenderJob({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },

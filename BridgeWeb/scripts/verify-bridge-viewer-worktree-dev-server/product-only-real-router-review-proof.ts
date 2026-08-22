@@ -39,6 +39,7 @@ interface FreshReviewViewportState {
 		readonly hostTopOffset: number;
 		readonly itemId: string;
 		readonly paintIdentity: string | null;
+		readonly renderedLineCount: number;
 	}[];
 }
 
@@ -483,6 +484,7 @@ async function readFreshReviewViewportState(page: Page): Promise<FreshReviewView
 			readonly hostTopOffset: number;
 			readonly itemId: string;
 			readonly paintIdentity: string | null;
+			readonly renderedLineCount: number;
 		}> = [];
 		for (const reviewItemHost of reviewItemHosts) {
 			const itemMarker = bridgeReviewHostElement(reviewItemHost, '[data-bridge-code-view-item-id]');
@@ -502,6 +504,8 @@ async function readFreshReviewViewportState(page: Page): Promise<FreshReviewView
 				hostTopOffset: hostRect.top - codeScrollRect.top,
 				itemId,
 				paintIdentity: paintedReviewIdentity(reviewItemHost),
+				renderedLineCount: queryAllInOpenShadowRoots(reviewItemHost, '[data-line][data-line-index]')
+					.length,
 			});
 		}
 		const directoryDisclosure =
