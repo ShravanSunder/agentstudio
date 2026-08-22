@@ -269,20 +269,31 @@ installation gate
 
 The candidate publication identity is the admission identity; there is no
 separate transition identifier. Admission is the linearization point and owns
-one in-memory publication lease. If native C completes after B is admitted, C is
-a successor rather than a reason to invalidate B. Until B's applied receipt
-arrives, native may retain displayed A, admitted B, and current C; any other
-superseded unleased publication is released. This is source authority, not a
-third presentation bank.
+one in-memory publication lease qualified by the admitting `workerInstanceId`.
+Main marks B's existing candidate-bank role as `installing` before it requests
+admission. Once admission succeeds, that one bank remains pinned until atomic
+promotion; a successor C cannot overwrite admitted B. If native C completes
+after B is admitted, C is a successor rather than a reason to invalidate B.
+Until B's applied receipt arrives, native may retain displayed A, admitted B,
+and current C; any other superseded unleased publication is released. After B's
+receipt, the existing metadata replay owner republishes newest current C when C
+differs from B. This is source authority and replay of the one latest successor,
+not a third presentation bank or raw-message buffer.
 
 The existing control mux serializes admitted product calls. A duplicate or stale
 applied receipt is idempotent and cannot move `acknowledgedDisplayed` backward.
+A valid duplicate receipt for already-acknowledged A still establishes A as the
+current worker instance's display; invalid, stale, or unknown receipts establish
+nothing.
 A late or lost receipt leaves classification conservative and retention longer,
 but never changes main's active bank. On reconnect, main resends the applied
 receipt for its active bank. If the worker session ends before main installs an
-admitted publication, session teardown releases the admission lease and leaves
-`acknowledgedDisplayed` unchanged. No abort protocol or forced replacement is
-required.
+admitted publication, successful retirement in the existing
+`BridgePaneProductSessionOwner` invokes one coordinator operation with the
+retiring `workerInstanceId`. That operation releases only the unmatched admission
+owned by that worker and leaves `acknowledgedDisplayed` unchanged. App and
+development-host composition install the same retirement callback. No abort
+protocol or forced replacement is required.
 
 The publication coordinator accepts an applied receipt for any exact retained
 publication that is newer than `acknowledgedDisplayed`, even when
@@ -397,11 +408,14 @@ active(A)
   candidate/receiving + newer C ------------------> receiving(A, C)
 
 installing(A, B)
+  admission request pins B as installing
   admission accepted + atomic promotion ----------> active(B)+receiptPending(B)
   admission rejected -----------------------------> active(A)+superseded
+  successor C arrives ----------------------------> installing(A, B)+nativeCurrent(C)
 
 active(B)+receiptPending(B)
   applied receipt acknowledged -------------------> active(B)
+  applied receipt + nativeCurrent(C) --------------> active(B)+replay(C)
   receipt delayed/lost ---------------------------> active(B)+conservative
 
 freshMain(empty)+nativeCurrent(B)
@@ -498,7 +512,11 @@ not a third presentation class or a second bank.
   ready events carry the same Review generation and source identity.
 - The active bank and one candidate bank are main-thread serialized.
 - Newer work replaces the candidate bank; cleanup of the old candidate bank
-  cannot mutate the active bank.
+  cannot mutate the active bank unless that candidate is already install-admitted.
+- An admission request changes the existing candidate role to `installing`.
+  Once native admits it, successor delivery cannot replace that bank before
+  promotion. After the applied receipt, the existing native metadata replay
+  publishes only the newest current successor.
 - Apply now records install intent. At commit the gate uses the newest complete
   candidate present at that moment and runs the same continuity and install-admission
   checks. If no complete candidate remains, presentation returns to `Updating…`.
@@ -521,6 +539,10 @@ not a third presentation class or a second bank.
   main store's worker-replacement preparation, discards the candidate bank and
   promoted chrome immediately, then resends the publication-applied receipt for
   the retained active bank after worker bootstrap.
+- Successful worker retirement passes the retiring `workerInstanceId` from the
+  existing session owner to the publication coordinator. It releases only an
+  unmatched admission owned by that worker; an acknowledged display and other
+  workers' authority remain unchanged.
 - Full document replacement: the new main store has no active bank. Its current
   worker instance uses the bounded null-predecessor bootstrap rule to install
   only `nativeCurrent`; the prior acknowledged publication remains retained
@@ -597,7 +619,8 @@ many unit proofs
 fewer integration proofs
   worker final-barrier -> candidate bank; main-installed message -> existing
   publication-applied call; retained-publication annotation/output resolution;
-  delayed receipt, supersession, worker replacement, and continuity interleavings
+  delayed receipt, admitted-B/successor-C replay, worker retirement and
+  replacement, and continuity interleavings
 
 real development-server smoke and E2E
   seeded disposable Git worktree -> Darwin/native invalidation -> Swift
