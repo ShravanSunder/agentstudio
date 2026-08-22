@@ -11,6 +11,19 @@ struct RepoExplorerMaterializationCandidateID: Hashable, Sendable {
 
 struct RepoExplorerMaterializationFingerprint: Equatable, Sendable {
     let rawValue: UInt64
+
+    static func make(snapshot: RepoExplorerMaterializationSnapshot) -> Self {
+        var hasher = Hasher()
+        hasher.combine(snapshot.rows.count)
+        for row in snapshot.rows {
+            hasher.combine(row.id)
+            hasher.combine(String(reflecting: row.contentRevision))
+            hasher.combine(String(reflecting: row.layout))
+            hasher.combine(row.representedRepoID)
+            hasher.combine(row.representedWorktreeID)
+        }
+        return Self(rawValue: UInt64(bitPattern: Int64(hasher.finalize())))
+    }
 }
 
 enum RepoExplorerRowlessPresentation: CaseIterable, Equatable, Sendable {
@@ -18,6 +31,16 @@ enum RepoExplorerRowlessPresentation: CaseIterable, Equatable, Sendable {
     case noPanes
     case noTabs
     case searchNoResults
+
+    init?(emptyState: RepoExplorerEmptyState) {
+        switch emptyState {
+        case .content: return nil
+        case .noRepositories: self = .noRepositories
+        case .noPanes: self = .noPanes
+        case .noTabs: self = .noTabs
+        case .searchNoResults: self = .searchNoResults
+        }
+    }
 
     var emptyState: RepoExplorerEmptyState {
         switch self {

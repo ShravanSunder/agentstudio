@@ -345,59 +345,64 @@ struct RepoExplorerProjectionDemandTests {
         }
     }
 
-    @Test("same-baseline pending deltas union B and C scope")
-    func sameBaselinePendingDeltasUnionScope() throws {
+    @Test("compatible pending delta intents union B and C scope")
+    func compatiblePendingDeltaIntentsUnionScope() throws {
         let repositoryID = UUIDv7.generate()
         let worktreeID = UUIDv7.generate()
-        let baseline = RepoExplorerProjectionResult.empty
-        let pending = RepoExplorerProjectionWork.delta(
-            RepoExplorerProjectionDelta(
-                baselineRevision: 7,
-                baselineResult: baseline,
-                targetRequest: emptyRequest(generation: 2),
-                changes: [.repo(repositoryID)]
+        let pendingRequest = emptyRequest(generation: 2)
+        let latestRequest = emptyRequest(generation: 3)
+        let target = RepoExplorerProjectionStructuralTarget(request: latestRequest)
+        let pending = RepoExplorerProjectionIntent.delta(
+            RepoExplorerProjectionDeltaIntent(
+                targetRequest: pendingRequest,
+                changes: [.repo(repositoryID)],
+                structuralTarget: target
             )
         )
-        let latest = RepoExplorerProjectionWork.delta(
-            RepoExplorerProjectionDelta(
-                baselineRevision: 7,
-                baselineResult: baseline,
-                targetRequest: emptyRequest(generation: 3),
-                changes: [.worktreeFact(worktreeID)]
+        let latest = RepoExplorerProjectionIntent.delta(
+            RepoExplorerProjectionDeltaIntent(
+                targetRequest: latestRequest,
+                changes: [.worktreeFact(worktreeID)],
+                structuralTarget: target
             )
         )
 
-        let combined = RepoExplorerProjectionWork.combinePending(pending, latest)
+        let combined = RepoExplorerProjectionIntent.combinePending(pending, latest)
         guard case .delta(let delta) = combined else {
-            Issue.record("Expected same-baseline deltas to remain delta work")
+            Issue.record("Expected compatible deltas to remain pure delta intent")
             return
         }
         #expect(delta.targetRequest.generation == 3)
         #expect(delta.changes == [.repo(repositoryID), .worktreeFact(worktreeID)])
     }
 
-    @Test("different-baseline pending deltas promote latest intent to full")
-    func differentBaselinePendingDeltasPromoteToFull() {
-        let baseline = RepoExplorerProjectionResult.empty
-        let pending = RepoExplorerProjectionWork.delta(
-            RepoExplorerProjectionDelta(
-                baselineRevision: 7,
-                baselineResult: baseline,
-                targetRequest: emptyRequest(generation: 2),
-                changes: [.repo(UUIDv7.generate())]
+    @Test("incompatible structural targets promote latest intent to full")
+    func incompatibleStructuralTargetsPromoteToFull() {
+        let pendingRequest = emptyRequest(generation: 2)
+        let pending = RepoExplorerProjectionIntent.delta(
+            RepoExplorerProjectionDeltaIntent(
+                targetRequest: pendingRequest,
+                changes: [.repo(UUIDv7.generate())],
+                structuralTarget: RepoExplorerProjectionStructuralTarget(request: pendingRequest)
             )
         )
-        let latestRequest = emptyRequest(generation: 3)
-        let latest = RepoExplorerProjectionWork.delta(
-            RepoExplorerProjectionDelta(
-                baselineRevision: 8,
-                baselineResult: baseline,
+        let latestRequest = emptyRequest(generation: 3).replacing(
+            snapshot: RepoExplorerSnapshot(
+                repos: [],
+                repoEnrichmentByRepoId: [:],
+                groupingMode: .repo,
+                query: "changed"
+            )
+        )
+        let latest = RepoExplorerProjectionIntent.delta(
+            RepoExplorerProjectionDeltaIntent(
                 targetRequest: latestRequest,
-                changes: [.worktreeFact(UUIDv7.generate())]
+                changes: [.worktreeFact(UUIDv7.generate())],
+                structuralTarget: RepoExplorerProjectionStructuralTarget(request: latestRequest)
             )
         )
 
-        #expect(RepoExplorerProjectionWork.combinePending(pending, latest) == .full(latestRequest))
+        #expect(RepoExplorerProjectionIntent.combinePending(pending, latest) == .full(latestRequest))
     }
 
     @Test("hidden demand registers no hot facts and keeps no recency deadline")

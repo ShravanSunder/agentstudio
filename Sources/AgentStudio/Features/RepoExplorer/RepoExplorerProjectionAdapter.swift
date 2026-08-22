@@ -3,7 +3,7 @@ import AgentStudioInfrastructure
 import Foundation
 import Observation
 
-private enum RepoExplorerProjectionSlot: Hashable, Sendable {
+enum RepoExplorerProjectionSlot: Hashable, Sendable {
     case sidebar
 }
 
@@ -48,35 +48,43 @@ private struct RepoExplorerRenderedWorktreeContent: Equatable {
 }
 
 typealias RepoExplorerMaterializedProjection = EagerDerivedAtom<
-    RepoExplorerProjectionWork,
+    RepoExplorerProjectionIntent,
     Int,
     RepoExplorerProjectionWork,
-    RepoExplorerProjectionResult,
+    RepoExplorerProjectionCandidate,
     RepoExplorerProjectionResult
 >
 
-private typealias RepoExplorerMaterializedProjectionFamily = EagerDerivedAtomFamily<
+typealias RepoExplorerMaterializedProjectionFamily = EagerDerivedAtomFamily<
     RepoExplorerProjectionSlot,
-    RepoExplorerProjectionWork,
+    RepoExplorerProjectionIntent,
     Int,
     RepoExplorerProjectionWork,
-    RepoExplorerProjectionResult,
+    RepoExplorerProjectionCandidate,
     RepoExplorerProjectionResult
 >
 
 @MainActor
 @Observable
 final class RepoExplorerProjectionAdapter {
-    private(set) var publishedResult: RepoExplorerProjectionResult?
-    private(set) var publishedRevision = 0
-    @ObservationIgnored private var projectionFamily: RepoExplorerMaterializedProjectionFamily!
-    @ObservationIgnored private let onProjectionSuppressed:
+    var publishedResult: RepoExplorerProjectionResult?
+    var publishedRevision = 0
+    @ObservationIgnored var projectionFamily: RepoExplorerMaterializedProjectionFamily!
+    @ObservationIgnored let onProjectionSuppressed:
         @MainActor @Sendable (
             RepoExplorerProjectionResult
         ) -> Void
     @ObservationIgnored var hasStopped = false
     @ObservationIgnored var observationGeneration = 0
-    @ObservationIgnored private var projectionBaselineResult: RepoExplorerProjectionResult?
+    @ObservationIgnored var semanticBaselineSequence: UInt64 = 0
+    @ObservationIgnored var semanticBaselineResult: RepoExplorerProjectionResult?
+    @ObservationIgnored var acknowledgedMaterializationBaseline: RepoExplorerMaterializationBaseline?
+    @ObservationIgnored var materializationDemandEpoch: UInt64 = 0
+    @ObservationIgnored var isMaterializationDemandSuspended = false
+    @ObservationIgnored weak var materializationHost: RepoExplorerMaterializationHost?
+    @ObservationIgnored var pendingMaterializationSettlement: RepoExplorerPendingMaterializationSettlement?
+    @ObservationIgnored var nextMaterializationCandidateID: UInt64 = 0
+    @ObservationIgnored var lastRecoveryBaselineIdentity: RepoExplorerAcknowledgedBaselineIdentity?
     @ObservationIgnored let inputCapture: RepoExplorerProjectionInputCapture?
     @ObservationIgnored let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     @ObservationIgnored let recencyNow: @MainActor @Sendable () -> Date
@@ -127,17 +135,22 @@ final class RepoExplorerProjectionAdapter {
                 RepoExplorerPerformanceTelemetry.shared.record(stage: stage, outcome: outcome)
             },
             intentIdentity: \.generation,
-            combinePendingIntents: RepoExplorerProjectionWork.combinePending,
-            // SLICE-11-CUTOVER: Repo Explorer temporarily maps Intent to its existing Work and
-            // settles changed candidates immediately so the current SwiftUI List remains runnable.
-            // Slice 4 introduces execution-time baseline preparation; Slice 11 removes this route.
-            prepare: { intent, _ in .prepared(intent) },
-            project: project,
-            classify: { candidate, currentValue in
-                if let currentValue, Self.hasEqualRenderedContent(currentValue, candidate) {
-                    return .equalCurrent(candidate)
-                }
-                return .immediateAccepted(candidate)
+            combinePendingIntents: RepoExplorerProjectionIntent.combinePending,
+            prepare: { [weak self] intent, _ in
+                self?.prepareProjectionWork(intent) ?? .rejected
+            },
+            project: { work throws(CancellationError) in
+                RepoExplorerProjectionCandidate(work: work, result: try project(work))
+            },
+            classify: { [weak self] candidate, _ in
+                self?.classifyProjectionCandidate(candidate) ?? .rejected
+            },
+            onAwaitingOwner: { [weak self] _, token, candidate, proposedValue in
+                self?.applyAwaitingProjectionCandidate(
+                    token: token,
+                    candidate: candidate,
+                    proposedValue: proposedValue
+                )
             },
             onProjectionCompletion: { [weak self] _, completion in
                 self?.handleProjectionCompletion(completion)
@@ -162,17 +175,12 @@ final class RepoExplorerProjectionAdapter {
     ) {
         guard !hasStopped, !changes.isEmpty else { return }
         establishDirectAdmissionIntentIfNeeded(request)
-        guard let projectionBaselineResult else {
-            admit(request)
-            return
-        }
         projectionFamily.admit(
             .delta(
-                RepoExplorerProjectionDelta(
-                    baselineRevision: publishedRevision,
-                    baselineResult: projectionBaselineResult,
+                RepoExplorerProjectionDeltaIntent(
                     targetRequest: request,
-                    changes: changes
+                    changes: changes,
+                    structuralTarget: RepoExplorerProjectionStructuralTarget(request: request)
                 )
             ),
             for: .sidebar
@@ -192,41 +200,6 @@ final class RepoExplorerProjectionAdapter {
         hasStopped = true
         suspendDemand()
         projectionFamily.stop()
-    }
-
-    private func handleProjectionCompletion(
-        _ completion: RepoExplorerMaterializedProjection.ProjectionCompletion
-    ) {
-        guard let result = projectionFamily.latestAcceptedValue(for: .sidebar) else { return }
-        switch completion {
-        case .published:
-            guard result.baselineRevision == nil || result.baselineRevision == publishedRevision else {
-                return
-            }
-            guard result.generation == projectionGeneration,
-                result.snapshot == cachedProjectionRequest?.snapshot,
-                result.collapsedGroupIds == cachedProjectionRequest?.collapsedGroupIds,
-                result.isFiltering == cachedProjectionRequest?.isFiltering
-            else {
-                RepoExplorerPerformanceTelemetry.shared.record(
-                    stage: "mainactor_apply",
-                    outcome: "superseded"
-                )
-                return
-            }
-            projectionBaselineResult = result
-            publishedRevision += 1
-            publishedResult = result
-            scheduleRecencyDeadline(for: result)
-        case .equal:
-            guard result.baselineRevision == nil || result.baselineRevision == publishedRevision else {
-                return
-            }
-            projectionBaselineResult = result
-            onProjectionSuppressed(result)
-        case .rejected, .superseded, .cancelled:
-            break
-        }
     }
 
     func traceAttributes(

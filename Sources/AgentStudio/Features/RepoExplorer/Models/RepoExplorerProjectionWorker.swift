@@ -10,50 +10,6 @@ enum RepoExplorerScopedProjectionChange: Equatable, Hashable, Sendable {
     case tab(UUID)
 }
 
-struct RepoExplorerProjectionDelta: Equatable, Sendable {
-    let baselineRevision: Int
-    let baselineResult: RepoExplorerProjectionResult
-    let targetRequest: RepoExplorerProjectionRequest
-    let changes: Set<RepoExplorerScopedProjectionChange>
-}
-
-enum RepoExplorerProjectionWork: Equatable, Sendable {
-    case full(RepoExplorerProjectionRequest)
-    case delta(RepoExplorerProjectionDelta)
-
-    var generation: Int {
-        targetRequest.generation
-    }
-
-    var targetRequest: RepoExplorerProjectionRequest {
-        switch self {
-        case .full(let request): request
-        case .delta(let delta): delta.targetRequest
-        }
-    }
-
-    static func combinePending(
-        _ pending: Self,
-        _ latest: Self
-    ) -> Self {
-        guard case .delta(let pendingDelta) = pending,
-            case .delta(let latestDelta) = latest,
-            pendingDelta.baselineRevision == latestDelta.baselineRevision,
-            pendingDelta.baselineResult == latestDelta.baselineResult
-        else {
-            return .full(latest.targetRequest)
-        }
-        return .delta(
-            RepoExplorerProjectionDelta(
-                baselineRevision: latestDelta.baselineRevision,
-                baselineResult: latestDelta.baselineResult,
-                targetRequest: latestDelta.targetRequest,
-                changes: pendingDelta.changes.union(latestDelta.changes)
-            )
-        )
-    }
-}
-
 struct RepoExplorerProjectionRequest: Equatable, Sendable {
     let generation: Int
     let snapshot: RepoExplorerSnapshot
@@ -224,7 +180,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
     let bridgeCommandResolutionByWorktreeId: [UUID: BridgePaneCommandResolution]
     let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
     let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
-    let baselineRevision: Int?
+    let semanticBaselineSequence: UInt64?
 
     static let empty: Self = {
         let snapshot = RepoExplorerSnapshot(
@@ -261,7 +217,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
             bridgeCommandResolutionByWorktreeId: [:],
             paneRowFactsByPaneId: [:],
             tabGroupFactsByTabId: [:],
-            baselineRevision: nil
+            semanticBaselineSequence: nil
         )
     }()
 }
@@ -271,10 +227,12 @@ actor RepoExplorerProjectionWorker {
         _ work: RepoExplorerProjectionWork
     ) throws -> RepoExplorerProjectionResult {
         switch work {
-        case .full(let request):
-            return try project(request)
+        case .full(let fullWork):
+            return try project(fullWork.targetRequest)
         case .delta(let delta):
-            var result = delta.baselineResult
+            guard var result = delta.context.semanticBaselineResult else {
+                return try project(delta.targetRequest)
+            }
             let repositoryChanges = delta.changes.compactMap { change -> UUID? in
                 guard case .repo(let repositoryID) = change else { return nil }
                 return repositoryID
@@ -348,7 +306,7 @@ actor RepoExplorerProjectionWorker {
                 }
                 result = updated
             }
-            return result.withBaselineRevision(delta.baselineRevision)
+            return result.withSemanticBaselineSequence(delta.context.semanticBaselineSequence)
         }
     }
 
@@ -459,7 +417,7 @@ actor RepoExplorerProjectionWorker {
             bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
-            baselineRevision: nil
+            semanticBaselineSequence: nil
         )
     }
 
@@ -669,7 +627,7 @@ actor RepoExplorerProjectionWorker {
             bridgeCommandResolutionByWorktreeId: bridgeCommandResolutions,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
-            baselineRevision: nil
+            semanticBaselineSequence: nil
         )
     }
 
@@ -846,13 +804,13 @@ actor RepoExplorerProjectionWorker {
             bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
-            baselineRevision: nil
+            semanticBaselineSequence: nil
         )
     }
 }
 
 extension RepoExplorerProjectionResult {
-    fileprivate func withBaselineRevision(_ baselineRevision: Int) -> Self {
+    fileprivate func withSemanticBaselineSequence(_ semanticBaselineSequence: UInt64) -> Self {
         Self(
             generation: generation,
             snapshot: snapshot,
@@ -870,7 +828,7 @@ extension RepoExplorerProjectionResult {
             bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId,
             paneRowFactsByPaneId: paneRowFactsByPaneId,
             tabGroupFactsByTabId: tabGroupFactsByTabId,
-            baselineRevision: baselineRevision
+            semanticBaselineSequence: semanticBaselineSequence
         )
     }
 }

@@ -54,6 +54,8 @@ extension RepoExplorerProjectionAdapter {
             return
         }
 
+        resumeRegisteredMaterializationHostIfNeeded()
+
         if visibilityChanged || cachedProjectionRequest == nil {
             recencyReferenceDate = recencyNow()
             captureFullProjection(force: true)
@@ -66,6 +68,7 @@ extension RepoExplorerProjectionAdapter {
 
     func suspendDemand() {
         isDemanded = false
+        suspendMaterializationDemand()
         observationRegistration = .hidden
         observationTokens = []
         observationGeneration += 1

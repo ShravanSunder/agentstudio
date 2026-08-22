@@ -101,7 +101,7 @@ struct RepoExplorerRenderedEqualityTests {
                 bridgeCommandResolutionByWorktreeId: [:],
                 paneRowFactsByPaneId: [:],
                 tabGroupFactsByTabId: [:],
-                baselineRevision: nil
+                semanticBaselineSequence: nil
             )
         }
 
