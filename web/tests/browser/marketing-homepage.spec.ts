@@ -13,6 +13,21 @@ const verificationViewports = [
   { width: 390, height: 844 },
 ] as const;
 
+function invertSmoothstep(target: number): number {
+  let lowerBound = 0;
+  let upperBound = 1;
+  for (let iteration = 0; iteration < 24; iteration += 1) {
+    const midpoint = (lowerBound + upperBound) / 2;
+    const eased = midpoint * midpoint * (3 - 2 * midpoint);
+    if (eased < target) {
+      lowerBound = midpoint;
+    } else {
+      upperBound = midpoint;
+    }
+  }
+  return (lowerBound + upperBound) / 2;
+}
+
 interface PhoneProductPlateComposition {
   readonly captionAfterImage: boolean;
   readonly captionIsOutlined: boolean;
@@ -125,6 +140,7 @@ test("renders the claim-first homepage and switches product stories", async ({ p
   const sessionRestoreVideo = persistencePanel.locator("[data-session-restore-video]");
   await expect(sessionRestoreVideo).toBeVisible();
   await expect(sessionRestoreVideo).toHaveAttribute("controls", "");
+  await expect(sessionRestoreVideo).toHaveAttribute("muted", "");
   await expect(sessionRestoreVideo).toHaveAttribute("playsinline", "");
   await expect(sessionRestoreVideo).toHaveAttribute("preload", "metadata");
   await expect(sessionRestoreVideo.locator('source[type="video/mp4"]')).toHaveCount(1);
@@ -169,6 +185,146 @@ test("renders the claim-first homepage and switches product stories", async ({ p
       ),
     )
     .toBe(true);
+});
+
+test("coordinates session video playback with glass focus and manual intent", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto("/");
+
+  const video = page.locator("[data-session-restore-video]");
+  const materialSurface = page.locator("[data-scroll-material-surface]").filter({ has: video });
+  await expect(video).toHaveAttribute("data-scroll-autoplay-start-progress", "0.9");
+  await expect(video).toHaveAttribute("data-scroll-autoplay-stop-progress", "0.85");
+  await expect(video).toHaveAttribute("data-scroll-autoplay-replay-delay-ms", "3000");
+  await expect
+    .poll(() =>
+      video.evaluate((element) =>
+        element instanceof HTMLVideoElement
+          ? element.readyState >= HTMLMediaElement.HAVE_METADATA
+          : false,
+      ),
+    )
+    .toBe(true);
+
+  const moveSurfaceToProgress = async (targetProgress: number): Promise<void> => {
+    const rawProgress = invertSmoothstep(targetProgress);
+    await materialSurface.evaluate(async (surface, uneasedProgress) => {
+      const surfaceStyle = getComputedStyle(surface);
+      const currentLift = Number.parseFloat(
+        surfaceStyle.getPropertyValue("--scroll-material-lift"),
+      );
+      const surfaceBounds = surface.getBoundingClientRect();
+      const documentTop =
+        window.scrollY + surfaceBounds.top - (Number.isFinite(currentLift) ? currentLift : 0);
+      const bottomBookend = window.innerHeight * 0.9;
+      const targetSurfaceTop = bottomBookend - uneasedProgress * surfaceBounds.height;
+      window.scrollTo({ top: documentTop - targetSurfaceTop, behavior: "instant" });
+      await new Promise<void>((resolve) =>
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())),
+      );
+    }, rawProgress);
+  };
+
+  const readVideoState = async (): Promise<{
+    readonly currentTime: number;
+    readonly duration: number;
+    readonly ended: boolean;
+    readonly paused: boolean;
+  }> =>
+    video.evaluate((element) => {
+      if (!(element instanceof HTMLVideoElement)) {
+        throw new Error("Session restore media is not a video");
+      }
+      return {
+        currentTime: element.currentTime,
+        duration: element.duration,
+        ended: element.ended,
+        paused: element.paused,
+      };
+    });
+
+  const playManually = async (): Promise<void> => {
+    await video.evaluate(async (element) => {
+      if (!(element instanceof HTMLVideoElement)) {
+        throw new Error("Session restore media is not a video");
+      }
+      await element.play();
+    });
+  };
+
+  const pauseManually = async (): Promise<void> => {
+    await video.evaluate((element) => {
+      if (!(element instanceof HTMLVideoElement)) {
+        throw new Error("Session restore media is not a video");
+      }
+      element.pause();
+    });
+  };
+
+  await moveSurfaceToProgress(0);
+  await expect.poll(async () => (await readVideoState()).paused).toBe(true);
+
+  await moveSurfaceToProgress(0.91);
+  await expect.poll(async () => (await readVideoState()).paused).toBe(false);
+
+  await moveSurfaceToProgress(0.87);
+  await expect.poll(async () => (await readVideoState()).paused).toBe(false);
+
+  await moveSurfaceToProgress(0.84);
+  await expect.poll(async () => (await readVideoState()).paused).toBe(true);
+
+  await playManually();
+  await moveSurfaceToProgress(0);
+  await expect.poll(async () => (await readVideoState()).paused).toBe(false);
+
+  await video.evaluate((element) => {
+    if (!(element instanceof HTMLVideoElement)) {
+      throw new Error("Session restore media is not a video");
+    }
+    element.currentTime = Math.max(0, element.duration - 0.1);
+  });
+  await expect.poll(async () => (await readVideoState()).ended).toBe(true);
+  await page.waitForTimeout(3200);
+  await expect.poll(async () => (await readVideoState()).ended).toBe(true);
+
+  await moveSurfaceToProgress(0.91);
+  await page.waitForTimeout(1000);
+  await expect.poll(async () => (await readVideoState()).paused).toBe(true);
+  await page.waitForTimeout(2200);
+  await expect.poll(async () => (await readVideoState()).paused).toBe(false);
+
+  await pauseManually();
+  await moveSurfaceToProgress(0.87);
+  await expect.poll(async () => (await readVideoState()).paused).toBe(true);
+  await moveSurfaceToProgress(0.84);
+  await moveSurfaceToProgress(0.91);
+  await expect.poll(async () => (await readVideoState()).paused).toBe(false);
+});
+
+test("keeps reduced-motion video autoplay disabled without blocking manual play", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+
+  const video = page.locator("[data-session-restore-video]");
+  const readPaused = async (): Promise<boolean> =>
+    video.evaluate((element) => {
+      if (!(element instanceof HTMLVideoElement)) {
+        throw new Error("Session restore media is not a video");
+      }
+      return element.paused;
+    });
+  await expect.poll(readPaused).toBe(true);
+  await video.evaluate(async (element) => {
+    if (!(element instanceof HTMLVideoElement)) {
+      throw new Error("Session restore media is not a video");
+    }
+    await element.play();
+  });
+  await page.evaluate(() => window.scrollTo({ top: 800, behavior: "instant" }));
+  await expect.poll(readPaused).toBe(false);
 });
 
 for (const viewport of verificationViewports) {

@@ -1,3 +1,5 @@
+import { createScrollAutoplayVideoController } from "./scroll-autoplay-video-controller";
+
 const viewportEdgeInsetRatio = 0.1;
 const phoneMediaQuery = "(max-width: 620px)";
 
@@ -72,17 +74,24 @@ export function initializeScrollMaterialSurfaces(): void {
     return;
   }
 
+  const surfaceControllers = surfaces.map((surface) => ({
+    materialSurface: surface,
+    videoController: createScrollAutoplayVideoController(surface),
+  }));
   const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   let pendingAnimationFrame: number | undefined;
   let isDisposed = false;
 
   const synchronizeSurfaces = (): void => {
-    for (const surface of surfaces) {
+    for (const { materialSurface, videoController } of surfaceControllers) {
       if (reducedMotionQuery.matches) {
-        applySurfaceProgress(surface, 1, false);
+        applySurfaceProgress(materialSurface, 1, false);
+        videoController.synchronize(1, false);
         continue;
       }
-      applySurfaceProgress(surface, readSurfaceProgress(surface), true);
+      const progress = readSurfaceProgress(materialSurface);
+      applySurfaceProgress(materialSurface, progress, true);
+      videoController.synchronize(progress, true);
     }
   };
 
@@ -109,6 +118,9 @@ export function initializeScrollMaterialSurfaces(): void {
     window.removeEventListener("resize", scheduleSurfaceUpdate);
     window.removeEventListener("pagehide", handlePageHide);
     reducedMotionQuery.removeEventListener("change", scheduleSurfaceUpdate);
+    for (const { videoController } of surfaceControllers) {
+      videoController.dispose();
+    }
     if (disposeActiveController === disposeSurfaceUpdates) {
       disposeActiveController = undefined;
     }

@@ -9,6 +9,7 @@ import sessionRestoreVideoUrl from "@/assets/media/session-restore.mp4?url";
 import { marketingCopy } from "@/marketing-copy";
 import PersistenceProof from "@/product-plate/PersistenceProof.astro";
 
+import ScrollAutoplayVideo from "./ScrollAutoplayVideo.astro";
 import ScrollMaterialSurface from "./ScrollMaterialSurface.astro";
 
 const mediaByFeatureId = {
@@ -57,18 +58,14 @@ const mediaByFeatureId = {
 
             <div class="scroll-material-pane feature-detail__pane feature-detail__media min-w-0 overflow-clip rounded-material-pane border border-line p-1 max-lg:order-2">
               {item.id === "persistence" ? (
-                <video
-                  controls
-                  playsinline
-                  preload="metadata"
-                  poster={sessionRestorePoster.src}
-                  aria-label="Agent Studio session restore demonstration"
+                <ScrollAutoplayVideo
+                  accessibilityLabel="Agent Studio session restore demonstration"
+                  fallbackText="This browser cannot play the session restore video."
+                  poster={sessionRestorePoster}
+                  source={sessionRestoreVideoUrl}
                   data-session-restore-video
                   class="block aspect-video h-auto w-full rounded-control bg-black object-contain"
-                >
-                  <source src={sessionRestoreVideoUrl} type="video/mp4" />
-                  <span>This browser cannot play the session restore video.</span>
-                </video>
+                />
               ) : item.id === "arrangements" ? (
                 <PersistenceProof
                   beforeImage={arrangementSavedImage}
