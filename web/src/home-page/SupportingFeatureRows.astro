@@ -37,7 +37,7 @@ const mediaByFeatureId = {
       marketingCopy.featureDetails.items.map((item) => (
         <article class="py-[clamp(48px,5vw,76px)] max-phone:py-10">
           <ScrollMaterialSurface class="feature-detail grid grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)] gap-1 border p-1 max-lg:grid-cols-1">
-            <div class="scroll-material-pane feature-detail__pane feature-detail__copy flex items-center rounded-material-pane border border-line p-[clamp(28px,3.5vw,52px)] max-lg:contents">
+            <div class="scroll-material-pane feature-detail__pane feature-detail__copy flex flex-col items-stretch justify-center rounded-material-pane border border-line p-[clamp(28px,3.5vw,52px)] max-lg:contents">
               <div class="scroll-material-pane-compact feature-detail__title max-w-[440px] max-lg:order-1 max-lg:max-w-none max-lg:rounded-material-pane max-lg:border max-lg:border-line max-lg:p-7 max-phone:p-5">
                 <h3 class="m-0 text-[clamp(28px,3.2vw,48px)] leading-none tracking-[-0.045em] text-ink max-phone:text-2xl">
                   {
@@ -56,7 +56,7 @@ const mediaByFeatureId = {
                   }
                 </h3>
               </div>
-              <div class="scroll-material-pane-compact feature-detail__description mt-8 max-w-[440px] max-lg:order-3 max-lg:mt-0 max-lg:max-w-none max-lg:rounded-material-pane max-lg:border max-lg:border-line max-lg:p-7 max-phone:p-5">
+              <div class="scroll-material-pane-compact feature-detail__description mt-12 max-w-[440px] max-lg:order-3 max-lg:mt-0 max-lg:max-w-none max-lg:rounded-material-pane max-lg:border max-lg:border-line max-lg:p-7 max-phone:p-5">
                 <p class="m-0 text-marketing-body text-ink-secondary max-phone:text-sm max-phone:leading-normal">
                   {item.summary}
                 </p>

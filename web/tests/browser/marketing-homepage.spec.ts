@@ -754,6 +754,8 @@ test("presents supporting features as text and product media without numbered di
         compactLayout,
         copyWidth: compactLayout ? titleBounds.width : copyBounds.width,
         descriptionAfterMedia: descriptionBounds.top >= mediaBounds.bottom,
+        desktopCopyLeftAlignment: Math.abs(titleBounds.left - descriptionBounds.left),
+        desktopDescriptionBelowTitle: descriptionBounds.top >= titleBounds.bottom,
         hasScrollMaterialOwner: feature.hasAttribute("data-scroll-material-surface"),
         paneGap: Number.parseFloat(featureStyle.gap),
         panesAreOutlined: visiblePaneStyles.every(
@@ -790,6 +792,8 @@ test("presents supporting features as text and product media without numbered di
     } else {
       expect(geometry.sideBySide).toBe(true);
       expect(geometry.desktopHeightDelta).toBeLessThanOrEqual(1);
+      expect(geometry.desktopDescriptionBelowTitle).toBe(true);
+      expect(geometry.desktopCopyLeftAlignment).toBeLessThanOrEqual(1);
     }
   }
 });
@@ -978,7 +982,7 @@ test("morphs the frame-width header into a max-w-2xl floating glass pill", async
   expect(frostGeometry.headerTop).toBe(12);
   expect(frostGeometry.frostBottom).toBe(frostGeometry.headerTop + frostGeometry.headerTopRadius);
   expect(frostGeometry.backgroundColor).toBe("rgba(0, 0, 0, 0)");
-  expect(frostGeometry.backdropFilter).toBe("blur(8px) saturate(1.2)");
+  expect(frostGeometry.backdropFilter).toBe("blur(4px) saturate(1.2)");
   expect(frostGeometry.maskImage).toContain("rgb(0, 0, 0) 8px");
 });
 
