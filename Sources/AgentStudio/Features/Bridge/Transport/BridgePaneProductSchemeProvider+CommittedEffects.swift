@@ -178,6 +178,7 @@ extension BridgePaneProductSchemeProvider {
             case .reviewPublicationApplied(let appliedRequest):
                 _ = await recordReviewPublicationApplication(
                     appliedRequest.publicationId,
+                    request.correlation,
                     productAdmission
                 )
             case .reviewPublicationInstallAdmission:

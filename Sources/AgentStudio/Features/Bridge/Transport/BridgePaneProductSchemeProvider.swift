@@ -12,6 +12,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     let admitReviewPublicationInstallation:
         @MainActor @Sendable (
             BridgeProductReviewInstallAdmissionRequest,
+            BridgeProductControlCorrelation,
             BridgeProductAdmissionContext
         ) -> BridgeReviewDisplayInstallAdmissionResult
     let applyActiveViewerModeUpdate:
@@ -46,7 +47,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     let metadataCoordinator: BridgePaneProductMetadataCoordinator
     let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
     let recordReviewPublicationApplication:
-        @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> BridgeReviewDisplayedApplicationResult
+        @MainActor @Sendable (
+            UUID,
+            BridgeProductControlCorrelation,
+            BridgeProductAdmissionContext
+        ) -> BridgeReviewDisplayedApplicationResult
     nonisolated let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     private let reviewContentSource: any BridgePaneProductReviewContentProducing
     let reviewComparisonTargetCatalogProducer: any BridgeReviewComparisonTargetCatalogProducing
@@ -68,11 +73,15 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         admitReviewPublicationInstallation:
             @escaping @MainActor @Sendable (
                 BridgeProductReviewInstallAdmissionRequest,
+                BridgeProductControlCorrelation,
                 BridgeProductAdmissionContext
-            ) -> BridgeReviewDisplayInstallAdmissionResult = { _, _ in .rejected },
+            ) -> BridgeReviewDisplayInstallAdmissionResult = { _, _, _ in .rejected },
         recordReviewPublicationApplication:
-            @escaping @MainActor @Sendable (UUID, BridgeProductAdmissionContext) ->
-            BridgeReviewDisplayedApplicationResult = { _, _ in .rejected },
+            @escaping @MainActor @Sendable (
+                UUID,
+                BridgeProductControlCorrelation,
+                BridgeProductAdmissionContext
+            ) -> BridgeReviewDisplayedApplicationResult = { _, _, _ in .rejected },
         markReviewItemViewed: @escaping @MainActor @Sendable (String, BridgeProductAdmissionContext) -> Void,
         handleReviewIntakeReady:
             @escaping @MainActor @Sendable (
@@ -276,6 +285,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 if let productAdmission {
                     switch await admitReviewPublicationInstallation(
                         admissionRequest,
+                        request.correlation,
                         productAdmission
                     ) {
                     case .admitted: .admitted

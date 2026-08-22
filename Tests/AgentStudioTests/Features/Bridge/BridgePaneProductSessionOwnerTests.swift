@@ -6,6 +6,30 @@ import Testing
 
 @Suite("Bridge pane product session owner")
 struct BridgePaneProductSessionOwnerTests {
+    @Test("successful retirement reports the exact retired worker")
+    func successfulRetirementReportsExactWorker() async throws {
+        // Arrange
+        let provider = BridgePaneProductSessionProviderGate()
+        let retiredWorkers = RetiredWorkerRecorder()
+        let owner = try BridgePaneProductSessionOwner(
+            paneSessionId: bridgeProductTestPaneSessionId,
+            provider: provider,
+            productAdmissionGate: BridgeProductAdmissionGate(),
+            didRetireWorkerInstance: { workerInstanceId in
+                await retiredWorkers.record(workerInstanceId)
+            }
+        )
+        let installation = try await installFirstCandidate(in: owner)
+        try await openBridgePaneProductSession(installation)
+
+        // Act
+        let result = await owner.retire(reason: .pageReload)
+
+        // Assert
+        #expect(result == .retired)
+        #expect(await retiredWorkers.values == [installation.bootstrap.workerInstanceId])
+    }
+
     @Test("prepared candidates use fresh secure identity and remain off-path")
     func preparedCandidatesAreFreshAndUnexposed() async throws {
         // Arrange
@@ -508,6 +532,14 @@ struct BridgePaneProductSessionOwnerTests {
         #expect(schemeHandlerSource.contains("BridgeProductWireContract.contentRoute"))
         #expect(!bootstrapSource.contains("rpcDispatcher: input.rpcDispatcher"))
         #expect(!schemeHandlerSource.contains("case rpcCommand"))
+    }
+}
+
+private actor RetiredWorkerRecorder {
+    private(set) var values: [String] = []
+
+    func record(_ workerInstanceId: String) {
+        values.append(workerInstanceId)
     }
 }
 

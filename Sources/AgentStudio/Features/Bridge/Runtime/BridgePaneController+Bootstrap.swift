@@ -477,6 +477,38 @@ extension BridgePaneController {
         let committedCallTarget = makeCommittedCallTarget(productAdmissionGate)
         let fileSourceComposition = makeFileSourceComposition(input)
         let fileMetadataSource = fileSourceComposition.source
+        let provider = makeProductSchemeProvider(
+            input,
+            committedCallTarget: committedCallTarget,
+            fileMetadataSource: fileMetadataSource
+        )
+        let installation = makeInitialProductSessionInstallation(
+            paneSessionId: input.paneSessionId,
+            provider: provider,
+            productAdmissionGate: productAdmissionGate,
+            telemetryRecorder: input.telemetryRecorder
+        )
+        return BridgePaneProductSessionDependencies(
+            installation: installation,
+            owner: makeProductSessionOwner(
+                paneSessionId: input.paneSessionId,
+                provider: provider,
+                productAdmissionGate: productAdmissionGate,
+                activeInstallation: installation,
+                reviewPublicationCoordinator: input.reviewPublicationCoordinator,
+                telemetryRecorder: input.telemetryRecorder
+            ),
+            committedCallTarget: committedCallTarget,
+            fileSourceAcceptanceRelay: fileSourceComposition.acceptanceRelay,
+            productProvider: provider
+        )
+    }
+
+    private static func makeProductSchemeProvider(
+        _ input: BridgeProductSessionDependencyInput,
+        committedCallTarget: BridgePaneProductCommittedCallTarget,
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing
+    ) -> BridgePaneProductSchemeProvider {
         let reviewContentSource = makeReviewContentSource(input)
         let lifecycleTraceRecorder = input.telemetryRecorder.map(
             BridgeProductMetadataLifecycleTraceRecorder.init(recorder:)
@@ -489,7 +521,7 @@ extension BridgePaneController {
             input,
             fileMetadataSource: fileMetadataSource
         )
-        let provider = BridgePaneProductSchemeProvider(
+        return BridgePaneProductSchemeProvider(
             annotationSource: annotationSource,
             annotationOutputSource: BridgePaneProductWorktreeAnnotationOutputSource(
                 store: input.worktreeAnnotationStore
@@ -502,15 +534,21 @@ extension BridgePaneController {
                 input.reviewPublicationCoordinator.committedPublicationForReplay,
             isReviewPublicationCurrent:
                 input.reviewPublicationCoordinator.isCurrentPublication,
-            admitReviewPublicationInstallation: { request, productAdmission in
+            admitReviewPublicationInstallation: { request, correlation, productAdmission in
                 input.reviewPublicationCoordinator.admitDisplayInstallation(
                     expectedDisplayedPublicationId: request.expectedDisplayedPublicationId,
                     candidatePublicationId: request.candidatePublicationId,
+                    workerInstanceId: correlation.workerInstanceId,
                     productAdmission: productAdmission
                 )
             },
-            recordReviewPublicationApplication:
-                input.reviewPublicationCoordinator.recordDisplayedApplication,
+            recordReviewPublicationApplication: { publicationId, correlation, productAdmission in
+                input.reviewPublicationCoordinator.recordDisplayedApplication(
+                    publicationId: publicationId,
+                    workerInstanceId: correlation.workerInstanceId,
+                    productAdmission: productAdmission
+                )
+            },
             markReviewItemViewed: { itemId, productAdmission in
                 _ = productAdmission.withValidAdmission {
                     input.runtime.paneState.review.markFileViewed(itemId)
@@ -548,25 +586,6 @@ extension BridgePaneController {
             initialPanePresentation: input.initialProductPresentation,
             refreshWorkAdmissionSource: input.refreshWorkAdmissionSource,
             lifecycleTraceRecorder: lifecycleTraceRecorder
-        )
-        let installation = makeInitialProductSessionInstallation(
-            paneSessionId: input.paneSessionId,
-            provider: provider,
-            productAdmissionGate: productAdmissionGate,
-            telemetryRecorder: input.telemetryRecorder
-        )
-        return BridgePaneProductSessionDependencies(
-            installation: installation,
-            owner: makeProductSessionOwner(
-                paneSessionId: input.paneSessionId,
-                provider: provider,
-                productAdmissionGate: productAdmissionGate,
-                activeInstallation: installation,
-                telemetryRecorder: input.telemetryRecorder
-            ),
-            committedCallTarget: committedCallTarget,
-            fileSourceAcceptanceRelay: fileSourceComposition.acceptanceRelay,
-            productProvider: provider
         )
     }
 
@@ -781,6 +800,7 @@ extension BridgePaneController {
         provider: any BridgeProductSchemeProvider,
         productAdmissionGate: BridgeProductAdmissionGate,
         activeInstallation: BridgeProductSessionInstallation,
+        reviewPublicationCoordinator: BridgeReviewPublicationCoordinator? = nil,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) -> BridgePaneProductSessionOwner {
         do {
@@ -789,7 +809,12 @@ extension BridgePaneController {
                 provider: provider,
                 productAdmissionGate: productAdmissionGate,
                 activeInstallation: activeInstallation,
-                telemetryRecorder: telemetryRecorder
+                telemetryRecorder: telemetryRecorder,
+                didRetireWorkerInstance: { workerInstanceId in
+                    await reviewPublicationCoordinator?.retireDisplayWorker(
+                        workerInstanceId: workerInstanceId
+                    )
+                }
             )
         } catch {
             preconditionFailure("Bridge product session owner construction failed: \(error)")

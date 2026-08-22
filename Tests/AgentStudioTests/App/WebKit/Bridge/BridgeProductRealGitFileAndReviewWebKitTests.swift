@@ -64,11 +64,13 @@ private final class BridgeProductWebKitCarrierControllerTarget {
 
     func recordApplication(
         _ publicationId: UUID,
+        workerInstanceId: String,
         productAdmission: BridgeProductAdmissionContext
     ) -> BridgeReviewDisplayedApplicationResult {
         let result =
             controller?.reviewPublicationCoordinator.recordDisplayedApplication(
                 publicationId: publicationId,
+                workerInstanceId: workerInstanceId,
                 productAdmission: productAdmission
             ) ?? .rejected
         applicationReceipts.append(
@@ -487,9 +489,10 @@ extension WebKitSerializedTests {
                         productAdmission: productAdmission
                     )
                 },
-                recordReviewPublicationApplication: { publicationId, productAdmission in
+                recordReviewPublicationApplication: { publicationId, correlation, productAdmission in
                     controllerTarget.recordApplication(
                         publicationId,
+                        workerInstanceId: correlation.workerInstanceId,
                         productAdmission: productAdmission
                     )
                 },

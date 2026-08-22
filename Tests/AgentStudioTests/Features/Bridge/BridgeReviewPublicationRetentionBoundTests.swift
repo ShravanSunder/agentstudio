@@ -32,8 +32,17 @@ struct BridgeReviewPublicationRetentionBoundTests {
             productAdmission: productAdmission.context
         )
         #expect(
+            coordinator.admitDisplayInstallation(
+                expectedDisplayedPublicationId: nil,
+                candidatePublicationId: committedA.publicationId,
+                workerInstanceId: "worker-1",
+                productAdmission: productAdmission.context
+            ) == .admitted
+        )
+        #expect(
             coordinator.recordDisplayedApplication(
                 publicationId: committedA.publicationId,
+                workerInstanceId: "worker-1",
                 productAdmission: productAdmission.context
             ) == .advanced
         )
@@ -46,6 +55,7 @@ struct BridgeReviewPublicationRetentionBoundTests {
             coordinator.admitDisplayInstallation(
                 expectedDisplayedPublicationId: committedA.publicationId,
                 candidatePublicationId: committedB.publicationId,
+                workerInstanceId: "worker-1",
                 productAdmission: productAdmission.context
             ) == .admitted
         )
@@ -97,8 +107,17 @@ struct BridgeReviewPublicationRetentionBoundTests {
             productAdmission: productAdmission.context
         )
         #expect(
+            coordinator.admitDisplayInstallation(
+                expectedDisplayedPublicationId: nil,
+                candidatePublicationId: committedA.publicationId,
+                workerInstanceId: "worker-1",
+                productAdmission: productAdmission.context
+            ) == .admitted
+        )
+        #expect(
             coordinator.recordDisplayedApplication(
                 publicationId: committedA.publicationId,
+                workerInstanceId: "worker-1",
                 productAdmission: productAdmission.context
             ) == .advanced
         )
@@ -117,6 +136,7 @@ struct BridgeReviewPublicationRetentionBoundTests {
         let admission = coordinator.admitDisplayInstallation(
             expectedDisplayedPublicationId: committedA.publicationId,
             candidatePublicationId: committedB.publicationId,
+            workerInstanceId: "worker-1",
             productAdmission: productAdmission.context
         )
 

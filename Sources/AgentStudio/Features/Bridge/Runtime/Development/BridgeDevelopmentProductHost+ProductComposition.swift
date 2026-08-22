@@ -133,7 +133,12 @@ extension BridgeDevelopmentProductHost {
         let productSessionOwner = try BridgePaneProductSessionOwner(
             paneSessionId: input.source.paneID.uuidString,
             provider: productProvider,
-            productAdmissionGate: productAdmissionGate
+            productAdmissionGate: productAdmissionGate,
+            didRetireWorkerInstance: { workerInstanceId in
+                await reviewPublicationCoordinator.retireDisplayWorker(
+                    workerInstanceId: workerInstanceId
+                )
+            }
         )
         return BridgeDevelopmentProductProviderPreparation(
             committedCallTarget: committedCallTarget,
@@ -233,16 +238,18 @@ extension BridgeDevelopmentProductHost {
                     productAdmission: productAdmission
                 )
             },
-            admitReviewPublicationInstallation: { request, productAdmission in
+            admitReviewPublicationInstallation: { request, correlation, productAdmission in
                 dependencies.reviewPublicationCoordinator.admitDisplayInstallation(
                     expectedDisplayedPublicationId: request.expectedDisplayedPublicationId,
                     candidatePublicationId: request.candidatePublicationId,
+                    workerInstanceId: correlation.workerInstanceId,
                     productAdmission: productAdmission
                 )
             },
-            recordReviewPublicationApplication: { publicationId, productAdmission in
+            recordReviewPublicationApplication: { publicationId, correlation, productAdmission in
                 dependencies.reviewPublicationCoordinator.recordDisplayedApplication(
                     publicationId: publicationId,
+                    workerInstanceId: correlation.workerInstanceId,
                     productAdmission: productAdmission
                 )
             },

@@ -165,7 +165,8 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            recordReviewPublicationApplication: { publicationId, _ in
+            recordReviewPublicationApplication: { publicationId, correlation, _ in
+                #expect(correlation.workerInstanceId == bridgeProductTestWorkerInstanceId)
                 recorder.record(publicationId)
                 return .advanced
             },
@@ -230,7 +231,8 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            admitReviewPublicationInstallation: { request, _ in
+            admitReviewPublicationInstallation: { request, correlation, _ in
+                #expect(correlation.workerInstanceId == bridgeProductTestWorkerInstanceId)
                 recorder.record(request)
                 return .admitted
             },

@@ -18,8 +18,17 @@ struct BridgeInstalledAnnotationResolverTests {
             productAdmission: productAdmission.context
         )
         #expect(
+            coordinator.admitDisplayInstallation(
+                expectedDisplayedPublicationId: nil,
+                candidatePublicationId: committedA.publicationId,
+                workerInstanceId: "worker-1",
+                productAdmission: productAdmission.context
+            ) == .admitted
+        )
+        #expect(
             coordinator.recordDisplayedApplication(
                 publicationId: committedA.publicationId,
+                workerInstanceId: "worker-1",
                 productAdmission: productAdmission.context
             ) == .advanced
         )
@@ -32,6 +41,7 @@ struct BridgeInstalledAnnotationResolverTests {
             coordinator.admitDisplayInstallation(
                 expectedDisplayedPublicationId: committedA.publicationId,
                 candidatePublicationId: committedB.publicationId,
+                workerInstanceId: "worker-1",
                 productAdmission: productAdmission.context
             ) == .admitted
         )
@@ -72,6 +82,7 @@ struct BridgeInstalledAnnotationResolverTests {
         #expect(
             coordinator.recordDisplayedApplication(
                 publicationId: committedB.publicationId,
+                workerInstanceId: "worker-1",
                 productAdmission: productAdmission.context
             ) == .advanced
         )

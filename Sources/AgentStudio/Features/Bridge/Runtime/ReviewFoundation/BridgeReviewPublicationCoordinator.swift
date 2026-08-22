@@ -271,6 +271,11 @@ struct BridgeReviewPublicationCloseDrain: Sendable {
 /// presenting pane B occur in one MainActor turn.
 @MainActor
 final class BridgeReviewPublicationCoordinator {
+    private struct DisplayInstallationAdmission: Equatable {
+        let workerInstanceId: String
+        let publicationId: UUID
+    }
+
     private struct Publication {
         let publicationId: UUID
         let preparedPublication: BridgeReviewPreparedPublication
@@ -292,7 +297,8 @@ final class BridgeReviewPublicationCoordinator {
 
     private var activePublication: Publication?
     private var acknowledgedDisplayedPublicationId: UUID?
-    private var admittedDisplayPublicationId: UUID?
+    private var admittedDisplayInstallation: DisplayInstallationAdmission?
+    private var displayEstablishedWorkerInstanceId: String?
     private var contentLeaseById: [UUID: BridgeReviewContentAuthorityLease] = [:]
     private var pendingPublication: PendingPublication?
     private var retiringPublicationById: [UUID: RetiringPublication] = [:]
@@ -306,7 +312,9 @@ final class BridgeReviewPublicationCoordinator {
             acknowledgedDisplayed: publication(
                 identifiedBy: acknowledgedDisplayedPublicationId
             ).map(Self.diagnostic),
-            admitted: publication(identifiedBy: admittedDisplayPublicationId).map(Self.diagnostic),
+            admitted: publication(
+                identifiedBy: admittedDisplayInstallation?.publicationId
+            ).map(Self.diagnostic),
             pending: pendingPublication.map { Self.diagnostic($0.publication) },
             retiring: retiringPublicationById.values
                 .map { Self.diagnostic($0.publication) }
@@ -633,38 +641,39 @@ final class BridgeReviewPublicationCoordinator {
     func admitDisplayInstallation(
         expectedDisplayedPublicationId: UUID?,
         candidatePublicationId: UUID,
+        workerInstanceId: String,
         productAdmission: BridgeProductAdmissionContext
     ) -> BridgeReviewDisplayInstallAdmissionResult {
-        guard !isClosed,
-            acknowledgedDisplayedPublicationId == expectedDisplayedPublicationId,
-            activeMatches(
-                publicationId: candidatePublicationId,
-                productAdmission: productAdmission
-            ),
-            admittedDisplayPublicationId == nil
-                || admittedDisplayPublicationId == candidatePublicationId
-        else {
-            return .rejected
-        }
-        return productAdmission.withValidAdmission {
+        productAdmission.withValidAdmission {
             guard !isClosed,
-                acknowledgedDisplayedPublicationId == expectedDisplayedPublicationId,
+                canAdmitDisplayedPredecessor(
+                    expectedDisplayedPublicationId,
+                    workerInstanceId: workerInstanceId
+                ),
                 activeMatches(
                     publicationId: candidatePublicationId,
                     productAdmission: productAdmission
                 ),
-                admittedDisplayPublicationId == nil
-                    || admittedDisplayPublicationId == candidatePublicationId
+                admittedDisplayInstallation == nil
+                    || admittedDisplayInstallation
+                        == DisplayInstallationAdmission(
+                            workerInstanceId: workerInstanceId,
+                            publicationId: candidatePublicationId
+                        )
             else {
                 return BridgeReviewDisplayInstallAdmissionResult.rejected
             }
-            admittedDisplayPublicationId = candidatePublicationId
+            admittedDisplayInstallation = DisplayInstallationAdmission(
+                workerInstanceId: workerInstanceId,
+                publicationId: candidatePublicationId
+            )
             return .admitted
         } ?? .rejected
     }
 
     func recordDisplayedApplication(
         publicationId: UUID,
+        workerInstanceId: String,
         productAdmission: BridgeProductAdmissionContext
     ) -> BridgeReviewDisplayedApplicationResult {
         guard !isClosed,
@@ -681,11 +690,16 @@ final class BridgeReviewPublicationCoordinator {
                 return BridgeReviewDisplayedApplicationResult.rejected
             }
             if acknowledgedDisplayedPublicationId == publicationId {
+                displayEstablishedWorkerInstanceId = workerInstanceId
                 return .duplicate
             }
-            if let admittedDisplayPublicationId,
-                admittedDisplayPublicationId != publicationId
-            {
+            guard
+                admittedDisplayInstallation
+                    == DisplayInstallationAdmission(
+                        workerInstanceId: workerInstanceId,
+                        publicationId: publicationId
+                    )
+            else {
                 return .rejected
             }
             if let acknowledgedDisplayedPublication = publication(
@@ -699,19 +713,31 @@ final class BridgeReviewPublicationCoordinator {
                 return .rejected
             }
             acknowledgedDisplayedPublicationId = publicationId
-            if admittedDisplayPublicationId == publicationId {
-                admittedDisplayPublicationId = nil
+            displayEstablishedWorkerInstanceId = workerInstanceId
+            if admittedDisplayInstallation?.publicationId == publicationId {
+                admittedDisplayInstallation = nil
             }
             closeRetiringContentAdmission(olderThan: displayedPublication)
             return .advanced
         } ?? .rejected
     }
 
+    func retireDisplayWorker(workerInstanceId: String) {
+        if admittedDisplayInstallation?.workerInstanceId == workerInstanceId {
+            admittedDisplayInstallation = nil
+            releaseSupersededUnprotectedRetiringPublications()
+        }
+        if displayEstablishedWorkerInstanceId == workerInstanceId {
+            displayEstablishedWorkerInstanceId = nil
+        }
+    }
+
     func close() -> BridgeReviewPublicationCloseDrain {
         guard !isClosed else { return .empty }
         isClosed = true
         acknowledgedDisplayedPublicationId = nil
-        admittedDisplayPublicationId = nil
+        admittedDisplayInstallation = nil
+        displayEstablishedWorkerInstanceId = nil
         let artifactPins = ownedArtifactPins()
         let priorReleaseTask = takeArtifactPinReleaseTask()
         activePublication = nil
@@ -792,7 +818,7 @@ final class BridgeReviewPublicationCoordinator {
     private func releaseSupersededUnprotectedRetiringPublications() {
         for publicationId in Array(retiringPublicationById.keys) {
             guard publicationId != acknowledgedDisplayedPublicationId,
-                publicationId != admittedDisplayPublicationId,
+                publicationId != admittedDisplayInstallation?.publicationId,
                 var retiringPublication = retiringPublicationById[publicationId]
             else {
                 continue
@@ -805,6 +831,16 @@ final class BridgeReviewPublicationCoordinator {
                 retiringPublicationById[publicationId] = retiringPublication
             }
         }
+    }
+
+    private func canAdmitDisplayedPredecessor(
+        _ expectedDisplayedPublicationId: UUID?,
+        workerInstanceId: String
+    ) -> Bool {
+        if expectedDisplayedPublicationId == nil {
+            return displayEstablishedWorkerInstanceId != workerInstanceId
+        }
+        return acknowledgedDisplayedPublicationId == expectedDisplayedPublicationId
     }
 
     private func contentAuthorityPublication(

@@ -205,8 +205,17 @@ struct BridgePaneProductReviewContentSourceTests {
             )
         )
         #expect(
+            fixture.coordinator.admitDisplayInstallation(
+                expectedDisplayedPublicationId: nil,
+                candidatePublicationId: committedReplacement.publicationId,
+                workerInstanceId: "worker-1",
+                productAdmission: fixture.productAdmission.context
+            ) == .admitted
+        )
+        #expect(
             fixture.coordinator.recordDisplayedApplication(
                 publicationId: committedReplacement.publicationId,
+                workerInstanceId: "worker-1",
                 productAdmission: fixture.productAdmission.context
             ) == .advanced
         )
