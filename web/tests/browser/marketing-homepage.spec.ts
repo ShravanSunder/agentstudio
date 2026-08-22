@@ -214,6 +214,10 @@ for (const viewport of verificationViewports) {
         const selectedFrostStyle = getComputedStyle(selectedControl, "::before");
         const selectedDotStyle = getComputedStyle(selectedControl, "::after");
         const unselectedFrostStyle = getComputedStyle(unselectedControl, "::before");
+        const selectedLabel = selectedControl.querySelector("span");
+        if (!(selectedLabel instanceof HTMLElement)) {
+          throw new Error("Persistence proof selected label is missing");
+        }
 
         return {
           controlsFillRow:
@@ -222,6 +226,13 @@ for (const viewport of verificationViewports) {
           controlsHaveEqualWidth:
             Math.abs(firstControlBounds.width - secondControlBounds.width) <= 1,
           labelFontSize: getComputedStyle(selectedControl).fontSize,
+          selectedLabel: {
+            color: getComputedStyle(selectedLabel).color,
+            height: selectedLabel.getBoundingClientRect().height,
+            text: selectedLabel.textContent?.trim(),
+            width: selectedLabel.getBoundingClientRect().width,
+            zIndex: getComputedStyle(selectedLabel).zIndex,
+          },
           selectedDot: {
             animationName: selectedDotStyle.animationName,
             backgroundColor: selectedDotStyle.backgroundColor,
@@ -238,6 +249,17 @@ for (const viewport of verificationViewports) {
     expect(rowGeometry.every(({ controlsFillRow }) => controlsFillRow)).toBe(true);
     expect(rowGeometry.every(({ controlsHaveEqualWidth }) => controlsHaveEqualWidth)).toBe(true);
     expect(rowGeometry.every(({ labelFontSize }) => labelFontSize === "11px")).toBe(true);
+    expect(
+      rowGeometry.every(
+        ({ selectedLabel }) =>
+          selectedLabel.color === "rgb(255, 255, 255)" &&
+          selectedLabel.height > 0 &&
+          selectedLabel.width > 0 &&
+          selectedLabel.text !== undefined &&
+          selectedLabel.text.length > 0 &&
+          selectedLabel.zIndex === "1",
+      ),
+    ).toBe(true);
     expect(rowGeometry.every(({ selectedFrostOpacity }) => selectedFrostOpacity === "1")).toBe(
       true,
     );

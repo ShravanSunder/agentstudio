@@ -33,21 +33,21 @@ const {
   >
     <button
       type="button"
-      class="scroll-material-pane scroll-material-selection-control persistence-proof__control relative min-w-0 flex-1 basis-0 cursor-pointer rounded-xl border border-line px-4.5 font-mono-product text-compact-control text-ink-muted uppercase transition-colors duration-150 ease-out hover:text-ink motion-reduce:duration-0 disabled:pointer-events-none"
+      class="scroll-material-pane scroll-material-selection-control persistence-proof__control relative isolate min-w-0 flex-1 basis-0 cursor-pointer rounded-xl border border-line px-4.5 font-mono-product text-compact-control text-ink-muted uppercase transition-colors duration-150 ease-out hover:text-ink motion-reduce:duration-0 disabled:pointer-events-none"
       data-persistence-proof-button="before"
       aria-pressed="true"
       disabled
     >
-      {beforeLabel}
+      <span class="relative z-[1]">{beforeLabel}</span>
     </button>
     <button
       type="button"
-      class="scroll-material-pane scroll-material-selection-control persistence-proof__control relative min-w-0 flex-1 basis-0 cursor-pointer rounded-xl border border-line px-4.5 font-mono-product text-compact-control text-ink-muted uppercase transition-colors duration-150 ease-out hover:text-ink motion-reduce:duration-0 disabled:pointer-events-none"
+      class="scroll-material-pane scroll-material-selection-control persistence-proof__control relative isolate min-w-0 flex-1 basis-0 cursor-pointer rounded-xl border border-line px-4.5 font-mono-product text-compact-control text-ink-muted uppercase transition-colors duration-150 ease-out hover:text-ink motion-reduce:duration-0 disabled:pointer-events-none"
       data-persistence-proof-button="restored"
       aria-pressed="false"
       disabled
     >
-      {restoredLabel}
+      <span class="relative z-[1]">{restoredLabel}</span>
     </button>
   </div>
 
