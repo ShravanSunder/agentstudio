@@ -1,6 +1,8 @@
 ---
 type RouteAccent = "cyan" | "peach";
 type RouteEndKind = "merge" | "open";
+type RoutePlacement = "cross-glass-left" | "local-right";
+type TopologyVariant = "compact" | "expanded" | "standard";
 
 interface Props {
   readonly mainlineAnchorSelector?: string;
@@ -19,8 +21,9 @@ interface AuthoredWorktree {
   readonly forkGlassIndex?: number;
   readonly forkPageRow?: number;
   readonly id: string;
-  readonly minimumColumns: 2 | 3 | 4 | 5;
   readonly nodeSlots: readonly number[];
+  readonly placement: RoutePlacement;
+  readonly variants: readonly TopologyVariant[];
 }
 
 const { mainlineAnchorSelector, portalFrameSelector, portalSurfaceSelector } = Astro.props;
@@ -33,8 +36,9 @@ const worktrees: readonly AuthoredWorktree[] = [
     forkPageRow: 2,
     forkSlot: 0,
     id: "worktree-a",
-    minimumColumns: 2,
     nodeSlots: [],
+    placement: "local-right",
+    variants: ["compact", "standard", "expanded"],
   },
   {
     accent: "cyan",
@@ -44,8 +48,9 @@ const worktrees: readonly AuthoredWorktree[] = [
     forkPageRow: 4,
     forkSlot: 1,
     id: "worktree-b",
-    minimumColumns: 3,
     nodeSlots: [],
+    placement: "local-right",
+    variants: ["standard", "expanded"],
   },
   {
     accent: "peach",
@@ -55,8 +60,9 @@ const worktrees: readonly AuthoredWorktree[] = [
     forkGlassIndex: 0,
     forkSlot: 0,
     id: "worktree-c",
-    minimumColumns: 3,
     nodeSlots: [],
+    placement: "cross-glass-left",
+    variants: ["standard", "expanded"],
   },
   {
     accent: "cyan",
@@ -66,8 +72,9 @@ const worktrees: readonly AuthoredWorktree[] = [
     forkGlassIndex: 1,
     forkSlot: 6,
     id: "worktree-d",
-    minimumColumns: 4,
     nodeSlots: [],
+    placement: "cross-glass-left",
+    variants: ["expanded"],
   },
   {
     accent: "peach",
@@ -77,8 +84,9 @@ const worktrees: readonly AuthoredWorktree[] = [
     forkPageRow: 17,
     forkSlot: 7,
     id: "worktree-e",
-    minimumColumns: 4,
     nodeSlots: [],
+    placement: "local-right",
+    variants: ["expanded"],
   },
   {
     accent: "cyan",
@@ -88,8 +96,9 @@ const worktrees: readonly AuthoredWorktree[] = [
     forkPageRow: 18,
     forkSlot: 8,
     id: "worktree-f",
-    minimumColumns: 4,
     nodeSlots: [],
+    placement: "local-right",
+    variants: ["expanded"],
   },
   {
     accent: "peach",
@@ -99,8 +108,9 @@ const worktrees: readonly AuthoredWorktree[] = [
     forkGlassIndex: 2,
     forkSlot: 14,
     id: "worktree-g",
-    minimumColumns: 5,
     nodeSlots: [],
+    placement: "cross-glass-left",
+    variants: ["expanded"],
   },
 ] as const;
 
@@ -151,7 +161,8 @@ const worktrees: readonly AuthoredWorktree[] = [
         data-topology-route-group
         data-route-id={worktree.id}
         data-route-accent={worktree.accent}
-        data-minimum-columns={worktree.minimumColumns}
+        data-route-placement={worktree.placement}
+        data-topology-variants={worktree.variants.join(" ")}
         data-fork-slot={worktree.forkSlot}
         data-fork-glass-index={worktree.forkGlassIndex}
         data-fork-page-row={worktree.forkPageRow}

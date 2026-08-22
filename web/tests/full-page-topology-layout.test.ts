@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   assignTopologyRowOwners,
-  assignWorktreeColumns,
+  assignWorktreeLanes,
+  centeredTopologyColumnXs,
   measureFullPageTopologyGrid,
   resolveTopologyGlassBand,
 } from "../src/topology-lab/full-page-topology-model";
@@ -43,10 +44,10 @@ describe("topology row ownership", () => {
   });
 });
 
-describe("hardcoded worktree lane allocation", () => {
+describe("side-specific worktree lane allocation", () => {
   it("uses the nearest free column when every worktree forks from main", () => {
     expect(
-      assignWorktreeColumns(
+      assignWorktreeLanes(
         [
           { endKind: "open", endSlot: 18, forkSlot: 2, id: "a" },
           { endKind: "merge", endSlot: 10, forkSlot: 4, id: "b" },
@@ -54,20 +55,20 @@ describe("hardcoded worktree lane allocation", () => {
           { endKind: "open", endSlot: 16, forkSlot: 14, id: "d" },
           { endKind: "open", endSlot: 17, forkSlot: 11, id: "e" },
         ],
-        6,
+        4,
       ),
     ).toEqual([
-      { id: "a", lane: 1 },
-      { id: "b", lane: 2 },
-      { id: "c", lane: 3 },
-      { id: "e", lane: 2 },
-      { id: "d", lane: 4 },
+      { id: "a", lane: 0 },
+      { id: "b", lane: 1 },
+      { id: "c", lane: 2 },
+      { id: "e", lane: 1 },
+      { id: "d", lane: 3 },
     ]);
   });
 
   it("reuses a nearer released column instead of skipping it", () => {
     expect(
-      assignWorktreeColumns(
+      assignWorktreeLanes(
         [
           { endKind: "merge", endSlot: 6, forkSlot: 2, id: "a" },
           { endKind: "merge", endSlot: 10, forkSlot: 4, id: "b" },
@@ -76,15 +77,15 @@ describe("hardcoded worktree lane allocation", () => {
         4,
       ),
     ).toEqual([
-      { id: "a", lane: 1 },
-      { id: "b", lane: 2 },
-      { id: "c", lane: 1 },
+      { id: "a", lane: 0 },
+      { id: "b", lane: 1 },
+      { id: "c", lane: 0 },
     ]);
   });
 
   it("sorts allocation by fork chronology instead of source order", () => {
     expect(
-      assignWorktreeColumns(
+      assignWorktreeLanes(
         [
           { endKind: "open", endSlot: 20, forkSlot: 10, id: "late" },
           { endKind: "merge", endSlot: 5, forkSlot: 2, id: "early" },
@@ -92,14 +93,14 @@ describe("hardcoded worktree lane allocation", () => {
         3,
       ),
     ).toEqual([
-      { id: "early", lane: 1 },
-      { id: "late", lane: 1 },
+      { id: "early", lane: 0 },
+      { id: "late", lane: 0 },
     ]);
   });
 
   it("does not release a lane when the illustrated worktree remains open", () => {
     expect(
-      assignWorktreeColumns(
+      assignWorktreeLanes(
         [
           { endKind: "open", endSlot: 6, forkSlot: 2, id: "open" },
           { endKind: "merge", endSlot: 10, forkSlot: 7, id: "later" },
@@ -107,14 +108,14 @@ describe("hardcoded worktree lane allocation", () => {
         3,
       ),
     ).toEqual([
-      { id: "open", lane: 1 },
-      { id: "later", lane: 2 },
+      { id: "open", lane: 0 },
+      { id: "later", lane: 1 },
     ]);
   });
 
   it("rejects two forks competing for the same physical row", () => {
     expect(
-      assignWorktreeColumns(
+      assignWorktreeLanes(
         [
           { endKind: "open", endSlot: 12, forkSlot: 2, id: "a" },
           { endKind: "merge", endSlot: 10, forkSlot: 2, id: "b" },
@@ -126,57 +127,96 @@ describe("hardcoded worktree lane allocation", () => {
 });
 
 describe("full-page topology grid measurement", () => {
-  it("reserves the outer column and requires two usable columns in both gutters", () => {
+  it("selects capacity tiers at exact centered-frame gutter thresholds", () => {
     expect(
       measureFullPageTopologyGrid({
-        frameLeft: 287,
-        frameRight: 1713,
+        frameLeft: 191.5,
+        frameRight: 1631.5,
         height: 5200,
-        width: 2000,
+        width: 1823,
       }),
     ).toBeUndefined();
 
     expect(
       measureFullPageTopologyGrid({
+        frameLeft: 192,
+        frameRight: 1632,
+        height: 5200,
+        width: 1824,
+      }),
+    ).toMatchObject({
+      columnCapacity: 2,
+      variant: "compact",
+    });
+
+    expect(
+      measureFullPageTopologyGrid({
         frameLeft: 288,
-        frameRight: 1712,
+        frameRight: 1728,
+        height: 5200,
+        width: 2016,
+      }),
+    ).toMatchObject({ columnCapacity: 3, variant: "standard" });
+
+    expect(
+      measureFullPageTopologyGrid({
+        frameLeft: 384,
+        frameRight: 1824,
+        height: 5200,
+        width: 2208,
+      }),
+    ).toMatchObject({ columnCapacity: 4, variant: "expanded" });
+
+    expect(
+      measureFullPageTopologyGrid({
+        frameLeft: 680,
+        frameRight: 2120,
+        height: 5200,
+        width: 2800,
+      }),
+    ).toMatchObject({ columnCapacity: 4, variant: "expanded" });
+  });
+
+  it("measures the two gutter capacities independently and selects the smaller tier", () => {
+    expect(
+      measureFullPageTopologyGrid({
+        frameLeft: 288,
+        frameRight: 1600,
         height: 5200,
         width: 2000,
       }),
     ).toMatchObject({
-      usableColumnCount: 2,
-      variant: "compact",
+      columnCapacity: 3,
+      leftColumnCapacity: 3,
+      rightColumnCapacity: 4,
+      variant: "standard",
     });
   });
 
-  it("selects hardcoded variants from gutter column capacity", () => {
+  it("centers only the required columns at an exact 96px pitch", () => {
+    expect(centeredTopologyColumnXs({ columnCount: 3, gutterEnd: 480, gutterStart: 0 })).toEqual([
+      144, 240, 336,
+    ]);
+    expect(centeredTopologyColumnXs({ columnCount: 4, gutterEnd: 480, gutterStart: 0 })).toEqual([
+      96, 192, 288, 384,
+    ]);
+    expect(
+      centeredTopologyColumnXs({ columnCount: 2, gutterEnd: 1920, gutterStart: 1680 }),
+    ).toEqual([1752, 1848]);
+    expect(
+      centeredTopologyColumnXs({ columnCount: 4, gutterEnd: 383, gutterStart: 0 }),
+    ).toBeUndefined();
+  });
+
+  it("keeps row geometry independent from centered column capacity", () => {
     const compactGrid = measureFullPageTopologyGrid({
       frameLeft: 288,
       frameRight: 1712,
       height: 5200,
       width: 2000,
     });
-    expect(compactGrid?.leftLaneXs).toEqual([144, 240]);
-    expect(compactGrid?.rightLaneXs).toEqual([1856, 1760]);
-    expect(compactGrid?.variant).toBe("compact");
-
-    expect(
-      measureFullPageTopologyGrid({
-        frameLeft: 384,
-        frameRight: 1616,
-        height: 5200,
-        width: 2000,
-      })?.variant,
-    ).toBe("standard");
-
-    expect(
-      measureFullPageTopologyGrid({
-        frameLeft: 480,
-        frameRight: 1520,
-        height: 5200,
-        width: 2000,
-      })?.variant,
-    ).toBe("expanded");
+    expect(compactGrid?.rowCount).toBe(53);
+    expect(compactGrid?.topPadding).toBe(96);
   });
 
   it("projects the first and last glass surfaces onto authored grid rows", () => {

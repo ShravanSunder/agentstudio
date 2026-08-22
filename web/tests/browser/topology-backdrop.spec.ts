@@ -13,9 +13,12 @@ async function inspectVisibleTopology(page: Page): Promise<{
   readonly bridgeSurfaceIndexes: readonly number[];
   readonly columnCount: number;
   readonly duplicateNodeRowCount: number;
+  readonly leftColumnCount: number;
   readonly mainlineX: number;
   readonly maximumReverseYStep: number;
-  readonly resolvedLanes: readonly number[];
+  readonly resolvedPlacements: readonly (string | undefined)[];
+  readonly resolvedSideSlots: readonly number[];
+  readonly rightColumnCount: number;
   readonly rowCount: number;
   readonly topologyVariant: string | undefined;
   readonly worktreesMovingLeftCount: number;
@@ -82,9 +85,12 @@ async function inspectVisibleTopology(page: Page): Promise<{
       bridgeSurfaceIndexes,
       columnCount: Number(svg.dataset["columnCount"]),
       duplicateNodeRowCount: resolvedRows.length - new Set(resolvedRows).size,
+      leftColumnCount: Number(svg.dataset["leftColumnCount"]),
       mainlineX: mainline.getPointAtLength(0).x - artworkBounds.left,
       maximumReverseYStep: Math.max(...routeYSteps),
-      resolvedLanes: visibleRoutes.map((group) => Number(group.dataset["resolvedLane"])),
+      resolvedPlacements: visibleRoutes.map((group) => group.dataset["resolvedPlacement"]),
+      resolvedSideSlots: visibleRoutes.map((group) => Number(group.dataset["resolvedSideSlot"])),
+      rightColumnCount: Number(svg.dataset["rightColumnCount"]),
       rowCount: Number(svg.dataset["rowCount"]),
       topologyVariant: svg.dataset["topologyVariant"],
       worktreesMovingLeftCount: visibleRoutes.filter((group) => {
@@ -100,7 +106,11 @@ async function inspectVisibleTopology(page: Page): Promise<{
 interface ExpectedTopologyVariant {
   readonly expectedBridgeSurfaceIndexes: readonly number[];
   readonly expectedColumns: number;
-  readonly expectedLanes: readonly number[];
+  readonly expectedLeftColumns: number;
+  readonly expectedMainlineX: number;
+  readonly expectedPlacements: readonly string[];
+  readonly expectedRightColumns: number;
+  readonly expectedSideSlots: readonly number[];
   readonly expectedVariant: string;
   readonly expectedWorktrees: number;
   readonly width: number;
@@ -114,17 +124,20 @@ async function expectTopologyVariant(page: Page, expected: ExpectedTopologyVaria
   expect(state.topologyVariant).toBe(expected.expectedVariant);
   expect(state.visibleWorktreeCount).toBe(expected.expectedWorktrees);
   expect(state.worktreeCount).toBe(expected.expectedWorktrees);
-  expect(state.resolvedLanes).toEqual(expected.expectedLanes);
+  expect(state.leftColumnCount).toBe(expected.expectedLeftColumns);
+  expect(state.rightColumnCount).toBe(expected.expectedRightColumns);
+  expect(state.resolvedPlacements).toEqual(expected.expectedPlacements);
+  expect(state.resolvedSideSlots).toEqual(expected.expectedSideSlots);
   expect(state.duplicateNodeRowCount).toBe(0);
   expect(state.visibleNodeCount).toBe(state.rowCount);
   expect(state.worktreesMovingLeftCount).toBe(expected.expectedWorktrees);
   expect(state.bridgeSurfaceIndexes).toEqual(expected.expectedBridgeSurfaceIndexes);
-  expect(state.mainlineX).toBeCloseTo(expected.width - 144, 3);
+  expect(state.mainlineX).toBeCloseTo(expected.expectedMainlineX, 3);
   expect(state.maximumReverseYStep).toBeLessThanOrEqual(0.01);
 }
 
 test("hides the complete topology until both gutters fit two usable columns", async ({ page }) => {
-  await page.setViewportSize({ height: 1066, width: 1810 });
+  await page.setViewportSize({ height: 1066, width: 1823 });
   await page.goto("/");
   await waitForTopologyRender(page);
 
@@ -136,30 +149,69 @@ test("hides the complete topology until both gutters fit two usable columns", as
   );
 });
 
+test("switches centered capacity tiers at the exact gutter thresholds", async ({ page }) => {
+  await page.goto("/");
+  /* oxlint-disable no-await-in-loop -- responsive thresholds share one page and must run sequentially */
+  for (const expected of [
+    { columnCount: 2, variant: "compact", width: 1824 },
+    { columnCount: 2, variant: "compact", width: 2015 },
+    { columnCount: 3, variant: "standard", width: 2016 },
+    { columnCount: 3, variant: "standard", width: 2207 },
+    { columnCount: 4, variant: "expanded", width: 2208 },
+  ] as const) {
+    await page.setViewportSize({ height: 1066, width: expected.width });
+    await waitForTopologyRender(page);
+    const state = await inspectVisibleTopology(page);
+    expect(state.columnCount).toBe(expected.columnCount);
+    expect(state.topologyVariant).toBe(expected.variant);
+  }
+  /* oxlint-enable no-await-in-loop */
+});
+
 test("selects the authored worktree variants from gutter capacity", async ({ page }) => {
   await page.goto("/");
   await expectTopologyVariant(page, {
     expectedBridgeSurfaceIndexes: [],
     expectedColumns: 2,
-    expectedLanes: [1],
+    expectedLeftColumns: 0,
+    expectedMainlineX: 1848,
+    expectedPlacements: ["local-right"],
+    expectedRightColumns: 2,
+    expectedSideSlots: [0],
     expectedVariant: "compact",
     expectedWorktrees: 1,
-    width: 2200,
+    width: 1920,
   });
   await expectTopologyVariant(page, {
     expectedBridgeSurfaceIndexes: [0, 3],
     expectedColumns: 3,
-    expectedLanes: [1, 2, 3],
+    expectedLeftColumns: 1,
+    expectedMainlineX: 1992,
+    expectedPlacements: ["local-right", "local-right", "cross-glass-left"],
+    expectedRightColumns: 3,
+    expectedSideSlots: [0, 1, 0],
     expectedVariant: "standard",
     expectedWorktrees: 3,
-    width: 2300,
+    width: 2048,
   });
   await expectTopologyVariant(page, {
-    expectedBridgeSurfaceIndexes: [0, 1, 3],
+    expectedBridgeSurfaceIndexes: [0, 1, 2, 3],
     expectedColumns: 4,
-    expectedLanes: [1, 2, 3, 4, 1, 2],
+    expectedLeftColumns: 3,
+    expectedMainlineX: 2256,
+    expectedPlacements: [
+      "local-right",
+      "local-right",
+      "cross-glass-left",
+      "cross-glass-left",
+      "local-right",
+      "local-right",
+      "cross-glass-left",
+    ],
+    expectedRightColumns: 3,
+    expectedSideSlots: [0, 1, 0, 1, 0, 1, 2],
     expectedVariant: "expanded",
-    expectedWorktrees: 6,
+    expectedWorktrees: 7,
     width: 2400,
   });
 });
@@ -253,14 +305,28 @@ test("reveals the authored topology by scroll progress and ends on the mainline 
   await waitForTopologyRender(page);
   const reversedState = await artwork.evaluate((svg) => {
     const revealSolid = svg.querySelector<SVGRectElement>("[data-topology-reveal-solid]");
+    const revealFade = svg.querySelector<SVGRectElement>("[data-topology-reveal-fade]");
     const startHalo = svg
       .querySelector('[data-mainline-node="start"]')
       ?.querySelector(".node-terminal-halo");
     const finalHalo = svg
       .querySelector('[data-mainline-node="end"]')
       ?.querySelector(".node-terminal-halo");
+    const visibleNodes = [
+      ...svg.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]"),
+    ].filter((node) => {
+      const group = node.closest<SVGGElement>("[data-topology-route-group]");
+      return (
+        Number(getComputedStyle(node).opacity) > 0 &&
+        (group === null || getComputedStyle(group).display !== "none")
+      );
+    });
+    const visiblePaths = [
+      ...svg.querySelectorAll<SVGPathElement>("[data-topology-path-start]"),
+    ].filter((path) => getComputedStyle(path).visibility !== "hidden");
     return {
       atStart: svg.hasAttribute("data-topology-at-start"),
+      fadeHeight: revealFade === null ? null : Number(revealFade.getAttribute("height")),
       finalHaloAnimation:
         finalHalo === null || finalHalo === undefined
           ? null
@@ -272,11 +338,16 @@ test("reveals the authored topology by scroll progress and ends on the mainline 
           ? null
           : getComputedStyle(startHalo).animationName,
       topologyStartY: Number(svg.dataset["topologyStartY"]),
+      visibleNodeCount: visibleNodes.length,
+      visiblePathCount: visiblePaths.length,
     };
   });
   expect(reversedState.atStart).toBe(true);
   expect(reversedState.revealEdgeY).toBeCloseTo(reversedState.topologyStartY, 4);
-  expect(reversedState.solidHeight).toBeCloseTo(reversedState.topologyStartY, 4);
+  expect(reversedState.solidHeight).toBeGreaterThan(reversedState.topologyStartY);
+  expect(reversedState.fadeHeight).toBe(0);
+  expect(reversedState.visibleNodeCount).toBe(1);
+  expect(reversedState.visiblePathCount).toBe(0);
   expect(reversedState.startHaloAnimation).toBe("topology-terminal-node-halo");
   expect(reversedState.finalHaloAnimation).toBe("none");
 });
@@ -372,6 +443,7 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
         forkX: Number(fork.getAttribute("cx")),
         forkRow: Number(fork.dataset["resolvedRow"]),
         lane: Number(group.dataset["resolvedLane"]),
+        placement: group.dataset["resolvedPlacement"],
         minimumX: Math.min(...routePoints.map((point) => point.x)),
         startDelta: Math.hypot(
           startPoint.x - Number(fork.getAttribute("cx")),
@@ -406,6 +478,20 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
       }
       return mainline.getPointAtLength(lowerLength).x;
     };
+    const mainlineX = mainline.getPointAtLength(0).x;
+    const localTargetXs = routeFacts
+      .filter((route) => route.placement === "local-right")
+      .map((route) => route.targetX);
+    const leftTargetXs = routeFacts
+      .filter((route) => route.placement === "cross-glass-left")
+      .map((route) => route.targetX);
+    const uniqueLocalXs = [...new Set([mainlineX, ...localTargetXs])].toSorted(
+      (left, right) => left - right,
+    );
+    const uniqueLeftXs = [...new Set(leftTargetXs)].toSorted((left, right) => left - right);
+    // oxlint-disable-next-line unicorn/consistent-function-scoping -- browser evaluation owns this helper
+    const maximumAdjacentSpacingError = (xs: readonly number[]): number =>
+      Math.max(0, ...xs.slice(1).map((x, index) => Math.abs(x - (xs[index] ?? x) - 96)));
     const resolvedRows = visibleNodes.map((node) => Number(node.dataset["resolvedRow"]));
     const fillerOwnerIds = [...svg.querySelectorAll<SVGCircleElement>("[data-mainline-fill-index]")]
       .filter((node) => getComputedStyle(node).display !== "none")
@@ -493,8 +579,26 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
       ),
       maximumLocalLaneSpacingError: Math.max(
         ...routeFacts
-          .filter((route) => route.lane <= 2)
-          .map((route) => Math.abs(route.forkX - route.targetX - route.lane * 96)),
+          .filter((route) => route.placement === "local-right")
+          .map((route) => Math.abs(route.forkX - route.targetX - (route.lane + 1) * 96)),
+      ),
+      maximumLeftLaneSpacingError: maximumAdjacentSpacingError(uniqueLeftXs),
+      leftMarginDifference: Math.abs(
+        (uniqueLeftXs[0] ?? 0) - (frameLeft - (uniqueLeftXs.at(-1) ?? frameLeft)),
+      ),
+      minimumLeftMargin: Math.min(
+        uniqueLeftXs[0] ?? 0,
+        frameLeft - (uniqueLeftXs.at(-1) ?? frameLeft),
+      ),
+      maximumRightLaneSpacingError: maximumAdjacentSpacingError(uniqueLocalXs),
+      rightMarginDifference: Math.abs(
+        (uniqueLocalXs[0] ?? frameRight) -
+          frameRight -
+          (svgBounds.width - (uniqueLocalXs.at(-1) ?? svgBounds.width)),
+      ),
+      minimumRightMargin: Math.min(
+        (uniqueLocalXs[0] ?? frameRight) - frameRight,
+        svgBounds.width - (uniqueLocalXs.at(-1) ?? svgBounds.width),
       ),
       maximumMainlineXDrift: Math.max(
         ...Array.from({ length: 101 }, (_, index) =>
@@ -540,13 +644,27 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
   );
   expect(state.fillerColorMismatchCount).toBe(0);
   expect(state.inactiveWorktreeOwnerCount).toBe(0);
-  expect(state.routeFacts.map((route) => route.lane)).toEqual([1, 2, 3, 4, 1, 2, 5]);
+  expect(state.routeFacts.map((route) => route.lane)).toEqual([0, 1, 0, 1, 0, 1, 2]);
+  expect(state.routeFacts.map((route) => route.placement)).toEqual([
+    "local-right",
+    "local-right",
+    "cross-glass-left",
+    "cross-glass-left",
+    "local-right",
+    "local-right",
+    "cross-glass-left",
+  ]);
   expect(state.routeFacts.slice(0, 2).map((route) => route.forkRow)).toEqual([2, 4]);
   expect(state.routeFacts.slice(0, 2).map((route) => route.endRow)).toEqual([15, 16]);
   expect(new Set(state.routeFacts.map((route) => route.forkX)).size).toBe(1);
-  expect(state.mainlineForkX).toBe(2800 - 144);
   expect(state.maximumForkMainlineDelta).toBeLessThanOrEqual(0.01);
   expect(state.maximumLocalLaneSpacingError).toBeLessThanOrEqual(0.01);
+  expect(state.maximumLeftLaneSpacingError).toBeLessThanOrEqual(0.01);
+  expect(state.maximumRightLaneSpacingError).toBeLessThanOrEqual(0.01);
+  expect(state.leftMarginDifference).toBeLessThanOrEqual(0.01);
+  expect(state.rightMarginDifference).toBeLessThanOrEqual(0.01);
+  expect(state.minimumLeftMargin).toBeGreaterThanOrEqual(48);
+  expect(state.minimumRightMargin).toBeGreaterThanOrEqual(48);
   expect(state.maximumMainlineXDrift).toBeLessThanOrEqual(0.01);
   expect(state.maximumFillerOwnerPathDistance).toBeLessThanOrEqual(0.01);
   expect(state.nonMainFillerOffMainlineCount).toBeGreaterThan(0);
@@ -556,15 +674,6 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
     true,
   );
   expect(state.routeFacts.every((route) => route.unauthorizedFramePointCount === 0)).toBe(true);
-  expect(state.routeFacts.map((route) => route.targetX)).toEqual([
-    2800 - 240,
-    2800 - 336,
-    144 + (6 - 1) * 96,
-    144 + (6 - 2) * 96,
-    2800 - 240,
-    2800 - 336,
-    144 + (6 - 3) * 96,
-  ]);
   expect(state.routeFacts.every((route) => route.targetX < route.forkX)).toBe(true);
   expect(
     state.routeFacts

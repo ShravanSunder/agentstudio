@@ -38,12 +38,10 @@ export function initializeTopologyScrollReveal(
     const scrollProgress = clamp(window.scrollY / maximumScroll, 0, 1);
     const revealProgress = reducedMotionQuery.matches ? 1 : scrollProgress;
     const leadingBuffer = revealProgress === 0 ? 0 : Math.min(0.06, revealProgress * 0.8);
+    const atStart = !reducedMotionQuery.matches && scrollProgress <= 0.0001;
     artwork.dataset["topologyScrollProgress"] = String(scrollProgress);
 
-    artwork.toggleAttribute(
-      "data-topology-at-start",
-      !reducedMotionQuery.matches && scrollProgress <= 0.0001,
-    );
+    artwork.toggleAttribute("data-topology-at-start", atStart);
     artwork.toggleAttribute(
       "data-topology-at-end",
       !reducedMotionQuery.matches && scrollProgress >= 0.9999,
@@ -53,6 +51,21 @@ export function initializeTopologyScrollReveal(
       const topologyStartY = Number(artwork.dataset["topologyStartY"]);
       const topologyEndY = Number(artwork.dataset["topologyEndY"]);
       if (!Number.isFinite(topologyStartY) || !Number.isFinite(topologyEndY)) {
+        return;
+      }
+      if (atStart) {
+        verticalRevealSolid.setAttribute("height", String(artwork.clientHeight));
+        verticalRevealFade.setAttribute("y", String(topologyStartY));
+        verticalRevealFade.setAttribute("height", "0");
+        artwork.dataset["topologyRevealEdgeY"] = String(topologyStartY);
+        for (const path of revealPaths) {
+          path.style.visibility = "hidden";
+          path.style.strokeDasharray = "0 1";
+          path.style.strokeDashoffset = "0";
+        }
+        for (const node of revealNodes) {
+          node.style.opacity = node.dataset["topologyNodeProgress"] === "0" ? "1" : "0";
+        }
         return;
       }
       const revealY = topologyStartY + (topologyEndY - topologyStartY) * revealProgress;

@@ -1,6 +1,6 @@
 const authoredBandSlotCount = 20;
 const columnUnit = 96;
-const edgeColumnCount = 1;
+const maximumGutterColumnCount = 4;
 const minimumUsableColumnCount = 2;
 export const topologyRowUnit = 96;
 
@@ -8,13 +8,19 @@ export type FullPageTopologyVariant = "compact" | "expanded" | "standard";
 export type WorktreeEndKind = "merge" | "open";
 
 export interface FullPageTopologyGrid {
+  readonly columnCapacity: number;
   readonly finalRow: number;
-  readonly leftLaneXs: readonly number[];
-  readonly rightLaneXs: readonly number[];
+  readonly leftColumnCapacity: number;
   readonly rowCount: number;
+  readonly rightColumnCapacity: number;
   readonly topPadding: number;
-  readonly usableColumnCount: number;
   readonly variant: FullPageTopologyVariant;
+}
+
+interface CenteredTopologyColumnXsProps {
+  readonly columnCount: number;
+  readonly gutterEnd: number;
+  readonly gutterStart: number;
 }
 
 interface MeasureFullPageTopologyGridProps {
@@ -112,11 +118,11 @@ function variantForColumnCount(usableColumnCount: number): FullPageTopologyVaria
   return "compact";
 }
 
-export function assignWorktreeColumns(
+export function assignWorktreeLanes(
   lifecycles: readonly WorktreeLifecycle[],
-  usableColumnCount: number,
+  laneCount: number,
 ): readonly AssignedWorktreeColumn[] | undefined {
-  if (usableColumnCount < minimumUsableColumnCount) {
+  if (!Number.isInteger(laneCount) || laneCount < 1) {
     return undefined;
   }
 
@@ -142,16 +148,43 @@ export function assignWorktreeColumns(
         .filter((prior) => prior.endKind === "open" || prior.endSlot >= lifecycle.forkSlot)
         .map((prior) => prior.lane),
     );
-    const lane = Array.from(
-      { length: usableColumnCount - 1 },
-      (_, laneIndex) => laneIndex + 1,
-    ).find((candidateLane) => !occupiedLanes.has(candidateLane));
+    const lane = Array.from({ length: laneCount }, (_, laneIndex) => laneIndex).find(
+      (candidateLane) => !occupiedLanes.has(candidateLane),
+    );
     if (lane === undefined) {
       return undefined;
     }
     assigned.push({ ...lifecycle, lane });
   }
   return assigned.map(({ id, lane }) => ({ id, lane }));
+}
+
+export function centeredTopologyColumnXs(
+  props: CenteredTopologyColumnXsProps,
+): readonly number[] | undefined {
+  const { columnCount, gutterEnd, gutterStart } = props;
+  const gutterWidth = gutterEnd - gutterStart;
+  if (
+    !Number.isInteger(columnCount) ||
+    columnCount < 0 ||
+    columnCount > maximumGutterColumnCount ||
+    gutterStart < 0 ||
+    gutterWidth < columnCount * columnUnit
+  ) {
+    return undefined;
+  }
+  if (columnCount === 0) {
+    return [];
+  }
+  const occupiedSpan = (columnCount - 1) * columnUnit;
+  const firstCenter = gutterStart + (gutterWidth - occupiedSpan) / 2;
+  return Array.from({ length: columnCount }, (_, columnIndex) => {
+    return firstCenter + columnIndex * columnUnit;
+  });
+}
+
+function columnCapacityForGutterWidth(gutterWidth: number): number {
+  return Math.min(maximumGutterColumnCount, Math.floor(gutterWidth / columnUnit));
 }
 
 export function measureFullPageTopologyGrid(
@@ -162,10 +195,10 @@ export function measureFullPageTopologyGrid(
     return undefined;
   }
 
-  const edgeReserve = edgeColumnCount * columnUnit;
-  const smallerGutterWidth = Math.min(frameLeft, width - frameRight);
-  const usableColumnCount = Math.floor((smallerGutterWidth - edgeReserve) / columnUnit);
-  if (usableColumnCount < minimumUsableColumnCount) {
+  const leftColumnCapacity = columnCapacityForGutterWidth(frameLeft);
+  const rightColumnCapacity = columnCapacityForGutterWidth(width - frameRight);
+  const columnCapacity = Math.min(leftColumnCapacity, rightColumnCapacity);
+  if (columnCapacity < minimumUsableColumnCount) {
     return undefined;
   }
 
@@ -177,19 +210,13 @@ export function measureFullPageTopologyGrid(
 
   const rowCount = Math.floor(availableHeight / topologyRowUnit) + 1;
   return {
+    columnCapacity,
     finalRow: rowCount - 1,
-    leftLaneXs: Array.from(
-      { length: usableColumnCount },
-      (_, laneIndex) => edgeReserve + columnUnit / 2 + laneIndex * columnUnit,
-    ),
-    rightLaneXs: Array.from(
-      { length: usableColumnCount },
-      (_, laneIndex) => width - edgeReserve - columnUnit / 2 - laneIndex * columnUnit,
-    ),
+    leftColumnCapacity,
     rowCount,
+    rightColumnCapacity,
     topPadding,
-    usableColumnCount,
-    variant: variantForColumnCount(usableColumnCount),
+    variant: variantForColumnCount(columnCapacity),
   };
 }
 

@@ -25,7 +25,7 @@ function readNodeTranslation(node: SVGGElement): { readonly x: number; readonly 
   return { x: Number(match[1]), y: Number(match[2]) };
 }
 
-function createTopologyFixture(): TopologyFixture {
+function createTopologyFixture(verticalMask = false): TopologyFixture {
   const host = document.createElement("div");
   host.style.height = "4000px";
   host.innerHTML = `
@@ -35,6 +35,11 @@ function createTopologyFixture(): TopologyFixture {
       viewBox="0 0 100 100"
       style="display: block; width: 180px; height: 1200px"
     >
+      ${
+        verticalMask
+          ? '<rect data-topology-reveal-solid height="0"></rect><rect data-topology-reveal-fade height="0"></rect>'
+          : ""
+      }
       <path
         data-topology-path-role="leading-band"
         data-topology-path-start="0"
@@ -98,7 +103,16 @@ function createTopologyFixture(): TopologyFixture {
   const fixture = {
     artwork,
     corePath,
-    dispose: initializeTopologyScrollReveal(artwork),
+    dispose: initializeTopologyScrollReveal(
+      artwork,
+      verticalMask
+        ? (svg): boolean => {
+            svg.dataset["topologyStartY"] = "5";
+            svg.dataset["topologyEndY"] = "1195";
+            return true;
+          }
+        : undefined,
+    ),
     finalNode,
     host,
     leadingBand,
@@ -134,6 +148,26 @@ afterEach(() => {
 });
 
 describe("topology scroll reveal", () => {
+  it("shows only the animated start node at scroll zero for vertical-mask artwork", async () => {
+    const fixture = createTopologyFixture(true);
+
+    await scrollToProgress(0);
+
+    const revealFade = fixture.artwork.querySelector<SVGRectElement>("[data-topology-reveal-fade]");
+    expect(fixture.artwork.hasAttribute("data-topology-at-start")).toBe(true);
+    expect(fixture.corePath.style.visibility).toBe("hidden");
+    expect(fixture.leadingBand.style.visibility).toBe("hidden");
+    expect(fixture.startNode.style.opacity).toBe("1");
+    expect(fixture.middleNode.style.opacity).toBe("0");
+    expect(fixture.finalNode.style.opacity).toBe("0");
+    expect(revealFade?.getAttribute("height")).toBe("0");
+
+    await scrollToProgress(0.01);
+
+    expect(fixture.artwork.hasAttribute("data-topology-at-start")).toBe(false);
+    expect(fixture.corePath.style.visibility).toBe("visible");
+  });
+
   it("reveals and retracts paths and nodes with document scroll progress", async () => {
     const fixture = createTopologyFixture();
 

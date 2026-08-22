@@ -26,7 +26,8 @@ function createArtwork(frameLeft: number, frameRight: number): SVGSVGElement {
         data-topology-route-group
         data-route-id="a"
         data-route-accent="peach"
-        data-minimum-columns="2"
+        data-route-placement="local-right"
+        data-topology-variants="compact standard expanded"
         data-fork-slot="2"
         data-end-slot="18"
         data-end-kind="open"
@@ -63,6 +64,19 @@ afterEach(() => {
 });
 
 describe("full-page topology layout", () => {
+  it("fails closed when authored placement conflicts with route geometry", () => {
+    const artwork = createArtwork(576, 1424);
+    const route = artwork.querySelector<SVGGElement>("[data-topology-route-group]");
+    if (route === null) {
+      throw new Error("Full-page topology fixture route is missing");
+    }
+    route.dataset["routePlacement"] = "cross-glass-left";
+
+    expect(layoutFullPageTopology(artwork)).toBe(true);
+    expect(artwork.style.visibility).toBe("hidden");
+    expect(artwork.dataset["topologyHiddenReason"]).toBe("invalid-authored-route");
+  });
+
   it("preserves distinct absolute bottom rows instead of quantizing them through glass slots", () => {
     const artwork = createArtwork(576, 1424);
     const firstRoute = artwork.querySelector<SVGGElement>("[data-topology-route-group]");
@@ -98,7 +112,9 @@ describe("full-page topology layout", () => {
     const artwork = createArtwork(576, 1424);
 
     expect(layoutFullPageTopology(artwork)).toBe(true);
-    expect(artwork.dataset["columnCount"]).toBe("5");
+    expect(artwork.dataset["columnCount"]).toBe("4");
+    expect(artwork.dataset["leftColumnCount"]).toBe("0");
+    expect(artwork.dataset["rightColumnCount"]).toBe("2");
     expect(artwork.dataset["topologyVariant"]).toBe("expanded");
     expect(artwork.dataset["firstGlassRow"]).toBe("5");
     expect(artwork.dataset["lastGlassRow"]).toBe("27");
@@ -111,7 +127,7 @@ describe("full-page topology layout", () => {
       throw new Error("Full-page topology route is missing");
     }
     expect(route.getAttribute("d")).toBe(
-      "M 1856 768 C 1769.6 775.68 1760 777.6 1760 864 L 1760 2496",
+      "M 1760 768 C 1673.6 775.68 1664 777.6 1664 864 L 1664 2496",
     );
 
     const resolvedRows = [...artwork.querySelectorAll<SVGGraphicsElement>("[data-node]")]
@@ -123,7 +139,7 @@ describe("full-page topology layout", () => {
   });
 
   it("hides the complete composition when either gutter has fewer than two usable columns", () => {
-    const artwork = createArtwork(287, 1713);
+    const artwork = createArtwork(191, 1809);
 
     expect(layoutFullPageTopology(artwork)).toBe(true);
     expect(artwork.style.visibility).toBe("hidden");

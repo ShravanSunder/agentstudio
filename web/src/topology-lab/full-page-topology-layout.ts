@@ -1,11 +1,13 @@
 import {
   assignTopologyRowOwners,
-  assignWorktreeColumns,
+  assignWorktreeLanes,
+  centeredTopologyColumnXs,
   closestTopologySurfaceRow,
   measureFullPageTopologyGrid,
   resolveTopologyGlassBand,
   topologyRowUnit as rowUnit,
   type FullPageTopologyGrid,
+  type FullPageTopologyVariant,
   type TopologyGlassBand,
   type TopologyGlassSurfaceBounds,
   type WorktreeLifecycle,
@@ -17,13 +19,16 @@ interface FullPageTopologyPortal {
   readonly glassSurfaces: readonly TopologyGlassSurfaceBounds[];
 }
 
+type RoutePlacement = "cross-glass-left" | "local-right";
+
 interface RouteDataset extends WorktreeLifecycle {
   readonly endGlassIndex?: number;
   readonly endPageOffset?: number;
   readonly endPageRow?: number;
   readonly forkGlassIndex?: number;
   readonly forkPageRow?: number;
-  readonly minimumColumns: number;
+  readonly placement: RoutePlacement;
+  readonly variants: readonly FullPageTopologyVariant[];
 }
 
 interface ResolvedRouteDataset extends RouteDataset {
@@ -39,6 +44,11 @@ interface ResolvedRouteGeometry {
   readonly targetX: number;
 }
 
+interface RouteLaneAssignment {
+  readonly lane: number;
+  readonly placement: RoutePlacement;
+}
+
 interface ResolvedRowWorktree {
   readonly accentClass: string;
   readonly endRow: number;
@@ -46,6 +56,15 @@ interface ResolvedRowWorktree {
   readonly lane: number;
   readonly path: SVGPathElement;
   readonly startRow: number;
+}
+
+function lifecycleForResolvedRoute(dataset: ResolvedRouteDataset): WorktreeLifecycle {
+  return {
+    endKind: dataset.endKind,
+    endSlot: dataset.endRow,
+    forkSlot: dataset.forkRow,
+    id: dataset.id,
+  };
 }
 
 function requiredDatasetNumber(element: HTMLElement | SVGElement, key: string): number {
@@ -57,18 +76,32 @@ function requiredDatasetNumber(element: HTMLElement | SVGElement, key: string): 
   return numberValue;
 }
 
+function isTopologyVariant(value: string): value is FullPageTopologyVariant {
+  return value === "compact" || value === "standard" || value === "expanded";
+}
+
 function readRouteDataset(group: SVGGElement): RouteDataset {
   const endKind = group.dataset["endKind"];
   const id = group.dataset["routeId"];
-  if ((endKind !== "merge" && endKind !== "open") || !id) {
+  const placement = group.dataset["routePlacement"];
+  const variantValues = (group.dataset["topologyVariants"] ?? "").split(" ").filter(Boolean);
+  if (
+    (endKind !== "merge" && endKind !== "open") ||
+    !id ||
+    (placement !== "local-right" && placement !== "cross-glass-left") ||
+    variantValues.length === 0 ||
+    !variantValues.every(isTopologyVariant)
+  ) {
     throw new Error("Invalid authored worktree route");
   }
-  return {
+  const variants = variantValues.filter(isTopologyVariant);
+  const dataset: RouteDataset = {
     endKind,
     endSlot: requiredDatasetNumber(group, "endSlot"),
     forkSlot: requiredDatasetNumber(group, "forkSlot"),
     id,
-    minimumColumns: requiredDatasetNumber(group, "minimumColumns"),
+    placement,
+    variants,
     ...(group.dataset["endGlassIndex"] === undefined
       ? {}
       : { endGlassIndex: requiredDatasetNumber(group, "endGlassIndex") }),
@@ -85,6 +118,17 @@ function readRouteDataset(group: SVGGElement): RouteDataset {
       ? {}
       : { forkPageRow: requiredDatasetNumber(group, "forkPageRow") }),
   };
+  if (
+    (dataset.placement === "local-right" &&
+      (dataset.forkGlassIndex !== undefined || dataset.endGlassIndex !== undefined)) ||
+    (dataset.placement === "cross-glass-left" && dataset.forkGlassIndex === undefined) ||
+    (dataset.placement === "cross-glass-left" &&
+      dataset.endKind === "merge" &&
+      dataset.endGlassIndex === undefined)
+  ) {
+    throw new Error("Invalid authored topology placement");
+  }
+  return dataset;
 }
 
 function rowForSlot(slot: number, band: TopologyGlassBand): number {
@@ -193,28 +237,23 @@ function crossFrameMergePath(
 
 function resolveRouteGeometry(
   dataset: ResolvedRouteDataset,
-  lane: number,
+  sourceX: number,
+  targetX: number,
   grid: FullPageTopologyGrid,
   portal: FullPageTopologyPortal,
 ): ResolvedRouteGeometry {
-  const sourceX = grid.rightLaneXs[0];
-  const targetX =
-    lane <= 2 ? grid.rightLaneXs[lane] : grid.leftLaneXs[grid.leftLaneXs.length - (lane - 2)];
-  if (sourceX === undefined || targetX === undefined) {
-    throw new Error("Missing authored topology lane");
-  }
   const { endRow, forkRow } = dataset;
   const arrivalRow = Math.min(forkRow + 1, endRow);
   const yForRow = (row: number): number => grid.topPadding + row * rowUnit;
   const segments = [
-    ...(dataset.forkGlassIndex === undefined
+    ...(dataset.placement === "local-right"
       ? localForkPath(sourceX, targetX, yForRow(forkRow), yForRow(arrivalRow))
       : crossFrameForkPath(sourceX, targetX, yForRow(forkRow), yForRow(arrivalRow), portal)),
   ];
   if (dataset.endKind === "merge") {
     const approachRow = Math.max(endRow - 1, arrivalRow);
     segments.push(
-      ...(dataset.endGlassIndex === undefined
+      ...(dataset.placement === "local-right"
         ? localMergePath(sourceX, targetX, yForRow(approachRow), yForRow(endRow))
         : crossFrameMergePath(sourceX, targetX, yForRow(approachRow), yForRow(endRow), portal)),
     );
@@ -283,13 +322,9 @@ function setPortalMask(artwork: SVGSVGElement, portal: FullPageTopologyPortal): 
   artwork.setAttribute("data-topology-portal-active", "");
 }
 
-function buildMainlinePath(grid: FullPageTopologyGrid): string {
-  const rightX = grid.rightLaneXs[0];
-  if (rightX === undefined) {
-    throw new Error("Missing mainline topology lane");
-  }
+function buildMainlinePath(grid: FullPageTopologyGrid, mainlineX: number): string {
   const yForRow = (row: number): number => grid.topPadding + row * rowUnit;
-  return `M ${rightX} ${yForRow(0)} L ${rightX} ${yForRow(grid.finalRow)}`;
+  return `M ${mainlineX} ${yForRow(0)} L ${mainlineX} ${yForRow(grid.finalRow)}`;
 }
 
 function pathLengthFractionAtY(path: SVGPathElement, targetY: number): number {
@@ -349,9 +384,15 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
   }
 
   const routeGroups = [...artwork.querySelectorAll<SVGGElement>("[data-topology-route-group]")];
-  const visibleRouteCandidates = routeGroups
-    .map((group) => ({ dataset: readRouteDataset(group), group }))
-    .filter(({ dataset }) => dataset.minimumColumns <= grid.usableColumnCount);
+  let authoredRoutes: readonly { readonly dataset: RouteDataset; readonly group: SVGGElement }[];
+  try {
+    authoredRoutes = routeGroups.map((group) => ({ dataset: readRouteDataset(group), group }));
+  } catch {
+    return hideTopology(artwork, "invalid-authored-route");
+  }
+  const visibleRouteCandidates = authoredRoutes.filter(({ dataset }) =>
+    dataset.variants.includes(grid.variant),
+  );
   const visibleRoutes = visibleRouteCandidates.flatMap(({ dataset, group }) => {
     const resolvedDataset = resolveRouteRows(dataset, portal, grid, band);
     return resolvedDataset === undefined ? [] : [{ dataset: resolvedDataset, group }];
@@ -359,24 +400,57 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
   if (visibleRoutes.length !== visibleRouteCandidates.length) {
     return hideTopology(artwork, "invalid-route-glass-anchor");
   }
-  const assignments = assignWorktreeColumns(
-    visibleRoutes.map(({ dataset }) => ({
-      endKind: dataset.endKind,
-      endSlot: dataset.endRow,
-      forkSlot: dataset.forkRow,
-      id: dataset.id,
-    })),
-    Math.min(6, grid.usableColumnCount * 2),
+  const rightAssignments = assignWorktreeLanes(
+    visibleRoutes
+      .filter(({ dataset }) => dataset.placement === "local-right")
+      .map(({ dataset }) => lifecycleForResolvedRoute(dataset)),
+    grid.rightColumnCapacity - 1,
   );
-  if (assignments === undefined) {
+  const leftAssignments = assignWorktreeLanes(
+    visibleRoutes
+      .filter(({ dataset }) => dataset.placement === "cross-glass-left")
+      .map(({ dataset }) => lifecycleForResolvedRoute(dataset)),
+    grid.leftColumnCapacity,
+  );
+  if (rightAssignments === undefined || leftAssignments === undefined) {
     return hideTopology(artwork, "invalid-worktree-occupancy");
   }
-  const laneByRouteId = new Map(assignments.map(({ id, lane }) => [id, lane]));
+  const usedRightColumnCount =
+    1 +
+    (rightAssignments.length === 0 ? 0 : Math.max(...rightAssignments.map(({ lane }) => lane)) + 1);
+  const usedLeftColumnCount =
+    leftAssignments.length === 0 ? 0 : Math.max(...leftAssignments.map(({ lane }) => lane)) + 1;
+  const rightColumnXs = centeredTopologyColumnXs({
+    columnCount: usedRightColumnCount,
+    gutterEnd: artwork.clientWidth,
+    gutterStart: portal.frameRight,
+  });
+  const leftColumnXs = centeredTopologyColumnXs({
+    columnCount: usedLeftColumnCount,
+    gutterEnd: portal.frameLeft,
+    gutterStart: 0,
+  });
+  const mainlineX = rightColumnXs?.at(-1);
+  if (rightColumnXs === undefined || leftColumnXs === undefined || mainlineX === undefined) {
+    return hideTopology(artwork, "invalid-centered-columns");
+  }
+  const laneByRouteId = new Map<string, RouteLaneAssignment>([
+    ...rightAssignments.map(({ id, lane }): [string, RouteLaneAssignment] => [
+      id,
+      { lane, placement: "local-right" },
+    ]),
+    ...leftAssignments.map(({ id, lane }): [string, RouteLaneAssignment] => [
+      id,
+      { lane, placement: "cross-glass-left" },
+    ]),
+  ]);
   const datasetByRouteId = new Map(visibleRoutes.map(({ dataset }) => [dataset.id, dataset]));
 
   artwork.style.visibility = "visible";
   delete artwork.dataset["topologyHiddenReason"];
-  artwork.dataset["columnCount"] = String(grid.usableColumnCount);
+  artwork.dataset["columnCount"] = String(grid.columnCapacity);
+  artwork.dataset["leftColumnCount"] = String(usedLeftColumnCount);
+  artwork.dataset["rightColumnCount"] = String(usedRightColumnCount);
   artwork.dataset["firstGlassRow"] = String(band.firstCrossRow);
   artwork.dataset["finalRow"] = String(grid.finalRow);
   artwork.dataset["lastGlassRow"] = String(band.lastCrossRow);
@@ -393,7 +467,7 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
   }
   setPortalMask(artwork, portal);
 
-  const mainlineData = buildMainlinePath(grid);
+  const mainlineData = buildMainlinePath(grid, mainlineX);
   for (const mainline of artwork.querySelectorAll<SVGPathElement>("[data-mainline]")) {
     mainline.setAttribute("d", mainlineData);
   }
@@ -421,12 +495,11 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
   for (const node of artwork.querySelectorAll<SVGGraphicsElement>("[data-mainline-node]")) {
     const kind = node.dataset["mainlineNode"];
     const row = kind === "start" ? 0 : grid.finalRow;
-    const x = grid.rightLaneXs[0];
-    if (x === undefined || !reserveNodeRow(row)) {
+    if (!reserveNodeRow(row)) {
       return hideTopology(artwork, "duplicate-node-row");
     }
     const y = yForRow(row);
-    setNodePosition(node, x, y);
+    setNodePosition(node, mainlineX, y);
     node.dataset["resolvedRow"] = String(row);
     node.removeAttribute("data-topology-glass-bridge");
     node.dataset["topologyNodeProgress"] = kind === "start" ? "0" : "1";
@@ -438,13 +511,23 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
     if (routeId === undefined) {
       return hideTopology(artwork, "missing-route-id");
     }
-    const lane = laneByRouteId.get(routeId);
-    group.style.display = lane === undefined ? "none" : "";
-    if (lane === undefined || dataset === undefined) {
+    const assignment = laneByRouteId.get(routeId);
+    group.style.display = assignment === undefined ? "none" : "";
+    if (assignment === undefined || dataset === undefined) {
       continue;
     }
+    const { lane, placement } = assignment;
+    const targetX =
+      placement === "local-right"
+        ? rightColumnXs[rightColumnXs.length - 2 - lane]
+        : leftColumnXs[leftColumnXs.length - 1 - lane];
+    if (targetX === undefined || placement !== dataset.placement) {
+      return hideTopology(artwork, "invalid-route-placement");
+    }
     group.dataset["resolvedLane"] = String(lane);
-    const geometry = resolveRouteGeometry(dataset, lane, grid, portal);
+    group.dataset["resolvedPlacement"] = placement;
+    group.dataset["resolvedSideSlot"] = String(lane);
+    const geometry = resolveRouteGeometry(dataset, mainlineX, targetX, grid, portal);
     group.dataset["resolvedSourceX"] = String(geometry.sourceX);
     group.dataset["resolvedTargetX"] = String(geometry.targetX);
     const routeStart = progressForY(yForRow(geometry.forkRow));
@@ -468,7 +551,7 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
       accentClass: `accent-${routeAccent}`,
       endRow: geometry.endRow,
       id: dataset.id,
-      lane,
+      lane: placement === "local-right" ? lane + 1 : lane + 5,
       path: corePath,
       startRow: geometry.forkRow,
     });
