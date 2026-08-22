@@ -250,38 +250,18 @@ test("reveals the authored topology by scroll progress and ends on the mainline 
     const maximumScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
     const actualScrollProgress = window.scrollY / maximumScroll;
     const renderedScrollProgress = Number(svg.dataset["topologyScrollProgress"]);
-    const activeOwnerIds = new Set(["main"]);
-    for (const group of svg.querySelectorAll<SVGGElement>("[data-topology-route-group]")) {
-      if (group.style.display === "none") {
-        continue;
-      }
-      const routeId = group.dataset["routeId"];
-      const route = group.querySelector<SVGPathElement>(
-        '[data-route][data-topology-path-role="core"]',
+    const eligibleNodes = [
+      ...svg.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]"),
+    ].filter((node) => {
+      const routeGroup = node.closest<SVGGElement>("[data-topology-route-group]");
+      return (
+        node.style.display !== "none" &&
+        routeGroup?.style.display !== "none" &&
+        Number(node.dataset["topologyNodeProgress"]) <= renderedScrollProgress
       );
-      if (routeId === undefined || route === null) {
-        continue;
-      }
-      const start = Number(route.dataset["topologyPathStart"]);
-      const end = Number(route.dataset["topologyPathEnd"]);
-      if (
-        renderedScrollProgress >= start &&
-        (group.dataset["endKind"] === "open" || renderedScrollProgress < end)
-      ) {
-        activeOwnerIds.add(routeId);
-      }
-    }
-    const eligibleOwnerIds = new Set(
-      [...svg.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]")]
-        .filter((node) => {
-          const ownerId = node.dataset["nodeOwner"];
-          return (
-            ownerId !== undefined &&
-            activeOwnerIds.has(ownerId) &&
-            Number(node.dataset["topologyNodeProgress"]) <= renderedScrollProgress
-          );
-        })
-        .map((node) => node.dataset["nodeOwner"] ?? ""),
+    });
+    const expectedCurrentProgress = Math.max(
+      ...eligibleNodes.map((node) => Number(node.dataset["topologyNodeProgress"])),
     );
     const currentNodes = [
       ...svg.querySelectorAll<SVGGraphicsElement>("[data-topology-current-node]"),
@@ -299,10 +279,10 @@ test("reveals the authored topology by scroll progress and ends on the mainline 
       ].filter((path) => getComputedStyle(path).visibility !== "hidden").length,
       revealEdgeY: Number(svg.dataset["topologyRevealEdgeY"]),
       renderedScrollProgress,
-      currentNodeOwnerIds: currentNodes.map((node) => node.dataset["nodeOwner"] ?? "").toSorted(),
-      expectedCurrentNodeOwnerIds: [...eligibleOwnerIds].toSorted(),
-      uniqueCurrentNodeOwnerCount: new Set(currentNodes.map((node) => node.dataset["nodeOwner"]))
-        .size,
+      currentNodeProgress:
+        currentNodes.length === 1 ? Number(currentNodes[0]?.dataset["topologyNodeProgress"]) : null,
+      currentNodeCount: currentNodes.length,
+      expectedCurrentProgress,
       solidHeight: Number(revealSolid.getAttribute("height")),
     };
   });
@@ -316,9 +296,8 @@ test("reveals the authored topology by scroll progress and ends on the mainline 
   expect(middleReveal.solidHeight).toBeCloseTo(middleReveal.revealEdgeY, 4);
   expect(middleReveal.fadeY).toBeCloseTo(middleReveal.revealEdgeY, 4);
   expect(middleReveal.fadeHeight).toBeGreaterThan(0);
-  expect(middleReveal.currentNodeOwnerIds).toEqual(middleReveal.expectedCurrentNodeOwnerIds);
-  expect(middleReveal.uniqueCurrentNodeOwnerCount).toBe(middleReveal.currentNodeOwnerIds.length);
-  expect(middleReveal.currentNodeOwnerIds.length).toBeGreaterThan(1);
+  expect(middleReveal.currentNodeCount).toBe(1);
+  expect(middleReveal.currentNodeProgress).toBeCloseTo(middleReveal.expectedCurrentProgress, 8);
 
   await page.evaluate(() =>
     window.scrollTo({ behavior: "instant", top: document.documentElement.scrollHeight }),
