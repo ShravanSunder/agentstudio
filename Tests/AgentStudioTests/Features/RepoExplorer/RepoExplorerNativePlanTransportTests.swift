@@ -181,6 +181,47 @@ struct RepoExplorerNativePlanTransportTests {
         #expect(child.applierCallCount == 0)
         #expect(host.acceptedBaseline?.revision == 1)
     }
+
+    @Test("template instances traverse the unchanged host and sole applier")
+    func templateInstancesUseOrdinaryHostAndApplierPath() throws {
+        let child = NativePlanTransportContentChild()
+        let host = makeTransportHost(child: child)
+        let source = nativePlanContent(nativePlanSnapshot(["A", "B"]))
+        let target = nativePlanContent(nativePlanSnapshot(["B", "C", "A"]))
+        let sourceCandidate = try makeTransportCandidate(
+            host: host,
+            id: 1,
+            generation: 1,
+            presentation: source
+        )
+        guard case .accepted = host.apply(sourceCandidate) else {
+            Issue.record("Expected source candidate acceptance")
+            return
+        }
+        let templates = try RepoExplorerProjectionWorker.sealNativeUpdatePlanTemplates(
+            source: source,
+            target: target
+        ).get()
+        let forward = try templates.forward.instantiate(
+            baseline: #require(host.acceptedBaseline),
+            candidateID: RepoExplorerMaterializationCandidateID(rawValue: 2),
+            requestGeneration: 2,
+            visibleGeneration: 2
+        ).get()
+        #expect(host.apply(forward) == .accepted(host.acceptedBaseline!))
+        let reverse = try templates.reverse.instantiate(
+            baseline: #require(host.acceptedBaseline),
+            candidateID: RepoExplorerMaterializationCandidateID(rawValue: 3),
+            requestGeneration: 3,
+            visibleGeneration: 3
+        ).get()
+        #expect(host.apply(reverse) == .accepted(host.acceptedBaseline!))
+
+        #expect(child.applierCallCount == 3)
+        #expect(child.candidates.map(\.candidateID.rawValue) == [1, 2, 3])
+        #expect(host.acceptedBaseline?.presentation == source)
+        #expect(host.acceptedBaseline?.revision == 3)
+    }
 }
 
 @MainActor

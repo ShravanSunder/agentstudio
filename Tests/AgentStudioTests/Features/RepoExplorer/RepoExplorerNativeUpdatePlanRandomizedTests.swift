@@ -64,9 +64,71 @@ struct RepoExplorerNativeUpdatePlanRandomizedTests {
                 == newSnapshot.rows.map(\.id)
         )
     }
+
+    @Test("seeded template pairs reconstruct exact forward and reverse candidates")
+    func randomizedTemplatePairsMatchIndependentOracle() throws {
+        var generator = NativePlanSeededGenerator(state: 0x5EA1_2026)
+        for iteration in 0..<100 {
+            let oldCount = Int.random(in: 0...24, using: &generator)
+            let oldIDs = (0..<oldCount).map { "old-\($0)" }
+            var surviving = oldIDs.filter { _ in Bool.random(using: &generator) }
+            surviving.shuffle(using: &generator)
+            let insertCount = Int.random(in: 1...8, using: &generator)
+            var newIDs = surviving + (0..<insertCount).map { "new-\(iteration)-\($0)" }
+            newIDs.shuffle(using: &generator)
+
+            let oldSnapshot = nativePlanSnapshot(oldIDs)
+            let newSnapshot = nativePlanSnapshot(newIDs)
+            let source = nativePlanContent(oldSnapshot)
+            let target = nativePlanContent(newSnapshot)
+            let templates = try RepoExplorerProjectionWorker.sealNativeUpdatePlanTemplates(
+                source: source,
+                target: target
+            ).get()
+            let sourceBaseline = nativePlanBaseline(
+                snapshot: oldSnapshot,
+                revision: UInt64(iteration),
+                visibleGeneration: UInt64(iteration)
+            )
+            let forward = try templates.forward.instantiate(
+                baseline: sourceBaseline,
+                candidateID: RepoExplorerMaterializationCandidateID(rawValue: UInt64(iteration + 1)),
+                requestGeneration: UInt64(iteration + 1),
+                visibleGeneration: UInt64(iteration + 1)
+            ).get()
+            #expect(
+                nativePlanOracleIDs(
+                    plan: forward.nativeUpdatePlan,
+                    oldSnapshot: oldSnapshot,
+                    candidate: newSnapshot
+                ) == newSnapshot.rows.map(\.id)
+            )
+
+            let targetBaseline = RepoExplorerMaterializationBaseline(
+                lifetimeID: forward.lifetimeID,
+                demandEpoch: forward.demandEpoch,
+                revision: forward.proposedRevision,
+                visibleGeneration: forward.visibleGeneration,
+                presentation: forward.presentation
+            )
+            let reverse = try templates.reverse.instantiate(
+                baseline: targetBaseline,
+                candidateID: RepoExplorerMaterializationCandidateID(rawValue: UInt64(iteration + 101)),
+                requestGeneration: UInt64(iteration + 101),
+                visibleGeneration: UInt64(iteration + 101)
+            ).get()
+            #expect(
+                nativePlanOracleIDs(
+                    plan: reverse.nativeUpdatePlan,
+                    oldSnapshot: newSnapshot,
+                    candidate: oldSnapshot
+                ) == oldSnapshot.rows.map(\.id)
+            )
+        }
+    }
 }
 
-private func nativePlanOracleIDs(
+func nativePlanOracleIDs(
     plan: RepoExplorerNativeUpdatePlan,
     oldSnapshot: RepoExplorerMaterializationSnapshot,
     candidate: RepoExplorerMaterializationSnapshot

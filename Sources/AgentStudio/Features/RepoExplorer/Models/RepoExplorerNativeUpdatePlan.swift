@@ -31,6 +31,22 @@ enum RepoExplorerNativePresentationUpdate: Equatable, Sendable {
     case contentToContent(RepoExplorerNativeTableUpdatePlan)
 }
 
+struct RepoExplorerNativeChangedPlanTemplatePayload: Equatable, Sendable {
+    let newCount: Int
+    let newFingerprint: RepoExplorerMaterializationFingerprint
+    let presentation: RepoExplorerNativePresentationUpdate
+
+    fileprivate init(
+        newCount: Int,
+        newFingerprint: RepoExplorerMaterializationFingerprint,
+        presentation: RepoExplorerNativePresentationUpdate
+    ) {
+        self.newCount = newCount
+        self.newFingerprint = newFingerprint
+        self.presentation = presentation
+    }
+}
+
 enum RepoExplorerNativeTableUpdatePlan: Equatable, Sendable {
     case content(RepoExplorerNativeContentUpdatePlan)
     case membership(RepoExplorerNativeMembershipUpdatePlan)
@@ -244,6 +260,44 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
         case .changedEmptyToEmpty, .contentToEmpty:
             return nil
         }
+    }
+
+    func sealedChangedTemplatePayload() -> RepoExplorerNativeChangedPlanTemplatePayload? {
+        guard case .changed(let changed) = kind else { return nil }
+        return RepoExplorerNativeChangedPlanTemplatePayload(
+            newCount: changed.newCount,
+            newFingerprint: changed.newFingerprint,
+            presentation: changed.presentation
+        )
+    }
+
+    static func instantiating(
+        payload: RepoExplorerNativeChangedPlanTemplatePayload,
+        baseline: RepoExplorerMaterializationBaseline,
+        requestGeneration: UInt64
+    ) -> Result<Self, ValidationError> {
+        let (proposedRevision, overflow) = baseline.revision.addingReportingOverflow(1)
+        guard !overflow else { return .failure(.revisionOverflow) }
+        return .success(
+            Self(
+                kind: .changed(
+                    RepoExplorerNativeChangedPlan(
+                        preflight: RepoExplorerNativePlanPreflight(
+                            lifetimeID: baseline.lifetimeID,
+                            demandEpoch: baseline.demandEpoch,
+                            requestGeneration: requestGeneration,
+                            oldRevision: baseline.revision,
+                            oldCount: baseline.rowCount,
+                            oldFingerprint: baseline.fingerprint
+                        ),
+                        proposedRevision: proposedRevision,
+                        newCount: payload.newCount,
+                        newFingerprint: payload.newFingerprint,
+                        presentation: payload.presentation
+                    )
+                )
+            )
+        )
     }
 
     private func changedPresentationMatches(
