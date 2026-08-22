@@ -849,3 +849,29 @@ Next: rerun the full packaged WKWebView suite after the UI lane lands, then the
 exact-HEAD aggregate gate and independent implementation review.
 Notes: no new route, retry, polling, state bank, compatibility, security/auth,
 persistence, or PR2 change.
+
+### 2026-08-22 15:10 EDT — Backend and packaged Review proof settled; UI unhandle remains
+
+State: backend/comm-worker, real Vite, and packaged Review lifecycle proof are
+settled; one UI-owned packaged Share unhandle assertion remains
+Head: `124d77806`
+Owns: packaged WebKit proof isolation only; no UI product source changed
+Changed: the shared packaged carrier retains at most one empty host window next
+to its already-retained prior page, and retires that empty window only after the
+next proof window is front. This removes the zero-window gap that caused later
+WebKit documents to start hidden with RAF stopped; product session/controller
+resources are still torn down before retention.
+Proof: scoped Swift format, SwiftLint, and architecture lint pass. In the full
+six-test suite, bundled real-git File/Review passes in 1.526s, transactional
+failure/replay passes, clean empty Review passes, two-pane lifecycle passes, and
+named-surface lifecycle passes. Share now receives projection (All=1,
+History=1, New=0), confirming the backend fix, but intermittently remains
+handled at stage `review-unhandle`.
+Needs from UI lane: fix or explain the packaged Share `review-unhandle` state;
+the failure is in the first suite test before any prior retained window exists.
+Do not change backend identity, projection, admission, or window handoff to work
+around it.
+Next: after the UI correction lands, rerun this six-test suite, then exact-HEAD
+`mise run test` and independent implementation review.
+Notes: backend has no remaining known functional failure. Protected PR2 files
+remain untouched.
