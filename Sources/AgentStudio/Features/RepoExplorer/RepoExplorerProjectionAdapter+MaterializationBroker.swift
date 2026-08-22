@@ -108,9 +108,12 @@ extension RepoExplorerProjectionAdapter {
             return .equalCurrent(result)
         }
         if let acknowledgedMaterializationBaseline,
-            candidate.materializationPresentation.hasSameVisibleIdentity(
-                as: acknowledgedMaterializationBaseline.presentation
-            )
+            let nativeUpdatePlan = candidate.nativeUpdatePlan,
+            nativeUpdatePlan.preflightMatches(
+                baseline: acknowledgedMaterializationBaseline,
+                requestGeneration: UInt64(context.requestGeneration)
+            ),
+            case .equal = nativeUpdatePlan.kind
         {
             return .immediateAccepted(result)
         }
@@ -118,7 +121,13 @@ extension RepoExplorerProjectionAdapter {
             let preparedBaseline = context.acknowledgedBaseline,
             preparedBaseline == acknowledgedMaterializationBaseline,
             preparedBaseline.lifetimeID == materializationHost.lifetimeID,
-            preparedBaseline.demandEpoch == materializationDemandEpoch
+            preparedBaseline.demandEpoch == materializationDemandEpoch,
+            let nativeUpdatePlan = candidate.nativeUpdatePlan,
+            nativeUpdatePlan.preflightMatches(
+                baseline: preparedBaseline,
+                requestGeneration: UInt64(context.requestGeneration)
+            ),
+            case .changed = nativeUpdatePlan.kind
         {
             return .changedAwaitingOwner(result)
         }
@@ -137,7 +146,13 @@ extension RepoExplorerProjectionAdapter {
         guard pendingMaterializationSettlement == nil,
             let host = materializationHost,
             let baseline = acknowledgedMaterializationBaseline,
-            candidate.work.context.acknowledgedBaseline == baseline
+            candidate.work.context.acknowledgedBaseline == baseline,
+            let nativeUpdatePlan = candidate.nativeUpdatePlan,
+            nativeUpdatePlan.preflightMatches(
+                baseline: baseline,
+                requestGeneration: UInt64(candidate.work.context.requestGeneration)
+            ),
+            case .changed(let changedPlan) = nativeUpdatePlan.kind
         else {
             _ = materializedProjection?.settle(token, .rejected)
             return
@@ -162,8 +177,8 @@ extension RepoExplorerProjectionAdapter {
             lifetimeID: baseline.lifetimeID,
             demandEpoch: baseline.demandEpoch,
             visibleGeneration: UInt64(proposedValue.generation),
-            expectedRevision: baseline.revision,
-            proposedRevision: baseline.revision &+ 1,
+            expectedRevision: changedPlan.preflight.oldRevision,
+            proposedRevision: changedPlan.proposedRevision,
             presentation: candidate.materializationPresentation
         )
         let disposition = host.apply(hostCandidate)

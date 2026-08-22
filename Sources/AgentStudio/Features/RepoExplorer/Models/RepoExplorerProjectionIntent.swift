@@ -97,6 +97,7 @@ struct RepoExplorerProjectionCandidate: Equatable, Sendable {
     let work: RepoExplorerProjectionWork
     let result: RepoExplorerProjectionResult
     let materializationPresentation: RepoExplorerMaterializationPresentation
+    let nativeUpdatePlan: RepoExplorerNativeUpdatePlan?
 
     init(work: RepoExplorerProjectionWork, result: RepoExplorerProjectionResult) {
         self.work = work
@@ -110,6 +111,20 @@ struct RepoExplorerProjectionCandidate: Equatable, Sendable {
                 snapshot: result.materializationSnapshot,
                 fingerprint: .make(snapshot: result.materializationSnapshot)
             )
+        }
+        if let acknowledgedBaseline = work.context.acknowledgedBaseline {
+            switch RepoExplorerNativeUpdatePlan.validating(
+                baseline: acknowledgedBaseline,
+                candidate: materializationPresentation,
+                requestGeneration: UInt64(work.context.requestGeneration)
+            ) {
+            case .success(let plan):
+                nativeUpdatePlan = plan
+            case .failure(let validationError):
+                preconditionFailure("Invalid Repo Explorer native update plan: \(validationError)")
+            }
+        } else {
+            nativeUpdatePlan = nil
         }
     }
 }
