@@ -14,6 +14,10 @@ final class EagerDerivedAtomTestSignal: Sendable {
 
     private let state = Mutex(State())
 
+    var isSignaled: Bool {
+        state.withLock(\.isSignaled)
+    }
+
     func signal() {
         let waiters = state.withLock { state -> [CheckedContinuation<Bool, Never>] in
             guard !state.isSignaled else { return [] }

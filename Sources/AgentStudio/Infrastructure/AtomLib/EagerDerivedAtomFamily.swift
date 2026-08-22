@@ -27,6 +27,8 @@ package final class EagerDerivedAtomFamily<
     private let onProjectionCompletion: @MainActor @Sendable (Key, Atom.ProjectionCompletion) -> Void
     private var slotByKey: [Key: Slot] = [:]
     private var stoppedInFlightAtomBySlotID: [UInt64: Atom] = [:]
+    private var stoppedInFlightSlotIDsByKey: [Key: Set<UInt64>] = [:]
+    private var drainRequestedSlotIDs: Set<UInt64> = []
     private var nextSlotID: UInt64 = 0
     private var hasStopped = false
 
@@ -143,18 +145,48 @@ package final class EagerDerivedAtomFamily<
 
     package func remove(for key: Key) {
         guard let slot = slotByKey[key] else { return }
-        stopAndRetainInFlightAtomIfNeeded(slot)
+        stopAndRetainInFlightAtomIfNeeded(slot, for: key)
         slotByKey.removeValue(forKey: key)
+    }
+
+    package func removeAndDrain(for key: Key) async {
+        var atomsToDrain = stoppedInFlightAtoms(for: key)
+        if let slot = slotByKey[key] {
+            atomsToDrain[slot.id] = slot.atom
+            drainRequestedSlotIDs.insert(slot.id)
+            stopAndRetainInFlightAtomIfNeeded(slot, for: key)
+            slotByKey.removeValue(forKey: key)
+        }
+        drainRequestedSlotIDs.formUnion(atomsToDrain.keys)
+        for (slotID, atom) in atomsToDrain {
+            await atom.stopAndDrain()
+            drainRequestedSlotIDs.remove(slotID)
+            releaseStoppedAtom(slotID: slotID, for: key, expectedAtom: atom)
+        }
     }
 
     package func stop() {
         guard !hasStopped else { return }
         hasStopped = true
-        let slots = Array(slotByKey.values)
-        for slot in slots {
-            stopAndRetainInFlightAtomIfNeeded(slot)
+        let slots = Array(slotByKey)
+        for (key, slot) in slots {
+            stopAndRetainInFlightAtomIfNeeded(slot, for: key)
         }
         slotByKey.removeAll()
+    }
+
+    package func stopAndDrain() async {
+        var atomsToDrain = stoppedInFlightAtomBySlotID
+        for slot in slotByKey.values {
+            atomsToDrain[slot.id] = slot.atom
+        }
+        drainRequestedSlotIDs.formUnion(atomsToDrain.keys)
+        stop()
+        for (slotID, atom) in atomsToDrain {
+            await atom.stopAndDrain()
+            drainRequestedSlotIDs.remove(slotID)
+            releaseStoppedAtom(slotID: slotID, expectedAtom: atom)
+        }
     }
 
     private func handleProjectionCompletion(
@@ -172,9 +204,10 @@ package final class EagerDerivedAtomFamily<
         }
         defer {
             if let stoppedAtom = stoppedInFlightAtomBySlotID[slotID],
-                !stoppedAtom.hasUnsettledProjectionTasks
+                !stoppedAtom.hasUnsettledProjectionTasks,
+                !drainRequestedSlotIDs.contains(slotID)
             {
-                stoppedInFlightAtomBySlotID.removeValue(forKey: slotID)
+                releaseStoppedAtom(slotID: slotID, expectedAtom: stoppedAtom)
             }
             onProjectionCompletion(key, completion)
         }
@@ -211,14 +244,48 @@ package final class EagerDerivedAtomFamily<
         }
     }
 
-    private func stopAndRetainInFlightAtomIfNeeded(_ slot: Slot) {
+    private func stopAndRetainInFlightAtomIfNeeded(_ slot: Slot, for key: Key) {
         let hasInFlightProjection = slot.atom.hasUnsettledProjectionTasks
         if hasInFlightProjection {
             stoppedInFlightAtomBySlotID[slot.id] = slot.atom
+            stoppedInFlightSlotIDsByKey[key, default: []].insert(slot.id)
         }
         slot.atom.stop()
         if !slot.atom.hasUnsettledProjectionTasks {
             stoppedInFlightAtomBySlotID.removeValue(forKey: slot.id)
+            stoppedInFlightSlotIDsByKey[key]?.remove(slot.id)
+            if stoppedInFlightSlotIDsByKey[key]?.isEmpty == true {
+                stoppedInFlightSlotIDsByKey.removeValue(forKey: key)
+            }
+        }
+    }
+
+    private func releaseStoppedAtom(
+        slotID: UInt64,
+        for key: Key? = nil,
+        expectedAtom: Atom
+    ) {
+        guard stoppedInFlightAtomBySlotID[slotID] === expectedAtom else { return }
+        stoppedInFlightAtomBySlotID.removeValue(forKey: slotID)
+        if let key {
+            stoppedInFlightSlotIDsByKey[key]?.remove(slotID)
+            if stoppedInFlightSlotIDsByKey[key]?.isEmpty == true {
+                stoppedInFlightSlotIDsByKey.removeValue(forKey: key)
+            }
+            return
+        }
+        for trackedKey in Array(stoppedInFlightSlotIDsByKey.keys) {
+            stoppedInFlightSlotIDsByKey[trackedKey]?.remove(slotID)
+            if stoppedInFlightSlotIDsByKey[trackedKey]?.isEmpty == true {
+                stoppedInFlightSlotIDsByKey.removeValue(forKey: trackedKey)
+            }
+        }
+    }
+
+    private func stoppedInFlightAtoms(for key: Key) -> [UInt64: Atom] {
+        let slotIDs = stoppedInFlightSlotIDsByKey[key] ?? []
+        return slotIDs.reduce(into: [:]) { result, slotID in
+            result[slotID] = stoppedInFlightAtomBySlotID[slotID]
         }
     }
 }

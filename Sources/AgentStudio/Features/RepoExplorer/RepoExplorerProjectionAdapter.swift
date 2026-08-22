@@ -202,6 +202,11 @@ final class RepoExplorerProjectionAdapter {
         projectionFamily.stop()
     }
 
+    func stopAndDrain() async {
+        stop()
+        await projectionFamily.stopAndDrain()
+    }
+
     func traceAttributes(
         for request: RepoExplorerProjectionRequest,
         phase: String,

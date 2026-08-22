@@ -68,6 +68,7 @@ package final class EagerDerivedAtom<
     @ObservationIgnored private var pendingIntent: AcceptedIntent?
     @ObservationIgnored private var awaitingCandidate: AwaitingCandidate?
     @ObservationIgnored private var retainedTask: Task<Void, Never>?
+    @ObservationIgnored private var lastProjectionTask: Task<Void, Never>?
     @ObservationIgnored private var unsettledAttemptCount = 0
     @ObservationIgnored private var hasStopped = false
 
@@ -213,6 +214,7 @@ package final class EagerDerivedAtom<
         guard !hasStopped else { return }
         hasStopped = true
         generation &+= 1
+        revocationEpoch.withLock { $0 &+= 1 }
         retainedTask?.cancel()
         let cancelledPendingIntent = pendingIntent
         pendingIntent = nil
@@ -230,6 +232,13 @@ package final class EagerDerivedAtom<
                 completion: .cancelled(awaitingCandidate.identity)
             )
         }
+    }
+
+    package func stopAndDrain() async {
+        stop()
+        guard let projectionTask = lastProjectionTask else { return }
+        await projectionTask.value
+        lastProjectionTask = nil
     }
 
     private func start(_ acceptedIntent: AcceptedIntent) {
@@ -253,7 +262,7 @@ package final class EagerDerivedAtom<
         unsettledAttemptCount += 1
         // Detached execution is the primitive's off-MainActor projection guarantee.
         // swiftlint:disable:next no_task_detached
-        retainedTask = Task.detached(priority: .userInitiated) { [self] in
+        let projectionTask = Task.detached(priority: .userInitiated) { [self] in
             do {
                 let candidate = try project(work)
                 let wasCancelled = Task.isCancelled
@@ -272,6 +281,8 @@ package final class EagerDerivedAtom<
                 )
             }
         }
+        retainedTask = projectionTask
+        lastProjectionTask = projectionTask
     }
 
     private func receiveCandidate(
@@ -319,7 +330,6 @@ package final class EagerDerivedAtom<
                 identity: completedIdentity,
                 epoch: completedEpoch
             )
-            retainedTask = nil
             onAwaitingOwner(token, candidate, proposedValue)
         case .rejected:
             freshness = .invalidated(completedIdentity)
