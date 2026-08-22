@@ -199,18 +199,62 @@ for (const viewport of verificationViewports) {
           throw new Error("Persistence proof controls are missing");
         }
 
+        const selectedControl = controls.find(
+          (control) => control.getAttribute("aria-pressed") === "true",
+        );
+        const unselectedControl = controls.find(
+          (control) => control.getAttribute("aria-pressed") === "false",
+        );
+        if (
+          !(selectedControl instanceof HTMLElement) ||
+          !(unselectedControl instanceof HTMLElement)
+        ) {
+          throw new Error("Persistence proof selection state is missing");
+        }
+        const selectedFrostStyle = getComputedStyle(selectedControl, "::before");
+        const selectedDotStyle = getComputedStyle(selectedControl, "::after");
+        const unselectedFrostStyle = getComputedStyle(unselectedControl, "::before");
+
         return {
           controlsFillRow:
             Math.abs(firstControlBounds.left - rowBounds.left) <= 1 &&
             Math.abs(secondControlBounds.right - rowBounds.right) <= 1,
           controlsHaveEqualWidth:
             Math.abs(firstControlBounds.width - secondControlBounds.width) <= 1,
+          labelFontSize: getComputedStyle(selectedControl).fontSize,
+          selectedDot: {
+            animationName: selectedDotStyle.animationName,
+            backgroundColor: selectedDotStyle.backgroundColor,
+            display: selectedDotStyle.display,
+            height: selectedDotStyle.height,
+            width: selectedDotStyle.width,
+          },
+          selectedFrostOpacity: selectedFrostStyle.opacity,
+          unselectedFrostOpacity: unselectedFrostStyle.opacity,
         };
       }),
     );
 
     expect(rowGeometry.every(({ controlsFillRow }) => controlsFillRow)).toBe(true);
     expect(rowGeometry.every(({ controlsHaveEqualWidth }) => controlsHaveEqualWidth)).toBe(true);
+    expect(rowGeometry.every(({ labelFontSize }) => labelFontSize === "11px")).toBe(true);
+    expect(rowGeometry.every(({ selectedFrostOpacity }) => selectedFrostOpacity === "1")).toBe(
+      true,
+    );
+    expect(rowGeometry.every(({ unselectedFrostOpacity }) => unselectedFrostOpacity === "0")).toBe(
+      true,
+    );
+    for (const geometry of rowGeometry) {
+      expect(geometry.selectedDot.backgroundColor).toBe("rgb(137, 180, 250)");
+      expect(geometry.selectedDot.width).toBe("8px");
+      expect(geometry.selectedDot.height).toBe("8px");
+      if (viewport.width < 1024) {
+        expect(geometry.selectedDot.display).toBe("none");
+      } else {
+        expect(geometry.selectedDot.display).not.toBe("none");
+        expect(geometry.selectedDot.animationName).toBe("scroll-material-selection-dot-breathe");
+      }
+    }
   });
 }
 
@@ -1102,7 +1146,7 @@ test("lifts the slideshow on one detached glass surface", async ({ page }) => {
   expect(liftedSurface.selectedGlassBackdropFilter).not.toBe("none");
   expect(liftedSurface.selectedGlassBackgroundColor).not.toBe("rgba(0, 0, 0, 0)");
   expect(liftedSurface.selectedGlassOpacity).toBe("1");
-  expect(liftedSurface.selectedDotAnimationName).toBe("selected-dot-breathe");
+  expect(liftedSurface.selectedDotAnimationName).toBe("scroll-material-selection-dot-breathe");
   expect(liftedSurface.selectedDotBackgroundColor).toBe("rgb(137, 180, 250)");
   expect(liftedSurface.selectedDotTitleCenterDelta).toBeLessThanOrEqual(1);
   expect(liftedSurface.progress).toBeGreaterThanOrEqual(0.98);

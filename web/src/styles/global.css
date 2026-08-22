@@ -22,6 +22,7 @@
   --font-mono-product: ui-monospace, "SF Mono", monospace;
 
   --text-eyebrow: 12px;
+  --text-compact-control: 11px;
   --text-marketing-body: 19px;
   --text-marketing-body--line-height: 1.55;
   --text-section-title: clamp(48px, 6.4vw, 94px);

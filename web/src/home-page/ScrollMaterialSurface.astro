@@ -75,6 +75,47 @@ const { class: className, ...attributes } = Astro.props;
       saturate(var(--scroll-material-saturation));
   }
 
+  :global(.scroll-material-selection-control) {
+    --scroll-material-selection-dot-top: 21px;
+    --scroll-material-selection-dot-right: 16px;
+  }
+
+  :global(.scroll-material-selection-control)::before {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    opacity: 0;
+    background: rgb(8 10 15 / 82%);
+    backdrop-filter: blur(16px) saturate(110%);
+    -webkit-backdrop-filter: blur(16px) saturate(110%);
+    transition: opacity 150ms ease-out;
+  }
+
+  :global(.scroll-material-selection-control)::after {
+    content: "";
+    position: absolute;
+    z-index: 2;
+    top: var(--scroll-material-selection-dot-top);
+    right: var(--scroll-material-selection-dot-right);
+    width: 8px;
+    height: 8px;
+    pointer-events: none;
+    border-radius: 999px;
+    opacity: 0;
+    background: var(--color-primary);
+  }
+
+  :global(.scroll-material-selection-control:is([aria-selected="true"], [aria-pressed="true"], .is-default:disabled))::before {
+    opacity: 1;
+  }
+
+  :global(.scroll-material-selection-control:is([aria-selected="true"], [aria-pressed="true"], .is-default:disabled))::after {
+    animation: scroll-material-selection-dot-breathe 3.2s ease-in-out infinite;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .scroll-material-surface {
       transform: none;
@@ -89,7 +130,32 @@ const { class: className, ...attributes } = Astro.props;
       backdrop-filter: blur(var(--scroll-material-blur))
         saturate(var(--scroll-material-saturation));
       -webkit-backdrop-filter: blur(var(--scroll-material-blur))
-        saturate(var(--scroll-material-saturation));
+      saturate(var(--scroll-material-saturation));
+    }
+
+    :global(.scroll-material-selection-control)::after {
+      display: none;
+    }
+  }
+
+  @keyframes scroll-material-selection-dot-breathe {
+    0%,
+    100% {
+      opacity: 0.2;
+    }
+    50% {
+      opacity: 0.8;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(.scroll-material-selection-control)::before {
+      transition: none;
+    }
+
+    :global(.scroll-material-selection-control:is([aria-selected="true"], [aria-pressed="true"], .is-default:disabled))::after {
+      animation: none;
+      opacity: 0.8;
     }
   }
 </style>

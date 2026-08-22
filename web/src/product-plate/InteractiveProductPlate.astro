@@ -58,7 +58,7 @@ import { productPlateStories } from "./product-plate-fixture";
               disabled
               tabindex="-1"
               class:list={[
-                "scroll-material-pane product-plate__selector relative isolate grid min-h-0 w-full flex-1 grid-cols-1 content-start items-start overflow-clip rounded-xl border border-line px-5 py-2.5 text-left text-ink-muted transition-colors duration-150 ease-out hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-lg:flex max-lg:min-h-16 max-lg:shrink-0 max-lg:grow-0 max-lg:snap-start max-lg:basis-full max-lg:items-center max-lg:justify-center max-lg:px-[clamp(24px,4vw,48px)] max-lg:py-3 max-phone:min-h-14 max-phone:px-4.5 max-phone:py-2.5 max-phone:text-center",
+                "scroll-material-pane scroll-material-selection-control product-plate__selector relative isolate grid min-h-0 w-full flex-1 grid-cols-1 content-start items-start overflow-clip rounded-xl border border-line px-5 py-2.5 text-left text-ink-muted transition-colors duration-150 ease-out hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-lg:flex max-lg:min-h-16 max-lg:shrink-0 max-lg:grow-0 max-lg:snap-start max-lg:basis-full max-lg:items-center max-lg:justify-center max-lg:px-[clamp(24px,4vw,48px)] max-lg:py-3 max-phone:min-h-14 max-phone:px-4.5 max-phone:py-2.5 max-phone:text-center",
                 { "is-default": index === 0 },
               ]}
             >
@@ -160,43 +160,6 @@ import { productPlateStories } from "./product-plate-fixture";
     @apply cursor-pointer;
   }
 
-  .product-plate__selector::before {
-    content: "";
-    position: absolute;
-    z-index: 0;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0;
-    background: rgb(8 10 15 / 82%);
-    backdrop-filter: blur(16px) saturate(110%);
-    -webkit-backdrop-filter: blur(16px) saturate(110%);
-    transition: opacity 150ms ease-out;
-  }
-
-  .product-plate__selector::after {
-    content: "";
-    position: absolute;
-    z-index: 2;
-    top: 21px;
-    right: 16px;
-    width: 8px;
-    height: 8px;
-    pointer-events: none;
-    border-radius: 999px;
-    opacity: 0;
-    background: var(--color-primary);
-  }
-
-  .product-plate__selector[aria-selected="true"]::before,
-  .product-plate__selector.is-default:disabled::before {
-    opacity: 1;
-  }
-
-  .product-plate__selector[aria-selected="true"]::after,
-  .product-plate__selector.is-default:disabled::after {
-    animation: selected-dot-breathe 3.2s ease-in-out infinite;
-  }
-
   .product-plate__selector[aria-selected="true"],
   .product-plate__selector.is-default:disabled {
     @apply bg-transparent text-ink;
@@ -244,10 +207,6 @@ import { productPlateStories } from "./product-plate-fixture";
       animation: none;
     }
 
-    .product-plate__selector::after {
-      display: none;
-    }
-
     .product-plate__selector[aria-selected="true"]::before,
     .product-plate__selector.is-default:disabled::before {
       opacity: 0;
@@ -280,27 +239,7 @@ import { productPlateStories } from "./product-plate-fixture";
     }
   }
 
-  @keyframes selected-dot-breathe {
-    0%,
-    100% {
-      opacity: 0.2;
-    }
-    50% {
-      opacity: 0.8;
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
-    .product-plate__selector::before {
-      transition: none;
-    }
-
-    .product-plate__selector[aria-selected="true"]::after,
-    .product-plate__selector.is-default:disabled::after {
-      animation: none;
-      opacity: 0.8;
-    }
-
     .product-plate__selectors {
       scroll-behavior: auto;
     }
