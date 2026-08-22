@@ -2,10 +2,14 @@ import AgentStudioInfrastructure
 
 struct RepoExplorerPendingMaterializationSettlement {
     let token: RepoExplorerMaterializedProjection.CandidateToken
-    let candidateID: RepoExplorerMaterializationCandidateID
-    let candidate: RepoExplorerProjectionCandidate
+    let materializationCandidate: RepoExplorerMaterializationCandidate
+    let work: RepoExplorerProjectionWork
     let proposedValue: RepoExplorerProjectionResult
     let previousPublishedResult: RepoExplorerProjectionResult?
+
+    var candidateID: RepoExplorerMaterializationCandidateID {
+        materializationCandidate.id
+    }
 }
 
 struct RepoExplorerAcknowledgedBaselineIdentity: Equatable {
@@ -162,25 +166,27 @@ extension RepoExplorerProjectionAdapter {
         let candidateID = RepoExplorerMaterializationCandidateID(
             rawValue: nextMaterializationCandidateID
         )
+        let hostCandidate = RepoExplorerMaterializationCandidate(
+            id: candidateID,
+            lifetimeID: baseline.lifetimeID,
+            demandEpoch: baseline.demandEpoch,
+            requestGeneration: UInt64(candidate.work.context.requestGeneration),
+            visibleGeneration: UInt64(proposedValue.generation),
+            expectedRevision: changedPlan.preflight.oldRevision,
+            proposedRevision: changedPlan.proposedRevision,
+            presentation: candidate.materializationPresentation,
+            nativeUpdatePlan: nativeUpdatePlan
+        )
         let pending = RepoExplorerPendingMaterializationSettlement(
             token: token,
-            candidateID: candidateID,
-            candidate: candidate,
+            materializationCandidate: hostCandidate,
+            work: candidate.work,
             proposedValue: proposedValue,
             previousPublishedResult: publishedResult
         )
         pendingMaterializationSettlement = pending
         publishedResult = proposedValue
 
-        let hostCandidate = RepoExplorerMaterializationCandidate(
-            id: candidateID,
-            lifetimeID: baseline.lifetimeID,
-            demandEpoch: baseline.demandEpoch,
-            visibleGeneration: UInt64(proposedValue.generation),
-            expectedRevision: changedPlan.preflight.oldRevision,
-            proposedRevision: changedPlan.proposedRevision,
-            presentation: candidate.materializationPresentation
-        )
         let disposition = host.apply(hostCandidate)
         guard pendingMaterializationSettlement?.candidateID == candidateID else { return }
         switch disposition {
@@ -344,7 +350,7 @@ extension RepoExplorerProjectionAdapter {
             return
         }
         projectionGeneration += 1
-        let request = pending.candidate.work.targetRequest.generated(
+        let request = pending.work.targetRequest.generated(
             generation: projectionGeneration,
             trigger: .dataRefresh
         )

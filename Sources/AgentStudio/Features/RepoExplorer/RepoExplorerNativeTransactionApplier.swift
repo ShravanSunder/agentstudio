@@ -20,6 +20,15 @@ enum RepoExplorerNativeTransactionApplier {
     ) -> Bool {
         guard let tablePlan = tableUpdatePlan(from: plan) else { return false }
 
+        return apply(tablePlan: tablePlan, to: target)
+    }
+
+    @discardableResult
+    static func apply(
+        tablePlan: RepoExplorerNativeTableUpdatePlan,
+        to target: RepoExplorerNativeTableTransactionTarget
+    ) -> Bool {
+
         target.beginUpdates()
         switch tablePlan {
         case .content(let content):

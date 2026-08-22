@@ -83,7 +83,20 @@ final class RepoExplorerMaterializationHost: NSView {
             return reject(candidate, reason: .generationNotNewer)
         }
 
-        if candidate.presentation.hasSameVisibleIdentity(as: currentBaseline.presentation) {
+        guard candidate.id.rawValue > 0,
+            candidate.nativeUpdatePlan.matchesDelivery(
+                baseline: currentBaseline,
+                presentation: candidate.presentation,
+                requestGeneration: candidate.requestGeneration,
+                visibleGeneration: candidate.visibleGeneration,
+                expectedRevision: candidate.expectedRevision,
+                proposedRevision: candidate.proposedRevision
+            )
+        else {
+            return reject(candidate, reason: .nativePlanMismatch)
+        }
+
+        if case .equal = candidate.nativeUpdatePlan.kind {
             guard candidate.proposedRevision == currentBaseline.revision else {
                 return reject(candidate, reason: .invalidRevisionTransition)
             }
@@ -97,8 +110,7 @@ final class RepoExplorerMaterializationHost: NSView {
         activeCandidate = candidate
         defer { activeCandidate = nil }
         let transitionDisposition = applyChangedPresentation(
-            candidate.presentation,
-            visibleGeneration: candidate.visibleGeneration
+            candidate
         )
         guard transitionDisposition == .accepted else {
             return reject(candidate, reason: transitionDisposition.rejectionReason)
@@ -159,17 +171,27 @@ final class RepoExplorerMaterializationHost: NSView {
     }
 
     private func applyChangedPresentation(
-        _ presentation: RepoExplorerMaterializationPresentation,
-        visibleGeneration: UInt64
+        _ candidate: RepoExplorerMaterializationCandidate
     ) -> ChangedTransitionDisposition {
-        switch presentation {
+        switch candidate.presentation {
         case .rowless(let rowlessPresentation):
-            applyRowlessPresentation(
+            return applyRowlessPresentation(
                 rowlessPresentation,
-                visibleGeneration: visibleGeneration
+                visibleGeneration: candidate.visibleGeneration
             )
         case .content(let snapshot, _):
-            applyContentSnapshot(snapshot, visibleGeneration: visibleGeneration)
+            guard let tableUpdatePlan = candidate.nativeUpdatePlan.tableUpdatePlan() else {
+                return .rejected(.nativePlanMismatch)
+            }
+            return applyContentSnapshot(
+                RepoExplorerMaterializationContentCandidate(
+                    candidateID: candidate.id,
+                    requestGeneration: candidate.requestGeneration,
+                    visibleGeneration: candidate.visibleGeneration,
+                    snapshot: snapshot,
+                    tableUpdatePlan: tableUpdatePlan
+                )
+            )
         }
     }
 
@@ -205,27 +227,18 @@ final class RepoExplorerMaterializationHost: NSView {
     }
 
     private func applyContentSnapshot(
-        _ snapshot: RepoExplorerMaterializationSnapshot,
-        visibleGeneration: UInt64
+        _ candidate: RepoExplorerMaterializationContentCandidate
     ) -> ChangedTransitionDisposition {
         if let contentChild {
             return performChildTransaction("content apply") { completion in
-                contentChild.apply(
-                    snapshot: snapshot,
-                    visibleGeneration: visibleGeneration,
-                    completion: completion
-                )
+                contentChild.apply(candidate, completion: completion)
             }
         }
 
         let newContentChild = makeContentChild()
         installChildView(newContentChild.view, hidden: true)
         let childDisposition = performChildTransaction("initial content apply") { completion in
-            newContentChild.apply(
-                snapshot: snapshot,
-                visibleGeneration: visibleGeneration,
-                completion: completion
-            )
+            newContentChild.apply(candidate, completion: completion)
         }
         guard childDisposition == .accepted else {
             newContentChild.detach()

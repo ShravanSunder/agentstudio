@@ -84,6 +84,54 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(brokerSource.contains("return .immediateAccepted(result)"))
     }
 
+    @Test("Repo Explorer native plans remain inseparable through the sole production applier")
+    func repoExplorerNativePlanTransportHasOneOwnerAndNoRediff() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let featureRoot = projectRoot.appending(
+            path: "Sources/AgentStudio/Features/RepoExplorer"
+        )
+        let hostModels = try String(
+            contentsOf: featureRoot.appending(path: "Models/RepoExplorerMaterializationHostModels.swift"),
+            encoding: .utf8
+        )
+        let broker = try String(
+            contentsOf: featureRoot.appending(
+                path: "RepoExplorerProjectionAdapter+MaterializationBroker.swift"
+            ),
+            encoding: .utf8
+        )
+        let host = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerMaterializationHost.swift"),
+            encoding: .utf8
+        )
+        let applier = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerNativeTransactionApplier.swift"),
+            encoding: .utf8
+        )
+        let productionSources = try FileManager.default.contentsOfDirectory(
+            at: featureRoot,
+            includingPropertiesForKeys: nil
+        )
+        .filter { $0.pathExtension == "swift" }
+        .map { try String(contentsOf: $0, encoding: .utf8) }
+        .joined(separator: "\n")
+
+        #expect(hostModels.contains("let nativeUpdatePlan: RepoExplorerNativeUpdatePlan"))
+        #expect(hostModels.contains("struct RepoExplorerMaterializationContentCandidate"))
+        #expect(hostModels.contains("let tableUpdatePlan: RepoExplorerNativeTableUpdatePlan"))
+        #expect(hostModels.contains("func apply(\n        _ candidate: RepoExplorerMaterializationContentCandidate"))
+        #expect(broker.contains("nativeUpdatePlan: nativeUpdatePlan"))
+        #expect(!broker.contains("RepoExplorerNativeUpdatePlan.validating"))
+        #expect(!host.contains("RepoExplorerNativeUpdatePlan.validating"))
+        #expect(!host.contains("longestCommonSubsequence"))
+        #expect(applier.components(separatedBy: "enum RepoExplorerNativeTransactionApplier").count == 2)
+        #expect(
+            productionSources.components(
+                separatedBy: "enum RepoExplorerNativeTransactionApplier"
+            ).count == 2
+        )
+    }
+
     @Test("RepoExplorerView renders from row index instead of walking groups per row")
     func repoExplorerViewRendersFromRowIndex() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

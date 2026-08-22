@@ -69,6 +69,40 @@ struct RepoExplorerNativeTransactionApplierTests {
         #expect(target.operations.isEmpty)
     }
 
+    @Test("typed table-plan entry applies the already-derived plan without reconstruction")
+    func typedTablePlanEntryAppliesExactPlan() throws {
+        let oldSnapshot = nativePlanSnapshot(["A", "B", "C"])
+        let newSnapshot = nativePlanSnapshot(["B", "D", "A"])
+        let plan = try RepoExplorerNativeUpdatePlan.validating(
+            baseline: nativePlanBaseline(snapshot: oldSnapshot, revision: 1),
+            candidate: nativePlanContent(newSnapshot),
+            requestGeneration: 2
+        ).get()
+        guard case .changed(let changed) = plan.kind,
+            case .contentToContent(let tablePlan) = changed.presentation
+        else {
+            Issue.record("Expected changed content table plan")
+            return
+        }
+        let target = NativeTransactionRecordingTarget()
+
+        #expect(
+            RepoExplorerNativeTransactionApplier.apply(
+                tablePlan: tablePlan,
+                to: target
+            )
+        )
+        #expect(
+            target.operations == [
+                "begin",
+                "remove:[2]",
+                "move:1->0",
+                "insert:[1]",
+                "end",
+            ]
+        )
+    }
+
     @Test("real NSTableView cell-free harness accepts the production transaction")
     func realTableViewAppliesMembershipPlan() throws {
         let oldSnapshot = nativePlanSnapshot(["A", "B", "C"])

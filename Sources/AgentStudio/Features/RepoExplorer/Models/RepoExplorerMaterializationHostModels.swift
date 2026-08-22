@@ -128,10 +128,20 @@ struct RepoExplorerMaterializationCandidate: Equatable, Sendable {
     let id: RepoExplorerMaterializationCandidateID
     let lifetimeID: RepoExplorerMaterializationHostLifetimeID
     let demandEpoch: UInt64
+    let requestGeneration: UInt64
     let visibleGeneration: UInt64
     let expectedRevision: UInt64
     let proposedRevision: UInt64
     let presentation: RepoExplorerMaterializationPresentation
+    let nativeUpdatePlan: RepoExplorerNativeUpdatePlan
+}
+
+struct RepoExplorerMaterializationContentCandidate: Equatable, Sendable {
+    let candidateID: RepoExplorerMaterializationCandidateID
+    let requestGeneration: UInt64
+    let visibleGeneration: UInt64
+    let snapshot: RepoExplorerMaterializationSnapshot
+    let tableUpdatePlan: RepoExplorerNativeTableUpdatePlan
 }
 
 enum RepoExplorerMaterializationFeedbackIdentity: Equatable, Sendable {
@@ -149,6 +159,7 @@ enum RepoExplorerMaterializationRejectionReason: Equatable, Sendable {
     case revisionMismatch
     case generationNotNewer
     case invalidRevisionTransition
+    case nativePlanMismatch
     case childRejected
     case childDispositionInvariant
 }
@@ -180,8 +191,7 @@ protocol RepoExplorerMaterializationContentChild: AnyObject {
     var view: NSView { get }
 
     func apply(
-        snapshot: RepoExplorerMaterializationSnapshot,
-        visibleGeneration: UInt64,
+        _ candidate: RepoExplorerMaterializationContentCandidate,
         completion: @escaping (RepoExplorerMaterializationChildDisposition) -> Void
     )
 

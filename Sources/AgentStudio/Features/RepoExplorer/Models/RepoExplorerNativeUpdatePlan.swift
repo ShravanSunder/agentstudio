@@ -195,6 +195,90 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
             && preflight.oldFingerprint == baseline.fingerprint
     }
 
+    func matchesDelivery(
+        baseline: RepoExplorerMaterializationBaseline,
+        presentation: RepoExplorerMaterializationPresentation,
+        requestGeneration: UInt64,
+        visibleGeneration: UInt64,
+        expectedRevision: UInt64,
+        proposedRevision: UInt64
+    ) -> Bool {
+        guard
+            preflightMatches(
+                baseline: baseline,
+                requestGeneration: requestGeneration
+            ),
+            visibleGeneration == requestGeneration,
+            expectedRevision == baseline.revision
+        else {
+            return false
+        }
+
+        switch kind {
+        case .equal(let equal):
+            return proposedRevision == equal.newRevision
+                && equal.newRevision == baseline.revision
+                && equal.rowCount == presentation.rowCount
+                && equal.membershipFingerprint == presentation.fingerprint
+                && presentation.hasSameVisibleIdentity(as: baseline.presentation)
+        case .changed(let changed):
+            guard proposedRevision == changed.proposedRevision,
+                changed.newCount == presentation.rowCount,
+                changed.newFingerprint == presentation.fingerprint
+            else {
+                return false
+            }
+            return changedPresentationMatches(
+                changed.presentation,
+                baseline: baseline.presentation,
+                candidate: presentation
+            )
+        }
+    }
+
+    func tableUpdatePlan() -> RepoExplorerNativeTableUpdatePlan? {
+        guard case .changed(let changed) = kind else { return nil }
+        switch changed.presentation {
+        case .emptyToContent(let tablePlan), .contentToContent(let tablePlan):
+            return tablePlan
+        case .changedEmptyToEmpty, .contentToEmpty:
+            return nil
+        }
+    }
+
+    private func changedPresentationMatches(
+        _ update: RepoExplorerNativePresentationUpdate,
+        baseline: RepoExplorerMaterializationPresentation,
+        candidate: RepoExplorerMaterializationPresentation
+    ) -> Bool {
+        switch (update, baseline, candidate) {
+        case (.changedEmptyToEmpty(let target), .rowless, .rowless(let candidateTarget)):
+            target == candidateTarget
+        case (.emptyToContent(let tablePlan), .rowless, .content):
+            tablePlanMatchesCandidate(tablePlan, candidate: candidate)
+        case (.contentToEmpty(let target), .content, .rowless(let candidateTarget)):
+            target == candidateTarget
+        case (.contentToContent(let tablePlan), .content, .content):
+            tablePlanMatchesCandidate(tablePlan, candidate: candidate)
+        default:
+            false
+        }
+    }
+
+    private func tablePlanMatchesCandidate(
+        _ tablePlan: RepoExplorerNativeTableUpdatePlan,
+        candidate: RepoExplorerMaterializationPresentation
+    ) -> Bool {
+        switch tablePlan {
+        case .content(let content):
+            content.rowCount == candidate.rowCount
+                && content.membershipFingerprint == candidate.fingerprint
+        case .membership(let membership):
+            membership.newCount == candidate.rowCount
+                && membership.newMembershipFingerprint == candidate.fingerprint
+        }
+    }
+
     private static func presentationFingerprintIsValid(
         _ presentation: RepoExplorerMaterializationPresentation
     ) -> Bool {

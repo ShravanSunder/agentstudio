@@ -8,8 +8,7 @@ private final class RowlessWindowContentChild: RepoExplorerMaterializationConten
     let view = NSView()
 
     func apply(
-        snapshot: RepoExplorerMaterializationSnapshot,
-        visibleGeneration: UInt64,
+        _ candidate: RepoExplorerMaterializationContentCandidate,
         completion: @escaping (RepoExplorerMaterializationChildDisposition) -> Void
     ) {
         completion(.accepted)
@@ -67,7 +66,7 @@ struct RepoExplorerMaterializationHostWindowTests {
     }
 
     @Test("rowless updates preserve an existing first responder")
-    func rowlessUpdatePreservesFirstResponder() {
+    func rowlessUpdatePreservesFirstResponder() throws {
         let host = RepoExplorerMaterializationHost(
             lifetimeID: RepoExplorerMaterializationHostLifetimeID(
                 rawValue: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1))
@@ -94,14 +93,23 @@ struct RepoExplorerMaterializationHostWindowTests {
         defer { window.close() }
         #expect(window.makeFirstResponder(focusView))
 
+        let baseline = try #require(host.acceptedBaseline)
+        let presentation = RepoExplorerMaterializationPresentation.rowless(.noTabs)
+        let plan = try RepoExplorerNativeUpdatePlan.validating(
+            baseline: baseline,
+            candidate: presentation,
+            requestGeneration: 1
+        ).get()
         let candidate = RepoExplorerMaterializationCandidate(
             id: RepoExplorerMaterializationCandidateID(rawValue: 1),
             lifetimeID: host.lifetimeID,
             demandEpoch: 1,
+            requestGeneration: 1,
             visibleGeneration: 1,
             expectedRevision: 0,
             proposedRevision: 1,
-            presentation: .rowless(.noTabs)
+            presentation: presentation,
+            nativeUpdatePlan: plan
         )
         guard case .accepted = host.apply(candidate) else { return }
 

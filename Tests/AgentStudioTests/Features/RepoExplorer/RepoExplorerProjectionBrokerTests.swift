@@ -13,11 +13,10 @@ private final class BrokerContentChild: RepoExplorerMaterializationContentChild 
     private var responseIndex = 0
 
     func apply(
-        snapshot: RepoExplorerMaterializationSnapshot,
-        visibleGeneration: UInt64,
+        _ candidate: RepoExplorerMaterializationContentCandidate,
         completion: @escaping (RepoExplorerMaterializationChildDisposition) -> Void
     ) {
-        appliedGenerations.append(visibleGeneration)
+        appliedGenerations.append(candidate.visibleGeneration)
         let response = responses[min(responseIndex, responses.count - 1)]
         responseIndex += 1
         completion(response)

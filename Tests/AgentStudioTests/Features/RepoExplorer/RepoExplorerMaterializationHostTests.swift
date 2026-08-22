@@ -32,16 +32,15 @@ private final class ControlledRepoExplorerContentChild:
     var applyResponse: ControlledRepoExplorerContentResponse = .accepted
     var removalResponse: ControlledRepoExplorerContentResponse = .accepted
     var onApply: (() -> Void)?
-    private(set) var appliedSnapshots: [RepoExplorerMaterializationSnapshot] = []
+    private(set) var appliedCandidates: [RepoExplorerMaterializationContentCandidate] = []
     private(set) var removalGenerations: [UInt64] = []
     private(set) var detachCount = 0
 
     func apply(
-        snapshot: RepoExplorerMaterializationSnapshot,
-        visibleGeneration: UInt64,
+        _ candidate: RepoExplorerMaterializationContentCandidate,
         completion: @escaping (RepoExplorerMaterializationChildDisposition) -> Void
     ) {
-        appliedSnapshots.append(snapshot)
+        appliedCandidates.append(candidate)
         onApply?()
         respond(applyResponse, completion: completion)
     }
@@ -112,14 +111,22 @@ private struct MaterializationHostFixture {
         presentation: RepoExplorerMaterializationPresentation,
         lifetimeID: RepoExplorerMaterializationHostLifetimeID? = nil
     ) -> RepoExplorerMaterializationCandidate {
-        RepoExplorerMaterializationCandidate(
+        let baseline = host.acceptedBaseline!
+        let plan = try! RepoExplorerNativeUpdatePlan.validating(
+            baseline: baseline,
+            candidate: presentation,
+            requestGeneration: generation
+        ).get()
+        return RepoExplorerMaterializationCandidate(
             id: RepoExplorerMaterializationCandidateID(rawValue: id),
             lifetimeID: lifetimeID ?? self.lifetimeID,
             demandEpoch: demandEpoch,
+            requestGeneration: generation,
             visibleGeneration: generation,
             expectedRevision: expectedRevision,
             proposedRevision: proposedRevision,
-            presentation: presentation
+            presentation: presentation,
+            nativeUpdatePlan: plan
         )
     }
 }
@@ -135,21 +142,28 @@ private func makeMaterializationLifetime(_ value: UInt8)
 private func makeContentPresentation(
     fingerprint: UInt64
 ) -> RepoExplorerMaterializationPresentation {
-    let presentation = RepoExplorerMaterializedRowPresentation.sectionHeader(
-        kind: .repositories,
-        isFirstRow: true
+    let groupID = "materialization-group-\(fingerprint)"
+    let presentation = RepoExplorerMaterializedRowPresentation.groupHeader(
+        RepoExplorerMaterializedGroupHeaderPresentation(
+            groupID: groupID,
+            title: groupID,
+            organizationName: nil,
+            colorHex: nil,
+            isExpanded: true,
+            repoIDs: [],
+            semanticRepoPath: nil,
+            paneDestinations: []
+        )
     )
     let row = RepoExplorerMaterializedRow(
-        id: .sectionHeader(.repositories),
+        id: .group(groupID: groupID),
         contentRevision: RepoExplorerRowContentRevision(presentation: presentation),
         layout: RepoExplorerRowLayout.make(for: presentation),
         representedRepoID: nil,
         representedWorktreeID: nil
     )
-    return .content(
-        snapshot: RepoExplorerMaterializationSnapshot(rows: [row]),
-        fingerprint: RepoExplorerMaterializationFingerprint(rawValue: fingerprint)
-    )
+    let snapshot = RepoExplorerMaterializationSnapshot(rows: [row])
+    return .content(snapshot: snapshot, fingerprint: .make(snapshot: snapshot))
 }
 
 @MainActor
@@ -191,7 +205,7 @@ struct RepoExplorerMaterializationHostTests {
         #expect(fixture.host.apply(candidate) == .equal(initialBaseline))
         #expect(fixture.host.acceptedBaseline == initialBaseline)
         #expect(fixture.recorder.feedback.count == 1)
-        #expect(fixture.child.appliedSnapshots.isEmpty)
+        #expect(fixture.child.appliedCandidates.isEmpty)
         #expect(fixture.child.removalGenerations.isEmpty)
     }
 
@@ -248,7 +262,7 @@ struct RepoExplorerMaterializationHostTests {
 
         #expect(disposition == .accepted(baseline))
         #expect(baseline.presentation == .rowless(presentation))
-        #expect(fixture.child.appliedSnapshots.count == 1)
+        #expect(fixture.child.appliedCandidates.count == 1)
         #expect(fixture.child.removalGenerations == [2])
         #expect(fixture.child.detachCount == 1)
     }
@@ -279,7 +293,7 @@ struct RepoExplorerMaterializationHostTests {
 
         #expect(disposition == .accepted(baseline))
         #expect(baseline.presentation == secondPresentation)
-        #expect(fixture.child.appliedSnapshots.count == 2)
+        #expect(fixture.child.appliedCandidates.count == 2)
         #expect(fixture.child.detachCount == 0)
     }
 
@@ -407,7 +421,6 @@ struct RepoExplorerMaterializationHostTests {
         guard case .rejected = fixture.host.apply(acceptedCandidate) else { return }
         #expect(fixture.host.acceptedBaseline == acceptedBaseline)
 
-        fixture.host.detach()
         let afterDetach = fixture.candidate(
             id: 5,
             generation: 2,
@@ -415,6 +428,7 @@ struct RepoExplorerMaterializationHostTests {
             proposedRevision: 2,
             presentation: .rowless(.noTabs)
         )
+        fixture.host.detach()
         guard case .rejected(.hostDetached) = fixture.host.apply(afterDetach) else { return }
         #expect(fixture.host.acceptedBaseline == nil)
         #expect(!fixture.host.isPresentationReady)
@@ -481,7 +495,7 @@ struct RepoExplorerMaterializationHostTests {
         #expect(reentrantDisposition == .rejected(.candidateInProgress))
         #expect(baseline.revision == 1)
         #expect(baseline.presentation == firstCandidate.presentation)
-        #expect(fixture.child.appliedSnapshots.count == 1)
+        #expect(fixture.child.appliedCandidates.count == 1)
     }
 
     @Test("replacement lifetime starts from independent numeric R0")
