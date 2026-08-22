@@ -747,3 +747,27 @@ Next: checkpoint L2, extend the real Swift development-host reload/successor
 journey, then run Swift backend plus Vite and packaged WKWebView proof
 Notes: no security/auth, polling, second bank, raw-message buffer, compatibility,
 or PR2 change. The three protected PR2 files remain untouched.
+
+### 2026-08-22 14:00 EDT — Real Swift backend plus Vite reload proof green
+
+State: the existing real-worktree browser journey reaches document generation 2
+and passes; stronger operand-level lifecycle assertions and retained-main host
+proof remain in progress
+Head: `8c289f062`; the verifier traversal correction is currently uncommitted
+Owns: backend proof harness only; no visual UI or product behavior changed
+Changed: the Review traversal now advances past a selected-only initial viewport
+when that selected diff is already painted, windowed/hydrated, taller than the
+viewport, and more scroll range exists. It still requires the next non-selected
+window to pass the original hydration and paint-correlation checks.
+Proof: red unit reproduced the 944 px viewport / 1,188 px selected-host deadlock;
+green unit passes 15/15. Real `pnpm --dir BridgeWeb run
+test:dev-server:worktree` exits 0 with 238 product routes, document generation 2,
+zero legacy routes, zero violations, and clean browser/backend teardown. Both
+documents emit install-admission followed by publication-applied calls.
+Needs from UI lane: none for this correction. The Vite dependency pre-scan still
+warns about unresolved UI-owned alias imports, but on-demand compilation completes
+the full journey; backend did not edit those UI files.
+Next: add scrubbed operand/result assertions for both browser documents and the
+focused real development-host retained-main/B→C lifecycle test, then checkpoint.
+Notes: the broad gate was not weakened and no UI, security/auth, route, scheduler,
+polling, persistence, compatibility, or PR2 change was made.
