@@ -32,8 +32,12 @@ private final class ControlledRepoExplorerContentChild:
     var applyResponse: ControlledRepoExplorerContentResponse = .accepted
     var removalResponse: ControlledRepoExplorerContentResponse = .accepted
     var onApply: (() -> Void)?
+    var onSuspendDemand: (() -> Void)?
+    var onResumeDemand: ((UInt64) -> Void)?
     private(set) var appliedCandidates: [RepoExplorerMaterializationContentCandidate] = []
     private(set) var removalGenerations: [UInt64] = []
+    private(set) var suspendDemandCount = 0
+    private(set) var resumedVisibleGenerations: [UInt64] = []
     private(set) var detachCount = 0
 
     func apply(
@@ -51,6 +55,16 @@ private final class ControlledRepoExplorerContentChild:
     ) {
         removalGenerations.append(visibleGeneration)
         respond(removalResponse, completion: completion)
+    }
+
+    func suspendDemand() {
+        suspendDemandCount += 1
+        onSuspendDemand?()
+    }
+
+    func resumeDemand(visibleGeneration: UInt64) {
+        resumedVisibleGenerations.append(visibleGeneration)
+        onResumeDemand?(visibleGeneration)
     }
 
     func detach() {
@@ -295,6 +309,41 @@ struct RepoExplorerMaterializationHostTests {
         #expect(baseline.presentation == secondPresentation)
         #expect(fixture.child.appliedCandidates.count == 2)
         #expect(fixture.child.detachCount == 0)
+    }
+
+    @Test("retained content child suspends before readiness clears and resumes after reacknowledgment")
+    func retainedContentChildFollowsHostDemandLifecycle() throws {
+        let fixture = MaterializationHostFixture()
+        let contentCandidate = fixture.candidate(
+            id: 1,
+            generation: 4,
+            expectedRevision: 0,
+            proposedRevision: 1,
+            presentation: makeContentPresentation(fingerprint: 10)
+        )
+        guard case .accepted = fixture.host.apply(contentCandidate) else { return }
+        let contentBaseline = try #require(fixture.host.acceptedBaseline)
+        var wasReadyDuringSuspend = false
+        var resumedDemandEpoch: UInt64?
+        fixture.child.onSuspendDemand = {
+            wasReadyDuringSuspend = fixture.host.isPresentationReady
+        }
+        fixture.child.onResumeDemand = { _ in
+            resumedDemandEpoch = fixture.host.acceptedBaseline?.demandEpoch
+        }
+
+        fixture.host.suspendDemand()
+
+        #expect(wasReadyDuringSuspend)
+        #expect(fixture.child.suspendDemandCount == 1)
+        #expect(!fixture.host.isPresentationReady)
+
+        let reacknowledged = fixture.host.reacknowledgeRetainedPresentation(demandEpoch: 8)
+
+        #expect(reacknowledged?.revision == contentBaseline.revision)
+        #expect(reacknowledged?.demandEpoch == 8)
+        #expect(fixture.child.resumedVisibleGenerations == [contentBaseline.visibleGeneration])
+        #expect(resumedDemandEpoch == 8)
     }
 
     @Test(

@@ -254,6 +254,12 @@ final class PilotContentChild: NSObject, RepoExplorerMaterializationContentChild
         completion(.accepted)
     }
 
+    func suspendDemand() {}
+
+    func resumeDemand(visibleGeneration: UInt64) {
+        _ = visibleGeneration
+    }
+
     func detach() {
         tableView.dataSource = nil
         scrollView.documentView = nil

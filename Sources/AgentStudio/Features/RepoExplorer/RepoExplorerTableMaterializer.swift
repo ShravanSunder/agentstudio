@@ -181,15 +181,26 @@ final class RepoExplorerTableMaterializer: NSObject,
         visibleGeneration: UInt64,
         completion: @escaping (RepoExplorerMaterializationChildDisposition) -> Void
     ) {
+        invalidateScheduledViewportPublication()
         clearViewportDemand()
         completion(.accepted)
+    }
+
+    func suspendDemand() {
+        guard !isDetached else { return }
+        invalidateScheduledViewportPublication()
+        clearViewportDemand()
+    }
+
+    func resumeDemand(visibleGeneration: UInt64) {
+        guard !isDetached, self.visibleGeneration == visibleGeneration else { return }
+        scheduleViewportPublication()
     }
 
     func detach() {
         guard !isDetached else { return }
         isDetached = true
-        viewportTask?.cancel()
-        viewportTask = nil
+        invalidateScheduledViewportPublication()
         clearViewportDemand()
         if let boundsObserver {
             NotificationCenter.default.removeObserver(boundsObserver)
@@ -329,6 +340,12 @@ final class RepoExplorerTableMaterializer: NSObject,
             else { return }
             self.publishVisibleWorktreeIDs()
         }
+    }
+
+    private func invalidateScheduledViewportPublication() {
+        viewportSequence &+= 1
+        viewportTask?.cancel()
+        viewportTask = nil
     }
 
     private func publishVisibleWorktreeIDs() {

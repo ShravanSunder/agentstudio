@@ -165,6 +165,44 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!materializer.contains("for row in snapshot.rows"))
     }
 
+    @Test("production presentation host composes one real table without activating before cutover")
+    func productionPresentationHostIsStableAndOffTheLiveTreeUntilCutover() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let featureRoot = projectRoot.appending(
+            path: "Sources/AgentStudio/Features/RepoExplorer"
+        )
+        let presentationHost = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerPresentationHostView.swift"),
+            encoding: .utf8
+        )
+        let repoExplorerView = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+        let updateBody = try #require(
+            presentationHost.components(separatedBy: "    func updateNSView(").dropFirst().first?
+                .components(separatedBy: "    static func dismantleNSView(").first
+        )
+        let dismantleBody = try #require(
+            presentationHost.components(separatedBy: "        func dismantle(").dropFirst().first?
+                .components(separatedBy: "\n        }").first
+        )
+
+        #expect(presentationHost.contains("RepoExplorerMaterializationHost("))
+        #expect(presentationHost.contains("RepoExplorerTableMaterializer("))
+        #expect(presentationHost.contains("registerMaterializationHost(host)"))
+        #expect(presentationHost.contains("unregisterMaterializationHost("))
+        #expect(
+            try #require(dismantleBody.range(of: "unregisterMaterializationHost")).lowerBound
+                < #require(dismantleBody.range(of: "materializationHost.detach()")).lowerBound
+        )
+        #expect(!updateBody.contains("makeHost"))
+        #expect(!updateBody.contains("registerMaterializationHost"))
+        #expect(!updateBody.contains("rows"))
+        #expect(!repoExplorerView.contains("RepoExplorerPresentationHostView("))
+        #expect(repoExplorerView.contains("RepoExplorerVisibleRowsBridge("))
+    }
+
     @Test("RepoExplorerView renders from row index instead of walking groups per row")
     func repoExplorerViewRendersFromRowIndex() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

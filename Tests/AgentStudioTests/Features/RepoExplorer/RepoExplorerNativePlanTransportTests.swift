@@ -51,6 +51,12 @@ private final class NativePlanTransportContentChild:
         completion(.accepted)
     }
 
+    func suspendDemand() {}
+
+    func resumeDemand(visibleGeneration: UInt64) {
+        _ = visibleGeneration
+    }
+
     func detach() {}
 }
 

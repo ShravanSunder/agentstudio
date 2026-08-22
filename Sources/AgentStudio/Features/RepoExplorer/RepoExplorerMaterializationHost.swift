@@ -131,6 +131,7 @@ final class RepoExplorerMaterializationHost: NSView {
 
     func suspendDemand() {
         guard !isDetached else { return }
+        contentChild?.suspendDemand()
         isPresentationReady = false
     }
 
@@ -154,6 +155,9 @@ final class RepoExplorerMaterializationHost: NSView {
         acceptedBaseline = reacknowledgedBaseline
         isPresentationReady = true
         onFeedback(.accepted(identity: .reentry, baseline: reacknowledgedBaseline))
+        contentChild?.resumeDemand(
+            visibleGeneration: reacknowledgedBaseline.visibleGeneration
+        )
         return reacknowledgedBaseline
     }
 

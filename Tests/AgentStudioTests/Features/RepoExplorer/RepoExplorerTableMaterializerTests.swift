@@ -46,6 +46,53 @@ struct RepoExplorerTableMaterializerTests {
         #expect(recorder.values.last?.isEmpty == true)
     }
 
+    @Test("demand suspension invalidates queued viewport work and reentry republishes current rows")
+    func demandLifecycleInvalidatesAndRepublishesViewport() async throws {
+        let worktreeID = UUIDv7.generate()
+        let snapshot = materializerSnapshot(
+            ["A", "B", "C", "D"],
+            worktreeIDs: [worktreeID, nil, nil, nil]
+        )
+        let recorder = VisibleWorktreeSetRecorder()
+        let materializer = RepoExplorerTableMaterializer(
+            onVisibleWorktreeIDsChange: recorder.record
+        )
+        let window = makeMaterializerWindow(materializer)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+                snapshot: snapshot,
+                requestGeneration: 1
+            )
+        ) { _ in }
+        materializer.scroll(to: .group(groupID: "A"), offset: 0)
+
+        materializer.suspendDemand()
+        await materializer.drainViewportPublication()
+        #expect(recorder.values.isEmpty)
+
+        materializer.resumeDemand(visibleGeneration: 1)
+        await materializer.drainViewportPublication()
+        #expect(recorder.values.last == [worktreeID])
+
+        materializer.suspendDemand()
+        let publicationCountAfterClear = recorder.values.count
+        #expect(recorder.values.last?.isEmpty == true)
+        materializer.suspendDemand()
+        #expect(recorder.values.count == publicationCountAfterClear)
+
+        materializer.resumeDemand(visibleGeneration: 999)
+        await materializer.drainViewportPublication()
+        #expect(recorder.values.count == publicationCountAfterClear)
+        materializer.resumeDemand(visibleGeneration: 1)
+        await materializer.drainViewportPublication()
+        #expect(recorder.values.last == [worktreeID])
+    }
+
     @Test("width measurement is limited to represented wrapping rows")
     func widthMeasurementIsVisibleOnly() throws {
         let snapshot = wrappingMaterializerSnapshot(["A", "B", "C", "D"])

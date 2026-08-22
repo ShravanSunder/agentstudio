@@ -200,5 +200,7 @@ protocol RepoExplorerMaterializationContentChild: AnyObject {
         completion: @escaping (RepoExplorerMaterializationChildDisposition) -> Void
     )
 
+    func suspendDemand()
+    func resumeDemand(visibleGeneration: UInt64)
     func detach()
 }

@@ -29,6 +29,12 @@ private final class BrokerContentChild: RepoExplorerMaterializationContentChild 
         completion(.accepted)
     }
 
+    func suspendDemand() {}
+
+    func resumeDemand(visibleGeneration: UInt64) {
+        _ = visibleGeneration
+    }
+
     func detach() {}
 }
 

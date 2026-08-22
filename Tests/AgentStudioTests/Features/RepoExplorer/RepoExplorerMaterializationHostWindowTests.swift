@@ -21,6 +21,12 @@ private final class RowlessWindowContentChild: RepoExplorerMaterializationConten
         completion(.accepted)
     }
 
+    func suspendDemand() {}
+
+    func resumeDemand(visibleGeneration: UInt64) {
+        _ = visibleGeneration
+    }
+
     func detach() {}
 }
 
