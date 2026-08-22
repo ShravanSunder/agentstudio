@@ -2,6 +2,10 @@ import { describe, expect, test } from 'vitest';
 
 import { publishBridgeCommWorkerProductControlCompletion } from './bridge-comm-worker-product-control-completion.js';
 import {
+	encodeBridgeWorkerReviewPublicationInstallAdmitCommand,
+	encodeBridgeWorkerReviewPublicationInstalledCommand,
+} from './bridge-comm-worker-protocol.js';
+import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	type BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
@@ -23,6 +27,12 @@ describe('Bridge comm worker product control completion', () => {
 					expectedDisplayedPublicationId: publicationA,
 				},
 			},
+			mainCommand: encodeBridgeWorkerReviewPublicationInstallAdmitCommand({
+				candidatePublicationId: publicationB,
+				epoch: 1,
+				expectedDisplayedPublicationId: publicationA,
+				requestId: 'review-install-admit-1',
+			}),
 			messages: [readyMessage],
 			publish: (message): void => {
 				postedMessages.push(message);
@@ -50,6 +60,15 @@ describe('Bridge comm worker product control completion', () => {
 				method: 'review.publication.applied',
 				params: { publicationId: publicationB },
 			},
+			mainCommand: encodeBridgeWorkerReviewPublicationInstalledCommand({
+				epoch: 1,
+				packageId: 'package-b',
+				publicationId: publicationB,
+				requestId: 'review-installed-1',
+				reviewGeneration: 2,
+				revision: 2,
+				sourceIdentity: 'source-b',
+			}),
 			messages: [readyMessage],
 			publish: (message): void => {
 				postedMessages.push(message);
@@ -58,6 +77,46 @@ describe('Bridge comm worker product control completion', () => {
 		});
 
 		expect(postedMessages).toEqual([readyMessage]);
+	});
+
+	test('reports rejected admission after publishing its terminal event', () => {
+		const steps: string[] = [];
+		const mainCommand = encodeBridgeWorkerReviewPublicationInstallAdmitCommand({
+			candidatePublicationId: publicationB,
+			epoch: 1,
+			expectedDisplayedPublicationId: publicationA,
+			requestId: 'review-install-rejected-1',
+		});
+
+		publishBridgeCommWorkerProductControlCompletion({
+			actionResult: { status: 'rejected' },
+			command: {
+				method: 'review.publication.install.admit',
+				params: {
+					candidatePublicationId: publicationB,
+					expectedDisplayedPublicationId: publicationA,
+				},
+			},
+			mainCommand,
+			messages: [makeReadyMessage(mainCommand.requestId)],
+			publish: (message): void => {
+				steps.push(`${message.kind}:published`);
+			},
+			requestId: mainCommand.requestId,
+			reviewSuccessorSettlementOwner: {
+				handleSuccessorReExposureSettlement: (settlement): boolean => {
+					if (settlement.kind === 'admissionRejected') {
+						steps.push(`${settlement.kind}:${settlement.candidatePublicationId}`);
+					}
+					return false;
+				},
+			},
+		});
+
+		expect(steps).toEqual([
+			'reviewPublicationInstallAdmission:published',
+			`admissionRejected:${publicationB}`,
+		]);
 	});
 });
 

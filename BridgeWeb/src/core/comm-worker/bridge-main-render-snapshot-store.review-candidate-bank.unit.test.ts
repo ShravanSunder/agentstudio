@@ -136,6 +136,40 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		expect(store.getReviewRefreshPresentation().candidate?.identity).toEqual(SUCCESSOR_IDENTITY);
 	});
 
+	test('pins an installing B against successor replacement until promotion', () => {
+		// Arrange
+		const store = createBridgeMainRenderSnapshotStore();
+		installReview(store, ACTIVE_IDENTITY, reviewDisplayEvent(1, 'item-a', 1));
+		expect(
+			store.stageReviewCandidateDisplayEvent({
+				event: reviewDisplayEvent(2, 'item-b', 1),
+				identity: CANDIDATE_IDENTITY,
+			}),
+		).toBe(true);
+		expect(
+			store.markReviewCandidateReady({
+				affectedStableFileIdentities: ['stable-b'],
+				identity: CANDIDATE_IDENTITY,
+				role: 'installing',
+			}),
+		).toBe(true);
+
+		// Act
+		const stagedSuccessor = store.stageReviewCandidateDisplayEvent({
+			event: reviewDisplayEvent(3, 'item-c', 1),
+			identity: SUCCESSOR_IDENTITY,
+		});
+
+		// Assert
+		expect(stagedSuccessor).toBe(false);
+		expect(store.getReviewRefreshPresentation().candidate).toEqual({
+			affectedStableFileIdentities: ['stable-b'],
+			identity: CANDIDATE_IDENTITY,
+			role: 'installing',
+		});
+		expect(store.promoteReviewCandidate(CANDIDATE_IDENTITY)).toBe(true);
+	});
+
 	test('promotes the exact newest candidate as one coherent active publication', () => {
 		// Arrange
 		const store = createBridgeMainRenderSnapshotStore();

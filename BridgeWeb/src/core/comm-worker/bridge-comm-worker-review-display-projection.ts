@@ -2,11 +2,11 @@ import type {
 	BridgeCommWorkerPanePresentationAuthority,
 	BridgeCommWorkerPanePresentationSnapshot,
 } from './bridge-comm-worker-pane-presentation.js';
-import type { BridgeCommWorkerReviewComparisonCommit } from './bridge-comm-worker-review-metadata-applicator.js';
 import type {
 	BridgeCommWorkerReviewMetadataApplyResult,
 	BridgeCommWorkerReviewMetadataSnapshot,
 } from './bridge-comm-worker-review-metadata-projection.js';
+import type { BridgeCommWorkerReviewComparisonCommit } from './bridge-comm-worker-review-publication-types.js';
 import type { BridgeProductReviewMetadataEvent } from './bridge-product-review-metadata-contracts.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,

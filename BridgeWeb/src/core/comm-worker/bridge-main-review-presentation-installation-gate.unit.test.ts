@@ -135,7 +135,7 @@ describe('Bridge main Review presentation installation gate', () => {
 		await gate.semanticAttentionChanged(attention(['unaffected-file']));
 
 		// Assert
-		expect(store.roles).toEqual(['updateReady', 'provisional']);
+		expect(store.roles).toEqual(['updateReady', 'provisional', 'installing']);
 		expect(store.promotions).toEqual([CANDIDATE.publicationId]);
 	});
 
@@ -214,7 +214,7 @@ describe('Bridge main Review presentation installation gate', () => {
 		expect(store.presentation.candidate).toBeNull();
 	});
 
-	test('does not promote a stale admitted identity after candidate replacement', async () => {
+	test('pins an admitted identity until it promotes despite successor arrival', async () => {
 		// Arrange
 		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
 		const port = new DeferredInstallationPort();
@@ -227,18 +227,16 @@ describe('Bridge main Review presentation installation gate', () => {
 			attention([]),
 		);
 		const firstRequest = await port.nextRequest();
-		store.replaceCandidate(SUCCESSOR);
+		expect(store.replaceCandidate(SUCCESSOR)).toBe(false);
 		await gate.handleCandidateReady(candidateReady(SUCCESSOR, 'ordinary', []), attention([]));
 
 		// Act
 		firstRequest.resolve('admitted');
-		const successorRequest = await port.nextRequest();
-		successorRequest.resolve('admitted');
 		await firstInstall;
 
 		// Assert
-		expect(store.promotions).toEqual([SUCCESSOR.publicationId]);
-		expect(port.receipts).toEqual([SUCCESSOR.publicationId]);
+		expect(store.promotions).toEqual([CANDIDATE.publicationId]);
+		expect(port.receipts).toEqual([CANDIDATE.publicationId]);
 	});
 
 	test('invalidates late admission on worker replacement and close', async () => {
@@ -267,6 +265,31 @@ describe('Bridge main Review presentation installation gate', () => {
 		expect(store.promotions).toEqual([]);
 		expect(port.receipts).toEqual([]);
 		expect(store.presentation.candidate).toBeNull();
+	});
+
+	test('stale admission failure cannot discard replacement-worker replay', async () => {
+		// Arrange
+		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
+		const port = new DeferredInstallationPort();
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			store,
+		});
+		const oldInstall = gate.handleCandidateReady(
+			candidateReady(CANDIDATE, 'ordinary', []),
+			attention([]),
+		);
+		const oldRequest = await port.nextRequest();
+
+		// Act
+		gate.prepareForWorkerReplacement();
+		expect(store.replaceCandidate(CANDIDATE)).toBe(true);
+		oldRequest.reject();
+		await oldInstall;
+
+		// Assert
+		expect(store.presentation.candidate?.identity).toEqual(CANDIDATE);
+		expect(store.discards).toEqual([CANDIDATE.publicationId]);
 	});
 
 	test('retains an installed active bank and retries only its failed receipt', async () => {
@@ -342,8 +365,10 @@ class FakeCandidateStore implements BridgeMainReviewCandidateStore {
 		return true;
 	};
 
-	replaceCandidate(candidateIdentity: BridgeMainReviewPublicationIdentity): void {
+	replaceCandidate(candidateIdentity: BridgeMainReviewPublicationIdentity): boolean {
+		if (this.presentation.candidate?.role === 'installing') return false;
 		this.presentation = candidatePresentation(this.presentation.activeIdentity, candidateIdentity);
+		return true;
 	}
 
 	private candidateIs(identityToMatch: BridgeMainReviewPublicationIdentity): boolean {
@@ -417,12 +442,18 @@ class DeferredInstallationPort implements BridgeMainReviewPresentationInstallati
 
 class DeferredAdmission {
 	readonly promise: Promise<BridgeMainReviewInstallAdmissionResult>;
+	private rejectPromise!: (error: Error) => void;
 	private resolvePromise!: (result: BridgeMainReviewInstallAdmissionResult) => void;
 
 	constructor(readonly request: BridgeMainReviewInstallAdmissionRequest) {
-		this.promise = new Promise((resolve) => {
+		this.promise = new Promise((resolve, reject) => {
+			this.rejectPromise = reject;
 			this.resolvePromise = resolve;
 		});
+	}
+
+	reject(): void {
+		this.rejectPromise(new Error('injected admission failure'));
 	}
 
 	resolve(status: 'admitted' | 'rejected'): void {

@@ -20,7 +20,7 @@ import type {
 } from './bridge-worker-contracts.js';
 
 export type BridgeMainReviewPublicationIdentity = ReviewMetadataLineage;
-export type BridgeMainReviewCandidateRole = 'provisional' | 'updateReady';
+export type BridgeMainReviewCandidateRole = 'installing' | 'provisional' | 'updateReady';
 export interface BridgeMainReviewCandidatePresentation {
 	readonly affectedStableFileIdentities: readonly string[];
 	readonly identity: BridgeMainReviewPublicationIdentity;
@@ -94,6 +94,7 @@ export class BridgeMainReviewCandidateBankOwner {
 			presentationChanged = true;
 		} else if (!isExact(props.identity, candidate.identity)) {
 			if (!isNewer(props.identity, candidate.identity)) return false;
+			if (candidate.role === 'installing') return false;
 			candidate = cloneCandidate(props.activeSnapshot, props.identity);
 			presentationChanged = true;
 		}
@@ -150,6 +151,7 @@ export class BridgeMainReviewCandidateBankOwner {
 		if (
 			this.#candidate === null ||
 			!isExact(props.identity, this.#candidate.identity) ||
+			(this.#candidate.role === 'installing' && props.role !== 'installing') ||
 			this.#candidate.snapshot.reviewSourceSlice?.status !== 'ready'
 		)
 			return false;

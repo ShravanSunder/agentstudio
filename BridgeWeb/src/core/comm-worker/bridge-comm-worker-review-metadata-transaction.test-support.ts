@@ -2,6 +2,7 @@ import {
 	BridgeCommWorkerReviewMetadataApplicator,
 	type BridgeCommWorkerReviewMetadataApplication,
 } from './bridge-comm-worker-review-metadata-applicator.js';
+import type { BridgeCommWorkerReviewCandidateReadyPublication } from './bridge-comm-worker-review-publication-types.js';
 import type { BridgeProductReviewMetadataEvent } from './bridge-product-review-metadata-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
@@ -59,12 +60,14 @@ export function makeApplicatorHarness(
 ): {
 	readonly applications: BridgeCommWorkerReviewMetadataApplication[];
 	readonly applicator: BridgeCommWorkerReviewMetadataApplicator;
+	readonly candidateReadyPublications: BridgeCommWorkerReviewCandidateReadyPublication[];
 	readonly displayPublications: Array<{
 		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
 		readonly workerDerivationEpoch: number;
 	}>;
 } {
 	const applications: BridgeCommWorkerReviewMetadataApplication[] = [];
+	const candidateReadyPublications: BridgeCommWorkerReviewCandidateReadyPublication[] = [];
 	const displayPublications: Array<{
 		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
 		readonly workerDerivationEpoch: number;
@@ -77,11 +80,15 @@ export function makeApplicatorHarness(
 				applications.push(application);
 			},
 			currentWorkerDerivationEpoch: (): number => workerDerivationEpoch,
+			publishCandidateReady: (publication): void => {
+				candidateReadyPublications.push(publication);
+			},
 			publishDisplayPatches: (publication): void => {
 				props.beforePublishDisplayPatches?.(publication);
 				displayPublications.push(publication);
 			},
 		}),
+		candidateReadyPublications,
 		displayPublications,
 	};
 }

@@ -722,3 +722,28 @@ Notes: the remaining raw-DOM order violation is separately classified as proof
 drift because Pierre retains sticky/pool hosts outside `getRenderedItems()`;
 correct it against Pierre's logical rendered-item range without weakening the
 authoritative catalog-order gate. Protected PR2 files remain untouched.
+
+### 2026-08-22 13:48 EDT — Admitted-successor re-exposure backend checkpoint
+
+State: the bounded comm-worker/main successor path is implemented and focused
+proof is green; real development-server and packaged proof remain next
+Head: `52d5c2ab7`; the L2 backend checkpoint is not yet committed
+Owns: comm-worker metadata/product-control completion and the main Review
+candidate/install gate only; no visual UI files changed
+Changed: an admitted candidate is pinned in the existing one candidate bank;
+after native acknowledges installed B, the worker re-exposes only newer active C
+as a full reset plus candidate-ready. Admission rejection re-exposes newer D;
+admission transport failure retries current C/D once after main receives its
+failure terminal. Applied receipts remain request-epoch fenced while rejection
+and failure recovery publish current worker state under the current epoch.
+Proof: focused BridgeWeb state/runtime/render set passes 65/65; complete
+BridgeWeb check passes architecture, format, typecheck, and product contracts;
+the composed proof rejects C render/Pierre work while B installs, then accepts
+the bounded render retry after C re-exposure and reaches ready availability
+Needs from UI lane: no new backend seam. Continue consuming the existing typed
+`reviewRefreshPresentation`, `applyReviewRefreshNow()`, and semantic-attention
+surface; do not add a second store, route, replay owner, or retry loop
+Next: checkpoint L2, extend the real Swift development-host reload/successor
+journey, then run Swift backend plus Vite and packaged WKWebView proof
+Notes: no security/auth, polling, second bank, raw-message buffer, compatibility,
+or PR2 change. The three protected PR2 files remain untouched.

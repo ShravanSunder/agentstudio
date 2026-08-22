@@ -115,6 +115,15 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		}
 		const activeIdentity = props.store.getReviewRefreshPresentation().activeIdentity;
 		const requestLifecycleRevision = lifecycleRevision;
+		if (
+			!props.store.markReviewCandidateReady({
+				affectedStableFileIdentities: candidate.affectedStableFileIdentities,
+				identity: candidate.identity,
+				role: 'installing',
+			})
+		) {
+			return;
+		}
 		admissionInFlightPublicationId = candidate.identity.publicationId;
 		props.onLifecycleEvent?.({
 			...candidateTelemetryFacts(candidate),
@@ -128,17 +137,24 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 				expectedDisplayedPublicationId: activeIdentity?.publicationId ?? null,
 			});
 		} catch {
-			if (
+			const requestIsCurrent =
 				requestLifecycleRevision === lifecycleRevision &&
-				admissionInFlightPublicationId === candidate.identity.publicationId
-			) {
+				admissionInFlightPublicationId === candidate.identity.publicationId;
+			if (requestIsCurrent) {
 				admissionInFlightPublicationId = null;
+				props.store.discardReviewCandidate(candidate.identity);
+				if (
+					readyCandidate !== null &&
+					identitiesAreExact(readyCandidate.identity, candidate.identity)
+				) {
+					readyCandidate = null;
+				}
 			}
 			props.onLifecycleEvent?.({
 				...candidateTelemetryFacts(candidate),
 				phase: 'installTerminal',
-				result: 'failure',
-				resultReason: 'admissionFailed',
+				result: requestIsCurrent ? 'failure' : 'stale',
+				resultReason: requestIsCurrent ? 'admissionFailed' : 'promotionStale',
 				trigger,
 			});
 			return;
@@ -170,7 +186,12 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 				trigger,
 			});
 			props.store.discardReviewCandidate(candidate.identity);
-			await evaluateReadyCandidate();
+			if (
+				readyCandidate !== null &&
+				identitiesAreExact(readyCandidate.identity, candidate.identity)
+			) {
+				readyCandidate = null;
+			}
 			return;
 		}
 		if (!props.store.promoteReviewCandidate(candidate.identity)) {

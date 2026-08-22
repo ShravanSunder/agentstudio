@@ -28,6 +28,7 @@ import { createBridgeWorkerRpcLifecycleStore } from './bridge-worker-rpc-lifecyc
 const ACTIVE = reviewIdentity(1, '11');
 const CANDIDATE = reviewIdentity(2, '12');
 const SUCCESSOR = reviewIdentity(3, '13');
+const LATEST = reviewIdentity(4, '14');
 
 describe('Bridge main Review publication integration', () => {
 	test('applies exact-active projection patches without staging a successor candidate', async () => {
@@ -146,6 +147,97 @@ describe('Bridge main Review publication integration', () => {
 
 		// Assert
 		expect(installed.epoch).toBe(102);
+		harness.dispose();
+	});
+
+	test('installs admitted B once and accepts replayed newest C through active-plus-one', async () => {
+		// Arrange
+		const harness = createHarness();
+		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
+		harness.receive(candidateReady(CANDIDATE, 'ordinary', []));
+		const admissionB = await harness.nextCommand('reviewPublicationInstallAdmit');
+		expect(admissionB).toMatchObject({
+			candidatePublicationId: CANDIDATE.publicationId,
+			expectedDisplayedPublicationId: null,
+		});
+
+		// Act: C completes while B owns installation; its first delivery cannot replace B.
+		harness.receive(reviewDisplayEvent(SUCCESSOR, 'item-c'));
+		harness.receive(reviewRenderPatch(SUCCESSOR, 'item-c'));
+		harness.receive(reviewPierrePublication(SUCCESSOR, 'item-c', 22));
+		harness.receive(candidateReady(SUCCESSOR, 'ordinary', []));
+		expect(harness.store.getReviewRefreshPresentation().candidate?.identity).toEqual(
+			mainIdentity(CANDIDATE),
+		);
+		expect(harness.rejectedItemIds).toContain('item-c');
+		expect(harness.courierJobs).toEqual([]);
+		harness.admit(admissionB, CANDIDATE, 'admitted');
+		const installedB = await harness.nextCommand('reviewPublicationInstalled');
+		harness.ack(installedB);
+		await harness.integration.whenSettled();
+
+		// Act: the comm worker re-exposes only newest C after native acknowledges B.
+		harness.receive(reviewDisplayEvent(SUCCESSOR, 'item-c'));
+		harness.receive(reviewRenderPatch(SUCCESSOR, 'item-c'));
+		harness.receive(reviewPierrePublication(SUCCESSOR, 'item-c', 22));
+		harness.receive(candidateReady(SUCCESSOR, 'ordinary', []));
+		const admissionC = await harness.nextCommand('reviewPublicationInstallAdmit');
+		expect(admissionC).toMatchObject({
+			candidatePublicationId: SUCCESSOR.publicationId,
+			expectedDisplayedPublicationId: CANDIDATE.publicationId,
+		});
+		harness.admit(admissionC, SUCCESSOR, 'admitted');
+		const installedC = await harness.nextCommand('reviewPublicationInstalled');
+		harness.ack(installedC);
+		await harness.integration.whenSettled();
+
+		// Assert
+		expect(harness.store.getReviewRefreshPresentation()).toEqual({
+			activeIdentity: mainIdentity(SUCCESSOR),
+			candidate: null,
+		});
+		expect(harness.courierJobs.map((job) => job.itemId)).toEqual(['item-c']);
+		expect(harness.store.getReviewCodeViewItemSnapshot('item-c')).toBeDefined();
+		expect(harness.store.getReviewAvailabilitySnapshot('item-c')).toEqual({ state: 'ready' });
+		harness.dispose();
+	});
+
+	test('accepts replayed D after native rejects installing C', async () => {
+		// Arrange: B is displayed and C owns the installing bank.
+		const harness = createHarness();
+		await installPublication(harness, CANDIDATE, 'item-b');
+		harness.receive(reviewDisplayEvent(SUCCESSOR, 'item-c'));
+		harness.receive(candidateReady(SUCCESSOR, 'ordinary', []));
+		const admissionC = await harness.nextCommand('reviewPublicationInstallAdmit');
+
+		// Act: D completes while C is pinned, then native rejects stale C.
+		harness.receive(reviewDisplayEvent(LATEST, 'item-d'));
+		harness.receive(candidateReady(LATEST, 'ordinary', []));
+		expect(harness.store.getReviewRefreshPresentation().candidate?.identity).toEqual(
+			mainIdentity(SUCCESSOR),
+		);
+		harness.admit(admissionC, SUCCESSOR, 'rejected');
+		await harness.integration.whenSettled();
+		expect(harness.store.getReviewRefreshPresentation().candidate).toBeNull();
+
+		// Act: the worker's rejection recovery re-exposes only newest D.
+		harness.receive(reviewDisplayEvent(LATEST, 'item-d'));
+		harness.receive(candidateReady(LATEST, 'ordinary', []));
+		const admissionD = await harness.nextCommand('reviewPublicationInstallAdmit');
+		expect(admissionD).toMatchObject({
+			candidatePublicationId: LATEST.publicationId,
+			expectedDisplayedPublicationId: CANDIDATE.publicationId,
+		});
+		harness.admit(admissionD, LATEST, 'admitted');
+		const installedD = await harness.nextCommand('reviewPublicationInstalled');
+		harness.ack(installedD);
+		await harness.integration.whenSettled();
+
+		// Assert
+		expect(harness.store.getReviewRefreshPresentation()).toEqual({
+			activeIdentity: mainIdentity(LATEST),
+			candidate: null,
+		});
 		harness.dispose();
 	});
 

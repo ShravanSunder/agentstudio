@@ -16,6 +16,7 @@ export function makeReviewProductTransport(props: {
 		sink: (frame: BridgeProductPanePresentationFrame) => void,
 	) => void;
 	readonly onCalledMethod?: ((method: string, request: unknown) => void) | undefined;
+	readonly onCall?: ((method: string, request: unknown) => unknown) | undefined;
 	readonly openedContentKinds?: string[];
 	readonly reviewSubscription: BridgeProductSubscription<'review.metadata'>;
 	readonly reviewAnnotationSubscription?: BridgeProductSubscription<'review.annotations'>;
@@ -31,6 +32,10 @@ export function makeReviewProductTransport(props: {
 			const [method, request] = arguments_;
 			props.calledMethods?.push(method);
 			props.onCalledMethod?.(method, request);
+			if (props.onCall !== undefined) {
+				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The test callback supplies the result for its exact product-call fixture.
+				return (await props.onCall(method, request)) as never;
+			}
 			return { reason: 'notConfigured', status: 'unavailable' } as never;
 		},
 		openContent: (descriptor) => {

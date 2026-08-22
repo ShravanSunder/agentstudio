@@ -1,9 +1,6 @@
 import { recordWorktreeAnnotationLifecycleTelemetry } from '../../worktree-annotations/worktree-annotation-lifecycle-telemetry.js';
 import { runBridgeCommWorkerAnnotationOutputInspection } from './bridge-comm-worker-annotation-output-inspection.js';
-import {
-	bridgeCommWorkerAnnotationCommandAcceptedEvent,
-	bridgeCommWorkerAnnotationProjectionConvergenceEvent,
-} from './bridge-comm-worker-annotation-runtime-events.js';
+import { bridgeCommWorkerAnnotationProjectionConvergenceEvent } from './bridge-comm-worker-annotation-runtime-events.js';
 import {
 	createBridgeCommWorkerCommandHandler,
 	type BridgeCommWorkerFileMetadataDemand,
@@ -31,7 +28,10 @@ import {
 } from './bridge-comm-worker-operation-lifecycle.js';
 import { BridgeCommWorkerPanePresentationAuthority } from './bridge-comm-worker-pane-presentation.js';
 import { drainBridgeCommWorkerPreparations } from './bridge-comm-worker-preparation-drain.js';
-import { publishBridgeCommWorkerProductControlCompletion } from './bridge-comm-worker-product-control-completion.js';
+import {
+	completeBridgeCommWorkerProductControlSuccess,
+	notifyBridgeCommWorkerProductControlFailure,
+} from './bridge-comm-worker-product-control-completion.js';
 import { callCurrentFileSourceWithTelemetry } from './bridge-comm-worker-product-control-runtime.js';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import {
@@ -192,6 +192,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		abortAllBridgeCommWorkerFileContentPreparations(fileContentCancellation);
 	let activeFileWorkerDerivationEpoch: number | null = null;
 	let activeReviewWorkerDerivationEpoch: number | null = null;
+	let reviewMetadataApplicator: BridgeCommWorkerReviewMetadataApplicator | null = null;
 	const reviewOperationLifecycleTelemetry = new BridgeCommWorkerReviewOperationLifecycleTelemetry(
 		props.telemetryClient,
 	);
@@ -535,7 +536,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			publishUpdatingChrome();
 		});
 		const fileMetadataProjection = new BridgeCommWorkerFileMetadataProjection();
-		const reviewMetadataApplicator = new BridgeCommWorkerReviewMetadataApplicator({
+		const activeReviewMetadataApplicator = new BridgeCommWorkerReviewMetadataApplicator({
 			applyRuntimeSource: (application) =>
 				reviewOperationLifecycleTelemetry.wrapApplication(application, () => {
 					const transaction = handler.prepareReviewMetadataApplication(application);
@@ -567,6 +568,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			},
 			publishDisplayPatches: publishReviewDisplayPatches,
 		});
+		reviewMetadataApplicator = activeReviewMetadataApplicator;
 		const installedProductController = new BridgeCommWorkerProductController({
 			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 			callCurrentFileSource: () =>
@@ -679,9 +681,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			onReviewMetadataEvent: (event, workerDerivationEpoch) => {
 				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
 				reviewDemandScheduling.updateWorkerDerivationEpoch(workerDerivationEpoch);
-				const receipt = reviewMetadataApplicator.apply(event, workerDerivationEpoch);
+				const receipt = activeReviewMetadataApplicator.apply(event, workerDerivationEpoch);
 				reviewRenderPublicationAuthority.recordReviewPublicationIdentity(
-					reviewMetadataApplicator.admittedPublicationIdentity(),
+					activeReviewMetadataApplicator.admittedPublicationIdentity(),
 				);
 				publishUpdatingChrome();
 				return receipt;
@@ -692,7 +694,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				reviewDemandScheduling.updateWorkerDerivationEpoch(workerDerivationEpoch);
 				publishUpdatingChrome();
 				const failureDisposition =
-					reviewMetadataApplicator.handleMetadataFailure(workerDerivationEpoch);
+					activeReviewMetadataApplicator.handleMetadataFailure(workerDerivationEpoch);
 				if (failureDisposition === 'noActive') {
 					publishReviewDisplayPatches({
 						patches: [
@@ -899,6 +901,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			});
 		}
 		if (productControlCommand !== null && shouldSendProductControl) {
+			const productControlReviewWorkerDerivationEpoch = activeReviewWorkerDerivationEpoch;
 			if (productControlCommand.command.method === 'review.comparisonTargets.query') {
 				comparisonTargetsQueryRunner.abort();
 				activeComparisonTargetsProductControlRequestId = productControlCommand.requestId;
@@ -908,24 +911,21 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				timeoutMilliseconds: productControlTimeoutMilliseconds,
 			})
 				.then((actionResult: unknown): void => {
-					const annotationAcceptedEvent = bridgeCommWorkerAnnotationCommandAcceptedEvent({
-						actionResult,
-						command: productControlCommand.command,
-						requestId: productControlCommand.requestId,
-					});
-					if (annotationAcceptedEvent !== null) port.postMessage(annotationAcceptedEvent);
 					if (
 						productControlCommand.command.method === 'review.comparisonTargets.query' &&
 						activeComparisonTargetsProductControlRequestId === productControlCommand.requestId
 					) {
 						void comparisonTargetsQueryRunner.run(productControlCommand.requestId, actionResult);
 					}
-					publishBridgeCommWorkerProductControlCompletion({
+					completeBridgeCommWorkerProductControlSuccess({
 						actionResult,
 						command: productControlCommand.command,
+						mainCommand: parsedMessage.data,
 						messages,
 						publish: (message): void => port.postMessage(message),
 						requestId: productControlCommand.requestId,
+						reviewSuccessorSettlementOwner: reviewMetadataApplicator,
+						reviewWorkerDerivationEpoch: productControlReviewWorkerDerivationEpoch,
 					});
 				})
 				.catch((_error: unknown): void => {
@@ -948,6 +948,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 								: {}),
 						}),
 					);
+					notifyBridgeCommWorkerProductControlFailure({
+						command: productControlCommand.command,
+						reviewSuccessorSettlementOwner: reviewMetadataApplicator,
+						reviewWorkerDerivationEpoch: productControlReviewWorkerDerivationEpoch,
+					});
 				});
 		}
 		if (metadataInterestUpdateCommand !== null && shouldUpdateReviewMetadataInterests) {
