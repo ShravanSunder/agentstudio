@@ -1,38 +1,93 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Observation
 import Testing
 
 @testable import AgentStudioRepoExplorer
 
+private final class RepoExplorerProjectionExecutionRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedExecutionCount = 0
+
+    var executionCount: Int {
+        lock.withLock { storedExecutionCount }
+    }
+
+    func recordExecution() {
+        lock.withLock { storedExecutionCount += 1 }
+    }
+}
+
 @Suite("RepoExplorer projection demand")
 struct RepoExplorerProjectionDemandTests {
     @MainActor
-    @Test("adapter owns observation generation and hidden suspension")
-    func adapterOwnsObservationLifecycle() async {
-        let source = RepoExplorerObservationSourceProbe()
-        let adapter = RepoExplorerProjectionAdapter()
-        defer { adapter.stop() }
-        var invalidationCount = 0
+    @Test("By Repository pane activity performs zero capture execution and publication")
+    func byRepositoryRejectsPaneActivityBeforeCapture() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let repo = store.addRepo(at: URL(filePath: "/tmp/repo-explorer-adapter-admission"))
+            let worktree = try #require(repo.worktrees.first)
+            let pane = store.createPane(
+                launchDirectory: worktree.path,
+                title: "before",
+                facets: PaneContextFacets(cwd: worktree.path)
+            )
+            store.appendTab(Tab(paneId: pane.id))
+            let preferences = RepoExplorerSidebarPrefsAtom()
+            preferences.setGroupingMode(.repo)
+            let capture = RepoExplorerProjectionInputCapture(
+                store: store,
+                preferences: preferences,
+                repoCache: atoms.repoCache,
+                sidebarState: atoms.workspaceSidebarState,
+                sidebarCache: atoms.sidebarCache,
+                coreAtoms: atoms,
+                bridgeAttendanceSnapshot: { _ in nil },
+                latestPaneMessageSnapshot: { paneID in
+                    atoms.paneActivityStatus.status(for: paneID)?.lastOutputLine
+                }
+            )
+            let recorder = RepoExplorerProjectionExecutionRecorder()
+            let adapter = RepoExplorerProjectionAdapter(
+                inputCapture: capture,
+                project: { work throws(CancellationError) in
+                    recorder.recordExecution()
+                    do {
+                        return try RepoExplorerProjectionWorker.project(work)
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        preconditionFailure("Unexpected projection failure: \(error)")
+                    }
+                }
+            )
+            defer { adapter.stop() }
 
-        adapter.startObservation {
-            _ = source.value
-        } onInvalidated: { _ in
-            invalidationCount += 1
+            adapter.updateDemand(isVisible: true, query: "")
+            for _ in 0..<200 where adapter.publishedResult == nil {
+                await Task.yield()
+            }
+            let baselineExecutionCount = recorder.executionCount
+            let baselineRevision = adapter.publishedRevision
+            #expect(baselineExecutionCount == 1)
+            #expect(adapter.observationRegistration.paneIDs.isEmpty)
+
+            store.paneAtom.updatePaneTitle(pane.id, title: "after")
+            atoms.paneActivityStatus.recordSettledActivity(
+                paneId: pane.id,
+                lastOutputLine: "activity changed"
+            )
+            for _ in 0..<200 { await Task.yield() }
+
+            #expect(recorder.executionCount == baselineExecutionCount)
+            #expect(adapter.publishedRevision == baselineRevision)
         }
-        #expect(invalidationCount == 1)
-
-        source.value = 1
-        for _ in 0..<100 where invalidationCount != 2 {
-            await Task.yield()
-        }
-        #expect(invalidationCount == 2)
-
-        adapter.suspendObservation()
-        source.value = 2
-        for _ in 0..<100 { await Task.yield() }
-        #expect(invalidationCount == 2)
     }
 
     @Test("same-baseline pending deltas union B and C scope")
@@ -221,10 +276,4 @@ struct RepoExplorerProjectionDemandTests {
             trigger: .dataRefresh
         )
     }
-}
-
-@MainActor
-@Observable
-private final class RepoExplorerObservationSourceProbe {
-    var value = 0
 }

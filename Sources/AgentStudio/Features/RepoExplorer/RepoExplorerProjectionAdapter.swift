@@ -72,8 +72,25 @@ final class RepoExplorerProjectionAdapter {
     @ObservationIgnored private var hasStopped = false
     @ObservationIgnored private var observationGeneration = 0
     @ObservationIgnored private var projectionBaselineResult: RepoExplorerProjectionResult?
+    @ObservationIgnored private let inputCapture: RepoExplorerProjectionInputCapture?
+    @ObservationIgnored private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    @ObservationIgnored private let recencyNow: @MainActor @Sendable () -> Date
+    @ObservationIgnored private let recencyDelay: AsyncDelay
+    @ObservationIgnored private let initialProjectionTrigger: AppPolicies.SidebarProjection.Trigger
+    @ObservationIgnored private var isDemanded = false
+    @ObservationIgnored private var query = ""
+    @ObservationIgnored private var projectionGeneration = 0
+    @ObservationIgnored private var cachedProjectionRequest: RepoExplorerProjectionRequest?
+    @ObservationIgnored private var recencyReferenceDate = Date()
+    @ObservationIgnored private var recencyDeadlineTask: Task<Void, Never>?
+    @ObservationIgnored private(set) var observationRegistration = RepoExplorerObservationRegistration.hidden
 
     init(
+        inputCapture: RepoExplorerProjectionInputCapture? = nil,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        recencyNow: @escaping @MainActor @Sendable () -> Date = Date.init,
+        recencyDelay: AsyncDelay = .taskSleep,
+        initialProjectionTrigger: AppPolicies.SidebarProjection.Trigger = .startupDiagnostic,
         onProjectionSuppressed:
             @escaping @MainActor @Sendable (
                 RepoExplorerProjectionResult
@@ -90,6 +107,11 @@ final class RepoExplorerProjectionAdapter {
                 }
             }
     ) {
+        self.inputCapture = inputCapture
+        self.performanceTraceRecorder = performanceTraceRecorder
+        self.recencyNow = recencyNow
+        self.recencyDelay = recencyDelay
+        self.initialProjectionTrigger = initialProjectionTrigger
         self.onProjectionSuppressed = onProjectionSuppressed
         projectionFamily = RepoExplorerMaterializedProjectionFamily(
             telemetryLabel: "repo_explorer_projection",
@@ -113,6 +135,7 @@ final class RepoExplorerProjectionAdapter {
 
     func admit(_ request: RepoExplorerProjectionRequest) {
         guard !hasStopped else { return }
+        establishDirectAdmissionIntentIfNeeded(request)
         projectionFamily.admit(.full(request), for: .sidebar)
     }
 
@@ -121,6 +144,7 @@ final class RepoExplorerProjectionAdapter {
         request: RepoExplorerProjectionRequest
     ) {
         guard !hasStopped, !changes.isEmpty else { return }
+        establishDirectAdmissionIntentIfNeeded(request)
         guard let projectionBaselineResult else {
             admit(request)
             return
@@ -138,55 +162,157 @@ final class RepoExplorerProjectionAdapter {
         )
     }
 
-    func startObservation(
-        observeInputs: @escaping @MainActor () -> Void,
-        onInvalidated: @escaping @MainActor (_ force: Bool) -> Void
+    private func establishDirectAdmissionIntentIfNeeded(
+        _ request: RepoExplorerProjectionRequest
     ) {
-        guard !hasStopped else { return }
-        observationGeneration += 1
-        registerObservation(
-            generation: observationGeneration,
-            force: true,
-            observeInputs: observeInputs,
-            onInvalidated: onInvalidated
-        )
+        guard inputCapture == nil else { return }
+        projectionGeneration = request.generation
+        cachedProjectionRequest = request
     }
 
-    func suspendObservation() {
+    func updateDemand(isVisible: Bool, query: String) {
+        guard !hasStopped else { return }
+        let visibilityChanged = isDemanded != isVisible
+        let queryChanged = self.query != query
+        isDemanded = isVisible
+        self.query = query
+
+        guard isVisible else {
+            suspendDemand()
+            return
+        }
+
+        if visibilityChanged {
+            recencyReferenceDate = recencyNow()
+            startInputObservation(force: true)
+        } else if queryChanged {
+            captureProjectionInputs(force: false)
+        } else if observationRegistration == .hidden {
+            startInputObservation(force: true)
+        }
+    }
+
+    func suspendDemand() {
+        isDemanded = false
+        observationRegistration = .hidden
         observationGeneration += 1
+        recencyDeadlineTask?.cancel()
+        recencyDeadlineTask = nil
     }
 
     func stop() {
         guard !hasStopped else { return }
         hasStopped = true
-        suspendObservation()
+        suspendDemand()
         projectionFamily.stop()
     }
 
-    private func registerObservation(
-        generation: Int,
-        force: Bool,
-        observeInputs: @escaping @MainActor () -> Void,
-        onInvalidated: @escaping @MainActor (_ force: Bool) -> Void
-    ) {
-        guard !hasStopped, observationGeneration == generation else { return }
-        withObservationTracking {
-            observeInputs()
+    private func startInputObservation(force: Bool) {
+        guard isDemanded, inputCapture != nil else { return }
+        observationGeneration += 1
+        registerInputObservation(generation: observationGeneration, force: force)
+    }
+
+    private func registerInputObservation(generation: Int, force: Bool) {
+        guard !hasStopped, isDemanded, observationGeneration == generation,
+            let inputCapture
+        else { return }
+        let registration = withObservationTracking {
+            inputCapture.observeInputs(isVisible: isDemanded)
         } onChange: { [weak self] in
             Task { @MainActor in
                 await Task.yield()
-                guard let self, !self.hasStopped, self.observationGeneration == generation else {
-                    return
-                }
-                self.registerObservation(
-                    generation: generation,
-                    force: false,
-                    observeInputs: observeInputs,
-                    onInvalidated: onInvalidated
-                )
+                guard let self, !self.hasStopped, self.isDemanded,
+                    self.observationGeneration == generation
+                else { return }
+                self.registerInputObservation(generation: generation, force: false)
             }
         }
-        onInvalidated(force)
+        observationRegistration = registration
+        captureProjectionInputs(force: force)
+    }
+
+    private func captureProjectionInputs(force: Bool) {
+        guard isDemanded, let inputCapture else { return }
+        let clock = ContinuousClock()
+        let requestBuildStart = clock.now
+        let request = inputCapture.captureRequest(
+            query: query,
+            referenceDate: recencyReferenceDate,
+            trigger: initialProjectionTrigger
+        )
+        let requestBuildDuration = requestBuildStart.duration(to: clock.now)
+        if !force {
+            RepoExplorerPerformanceTelemetry.shared.record(
+                stage: "capture_rebuild",
+                outcome: "admitted"
+            )
+        }
+        refreshProjection(
+            request: request,
+            requestBuildDuration: requestBuildDuration,
+            force: force
+        )
+    }
+
+    private func refreshProjection(
+        request: RepoExplorerProjectionRequest,
+        requestBuildDuration: Duration,
+        force: Bool
+    ) {
+        let requestKey = RepoExplorerView.projectionRequestKey(for: request)
+        if !force, let cachedProjectionRequest,
+            RepoExplorerView.projectionRequestKey(for: cachedProjectionRequest) == requestKey
+        {
+            return
+        }
+
+        if !force, let previousRequest = cachedProjectionRequest,
+            let scopedChange = request.scopedChange(from: previousRequest)
+        {
+            projectionGeneration += 1
+            let generatedRequest = request.generated(
+                generation: projectionGeneration,
+                trigger: .dataRefresh
+            )
+            RepoExplorerPerformanceTelemetry.shared.record(stage: "affected_row", outcome: "admitted")
+            cachedProjectionRequest = generatedRequest
+            admitDelta([scopedChange], request: generatedRequest)
+            return
+        }
+
+        if !force {
+            let captureScope =
+                cachedProjectionRequest.map {
+                    request.hasMembershipChange(from: $0) ? "membership_path" : "whole_surface"
+                } ?? "whole_surface"
+            RepoExplorerPerformanceTelemetry.shared.record(stage: captureScope, outcome: "admitted")
+        }
+
+        projectionGeneration += 1
+        let trigger = RepoExplorerView.sidebarProjectionTrigger(
+            previous: cachedProjectionRequest,
+            next: request,
+            initialProjectionTrigger: initialProjectionTrigger
+        )
+        let generatedRequest = request.generated(
+            generation: projectionGeneration,
+            trigger: trigger
+        )
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: requestBuildDuration,
+            attributes: traceAttributes(
+                for: generatedRequest,
+                phase: "request_build_mainactor",
+                extra: [
+                    "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: requestBuildDuration))
+                ]
+            )
+        )
+        cachedProjectionRequest = generatedRequest
+        admit(generatedRequest)
     }
 
     private func handleProjectionCompletion(
@@ -198,9 +324,21 @@ final class RepoExplorerProjectionAdapter {
             guard result.baselineRevision == nil || result.baselineRevision == publishedRevision else {
                 return
             }
+            guard result.generation == projectionGeneration,
+                result.snapshot == cachedProjectionRequest?.snapshot,
+                result.collapsedGroupIds == cachedProjectionRequest?.collapsedGroupIds,
+                result.isFiltering == cachedProjectionRequest?.isFiltering
+            else {
+                RepoExplorerPerformanceTelemetry.shared.record(
+                    stage: "mainactor_apply",
+                    outcome: "superseded"
+                )
+                return
+            }
             projectionBaselineResult = result
             publishedRevision += 1
             publishedResult = result
+            scheduleRecencyDeadline(for: result)
         case .equal:
             guard result.baselineRevision == nil || result.baselineRevision == publishedRevision else {
                 return
@@ -210,6 +348,65 @@ final class RepoExplorerProjectionAdapter {
         case .superseded, .cancelled:
             break
         }
+    }
+
+    private func scheduleRecencyDeadline(for result: RepoExplorerProjectionResult) {
+        recencyDeadlineTask?.cancel()
+        recencyDeadlineTask = nil
+        guard isDemanded, observationRegistration.requiresRecencyDeadline else { return }
+
+        let demandedPaneIDs = Set(
+            result.projection.paneRowsByGroupId.values.flatMap { $0.map(\.destination.paneId) }
+                + result.projection.sections.flatMap { section in
+                    section.unassociatedPaneDestinations.map(\.paneId)
+                }
+        )
+        let now = recencyNow()
+        let presentationChangeDates = result.paneRowFactsByPaneId
+            .filter { demandedPaneIDs.contains($0.key) }
+            .values
+            .map { facts in
+                RepoExplorerPaneRecencyText.nextPresentationChangeDate(
+                    referenceDate: facts.recencyReferenceDate,
+                    now: now
+                )
+            }
+        guard let nextDeadline = presentationChangeDates.min() else { return }
+
+        let delayNanoseconds = Int64(max(0, nextDeadline.timeIntervalSince(now)) * 1_000_000_000)
+        recencyDeadlineTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await recencyDelay.wait(.nanoseconds(delayNanoseconds))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, isDemanded else { return }
+            recencyReferenceDate = recencyNow()
+            captureProjectionInputs(force: false)
+        }
+    }
+
+    private func traceAttributes(
+        for request: RepoExplorerProjectionRequest,
+        phase: String,
+        extra: [String: AgentStudioTraceValue] = [:]
+    ) -> [String: AgentStudioTraceValue] {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.sidebar.surface": .string("repo"),
+            "agentstudio.performance.sidebar.phase": .string(phase),
+            "agentstudio.performance.sidebar.trigger": .string(request.trigger.rawValue),
+            "agentstudio.performance.sidebar.query_state": .string(
+                request.snapshot.query.isEmpty ? "empty" : "non_empty"),
+            "agentstudio.performance.sidebar.group_mode": .string(request.snapshot.groupingMode.rawValue),
+            "agentstudio.performance.sidebar.sort_order": .string(request.snapshot.sortOrder.rawValue),
+            "agentstudio.performance.sidebar.repo.count": .int(request.snapshot.repos.count),
+            "agentstudio.performance.sidebar.query_character.count": .int(request.snapshot.query.count),
+            "agentstudio.performance.sidebar.collapsed_group.count": .int(request.collapsedGroupIds.count),
+            "agentstudio.performance.sidebar.is_filtering": .bool(request.isFiltering),
+        ]
+        attributes.merge(extra) { _, newValue in newValue }
+        return attributes
     }
 
     private nonisolated static func hasEqualRenderedContent(

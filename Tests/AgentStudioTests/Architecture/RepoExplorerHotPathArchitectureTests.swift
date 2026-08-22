@@ -42,8 +42,8 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!source.contains(".id(sidebarProjectionFingerprint)"))
     }
 
-    @Test("projection demand gates capture before hidden, grouping, and deadline work")
-    func projectionRequestsAreBuiltOnlyAfterObservationAdmission() throws {
+    @Test("projection adapter owns demand observation capture and deadlines")
+    func projectionAdapterOwnsTheCompleteInputLifecycle() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let source = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
@@ -55,64 +55,48 @@ struct RepoExplorerHotPathArchitectureTests {
             ),
             encoding: .utf8
         )
+        let captureSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionInputCapture.swift"
+            ),
+            encoding: .utf8
+        )
 
         #expect(!source.contains(".onChange(of: projectionRequestKey)"))
         #expect(!source.contains("withObservationTracking"))
         #expect(!source.contains("private func observeProjectionInputs("))
         #expect(adapterSource.contains("withObservationTracking"))
-        #expect(adapterSource.contains("func startObservation("))
-        #expect(adapterSource.contains("func suspendObservation()"))
-        #expect(source.contains("projectionInputRevision"))
+        #expect(adapterSource.contains("func updateDemand("))
+        #expect(adapterSource.contains("func suspendDemand()"))
+        #expect(adapterSource.contains("RepoExplorerObservationRegistration"))
+        #expect(adapterSource.contains("scheduleRecencyDeadline"))
+        #expect(!source.contains("projectionInputRevision"))
+        #expect(!source.contains("private var projectionRequest:"))
+        #expect(!source.contains("private func startProjectionObservation"))
+        #expect(!source.contains("private func captureProjectionInputs"))
+        #expect(!source.contains("@State private var projectionGeneration"))
+        #expect(!source.contains("@State private var cachedProjectionRequest"))
+        #expect(!source.contains("@State private var recencyDeadlineTask"))
         #expect(!source.contains("let request = withObservationTracking"))
-        #expect(source.contains("let currentSurface = uiState.sidebarSurface"))
-        #expect(source.contains("guard isProjectionDemanded, currentSurface == .repos else { return 0 }"))
-        #expect(source.contains("let observesPanePresentation = groupingMode != .repo"))
-        #expect(source.contains("let observesTabPresentation = groupingMode == .tab"))
-        #expect(source.contains("repoCache.isPullRequestLoading(forRepository: repositoryID)"))
-        #expect(source.contains("repoCache.isPullRequestDataUnavailable(forRepository: repositoryID)"))
+        #expect(captureSource.contains("repoCache.isPullRequestLoading(forRepository: repositoryID)"))
+        #expect(captureSource.contains("repoCache.isPullRequestDataUnavailable(forRepository: repositoryID)"))
         #expect(!source.contains("repoCache.loadingPullRequestRepoIds"))
         #expect(!source.contains("repoCache.unavailablePullRequestRepoIds"))
         #expect(!source.contains("paneRecencyDisplayCadence"))
         #expect(!source.contains("while !Task.isCancelled"))
-        #expect(source.contains("scheduleRecencyDeadline(for: result)"))
-        #expect(source.contains("projectionAdapter.admitDelta("))
-        #expect(
-            source.contains(
-                "let request = projectionRequest\n        let requestBuildDuration"
-            )
-        )
-        let requestCapture = try #require(source.range(of: "let request = projectionRequest"))
-        let captureTelemetry = try #require(
-            source.range(
-                of: "stage: \"capture_rebuild\"",
-                range: requestCapture.upperBound..<source.endIndex
-            )
-        )
-        let requestEquality = try #require(
-            source.range(
-                of: "Self.projectionRequestKey(for: cachedProjectionRequest) == requestKey",
-                range: captureTelemetry.upperBound..<source.endIndex
-            )
-        )
-        #expect(captureTelemetry.lowerBound < requestEquality.lowerBound)
+        #expect(adapterSource.contains("admitDelta("))
+        #expect(adapterSource.contains("stage: \"capture_rebuild\""))
         #expect(source.contains(".onChange(of: debouncedQuery)"))
-        #expect(source.contains("guard isProjectionDemanded else { return }"))
-        #expect(
-            source.contains(
-                """
-                refreshProjection(
-                            request: request,
-                            requestBuildDuration: requestBuildDuration
-                """
-            )
-        )
+        #expect(source.contains("projectionAdapter.updateDemand("))
     }
 
     @Test("Repo Explorer capture consumes stored topology identity")
     func repoExplorerCaptureConsumesStoredTopologyIdentity() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let viewSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+        let captureSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionInputCapture.swift"
+            ),
             encoding: .utf8
         )
         let presentationSource = try String(
@@ -127,9 +111,9 @@ struct RepoExplorerHotPathArchitectureTests {
         )
 
         let sidebarReposBody = try #require(
-            viewSource.repoExplorerSlice(
-                from: "private var sidebarRepos: [RepoPresentationItem]",
-                to: "private var sidebarSnapshot: RepoExplorerSnapshot"
+            captureSource.repoExplorerSlice(
+                from: "private func sidebarRepos() -> [RepoPresentationItem]",
+                to: "func makeSidebarSnapshot("
             )
         )
         let repoInitializerBody = try #require(
@@ -283,10 +267,17 @@ struct RepoExplorerHotPathArchitectureTests {
     @Test("repo sidebar product controls route through App command composition")
     func repoSidebarProductControlsRouteThroughAppCommandComposition() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let featureSource = try String(
+        let viewSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
             encoding: .utf8
         )
+        let commandToolbarSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift"
+            ),
+            encoding: .utf8
+        )
+        let featureSource = viewSource + commandToolbarSource
         let appCompositionSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift"),
             encoding: .utf8
