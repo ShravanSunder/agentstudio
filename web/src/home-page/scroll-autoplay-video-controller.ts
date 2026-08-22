@@ -14,8 +14,8 @@ interface VideoPlaybackState {
   replayTimer: number | undefined;
 }
 
-const defaultStartProgress = 0.9;
-const defaultStopProgress = 0.85;
+const defaultStartProgress = 0.95;
+const defaultStopProgress = 0.9;
 const defaultReplayDelayMs = 3000;
 
 function readNumberAttribute(video: HTMLVideoElement, name: string, fallback: number): number {

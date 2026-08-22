@@ -193,8 +193,8 @@ test("coordinates session video playback with glass focus and manual intent", as
 
   const video = page.locator("[data-session-restore-video]");
   const materialSurface = page.locator("[data-scroll-material-surface]").filter({ has: video });
-  await expect(video).toHaveAttribute("data-scroll-autoplay-start-progress", "0.9");
-  await expect(video).toHaveAttribute("data-scroll-autoplay-stop-progress", "0.85");
+  await expect(video).toHaveAttribute("data-scroll-autoplay-start-progress", "0.95");
+  await expect(video).toHaveAttribute("data-scroll-autoplay-stop-progress", "0.9");
   await expect(video).toHaveAttribute("data-scroll-autoplay-replay-delay-ms", "3000");
   await expect
     .poll(() =>
@@ -264,13 +264,13 @@ test("coordinates session video playback with glass focus and manual intent", as
   await moveSurfaceToProgress(0);
   await expect.poll(async () => (await readVideoState()).paused).toBe(true);
 
-  await moveSurfaceToProgress(0.91);
+  await moveSurfaceToProgress(0.96);
   await expect.poll(async () => (await readVideoState()).paused).toBe(false);
 
-  await moveSurfaceToProgress(0.87);
+  await moveSurfaceToProgress(0.92);
   await expect.poll(async () => (await readVideoState()).paused).toBe(false);
 
-  await moveSurfaceToProgress(0.84);
+  await moveSurfaceToProgress(0.89);
   await expect.poll(async () => (await readVideoState()).paused).toBe(true);
 
   await playManually();
@@ -287,17 +287,17 @@ test("coordinates session video playback with glass focus and manual intent", as
   await page.waitForTimeout(3200);
   await expect.poll(async () => (await readVideoState()).ended).toBe(true);
 
-  await moveSurfaceToProgress(0.91);
+  await moveSurfaceToProgress(0.96);
   await page.waitForTimeout(1000);
   await expect.poll(async () => (await readVideoState()).paused).toBe(true);
   await page.waitForTimeout(2200);
   await expect.poll(async () => (await readVideoState()).paused).toBe(false);
 
   await pauseManually();
-  await moveSurfaceToProgress(0.87);
+  await moveSurfaceToProgress(0.92);
   await expect.poll(async () => (await readVideoState()).paused).toBe(true);
-  await moveSurfaceToProgress(0.84);
-  await moveSurfaceToProgress(0.91);
+  await moveSurfaceToProgress(0.89);
+  await moveSurfaceToProgress(0.96);
   await expect.poll(async () => (await readVideoState()).paused).toBe(false);
 });
 
