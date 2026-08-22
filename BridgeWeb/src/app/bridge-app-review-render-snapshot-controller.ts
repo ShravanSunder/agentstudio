@@ -17,6 +17,7 @@ import {
 	type BridgeMainCodeViewItem,
 	type BridgeMainRenderSnapshotStore,
 	type BridgeMainReviewCatalogSnapshot,
+	type BridgeMainReviewRefreshPresentation,
 	type BridgeMainReviewSourceDisplaySlice,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import {
@@ -88,6 +89,7 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly markFileViewed: (itemId: string, onDeliveryFailure?: () => void) => boolean;
 	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
 	readonly reviewSourceSlice: BridgeMainReviewSourceDisplaySlice | null;
+	readonly reviewRefreshPresentation: BridgeMainReviewRefreshPresentation;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
 	readonly selectedItemId: string | null;
@@ -144,6 +146,11 @@ export function useBridgeReviewRenderSnapshotController(
 		displayStore.subscribeReviewSource,
 		displayStore.getReviewSourceSnapshot,
 		displayStore.getReviewSourceSnapshot,
+	);
+	const reviewRefreshPresentation = useSyncExternalStore(
+		displayStore.subscribeReviewRefreshPresentation,
+		displayStore.getReviewRefreshPresentation,
+		displayStore.getReviewRefreshPresentation,
 	);
 	const selectionSlice = useSyncExternalStore(
 		displayStore.subscribeReviewSelection,
@@ -221,6 +228,7 @@ export function useBridgeReviewRenderSnapshotController(
 	useEffect((): (() => void) => {
 		const reviewPublicationIntegration = createBridgeMainReviewPublicationIntegration({
 			client: props.reviewClient,
+			nextCommandEpoch: (): number => nextBridgeReviewWorkerEpoch(workerEpochRef),
 			onActiveRenderPatchesApplied: (message, patches): void => {
 				for (const patch of patches) {
 					if (patch.slice !== 'panelChrome') continue;
@@ -236,6 +244,7 @@ export function useBridgeReviewRenderSnapshotController(
 			pierreCourier,
 			renderFulfillmentCoordinator: props.reviewClient.renderFulfillmentCoordinator,
 			store: displayStore,
+			telemetryRecorder: props.telemetryRecorderRef?.current,
 		});
 		reviewPublicationIntegrationRef.current = reviewPublicationIntegration;
 		reviewPublicationIntegration.start();
@@ -501,6 +510,7 @@ export function useBridgeReviewRenderSnapshotController(
 		markFileViewed,
 		panelChromeSlice,
 		reviewSourceSlice,
+		reviewRefreshPresentation,
 		selectedCodeViewItem: selectedCodeViewItem ?? null,
 		selectedContentAvailability,
 		selectedItemId,

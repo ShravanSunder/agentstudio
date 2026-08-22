@@ -11,6 +11,7 @@ import {
 	type BridgeMainReviewInstallAdmissionRequest,
 	type BridgeMainReviewInstallAdmissionResult,
 	type BridgeMainReviewPresentationInstallationPort,
+	type BridgeMainReviewRefreshLifecycleEvent,
 	type BridgeMainReviewSemanticAttention,
 } from './bridge-main-review-presentation-installation-gate.js';
 import type { BridgeWorkerReviewCandidateReadyEvent } from './bridge-worker-review-publication-contracts.js';
@@ -20,6 +21,66 @@ const CANDIDATE = identity(2, '12');
 const SUCCESSOR = identity(3, '13');
 
 describe('Bridge main Review presentation installation gate', () => {
+	test('reports one scrubbed lifecycle sequence for hold, Apply now, and cleanup', async () => {
+		// Arrange
+		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
+		const port = new ImmediateInstallationPort(['admitted']);
+		const events: BridgeMainReviewRefreshLifecycleEvent[] = [];
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			onLifecycleEvent: (event): void => {
+				events.push(event);
+			},
+			store,
+		});
+
+		// Act
+		await gate.handleCandidateReady(
+			candidateReady(CANDIDATE, 'promoted', ['file-b']),
+			attention(['file-b']),
+		);
+		await gate.applyNow();
+		gate.close();
+
+		// Assert
+		expect(events).toEqual([
+			{
+				affectedStableFileCount: 1,
+				generation: CANDIDATE.generation,
+				phase: 'candidateReady',
+				presentationClass: { kind: 'promoted', reason: 'files' },
+			},
+			{
+				affectedStableFileCount: 1,
+				generation: CANDIDATE.generation,
+				phase: 'candidateHeld',
+				presentationClass: { kind: 'promoted', reason: 'files' },
+			},
+			{
+				affectedStableFileCount: 1,
+				generation: CANDIDATE.generation,
+				phase: 'installRequested',
+				presentationClass: { kind: 'promoted', reason: 'files' },
+				trigger: 'applyNow',
+			},
+			{
+				affectedStableFileCount: 1,
+				generation: CANDIDATE.generation,
+				phase: 'installTerminal',
+				presentationClass: { kind: 'promoted', reason: 'files' },
+				result: 'success',
+				resultReason: 'none',
+				trigger: 'applyNow',
+			},
+			{
+				activeBankCount: 1,
+				candidateBankCount: 0,
+				phase: 'cleanup',
+				reason: 'close',
+			},
+		]);
+	});
+
 	test('auto-installs an ordinary candidate and sends its installed receipt', async () => {
 		// Arrange
 		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
@@ -75,6 +136,33 @@ describe('Bridge main Review presentation installation gate', () => {
 
 		// Assert
 		expect(store.roles).toEqual(['updateReady', 'provisional']);
+		expect(store.promotions).toEqual([CANDIDATE.publicationId]);
+	});
+
+	test('treats promoted unknown as affecting any current Review attention without an identity union', async () => {
+		// Arrange
+		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
+		const port = new ImmediateInstallationPort(['admitted']);
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			store,
+		});
+		const unknownCandidate = {
+			...candidateReady(CANDIDATE, 'promoted', []),
+			preDeliveryPresentationClass: { kind: 'promoted', reason: 'unknown' } as const,
+		};
+
+		// Act
+		await gate.handleCandidateReady(unknownCandidate, attention(['any-current-review-file']));
+
+		// Assert
+		expect(store.roles).toEqual(['updateReady']);
+		expect(port.requests).toEqual([]);
+
+		// Act
+		await gate.semanticAttentionChanged(attention([]));
+
+		// Assert
 		expect(store.promotions).toEqual([CANDIDATE.publicationId]);
 	});
 

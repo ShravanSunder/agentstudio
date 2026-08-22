@@ -87,13 +87,16 @@ export class BridgeMainReviewCandidateBankOwner {
 	}): boolean {
 		if (this.#activeIdentity !== null && !isNewer(props.identity, this.#activeIdentity))
 			return false;
-		if (this.#candidate === null) {
-			this.#candidate = cloneCandidate(props.activeSnapshot, props.identity);
-		} else if (!isExact(props.identity, this.#candidate.identity)) {
-			if (!isNewer(props.identity, this.#candidate.identity)) return false;
-			this.#candidate = cloneCandidate(props.activeSnapshot, props.identity);
+		let candidate = this.#candidate;
+		let presentationChanged = false;
+		if (candidate === null) {
+			candidate = cloneCandidate(props.activeSnapshot, props.identity);
+			presentationChanged = true;
+		} else if (!isExact(props.identity, candidate.identity)) {
+			if (!isNewer(props.identity, candidate.identity)) return false;
+			candidate = cloneCandidate(props.activeSnapshot, props.identity);
+			presentationChanged = true;
 		}
-		const candidate = this.#candidate;
 		const replacesWorkerDerivationEpoch =
 			candidate.snapshot.reviewDisplayFreshness !== null &&
 			props.event.epoch > candidate.snapshot.reviewDisplayFreshness.epoch;
@@ -104,6 +107,7 @@ export class BridgeMainReviewCandidateBankOwner {
 			snapshot: candidate.snapshot,
 		});
 		if (effect === null) return false;
+		this.#candidate = candidate;
 		const invalidation = invalidateBridgeMainReviewRenderCopies({
 			itemIds: bridgeMainReviewRenderCopyInvalidationItemIds({
 				currentItemsById: candidate.snapshot.reviewItemById,
@@ -117,7 +121,7 @@ export class BridgeMainReviewCandidateBankOwner {
 			previousItemsById: effect.previousItemsById,
 			snapshot: invalidation.snapshot,
 		}).snapshot;
-		this.#refresh();
+		if (presentationChanged) this.#refresh();
 		return true;
 	}
 

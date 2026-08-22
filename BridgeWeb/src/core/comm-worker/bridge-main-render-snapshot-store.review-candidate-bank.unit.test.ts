@@ -68,6 +68,32 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		});
 	});
 
+	test('suppresses presentation notifications for same-candidate snapshot patches', () => {
+		// Arrange
+		const store = createBridgeMainRenderSnapshotStore();
+		installReview(store, ACTIVE_IDENTITY, reviewDisplayEvent(1, 'item-a', 1));
+		const presentationListener = vi.fn();
+		store.subscribeReviewRefreshPresentation(presentationListener);
+
+		// Act
+		store.stageReviewCandidateDisplayEvent({
+			event: reviewDisplayEvent(2, 'item-b', 1),
+			identity: CANDIDATE_IDENTITY,
+		});
+		store.stageReviewCandidateDisplayEvent({
+			event: reviewDisplayEvent(2, 'item-b-2', 2, false),
+			identity: CANDIDATE_IDENTITY,
+		});
+		store.markReviewCandidateReady({
+			affectedStableFileIdentities: ['stable-b'],
+			identity: CANDIDATE_IDENTITY,
+			role: 'updateReady',
+		});
+
+		// Assert
+		expect(presentationListener).toHaveBeenCalledTimes(2);
+	});
+
 	test('replaces B with C and rejects stale or ambiguous candidate traffic', () => {
 		// Arrange
 		const store = createBridgeMainRenderSnapshotStore();

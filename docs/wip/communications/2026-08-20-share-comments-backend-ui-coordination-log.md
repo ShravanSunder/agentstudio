@@ -607,3 +607,63 @@ Proof: `agentstudio-git` build/lint/focused contracts and 4 real-Git range tests
 Needs from UI lane: no visual files were changed; consume the typed main-store refresh presentation and actions only after the S2 installation gate is checkpointed. The controller seam will expose semantic-attention identities and Apply-now without prescribing toolbar implementation.
 Next: finish exact Review render/Pierre lineage fencing, main installation routing, installed-generation annotations, then hand the stable typed presentation seam to the UI owner
 Notes: no security/auth, persistence schema, polling, new route, second scheduler, compatibility path, or PR2 change. The three PR2 research files remain untouched.
+
+### 2026-08-22 09:12 EDT — Refresh backend/UI seam ready
+
+State: S2-S4 backend, comm-worker, main installation, and installed-annotation seam committed; live and packaged proof remain active
+Head: `c7e163712` (`fix: bound review refresh impact work`)
+Owns: exact Review publication lineage, active-plus-one candidate bank, ordinary/promoted installation gate, post-install applied receipt, installed-generation annotation authority, bounded Git impact facts, and browser fixture parity
+Changed: `useBridgeReviewRenderSnapshotController` exposes `reviewRefreshPresentation`, `applyReviewRefreshNow()`, and `setReviewRefreshSemanticAttention(stableFileIdentities)`; exact-active projection patches update active while newer identities stage candidates; Review annotation discovery waits for an installed identity and reruns when that identity changes
+Proof: BridgeWeb check passed; unit 1,929/1,929; Node/native integration 19/19; focused Review browser suites 39/39; Swift impact/policy/pin 12/12; installed annotation/coordinator 43/43; Swift format, SwiftLint 0/2,184, architecture lint, and release checks passed
+Needs from UI lane: consume the existing typed presentation only—ordinary has no global bar; promoted relevant computation shows `Updating…`; held ready shows `Update ready` plus `Apply now`; relevant failure shows `Update unavailable` plus eligible Retry. Publish semantic attention from the existing Review item/reading/editor owners. Do not add another store, toolbar, refresh route, polling loop, or annotation gate.
+Next: UI owner confirms/lands its visual composition; backend lane proves the final combined UI through the real seeded Swift dev backend plus Vite and packaged WKWebView
+Notes: complete browser integration has all Review paths green but an unrelated File menu/deep-scroll React `act` warning intermittently fails only under aggregate concurrency and passes in isolation. Protected PR2 files remain untouched.
+
+### 2026-08-22 09:33 EDT — Refresh seam correction and live-proof red
+
+State: S2-S4 focused proof remains green, but the real Swift backend plus Vite
+route is red and the prior seam entry overstated controller readiness
+Head: `c7e163712`; one backend proof-constant correction is currently uncommitted
+Owns: backend/comm-worker investigation only; UI files remain UI-owner controlled
+Changed: no visual UI change; the stale TypeScript startup-transcript SHA now
+matches the authoritative Swift fixture and its focused contract test passes 28/28
+Proof: `pnpm --dir BridgeWeb run test:dev-server:worktree` now reaches the real
+browser journey but times out waiting for `review-viewer-shell`; bootstrap,
+metadata, and content routes succeed, while no
+`review.publication.install.admit` call is emitted. The manual Vite route shows
+the same wait and runaway repeated `review_content_ready` work.
+Needs from UI lane: do not build against `reviewRefreshPresentation` yet. Current
+source exposes `applyReviewRefreshNow()` and
+`setReviewRefreshSemanticAttention(...)`, but does not yet return
+`reviewRefreshPresentation` from `useBridgeReviewRenderSnapshotController`.
+Continue visual work only against already-existing shared primitives; avoid
+creating a replacement store or toolbar while backend fixes the typed seam.
+Next: backend proves the missing final-barrier/candidate-stage/admission
+transition, adds the durable red test, fixes that root cause, then publishes the
+actual typed presentation value for UI consumption.
+Notes: no security/auth, polling, route, scheduler, persistence, or PR2 change.
+
+### 2026-08-22 10:13 EDT — Refresh seam correction proven; typed seam restored
+
+State: initial Review candidate installation works through the real Swift backend
+plus Vite; final whole-journey proof remains red at an older Pierre paint gate
+Head: `c7e163712`; backend corrections and proof updates remain uncommitted
+Owns: backend/comm-worker/controller seam only; no visual UI files changed
+Changed: install admission and installed receipt now use the controller's existing
+monotonic command epoch instead of publication render epoch; exact-active display
+patches advance their render-routing epoch monotonically; the controller now
+actually returns `reviewRefreshPresentation` through `useSyncExternalStore`
+Proof: command-epoch red expected `101` but received stale `2`; full BridgeWeb unit
+lane is green 1,933/1,933 after correction; focused Swift impact/pin proof is green
+9/9 across 3 suites, including the >4,096-item symbolic-unknown case; the real
+route sends install admission and publication-applied and renders a 19-item Review
+Needs from UI lane: the typed seam is now valid to consume:
+`reviewRefreshPresentation`, `applyReviewRefreshNow()`, and
+`setReviewRefreshSemanticAttention(stableFileIdentities)`. Keep visual ownership
+in the UI lane and do not create a second store, route, scheduler, or toolbar.
+Next: backend finishes lifecycle telemetry and refresh-specific dev-server
+journeys, then validates the combined UI and packaged WKWebView surface
+Notes: the repository's broad real-worktree verifier now reaches a deterministic
+pre-existing CodeView/Pierre hydration timeout also present before the candidate
+bank. Its proof gate is not weakened. No security/auth, polling, persistence,
+compatibility, or PR2 change.

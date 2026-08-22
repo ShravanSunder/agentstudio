@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	buildBridgeWorkerReviewCandidateReadyEvent,
 	buildBridgeWorkerReviewPublicationInstallAdmissionEvent,
@@ -51,6 +52,34 @@ describe('Bridge main Review publication integration', () => {
 		harness.dispose();
 	});
 
+	test('routes render work from a newer exact-active worker derivation epoch', async () => {
+		// Arrange
+		const harness = createHarness();
+		await installPublication(harness, ACTIVE, 'item-a');
+		const activeDisplayEvent = {
+			...reviewDisplayEvent(ACTIVE, 'item-active-query'),
+			epoch: 2,
+			projectionRevision: 2,
+			sequence: 2,
+		};
+
+		// Act
+		harness.receive(activeDisplayEvent);
+		harness.receive({
+			...reviewRenderPatch(ACTIVE, 'item-active-query'),
+			workerDerivationEpoch: 2,
+		});
+		harness.receive({
+			...reviewPierrePublication(ACTIVE, 'item-active-query', 14),
+			workerDerivationEpoch: 2,
+		});
+
+		// Assert
+		expect(harness.store.getReviewCodeViewItemSnapshot('item-active-query')).toBeDefined();
+		expect(harness.courierJobs.map((job) => job.itemId)).toContain('item-active-query');
+		harness.dispose();
+	});
+
 	test('orders real RPC display, ready, admission, promotion, installed, and acknowledgement', async () => {
 		// Arrange
 		const harness = createHarness();
@@ -96,6 +125,45 @@ describe('Bridge main Review publication integration', () => {
 			'reviewPublicationInstallAdmit',
 			'reviewPublicationInstalled',
 		]);
+		harness.dispose();
+	});
+
+	test('allocates install admission and installed receipt from the main command epoch', async () => {
+		// Arrange
+		const harness = createHarness();
+		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
+
+		// Act
+		harness.receive(candidateReady(CANDIDATE, 'ordinary', []));
+		const admission = await harness.nextCommand('reviewPublicationInstallAdmit');
+
+		// Assert
+		expect(admission.epoch).toBe(101);
+
+		// Act
+		harness.admit(admission, CANDIDATE, 'admitted');
+		const installed = await harness.nextCommand('reviewPublicationInstalled');
+
+		// Assert
+		expect(installed.epoch).toBe(102);
+		harness.dispose();
+	});
+
+	test('accepts one synchronous install-admission response without retaining later responses', async () => {
+		// Arrange
+		const harness = createHarness({ synchronousAdmissionStatus: 'admitted' });
+		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
+
+		// Act
+		harness.receive(candidateReady(CANDIDATE, 'ordinary', []));
+		const installed = await harness.nextCommand('reviewPublicationInstalled');
+		harness.ack(installed);
+		await harness.integration.whenSettled();
+
+		// Assert
+		expect(harness.store.getReviewRefreshPresentation().activeIdentity).toEqual(
+			mainIdentity(CANDIDATE),
+		);
 		harness.dispose();
 	});
 
@@ -199,6 +267,14 @@ describe('Bridge main Review publication integration', () => {
 		});
 		expect(harness.rejectedItemIds).toContain('item-b');
 		expect(harness.pendingCommandCount('reviewPublicationInstalled')).toBe(0);
+		expect(
+			harness.telemetrySamples.some(
+				(sample): boolean =>
+					sample.stringAttributes['agentstudio.bridge.phase'] ===
+						'review_refresh_cleanup_terminal' &&
+					sample.stringAttributes['agentstudio.bridge.result_reason'] === 'worker_replacement',
+			),
+		).toBe(true);
 		harness.dispose();
 	});
 });
@@ -217,6 +293,7 @@ interface Harness {
 	readonly integration: BridgeMainReviewPublicationIntegration;
 	readonly rejectedItemIds: string[];
 	readonly store: ReturnType<typeof createBridgeMainRenderSnapshotStore>;
+	readonly telemetrySamples: readonly BridgeTelemetrySample[];
 	readonly ack: (command: BridgeWorkerMainToServerMessage) => void;
 	readonly admit: (
 		command: BridgeWorkerMainToServerMessage,
@@ -232,7 +309,12 @@ interface Harness {
 	readonly receive: (message: BridgeWorkerServerToMainMessage) => void;
 }
 
-function createHarness(): Harness {
+function createHarness(
+	options: {
+		readonly synchronousAdmissionStatus?: 'admitted' | 'rejected';
+	} = {},
+): Harness {
+	let commandEpoch = 100;
 	const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
 	const commandQueue: BridgeWorkerMainToServerMessage[] = [];
 	const commandWaiters = new Map<
@@ -240,20 +322,38 @@ function createHarness(): Harness {
 		Array<(command: BridgeWorkerMainToServerMessage) => void>
 	>();
 	const commandKinds: string[] = [];
+	let receiveSynchronousAdmission = (_command: BridgeWorkerMainToServerMessage): void => {};
 	const rpcClient = createBridgeWorkerRpcClient({
 		dispatch: (command): void => {
 			commandKinds.push(command.command);
 			const waiter = commandWaiters.get(command.command)?.shift();
 			if (waiter === undefined) commandQueue.push(command);
 			else waiter(command);
+			if (
+				command.command === 'reviewPublicationInstallAdmit' &&
+				options.synchronousAdmissionStatus !== undefined
+			) {
+				receiveSynchronousAdmission(command);
+			}
 		},
 		lifecycleStore,
 		requestTimeoutMilliseconds: 60_000,
 		surface: 'review',
 	});
+	receiveSynchronousAdmission = (command): void => {
+		if (command.command !== 'reviewPublicationInstallAdmit') return;
+		rpcClient.receive(
+			buildBridgeWorkerReviewPublicationInstallAdmissionEvent({
+				candidatePublicationId: command.candidatePublicationId,
+				requestId: command.requestId,
+				status: options.synchronousAdmissionStatus ?? 'rejected',
+			}),
+		);
+	};
 	const store = createBridgeMainRenderSnapshotStore();
 	const courierJobs: Array<BridgeWorkerReviewPierreRenderJobEvent['job']> = [];
 	const rejectedItemIds: string[] = [];
+	const telemetrySamples: BridgeTelemetrySample[] = [];
 	const integration = createBridgeMainReviewPublicationIntegration({
 		client: {
 			lifecycle: {
@@ -261,6 +361,10 @@ function createHarness(): Harness {
 				subscribe: lifecycleStore.subscribe,
 			},
 			send: rpcClient.send,
+		},
+		nextCommandEpoch: (): number => {
+			commandEpoch += 1;
+			return commandEpoch;
 		},
 		pierreCourier: {
 			submit: (job): void => {
@@ -276,6 +380,15 @@ function createHarness(): Harness {
 			},
 		},
 		store,
+		telemetryRecorder: {
+			flush: (): boolean => true,
+			isEnabled: (): boolean => true,
+			measure: <TResult>(props: { readonly operation: () => TResult }): TResult =>
+				props.operation(),
+			record: (sample): void => {
+				telemetrySamples.push(sample);
+			},
+		},
 	});
 	integration.start();
 	const unsubscribe = rpcClient.subscribe((message): void => {
@@ -343,6 +456,7 @@ function createHarness(): Harness {
 		receive,
 		rejectedItemIds,
 		store,
+		telemetrySamples,
 	};
 }
 

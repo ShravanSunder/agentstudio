@@ -107,8 +107,8 @@ struct BridgeReviewRefreshImpact: Equatable, Sendable {
     }
 
     static func unknown(
-        displayedPackage: BridgeReviewPackage?,
-        candidatePackage: BridgeReviewPackage
+        displayedPackage _: BridgeReviewPackage?,
+        candidatePackage _: BridgeReviewPackage
     ) -> Self {
         Self(
             preDeliveryPresentationClass: .promoted(reason: .unknown),
@@ -116,9 +116,7 @@ struct BridgeReviewRefreshImpact: Equatable, Sendable {
             affectedFileCount: nil,
             addedLineCount: nil,
             deletedLineCount: nil,
-            affectedStableFileIdentities: normalizedIdentities(
-                (displayedPackage?.orderedItemIds ?? []) + candidatePackage.orderedItemIds
-            )
+            affectedStableFileIdentities: []
         )
     }
 

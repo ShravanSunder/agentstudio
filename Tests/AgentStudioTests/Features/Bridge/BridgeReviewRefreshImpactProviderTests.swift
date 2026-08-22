@@ -155,11 +155,11 @@ struct BridgeReviewRefreshImpactProviderTests {
             )
 
             #expect(impact.preDeliveryPresentationClass == .promoted(reason: .unknown))
-            #expect(impact.affectedStableFileIdentities == ["candidate-file", "displayed-file"])
+            #expect(impact.affectedStableFileIdentities.isEmpty)
         }
     }
 
-    @Test("unrelated or incomplete source facts promote unknown and conservatively affect both packages")
+    @Test("unrelated or incomplete source facts use symbolic promoted unknown affectedness")
     func promotesUnknownForUnrelatedSourceFacts() async throws {
         let displayed = makeImpactPackage(
             reviewGeneration: 1,
@@ -191,7 +191,7 @@ struct BridgeReviewRefreshImpactProviderTests {
         #expect(impact.affectedFileCount == nil)
         #expect(impact.addedLineCount == nil)
         #expect(impact.deletedLineCount == nil)
-        #expect(impact.affectedStableFileIdentities == ["candidate-file", "displayed-file"])
+        #expect(impact.affectedStableFileIdentities.isEmpty)
     }
 
     @Test("carries the capped commit count as a conservative promotion lower bound")

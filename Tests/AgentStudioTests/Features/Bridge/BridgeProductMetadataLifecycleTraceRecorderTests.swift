@@ -6,6 +6,100 @@ import Testing
 
 @Suite("Bridge product metadata lifecycle trace recorder")
 struct BridgeProductMetadataLifecycleTraceRecorderTests {
+    @Test("Review refresh lifecycle exports only controlled classification aggregates")
+    func reviewRefreshLifecycleExportsControlledClassificationAggregates() async throws {
+        // Arrange
+        let sink = BridgeProductMetadataLifecycleTraceSink()
+        let recorder = BridgeReviewRefreshLifecycleTraceRecorder(recorder: sink)
+
+        // Act
+        await recorder.record(
+            BridgeReviewRefreshLifecycleTraceEvent(
+                phase: .classified,
+                resultReason: .files,
+                presentationClass: "promoted",
+                reviewGeneration: 7,
+                importedCommitCount: 2,
+                affectedFileCount: 25,
+                changedLineCount: 420,
+                affectedStableFileCount: 25,
+                retainedPublicationCount: nil,
+                sourceLeaseCount: nil,
+                durationMilliseconds: 3.5,
+                traceContext: nil
+            )
+        )
+
+        // Assert
+        let sample = try #require(await sink.recordedSamples().only)
+        #expect(sample.name == "performance.bridge.swift.review_refresh_lifecycle")
+        #expect(sample.stringAttributes["agentstudio.bridge.phase"] == "review_refresh_classified")
+        #expect(sample.stringAttributes["agentstudio.bridge.result_reason"] == "files")
+        #expect(
+            sample.stringAttributes["agentstudio.bridge.review.refresh.presentation_class"]
+                == "promoted"
+        )
+        #expect(sample.numericAttributes["agentstudio.bridge.review.generation"] == 7)
+        #expect(
+            sample.numericAttributes["agentstudio.bridge.review.refresh.affected_file.count"] == 25
+        )
+        #expect(
+            BridgeTelemetryWireSchema.dropReason(
+                eventName: sample.name,
+                durationMilliseconds: sample.durationMilliseconds,
+                stringAttributes: sample.stringAttributes,
+                numericAttributes: sample.numericAttributes,
+                booleanAttributes: sample.booleanAttributes
+            ) == nil
+        )
+        #expect(!String(describing: sample).contains("sourceIdentity"))
+    }
+
+    @Test("Review refresh lifecycle cleanup reports zero retained source authority")
+    func reviewRefreshLifecycleCleanupReportsZeroRetainedSourceAuthority() async throws {
+        // Arrange
+        let sink = BridgeProductMetadataLifecycleTraceSink()
+        let recorder = BridgeReviewRefreshLifecycleTraceRecorder(recorder: sink)
+
+        // Act
+        await recorder.record(
+            BridgeReviewRefreshLifecycleTraceEvent(
+                phase: .sourceCleanupTerminal,
+                resultReason: .close,
+                presentationClass: nil,
+                reviewGeneration: nil,
+                importedCommitCount: nil,
+                affectedFileCount: nil,
+                changedLineCount: nil,
+                affectedStableFileCount: nil,
+                retainedPublicationCount: 0,
+                sourceLeaseCount: 0,
+                durationMilliseconds: nil,
+                traceContext: nil
+            )
+        )
+
+        // Assert
+        let sample = try #require(await sink.recordedSamples().only)
+        #expect(
+            sample.numericAttributes[
+                "agentstudio.bridge.review.refresh.retained_publication.count"
+            ] == 0
+        )
+        #expect(
+            sample.numericAttributes["agentstudio.bridge.review.refresh.source_lease.count"] == 0
+        )
+        #expect(
+            BridgeTelemetryWireSchema.dropReason(
+                eventName: sample.name,
+                durationMilliseconds: sample.durationMilliseconds,
+                stringAttributes: sample.stringAttributes,
+                numericAttributes: sample.numericAttributes,
+                booleanAttributes: sample.booleanAttributes
+            ) == nil
+        )
+    }
+
     @Test("Operation lifecycle exports only scrubbed correlation and safe stage attempt")
     func operationLifecycleExportsScrubbedCorrelationAndStageAttempt() async throws {
         let sink = BridgeProductMetadataLifecycleTraceSink()

@@ -11,6 +11,10 @@ extension BridgeTelemetryWireSchema {
             annotationLifecycleContractMatches(contract)
         case "performance.bridge.swift.operation_lifecycle":
             operationLifecycleContractMatches(contract)
+        case "performance.bridge.swift.review_refresh_lifecycle":
+            swiftReviewRefreshLifecycleContractMatches(contract)
+        case "performance.bridge.web.review_refresh_lifecycle":
+            webReviewRefreshLifecycleContractMatches(contract)
         case "performance.bridge.viewer.content_queue":
             contentQueueContractMatches(contract)
         case "performance.bridge.viewer.content_cache":
@@ -199,6 +203,147 @@ extension BridgeTelemetryWireSchema {
                 )
             )
         )
+    }
+
+    private static func swiftReviewRefreshLifecycleContractMatches(
+        _ contract: EventContract
+    ) -> Bool {
+        let commonStringKeys: Set<String> = [
+            "agentstudio.bridge.result",
+            "agentstudio.bridge.result_reason",
+        ]
+        switch contract.phase {
+        case "review_refresh_classified":
+            let stringKeys = commonStringKeys.union([
+                "agentstudio.bridge.review.refresh.presentation_class"
+            ])
+            let commonNumericKeys: Set<String> = [
+                "agentstudio.bridge.review.generation",
+                "agentstudio.bridge.review.refresh.affected_stable_file.count",
+            ]
+            let exactNumericKeys = commonNumericKeys.union([
+                "agentstudio.bridge.review.refresh.imported_commit.count",
+                "agentstudio.bridge.review.refresh.affected_file.count",
+                "agentstudio.bridge.review.refresh.changed_line.count",
+            ])
+            return contract.matches(
+                .init(
+                    phase: contract.phase,
+                    plane: .control,
+                    priority: .hot,
+                    slice: .reviewMetadata,
+                    transport: "swift",
+                    attributeKeys: .init(
+                        additionalStringKeys: stringKeys,
+                        numericKeys: commonNumericKeys
+                    )
+                )
+            )
+                || contract.matches(
+                    .init(
+                        phase: contract.phase,
+                        plane: .control,
+                        priority: .hot,
+                        slice: .reviewMetadata,
+                        transport: "swift",
+                        attributeKeys: .init(
+                            additionalStringKeys: stringKeys,
+                            numericKeys: exactNumericKeys
+                        )
+                    )
+                )
+        case "review_refresh_source_cleanup_terminal":
+            return contract.matches(
+                .init(
+                    phase: contract.phase,
+                    plane: .control,
+                    priority: .hot,
+                    slice: .reviewMetadata,
+                    transport: "swift",
+                    attributeKeys: .init(
+                        additionalStringKeys: commonStringKeys,
+                        numericKeys: [
+                            "agentstudio.bridge.review.refresh.retained_publication.count",
+                            "agentstudio.bridge.review.refresh.source_lease.count",
+                        ]
+                    )
+                )
+            )
+        default:
+            return false
+        }
+    }
+
+    private static func webReviewRefreshLifecycleContractMatches(
+        _ contract: EventContract
+    ) -> Bool {
+        let candidateStringKeys: Set<String> = [
+            "agentstudio.bridge.result",
+            "agentstudio.bridge.result_reason",
+            "agentstudio.bridge.review.refresh.presentation_class",
+            "agentstudio.bridge.review.refresh.promotion_reason",
+        ]
+        let candidateNumericKeys: Set<String> = [
+            "agentstudio.bridge.review.generation",
+            "agentstudio.bridge.review.refresh.affected_stable_file.count",
+        ]
+        switch contract.phase {
+        case "review_refresh_candidate_ready",
+            "review_refresh_candidate_held",
+            "review_refresh_candidate_superseded",
+            "review_refresh_receipt_failed":
+            return contract.matches(
+                .init(
+                    phase: contract.phase,
+                    plane: .control,
+                    priority: .hot,
+                    slice: .reviewMetadata,
+                    transport: "worker",
+                    attributeKeys: .init(
+                        additionalStringKeys: candidateStringKeys,
+                        numericKeys: candidateNumericKeys
+                    )
+                )
+            )
+        case "review_refresh_install_requested", "review_refresh_install_terminal":
+            return contract.matches(
+                .init(
+                    phase: contract.phase,
+                    plane: .control,
+                    priority: .hot,
+                    slice: .reviewMetadata,
+                    transport: "worker",
+                    attributeKeys: .init(
+                        additionalStringKeys: candidateStringKeys.union([
+                            "agentstudio.bridge.review.refresh.install_trigger"
+                        ]),
+                        numericKeys: candidateNumericKeys
+                    )
+                )
+            )
+        case "review_refresh_cleanup_terminal":
+            return contract.matches(
+                .init(
+                    phase: contract.phase,
+                    plane: .control,
+                    priority: .hot,
+                    slice: .reviewMetadata,
+                    transport: "worker",
+                    attributeKeys: .init(
+                        additionalStringKeys: [
+                            "agentstudio.bridge.result",
+                            "agentstudio.bridge.result_reason",
+                        ],
+                        numericKeys: [
+                            "agentstudio.bridge.review.refresh.active_bank.count",
+                            "agentstudio.bridge.review.refresh.candidate_bank.count",
+                        ]
+                    )
+                )
+            )
+        default:
+            return false
+        }
     }
 
     private static func contentQueueContractMatches(_ contract: EventContract) -> Bool {

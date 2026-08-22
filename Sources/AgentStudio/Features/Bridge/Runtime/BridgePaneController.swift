@@ -514,12 +514,17 @@ package final class BridgePaneController {
         if let lifecycleRetirementTask {
             return lifecycleRetirementTask
         }
+        var reviewRefreshCleanupTelemetryTask: Task<Void, Never>?
         if !isTeardownStarted {
             isTeardownStarted = true
             refreshAdmissionCoordinator.close()
             productAdmissionGate.close()
             surfaceSelectionAuthority.invalidate()
             let reviewPublicationCloseDrain = reviewPublicationCoordinator.close()
+            let reviewPublicationCleanupSnapshot = reviewPublicationCoordinator.diagnosticSnapshot
+            reviewRefreshCleanupTelemetryTask = makeReviewRefreshCleanupTelemetryTask(
+                snapshot: reviewPublicationCleanupSnapshot
+            )
             let reviewRefreshTasks =
                 Array(retiringReviewRefreshTaskById.values)
                 + [activeReviewRefreshTask].compactMap { $0 }
@@ -557,6 +562,7 @@ package final class BridgePaneController {
         let productSessionOwner = productSessionOwner
         let worktreeAnnotationStore = worktreeAnnotationStore
         let lifecycleRetirementTask = Task { @MainActor [weak self] in
+            await reviewRefreshCleanupTelemetryTask?.value
             if let telemetrySessionOwner = self?.telemetrySessionOwner {
                 do {
                     let terminalDrain = try await self?.drainTelemetrySidecar(closeAfterDrain: true)
@@ -602,6 +608,44 @@ package final class BridgePaneController {
         }
         self.lifecycleRetirementTask = lifecycleRetirementTask
         return lifecycleRetirementTask
+    }
+
+    private static func retainedReviewPublicationCount(
+        _ snapshot: BridgeReviewPublicationStateSnapshot
+    ) -> Int {
+        Set(
+            [snapshot.active, snapshot.acknowledgedDisplayed, snapshot.admitted, snapshot.pending]
+                .compactMap(\.self)
+                .map(\.publicationId)
+                + snapshot.retiring.map(\.publicationId)
+        ).count
+    }
+
+    private func makeReviewRefreshCleanupTelemetryTask(
+        snapshot: BridgeReviewPublicationStateSnapshot
+    ) -> Task<Void, Never> {
+        let recorder = telemetryRecorder.map(
+            BridgeReviewRefreshLifecycleTraceRecorder.init(recorder:)
+        )
+        let retainedPublicationCount = Self.retainedReviewPublicationCount(snapshot)
+        return Task {
+            await recorder?.record(
+                BridgeReviewRefreshLifecycleTraceEvent(
+                    phase: .sourceCleanupTerminal,
+                    resultReason: .close,
+                    presentationClass: nil,
+                    reviewGeneration: nil,
+                    importedCommitCount: nil,
+                    affectedFileCount: nil,
+                    changedLineCount: nil,
+                    affectedStableFileCount: nil,
+                    retainedPublicationCount: retainedPublicationCount,
+                    sourceLeaseCount: snapshot.activeContentLeaseCount,
+                    durationMilliseconds: nil,
+                    traceContext: nil
+                )
+            )
+        }
     }
 
     // MARK: - Bridge Handshake

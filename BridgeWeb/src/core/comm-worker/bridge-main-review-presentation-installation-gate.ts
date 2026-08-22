@@ -39,6 +39,36 @@ export interface BridgeMainReviewPresentationInstallationGate {
 	) => Promise<void>;
 }
 
+export type BridgeMainReviewRefreshLifecycleEvent =
+	| (BridgeMainReviewRefreshCandidateTelemetryFacts & {
+			readonly phase: 'candidateReady' | 'candidateHeld' | 'candidateSuperseded';
+	  })
+	| (BridgeMainReviewRefreshCandidateTelemetryFacts & {
+			readonly phase: 'installRequested';
+			readonly trigger: 'applyNow' | 'automatic';
+	  })
+	| (BridgeMainReviewRefreshCandidateTelemetryFacts & {
+			readonly phase: 'installTerminal';
+			readonly result: 'failure' | 'stale' | 'success';
+			readonly resultReason: 'admissionFailed' | 'admissionRejected' | 'none' | 'promotionStale';
+			readonly trigger: 'applyNow' | 'automatic';
+	  })
+	| (BridgeMainReviewRefreshCandidateTelemetryFacts & {
+			readonly phase: 'receiptFailed';
+	  })
+	| {
+			readonly activeBankCount: 0 | 1;
+			readonly candidateBankCount: 0 | 1;
+			readonly phase: 'cleanup';
+			readonly reason: 'close' | 'workerReplacement';
+	  };
+
+interface BridgeMainReviewRefreshCandidateTelemetryFacts {
+	readonly affectedStableFileCount: number;
+	readonly generation: number;
+	readonly presentationClass: BridgeWorkerReviewCandidateReadyEvent['preDeliveryPresentationClass'];
+}
+
 interface ReadyCandidate {
 	readonly affectedStableFileIdentities: readonly string[];
 	readonly identity: BridgeMainReviewPublicationIdentity;
@@ -47,13 +77,14 @@ interface ReadyCandidate {
 
 export function createBridgeMainReviewPresentationInstallationGate(props: {
 	readonly installationPort: BridgeMainReviewPresentationInstallationPort;
+	readonly onLifecycleEvent?: (event: BridgeMainReviewRefreshLifecycleEvent) => void;
 	readonly store: BridgeMainReviewCandidateStore;
 }): BridgeMainReviewPresentationInstallationGate {
 	let attentionFileIdentities = new Set<string>();
 	let admissionInFlightPublicationId: string | null = null;
 	let isClosed = false;
 	let lifecycleRevision = 0;
-	let pendingInstalledReceiptIdentity: BridgeMainReviewPublicationIdentity | null = null;
+	let pendingInstalledReceiptCandidate: ReadyCandidate | null = null;
 	let readyCandidate: ReadyCandidate | null = null;
 
 	const candidateMatchesStore = (candidate: ReadyCandidate): boolean => {
@@ -63,18 +94,33 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		);
 	};
 
-	const candidateAffectsAttention = (candidate: ReadyCandidate): boolean =>
-		candidate.affectedStableFileIdentities.some((fileIdentity): boolean =>
+	const candidateAffectsAttention = (candidate: ReadyCandidate): boolean => {
+		if (
+			candidate.presentationClass.kind === 'promoted' &&
+			candidate.presentationClass.reason === 'unknown'
+		) {
+			return attentionFileIdentities.size > 0;
+		}
+		return candidate.affectedStableFileIdentities.some((fileIdentity): boolean =>
 			attentionFileIdentities.has(fileIdentity),
 		);
+	};
 
-	const installCandidate = async (candidate: ReadyCandidate): Promise<void> => {
+	const installCandidate = async (
+		candidate: ReadyCandidate,
+		trigger: 'applyNow' | 'automatic',
+	): Promise<void> => {
 		if (isClosed || admissionInFlightPublicationId !== null || !candidateMatchesStore(candidate)) {
 			return;
 		}
 		const activeIdentity = props.store.getReviewRefreshPresentation().activeIdentity;
 		const requestLifecycleRevision = lifecycleRevision;
 		admissionInFlightPublicationId = candidate.identity.publicationId;
+		props.onLifecycleEvent?.({
+			...candidateTelemetryFacts(candidate),
+			phase: 'installRequested',
+			trigger,
+		});
 		let result: BridgeMainReviewInstallAdmissionResult;
 		try {
 			result = await props.installationPort.requestInstallAdmission({
@@ -88,6 +134,13 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			) {
 				admissionInFlightPublicationId = null;
 			}
+			props.onLifecycleEvent?.({
+				...candidateTelemetryFacts(candidate),
+				phase: 'installTerminal',
+				result: 'failure',
+				resultReason: 'admissionFailed',
+				trigger,
+			});
 			return;
 		}
 		if (
@@ -95,6 +148,13 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			requestLifecycleRevision !== lifecycleRevision ||
 			admissionInFlightPublicationId !== candidate.identity.publicationId
 		) {
+			props.onLifecycleEvent?.({
+				...candidateTelemetryFacts(candidate),
+				phase: 'installTerminal',
+				result: 'stale',
+				resultReason: 'promotionStale',
+				trigger,
+			});
 			return;
 		}
 		admissionInFlightPublicationId = null;
@@ -102,15 +162,36 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			result.candidatePublicationId !== candidate.identity.publicationId ||
 			result.status === 'rejected'
 		) {
+			props.onLifecycleEvent?.({
+				...candidateTelemetryFacts(candidate),
+				phase: 'installTerminal',
+				result: 'stale',
+				resultReason: 'admissionRejected',
+				trigger,
+			});
 			props.store.discardReviewCandidate(candidate.identity);
 			await evaluateReadyCandidate();
 			return;
 		}
 		if (!props.store.promoteReviewCandidate(candidate.identity)) {
+			props.onLifecycleEvent?.({
+				...candidateTelemetryFacts(candidate),
+				phase: 'installTerminal',
+				result: 'stale',
+				resultReason: 'promotionStale',
+				trigger,
+			});
 			await evaluateReadyCandidate();
 			return;
 		}
-		pendingInstalledReceiptIdentity = candidate.identity;
+		props.onLifecycleEvent?.({
+			...candidateTelemetryFacts(candidate),
+			phase: 'installTerminal',
+			result: 'success',
+			resultReason: 'none',
+			trigger,
+		});
+		pendingInstalledReceiptCandidate = candidate;
 		await sendPendingInstalledReceipt();
 	};
 
@@ -118,11 +199,18 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		const candidate = readyCandidate;
 		if (candidate === null || !candidateMatchesStore(candidate)) return;
 		if (candidate.presentationClass.kind === 'promoted' && candidateAffectsAttention(candidate)) {
-			props.store.markReviewCandidateReady({
+			const previousRole = props.store.getReviewRefreshPresentation().candidate?.role;
+			const held = props.store.markReviewCandidateReady({
 				affectedStableFileIdentities: candidate.affectedStableFileIdentities,
 				identity: candidate.identity,
 				role: 'updateReady',
 			});
+			if (held && previousRole !== 'updateReady') {
+				props.onLifecycleEvent?.({
+					...candidateTelemetryFacts(candidate),
+					phase: 'candidateHeld',
+				});
+			}
 			return;
 		}
 		if (
@@ -134,19 +222,26 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		) {
 			return;
 		}
-		await installCandidate(candidate);
+		await installCandidate(candidate, 'automatic');
 	};
 
 	const sendPendingInstalledReceipt = async (): Promise<boolean> => {
-		const identity = pendingInstalledReceiptIdentity;
-		if (identity === null || isClosed) return false;
+		const candidate = pendingInstalledReceiptCandidate;
+		if (candidate === null || isClosed) return false;
 		try {
-			await props.installationPort.sendInstalledReceipt(identity);
-			if (pendingInstalledReceiptIdentity?.publicationId === identity.publicationId) {
-				pendingInstalledReceiptIdentity = null;
+			await props.installationPort.sendInstalledReceipt(candidate.identity);
+			if (
+				pendingInstalledReceiptCandidate?.identity.publicationId ===
+				candidate.identity.publicationId
+			) {
+				pendingInstalledReceiptCandidate = null;
 			}
 			return true;
 		} catch {
+			props.onLifecycleEvent?.({
+				...candidateTelemetryFacts(candidate),
+				phase: 'receiptFailed',
+			});
 			return false;
 		}
 	};
@@ -155,16 +250,17 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		applyNow: async (): Promise<void> => {
 			const candidate = readyCandidate;
 			if (candidate === null || !candidateMatchesStore(candidate)) return;
-			await installCandidate(candidate);
+			await installCandidate(candidate, 'applyNow');
 		},
 		close: (): void => {
 			if (isClosed) return;
 			isClosed = true;
 			lifecycleRevision += 1;
 			admissionInFlightPublicationId = null;
-			pendingInstalledReceiptIdentity = null;
+			pendingInstalledReceiptCandidate = null;
 			readyCandidate = null;
 			props.store.discardReviewCandidate();
+			recordCleanupLifecycle(props, 'close');
 		},
 		handleCandidateReady: async (event, attention): Promise<void> => {
 			if (isClosed) return;
@@ -180,7 +276,17 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			) {
 				return;
 			}
+			if (readyCandidate !== null && !readyCandidatesAreEquivalent(readyCandidate, candidate)) {
+				props.onLifecycleEvent?.({
+					...candidateTelemetryFacts(readyCandidate),
+					phase: 'candidateSuperseded',
+				});
+			}
 			readyCandidate = candidate;
+			props.onLifecycleEvent?.({
+				...candidateTelemetryFacts(candidate),
+				phase: 'candidateReady',
+			});
 			await evaluateReadyCandidate();
 		},
 		prepareForWorkerReplacement: (): void => {
@@ -189,6 +295,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			admissionInFlightPublicationId = null;
 			readyCandidate = null;
 			props.store.discardReviewCandidate();
+			recordCleanupLifecycle(props, 'workerReplacement');
 		},
 		retryInstalledReceipt: sendPendingInstalledReceipt,
 		semanticAttentionChanged: async (attention): Promise<void> => {
@@ -199,6 +306,32 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			await evaluateReadyCandidate();
 		},
 	};
+}
+
+function candidateTelemetryFacts(
+	candidate: ReadyCandidate,
+): BridgeMainReviewRefreshCandidateTelemetryFacts {
+	return {
+		affectedStableFileCount: candidate.affectedStableFileIdentities.length,
+		generation: candidate.identity.generation,
+		presentationClass: candidate.presentationClass,
+	};
+}
+
+function recordCleanupLifecycle(
+	props: {
+		readonly onLifecycleEvent?: (event: BridgeMainReviewRefreshLifecycleEvent) => void;
+		readonly store: BridgeMainReviewCandidateStore;
+	},
+	reason: 'close' | 'workerReplacement',
+): void {
+	const presentation = props.store.getReviewRefreshPresentation();
+	props.onLifecycleEvent?.({
+		activeBankCount: presentation.activeIdentity === null ? 0 : 1,
+		candidateBankCount: presentation.candidate === null ? 0 : 1,
+		phase: 'cleanup',
+		reason,
+	});
 }
 
 function readyCandidateFromEvent(event: BridgeWorkerReviewCandidateReadyEvent): ReadyCandidate {

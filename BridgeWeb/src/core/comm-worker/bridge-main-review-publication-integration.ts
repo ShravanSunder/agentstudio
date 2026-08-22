@@ -1,3 +1,4 @@
+import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { prepareBridgeMainPierreItemForPresentation } from './bridge-main-pierre-item-adapter.js';
 import type { BridgeMainRenderFulfillmentCoordinator } from './bridge-main-render-fulfillment-coordinator.js';
 import type {
@@ -9,6 +10,7 @@ import {
 	type BridgeMainReviewInstallAdmissionResult,
 	type BridgeMainReviewSemanticAttention,
 } from './bridge-main-review-presentation-installation-gate.js';
+import { recordBridgeReviewRefreshLifecycleTelemetry } from './bridge-review-refresh-lifecycle-telemetry.js';
 import type {
 	BridgeWorkerReviewPierreRenderJobEvent,
 	BridgeWorkerReviewRenderPatchEvent,
@@ -62,6 +64,7 @@ function noop(): void {}
 
 export function createBridgeMainReviewPublicationIntegration(props: {
 	readonly client: BridgeMainReviewPublicationClient;
+	readonly nextCommandEpoch: () => number;
 	readonly onActiveRenderPatchesApplied?: (
 		message: BridgeWorkerReviewRenderPatchEvent,
 		patches: BridgeWorkerReviewRenderPatchEvent['patches'],
@@ -72,16 +75,18 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 		'acceptPublication' | 'bindPublicationItem' | 'markPublicationQueued' | 'rejectPublication'
 	>;
 	readonly store: BridgeMainRenderSnapshotStore;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
 }): BridgeMainReviewPublicationIntegration {
 	let currentAttention: BridgeMainReviewSemanticAttention = { stableFileIdentities: [] };
 	let deferredCandidateIdentity: BridgeMainReviewPublicationIdentity | null = null;
 	const deferredCandidatePierreByItemId = new Map<string, DeferredCandidatePierrePublication>();
+	let admissionDispatchInProgress = false;
+	let synchronousAdmissionResponse: Extract<
+		BridgeWorkerServerToMainMessage,
+		{ readonly kind: 'reviewPublicationInstallAdmission' }
+	> | null = null;
 	let isDisposed = false;
 	let isStarted = false;
-	const orphanAdmissionByRequestId = new Map<
-		string,
-		Extract<BridgeWorkerServerToMainMessage, { readonly kind: 'reviewPublicationInstallAdmission' }>
-	>();
 	const pendingAdmissionsByRequestId = new Map<string, PendingAdmission>();
 	const pendingInstalledReceiptsByRequestId = new Map<string, PendingInstalledReceipt>();
 	const publicationEpochById = new Map<string, number>();
@@ -195,29 +200,37 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 	const installationGate = createBridgeMainReviewPresentationInstallationGate({
 		installationPort: {
 			requestInstallAdmission: (request): Promise<BridgeMainReviewInstallAdmissionResult> => {
-				const candidateEpoch = publicationEpochById.get(request.candidatePublicationId);
-				if (candidateEpoch === undefined) {
+				if (!publicationEpochById.has(request.candidatePublicationId)) {
 					return Promise.resolve({
 						candidatePublicationId: request.candidatePublicationId,
 						status: 'rejected',
 					});
 				}
-				const requestId = props.client.send({
-					candidatePublicationId: request.candidatePublicationId,
-					command: 'reviewPublicationInstallAdmit',
-					epoch: candidateEpoch,
-					expectedDisplayedPublicationId: request.expectedDisplayedPublicationId,
-				});
+				admissionDispatchInProgress = true;
+				let requestId: string;
+				try {
+					requestId = props.client.send({
+						candidatePublicationId: request.candidatePublicationId,
+						command: 'reviewPublicationInstallAdmit',
+						epoch: props.nextCommandEpoch(),
+						expectedDisplayedPublicationId: request.expectedDisplayedPublicationId,
+					});
+				} catch (error: unknown) {
+					synchronousAdmissionResponse = null;
+					throw error;
+				} finally {
+					admissionDispatchInProgress = false;
+				}
 				return new Promise((resolve) => {
-					const orphan = orphanAdmissionByRequestId.get(requestId);
+					const synchronousResponse = synchronousAdmissionResponse;
+					synchronousAdmissionResponse = null;
 					if (
-						orphan !== undefined &&
-						orphan.candidatePublicationId === request.candidatePublicationId
+						synchronousResponse?.requestId === requestId &&
+						synchronousResponse.candidatePublicationId === request.candidatePublicationId
 					) {
-						orphanAdmissionByRequestId.delete(requestId);
 						resolve({
-							candidatePublicationId: orphan.candidatePublicationId,
-							status: orphan.status,
+							candidatePublicationId: synchronousResponse.candidatePublicationId,
+							status: synchronousResponse.status,
 						});
 						return;
 					}
@@ -230,13 +243,12 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 			},
 			sendInstalledReceipt: (identity): Promise<void> => {
 				const publicationId = identity.publicationId;
-				const activeEpoch = publicationEpochById.get(publicationId);
-				if (activeEpoch === undefined) {
+				if (!publicationEpochById.has(publicationId)) {
 					return Promise.reject(new Error('Installed Review publication epoch is unavailable.'));
 				}
 				const requestId = props.client.send({
 					command: 'reviewPublicationInstalled',
-					epoch: activeEpoch,
+					epoch: props.nextCommandEpoch(),
 					packageId: identity.packageId,
 					publicationId,
 					reviewGeneration: identity.generation,
@@ -249,11 +261,18 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 				});
 			},
 		},
+		onLifecycleEvent: (event): void => {
+			recordBridgeReviewRefreshLifecycleTelemetry({
+				event,
+				recorder: props.telemetryRecorder,
+			});
+		},
 		store: props.store,
 	});
 
 	let unsubscribeLifecycle = noop;
 	let unsubscribePresentation = noop;
+	let unsubscribeWorkerReplacement = noop;
 	const handlePresentationChanged = (): void => {
 		const presentation = props.store.getReviewRefreshPresentation();
 		const candidateIdentity = presentation.candidate?.identity ?? null;
@@ -338,6 +357,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 			isDisposed = true;
 			unsubscribeLifecycle();
 			unsubscribePresentation();
+			unsubscribeWorkerReplacement();
 			installationGate.close();
 			rejectDeferredCandidatePierre();
 			for (const pending of pendingAdmissionsByRequestId.values()) {
@@ -351,7 +371,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 			}
 			pendingAdmissionsByRequestId.clear();
 			pendingInstalledReceiptsByRequestId.clear();
-			orphanAdmissionByRequestId.clear();
+			synchronousAdmissionResponse = null;
 			publicationEpochById.clear();
 		},
 		handleMessage: (message): boolean => {
@@ -365,6 +385,10 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 						const activeIdentity = props.store.getReviewRefreshPresentation().activeIdentity;
 						if (activeIdentity !== null && identitiesAreExact(activeIdentity, identity)) {
 							props.store.applyReviewDisplayPatchEvent(message);
+							const activeEpoch = publicationEpochById.get(identity.publicationId);
+							if (activeEpoch === undefined || message.epoch > activeEpoch) {
+								publicationEpochById.set(identity.publicationId, message.epoch);
+							}
 							return true;
 						}
 						if (!props.store.stageReviewCandidateDisplayEvent({ event: message, identity })) {
@@ -393,9 +417,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 							candidatePublicationId: message.candidatePublicationId,
 							status: message.status,
 						});
-					} else {
-						orphanAdmissionByRequestId.set(message.requestId, message);
-					}
+					} else if (admissionDispatchInProgress) synchronousAdmissionResponse = message;
 					return true;
 				}
 				case 'reviewRenderPatch': {
@@ -460,6 +482,9 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 			unsubscribeLifecycle = props.client.lifecycle.subscribe(settleLifecycle);
 			unsubscribePresentation =
 				props.store.subscribeReviewRefreshPresentation(handlePresentationChanged);
+			unsubscribeWorkerReplacement = props.store.subscribeWorkerReplacement(
+				installationGate.prepareForWorkerReplacement,
+			);
 		},
 		whenSettled,
 	};

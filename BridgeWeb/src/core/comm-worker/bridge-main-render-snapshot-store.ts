@@ -212,6 +212,7 @@ export interface BridgeMainRenderSnapshotStore extends BridgeMainReviewCandidate
 	readonly subscribeReviewSelection: (listener: () => void) => () => void;
 	readonly subscribeReviewSource: (listener: () => void) => () => void;
 	readonly subscribeReviewTreeRow: (rowId: string, listener: () => void) => () => void;
+	readonly subscribeWorkerReplacement: (listener: () => void) => () => void;
 	readonly setLocalSelection: (props: SetBridgeMainLocalSelectionProps) => void;
 	readonly setLocalViewport: (props: SetBridgeMainLocalViewportProps) => void;
 	readonly setWorkerCodeViewItem: (props: {
@@ -247,6 +248,7 @@ export function createBridgeMainRenderSnapshotStore(
 	const reviewRefreshPresentationListeners = new Set<() => void>();
 	const reviewTreeRowById = new Map<string, BridgeMainReviewTreeDisplayRow>();
 	const reviewTreeRowListeners = new BridgeMainKeyedListenerRegistry<string>();
+	const workerReplacementListeners = new Set<() => void>();
 	const fileTreePatchStreamUnsubscribers = new Set<() => void>();
 	let isDisposed = false;
 	let reviewCatalogChangeCursor = 0;
@@ -369,6 +371,7 @@ export function createBridgeMainRenderSnapshotStore(
 			reviewSourceListeners.clear();
 			reviewRefreshPresentationListeners.clear();
 			reviewTreeRowListeners.clear();
+			workerReplacementListeners.clear();
 			for (const unsubscribe of fileTreePatchStreamUnsubscribers) unsubscribe();
 			reviewItemIndexById.clear();
 			reviewTreeRowById.clear();
@@ -382,6 +385,7 @@ export function createBridgeMainRenderSnapshotStore(
 		getServerSnapshot: (): BridgeMainRenderSnapshot => snapshot,
 		prepareForWorkerReplacement: (): void => {
 			if (isDisposed) return;
+			publishBridgeMainListeners(workerReplacementListeners);
 			discardReviewCandidate();
 			const fileDisplayState = fileDisplayPatchApplier.prepareForWorkerReplacement();
 			publish({
@@ -442,6 +446,10 @@ export function createBridgeMainRenderSnapshotStore(
 				: subscribeBridgeMainListener(reviewRefreshPresentationListeners, listener),
 		subscribeReviewTreeRow: (rowId, listener): (() => void) =>
 			isDisposed ? (): void => {} : reviewTreeRowListeners.subscribe(rowId, listener),
+		subscribeWorkerReplacement: (listener): (() => void) =>
+			isDisposed
+				? (): void => {}
+				: subscribeBridgeMainListener(workerReplacementListeners, listener),
 		setLocalSelection: (props: SetBridgeMainLocalSelectionProps): void => {
 			if (isDisposed) return;
 			publish(
@@ -488,8 +496,11 @@ export function createBridgeMainRenderSnapshotStore(
 		},
 		stageReviewCandidateDisplayEvent: (props): boolean => {
 			if (isDisposed) return false;
+			const presentationBeforeStage = reviewCandidateBankOwner.currentPresentation;
 			const staged = reviewCandidateBankOwner.stage({ activeSnapshot: snapshot, ...props });
-			if (staged) publishReviewRefreshPresentation();
+			if (staged && reviewCandidateBankOwner.currentPresentation !== presentationBeforeStage) {
+				publishReviewRefreshPresentation();
+			}
 			return staged;
 		},
 		applyReviewCandidateSnapshotUpdate: (update): boolean => {

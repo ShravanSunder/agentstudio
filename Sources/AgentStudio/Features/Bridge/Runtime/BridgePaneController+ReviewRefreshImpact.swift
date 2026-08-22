@@ -46,6 +46,7 @@ extension BridgePaneController {
         productAdmission: BridgeProductAdmissionContext,
         reservation: BridgePaneRefreshCatchUpReservation
     ) async throws -> BridgeReviewPackageLoadData? {
+        let classificationStartedAt = ContinuousClock.now
         let displayedPublication = reviewPublicationCoordinator.acknowledgedDisplayedPublication(
             productAdmission: productAdmission
         )
@@ -78,6 +79,63 @@ extension BridgePaneController {
                 productAdmission: productAdmission
             )?.publicationId == expectedDisplayedPublicationId
         else { return nil }
+        await recordReviewRefreshClassification(
+            impact,
+            generation: refreshGeneration,
+            duration: ContinuousClock.now - classificationStartedAt
+        )
         return load.classified(with: impact)
+    }
+
+    private func recordReviewRefreshClassification(
+        _ impact: BridgeReviewRefreshImpact,
+        generation: BridgeReviewGeneration,
+        duration: Duration
+    ) async {
+        guard let telemetryRecorder else { return }
+        let presentationClass: String
+        let resultReason: BridgeReviewRefreshLifecycleTraceEvent.ResultReason
+        switch impact.preDeliveryPresentationClass {
+        case .ordinary:
+            presentationClass = "ordinary"
+            resultReason = .noReason
+        case .promoted(let reason):
+            presentationClass = "promoted"
+            resultReason =
+                switch reason {
+                case .commits: .commits
+                case .files: .files
+                case .lines: .lines
+                case .unknown: .unknown
+                }
+        }
+        let changedLineCount = impact.addedLineCount.flatMap { addedLineCount in
+            impact.deletedLineCount.flatMap { deletedLineCount in
+                let sum = addedLineCount.addingReportingOverflow(deletedLineCount)
+                return sum.overflow ? nil : sum.partialValue
+            }
+        }
+        await BridgeReviewRefreshLifecycleTraceRecorder(recorder: telemetryRecorder).record(
+            BridgeReviewRefreshLifecycleTraceEvent(
+                phase: .classified,
+                resultReason: resultReason,
+                presentationClass: presentationClass,
+                reviewGeneration: generation.rawValue,
+                importedCommitCount: impact.newlyImportedCommitCount,
+                affectedFileCount: impact.affectedFileCount,
+                changedLineCount: changedLineCount,
+                affectedStableFileCount: impact.affectedStableFileIdentities.count,
+                retainedPublicationCount: nil,
+                sourceLeaseCount: nil,
+                durationMilliseconds: milliseconds(from: duration),
+                traceContext: lastReviewPackageTraceContext
+            )
+        )
+    }
+
+    private func milliseconds(from duration: Duration) -> Double {
+        let components = duration.components
+        return Double(components.seconds) * 1000
+            + Double(components.attoseconds) / 1_000_000_000_000_000
     }
 }

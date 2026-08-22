@@ -46,6 +46,44 @@ struct BridgePaneProductReviewMetadataRefreshImpactTests {
         #expect(windowImpacts.dropLast().allSatisfy { $0 == nil })
         #expect(windowImpacts.last == impact)
     }
+
+    @Test("promoted unknown remains encodable beyond one metadata-window identity limit")
+    func carriesSymbolicUnknownForLargeReview() async throws {
+        // Arrange
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let package = makeReviewPackage(itemCount: 4097)
+        let impact = BridgeReviewRefreshImpact.unknown(
+            displayedPackage: package,
+            candidatePackage: package
+        )
+        let source = BridgePaneProductReviewMetadataSource()
+        let collector = RefreshImpactReviewMetadataEventCollector()
+        try await source.open(
+            subscription: try refreshImpactReviewSubscription(),
+            productAdmission: productAdmission.context
+        ) { event, _ in
+            try await collector.append(event)
+        }
+
+        // Act
+        _ = try await deliverReviewPackage(
+            package,
+            refreshImpact: impact,
+            through: source,
+            productAdmission: productAdmission.context
+        )
+
+        // Assert
+        let finalImpact = await collector.events.compactMap { event -> BridgeReviewRefreshImpact? in
+            switch event {
+            case .snapshot(let snapshot): snapshot.refreshImpact
+            case .window(let window): window.refreshImpact
+            default: nil
+            }
+        }.last
+        #expect(impact.affectedStableFileIdentities.isEmpty)
+        #expect(finalImpact == impact)
+    }
 }
 
 private actor RefreshImpactReviewMetadataEventCollector {
