@@ -1,7 +1,6 @@
 ---
 type RouteAccent = "cyan" | "peach";
 type RouteEndKind = "merge" | "open";
-type RoutePlacement = "cross-glass-left" | "local-right";
 type TopologyVariant = "compact" | "expanded" | "standard";
 
 interface Props {
@@ -10,21 +9,49 @@ interface Props {
   readonly portalSurfaceSelector?: string;
 }
 
-interface AuthoredWorktree {
+interface AuthoredWorktreeBase {
   readonly accent: RouteAccent;
-  readonly endKind: RouteEndKind;
-  readonly endGlassIndex?: number;
-  readonly endPageOffset?: number;
-  readonly endPageRow?: number;
   readonly endSlot: number;
   readonly forkSlot: number;
-  readonly forkGlassIndex?: number;
-  readonly forkPageRow?: number;
   readonly id: string;
   readonly nodeSlots: readonly number[];
-  readonly placement: RoutePlacement;
   readonly variants: readonly TopologyVariant[];
 }
+
+type OptionalPageEndAnchor =
+  | { readonly endPageOffset?: never; readonly endPageRow?: never }
+  | { readonly endPageOffset: number; readonly endPageRow?: never }
+  | { readonly endPageOffset?: never; readonly endPageRow: number };
+
+type LocalRightWorktree = AuthoredWorktreeBase &
+  OptionalPageEndAnchor & {
+    readonly endGlassIndex?: never;
+    readonly endKind: RouteEndKind;
+    readonly forkGlassIndex?: never;
+    readonly forkPageRow?: number;
+    readonly placement: "local-right";
+  };
+
+type CrossGlassLeftWorktree =
+  | (AuthoredWorktreeBase & {
+      readonly endGlassIndex: number;
+      readonly endKind: "merge";
+      readonly endPageOffset?: never;
+      readonly endPageRow?: never;
+      readonly forkGlassIndex: number;
+      readonly forkPageRow?: never;
+      readonly placement: "cross-glass-left";
+    })
+  | (AuthoredWorktreeBase &
+      OptionalPageEndAnchor & {
+        readonly endGlassIndex?: never;
+        readonly endKind: "open";
+        readonly forkGlassIndex: number;
+        readonly forkPageRow?: never;
+        readonly placement: "cross-glass-left";
+      });
+
+type AuthoredWorktree = CrossGlassLeftWorktree | LocalRightWorktree;
 
 const { mainlineAnchorSelector, portalFrameSelector, portalSurfaceSelector } = Astro.props;
 const worktrees: readonly AuthoredWorktree[] = [

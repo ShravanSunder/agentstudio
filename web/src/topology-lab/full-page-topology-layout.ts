@@ -21,20 +21,48 @@ interface FullPageTopologyPortal {
 
 type RoutePlacement = "cross-glass-left" | "local-right";
 
-interface RouteDataset extends WorktreeLifecycle {
-  readonly endGlassIndex?: number;
-  readonly endPageOffset?: number;
-  readonly endPageRow?: number;
-  readonly forkGlassIndex?: number;
-  readonly forkPageRow?: number;
-  readonly placement: RoutePlacement;
+interface RouteDatasetBase extends WorktreeLifecycle {
   readonly variants: readonly FullPageTopologyVariant[];
 }
 
-interface ResolvedRouteDataset extends RouteDataset {
+type OptionalRoutePageEndAnchor =
+  | { readonly endPageOffset?: never; readonly endPageRow?: never }
+  | { readonly endPageOffset: number; readonly endPageRow?: never }
+  | { readonly endPageOffset?: never; readonly endPageRow: number };
+
+type LocalRightRouteDataset = RouteDatasetBase &
+  OptionalRoutePageEndAnchor & {
+    readonly endGlassIndex?: never;
+    readonly forkGlassIndex?: never;
+    readonly forkPageRow?: number;
+    readonly placement: "local-right";
+  };
+
+type CrossGlassLeftRouteDataset =
+  | (RouteDatasetBase & {
+      readonly endGlassIndex: number;
+      readonly endKind: "merge";
+      readonly endPageOffset?: never;
+      readonly endPageRow?: never;
+      readonly forkGlassIndex: number;
+      readonly forkPageRow?: never;
+      readonly placement: "cross-glass-left";
+    })
+  | (RouteDatasetBase &
+      OptionalRoutePageEndAnchor & {
+        readonly endGlassIndex?: never;
+        readonly endKind: "open";
+        readonly forkGlassIndex: number;
+        readonly forkPageRow?: never;
+        readonly placement: "cross-glass-left";
+      });
+
+type RouteDataset = CrossGlassLeftRouteDataset | LocalRightRouteDataset;
+
+type ResolvedRouteDataset = RouteDataset & {
   readonly endRow: number;
   readonly forkRow: number;
-}
+};
 
 interface ResolvedRouteGeometry {
   readonly endRow: number;
@@ -76,6 +104,10 @@ function requiredDatasetNumber(element: HTMLElement | SVGElement, key: string): 
   return numberValue;
 }
 
+function optionalDatasetNumber(element: HTMLElement | SVGElement, key: string): number | undefined {
+  return element.dataset[key] === undefined ? undefined : requiredDatasetNumber(element, key);
+}
+
 function isTopologyVariant(value: string): value is FullPageTopologyVariant {
   return value === "compact" || value === "standard" || value === "expanded";
 }
@@ -95,40 +127,63 @@ function readRouteDataset(group: SVGGElement): RouteDataset {
     throw new Error("Invalid authored worktree route");
   }
   const variants = variantValues.filter(isTopologyVariant);
-  const dataset: RouteDataset = {
-    endKind,
+  const base = {
     endSlot: requiredDatasetNumber(group, "endSlot"),
     forkSlot: requiredDatasetNumber(group, "forkSlot"),
     id,
-    placement,
     variants,
-    ...(group.dataset["endGlassIndex"] === undefined
-      ? {}
-      : { endGlassIndex: requiredDatasetNumber(group, "endGlassIndex") }),
-    ...(group.dataset["endPageOffset"] === undefined
-      ? {}
-      : { endPageOffset: requiredDatasetNumber(group, "endPageOffset") }),
-    ...(group.dataset["endPageRow"] === undefined
-      ? {}
-      : { endPageRow: requiredDatasetNumber(group, "endPageRow") }),
-    ...(group.dataset["forkGlassIndex"] === undefined
-      ? {}
-      : { forkGlassIndex: requiredDatasetNumber(group, "forkGlassIndex") }),
-    ...(group.dataset["forkPageRow"] === undefined
-      ? {}
-      : { forkPageRow: requiredDatasetNumber(group, "forkPageRow") }),
   };
-  if (
-    (dataset.placement === "local-right" &&
-      (dataset.forkGlassIndex !== undefined || dataset.endGlassIndex !== undefined)) ||
-    (dataset.placement === "cross-glass-left" && dataset.forkGlassIndex === undefined) ||
-    (dataset.placement === "cross-glass-left" &&
-      dataset.endKind === "merge" &&
-      dataset.endGlassIndex === undefined)
-  ) {
+  const endGlassIndex = optionalDatasetNumber(group, "endGlassIndex");
+  const endPageOffset = optionalDatasetNumber(group, "endPageOffset");
+  const endPageRow = optionalDatasetNumber(group, "endPageRow");
+  const forkGlassIndex = optionalDatasetNumber(group, "forkGlassIndex");
+  const forkPageRow = optionalDatasetNumber(group, "forkPageRow");
+  if (endPageOffset !== undefined && endPageRow !== undefined) {
     throw new Error("Invalid authored topology placement");
   }
-  return dataset;
+  const pageEndAnchor =
+    endPageOffset === undefined
+      ? endPageRow === undefined
+        ? {}
+        : { endPageRow }
+      : { endPageOffset };
+  if (placement === "local-right") {
+    if (forkGlassIndex !== undefined || endGlassIndex !== undefined) {
+      throw new Error("Invalid authored topology placement");
+    }
+    return {
+      ...base,
+      ...pageEndAnchor,
+      endKind,
+      ...(forkPageRow === undefined ? {} : { forkPageRow }),
+      placement,
+    };
+  }
+  if (forkGlassIndex === undefined || forkPageRow !== undefined) {
+    throw new Error("Invalid authored topology placement");
+  }
+  if (endKind === "merge") {
+    if (endGlassIndex === undefined || endPageOffset !== undefined || endPageRow !== undefined) {
+      throw new Error("Invalid authored topology placement");
+    }
+    return {
+      ...base,
+      endGlassIndex,
+      endKind,
+      forkGlassIndex,
+      placement,
+    };
+  }
+  if (endGlassIndex !== undefined) {
+    throw new Error("Invalid authored topology placement");
+  }
+  return {
+    ...base,
+    ...pageEndAnchor,
+    endKind,
+    forkGlassIndex,
+    placement,
+  };
 }
 
 function rowForSlot(slot: number, band: TopologyGlassBand): number {
@@ -390,31 +445,85 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
   } catch {
     return hideTopology(artwork, "invalid-authored-route");
   }
-  const visibleRouteCandidates = authoredRoutes.filter(({ dataset }) =>
-    dataset.variants.includes(grid.variant),
-  );
-  const visibleRoutes = visibleRouteCandidates.flatMap(({ dataset, group }) => {
-    const resolvedDataset = resolveRouteRows(dataset, portal, grid, band);
-    return resolvedDataset === undefined ? [] : [{ dataset: resolvedDataset, group }];
-  });
-  if (visibleRoutes.length !== visibleRouteCandidates.length) {
-    return hideTopology(artwork, "invalid-route-glass-anchor");
+  if (new Set(authoredRoutes.map(({ dataset }) => dataset.id)).size !== authoredRoutes.length) {
+    return hideTopology(artwork, "invalid-authored-route");
   }
-  const rightAssignments = assignWorktreeLanes(
-    visibleRoutes
-      .filter(({ dataset }) => dataset.placement === "local-right")
-      .map(({ dataset }) => lifecycleForResolvedRoute(dataset)),
-    grid.rightColumnCapacity - 1,
-  );
-  const leftAssignments = assignWorktreeLanes(
-    visibleRoutes
-      .filter(({ dataset }) => dataset.placement === "cross-glass-left")
-      .map(({ dataset }) => lifecycleForResolvedRoute(dataset)),
-    grid.leftColumnCapacity,
-  );
-  if (rightAssignments === undefined || leftAssignments === undefined) {
-    return hideTopology(artwork, "invalid-worktree-occupancy");
+  const variantCapacities = {
+    compact: 2,
+    expanded: 4,
+    standard: 3,
+  } satisfies Record<FullPageTopologyVariant, number>;
+  const variantLayouts = new Map<
+    FullPageTopologyVariant,
+    {
+      readonly leftAssignments: readonly { readonly id: string; readonly lane: number }[];
+      readonly rightAssignments: readonly { readonly id: string; readonly lane: number }[];
+      readonly visibleRoutes: readonly {
+        readonly dataset: ResolvedRouteDataset;
+        readonly group: SVGGElement;
+      }[];
+    }
+  >();
+  const stableAssignmentByRouteId = new Map<string, RouteLaneAssignment>();
+  for (const variant of ["compact", "standard", "expanded"] as const) {
+    const variantRouteCandidates = authoredRoutes.filter(({ dataset }) =>
+      dataset.variants.includes(variant),
+    );
+    const variantRoutes = variantRouteCandidates.flatMap(({ dataset, group }) => {
+      const resolvedDataset = resolveRouteRows(dataset, portal, grid, band);
+      return resolvedDataset === undefined ? [] : [{ dataset: resolvedDataset, group }];
+    });
+    if (variantRoutes.length !== variantRouteCandidates.length) {
+      return hideTopology(artwork, "invalid-route-glass-anchor");
+    }
+    const variantCapacity = variantCapacities[variant];
+    const rightVariantAssignments = assignWorktreeLanes(
+      variantRoutes
+        .filter(({ dataset }) => dataset.placement === "local-right")
+        .map(({ dataset }) => lifecycleForResolvedRoute(dataset)),
+      variantCapacity - 1,
+    );
+    const leftVariantAssignments = assignWorktreeLanes(
+      variantRoutes
+        .filter(({ dataset }) => dataset.placement === "cross-glass-left")
+        .map(({ dataset }) => lifecycleForResolvedRoute(dataset)),
+      variantCapacity,
+    );
+    if (rightVariantAssignments === undefined || leftVariantAssignments === undefined) {
+      return hideTopology(artwork, "invalid-worktree-occupancy");
+    }
+    const variantAssignments: readonly [string, RouteLaneAssignment][] = [
+      ...rightVariantAssignments.map(({ id, lane }): [string, RouteLaneAssignment] => [
+        id,
+        { lane, placement: "local-right" },
+      ]),
+      ...leftVariantAssignments.map(({ id, lane }): [string, RouteLaneAssignment] => [
+        id,
+        { lane, placement: "cross-glass-left" },
+      ]),
+    ];
+    for (const [id, assignment] of variantAssignments) {
+      const stableAssignment = stableAssignmentByRouteId.get(id);
+      if (
+        stableAssignment !== undefined &&
+        (stableAssignment.lane !== assignment.lane ||
+          stableAssignment.placement !== assignment.placement)
+      ) {
+        return hideTopology(artwork, "invalid-variant-identity");
+      }
+      stableAssignmentByRouteId.set(id, assignment);
+    }
+    variantLayouts.set(variant, {
+      leftAssignments: leftVariantAssignments,
+      rightAssignments: rightVariantAssignments,
+      visibleRoutes: variantRoutes,
+    });
   }
+  const currentVariantLayout = variantLayouts.get(grid.variant);
+  if (currentVariantLayout === undefined) {
+    return hideTopology(artwork, "invalid-authored-route");
+  }
+  const { leftAssignments, rightAssignments, visibleRoutes } = currentVariantLayout;
   const usedRightColumnCount =
     1 +
     (rightAssignments.length === 0 ? 0 : Math.max(...rightAssignments.map(({ lane }) => lane)) + 1);

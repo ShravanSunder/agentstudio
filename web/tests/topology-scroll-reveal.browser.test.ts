@@ -150,6 +150,7 @@ afterEach(() => {
 describe("topology scroll reveal", () => {
   it("shows only the animated start node at scroll zero for vertical-mask artwork", async () => {
     const fixture = createTopologyFixture(true);
+    fixture.host.style.height = "20000px";
 
     await scrollToProgress(0);
 
@@ -162,7 +163,8 @@ describe("topology scroll reveal", () => {
     expect(fixture.finalNode.style.opacity).toBe("0");
     expect(revealFade?.getAttribute("height")).toBe("0");
 
-    await scrollToProgress(0.01);
+    window.scrollTo(0, 1);
+    await waitForRevealRender();
 
     expect(fixture.artwork.hasAttribute("data-topology-at-start")).toBe(false);
     expect(fixture.corePath.style.visibility).toBe("visible");

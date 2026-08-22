@@ -64,6 +64,65 @@ afterEach(() => {
 });
 
 describe("full-page topology layout", () => {
+  it("fails closed when a cross-glass route also authors a page-row fork", () => {
+    const artwork = createArtwork(576, 1424);
+    const route = artwork.querySelector<SVGGElement>("[data-topology-route-group]");
+    if (route === null) {
+      throw new Error("Full-page topology fixture route is missing");
+    }
+    route.dataset["routePlacement"] = "cross-glass-left";
+    route.dataset["forkGlassIndex"] = "0";
+    route.dataset["forkPageRow"] = "2";
+
+    expect(layoutFullPageTopology(artwork)).toBe(true);
+    expect(artwork.style.visibility).toBe("hidden");
+    expect(artwork.dataset["topologyHiddenReason"]).toBe("invalid-authored-route");
+  });
+
+  it("fails closed when duplicate route IDs appear across placements", () => {
+    const artwork = createArtwork(576, 1424);
+    const firstRoute = artwork.querySelector<SVGGElement>("[data-topology-route-group]");
+    if (firstRoute === null) {
+      throw new Error("Full-page topology fixture route is missing");
+    }
+    const duplicateRoute = firstRoute.cloneNode(true);
+    if (!(duplicateRoute instanceof SVGGElement)) {
+      throw new Error("Cloned topology route is not an SVG group");
+    }
+    duplicateRoute.dataset["routePlacement"] = "cross-glass-left";
+    duplicateRoute.dataset["topologyVariants"] = "expanded";
+    duplicateRoute.dataset["forkGlassIndex"] = "0";
+    duplicateRoute.removeAttribute("data-fork-page-row");
+    artwork.append(duplicateRoute);
+
+    expect(layoutFullPageTopology(artwork)).toBe(true);
+    expect(artwork.style.visibility).toBe("hidden");
+    expect(artwork.dataset["topologyHiddenReason"]).toBe("invalid-authored-route");
+  });
+
+  it("fails closed when a wider variant would move a shared route to another side slot", () => {
+    const artwork = createArtwork(576, 1424);
+    const sharedRoute = artwork.querySelector<SVGGElement>("[data-topology-route-group]");
+    if (sharedRoute === null) {
+      throw new Error("Full-page topology fixture route is missing");
+    }
+    const expandedRoute = sharedRoute.cloneNode(true);
+    if (!(expandedRoute instanceof SVGGElement)) {
+      throw new Error("Cloned topology route is not an SVG group");
+    }
+    expandedRoute.dataset["routeId"] = "expanded-earlier";
+    expandedRoute.dataset["topologyVariants"] = "expanded";
+    expandedRoute.dataset["forkPageRow"] = "1";
+    expandedRoute.dataset["forkSlot"] = "1";
+    expandedRoute.dataset["endPageOffset"] = "4";
+    expandedRoute.querySelector('[data-node-position="target"]')?.remove();
+    artwork.append(expandedRoute);
+
+    expect(layoutFullPageTopology(artwork)).toBe(true);
+    expect(artwork.style.visibility).toBe("hidden");
+    expect(artwork.dataset["topologyHiddenReason"]).toBe("invalid-variant-identity");
+  });
+
   it("fails closed when authored placement conflicts with route geometry", () => {
     const artwork = createArtwork(576, 1424);
     const route = artwork.querySelector<SVGGElement>("[data-topology-route-group]");
@@ -96,6 +155,7 @@ describe("full-page topology layout", () => {
     secondRoute.dataset["forkSlot"] = "4";
     secondRoute.dataset["endPageOffset"] = "4";
     secondRoute.dataset["endSlot"] = "17";
+    secondRoute.dataset["topologyVariants"] = "expanded";
     artwork.append(secondRoute);
 
     expect(layoutFullPageTopology(artwork)).toBe(true);
