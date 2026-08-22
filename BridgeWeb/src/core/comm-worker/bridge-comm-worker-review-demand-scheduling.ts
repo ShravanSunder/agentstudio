@@ -17,6 +17,7 @@ import {
 	type BridgeWorkerReviewContentReadyPreparationSettlement,
 } from './bridge-comm-worker-review-preparation.js';
 import { canRenderBridgeWorkerReviewContentForSemantics } from './bridge-comm-worker-review-runtime.js';
+import { requireBridgeCommWorkerReviewRuntimeSourcePublicationIdentity } from './bridge-comm-worker-review-source-diff.js';
 import { enqueueBridgeCommWorkerReviewSourceReset } from './bridge-comm-worker-review-source-reset.js';
 import type {
 	BridgeCommWorkerStore,
@@ -418,6 +419,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		contentItems: [],
 		contentRequestDescriptors: [],
 		renderSemantics: [],
+		reviewPublicationIdentity: null,
 		rows: [],
 	};
 	let visibleSourceChurnDedupeState = createBridgeCommWorkerVisibleSourceChurnDedupeState();
@@ -465,6 +467,8 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 					? `selected:${member.selectedDemandEpoch}`
 					: `review-ledger:${admission.itemId}`;
 			const ledgerStore = bridgeCommWorkerStoreWithDemandKey(store, admission.itemId, demandKey);
+			const reviewPublicationIdentity =
+				requireBridgeCommWorkerReviewRuntimeSourcePublicationIdentity(reviewRuntimeSource);
 			const ticket =
 				member.role === 'selected'
 					? enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
@@ -480,6 +484,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 							operationCorrelationId: operationCorrelationId(),
 							port: props.port,
 							pump: props.pump,
+							reviewPublicationIdentity,
 							renderSemantics: reviewRuntimeSource.renderSemantics,
 							requestPreparationDrain: props.requestPreparationDrain,
 							sequence: props.createSequence(),
@@ -507,6 +512,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 							port: props.port,
 							preparationRank: member.role,
 							pump: props.pump,
+							reviewPublicationIdentity,
 							renderSemantics: reviewRuntimeSource.renderSemantics,
 							requestPreparationDrain: props.requestPreparationDrain,
 							sequence: props.createSequence(),

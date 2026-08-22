@@ -115,6 +115,11 @@ export class RecordingAnnotationBrowserSurface {
 		props: { readonly failRootCreateWithConflict?: boolean } = {},
 	) {
 		const renderStore = createBridgeMainRenderSnapshotStore();
+		if (surface === 'review') {
+			Object.defineProperty(renderStore, 'getReviewRefreshPresentation', {
+				value: () => ({ activeIdentity: annotationReviewMainIdentity, candidate: null }),
+			});
+		}
 		this.client = {
 			lifecycle: {
 				getServerSnapshot: () => ({ requestsById: {} }),
@@ -659,6 +664,14 @@ export class RecordingAnnotationBrowserSurface {
 		for (const listener of this.#listeners) listener(message);
 	}
 }
+
+const annotationReviewMainIdentity = {
+	generation: 7,
+	packageId: 'package-installed',
+	publicationId: '00000000-0000-7000-8000-000000000041',
+	revision: 3,
+	sourceIdentity: 'source-installed',
+} as const;
 
 export function annotationSessionSummary(props: {
 	readonly eligibleMessageCount?: number;

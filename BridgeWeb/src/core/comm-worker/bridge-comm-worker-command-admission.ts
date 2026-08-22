@@ -38,6 +38,8 @@ export function bridgeCommWorkerIntentEpochDomain(
 		case 'reviewComparisonTargetsQueryCancel':
 		case 'reviewInvalidate':
 		case 'reviewProjectionUpdate':
+		case 'reviewPublicationInstallAdmit':
+		case 'reviewPublicationInstalled':
 			return 'review';
 		case 'renderDisposition':
 			return message.receipt.surface === 'file' ? 'fileView' : 'review';

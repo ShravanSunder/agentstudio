@@ -21,22 +21,26 @@ struct WorktreeAnnotationSourceResolver: Sendable {
         @Sendable (
             BridgeProductWorktreeAnnotationOrigin,
             BridgeProductSurface,
+            BridgeProductReviewAnnotationPublicationIdentity?,
             BridgeProductAdmissionContext
         ) async throws -> WorktreeAnnotationCapturedSource
     let currentFingerprint:
         @Sendable (
             BridgeProductSurface,
+            BridgeProductReviewAnnotationPublicationIdentity?,
             BridgeProductAdmissionContext
         ) async throws -> WorktreeAnnotationSourceFingerprint
     let refresh:
         @Sendable (
             BridgeProductSurface,
+            BridgeProductReviewAnnotationPublicationIdentity?,
             BridgeProductAdmissionContext,
             [WorktreeAnnotationSourceRefreshRequirement]
         ) async throws -> WorktreeAnnotationSourceRefreshCapture
     let currentSourceGeneration:
         @Sendable (
             BridgeProductSurface,
+            BridgeProductReviewAnnotationPublicationIdentity?,
             BridgeProductAdmissionContext
         ) async throws -> Int
 
@@ -45,24 +49,28 @@ struct WorktreeAnnotationSourceResolver: Sendable {
             @escaping @Sendable (
                 BridgeProductWorktreeAnnotationOrigin,
                 BridgeProductSurface,
+                BridgeProductReviewAnnotationPublicationIdentity?,
                 BridgeProductAdmissionContext
             ) async throws -> WorktreeAnnotationCapturedSource,
         currentFingerprint:
             @escaping @Sendable (
                 BridgeProductSurface,
+                BridgeProductReviewAnnotationPublicationIdentity?,
                 BridgeProductAdmissionContext
             ) async throws -> WorktreeAnnotationSourceFingerprint,
         refresh:
             @escaping @Sendable (
                 BridgeProductSurface,
+                BridgeProductReviewAnnotationPublicationIdentity?,
                 BridgeProductAdmissionContext,
                 [WorktreeAnnotationSourceRefreshRequirement]
             ) async throws -> WorktreeAnnotationSourceRefreshCapture,
         currentSourceGeneration:
             @escaping @Sendable (
                 BridgeProductSurface,
+                BridgeProductReviewAnnotationPublicationIdentity?,
                 BridgeProductAdmissionContext
-            ) async throws -> Int = { _, _ in
+            ) async throws -> Int = { _, _, _ in
                 throw WorktreeAnnotationSourceResolutionError.unavailable
             }
     ) {
@@ -73,9 +81,9 @@ struct WorktreeAnnotationSourceResolver: Sendable {
     }
 
     static let unavailable = Self(
-        capture: { _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable },
-        currentFingerprint: { _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable },
-        refresh: { _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable }
+        capture: { _, _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable },
+        currentFingerprint: { _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable },
+        refresh: { _, _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable }
     )
 }
 
@@ -91,6 +99,7 @@ private struct WorktreeAnnotationCreateRootTransportInput {
     let origin: BridgeProductWorktreeAnnotationOrigin
     let surface: BridgeProductSurface
     let productAdmission: BridgeProductAdmissionContext
+    let reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity?
     let ownerGeneration: String
 }
 
@@ -152,9 +161,17 @@ final class WorktreeAnnotationTransportAdapter {
         productAdmission: BridgeProductAdmissionContext
     ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO {
         do {
+            if surface == .review {
+                _ = try await sourceResolver.currentSourceGeneration(
+                    surface,
+                    request.reviewPublicationIdentity,
+                    productAdmission
+                )
+            }
             let applied = try await applyCommand(
                 request.operation,
                 surface: surface,
+                reviewPublicationIdentity: request.reviewPublicationIdentity,
                 productAdmission: productAdmission,
                 ownerGeneration: correlation.workerInstanceId
             )
@@ -187,6 +204,7 @@ final class WorktreeAnnotationTransportAdapter {
     private func applyCommand(
         _ operation: BridgeProductWorktreeAnnotationOperation,
         surface: BridgeProductSurface,
+        reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity?,
         productAdmission: BridgeProductAdmissionContext,
         ownerGeneration: String
     ) async throws -> WorktreeAnnotationAppliedCommand {
@@ -202,6 +220,7 @@ final class WorktreeAnnotationTransportAdapter {
             let output = try await executeOutputPreparation(
                 body,
                 surface: surface,
+                reviewPublicationIdentity: reviewPublicationIdentity,
                 productAdmission: productAdmission
             )
             return .init(sessionID: output.summary?.sessionID, status: .output(output), receipt: nil)
@@ -224,6 +243,7 @@ final class WorktreeAnnotationTransportAdapter {
                     origin: origin,
                     surface: surface,
                     productAdmission: productAdmission,
+                    reviewPublicationIdentity: reviewPublicationIdentity,
                     ownerGeneration: ownerGeneration
                 )
             )
@@ -241,6 +261,7 @@ final class WorktreeAnnotationTransportAdapter {
             let sessionID = try await apply(
                 operation,
                 surface: surface,
+                reviewPublicationIdentity: reviewPublicationIdentity,
                 productAdmission: productAdmission,
                 ownerGeneration: ownerGeneration
             )
@@ -251,6 +272,7 @@ final class WorktreeAnnotationTransportAdapter {
     private func apply(
         _ operation: BridgeProductWorktreeAnnotationOperation,
         surface: BridgeProductSurface,
+        reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity?,
         productAdmission: BridgeProductAdmissionContext,
         ownerGeneration: String
     ) async throws -> WorktreeAnnotationSessionID? {
@@ -293,6 +315,7 @@ final class WorktreeAnnotationTransportAdapter {
                     origin: origin,
                     surface: surface,
                     productAdmission: productAdmission,
+                    reviewPublicationIdentity: reviewPublicationIdentity,
                     ownerGeneration: ownerGeneration
                 )
             ).sessionID
@@ -311,22 +334,21 @@ final class WorktreeAnnotationTransportAdapter {
         case .setThreadResolution(let body):
             return try await setThreadResolution(body)
         case .setSessionLifecycle(let body):
-            let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
-            _ = try await store.setSessionLifecycle(
-                .init(
-                    sessionID: sessionID,
-                    lifecycle: body.lifecycle,
-                    expectedSessionRevision: body.expectedSessionRevision,
-                    expectedOpenThreadCount: body.expectedOpenThreadCount,
-                    confirmsUnresolvedWork: body.confirmsUnresolvedWork,
-                    now: now()
-                )
-            )
-            return sessionID
+            return try await setSessionLifecycle(body)
         case .chooseContinuity(let body):
-            return try await chooseContinuity(body, surface: surface, productAdmission: productAdmission)
+            return try await chooseContinuity(
+                body,
+                surface: surface,
+                reviewPublicationIdentity: reviewPublicationIdentity,
+                productAdmission: productAdmission
+            )
         case .refreshSource(let body):
-            return try await refreshSource(body, surface: surface, productAdmission: productAdmission)
+            return try await refreshSource(
+                body,
+                surface: surface,
+                reviewPublicationIdentity: reviewPublicationIdentity,
+                productAdmission: productAdmission
+            )
         case .outputScopeCommit:
             throw WorktreeAnnotationTransportAdapterError.outputUnavailable
         case .outputHandledClear:
@@ -362,12 +384,30 @@ final class WorktreeAnnotationTransportAdapter {
         return sessionID
     }
 
+    private func setSessionLifecycle(
+        _ body: BridgeProductWorktreeAnnotationOperation.SessionLifecycleBody
+    ) async throws -> WorktreeAnnotationSessionID {
+        let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
+        _ = try await store.setSessionLifecycle(
+            .init(
+                sessionID: sessionID,
+                lifecycle: body.lifecycle,
+                expectedSessionRevision: body.expectedSessionRevision,
+                expectedOpenThreadCount: body.expectedOpenThreadCount,
+                confirmsUnresolvedWork: body.confirmsUnresolvedWork,
+                now: now()
+            )
+        )
+        return sessionID
+    }
+
     private func createRoot(
         _ input: WorktreeAnnotationCreateRootTransportInput
     ) async throws -> WorktreeAnnotationAppliedMessageCommand {
         let capturedSource = try await sourceResolver.capture(
             input.origin,
             input.surface,
+            input.reviewPublicationIdentity,
             input.productAdmission
         )
         try validateFingerprint(capturedSource.fingerprint)
@@ -531,6 +571,7 @@ final class WorktreeAnnotationTransportAdapter {
     private func chooseContinuity(
         _ body: BridgeProductWorktreeAnnotationOperation.ContinuityBody,
         surface: BridgeProductSurface,
+        reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity?,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSessionID {
         let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
@@ -538,7 +579,11 @@ final class WorktreeAnnotationTransportAdapter {
         let fingerprint: WorktreeAnnotationSourceFingerprint?
         switch body.decision {
         case .acceptCurrentSource:
-            let current = try await sourceResolver.currentFingerprint(surface, productAdmission)
+            let current = try await sourceResolver.currentFingerprint(
+                surface,
+                reviewPublicationIdentity,
+                productAdmission
+            )
             try validateFingerprint(current)
             relationship = .applicable
             fingerprint = current
@@ -561,6 +606,7 @@ final class WorktreeAnnotationTransportAdapter {
     private func refreshSource(
         _ body: BridgeProductWorktreeAnnotationOperation.SourceRefreshBody,
         surface: BridgeProductSurface,
+        reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity?,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSessionID {
         let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
@@ -574,6 +620,7 @@ final class WorktreeAnnotationTransportAdapter {
         }
         let capture = try await sourceResolver.refresh(
             surface,
+            reviewPublicationIdentity,
             productAdmission,
             refreshSnapshot.requirements
         )

@@ -31,6 +31,14 @@ import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
 
 const bridgeReviewNavigationCommandIsAlwaysEligible = (): boolean => true;
 
+const TEST_REVIEW_PUBLICATION_IDENTITY = {
+	packageId: 'test-review-package',
+	publicationId: '00000000-0000-7000-8000-000000000001',
+	reviewGeneration: 1,
+	revision: 1,
+	sourceIdentity: 'test-review-source',
+} as const;
+
 describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 	test('publishes real keyed Review facts and a later metadata window without a package adapter', async () => {
 		// Arrange
@@ -326,6 +334,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				direction: 'serverWorkerToMain',
 				epoch: 1,
 				kind: 'reviewDisplayPatch',
+				reviewPublicationIdentity: null,
 				patches: [
 					{
 						operation: 'upsert',
@@ -750,6 +759,7 @@ function reviewComparisonPanelChromeEvent(): Extract<
 	return {
 		direction: 'serverWorkerToMain',
 		kind: 'reviewRenderPatch',
+		reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 		patches: [
 			{
 				operation: 'upsert',
@@ -820,6 +830,7 @@ function reviewContentReadyEvents(): readonly BridgeWorkerServerToMainMessage[] 
 			direction: 'serverWorkerToMain',
 			job,
 			kind: 'reviewPierreRenderJob',
+			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 			publicationSequence: 2,
 			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
 				itemId: job.itemId,
@@ -842,6 +853,7 @@ function reviewContentReadyEvents(): readonly BridgeWorkerServerToMainMessage[] 
 		{
 			direction: 'serverWorkerToMain',
 			kind: 'reviewRenderPatch',
+			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 			patches: [
 				{
 					itemId: 'item-1',

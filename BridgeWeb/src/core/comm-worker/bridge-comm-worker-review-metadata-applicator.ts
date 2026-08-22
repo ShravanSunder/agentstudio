@@ -32,6 +32,8 @@ import type { BridgeProductReviewComparisonPresentation } from './bridge-product
 import type { BridgeProductReviewMetadataEvent } from './bridge-product-review-metadata-contracts.js';
 import type {
 	BridgeWorkerReviewDisplayPatch,
+	BridgeWorkerReviewPreDeliveryPresentationClass,
+	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerReviewSourceDisplayPayload,
 } from './bridge-worker-contracts.js';
 
@@ -59,6 +61,7 @@ interface MutableBridgeCommWorkerReviewRuntimeSource extends BridgeCommWorkerRev
 	readonly contentItems: BridgeCommWorkerReviewRuntimeSource['contentItems'][number][];
 	readonly contentRequestDescriptors: BridgeCommWorkerReviewRuntimeSource['contentRequestDescriptors'][number][];
 	readonly renderSemantics: BridgeCommWorkerReviewRuntimeSource['renderSemantics'][number][];
+	reviewPublicationIdentity: BridgeCommWorkerReviewRuntimeSource['reviewPublicationIdentity'];
 	readonly rows: BridgeCommWorkerReviewRuntimeSource['rows'][number][];
 }
 
@@ -100,16 +103,27 @@ export interface BridgeCommWorkerReviewComparisonCommit {
 	readonly reviewComparison: BridgeProductReviewComparisonPresentation | null;
 }
 
+export interface BridgeCommWorkerReviewCandidateReadyPublication {
+	readonly affectedStableFileIdentities: readonly string[];
+	readonly identity: ReviewMetadataLineage;
+	readonly preDeliveryPresentationClass: BridgeWorkerReviewPreDeliveryPresentationClass;
+	readonly workerDerivationEpoch: number;
+}
+
 export class BridgeCommWorkerReviewMetadataApplicator {
 	readonly #applyRuntimeSource: (
 		application: BridgeCommWorkerReviewMetadataApplication,
 	) => BridgeCommWorkerReviewRuntimeApplicationTransaction | void;
 	readonly #currentWorkerDerivationEpoch: () => number;
+	readonly #publishCandidateReady:
+		| ((publication: BridgeCommWorkerReviewCandidateReadyPublication) => void)
+		| undefined;
 	readonly #publishDisplayPatches:
 		| ((publication: {
 				readonly comparisonCommit?: BridgeCommWorkerReviewComparisonCommit | undefined;
 				readonly operationCorrelationId?: string | null;
 				readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+				readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity | null;
 				readonly workerDerivationEpoch: number;
 		  }) => void)
 		| undefined;
@@ -136,16 +150,21 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 			application: BridgeCommWorkerReviewMetadataApplication,
 		) => BridgeCommWorkerReviewRuntimeApplicationTransaction | void;
 		readonly currentWorkerDerivationEpoch: () => number;
+		readonly publishCandidateReady?: (
+			publication: BridgeCommWorkerReviewCandidateReadyPublication,
+		) => void;
 		readonly publishDisplayPatches?: (publication: {
 			readonly comparisonCommit?: BridgeCommWorkerReviewComparisonCommit | undefined;
 			readonly operationCorrelationId?: string | null;
 			readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+			readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity | null;
 			readonly workerDerivationEpoch: number;
 		}) => void;
 		readonly recordIncrementalItemMapping?: (itemCount: number) => void;
 	}) {
 		this.#applyRuntimeSource = props.applyRuntimeSource;
 		this.#currentWorkerDerivationEpoch = props.currentWorkerDerivationEpoch;
+		this.#publishCandidateReady = props.publishCandidateReady;
 		this.#publishDisplayPatches = props.publishDisplayPatches;
 		this.#recordIncrementalItemMapping = props.recordIncrementalItemMapping;
 	}
@@ -169,6 +188,18 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 			default:
 				return assertNeverReviewMetadataEvent(event);
 		}
+	}
+
+	admittedPublicationIdentity(): BridgeWorkerReviewPublicationIdentity | null {
+		const lineage = this.#acceptedLineageFloor;
+		if (lineage === null) return null;
+		return {
+			packageId: lineage.packageId,
+			publicationId: lineage.publicationId,
+			reviewGeneration: lineage.generation,
+			revision: lineage.revision,
+			sourceIdentity: lineage.sourceIdentity,
+		};
 	}
 
 	handleMetadataFailure(
@@ -221,7 +252,11 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		this.#pendingProjection = pendingProjection;
 		if (pendingProjection.hasFinalBarrier()) {
 			pendingProjection.assertCompleteFinalBarrier();
-			return this.#commitPendingProjection({ projectionResult, workerDerivationEpoch });
+			return this.#commitPendingProjection({
+				finalBarrierEvent: event,
+				projectionResult,
+				workerDerivationEpoch,
+			});
 		}
 		if (this.#activeProjection !== null && !this.#activeProjection.matchesEvent(event)) {
 			this.#publishActiveSourceStale(workerDerivationEpoch);
@@ -298,7 +333,11 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		this.#recordIncrementalItemMapping?.(projectionResult.affectedItemIds.length);
 		if (!pendingProjection.hasFinalBarrier()) return null;
 		pendingProjection.assertCompleteFinalBarrier();
-		return this.#commitPendingProjection({ projectionResult, workerDerivationEpoch });
+		return this.#commitPendingProjection({
+			finalBarrierEvent: event,
+			projectionResult,
+			workerDerivationEpoch,
+		});
 	}
 
 	#admitCandidateLineage(event: BridgeProductReviewMetadataEvent): boolean {
@@ -323,6 +362,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 	}
 
 	#commitPendingProjection(props: {
+		readonly finalBarrierEvent: ReviewMetadataPendingEvent;
 		readonly projectionResult: BridgeCommWorkerReviewMetadataApplyResult;
 		readonly workerDerivationEpoch: number;
 	}): BridgeCommWorkerReviewPublicationApplicationReceipt {
@@ -369,6 +409,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 				],
 				completeContentItemIds: snapshot.orderedItemIds,
 				completeRowIds: snapshot.treeRows.map((row) => row.itemId ?? row.rowId),
+				candidateReadyEvent: props.finalBarrierEvent,
 				event: reviewMetadataSnapshotEventFromCompleteSnapshot(snapshot),
 				projectionResult: props.projectionResult,
 				removedItemIds: previousItemIds.filter((itemId) => !nextItemIds.has(itemId)),
@@ -515,6 +556,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 				snapshot,
 				sourceStatus: 'stale',
 			}),
+			reviewPublicationIdentity: null,
 			workerDerivationEpoch,
 		});
 	}
@@ -537,7 +579,11 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 			snapshot,
 			sourceStatus: 'ready',
 		}).filter((patch) => patch.slice === 'reviewSource');
-		this.#publishDisplayPatches({ patches: sourcePatches, workerDerivationEpoch });
+		this.#publishDisplayPatches({
+			patches: sourcePatches,
+			reviewPublicationIdentity: null,
+			workerDerivationEpoch,
+		});
 	}
 
 	#updateSourceDisplayStatus(event: BridgeProductReviewMetadataEvent): void {
@@ -572,6 +618,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 			contentItems: [...source.contentItems],
 			contentRequestDescriptors: [...source.contentRequestDescriptors],
 			renderSemantics: [...source.renderSemantics],
+			reviewPublicationIdentity: source.reviewPublicationIdentity,
 			rows: [...source.rows],
 		};
 		this.#contentItemIndexById.clear();
@@ -620,6 +667,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 			itemSource.renderSemantics.map((semantics) => semantics.itemId),
 		);
 		const nextItemSignaturesByItemId = reviewRuntimeItemSignatures(itemSource);
+		this.#runtimeSource.reviewPublicationIdentity = itemSource.reviewPublicationIdentity;
 		for (const itemId of candidateItemIds) {
 			if (!nextContentItemIds.has(itemId)) {
 				removeIndexedValue(contentItems, this.#contentItemIndexById, itemId, (item) => item.itemId);
@@ -751,6 +799,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 	#publishApplication(props: {
 		readonly affectedItemIds: readonly string[];
 		readonly affectedRowIds: readonly string[];
+		readonly candidateReadyEvent?: BridgeProductReviewMetadataEvent;
 		readonly completeContentItemIds?: readonly string[];
 		readonly completeRowIds?: readonly string[];
 		readonly event: BridgeProductReviewMetadataEvent;
@@ -761,6 +810,9 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		readonly snapshot: ReturnType<BridgeCommWorkerReviewMetadataProjection['snapshot']>;
 		readonly workerDerivationEpoch: number;
 	}): void {
+		if (props.snapshot.identity === null || props.snapshot.revision === null) {
+			throw new Error('Review publication requires an exact source identity and revision.');
+		}
 		const displayPatches = bridgeCommWorkerReviewDisplayPatches({
 			event: props.event,
 			projectionResult: props.projectionResult,
@@ -799,8 +851,29 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 						}),
 				operationCorrelationId: props.snapshot.identity?.operationCorrelationId ?? null,
 				patches: displayPatches,
+				reviewPublicationIdentity: {
+					packageId: props.snapshot.identity.packageId,
+					publicationId: props.snapshot.identity.publicationId,
+					reviewGeneration: props.snapshot.identity.generation,
+					revision: props.snapshot.revision,
+					sourceIdentity: props.snapshot.identity.sourceIdentity,
+				},
 				workerDerivationEpoch: props.workerDerivationEpoch,
 			});
+			const candidateReadyEvent = props.candidateReadyEvent ?? props.event;
+			if (
+				'preDeliveryPresentationClass' in candidateReadyEvent &&
+				candidateReadyEvent.preDeliveryPresentationClass !== undefined &&
+				'affectedStableFileIdentities' in candidateReadyEvent &&
+				candidateReadyEvent.affectedStableFileIdentities !== undefined
+			) {
+				this.#publishCandidateReady?.({
+					affectedStableFileIdentities: candidateReadyEvent.affectedStableFileIdentities,
+					identity: reviewMetadataLineage(candidateReadyEvent),
+					preDeliveryPresentationClass: candidateReadyEvent.preDeliveryPresentationClass,
+					workerDerivationEpoch: props.workerDerivationEpoch,
+				});
+			}
 		} catch (error) {
 			runtimeApplication?.rollback();
 			throw error;
@@ -837,6 +910,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 				contentItems: [...this.#runtimeSource.contentItems],
 				contentRequestDescriptors: [...this.#runtimeSource.contentRequestDescriptors],
 				renderSemantics: [...this.#runtimeSource.renderSemantics],
+				reviewPublicationIdentity: this.#runtimeSource.reviewPublicationIdentity,
 				rows: [...this.#runtimeSource.rows],
 			},
 			sourceDisplayStatus: this.#sourceDisplayStatus,
@@ -880,5 +954,11 @@ function assertNeverReviewMetadataEvent(event: never): never {
 }
 
 function emptyReviewRuntimeSource(): MutableBridgeCommWorkerReviewRuntimeSource {
-	return { contentItems: [], contentRequestDescriptors: [], renderSemantics: [], rows: [] };
+	return {
+		contentItems: [],
+		contentRequestDescriptors: [],
+		renderSemantics: [],
+		reviewPublicationIdentity: null,
+		rows: [],
+	};
 }

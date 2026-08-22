@@ -312,6 +312,7 @@ enum BridgeProductStrictJSON {
             "reviewState",
             "reviewStates",
             "reviewedHeadOID",
+            "reviewPublicationIdentity",
             "reviewedSubjectLabel",
             "role",
             "rootPathToken",

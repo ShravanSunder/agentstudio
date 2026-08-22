@@ -71,7 +71,10 @@ test('opens paired annotation projections once and returns native command correl
 	});
 	const reviewResult = await controller.sendProductControl({
 		method: 'review.annotations.command',
-		params: { operation: { kind: 'session.discover' } },
+		params: {
+			operation: { kind: 'session.discover' },
+			reviewPublicationIdentity,
+		},
 	});
 	await Promise.resolve();
 	expect(subscribedKinds).toEqual(['file.annotations', 'review.annotations']);
@@ -113,7 +116,10 @@ test('product controller preserves decoded nonempty annotation output history', 
 
 	const result = await controller.sendProductControl({
 		method: 'review.annotations.command',
-		params: { operation: { kind: 'output.history', sessionId } },
+		params: {
+			operation: { kind: 'output.history', sessionId },
+			reviewPublicationIdentity,
+		},
 	});
 
 	expect(result).toEqual(historyResult);
@@ -133,6 +139,14 @@ function decodedHistoryProductTransport(historyResult: unknown): BridgeProductTr
 		workerDerivationEpoch: (): number => 0,
 	};
 }
+
+const reviewPublicationIdentity = {
+	packageId: 'package-installed',
+	publicationId: '00000000-0000-7000-8000-000000000031',
+	reviewGeneration: 7,
+	revision: 3,
+	sourceIdentity: 'source-installed',
+} as const;
 
 function unusedAnnotationProductTransport(): BridgeProductTransportSession {
 	return {

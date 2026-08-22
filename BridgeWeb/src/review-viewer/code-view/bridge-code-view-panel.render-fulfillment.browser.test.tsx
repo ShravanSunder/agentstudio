@@ -17,6 +17,7 @@ import {
 	createBridgeMainRenderFulfillmentCoordinator,
 	type BridgeMainRenderPublicationItem,
 } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
+import { bridgeWorkerTestReviewPublicationIdentity } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.test-support.js';
 import {
 	bridgeWorkerReviewPierreRenderJobEventSchema,
 	type BridgeWorkerReviewPierreRenderJobEvent,
@@ -798,6 +799,7 @@ function makeReviewPublication(props: {
 		direction: 'serverWorkerToMain',
 		job,
 		kind: 'reviewPierreRenderJob',
+		reviewPublicationIdentity: bridgeWorkerTestReviewPublicationIdentity,
 		publicationSequence: props.publicationSequence,
 		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
 			itemId,

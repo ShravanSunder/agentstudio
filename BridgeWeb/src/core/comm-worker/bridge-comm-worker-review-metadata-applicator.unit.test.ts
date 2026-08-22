@@ -82,6 +82,15 @@ describe('Bridge comm worker Review metadata applicator', () => {
 		expect(applications).toHaveLength(1);
 		expect(applications[0]).toMatchObject({
 			reset: true,
+			source: {
+				reviewPublicationIdentity: {
+					packageId: 'package-1',
+					publicationId: '00000000-0000-7000-8000-000000000011',
+					reviewGeneration: 7,
+					revision: 11,
+					sourceIdentity: 'source-1',
+				},
+			},
 			sourceEpoch: 1,
 			workerDerivationEpoch: 2,
 		});
@@ -178,6 +187,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 			contentItems: [],
 			contentRequestDescriptors: [],
 			renderSemantics: [],
+			reviewPublicationIdentity: null,
 			rows: [],
 		};
 		const applicator = new BridgeCommWorkerReviewMetadataApplicator({
@@ -403,6 +413,13 @@ describe('Bridge comm worker Review metadata applicator', () => {
 				contentItems: [],
 				contentRequestDescriptors: [],
 				renderSemantics: [],
+				reviewPublicationIdentity: {
+					packageId: 'package-1',
+					publicationId: '00000000-0000-7000-8000-000000000012',
+					reviewGeneration: 7,
+					revision: 12,
+					sourceIdentity: 'source-1',
+				},
 				rows: [],
 			},
 		});
@@ -596,7 +613,13 @@ describe('Bridge comm worker Review metadata applicator', () => {
 				removedItemIds: ['item-1'],
 				reset: false,
 				rowMutation: { removedRowIds: ['item-1'], rowUpserts: [] },
-				source: { contentItems: [], contentRequestDescriptors: [], renderSemantics: [], rows: [] },
+				source: {
+					contentItems: [],
+					contentRequestDescriptors: [],
+					renderSemantics: [],
+					reviewPublicationIdentity: null,
+					rows: [],
+				},
 				sourceEpoch: 1,
 				workerDerivationEpoch: 1,
 			},
@@ -627,6 +650,7 @@ function reviewRuntimeSource(props: {
 		contentItems: props.contentMetadata === null ? [] : [props.contentMetadata],
 		contentRequestDescriptors: props.contentRequestDescriptors,
 		renderSemantics: props.renderSemantics === null ? [] : [props.renderSemantics],
+		reviewPublicationIdentity: null,
 		rows: [{ id: 'item-1', index: 0, parentId: null }],
 	};
 }

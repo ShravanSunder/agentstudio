@@ -11,6 +11,7 @@ import type {
 	BridgeWorkerMainToServerMessage,
 	BridgeWorkerReviewContentMetadata,
 	BridgeWorkerReviewContentRequestDescriptor,
+	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerReviewProjectionUpdateCommand,
 	BridgeWorkerReviewRenderSemantics,
 	BridgeWorkerRenderDispositionCommand,
@@ -25,6 +26,7 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
 	readonly contentRequestDescriptors?: readonly BridgeWorkerReviewContentRequestDescriptor[];
 	readonly renderSemantics?: readonly BridgeWorkerReviewRenderSemantics[];
+	readonly reviewPublicationIdentity?: BridgeWorkerReviewPublicationIdentity | null;
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly createSequence?: () => number;
 	readonly createRenderIdentifier?: (

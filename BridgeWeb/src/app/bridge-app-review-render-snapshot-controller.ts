@@ -19,6 +19,10 @@ import {
 	type BridgeMainReviewCatalogSnapshot,
 	type BridgeMainReviewSourceDisplaySlice,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
+import {
+	createBridgeMainReviewPublicationIntegration,
+	type BridgeMainReviewPublicationIntegration,
+} from '../core/comm-worker/bridge-main-review-publication-integration.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeProductReviewComparisonTargetCatalog } from '../core/comm-worker/bridge-product-review-comparison-contracts.js';
 import type {
@@ -70,6 +74,7 @@ export interface BridgeReviewDirectDisplayStore extends Pick<
 > {}
 
 export interface BridgeReviewRenderSnapshotController {
+	readonly applyReviewRefreshNow: () => Promise<void>;
 	readonly catalogSnapshot: BridgeMainReviewCatalogSnapshot;
 	readonly comparisonTargetsQueryState: BridgeReviewComparisonTargetsQueryState;
 	readonly clearSelectedReviewItemId: () => void;
@@ -88,6 +93,7 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly selectedItemId: string | null;
 	readonly selectedReviewItem: BridgeWorkerReviewDisplayItem | null;
 	readonly setReviewCodeViewVisibleItemIds: (itemIds: readonly string[]) => void;
+	readonly setReviewRefreshSemanticAttention: (stableFileIdentities: readonly string[]) => void;
 	readonly setReviewTreeVisibleItemIds: (itemIds: readonly string[]) => void;
 	readonly updateReviewDisplayProjection: (
 		query: BridgeWorkerReviewProjectionUpdateCommand['query'],
@@ -125,6 +131,10 @@ export function useBridgeReviewRenderSnapshotController(
 		throw new Error('Bridge Review Viewer requires its pane-owned Review surface client.');
 	}
 	const displayStore = props.reviewClient.renderStore;
+	const pierreCourier = props.pierreCourier;
+	const reviewPublicationIntegrationRef = useRef<BridgeMainReviewPublicationIntegration | null>(
+		null,
+	);
 	const catalogSnapshot = useSyncExternalStore(
 		displayStore.subscribeReviewCatalog,
 		displayStore.getReviewCatalogSnapshot,
@@ -208,10 +218,30 @@ export function useBridgeReviewRenderSnapshotController(
 			workerEpochRef,
 		});
 	}, [props.reviewClient]);
-	const pierreCourier = props.pierreCourier;
 	useEffect((): (() => void) => {
+		const reviewPublicationIntegration = createBridgeMainReviewPublicationIntegration({
+			client: props.reviewClient,
+			onActiveRenderPatchesApplied: (message, patches): void => {
+				for (const patch of patches) {
+					if (patch.slice !== 'panelChrome') continue;
+					recordAppliedReviewPanelChrome({
+						message,
+						patch,
+						...(props.telemetryRecorderRef === undefined
+							? {}
+							: { telemetryRecorder: props.telemetryRecorderRef.current }),
+					});
+				}
+			},
+			pierreCourier,
+			renderFulfillmentCoordinator: props.reviewClient.renderFulfillmentCoordinator,
+			store: displayStore,
+		});
+		reviewPublicationIntegrationRef.current = reviewPublicationIntegration;
+		reviewPublicationIntegration.start();
 		const failureCallbacksByRequestId = markFileViewedFailureCallbacksRef.current;
 		const unsubscribeMessages = props.reviewClient.subscribeMessages((message): void => {
+			if (reviewPublicationIntegration.handleMessage(message)) return;
 			if (
 				message.kind === 'health' &&
 				message.status === 'degraded' &&
@@ -257,6 +287,10 @@ export function useBridgeReviewRenderSnapshotController(
 		});
 		const unsubscribeLifecycle = props.reviewClient.lifecycle.subscribe(settleWorkerRequests);
 		return (): void => {
+			if (reviewPublicationIntegrationRef.current === reviewPublicationIntegration) {
+				reviewPublicationIntegrationRef.current = null;
+			}
+			reviewPublicationIntegration.dispose();
 			unsubscribeMessages();
 			unsubscribeLifecycle();
 			failureCallbacksByRequestId.clear();
@@ -421,6 +455,16 @@ export function useBridgeReviewRenderSnapshotController(
 		// Review metadata already carries the complete tree manifest. Tree visibility is UI-local
 		// and must not become CodeView body demand; body preparation follows CodeView visibility.
 	}, []);
+	const applyReviewRefreshNow = useCallback(
+		(): Promise<void> => reviewPublicationIntegrationRef.current?.applyNow() ?? Promise.resolve(),
+		[],
+	);
+	const setReviewRefreshSemanticAttention = useCallback(
+		(stableFileIdentities: readonly string[]): void => {
+			reviewPublicationIntegrationRef.current?.setSemanticAttention({ stableFileIdentities });
+		},
+		[],
+	);
 	const markFileViewed = useCallback(
 		(itemId: string, onDeliveryFailure?: () => void): boolean => {
 			if (displayStore.getReviewItemSnapshot(itemId) === undefined) return false;
@@ -446,6 +490,7 @@ export function useBridgeReviewRenderSnapshotController(
 		[displayStore, props.reviewClient, settleWorkerRequests],
 	);
 	return {
+		applyReviewRefreshNow,
 		catalogSnapshot,
 		comparisonTargetsQueryState,
 		clearSelectedReviewItemId,
@@ -463,6 +508,7 @@ export function useBridgeReviewRenderSnapshotController(
 		queryReviewComparisonTargets,
 		cancelReviewComparisonTargetsQuery,
 		setReviewCodeViewVisibleItemIds,
+		setReviewRefreshSemanticAttention,
 		setReviewTreeVisibleItemIds,
 		updateReviewComparisonTarget,
 		updateReviewDisplayProjection,
@@ -600,8 +646,10 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 			case 'annotationProjectionConvergence':
 			case 'health':
 			case 'nativeSurfaceSelectionRequest':
+			case 'reviewCandidateReady':
 			case 'subscription':
 			case 'reviewComparisonTargetsQuery':
+			case 'reviewPublicationInstallAdmission':
 				break;
 			case 'reviewPierreRenderJob':
 				if (

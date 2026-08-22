@@ -38,6 +38,7 @@ import {
 import { bridgeWorkerFileQuerySchema } from './bridge-worker-file-query-contracts.js';
 import { bridgeWorkerFileRefreshRetryCommandSchema } from './bridge-worker-file-refresh-contracts.js';
 import { bridgeWorkerPanelChromePatchSchema } from './bridge-worker-panel-chrome-contracts.js';
+import { validateBridgeWorkerPierreRenderPublicationIdentity } from './bridge-worker-pierre-publication-identity-contracts.js';
 import {
 	bridgeWorkerDemandRankSchema,
 	bridgeWorkerPierreRenderBudgetSchema,
@@ -57,6 +58,13 @@ import {
 	bridgeWorkerReviewDisplayPatchSchema,
 } from './bridge-worker-review-display-patch-contracts.js';
 import {
+	bridgeWorkerReviewCandidateReadyEventSchema,
+	bridgeWorkerReviewPublicationInstallAdmissionEventSchema,
+	bridgeWorkerReviewPublicationInstallAdmitCommandSchema,
+	bridgeWorkerReviewPublicationInstalledCommandSchema,
+	bridgeWorkerReviewPublicationIdentitySchema,
+} from './bridge-worker-review-publication-contracts.js';
+import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerEpochSchema,
 	bridgeWorkerInteractionSurfaceSchema,
@@ -74,6 +82,23 @@ export type {
 	BridgeWorkerReviewComparisonTargetsQueryCancelCommand,
 	BridgeWorkerReviewComparisonTargetsQueryCommand,
 } from './bridge-worker-review-comparison-target-query-contracts.js';
+export {
+	BRIDGE_WORKER_REVIEW_AFFECTED_STABLE_FILE_IDENTITY_LIMIT,
+	bridgeWorkerReviewCandidateReadyEventSchema,
+	bridgeWorkerReviewPreDeliveryPresentationClassSchema,
+	bridgeWorkerReviewPublicationInstallAdmissionEventSchema,
+	bridgeWorkerReviewPublicationInstallAdmitCommandSchema,
+	bridgeWorkerReviewPublicationInstalledCommandSchema,
+	bridgeWorkerReviewPublicationIdentitySchema,
+} from './bridge-worker-review-publication-contracts.js';
+export type {
+	BridgeWorkerReviewCandidateReadyEvent,
+	BridgeWorkerReviewPreDeliveryPresentationClass,
+	BridgeWorkerReviewPublicationInstallAdmissionEvent,
+	BridgeWorkerReviewPublicationInstallAdmitCommand,
+	BridgeWorkerReviewPublicationInstalledCommand,
+	BridgeWorkerReviewPublicationIdentity,
+} from './bridge-worker-review-publication-contracts.js';
 
 export { BRIDGE_WORKER_WIRE_VERSION } from './bridge-worker-wire-base-contracts.js';
 export {
@@ -368,6 +393,8 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewProjectionUpdateCommandSchema,
+	bridgeWorkerReviewPublicationInstallAdmitCommandSchema,
+	bridgeWorkerReviewPublicationInstalledCommandSchema,
 	bridgeWorkerFileQueryUpdateCommandSchema,
 	bridgeWorkerFileRefreshRetryCommandSchema,
 	bridgeWorkerFileDisplayResyncCommandSchema,
@@ -769,6 +796,7 @@ export const bridgeWorkerReviewDisplayPatchEventSchema = bridgeWorkerServerToMai
 		epoch: bridgeWorkerEpochSchema,
 		sequence: bridgeWorkerSequenceSchema,
 		projectionRevision: bridgeProductNonnegativeSequenceSchema,
+		reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentitySchema.nullable(),
 		patches: z
 			.array(bridgeWorkerReviewDisplayPatchSchema)
 			.min(1)
@@ -815,6 +843,7 @@ export const bridgeWorkerReviewRenderPatchEventSchema = bridgeWorkerServerToMain
 	.extend({
 		...bridgeWorkerSurfacePublicationEnvelopeShape,
 		kind: z.literal('reviewRenderPatch'),
+		reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentitySchema,
 		patches: z
 			.array(bridgeWorkerReviewRenderPatchSchema)
 			.min(1)
@@ -849,6 +878,7 @@ export const bridgeWorkerReviewPierreRenderJobEventSchema = bridgeWorkerServerTo
 		job: bridgeWorkerPierreRenderJobSchema,
 		kind: z.literal('reviewPierreRenderJob'),
 		renderReceiptIdentity: bridgeWorkerRenderReceiptIdentitySchema,
+		reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentitySchema,
 		surface: z.literal('review'),
 	})
 	.strict()
@@ -874,42 +904,6 @@ export const bridgeWorkerFilePierreRenderJobEventSchema = bridgeWorkerServerToMa
 		validateBridgeWorkerPierreRenderPublicationIdentity(event, context);
 	});
 
-function validateBridgeWorkerPierreRenderPublicationIdentity(
-	event: {
-		readonly job: { readonly itemId: string };
-		readonly publicationSequence: number;
-		readonly renderReceiptIdentity: {
-			readonly itemId: string;
-			readonly publicationSequence: number;
-			readonly surface: BridgeProductSurface;
-			readonly workerDerivationEpoch: number;
-		};
-		readonly surface: BridgeProductSurface;
-		readonly workerDerivationEpoch: number;
-	},
-	context: z.RefinementCtx,
-): void {
-	for (const [field, matches] of [
-		['itemId', event.renderReceiptIdentity.itemId === event.job.itemId],
-		[
-			'publicationSequence',
-			event.renderReceiptIdentity.publicationSequence === event.publicationSequence,
-		],
-		['surface', event.renderReceiptIdentity.surface === event.surface],
-		[
-			'workerDerivationEpoch',
-			event.renderReceiptIdentity.workerDerivationEpoch === event.workerDerivationEpoch,
-		],
-	] as const) {
-		if (matches) continue;
-		context.addIssue({
-			code: 'custom',
-			message: `Bridge Pierre publication ${field} does not match its receipt identity.`,
-			path: ['renderReceiptIdentity', field],
-		});
-	}
-}
-
 export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind', [
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
@@ -923,6 +917,8 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 	bridgeWorkerSubscriptionEventSchema,
 	bridgeWorkerReviewComparisonTargetsQueryEventSchema,
 	bridgeWorkerNativeSurfaceSelectionRequestSchema,
+	bridgeWorkerReviewCandidateReadyEventSchema,
+	bridgeWorkerReviewPublicationInstallAdmissionEventSchema,
 	bridgeWorkerReviewPierreRenderJobEventSchema,
 	bridgeWorkerFilePierreRenderJobEventSchema,
 ]);
@@ -941,6 +937,8 @@ export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('k
 	bridgeWorkerSubscriptionEventSchema,
 	bridgeWorkerReviewComparisonTargetsQueryEventSchema,
 	bridgeWorkerNativeSurfaceSelectionRequestSchema,
+	bridgeWorkerReviewCandidateReadyEventSchema,
+	bridgeWorkerReviewPublicationInstallAdmissionEventSchema,
 	bridgeWorkerReviewPierreRenderJobEventSchema,
 	bridgeWorkerFilePierreRenderJobEventSchema,
 ]);

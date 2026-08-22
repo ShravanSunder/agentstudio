@@ -52,6 +52,15 @@ const reviewComparison = {
 	repositoryDefaultTarget: null,
 } as const;
 
+const reviewRefreshImpact = {
+	addedLineCount: 2,
+	affectedFileCount: 1,
+	affectedStableFileIdentities: ['review-item-1'],
+	deletedLineCount: 1,
+	newlyImportedCommitCount: 1,
+	preDeliveryPresentationClass: { kind: 'ordinary' },
+} as const;
+
 describe('Bridge product Review metadata contracts', () => {
 	test('does not import the legacy Review package or resource URL vocabulary', () => {
 		const source = readFileSync(
@@ -87,6 +96,7 @@ describe('Bridge product Review metadata contracts', () => {
 		// Arrange
 		const snapshot = {
 			...reviewSourceIdentity,
+			...reviewRefreshImpact,
 			baseEndpoint: {
 				createdAtUnixMilliseconds: 1,
 				endpointId: 'review-base-endpoint',
@@ -215,6 +225,22 @@ describe('Bridge product Review metadata contracts', () => {
 			comparisonOrigin: snapshot.comparisonOrigin,
 			reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
 		});
+		expect(
+			bridgeProductReviewMetadataEventSchema.parse({
+				...snapshot,
+				addedLineCount: null,
+				affectedFileCount: null,
+				deletedLineCount: null,
+				newlyImportedCommitCount: null,
+				preDeliveryPresentationClass: { kind: 'promoted', reason: 'unknown' },
+			}),
+		).toMatchObject({ preDeliveryPresentationClass: { kind: 'promoted', reason: 'unknown' } });
+		expect(
+			bridgeProductReviewMetadataEventSchema.safeParse({
+				...snapshot,
+				addedLineCount: undefined,
+			}).success,
+		).toBe(false);
 		expect(JSON.stringify(parsed)).not.toMatch(/resourceUrl|contentHandle|"contents":/i);
 		for (const mismatchedSource of [
 			{ ...reviewContentSource, packageId: 'review-package-2' },
@@ -273,6 +299,7 @@ describe('Bridge product Review metadata contracts', () => {
 		}
 		expect(
 			bridgeProductReviewMetadataEventSchema.parse({
+				...reviewRefreshImpact,
 				contentSources: snapshot.contentSources,
 				eventKind: 'review.window',
 				operationCorrelationId: null,
@@ -304,6 +331,7 @@ describe('Bridge product Review metadata contracts', () => {
 		expect(
 			bridgeProductReviewMetadataEventSchema.parse({
 				...reviewSourceIdentity,
+				...reviewRefreshImpact,
 				contentSources: [],
 				eventKind: 'review.delta',
 				operationCorrelationId: null,

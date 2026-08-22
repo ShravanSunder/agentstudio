@@ -30,6 +30,7 @@ export class BridgeReviewProjectionWitnessRouter {
 			direction: 'serverWorkerToMain',
 			epoch: this.#activeWorkerDerivationEpoch ?? command.epoch,
 			kind: 'reviewDisplayPatch',
+			reviewPublicationIdentity: null,
 			patches,
 			projectionRevision: this.#latestProjectionRevision,
 			sequence: this.#latestSequence,

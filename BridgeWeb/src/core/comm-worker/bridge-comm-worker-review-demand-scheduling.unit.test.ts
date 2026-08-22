@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { makeReviewPublicationIdentity } from './bridge-comm-worker-entry.test-support.js';
 import type { BridgeCommWorkerDemandMember } from './bridge-comm-worker-reconciler.js';
 import {
 	createBridgeCommWorkerReviewDemandLedger,
@@ -522,6 +523,7 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 			contentItems,
 			contentRequestDescriptors,
 			renderSemantics,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			rows,
 		});
 		scheduling.resume();
@@ -534,6 +536,7 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 			contentItems: [],
 			contentRequestDescriptors: [],
 			renderSemantics: [],
+			reviewPublicationIdentity: null,
 			rows: [],
 		});
 		scheduling.scheduleDemandExecution({ cause: 'viewport', epoch: 7, store });
@@ -608,6 +611,7 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 			contentItems,
 			contentRequestDescriptors: [initialBaseDescriptor, initialHeadDescriptor],
 			renderSemantics,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			rows,
 		});
 		scheduling.resume();
@@ -619,6 +623,7 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 			contentItems,
 			contentRequestDescriptors: [initialBaseDescriptor, replacementHeadDescriptor],
 			renderSemantics,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			rows,
 		});
 		scheduling.scheduleDemandExecution({
@@ -691,6 +696,7 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 			contentItems,
 			contentRequestDescriptors,
 			renderSemantics,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			rows,
 		});
 		scheduling.resume();

@@ -30,7 +30,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 	test('refreshes a ready visible Review item after source update changes content descriptors', async () => {
 		const clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const { dispatch, postedMessages, waitForMessage } = createRecordingBridgeCommWorkerPort();
 		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs });
 		const trackedContentOpen = createTrackedBridgeWorkerReviewContentOpen(
 			openReviewContentFromDescriptorMap,
@@ -86,7 +86,10 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			),
 		).toHaveLength(1);
 
-		const updatedPublicationApplied = reviewProductSource.publishSourceAndWaitForApplication(
+		const updatedCandidateReady = waitForMessage(
+			(message): boolean => message.kind === 'reviewCandidateReady' && message.revision === 6,
+		);
+		reviewProductSource.publishSource(
 			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 				contentRequestDescriptors: [
@@ -108,7 +111,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			},
 			6,
 		);
-		await updatedPublicationApplied;
+		await updatedCandidateReady;
 		await drainBridgeWorkerVisibleDemandRuntimeUntilQuiescent({
 			pendingContentCompletions: trackedContentOpen.pendingCompletions,
 			pendingPreparationWorkIds: pump.getPendingWorkIds,
@@ -126,7 +129,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 	test('refreshes changed descriptor bounds without republishing identical semantic content', async () => {
 		const clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const { dispatch, postedMessages, waitForMessage } = createRecordingBridgeCommWorkerPort();
 		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs });
 		const trackedContentOpen = createTrackedBridgeWorkerReviewContentOpen(
 			openReviewContentFromDescriptorMap,
@@ -199,7 +202,10 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			),
 		).toHaveLength(1);
 
-		const byteBoundPublicationApplied = reviewProductSource.publishSourceAndWaitForApplication(
+		const byteBoundCandidateReady = waitForMessage(
+			(message): boolean => message.kind === 'reviewCandidateReady' && message.revision === 6,
+		);
+		reviewProductSource.publishSource(
 			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 				contentRequestDescriptors: [
@@ -223,7 +229,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			},
 			6,
 		);
-		await byteBoundPublicationApplied;
+		await byteBoundCandidateReady;
 		await drainBridgeWorkerVisibleDemandRuntimeUntilQuiescent({
 			pendingContentCompletions: trackedContentOpen.pendingCompletions,
 			pendingPreparationWorkIds: pump.getPendingWorkIds,
@@ -245,7 +251,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 	test('keeps source-update rerun sticky when viewport arrives before stale in-flight completion', async () => {
 		const clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const { dispatch, postedMessages, waitForMessage } = createRecordingBridgeCommWorkerPort();
 		const deferredStreamsByDescriptorId = new Map<string, DeferredReviewContentStream>();
 
 		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
@@ -297,7 +303,10 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(scheduledDrains).toEqual([]);
 
-		const stalePublicationApplied = reviewProductSource.publishSourceAndWaitForApplication(
+		const staleCandidateReady = waitForMessage(
+			(message): boolean => message.kind === 'reviewCandidateReady' && message.revision === 6,
+		);
+		reviewProductSource.publishSource(
 			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 				contentRequestDescriptors: [
@@ -319,7 +328,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			},
 			6,
 		);
-		await stalePublicationApplied;
+		await staleCandidateReady;
 		await drainBridgeWorkerVisibleDemandRuntimeUntil({
 			hasExpectedEvent: () => deferredStreamsByDescriptorId.size === 2,
 			scheduledDrains,

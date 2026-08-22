@@ -806,7 +806,7 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		// Assert
 		expect(firstCancelCount).toBe(1);
 		expect(openedSubscriptionCount).toBe(2);
-		expect(appliedReceiptCount).toBe(1);
+		expect(appliedReceiptCount).toBe(0);
 		expect(postedMessages.filter(({ message }) => message.kind === 'slicePatch')).toHaveLength(
 			activeSlicePatchCount,
 		);
@@ -828,7 +828,7 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 					JSON.stringify(message).includes('source-candidate'),
 			);
 		expect(candidateDisplayMessages).toHaveLength(1);
-		expect(appliedReceiptCount).toBe(2);
+		expect(appliedReceiptCount).toBe(0);
 	});
 
 	test('keeps applied B when post-commit drain scheduling fails', async () => {
@@ -882,7 +882,7 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
-		expect(appliedReceiptCount).toBe(1);
+		expect(appliedReceiptCount).toBe(0);
 		expect(cancelCount).toBe(0);
 		expect(openedSubscriptionCount).toBe(1);
 		expect(

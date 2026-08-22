@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
-import { encodeBridgeWorkerMetadataInterestUpdateCommand } from './bridge-comm-worker-protocol.js';
+import {
+	encodeBridgeWorkerMetadataInterestUpdateCommand,
+	encodeBridgeWorkerReviewPublicationInstalledCommand,
+} from './bridge-comm-worker-protocol.js';
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type BridgeCommWorkerPreparationDrain,
@@ -83,6 +86,19 @@ describe('Bridge comm worker Review product source projection', () => {
 			worktreeId: 'worktree-1',
 		});
 		reviewMetadataEvents.push(reviewSnapshotEvent);
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(reviewProjectionSourceGenerations).toEqual([]);
+		dispatch.message(
+			encodeBridgeWorkerReviewPublicationInstalledCommand({
+				epoch: 1,
+				packageId: reviewSnapshotEvent.packageId,
+				publicationId: reviewSnapshotEvent.publicationId,
+				requestId: 'review-publication-installed',
+				reviewGeneration: reviewSnapshotEvent.generation,
+				revision: reviewSnapshotEvent.revision,
+				sourceIdentity: reviewSnapshotEvent.sourceIdentity,
+			}),
+		);
 		await reviewProjectionQueryStarted.promise;
 
 		// Assert
@@ -148,6 +164,13 @@ describe('Bridge comm worker Review product source projection', () => {
 		expect(reviewDisplayEvents[0]).toMatchObject({
 			epoch: 1,
 			kind: 'reviewDisplayPatch',
+			reviewPublicationIdentity: {
+				packageId: 'package-1',
+				publicationId: '00000000-0000-7000-8000-000000000011',
+				reviewGeneration: 7,
+				revision: 11,
+				sourceIdentity: 'source-1',
+			},
 			patches: [
 				{
 					operation: 'upsert',
@@ -171,6 +194,18 @@ describe('Bridge comm worker Review product source projection', () => {
 			],
 			projectionRevision: 1,
 			surface: 'review',
+		});
+		const postedKinds = postedMessages.map(({ message }) => message.kind);
+		expect(postedKinds.indexOf('reviewDisplayPatch')).toBeLessThan(
+			postedKinds.indexOf('reviewCandidateReady'),
+		);
+		expect(
+			postedMessages.find(({ message }) => message.kind === 'reviewCandidateReady')?.message,
+		).toMatchObject({
+			affectedStableFileIdentities: ['item-1'],
+			kind: 'reviewCandidateReady',
+			preDeliveryPresentationClass: { kind: 'ordinary' },
+			publicationId: '00000000-0000-7000-8000-000000000011',
 		});
 		expect(JSON.stringify(reviewDisplayEvents)).not.toMatch(
 			/"(?:capability|resourceUrl|contents|contentBody|sourceBytes)"/i,
@@ -237,6 +272,13 @@ describe('Bridge comm worker Review product source projection', () => {
 		expect(reviewDisplayEvents).toHaveLength(1);
 		expect(reviewDisplayEvents[0]).toMatchObject({
 			kind: 'reviewDisplayPatch',
+			reviewPublicationIdentity: {
+				packageId: 'review-product-test-package',
+				publicationId: '00000000-0000-7000-8000-000000000007',
+				reviewGeneration: 1,
+				revision: 7,
+				sourceIdentity: 'review-product-test-source',
+			},
 			patches: [
 				{
 					operation: 'upsert',

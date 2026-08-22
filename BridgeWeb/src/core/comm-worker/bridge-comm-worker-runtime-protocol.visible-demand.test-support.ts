@@ -142,7 +142,7 @@ export async function drainBridgeWorkerVisibleDemandRuntimeUntilQuiescent(props:
 	}
 }
 
-type InitialReviewSource = BridgeCommWorkerReviewRuntimeSource;
+type InitialReviewSource = Omit<BridgeCommWorkerReviewRuntimeSource, 'reviewPublicationIdentity'>;
 
 export async function registerBridgeRuntimeWithInitialReviewSource(
 	dispatch: {

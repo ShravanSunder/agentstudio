@@ -36,13 +36,14 @@ struct WorktreeAnnotationSourceCaptureTests {
         )
         let contentLoaderCache = BridgeReviewContentLoaderCache(provider: provider)
         let publicationCoordinator = BridgeReviewPublicationCoordinator()
-        try await commit(
+        let identity = try await commit(
             package: publication,
             coordinator: publicationCoordinator,
             productAdmission: productAdmission.context
         )
 
         let capture = try await WorktreeAnnotationSourceCapture.reviewRefresh(
+            identity: identity,
             publicationCoordinator: publicationCoordinator,
             contentLoaderCache: contentLoaderCache,
             requirements: [
@@ -132,13 +133,14 @@ struct WorktreeAnnotationSourceCaptureTests {
         )
         let contentLoaderCache = BridgeReviewContentLoaderCache(provider: provider)
         let publicationCoordinator = BridgeReviewPublicationCoordinator()
-        try await commit(
+        let identity = try await commit(
             package: publication,
             coordinator: publicationCoordinator,
             productAdmission: productAdmission.context
         )
 
         let capture = try await WorktreeAnnotationSourceCapture.reviewRefresh(
+            identity: identity,
             publicationCoordinator: publicationCoordinator,
             contentLoaderCache: contentLoaderCache,
             requirements: [
@@ -225,13 +227,14 @@ struct WorktreeAnnotationSourceCaptureTests {
         )
         let contentLoaderCache = BridgeReviewContentLoaderCache(provider: provider)
         let publicationCoordinator = BridgeReviewPublicationCoordinator()
-        try await commit(
+        let identity = try await commit(
             package: publication,
             coordinator: publicationCoordinator,
             productAdmission: productAdmission.context
         )
 
         let capture = try await WorktreeAnnotationSourceCapture.reviewRefresh(
+            identity: identity,
             publicationCoordinator: publicationCoordinator,
             contentLoaderCache: contentLoaderCache,
             requirements: [
@@ -333,7 +336,7 @@ struct WorktreeAnnotationSourceCaptureTests {
         )
         let contentLoaderCache = BridgeReviewContentLoaderCache(provider: provider)
         let publicationCoordinator = BridgeReviewPublicationCoordinator()
-        try await commit(
+        let identity = try await commit(
             package: publication,
             coordinator: publicationCoordinator,
             productAdmission: productAdmission.context
@@ -351,6 +354,7 @@ struct WorktreeAnnotationSourceCaptureTests {
         )
 
         let capture = try await WorktreeAnnotationSourceCapture.reviewRefresh(
+            identity: identity,
             publicationCoordinator: publicationCoordinator,
             contentLoaderCache: contentLoaderCache,
             requirements: [
@@ -378,7 +382,7 @@ struct WorktreeAnnotationSourceCaptureTests {
         package: BridgeReviewPackage,
         coordinator: BridgeReviewPublicationCoordinator,
         productAdmission: BridgeProductAdmissionContext
-    ) async throws {
+    ) async throws -> BridgeProductReviewAnnotationPublicationIdentity {
         let prepared = try #require(
             await BridgeReviewPreparedPublication.prepare(
                 BridgeReviewPublicationCandidate(
@@ -392,7 +396,7 @@ struct WorktreeAnnotationSourceCaptureTests {
             coordinator.stage(prepared, productAdmission: productAdmission)
         )
         guard
-            case .committed = coordinator.commit(
+            case .committed(let committedPublication) = coordinator.commit(
                 token,
                 productAdmission: productAdmission,
                 captureCommittedPresentation: reviewCommittedPresentationSnapshot,
@@ -400,8 +404,15 @@ struct WorktreeAnnotationSourceCaptureTests {
             )
         else {
             Issue.record("Expected Review publication commit")
-            return
+            throw WorktreeAnnotationSourceResolutionError.unavailable
         }
+        return try BridgeProductReviewAnnotationPublicationIdentity(
+            packageId: committedPublication.package.packageId,
+            publicationId: committedPublication.publicationId,
+            reviewGeneration: committedPublication.package.reviewGeneration.rawValue,
+            revision: committedPublication.package.revision,
+            sourceIdentity: committedPublication.package.query.queryId
+        )
     }
 
     private func reviewItem(

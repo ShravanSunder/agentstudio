@@ -14,6 +14,10 @@ import {
 	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewProjectionUpdateCommandSchema,
+	bridgeWorkerReviewCandidateReadyEventSchema,
+	bridgeWorkerReviewPublicationInstallAdmissionEventSchema,
+	bridgeWorkerReviewPublicationInstallAdmitCommandSchema,
+	bridgeWorkerReviewPublicationInstalledCommandSchema,
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	type BridgeWorkerHealthEvent,
@@ -33,6 +37,10 @@ import {
 	type BridgeWorkerReviewComparisonTargetsQueryCancelCommand,
 	type BridgeWorkerReviewInvalidateCommand,
 	type BridgeWorkerReviewProjectionUpdateCommand,
+	type BridgeWorkerReviewCandidateReadyEvent,
+	type BridgeWorkerReviewPublicationInstallAdmissionEvent,
+	type BridgeWorkerReviewPublicationInstallAdmitCommand,
+	type BridgeWorkerReviewPublicationInstalledCommand,
 	type BridgeWorkerSelectCommand,
 	type BridgeWorkerViewportCommand,
 } from './bridge-worker-contracts.js';
@@ -118,6 +126,37 @@ export interface EncodeBridgeWorkerReviewProjectionUpdateCommandProps extends En
 
 export interface EncodeBridgeWorkerRenderDispositionCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly receipt: BridgeWorkerRenderDispositionCommand['receipt'];
+}
+
+export interface EncodeBridgeWorkerReviewPublicationInstallAdmitCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly expectedDisplayedPublicationId: string | null;
+	readonly candidatePublicationId: string;
+}
+
+export interface EncodeBridgeWorkerReviewPublicationInstalledCommandProps
+	extends
+		EncodeBridgeWorkerCommandBaseProps,
+		Pick<
+			BridgeWorkerReviewPublicationInstalledCommand,
+			'packageId' | 'publicationId' | 'reviewGeneration' | 'revision' | 'sourceIdentity'
+		> {}
+
+export interface BuildBridgeWorkerReviewCandidateReadyEventProps {
+	readonly affectedStableFileIdentities: readonly string[];
+	readonly epoch: number;
+	readonly packageId: string;
+	readonly preDeliveryPresentationClass: BridgeWorkerReviewCandidateReadyEvent['preDeliveryPresentationClass'];
+	readonly publicationId: string;
+	readonly reviewGeneration: number;
+	readonly revision: number;
+	readonly sequence: number;
+	readonly sourceIdentity: string;
+}
+
+export interface BuildBridgeWorkerReviewPublicationInstallAdmissionEventProps {
+	readonly candidatePublicationId: string;
+	readonly requestId: string;
+	readonly status: BridgeWorkerReviewPublicationInstallAdmissionEvent['status'];
 }
 
 export function encodeBridgeWorkerSelectCommand(
@@ -277,6 +316,64 @@ export function encodeBridgeWorkerRenderDispositionCommand(
 	return bridgeWorkerRenderDispositionCommandSchema.parse({
 		...bridgeWorkerCommandEnvelope(props, 'renderDisposition'),
 		receipt: props.receipt,
+	});
+}
+
+export function encodeBridgeWorkerReviewPublicationInstallAdmitCommand(
+	props: EncodeBridgeWorkerReviewPublicationInstallAdmitCommandProps,
+): BridgeWorkerReviewPublicationInstallAdmitCommand {
+	return bridgeWorkerReviewPublicationInstallAdmitCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'reviewPublicationInstallAdmit'),
+		expectedDisplayedPublicationId: props.expectedDisplayedPublicationId,
+		candidatePublicationId: props.candidatePublicationId,
+	});
+}
+
+export function encodeBridgeWorkerReviewPublicationInstalledCommand(
+	props: EncodeBridgeWorkerReviewPublicationInstalledCommandProps,
+): BridgeWorkerReviewPublicationInstalledCommand {
+	return bridgeWorkerReviewPublicationInstalledCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'reviewPublicationInstalled'),
+		packageId: props.packageId,
+		publicationId: props.publicationId,
+		reviewGeneration: props.reviewGeneration,
+		revision: props.revision,
+		sourceIdentity: props.sourceIdentity,
+	});
+}
+
+export function buildBridgeWorkerReviewCandidateReadyEvent(
+	props: BuildBridgeWorkerReviewCandidateReadyEventProps,
+): BridgeWorkerReviewCandidateReadyEvent {
+	return bridgeWorkerReviewCandidateReadyEventSchema.parse({
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		direction: 'serverWorkerToMain',
+		transferDescriptors: [],
+		kind: 'reviewCandidateReady',
+		surface: 'review',
+		epoch: props.epoch,
+		sequence: props.sequence,
+		publicationId: props.publicationId,
+		packageId: props.packageId,
+		sourceIdentity: props.sourceIdentity,
+		reviewGeneration: props.reviewGeneration,
+		revision: props.revision,
+		preDeliveryPresentationClass: props.preDeliveryPresentationClass,
+		affectedStableFileIdentities: props.affectedStableFileIdentities,
+	});
+}
+
+export function buildBridgeWorkerReviewPublicationInstallAdmissionEvent(
+	props: BuildBridgeWorkerReviewPublicationInstallAdmissionEventProps,
+): BridgeWorkerReviewPublicationInstallAdmissionEvent {
+	return bridgeWorkerReviewPublicationInstallAdmissionEventSchema.parse({
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		direction: 'serverWorkerToMain',
+		transferDescriptors: [],
+		kind: 'reviewPublicationInstallAdmission',
+		requestId: props.requestId,
+		candidatePublicationId: props.candidatePublicationId,
+		status: props.status,
 	});
 }
 

@@ -24,23 +24,7 @@ extension BridgeDevelopmentProductHost {
             service: service,
             sourceResolver: sourceResolver,
             worktreeID: dependencies.source.worktreeID.uuidString.lowercased(),
-            currentSourceGeneration: { surface, productAdmission in
-                switch surface {
-                case .file:
-                    return try await dependencies.fileMetadataSource
-                        .currentWorktreeAnnotationSourceGeneration(
-                            productAdmission: productAdmission
-                        )
-                case .review:
-                    guard
-                        let publication = await dependencies.reviewPublicationCoordinator
-                            .committedPublicationForReplay(productAdmission: productAdmission)
-                    else {
-                        throw WorktreeAnnotationSourceResolutionError.unavailable
-                    }
-                    return publication.package.reviewGeneration.rawValue
-                }
-            }
+            currentSourceGeneration: sourceResolver.currentSourceGeneration
         )
     }
 

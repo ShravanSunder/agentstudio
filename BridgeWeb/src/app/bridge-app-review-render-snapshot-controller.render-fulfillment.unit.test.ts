@@ -6,6 +6,7 @@ import {
 	createBridgeMainRenderFulfillmentCoordinator,
 	type BridgeMainRenderFulfillmentCoordinator,
 } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
+import { bridgeWorkerTestReviewPublicationIdentity } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.test-support.js';
 import {
 	createBridgeMainRenderSnapshotStore,
 	type BridgeMainCodeViewItem,
@@ -323,6 +324,7 @@ function makeReviewPublication(
 		job,
 		kind: 'reviewPierreRenderJob',
 		publicationSequence: props.publicationSequence,
+		reviewPublicationIdentity: bridgeWorkerTestReviewPublicationIdentity,
 		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
 			itemId: props.itemId,
 			publicationSequence: props.publicationSequence,
@@ -358,6 +360,7 @@ function makeReviewDisplayPatchEvent(props: {
 		direction: 'serverWorkerToMain',
 		epoch: props.epoch,
 		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: null,
 		patches: [
 			{
 				operation: 'upsert',

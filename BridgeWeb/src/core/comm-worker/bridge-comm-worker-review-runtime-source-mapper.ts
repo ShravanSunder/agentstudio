@@ -13,6 +13,7 @@ import type {
 import type {
 	BridgeWorkerReviewContentMetadata,
 	BridgeWorkerReviewContentRequestDescriptor,
+	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerReviewRenderSemantics,
 } from './bridge-worker-contracts.js';
 
@@ -76,7 +77,21 @@ export function bridgeCommWorkerReviewRuntimeSourceItemsFromMetadataSnapshot(pro
 				item,
 			}),
 		),
+		reviewPublicationIdentity: reviewPublicationIdentityFromMetadataSnapshot(snapshot),
 		rows: props.rows ?? [],
+	};
+}
+
+function reviewPublicationIdentityFromMetadataSnapshot(
+	snapshot: BridgeCommWorkerReviewMetadataSnapshot,
+): BridgeWorkerReviewPublicationIdentity | null {
+	if (snapshot.identity === null || snapshot.revision === null) return null;
+	return {
+		packageId: snapshot.identity.packageId,
+		publicationId: snapshot.identity.publicationId,
+		reviewGeneration: snapshot.identity.generation,
+		revision: snapshot.revision,
+		sourceIdentity: snapshot.identity.sourceIdentity,
 	};
 }
 

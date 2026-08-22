@@ -13,8 +13,10 @@ import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerReviewPierreRenderJobEvent,
 	BridgeWorkerReviewContentRequestDescriptor,
+	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerReviewRenderSemantics,
 } from './bridge-worker-contracts.js';
+import { assertBridgeWorkerReviewPublicationIdentityMatches } from './bridge-worker-pierre-publication-identity-contracts.js';
 import type {
 	BridgeWorkerDemandRank,
 	BridgeWorkerPierreRenderBudget,
@@ -51,6 +53,7 @@ export interface DispatchSelectedBridgeWorkerReviewContentReadyProps {
 		control: BridgeProductContentResponseStartControl,
 	) => () => void;
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
+	readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity;
 	readonly sequence: number;
 	readonly signal?: AbortSignal;
 	readonly store: BridgeCommWorkerStore;
@@ -300,6 +303,7 @@ export function createBridgeWorkerReviewContentReadyPublication(
 						preparedJobEvent: prepareBridgeWorkerReviewPierreRenderJobEventFromJob({
 							job,
 							renderReceiptIdentity: publication.receiptIdentity,
+							reviewPublicationIdentity: props.reviewPublicationIdentity,
 						}),
 					});
 					return completeBridgeWorkerReviewContentReadyPublication();
@@ -338,12 +342,14 @@ function commitPreparedBridgeWorkerReviewContentReady(
 		readonly preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent>;
 	},
 ): void {
+	assertBridgeWorkerReviewPublicationIdentityMatches(
+		props.reviewPublicationIdentity,
+		props.preparedJobEvent.message.reviewPublicationIdentity,
+	);
 	postPreparedBridgeCommWorkerMessage(props.port, props.preparedJobEvent);
 	const contentReadyCommit = commitBridgeWorkerReviewContentReadyRenderPatch({
 		preparedJobEvent: props.preparedJobEvent,
-		publicationSequence: props.sequence,
 		store: props.store,
-		workerDerivationEpoch: props.workerDerivationEpoch,
 	});
 	postPreparedBridgeCommWorkerMessage(props.port, contentReadyCommit.preparedMessage);
 }
@@ -420,6 +426,7 @@ function postReviewContentTerminalAvailability(
 		prepareBridgeWorkerReviewRenderPatchEvent({
 			patches: bridgeWorkerReviewRenderPatchesFromSlicePatchEvent(slicePatchEvent),
 			publicationSequence: props.sequence,
+			reviewPublicationIdentity: props.reviewPublicationIdentity,
 			workerDerivationEpoch: props.workerDerivationEpoch,
 		}),
 	);

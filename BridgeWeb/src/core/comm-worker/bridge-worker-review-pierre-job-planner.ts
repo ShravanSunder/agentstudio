@@ -4,6 +4,7 @@ import { demandRankForContentRole } from '../demand/bridge-content-demand-policy
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	type BridgeWorkerReviewPierreRenderJobEvent,
+	type BridgeWorkerReviewPublicationIdentity,
 	type BridgeWorkerReviewRenderSemantics,
 } from './bridge-worker-contracts.js';
 import {
@@ -37,6 +38,7 @@ export interface PlanBridgeWorkerReviewPierreRenderJobProps {
 export interface PrepareBridgeWorkerReviewPierreRenderJobEventProps extends PlanBridgeWorkerReviewPierreRenderJobProps {
 	readonly publicationSequence: number;
 	readonly renderReceiptIdentity: BridgeWorkerRenderReceiptIdentity;
+	readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity;
 	readonly workerDerivationEpoch: number;
 }
 
@@ -236,6 +238,7 @@ export function prepareBridgeWorkerReviewPierreRenderJobEvent(
 		: prepareBridgeWorkerReviewPierreRenderJobEventFromJob({
 				job,
 				renderReceiptIdentity: props.renderReceiptIdentity,
+				reviewPublicationIdentity: props.reviewPublicationIdentity,
 			});
 }
 
@@ -259,6 +262,7 @@ function assertBridgeWorkerReviewRenderReceiptCorrelation(
 export function prepareBridgeWorkerReviewPierreRenderJobEventFromJob(props: {
 	readonly job: BridgeWorkerPierreRenderJob;
 	readonly renderReceiptIdentity: BridgeWorkerRenderReceiptIdentity;
+	readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity;
 }): PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> {
 	if (
 		props.renderReceiptIdentity.itemId !== props.job.itemId ||
@@ -275,6 +279,7 @@ export function prepareBridgeWorkerReviewPierreRenderJobEventFromJob(props: {
 			job: props.job,
 			publicationSequence: props.renderReceiptIdentity.publicationSequence,
 			renderReceiptIdentity: props.renderReceiptIdentity,
+			reviewPublicationIdentity: props.reviewPublicationIdentity,
 			surface: 'review',
 			workerDerivationEpoch: props.renderReceiptIdentity.workerDerivationEpoch,
 		},

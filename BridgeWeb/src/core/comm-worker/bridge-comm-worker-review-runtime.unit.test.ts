@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
+import { makeReviewPublicationIdentity } from './bridge-comm-worker-entry.test-support.js';
 import {
 	dispatchSelectedBridgeWorkerReviewContentReady,
 	fetchSelectedBridgeWorkerReviewContentReadyResources,
@@ -72,6 +73,7 @@ describe('Bridge comm worker review runtime', () => {
 			operationCorrelationId: 'a'.repeat(64),
 			port,
 			renderSemantics: [makeRenderSemantics()],
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			sequence: 12,
 			store,
 		});
@@ -126,6 +128,7 @@ describe('Bridge comm worker review runtime', () => {
 				direction: 'serverWorkerToMain',
 				kind: 'reviewRenderPatch',
 				publicationSequence: 12,
+				reviewPublicationIdentity: makeReviewPublicationIdentity(),
 				surface: 'review',
 				transferDescriptors: [],
 				workerDerivationEpoch: 7,
@@ -208,6 +211,7 @@ describe('Bridge comm worker review runtime', () => {
 					direction: 'serverWorkerToMain',
 					kind: 'reviewRenderPatch',
 					publicationSequence: 12,
+					reviewPublicationIdentity: makeReviewPublicationIdentity(),
 					surface: 'review',
 					transferDescriptors: [],
 					workerDerivationEpoch: 7,
@@ -443,6 +447,7 @@ async function runRuntimeDescriptorSelectionCase(
 			addEventListener: (): void => {},
 		},
 		renderSemantics: [scenario.semantics],
+		reviewPublicationIdentity: makeReviewPublicationIdentity(),
 		sequence: 12,
 		store,
 	});
@@ -507,6 +512,7 @@ function makeDispatchProps(options: MakeDispatchPropsOptions): DispatchSelectedR
 			addEventListener: (): void => {},
 		},
 		renderSemantics: options.renderSemantics,
+		reviewPublicationIdentity: makeReviewPublicationIdentity(),
 		sequence: 12,
 		store: options.store,
 	};

@@ -610,6 +610,26 @@ final class BridgeReviewPublicationCoordinator {
         return displayedPublication
     }
 
+    func retainedPublication(
+        matching identity: BridgeProductReviewAnnotationPublicationIdentity,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> BridgeReviewCommittedPublication? {
+        guard !isClosed else { return nil }
+        var retainedPublication: BridgeReviewCommittedPublication?
+        _ = productAdmission.withValidAdmission {
+            guard let publication = publication(identifiedBy: identity.publicationId),
+                publication.productAdmission.matches(productAdmission),
+                publication.preparedPublication.package.packageId == identity.packageId,
+                publication.preparedPublication.package.reviewGeneration.rawValue
+                    == identity.reviewGeneration,
+                publication.preparedPublication.package.revision == identity.revision,
+                publication.preparedPublication.package.query.queryId == identity.sourceIdentity
+            else { return }
+            retainedPublication = publication.committedPublication
+        }
+        return retainedPublication
+    }
+
     func admitDisplayInstallation(
         expectedDisplayedPublicationId: UUID?,
         candidatePublicationId: UUID,

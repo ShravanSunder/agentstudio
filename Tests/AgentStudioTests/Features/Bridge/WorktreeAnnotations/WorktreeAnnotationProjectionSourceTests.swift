@@ -340,9 +340,9 @@ private func makeProjectionSourceHarness(messageCount: Int) async throws -> Proj
     let sourceGeneration = 7
     let sourceFingerprint = makeSourceFingerprint(identity: "source-current")
     let sourceResolver = WorktreeAnnotationSourceResolver(
-        capture: { _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable },
-        currentFingerprint: { _, _ in sourceFingerprint },
-        refresh: { _, _, _ in
+        capture: { _, _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable },
+        currentFingerprint: { _, _, _ in sourceFingerprint },
+        refresh: { _, _, _, _ in
             WorktreeAnnotationSourceRefreshCapture(
                 fingerprint: sourceFingerprint,
                 material: .available([
@@ -363,7 +363,7 @@ private func makeProjectionSourceHarness(messageCount: Int) async throws -> Proj
             service: service,
             sourceResolver: sourceResolver,
             worktreeID: detail.session.worktreeID,
-            currentSourceGeneration: { _, _ in sourceGeneration }
+            currentSourceGeneration: { _, _, _ in sourceGeneration }
         ),
         sourceGeneration: sourceGeneration
     )
@@ -403,13 +403,18 @@ private func projectionQuery(
     surface: BridgeProductSurface,
     cursor: String? = nil
 ) throws -> BridgeProductAnnotationProjectionQueryRequest {
-    let object: [String: Any] = [
+    var object: [String: Any] = [
         "cursor": cursor ?? NSNull(),
         "operationCorrelationId": String(repeating: "a", count: 64),
         "sessionIds": [sessionID.rawValue.uuidString.lowercased()],
         "sourceGeneration": sourceGeneration,
         "surface": surface.rawValue,
     ]
+    if surface == .review {
+        object["reviewPublicationIdentity"] = projectionReviewPublicationIdentity(
+            sourceGeneration: sourceGeneration
+        )
+    }
     return try BridgeProductStrictJSON.decode(
         BridgeProductAnnotationProjectionQueryRequest.self,
         from: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
@@ -422,16 +427,22 @@ private func projectionControlRequest(
     workerInstanceID: String = "worker-instance-1"
 ) throws -> BridgeProductControlRequest {
     let method = "\(surface.rawValue).annotations.projection.query"
+    var queryRequest: [String: Any] = [
+        "cursor": NSNull(),
+        "operationCorrelationId": String(repeating: "a", count: 64),
+        "sessionIds": [],
+        "sourceGeneration": 7,
+        "surface": surface.rawValue,
+    ]
+    if surface == .review {
+        queryRequest["reviewPublicationIdentity"] = projectionReviewPublicationIdentity(
+            sourceGeneration: 7
+        )
+    }
     let object: [String: Any] = [
         "call": [
             "method": method,
-            "request": [
-                "cursor": NSNull(),
-                "operationCorrelationId": String(repeating: "a", count: 64),
-                "sessionIds": [],
-                "sourceGeneration": 7,
-                "surface": surface.rawValue,
-            ],
+            "request": queryRequest,
         ],
         "kind": "product.call",
         "paneSessionId": paneSessionID,
@@ -445,6 +456,16 @@ private func projectionControlRequest(
         BridgeProductControlRequest.self,
         from: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     )
+}
+
+private func projectionReviewPublicationIdentity(sourceGeneration: Int) -> [String: Any] {
+    [
+        "packageId": "package-installed",
+        "publicationId": "00000000-0000-7000-8000-000000000041",
+        "reviewGeneration": sourceGeneration,
+        "revision": 3,
+        "sourceIdentity": "source-installed",
+    ]
 }
 
 private func projectionContentRequest(

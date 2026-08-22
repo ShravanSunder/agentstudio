@@ -6,6 +6,14 @@ import type { BridgeWorkerPierreCourier } from '../core/comm-worker/bridge-worke
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import { applyBridgeWorkerMessagesToMainRenderSnapshotStore } from './bridge-app-review-render-snapshot-controller.js';
 
+const TEST_REVIEW_PUBLICATION_IDENTITY = {
+	packageId: 'test-review-package',
+	publicationId: '00000000-0000-7000-8000-000000000001',
+	reviewGeneration: 1,
+	revision: 1,
+	sourceIdentity: 'test-review-source',
+} as const;
+
 describe('Bridge app Review render snapshot telemetry', () => {
 	test('records settled panel chrome after applying it to the main render store', () => {
 		const renderSnapshotStore = createBridgeMainRenderSnapshotStore();
@@ -19,6 +27,7 @@ describe('Bridge app Review render snapshot telemetry', () => {
 					direction: 'serverWorkerToMain',
 					transferDescriptors: [],
 					kind: 'reviewRenderPatch',
+					reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 					publicationSequence: 17,
 					surface: 'review',
 					workerDerivationEpoch: 4,

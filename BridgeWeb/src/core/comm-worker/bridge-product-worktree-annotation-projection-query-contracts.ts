@@ -15,6 +15,16 @@ export const BRIDGE_PRODUCT_MAXIMUM_ANNOTATION_PROJECTION_PAGE_COUNT = 128;
 export const BRIDGE_PRODUCT_MAXIMUM_ANNOTATION_PROJECTION_PAGE_BYTES =
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES;
 
+export const bridgeProductReviewAnnotationPublicationIdentitySchema = z
+	.object({
+		packageId: bridgeProductIdentifierSchema,
+		publicationId: bridgeProductReviewPublicationIdSchema,
+		reviewGeneration: bridgeProductNonnegativeSequenceSchema,
+		revision: bridgeProductNonnegativeSequenceSchema,
+		sourceIdentity: bridgeProductIdentifierSchema,
+	})
+	.strict();
+
 export const bridgeProductAnnotationProjectionQueryRequestSchema = z
 	.object({
 		cursor: bridgeProductOpaqueReferenceSchema.nullable(),
@@ -25,10 +35,38 @@ export const bridgeProductAnnotationProjectionQueryRequestSchema = z
 			.refine((sessionIds) => new Set(sessionIds).size === sessionIds.length, {
 				message: 'Demanded annotation sessions must be unique.',
 			}),
+		reviewPublicationIdentity: bridgeProductReviewAnnotationPublicationIdentitySchema.optional(),
 		sourceGeneration: bridgeProductNonnegativeSequenceSchema,
 		surface: bridgeProductSurfaceSchema,
 	})
-	.strict();
+	.strict()
+	.superRefine((request, context): void => {
+		if (request.surface === 'review' && request.reviewPublicationIdentity === undefined) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Review annotation projection requires installed publication identity.',
+				path: ['reviewPublicationIdentity'],
+			});
+		}
+		if (request.surface === 'file' && request.reviewPublicationIdentity !== undefined) {
+			context.addIssue({
+				code: 'custom',
+				message: 'File annotation projection cannot carry Review publication identity.',
+				path: ['reviewPublicationIdentity'],
+			});
+		}
+		if (
+			request.reviewPublicationIdentity !== undefined &&
+			request.reviewPublicationIdentity.reviewGeneration !== request.sourceGeneration
+		) {
+			context.addIssue({
+				code: 'custom',
+				message:
+					'Review annotation projection generation must match installed publication identity.',
+				path: ['sourceGeneration'],
+			});
+		}
+	});
 
 export const bridgeProductAnnotationProjectionPageContractSchema = z
 	.object({
@@ -93,6 +131,9 @@ export const bridgeProductAnnotationProjectionQueryResultSchema = z.discriminate
 
 export type BridgeProductAnnotationProjectionQueryRequest = z.infer<
 	typeof bridgeProductAnnotationProjectionQueryRequestSchema
+>;
+export type BridgeProductReviewAnnotationPublicationIdentity = z.infer<
+	typeof bridgeProductReviewAnnotationPublicationIdentitySchema
 >;
 export type BridgeProductAnnotationProjectionPageContract = z.infer<
 	typeof bridgeProductAnnotationProjectionPageContractSchema

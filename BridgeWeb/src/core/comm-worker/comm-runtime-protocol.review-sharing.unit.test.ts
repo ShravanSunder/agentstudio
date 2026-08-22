@@ -38,7 +38,7 @@ import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-rend
 describe('Bridge comm worker runtime Review demand sharing', () => {
 	test('reuses one completed body across authorization reissue without native or render retransmission', async () => {
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const { dispatch, postedMessages, waitForMessage } = createRecordingBridgeCommWorkerPort();
 		const originalDescriptor = makeContentRequestDescriptor({
 			generation: 4,
 			itemId: 'item-1',
@@ -66,6 +66,7 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 			contentRequestDescriptors: [originalDescriptor],
 			createSequence: createBridgeWorkerSequenceCounter(901),
+			reviewPublicationIdentity: null,
 			openReviewContent: trackedContentOpen.openContent,
 			pump,
 			renderSemantics: [renderSemantics],
@@ -105,7 +106,10 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 
-		const reissuedPublicationApplied = reviewProductSource.publishSourceAndWaitForApplication(
+		const reissuedCandidateReady = waitForMessage(
+			(message): boolean => message.kind === 'reviewCandidateReady' && message.revision === 5,
+		);
+		reviewProductSource.publishSource(
 			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 				contentRequestDescriptors: [reissuedDescriptor],
@@ -114,7 +118,7 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			},
 			5,
 		);
-		await reissuedPublicationApplied;
+		await reissuedCandidateReady;
 		await drainReviewSharingPreparationUntilIdle({ pump, scheduledDrains });
 
 		expect(trackedContentOpen.openedDescriptorIds).toEqual([originalDescriptor.descriptorId]);
@@ -150,6 +154,7 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 			contentRequestDescriptors: [baseDescriptor, headDescriptor],
 			createSequence: createBridgeWorkerSequenceCounter(1001),
+			reviewPublicationIdentity: null,
 			openReviewContent: (descriptor) => {
 				openCallsByDescriptorId.set(
 					descriptor.descriptorId,
@@ -264,6 +269,7 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 			contentRequestDescriptors: [baseDescriptor, headDescriptor],
 			createSequence: createBridgeWorkerSequenceCounter(1101),
+			reviewPublicationIdentity: null,
 			openReviewContent: (descriptor) => {
 				const deferredFailure = createDeferredReviewContentFailureStream(descriptor);
 				deferredFailuresByDescriptorId.set(descriptor.descriptorId, deferredFailure);
@@ -378,6 +384,7 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 			contentRequestDescriptors: [baseDescriptor, firstHeadDescriptor],
 			createSequence: createBridgeWorkerSequenceCounter(1201),
+			reviewPublicationIdentity: null,
 			openReviewContent: (descriptor) => {
 				openCallsByDescriptorId.set(
 					descriptor.descriptorId,

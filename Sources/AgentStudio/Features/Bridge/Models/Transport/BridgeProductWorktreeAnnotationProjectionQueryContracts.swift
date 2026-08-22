@@ -6,10 +6,87 @@ enum BridgeProductAnnotationProjectionContract {
     static let maximumPageBytes = 2 * 1024 * 1024
 }
 
+struct BridgeProductReviewAnnotationPublicationIdentity: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case packageId
+        case publicationId
+        case reviewGeneration
+        case revision
+        case sourceIdentity
+    }
+
+    let packageId: String
+    let publicationId: UUID
+    let reviewGeneration: Int
+    let revision: Int
+    let sourceIdentity: String
+
+    init(
+        packageId: String,
+        publicationId: UUID,
+        reviewGeneration: Int,
+        revision: Int,
+        sourceIdentity: String
+    ) throws {
+        self.packageId = packageId
+        self.publicationId = publicationId
+        self.reviewGeneration = reviewGeneration
+        self.revision = revision
+        self.sourceIdentity = sourceIdentity
+        try validate(codingPath: [])
+    }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "Review annotation publication identity"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        packageId = try container.decode(String.self, forKey: .packageId)
+        publicationId = try BridgeProductReviewPublicationIdContract.decode(
+            container.decode(String.self, forKey: .publicationId),
+            codingPath: decoder.codingPath
+        )
+        reviewGeneration = try container.decode(Int.self, forKey: .reviewGeneration)
+        revision = try container.decode(Int.self, forKey: .revision)
+        sourceIdentity = try container.decode(String.self, forKey: .sourceIdentity)
+        try validate(codingPath: decoder.codingPath)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(packageId, forKey: .packageId)
+        try container.encode(
+            BridgeProductReviewPublicationIdContract.encode(publicationId),
+            forKey: .publicationId
+        )
+        try container.encode(reviewGeneration, forKey: .reviewGeneration)
+        try container.encode(revision, forKey: .revision)
+        try container.encode(sourceIdentity, forKey: .sourceIdentity)
+    }
+
+    private func validate(codingPath: [any CodingKey]) throws {
+        try BridgeProductContractDecoding.validateIdentifier(packageId, codingPath: codingPath)
+        try BridgeProductContractDecoding.validateNonnegative(
+            reviewGeneration,
+            name: "reviewGeneration",
+            codingPath: codingPath
+        )
+        try BridgeProductContractDecoding.validateNonnegative(
+            revision,
+            name: "revision",
+            codingPath: codingPath
+        )
+        try BridgeProductContractDecoding.validateIdentifier(sourceIdentity, codingPath: codingPath)
+    }
+}
+
 struct BridgeProductAnnotationProjectionQueryRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case cursor
         case operationCorrelationId
+        case reviewPublicationIdentity
         case sessionIds
         case sourceGeneration
         case surface
@@ -17,6 +94,7 @@ struct BridgeProductAnnotationProjectionQueryRequest: Codable, Equatable, Sendab
 
     let cursor: String?
     let operationCorrelationID: String
+    let reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity?
     let sessionIDs: [UUID]
     let sourceGeneration: Int
     let surface: BridgeProductSurface
@@ -35,6 +113,10 @@ struct BridgeProductAnnotationProjectionQueryRequest: Codable, Equatable, Sendab
             codingPath: decoder.codingPath
         )
         operationCorrelationID = try container.decode(String.self, forKey: .operationCorrelationId)
+        reviewPublicationIdentity = try container.decodeIfPresent(
+            BridgeProductReviewAnnotationPublicationIdentity.self,
+            forKey: .reviewPublicationIdentity
+        )
         let encodedSessionIDs = try container.decode([String].self, forKey: .sessionIds)
         guard encodedSessionIDs.count <= BridgeProductAnnotationProjectionContract.maximumDemandedSessionCount else {
             throw BridgeProductContractDecoding.invalidValue(
@@ -53,6 +135,24 @@ struct BridgeProductAnnotationProjectionQueryRequest: Codable, Equatable, Sendab
         }
         sourceGeneration = try container.decode(Int.self, forKey: .sourceGeneration)
         surface = try container.decode(BridgeProductSurface.self, forKey: .surface)
+        switch surface {
+        case .file:
+            guard reviewPublicationIdentity == nil else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "File annotation projection cannot carry Review publication identity",
+                    codingPath: decoder.codingPath
+                )
+            }
+        case .review:
+            guard let reviewPublicationIdentity,
+                reviewPublicationIdentity.reviewGeneration == sourceGeneration
+            else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Review annotation projection requires exact installed publication identity",
+                    codingPath: decoder.codingPath
+                )
+            }
+        }
         if let cursor {
             try BridgeProductContractDecoding.validateOpaqueReference(cursor, codingPath: decoder.codingPath)
         }
@@ -71,6 +171,7 @@ struct BridgeProductAnnotationProjectionQueryRequest: Codable, Equatable, Sendab
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(cursor, forKey: .cursor)
         try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
+        try container.encodeIfPresent(reviewPublicationIdentity, forKey: .reviewPublicationIdentity)
         try container.encode(
             sessionIDs.map(BridgeProductReviewPublicationIdContract.encode),
             forKey: .sessionIds

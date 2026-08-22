@@ -23,6 +23,8 @@ import {
 import {
 	bridgeProductAnnotationProjectionQueryRequestSchema,
 	bridgeProductAnnotationProjectionQueryResultSchema,
+	bridgeProductReviewAnnotationPublicationIdentitySchema,
+	type BridgeProductReviewAnnotationPublicationIdentity,
 } from './bridge-product-worktree-annotation-projection-query-contracts.js';
 
 export { bridgeProductWorktreeAnnotationOutputInspectResultSchema } from './bridge-product-worktree-annotation-output-contracts.js';
@@ -268,8 +270,14 @@ export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUni
 		.strict(),
 	z.object({ kind: z.literal('recovery.acknowledge') }).strict(),
 ]);
-export const bridgeProductWorktreeAnnotationCommandRequestSchema = z
+export const bridgeProductFileWorktreeAnnotationCommandRequestSchema = z
 	.object({ operation: bridgeProductWorktreeAnnotationOperationSchema })
+	.strict();
+export const bridgeProductReviewWorktreeAnnotationCommandRequestSchema = z
+	.object({
+		operation: bridgeProductWorktreeAnnotationOperationSchema,
+		reviewPublicationIdentity: bridgeProductReviewAnnotationPublicationIdentitySchema,
+	})
 	.strict();
 export const bridgeProductWorktreeAnnotationCommandResultSchema = z
 	.object({
@@ -304,10 +312,14 @@ const bridgeProductReviewAnnotationOutputInspectResultSchema =
 export type BridgeProductWorktreeAnnotationOperation = z.infer<
 	typeof bridgeProductWorktreeAnnotationOperationSchema
 >;
+export {
+	bridgeProductReviewAnnotationPublicationIdentitySchema,
+	type BridgeProductReviewAnnotationPublicationIdentity,
+};
 
 export type BridgeProductCallRegistry = {
 	readonly 'file.annotations.command': {
-		readonly request: z.infer<typeof bridgeProductWorktreeAnnotationCommandRequestSchema>;
+		readonly request: z.infer<typeof bridgeProductFileWorktreeAnnotationCommandRequestSchema>;
 		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationCommandResultSchema>;
 		readonly surface: 'file';
 	};
@@ -372,7 +384,7 @@ export type BridgeProductCallRegistry = {
 		readonly surface: 'review';
 	};
 	readonly 'review.annotations.command': {
-		readonly request: z.infer<typeof bridgeProductWorktreeAnnotationCommandRequestSchema>;
+		readonly request: z.infer<typeof bridgeProductReviewWorktreeAnnotationCommandRequestSchema>;
 		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationCommandResultSchema>;
 		readonly surface: 'review';
 	};
@@ -434,7 +446,7 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 	z
 		.object({
 			method: z.literal('file.annotations.command'),
-			request: bridgeProductWorktreeAnnotationCommandRequestSchema,
+			request: bridgeProductFileWorktreeAnnotationCommandRequestSchema,
 		})
 		.strict(),
 	z
@@ -506,7 +518,7 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 	z
 		.object({
 			method: z.literal('review.annotations.command'),
-			request: bridgeProductWorktreeAnnotationCommandRequestSchema,
+			request: bridgeProductReviewWorktreeAnnotationCommandRequestSchema,
 		})
 		.strict(),
 	z

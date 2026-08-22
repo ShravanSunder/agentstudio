@@ -142,6 +142,7 @@ export function createBridgeCommWorkerCommandHandler(
 		contentItems: props.contentItems,
 		contentRequestDescriptors: props.contentRequestDescriptors ?? [],
 		renderSemantics: props.renderSemantics ?? [],
+		reviewPublicationIdentity: props.reviewPublicationIdentity ?? null,
 		rows: props.rows,
 	};
 	const currentIntentEpochByDomain: Record<BridgeCommWorkerIntentEpochDomain, number> = {
@@ -528,6 +529,8 @@ function handleBridgeWorkerCommand(
 		case 'reviewComparisonUpdate':
 		case 'reviewComparisonTargetsQuery':
 		case 'reviewComparisonTargetsQueryCancel':
+		case 'reviewPublicationInstallAdmit':
+		case 'reviewPublicationInstalled':
 		case 'activeViewerModeUpdate':
 			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
 		case 'mode':

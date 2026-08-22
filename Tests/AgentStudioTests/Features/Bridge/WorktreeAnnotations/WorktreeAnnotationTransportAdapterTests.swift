@@ -788,7 +788,7 @@ private func makeTransportAdapterHarness(
         reviewComparisonOrigin: nil
     )
     let sourceResolver = WorktreeAnnotationSourceResolver(
-        capture: { origin, _, _ in
+        capture: { origin, _, _, _ in
             .init(
                 fingerprint: fingerprint,
                 origin: .located(
@@ -806,8 +806,8 @@ private func makeTransportAdapterHarness(
                 )
             )
         },
-        currentFingerprint: { _, _ in fingerprint },
-        refresh: { _, _, _ in
+        currentFingerprint: { _, _, _ in fingerprint },
+        refresh: { _, _, _, _ in
             .init(
                 fingerprint: fingerprint,
                 material: .available([
@@ -820,7 +820,7 @@ private func makeTransportAdapterHarness(
                 ])
             )
         },
-        currentSourceGeneration: { _, _ in 7 }
+        currentSourceGeneration: { _, _, _ in 7 }
     )
     let outputCoordinator = outputEffect.map {
         WorktreeAnnotationOutputCoordinatorActor(

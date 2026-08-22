@@ -12,16 +12,24 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 				requestId: message.requestId,
 			};
 		case 'annotationCommand':
-			return {
-				command: {
-					method:
-						message.surface === 'fileView'
-							? 'file.annotations.command'
-							: 'review.annotations.command',
-					params: { operation: message.operation },
-				},
-				requestId: message.requestId,
-			};
+			return message.surface === 'fileView'
+				? {
+						command: {
+							method: 'file.annotations.command',
+							params: { operation: message.operation },
+						},
+						requestId: message.requestId,
+					}
+				: {
+						command: {
+							method: 'review.annotations.command',
+							params: {
+								operation: message.operation,
+								reviewPublicationIdentity: requireReviewPublicationIdentity(message),
+							},
+						},
+						requestId: message.requestId,
+					};
 		case 'markFileViewed':
 			return {
 				command: {
@@ -66,6 +74,25 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 				},
 				requestId: message.requestId,
 			};
+		case 'reviewPublicationInstallAdmit':
+			return {
+				command: {
+					method: 'review.publication.install.admit',
+					params: {
+						candidatePublicationId: message.candidatePublicationId,
+						expectedDisplayedPublicationId: message.expectedDisplayedPublicationId,
+					},
+				},
+				requestId: message.requestId,
+			};
+		case 'reviewPublicationInstalled':
+			return {
+				command: {
+					method: 'review.publication.applied',
+					params: { publicationId: message.publicationId },
+				},
+				requestId: message.requestId,
+			};
 		case 'reviewComparisonTargetsQueryCancel':
 		case 'annotationOutputInspect':
 		case 'annotationProjectionRetry':
@@ -83,6 +110,15 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 		default:
 			return assertNeverBridgeWorkerMessage(message);
 	}
+}
+
+function requireReviewPublicationIdentity(
+	message: Extract<BridgeWorkerMainToServerMessage, { readonly command: 'annotationCommand' }>,
+): NonNullable<typeof message.reviewPublicationIdentity> {
+	if (message.reviewPublicationIdentity === undefined) {
+		throw new Error('Review annotation command has no installed publication identity.');
+	}
+	return message.reviewPublicationIdentity;
 }
 
 export function bridgeCommWorkerTelemetryLaneForMessage(
@@ -114,6 +150,8 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 		case 'reviewComparisonUpdate':
 		case 'reviewComparisonTargetsQuery':
 		case 'reviewComparisonTargetsQueryCancel':
+		case 'reviewPublicationInstallAdmit':
+		case 'reviewPublicationInstalled':
 			return 'background';
 		default:
 			return assertNeverBridgeWorkerMessage(message);

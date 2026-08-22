@@ -16,6 +16,14 @@ import {
 } from './bridge-product-call-contracts.js';
 import { BRIDGE_PRODUCT_MAXIMUM_REVIEW_COMPARISON_TARGET_BYTES } from './bridge-product-content-contracts.js';
 
+const reviewPublicationIdentity = {
+	packageId: 'package-installed',
+	publicationId: '00000000-0000-7000-8000-000000000031',
+	reviewGeneration: 7,
+	revision: 3,
+	sourceIdentity: 'source-installed',
+} as const;
+
 const currentFileSource = {
 	cwdScope: null,
 	freshness: 'live',
@@ -48,7 +56,16 @@ describe('Bridge product call contracts', () => {
 
 	test('defines paired strict annotation commands with no delete operation', () => {
 		for (const method of ['file.annotations.command', 'review.annotations.command'] as const) {
-			const request = { method, request: { operation: { kind: 'session.discover' } } } as const;
+			const request = {
+				method,
+				request:
+					method === 'file.annotations.command'
+						? { operation: { kind: 'session.discover' } as const }
+						: {
+								operation: { kind: 'session.discover' } as const,
+								reviewPublicationIdentity,
+							},
+			} as const;
 			const result = {
 				method,
 				result: {
@@ -200,7 +217,7 @@ describe('Bridge product call contracts', () => {
 			expect(
 				bridgeProductCallRequestSchema.safeParse({
 					method: 'review.annotations.command',
-					request: { operation },
+					request: { operation, reviewPublicationIdentity },
 				}).success,
 			).toBe(true);
 		}

@@ -231,6 +231,32 @@ const bridgeProductReviewPublicationCommitShape = {
 	reviewComparison: bridgeProductReviewComparisonPresentationSchema.nullable().optional(),
 } as const;
 
+export const bridgeProductReviewPreDeliveryPresentationClassSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('ordinary') }).strict(),
+	z
+		.object({
+			kind: z.literal('promoted'),
+			reason: z.enum(['commits', 'files', 'lines', 'unknown']),
+		})
+		.strict(),
+]);
+
+const bridgeProductReviewRefreshImpactShape = {
+	addedLineCount: bridgeProductNonnegativeSequenceSchema.nullable().optional(),
+	affectedFileCount: bridgeProductNonnegativeSequenceSchema.nullable().optional(),
+	affectedStableFileIdentities: z
+		.array(bridgeProductIdentifierSchema)
+		.refine(
+			(identities) => new Set(identities).size === identities.length,
+			'Review refresh affected stable file identities must be unique.',
+		)
+		.readonly()
+		.optional(),
+	deletedLineCount: bridgeProductNonnegativeSequenceSchema.nullable().optional(),
+	newlyImportedCommitCount: bridgeProductNonnegativeSequenceSchema.nullable().optional(),
+	preDeliveryPresentationClass: bridgeProductReviewPreDeliveryPresentationClassSchema.optional(),
+} as const;
+
 export const bridgeProductReviewSourceAcceptedEventSchema = z
 	.object({
 		...bridgeProductReviewMetadataIdentityShape,
@@ -329,6 +355,7 @@ export const bridgeProductReviewMetadataSnapshotEventSchema = z
 		...bridgeProductReviewMetadataIdentityShape,
 		...bridgeProductReviewMetadataPayloadShape,
 		...bridgeProductReviewPublicationCommitShape,
+		...bridgeProductReviewRefreshImpactShape,
 		baseEndpoint: bridgeProductReviewSourceEndpointSchema,
 		comparisonOrigin: bridgeProductReviewComparisonOriginSchema.optional(),
 		eventKind: z.literal('review.snapshot'),
@@ -342,6 +369,7 @@ export const bridgeProductReviewMetadataSnapshotEventSchema = z
 	.superRefine((event, context): void => {
 		validateReviewMetadataWindowPayload(event, context);
 		validateReviewPublicationCommit(event, context);
+		validateReviewRefreshImpact(event, context);
 		if (event.itemWindow.startIndex !== 0) {
 			context.addIssue({
 				code: 'custom',
@@ -363,6 +391,7 @@ export const bridgeProductReviewMetadataWindowEventSchema = z
 		...bridgeProductReviewMetadataIdentityShape,
 		...bridgeProductReviewMetadataPayloadShape,
 		...bridgeProductReviewPublicationCommitShape,
+		...bridgeProductReviewRefreshImpactShape,
 		eventKind: z.literal('review.window'),
 		itemWindow: bridgeProductReviewItemWindowSchema,
 		treeWindow: bridgeProductReviewTreeWindowSchema,
@@ -371,12 +400,14 @@ export const bridgeProductReviewMetadataWindowEventSchema = z
 	.superRefine((event, context): void => {
 		validateReviewMetadataWindowPayload(event, context);
 		validateReviewPublicationCommit(event, context);
+		validateReviewRefreshImpact(event, context);
 	});
 
 export const bridgeProductReviewMetadataDeltaEventSchema = z
 	.object({
 		...bridgeProductReviewMetadataIdentityShape,
 		...bridgeProductReviewPublicationCommitShape,
+		...bridgeProductReviewRefreshImpactShape,
 		contentSources: z
 			.array(bridgeProductReviewContentSourceDescriptorSchema)
 			.max(BRIDGE_PRODUCT_MAXIMUM_REVIEW_METADATA_WINDOW_ENTRY_COUNT)
@@ -406,6 +437,7 @@ export const bridgeProductReviewMetadataDeltaEventSchema = z
 				path: ['reviewComparison'],
 			});
 		}
+		validateReviewRefreshImpact(event, context, true);
 	});
 
 export const bridgeProductReviewMetadataInvalidatedEventSchema = z
@@ -482,6 +514,83 @@ function validateReviewPublicationCommit(
 		message: 'Review publication comparison must appear exactly on the final display barrier.',
 		path: ['reviewComparison'],
 	});
+}
+
+function validateReviewRefreshImpact(
+	event: {
+		readonly addedLineCount?: number | null | undefined;
+		readonly affectedFileCount?: number | null | undefined;
+		readonly affectedStableFileIdentities?: readonly string[] | undefined;
+		readonly deletedLineCount?: number | null | undefined;
+		readonly itemWindow?: { readonly finalWindow: boolean } | undefined;
+		readonly newlyImportedCommitCount?: number | null | undefined;
+		readonly preDeliveryPresentationClass?:
+			| { readonly kind: 'ordinary' }
+			| {
+					readonly kind: 'promoted';
+					readonly reason: 'commits' | 'files' | 'lines' | 'unknown';
+			  }
+			| undefined;
+		readonly treeWindow?: { readonly finalWindow: boolean } | undefined;
+	},
+	context: z.RefinementCtx,
+	isFinalBarrierOverride?: boolean,
+): void {
+	const isFinalBarrier =
+		isFinalBarrierOverride ??
+		(event.itemWindow?.finalWindow === true && event.treeWindow?.finalWindow === true);
+	const fields = [
+		event.preDeliveryPresentationClass,
+		event.newlyImportedCommitCount,
+		event.affectedFileCount,
+		event.addedLineCount,
+		event.deletedLineCount,
+		event.affectedStableFileIdentities,
+	];
+	const presentCount = fields.filter((field) => field !== undefined).length;
+	if (presentCount !== 0 && presentCount !== fields.length) {
+		context.addIssue({
+			code: 'custom',
+			message: 'Review refresh impact fields must be carried as one atomic group.',
+			path: ['preDeliveryPresentationClass'],
+		});
+		return;
+	}
+	if (isFinalBarrier !== (presentCount === fields.length)) {
+		context.addIssue({
+			code: 'custom',
+			message: 'Review refresh impact must appear exactly on the final display barrier.',
+			path: ['preDeliveryPresentationClass'],
+		});
+		return;
+	}
+	if (!isFinalBarrier) return;
+	const counts = [
+		event.newlyImportedCommitCount,
+		event.affectedFileCount,
+		event.addedLineCount,
+		event.deletedLineCount,
+	];
+	const allCountsUnknown = counts.every((count) => count === null);
+	const allCountsExact = counts.every((count) => typeof count === 'number');
+	if (!allCountsUnknown && !allCountsExact) {
+		context.addIssue({
+			code: 'custom',
+			message: 'Review refresh counts must be entirely exact or entirely unknown.',
+			path: ['newlyImportedCommitCount'],
+		});
+	}
+	if (
+		allCountsUnknown &&
+		(event.preDeliveryPresentationClass?.kind !== 'promoted' ||
+			event.preDeliveryPresentationClass.reason !== 'unknown')
+	) {
+		context.addIssue({
+			code: 'custom',
+			message: 'Unknown Review refresh counts require promoted unknown presentation.',
+			path: ['preDeliveryPresentationClass'],
+		});
+	}
 }
 
 function validateOrderedReviewWindow(props: {

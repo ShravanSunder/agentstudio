@@ -251,6 +251,13 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             )
         )
         let fingerprint = try await WorktreeAnnotationSourceCapture.reviewRefresh(
+            identity: BridgeProductReviewAnnotationPublicationIdentity(
+                packageId: publication.package.packageId,
+                publicationId: publication.publicationId,
+                reviewGeneration: publication.package.reviewGeneration.rawValue,
+                revision: publication.package.revision,
+                sourceIdentity: publication.package.query.queryId
+            ),
             publicationCoordinator: controller.reviewPublicationCoordinator,
             contentLoaderCache: controller.reviewContentLoaderCache,
             requirements: [],

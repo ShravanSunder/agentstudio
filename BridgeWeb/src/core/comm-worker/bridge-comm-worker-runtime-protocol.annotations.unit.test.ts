@@ -415,11 +415,20 @@ function annotationCommand(
 		kind: 'command',
 		operation: { kind: 'session.discover' },
 		requestId,
+		...(surface === 'review' ? { reviewPublicationIdentity } : {}),
 		surface,
 		transferDescriptors: [],
 		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 	} as const;
 }
+
+const reviewPublicationIdentity = {
+	packageId: 'package-installed',
+	publicationId: '00000000-0000-7000-8000-000000000031',
+	reviewGeneration: 7,
+	revision: 3,
+	sourceIdentity: 'source-installed',
+} as const;
 
 function annotationOutputInspectCommand(
 	surface: 'fileView' | 'review',

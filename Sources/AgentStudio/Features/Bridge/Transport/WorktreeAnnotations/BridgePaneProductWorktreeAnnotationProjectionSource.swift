@@ -19,7 +19,11 @@ struct BridgePaneProductWorktreeAnnotationProjectionPage: Sendable {
 
 actor BridgeAnnotationProjectionSource {
     typealias CurrentSourceGeneration =
-        @Sendable (BridgeProductSurface, BridgeProductAdmissionContext) async throws -> Int
+        @Sendable (
+            BridgeProductSurface,
+            BridgeProductReviewAnnotationPublicationIdentity?,
+            BridgeProductAdmissionContext
+        ) async throws -> Int
 
     private struct RequestAuthority: Equatable, Sendable {
         let paneSessionID: String
@@ -48,6 +52,7 @@ actor BridgeAnnotationProjectionSource {
         let authority: RequestAuthority
         let demandedSessionIDs: [UUID]
         let operationCorrelationID: String
+        let reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity?
         let snapshotID: UUID
         let sourceGeneration: Int
         let surface: BridgeProductSurface
@@ -67,7 +72,7 @@ actor BridgeAnnotationProjectionSource {
         service: nil,
         sourceResolver: .unavailable,
         worktreeID: "",
-        currentSourceGeneration: { _, _ in
+        currentSourceGeneration: { _, _, _ in
             throw BridgeAnnotationProjectionSourceError.unavailable
         }
     )
@@ -105,7 +110,7 @@ actor BridgeAnnotationProjectionSource {
         }
         let currentGeneration: Int
         do {
-            currentGeneration = try await currentSourceGeneration(query.surface, productAdmission)
+            currentGeneration = try await resolveSourceGeneration(query, productAdmission)
         } catch {
             throw BridgeAnnotationProjectionSourceError.initialSourceGenerationUnavailable
         }
@@ -119,9 +124,7 @@ actor BridgeAnnotationProjectionSource {
             return try issueContinuationDescriptor(
                 cursor: cursor,
                 authority: authority,
-                demandedSessionIDs: query.sessionIDs,
-                operationCorrelationID: query.operationCorrelationID,
-                surface: query.surface,
+                query: query,
                 sourceGeneration: currentGeneration
             )
         }
@@ -143,6 +146,7 @@ actor BridgeAnnotationProjectionSource {
         do {
             sourceCapture = try await sourceResolver.refresh(
                 query.surface,
+                query.reviewPublicationIdentity,
                 productAdmission,
                 requirements
             )
@@ -151,10 +155,7 @@ actor BridgeAnnotationProjectionSource {
         }
         let revalidatedGeneration: Int
         do {
-            revalidatedGeneration = try await currentSourceGeneration(
-                query.surface,
-                productAdmission
-            )
+            revalidatedGeneration = try await resolveSourceGeneration(query, productAdmission)
         } catch {
             throw BridgeAnnotationProjectionSourceError.revalidatedSourceGenerationUnavailable
         }
@@ -185,6 +186,7 @@ actor BridgeAnnotationProjectionSource {
             authority: authority,
             demandedSessionIDs: query.sessionIDs,
             operationCorrelationID: query.operationCorrelationID,
+            reviewPublicationIdentity: query.reviewPublicationIdentity,
             snapshotID: snapshotID,
             sourceGeneration: currentGeneration,
             surface: query.surface,
@@ -220,20 +222,30 @@ actor BridgeAnnotationProjectionSource {
     func placementsForOutput(
         sessionID: WorktreeAnnotationSessionID,
         surface: BridgeProductSurface,
+        reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity?,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection] {
         guard let service else {
             throw BridgeAnnotationProjectionSourceError.unavailable
         }
         let detail = try await service.outputSessionDetail(sessionID: sessionID)
-        let sourceGeneration = try await currentSourceGeneration(surface, productAdmission)
+        let sourceGeneration = try await currentSourceGeneration(
+            surface,
+            reviewPublicationIdentity,
+            productAdmission
+        )
         let requirements = WorktreeAnnotationServiceActor.sourceRefreshSnapshot(from: detail).requirements
         let sourceCapture = try await sourceResolver.refresh(
             surface,
+            reviewPublicationIdentity,
             productAdmission,
             requirements
         )
-        let revalidatedGeneration = try await currentSourceGeneration(surface, productAdmission)
+        let revalidatedGeneration = try await currentSourceGeneration(
+            surface,
+            reviewPublicationIdentity,
+            productAdmission
+        )
         guard revalidatedGeneration == sourceGeneration else {
             throw BridgeAnnotationProjectionSourceError.staleSourceGeneration(
                 currentSourceGeneration: revalidatedGeneration
@@ -255,16 +267,15 @@ actor BridgeAnnotationProjectionSource {
     private func issueContinuationDescriptor(
         cursor: String,
         authority: RequestAuthority,
-        demandedSessionIDs: [UUID],
-        operationCorrelationID: String,
-        surface: BridgeProductSurface,
+        query: BridgeProductAnnotationProjectionQueryRequest,
         sourceGeneration: Int
     ) throws -> BridgeProductAnnotationProjectionContentDescriptor {
         guard let reservation = logicalReservation,
             reservation.authority == authority,
-            reservation.demandedSessionIDs == demandedSessionIDs,
-            reservation.operationCorrelationID == operationCorrelationID,
-            reservation.surface == surface,
+            reservation.demandedSessionIDs == query.sessionIDs,
+            reservation.operationCorrelationID == query.operationCorrelationID,
+            reservation.reviewPublicationIdentity == query.reviewPublicationIdentity,
+            reservation.surface == query.surface,
             reservation.sourceGeneration == sourceGeneration,
             reservation.continuationReady,
             reservation.nextCursor == cursor
@@ -274,6 +285,17 @@ actor BridgeAnnotationProjectionSource {
         logicalReservation?.nextCursor = nil
         logicalReservation?.continuationReady = false
         return try issueDescriptor(pageOrdinal: reservation.nextPageOrdinal)
+    }
+
+    private func resolveSourceGeneration(
+        _ query: BridgeProductAnnotationProjectionQueryRequest,
+        _ productAdmission: BridgeProductAdmissionContext
+    ) async throws -> Int {
+        try await currentSourceGeneration(
+            query.surface,
+            query.reviewPublicationIdentity,
+            productAdmission
+        )
     }
 
     private func issueDescriptor(

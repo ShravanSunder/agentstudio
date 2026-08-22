@@ -3,9 +3,11 @@ import Foundation
 struct BridgeProductWorktreeAnnotationCommandRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case operation
+        case reviewPublicationIdentity
     }
 
     let operation: BridgeProductWorktreeAnnotationOperation
+    let reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity?
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
@@ -18,11 +20,32 @@ struct BridgeProductWorktreeAnnotationCommandRequest: Codable, Equatable, Sendab
             BridgeProductWorktreeAnnotationOperation.self,
             forKey: .operation
         )
+        self.reviewPublicationIdentity = try container.decodeIfPresent(
+            BridgeProductReviewAnnotationPublicationIdentity.self,
+            forKey: .reviewPublicationIdentity
+        )
     }
 
     func validateSource(surface: BridgeProductSurface, codingPath: [any CodingKey]) throws {
-        guard case .createRoot(_, _, _, let origin) = operation else { return }
-        try origin.validate(surface: surface, codingPath: codingPath)
+        switch surface {
+        case .file:
+            guard reviewPublicationIdentity == nil else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "File annotation command cannot carry Review publication identity",
+                    codingPath: codingPath
+                )
+            }
+        case .review:
+            guard reviewPublicationIdentity != nil else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Review annotation command requires installed publication identity",
+                    codingPath: codingPath
+                )
+            }
+        }
+        if case .createRoot(_, _, _, let origin) = operation {
+            try origin.validate(surface: surface, codingPath: codingPath)
+        }
     }
 }
 

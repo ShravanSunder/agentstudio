@@ -391,8 +391,10 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 			case 'annotationOutputInspection':
 			case 'annotationProjectionConvergence':
 			case 'nativeSurfaceSelectionRequest':
+			case 'reviewCandidateReady':
 			case 'subscription':
 			case 'reviewComparisonTargetsQuery':
+			case 'reviewPublicationInstallAdmission':
 				break;
 			default:
 				assertNeverBridgeFileViewerWorkerServerMessage(message);

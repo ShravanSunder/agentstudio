@@ -161,6 +161,8 @@ function bridgeWorkerCommandMatchesSurface(
 		case 'reviewComparisonTargetsQueryCancel':
 		case 'reviewInvalidate':
 		case 'reviewProjectionUpdate':
+		case 'reviewPublicationInstallAdmit':
+		case 'reviewPublicationInstalled':
 			return surface === 'review';
 		case 'renderDisposition':
 			return command.receipt.surface === 'file' ? surface === 'fileView' : surface === 'review';
@@ -228,7 +230,9 @@ function bridgeWorkerMessageMatchesSurface(
 		case 'fileRenderPatch':
 			return surface === 'fileView';
 		case 'reviewDisplayPatch':
+		case 'reviewCandidateReady':
 		case 'reviewPierreRenderJob':
+		case 'reviewPublicationInstallAdmission':
 		case 'reviewRenderPatch':
 		case 'reviewComparisonTargetsQuery':
 			return surface === 'review';
@@ -252,6 +256,7 @@ function settleBridgeWorkerRpcLifecycleFromMessage(props: {
 		props.message.kind !== 'annotationCommandAccepted' &&
 		props.message.kind !== 'annotationOutputInspection' &&
 		props.message.kind !== 'health' &&
+		props.message.kind !== 'reviewPublicationInstallAdmission' &&
 		props.message.kind !== 'subscription' &&
 		props.message.kind !== 'reviewComparisonTargetsQuery'
 	)

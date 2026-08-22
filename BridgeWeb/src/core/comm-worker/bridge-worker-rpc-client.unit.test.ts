@@ -500,6 +500,7 @@ function makeReviewPatch(): BridgeWorkerServerToMainMessage {
 		direction: 'serverWorkerToMain',
 		epoch: 11,
 		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: null,
 		patches: [
 			{
 				operation: 'failed',

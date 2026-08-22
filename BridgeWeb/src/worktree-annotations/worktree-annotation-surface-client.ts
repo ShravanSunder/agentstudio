@@ -1,5 +1,8 @@
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
-import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
+import type {
+	BridgeProductReviewAnnotationPublicationIdentity,
+	BridgeProductWorktreeAnnotationOperation,
+} from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeProductAnnotationOutputContentDescriptor } from '../core/comm-worker/bridge-product-content-contracts.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -202,12 +205,15 @@ export function createWorktreeAnnotationSurfaceClient(
 		operation: BridgeProductWorktreeAnnotationOperation,
 	): Promise<WorktreeAnnotationCommandOutcome> => {
 		if (isDisposed) return Promise.reject(new Error('Annotation surface client is disposed.'));
-		const workerRequestId = surfaceClient.send({
-			command: 'annotationCommand',
-			epoch: currentSurfaceEpoch(surfaceClient),
-			operation,
-			surface: surfaceClient.surface,
-		});
+		const workerRequestId =
+			surfaceClient.surface === 'fileView'
+				? surfaceClient.send({
+						command: 'annotationCommand',
+						epoch: currentSurfaceEpoch(surfaceClient),
+						operation,
+						surface: 'fileView',
+					})
+				: sendReviewAnnotationCommand(surfaceClient, operation);
 		return new Promise<WorktreeAnnotationCommandOutcome>((resolve, reject): void => {
 			const pendingCommand: PendingAnnotationCommand = {
 				productRequestId: null,
@@ -342,6 +348,30 @@ export function createWorktreeAnnotationSurfaceClient(
 		subscribe: projectionStore.subscribe,
 		waitForSnapshot,
 	};
+}
+
+function sendReviewAnnotationCommand(
+	surfaceClient: BridgePaneSurfaceClient,
+	operation: BridgeProductWorktreeAnnotationOperation,
+): string {
+	const activeIdentity = surfaceClient.renderStore.getReviewRefreshPresentation().activeIdentity;
+	if (activeIdentity === null) {
+		throw new Error('Review annotation command has no installed publication identity.');
+	}
+	const reviewPublicationIdentity = {
+		packageId: activeIdentity.packageId,
+		publicationId: activeIdentity.publicationId,
+		reviewGeneration: activeIdentity.generation,
+		revision: activeIdentity.revision,
+		sourceIdentity: activeIdentity.sourceIdentity,
+	} satisfies BridgeProductReviewAnnotationPublicationIdentity;
+	return surfaceClient.send({
+		command: 'annotationCommand',
+		epoch: currentSurfaceEpoch(surfaceClient),
+		operation,
+		reviewPublicationIdentity,
+		surface: 'review',
+	});
 }
 
 function retainBoundedOrphanCorrelation<TKey, TValue>(

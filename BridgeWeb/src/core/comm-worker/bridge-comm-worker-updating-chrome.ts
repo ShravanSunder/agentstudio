@@ -12,6 +12,7 @@ import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerFileRenderPatchEventSchema,
 	bridgeWorkerReviewRenderPatchEventSchema,
+	type BridgeWorkerReviewPublicationIdentity,
 	type BridgeWorkerServerToMainWireMessage,
 } from './bridge-worker-contracts.js';
 
@@ -23,6 +24,7 @@ export interface BridgeCommWorkerUpdatingChromePublication {
 export function publishBridgeCommWorkerUpdatingChrome(props: {
 	readonly activeFileWorkerDerivationEpoch: number | null;
 	readonly activeReviewSourceIdentity: BridgeCommWorkerReviewSourceIdentity | null;
+	readonly activeReviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity | null;
 	readonly activeReviewWorkerDerivationEpoch: number | null;
 	readonly activeViewerMode: 'file' | 'review' | null;
 	readonly createSequence: () => number;
@@ -38,6 +40,7 @@ export function publishBridgeCommWorkerUpdatingChrome(props: {
 			? props.activeFileWorkerDerivationEpoch
 			: props.activeReviewWorkerDerivationEpoch;
 	if (workerDerivationEpoch === null) return null;
+	if (props.surface === 'review' && props.activeReviewPublicationIdentity === null) return null;
 	const refreshingLane = props.surface === 'file' ? 'file' : 'review';
 	const isUpdating =
 		props.presentation.nativeActivity === 'foreground' &&
@@ -105,6 +108,7 @@ export function publishBridgeCommWorkerUpdatingChrome(props: {
 			: bridgeWorkerReviewRenderPatchEventSchema.parse({
 					...commonEvent,
 					kind: 'reviewRenderPatch',
+					reviewPublicationIdentity: props.activeReviewPublicationIdentity,
 					surface: 'review',
 				}),
 	);

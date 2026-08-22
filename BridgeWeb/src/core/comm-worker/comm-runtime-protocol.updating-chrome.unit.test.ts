@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
+import { makeReviewPublicationIdentity } from './bridge-comm-worker-entry.test-support.js';
 import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerReviewComparisonTargetsQueryCommand,
@@ -30,6 +31,49 @@ import type {
 } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker updating panel chrome', () => {
+	test('publishes Review chrome only when it can carry exact publication lineage', () => {
+		const published: BridgeWorkerServerToMainWireMessage[] = [];
+		const common = {
+			activeFileWorkerDerivationEpoch: null,
+			activeReviewSourceIdentity: null,
+			activeReviewWorkerDerivationEpoch: 7,
+			activeViewerMode: 'review' as const,
+			createSequence: (): number => 11,
+			previousPublicationIdentity: undefined,
+			previousReviewComparison: null,
+			presentation: {
+				fileRefreshFailure: null,
+				nativeActivity: 'foreground' as const,
+				presentationRevision: 3,
+				refreshingLanes: ['review' as const],
+				reviewComparison: null,
+				workAdmissionGeneration: 1,
+			},
+			publish: (message: BridgeWorkerServerToMainWireMessage): void => {
+				published.push(message);
+			},
+			surface: 'review' as const,
+			telemetryClient: undefined,
+		};
+
+		publishBridgeCommWorkerUpdatingChrome({
+			...common,
+			activeReviewPublicationIdentity: null,
+		});
+		const identity = makeReviewPublicationIdentity();
+		publishBridgeCommWorkerUpdatingChrome({
+			...common,
+			activeReviewPublicationIdentity: identity,
+		});
+
+		expect(published).toEqual([
+			expect.objectContaining({
+				kind: 'reviewRenderPatch',
+				reviewPublicationIdentity: identity,
+			}),
+		]);
+	});
+
 	test('projects typed File refresh failure into retained unavailable chrome', () => {
 		// Arrange
 		const published: BridgeWorkerServerToMainWireMessage[] = [];
@@ -37,6 +81,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 		// Act
 		publishBridgeCommWorkerUpdatingChrome({
 			activeFileWorkerDerivationEpoch: 7,
+			activeReviewPublicationIdentity: null,
 			activeReviewSourceIdentity: null,
 			activeReviewWorkerDerivationEpoch: null,
 			activeViewerMode: 'file',

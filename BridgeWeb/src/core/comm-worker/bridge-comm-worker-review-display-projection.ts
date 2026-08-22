@@ -14,6 +14,7 @@ import {
 	type BridgeWorkerReviewDisplayItem,
 	type BridgeWorkerReviewDisplayPatch,
 	type BridgeWorkerReviewDisplayPatchEvent,
+	type BridgeWorkerReviewPublicationIdentity,
 	type BridgeWorkerReviewSourceDisplayPayload,
 } from './bridge-worker-contracts.js';
 
@@ -47,6 +48,7 @@ export interface BridgeCommWorkerAdmittedReviewDisplayPatches {
 export function bridgeCommWorkerReviewDisplayPatchEvent(props: {
 	readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
 	readonly projectionRevision: number;
+	readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity | null;
 	readonly sequence: number;
 	readonly workerDerivationEpoch: number;
 }): BridgeWorkerReviewDisplayPatchEvent {
@@ -56,6 +58,7 @@ export function bridgeCommWorkerReviewDisplayPatchEvent(props: {
 		kind: 'reviewDisplayPatch',
 		patches: props.patches,
 		projectionRevision: props.projectionRevision,
+		reviewPublicationIdentity: props.reviewPublicationIdentity,
 		sequence: props.sequence,
 		surface: 'review',
 		transferDescriptors: [],

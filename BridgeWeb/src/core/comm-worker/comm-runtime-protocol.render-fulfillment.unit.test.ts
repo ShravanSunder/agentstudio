@@ -449,6 +449,7 @@ function makeReviewRuntimeSource(): BridgeCommWorkerReviewRuntimeSource {
 			}),
 		],
 		renderSemantics: [makeRenderSemantics({ itemId: reviewItemId })],
+		reviewPublicationIdentity: null,
 		rows: [{ id: reviewItemId, index: 0, parentId: null }],
 	};
 }

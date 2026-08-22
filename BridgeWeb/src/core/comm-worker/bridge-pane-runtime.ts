@@ -358,6 +358,8 @@ function bridgePaneReplacementReplayIdentity(
 			return { key: 'file:query', priority: 20 };
 		case 'reviewProjectionUpdate':
 			return { key: 'review:projection', priority: 20 };
+		case 'reviewPublicationInstalled':
+			return { key: 'review:publication-installed', priority: 25 };
 		case 'select':
 			return { key: `${command.surface}:selection`, priority: 30 };
 		case 'viewport':
@@ -376,6 +378,7 @@ function bridgePaneReplacementReplayIdentity(
 		case 'reviewComparisonTargetsQueryCancel':
 		case 'reviewComparisonUpdate':
 		case 'reviewInvalidate':
+		case 'reviewPublicationInstallAdmit':
 			return null;
 		default:
 			return assertNeverReplacementReplayCommand(command);

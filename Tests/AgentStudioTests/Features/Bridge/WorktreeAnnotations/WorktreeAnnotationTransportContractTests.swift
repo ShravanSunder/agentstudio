@@ -50,11 +50,17 @@ struct WorktreeAnnotationTransportContractTests {
             ("file.annotations.command", BridgeProductSurface.file),
             ("review.annotations.command", BridgeProductSurface.review),
         ] {
+            var commandRequest: [String: Any] = [
+                "operation": ["kind": "session.discover"]
+            ]
+            if expectedSurface == .review {
+                commandRequest["reviewPublicationIdentity"] = reviewAnnotationPublicationIdentity()
+            }
             let request = try decodeStrict(
                 BridgeProductCallRequest.self,
                 object: [
                     "method": method,
-                    "request": ["operation": ["kind": "session.discover"]],
+                    "request": commandRequest,
                 ]
             )
             #expect(request.method == method)
@@ -106,7 +112,32 @@ struct WorktreeAnnotationTransportContractTests {
                 BridgeProductCallRequest.self,
                 object: [
                     "method": "review.annotations.command",
-                    "request": ["operation": ["kind": "thread.delete"]],
+                    "request": [
+                        "operation": ["kind": "thread.delete"],
+                        "reviewPublicationIdentity": reviewAnnotationPublicationIdentity(),
+                    ],
+                ]
+            )
+        }
+
+        #expect(throws: (any Error).self) {
+            _ = try decodeStrict(
+                BridgeProductCallRequest.self,
+                object: [
+                    "method": "review.annotations.command",
+                    "request": ["operation": ["kind": "session.discover"]],
+                ]
+            )
+        }
+        #expect(throws: (any Error).self) {
+            _ = try decodeStrict(
+                BridgeProductCallRequest.self,
+                object: [
+                    "method": "file.annotations.command",
+                    "request": [
+                        "operation": ["kind": "session.discover"],
+                        "reviewPublicationIdentity": reviewAnnotationPublicationIdentity(),
+                    ],
                 ]
             )
         }
@@ -487,15 +518,29 @@ struct WorktreeAnnotationTransportContractTests {
     }
 }
 
+private func reviewAnnotationPublicationIdentity() -> [String: Any] {
+    [
+        "packageId": "package-installed",
+        "publicationId": "00000000-0000-7000-8000-000000000041",
+        "reviewGeneration": 7,
+        "revision": 3,
+        "sourceIdentity": "source-installed",
+    ]
+}
+
 private func decodeAnnotationCommand(
     method: String,
     operation: [String: Any]
 ) throws -> BridgeProductCallRequest {
-    try decodeStrict(
+    var request: [String: Any] = ["operation": operation]
+    if method == "review.annotations.command" {
+        request["reviewPublicationIdentity"] = reviewAnnotationPublicationIdentity()
+    }
+    return try decodeStrict(
         BridgeProductCallRequest.self,
         object: [
             "method": method,
-            "request": ["operation": operation],
+            "request": request,
         ]
     )
 }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-command-handler.js';
+import { makeReviewPublicationIdentity } from './bridge-comm-worker-entry.test-support.js';
 import { enqueueBridgeCommWorkerReviewSourceReset } from './bridge-comm-worker-review-source-reset.js';
 import { makeWorkerReviewContentMetadata } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
@@ -18,11 +19,13 @@ describe('Bridge comm worker Review source reset', () => {
 			contentItems: BridgeCommWorkerReviewRuntimeSource['contentItems'][number][];
 			contentRequestDescriptors: BridgeCommWorkerReviewRuntimeSource['contentRequestDescriptors'][number][];
 			renderSemantics: BridgeCommWorkerReviewRuntimeSource['renderSemantics'][number][];
+			reviewPublicationIdentity: BridgeCommWorkerReviewRuntimeSource['reviewPublicationIdentity'];
 			rows: BridgeCommWorkerReviewRuntimeSource['rows'][number][];
 		} = {
 			contentItems: rows.map((row) => makeWorkerReviewContentMetadata({ itemId: row.id })),
 			contentRequestDescriptors: [],
 			renderSemantics: [],
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			rows: [...rows],
 		};
 		const store = createBridgeCommWorkerStore({ contentItems: [], rows: [], surface: 'review' });

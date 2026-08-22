@@ -254,6 +254,7 @@ export function reviewDisplayEvent(props: {
 		direction: 'serverWorkerToMain',
 		epoch: 1,
 		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: null,
 		patches: [
 			{
 				operation: 'upsert',

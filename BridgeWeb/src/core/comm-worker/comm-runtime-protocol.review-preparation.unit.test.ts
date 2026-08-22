@@ -646,7 +646,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		let advanceClockPerRead = false;
 		let createSequence = createBridgeWorkerSequenceCounter(41);
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const { dispatch, postedMessages, waitForMessage } = createRecordingBridgeCommWorkerPort();
 		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -672,7 +672,10 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			},
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'yielded-selected-preparation');
-		const publicationApplication = reviewProductSource.publishSourceAndWaitForApplication(
+		const candidateReady = waitForMessage(
+			(message): boolean => message.kind === 'reviewCandidateReady' && message.revision === 6,
+		);
+		reviewProductSource.publishSource(
 			{
 				contentItems: [makeWorkerReviewContentMetadata()],
 				contentRequestDescriptors: [
@@ -685,7 +688,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			6,
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		await publicationApplication;
+		await candidateReady;
 		await flushBridgeWorkerRuntimeContinuations();
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
@@ -722,7 +725,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		expect(firstDrainResult.completedIds).toEqual([]);
 		expect(firstDrainResult.yielded).toBe(true);
 		expect(continuationDrainResult.completedIds).toEqual([
-			'review-content-ready:item-1:review-ledger:item-1:43',
+			'review-content-ready:item-1:review-ledger:item-1:44',
 		]);
 		expect(continuationDrainResult.yielded).toBe(false);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
@@ -756,7 +759,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		]);
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 43,
+			publicationSequence: 44,
 			workerDerivationEpoch: 1,
 			patches: [
 				{
@@ -822,11 +825,12 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'reviewDisplayPatch',
+			'reviewCandidateReady',
 			'health',
 			'slicePatch',
 			'health',
 		]);
-		expect(postedMessages[2]?.message).toMatchObject({
+		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'slicePatch',
 			epoch: 2,
 			sequence: 11,

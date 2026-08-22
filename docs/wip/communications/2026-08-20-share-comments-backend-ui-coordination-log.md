@@ -596,3 +596,14 @@ API to `agentstudio-git` and bump the Agent Studio pin
 Notes: the pinned package can compute A-to-C files, rename sides, and line counts,
 but has no arbitrary A-to-C commit count; upstream ahead count is not equivalent.
 Direct Git CLI, a second scheduler, or always-unknown promotion were rejected.
+
+### 2026-08-22 07:58 EDT — Refresh S3 native impact checkpoint
+
+State: bounded displayed-to-candidate impact classification committed; S2/S4 integration remains active
+Head: `d4cc5754b` (`feat(bridge): classify review refresh impact`)
+Owns: Agent Studio native Git scheduling, impact policy, retained displayed-publication lookup, and final Review metadata-barrier carriage
+Changed: Agent Studio now pins fetchable `agentstudio-git` revision `24ad9238`; same-source refresh measures acknowledged displayed A to candidate C through the existing scheduler, promotes at 10 commits / 25 files / 1,000 changed lines, treats unavailable or unrelated facts as promoted unknown, maps both rename/delete sides to stable Review item identities, and carries the typed result only on the atomic final metadata barrier
+Proof: `agentstudio-git` build/lint/focused contracts and 4 real-Git range tests passed; Agent Studio dependency build/pin test passed; focused S3 Swift proof passed 54 tests across 7 suites; scoped SwiftFormat/SwiftLint/diff checks passed
+Needs from UI lane: no visual files were changed; consume the typed main-store refresh presentation and actions only after the S2 installation gate is checkpointed. The controller seam will expose semantic-attention identities and Apply-now without prescribing toolbar implementation.
+Next: finish exact Review render/Pierre lineage fencing, main installation routing, installed-generation annotations, then hand the stable typed presentation seam to the UI owner
+Notes: no security/auth, persistence schema, polling, new route, second scheduler, compatibility path, or PR2 change. The three PR2 research files remain untouched.

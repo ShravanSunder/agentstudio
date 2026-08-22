@@ -11,6 +11,7 @@ import {
 	bridgeProductAnnotationOutputContentDescriptorSchema,
 	bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
 } from './bridge-product-worktree-annotation-output-contracts.js';
+import { bridgeWorkerReviewPublicationIdentitySchema } from './bridge-worker-review-publication-contracts.js';
 import {
 	bridgeWorkerInteractionSurfaceSchema,
 	bridgeWorkerMainToServerBaseSchema,
@@ -22,9 +23,26 @@ export const bridgeWorkerAnnotationCommandSchema = bridgeWorkerMainToServerBaseS
 	.extend({
 		command: z.literal('annotationCommand'),
 		operation: bridgeProductWorktreeAnnotationOperationSchema,
+		reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentitySchema.optional(),
 		surface: bridgeWorkerInteractionSurfaceSchema,
 	})
-	.strict();
+	.strict()
+	.superRefine((command, context): void => {
+		if (command.surface === 'review' && command.reviewPublicationIdentity === undefined) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Review annotation command requires installed publication identity.',
+				path: ['reviewPublicationIdentity'],
+			});
+		}
+		if (command.surface === 'fileView' && command.reviewPublicationIdentity !== undefined) {
+			context.addIssue({
+				code: 'custom',
+				message: 'File annotation command cannot carry Review publication identity.',
+				path: ['reviewPublicationIdentity'],
+			});
+		}
+	});
 
 export const bridgeWorkerAnnotationOutputInspectCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({

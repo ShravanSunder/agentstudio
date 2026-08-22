@@ -4,8 +4,10 @@ import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
 import { encodeBridgeWorkerActiveViewerModeUpdateCommand } from './bridge-comm-worker-protocol.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
-import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import { bridgeProductReviewPublicationAppliedRequestSchema } from './bridge-product-call-contracts.js';
+import {
+	BridgeProductBoundedAsyncQueue,
+	createBridgeProductDeferred,
+} from './bridge-product-async-queue.js';
 import { bridgeProductReviewMetadataEventSchema } from './bridge-product-review-metadata-contracts.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type {
@@ -45,8 +47,17 @@ export function createRecordingBridgeCommWorkerPort(
 		readonly port: BridgeCommWorkerPort;
 	};
 	readonly postedMessages: PostedBridgeWorkerRuntimeMessage[];
+	readonly waitForMessage: (
+		predicate: (message: BridgeWorkerServerToMainMessage) => boolean,
+	) => Promise<BridgeWorkerServerToMainMessage>;
 } {
 	const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
+	const messageWaiters: Array<{
+		readonly deferred: ReturnType<
+			typeof createBridgeProductDeferred<BridgeWorkerServerToMainMessage>
+		>;
+		readonly predicate: (message: BridgeWorkerServerToMainMessage) => boolean;
+	}> = [];
 	let listener: ((event: MessageEvent<unknown>) => void) | null = null;
 	return {
 		dispatch: {
@@ -63,6 +74,13 @@ export function createRecordingBridgeCommWorkerPort(
 				): void => {
 					props.beforePostMessage?.(message);
 					postedMessages.push({ message, transferList });
+					for (let waiterIndex = messageWaiters.length - 1; waiterIndex >= 0; waiterIndex -= 1) {
+						const waiter = messageWaiters[waiterIndex];
+						if (waiter === undefined) continue;
+						if (!waiter.predicate(message)) continue;
+						messageWaiters.splice(waiterIndex, 1);
+						waiter.deferred.resolve(message);
+					}
 				},
 				addEventListener: (
 					type: 'message',
@@ -75,6 +93,13 @@ export function createRecordingBridgeCommWorkerPort(
 			},
 		},
 		postedMessages,
+		waitForMessage: (predicate): Promise<BridgeWorkerServerToMainMessage> => {
+			const existing = postedMessages.find(({ message }) => predicate(message));
+			if (existing !== undefined) return Promise.resolve(existing.message);
+			const deferred = createBridgeProductDeferred<BridgeWorkerServerToMainMessage>();
+			messageWaiters.push({ deferred, predicate });
+			return deferred.promise;
+		},
 	};
 }
 
@@ -169,12 +194,13 @@ export function createIdleWorktreeAnnotationSubscription<
 export interface BridgeCommWorkerReviewProductTestSource {
 	readonly close: () => void;
 	readonly productTransport: BridgeProductTransportSession;
-	readonly publishSource: (source: BridgeCommWorkerReviewRuntimeSource, revision?: number) => void;
-	readonly publishSourceAndWaitForApplication: (
-		source: BridgeCommWorkerReviewRuntimeSource,
-		revision?: number,
-	) => Promise<void>;
+	readonly publishSource: (source: ReviewProductTestSourceInput, revision?: number) => void;
 }
+
+type ReviewProductTestSourceInput = Omit<
+	BridgeCommWorkerReviewRuntimeSource,
+	'reviewPublicationIdentity'
+>;
 
 export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorkerReviewProductTestSource {
 	const events = new BridgeProductBoundedAsyncQueue<
@@ -183,7 +209,6 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 	let currentWorkerDerivationEpoch = 0;
 	let currentSnapshot: ReviewProductTestSnapshot | null = null;
 	let currentRevision = 0;
-	const pendingApplicationReceiptsByPublicationId = new Map<string, () => void>();
 	const subscription: BridgeProductSubscription<'review.metadata'> = {
 		cancel: async (): Promise<void> => {
 			events.close(true);
@@ -204,9 +229,6 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 				return { reason: 'review-product-test-source', status: 'unavailable' } as never;
 			}
 			if (method === 'review.publication.applied') {
-				const request = bridgeProductReviewPublicationAppliedRequestSchema.parse(arguments_[1]);
-				pendingApplicationReceiptsByPublicationId.get(request.publicationId)?.();
-				pendingApplicationReceiptsByPublicationId.delete(request.publicationId);
 				return null as never;
 			}
 			return undefined as never;
@@ -257,20 +279,16 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 		},
 		productTransport,
 		publishSource: (source, revision): void => {
-			void publishReviewProductTestSource(source, revision);
+			publishReviewProductTestSource(source, revision);
 		},
-		publishSourceAndWaitForApplication: publishReviewProductTestSource,
 	};
 
 	function publishReviewProductTestSource(
-		source: BridgeCommWorkerReviewRuntimeSource,
+		source: ReviewProductTestSourceInput,
 		revision?: number,
-	): Promise<void> {
+	): void {
 		const nextRevision = Math.max(currentRevision + 1, revision ?? currentRevision + 1);
 		const nextSnapshot = reviewProductSnapshotFromRuntimeSource(source, nextRevision);
-		const applicationReceipt = new Promise<void>((resolve): void => {
-			pendingApplicationReceiptsByPublicationId.set(nextSnapshot.publicationId, resolve);
-		});
 		events.push(
 			currentSnapshot === null
 				? nextSnapshot
@@ -278,7 +296,6 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 		);
 		currentSnapshot = nextSnapshot;
 		currentRevision = nextRevision;
-		return applicationReceipt;
 	}
 }
 
@@ -288,7 +305,7 @@ type ReviewProductTestSnapshot = Extract<
 >;
 
 function reviewProductSnapshotFromRuntimeSource(
-	source: BridgeCommWorkerReviewRuntimeSource,
+	source: ReviewProductTestSourceInput,
 	revision: number,
 ): ReviewProductTestSnapshot {
 	const generation = 1;
@@ -401,7 +418,13 @@ function reviewProductSnapshotFromRuntimeSource(
 			startIndex: 0,
 			totalItemCount: itemMetadata.length,
 		},
+		addedLineCount: 0,
+		affectedFileCount: itemMetadata.length,
+		affectedStableFileIdentities: itemMetadata.map((item) => item.itemId),
+		deletedLineCount: 0,
+		newlyImportedCommitCount: 0,
 		packageId,
+		preDeliveryPresentationClass: { kind: 'ordinary' },
 		presentationRevision: revision,
 		publicationId,
 		query: {
@@ -527,13 +550,19 @@ function reviewProductDeltaBetweenSnapshots(
 				]),
 	];
 	return bridgeProductReviewMetadataEventSchema.parse({
+		addedLineCount: nextSnapshot.addedLineCount,
+		affectedFileCount: nextSnapshot.affectedFileCount,
+		affectedStableFileIdentities: nextSnapshot.affectedStableFileIdentities,
 		contentSources: changedContentSources,
+		deletedLineCount: nextSnapshot.deletedLineCount,
 		eventKind: 'review.delta',
 		operationCorrelationId: null,
 		fromRevision: previousSnapshot.revision,
 		generation: nextSnapshot.generation,
+		newlyImportedCommitCount: nextSnapshot.newlyImportedCommitCount,
 		operations,
 		packageId: nextSnapshot.packageId,
+		preDeliveryPresentationClass: nextSnapshot.preDeliveryPresentationClass,
 		presentationRevision: nextSnapshot.presentationRevision,
 		publicationId: nextSnapshot.publicationId,
 		revision: nextSnapshot.revision,
@@ -561,13 +590,13 @@ function sameReviewProductTestValue(left: unknown, right: unknown): boolean {
 }
 
 function orderedReviewRuntimeRows(
-	source: BridgeCommWorkerReviewRuntimeSource,
+	source: ReviewProductTestSourceInput,
 ): BridgeCommWorkerReviewRuntimeSource['rows'] {
 	return source.rows.toSorted((left, right) => left.index - right.index);
 }
 
 function orderedReviewRuntimeContentItems(
-	source: BridgeCommWorkerReviewRuntimeSource,
+	source: ReviewProductTestSourceInput,
 ): BridgeCommWorkerReviewRuntimeSource['contentItems'] {
 	const contentItemsById = new Map(source.contentItems.map((item) => [item.itemId, item]));
 	const orderedItemIds = orderedReviewRuntimeRows(source).flatMap((row) =>
@@ -582,7 +611,7 @@ function orderedReviewRuntimeContentItems(
 	});
 }
 
-function reviewRuntimeRowDepth(source: BridgeCommWorkerReviewRuntimeSource, rowId: string): number {
+function reviewRuntimeRowDepth(source: ReviewProductTestSourceInput, rowId: string): number {
 	const rowsById = new Map(source.rows.map((row) => [row.id, row]));
 	const visitedRowIds = new Set<string>();
 	let depth = 0;

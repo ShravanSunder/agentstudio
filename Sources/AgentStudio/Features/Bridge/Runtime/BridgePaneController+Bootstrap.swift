@@ -660,22 +660,7 @@ extension BridgePaneController {
             service: service,
             sourceResolver: sourceResolver,
             worktreeID: worktreeID,
-            currentSourceGeneration: { surface, productAdmission in
-                switch surface {
-                case .file:
-                    return try await fileMetadataSource.currentWorktreeAnnotationSourceGeneration(
-                        productAdmission: productAdmission
-                    )
-                case .review:
-                    guard
-                        let publication = await input.reviewPublicationCoordinator
-                            .committedPublicationForReplay(productAdmission: productAdmission)
-                    else {
-                        throw WorktreeAnnotationSourceResolutionError.unavailable
-                    }
-                    return publication.package.reviewGeneration.rawValue
-                }
-            }
+            currentSourceGeneration: sourceResolver.currentSourceGeneration
         )
     }
 

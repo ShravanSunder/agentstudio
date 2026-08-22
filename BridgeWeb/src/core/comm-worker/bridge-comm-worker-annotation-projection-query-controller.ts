@@ -20,12 +20,14 @@ import {
 	type BridgeProductAnnotationProjectionPageContract,
 	type BridgeProductAnnotationProjectionQueryRequest,
 	type BridgeProductAnnotationProjectionQueryResult,
+	type BridgeProductReviewAnnotationPublicationIdentity,
 } from './bridge-product-worktree-annotation-projection-query-contracts.js';
 
 export type BridgeCommWorkerAnnotationSurface = 'file' | 'review';
 
 export interface BridgeCommWorkerAnnotationProjectionDemand {
 	readonly active: boolean;
+	readonly reviewPublicationIdentity?: BridgeProductReviewAnnotationPublicationIdentity | null;
 	readonly sessionIds: readonly string[];
 	readonly sourceGeneration: number | null;
 }
@@ -91,6 +93,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	#invalidationGeneration = 0;
 	#lastAttemptedGeneration = 0;
 	#queryLoop: Promise<void> | null = null;
+	#reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity | null = null;
 	readonly #queryAttempts = new Set<Promise<void>>();
 	#scheduledQueryStart: Promise<void> | null = null;
 	#scheduledSubscriptionReopen: Promise<void> | null = null;
@@ -130,8 +133,16 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		this.#sessionIds = [...new Set(demand.sessionIds)].toSorted();
 		const sessionDemandChanged = JSON.stringify(this.#sessionIds) !== previousSessionSignature;
 		const previousSourceGeneration = this.#sourceGeneration;
+		const previousReviewPublicationIdentity = JSON.stringify(this.#reviewPublicationIdentity);
 		this.#sourceGeneration = demand.sourceGeneration;
-		const nextActive = demand.active && demand.sourceGeneration !== null;
+		this.#reviewPublicationIdentity = demand.reviewPublicationIdentity ?? null;
+		const reviewIdentityChanged =
+			previousReviewPublicationIdentity !==
+			JSON.stringify(demand.reviewPublicationIdentity ?? null);
+		const nextActive =
+			demand.active &&
+			demand.sourceGeneration !== null &&
+			(this.#surface === 'file' || (demand.reviewPublicationIdentity ?? null) !== null);
 		const becameInactive = this.#active && !nextActive;
 		const becameActive = !this.#active && nextActive;
 		this.#active = nextActive;
@@ -141,7 +152,10 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		}
 		if (
 			nextActive &&
-			(becameActive || previousSourceGeneration !== demand.sourceGeneration || sessionDemandChanged)
+			(becameActive ||
+				previousSourceGeneration !== demand.sourceGeneration ||
+				reviewIdentityChanged ||
+				sessionDemandChanged)
 		) {
 			this.#automaticQueryRetryConsumed = false;
 			this.#automaticSubscriptionReopenConsumed = false;
@@ -288,6 +302,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		const invalidation = this.#invalidation;
 		const sourceGeneration = this.#sourceGeneration;
 		if (sourceGeneration === null) return;
+		const reviewPublicationIdentity = this.#reviewPublicationIdentity;
 		const stageAttempt = this.#claimStageAttempt(invalidation.operationCorrelationId);
 		this.#lastAttemptedGeneration = attemptGeneration;
 		this.#abortController?.abort();
@@ -323,6 +338,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			attemptGeneration,
 			invalidation,
 			sourceGeneration,
+			reviewPublicationIdentity,
 			stageAttempt,
 			abortController,
 		).finally((): void => {
@@ -346,6 +362,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		attemptGeneration: number,
 		invalidation: AnnotationProjectionInvalidation,
 		sourceGeneration: number,
+		reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity | null,
 		stageAttempt: number,
 		abortController: AbortController,
 	): Promise<void> {
@@ -354,6 +371,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			const fetchResult = await this.#fetchSnapshot(
 				invalidation,
 				sourceGeneration,
+				reviewPublicationIdentity,
 				stageAttempt,
 				abortController.signal,
 			);
@@ -416,6 +434,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	async #fetchSnapshot(
 		invalidation: AnnotationProjectionInvalidation,
 		sourceGeneration: number,
+		reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity | null,
 		stageAttempt: number,
 		signal: AbortSignal,
 	): Promise<
@@ -435,16 +454,14 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		let previousPageOrdinal: number | null = null;
 		while (true) {
 			// eslint-disable-next-line no-await-in-loop -- Continuation cursors are single-use and strictly ordered.
-			const result = await this.#queryProjection(
-				{
-					cursor,
-					operationCorrelationId: invalidation.operationCorrelationId,
-					sessionIds: [...this.#sessionIds],
-					sourceGeneration,
-					surface: this.#surface,
-				},
+			const result = await this.#queryProjection({
+				cursor,
+				operationCorrelationId: invalidation.operationCorrelationId,
+				reviewPublicationIdentity,
+				sessionIds: [...this.#sessionIds],
 				signal,
-			);
+				sourceGeneration,
+			});
 			const parsedResult = bridgeProductAnnotationProjectionQueryResultSchema.parse(result);
 			if (parsedResult.kind === 'source_stale') return parsedResult;
 			const descriptor = parsedResult.descriptor;
@@ -594,20 +611,40 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		return stageAttempt;
 	}
 
-	#queryProjection(
-		request: {
-			readonly cursor: string | null;
-			readonly operationCorrelationId: string;
-			readonly sessionIds: string[];
-			readonly sourceGeneration: number;
-			readonly surface: BridgeCommWorkerAnnotationSurface;
-		},
-		signal: AbortSignal,
-	): Promise<unknown> {
+	#queryProjection(props: {
+		readonly cursor: string | null;
+		readonly operationCorrelationId: string;
+		readonly reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity | null;
+		readonly sessionIds: string[];
+		readonly signal: AbortSignal;
+		readonly sourceGeneration: number;
+	}): Promise<unknown> {
+		const requestBase = {
+			cursor: props.cursor,
+			operationCorrelationId: props.operationCorrelationId,
+			sessionIds: props.sessionIds,
+			sourceGeneration: props.sourceGeneration,
+		};
+		if (this.#surface === 'file') {
+			return this.#transport.callProjection(
+				'file',
+				{ ...requestBase, surface: 'file' },
+				props.signal,
+			);
+		}
+		if (props.reviewPublicationIdentity === null) {
+			return Promise.reject(
+				new Error('Review annotation projection has no installed publication identity.'),
+			);
+		}
 		return this.#transport.callProjection(
-			this.#surface,
-			{ ...request, surface: this.#surface },
-			signal,
+			'review',
+			{
+				...requestBase,
+				reviewPublicationIdentity: props.reviewPublicationIdentity,
+				surface: 'review',
+			},
+			props.signal,
 		);
 	}
 }
@@ -622,16 +659,8 @@ export function bridgeCommWorkerAnnotationProjectionTransport(
 	return {
 		callProjection: (surface, request, signal): Promise<unknown> =>
 			surface === 'file'
-				? productTransport.call(
-						'file.annotations.projection.query',
-						{ ...request, surface: 'file' },
-						{ signal },
-					)
-				: productTransport.call(
-						'review.annotations.projection.query',
-						{ ...request, surface: 'review' },
-						{ signal },
-					),
+				? productTransport.call('file.annotations.projection.query', request, { signal })
+				: productTransport.call('review.annotations.projection.query', request, { signal }),
 		openContent: (descriptor, signal) =>
 			productTransport.openContent(descriptor, signal, descriptor.page.operationCorrelationId),
 		subscribe: (surface) =>

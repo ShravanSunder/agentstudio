@@ -95,6 +95,22 @@ describe('worktree annotation finite projection store', () => {
 });
 
 describe('worktree annotation surface command rendezvous', () => {
+	test('stamps every Review command with the exact active publication identity', async () => {
+		const harness = createSurfaceClientHarness(['worker-review-command'], 'review');
+
+		const pending = harness.client.execute({ kind: 'session.discover' });
+
+		expect(harness.sentCommands).toContainEqual({
+			command: 'annotationCommand',
+			epoch: 0,
+			operation: { kind: 'session.discover' },
+			reviewPublicationIdentity: reviewPublicationIdentity,
+			surface: 'review',
+		});
+		harness.client.dispose();
+		await expect(pending).rejects.toThrow('Annotation surface client is disposed.');
+	});
+
 	test('records main-thread install with the exact projection correlation', () => {
 		const harness = createSurfaceClientHarness();
 
@@ -280,7 +296,10 @@ describe('worktree annotation surface command rendezvous', () => {
 	});
 });
 
-function createSurfaceClientHarness(workerRequestIds: readonly string[] = ['worker-save-1']): {
+function createSurfaceClientHarness(
+	workerRequestIds: readonly string[] = ['worker-save-1'],
+	surface: 'fileView' | 'review' = 'fileView',
+): {
 	readonly client: ReturnType<typeof createWorktreeAnnotationSurfaceClient>;
 	readonly publish: (message: BridgeWorkerServerToMainMessage) => void;
 	readonly sentCommands: Array<Parameters<BridgePaneSurfaceClient['send']>[0]>;
@@ -290,6 +309,12 @@ function createSurfaceClientHarness(workerRequestIds: readonly string[] = ['work
 	let nextWorkerRequestIndex = 0;
 	const sentCommands: Parameters<BridgePaneSurfaceClient['send']>[0][] = [];
 	const telemetrySamples: BridgeTelemetrySample[] = [];
+	const renderStore = createBridgeMainRenderSnapshotStore();
+	if (surface === 'review') {
+		Object.defineProperty(renderStore, 'getReviewRefreshPresentation', {
+			value: () => ({ activeIdentity: reviewMainIdentity, candidate: null }),
+		});
+	}
 	const surfaceClient = {
 		lifecycle: createBridgeWorkerRpcLifecycleStore(),
 		renderFulfillmentCoordinator: createBridgeMainRenderFulfillmentCoordinator({
@@ -297,7 +322,7 @@ function createSurfaceClientHarness(workerRequestIds: readonly string[] = ['work
 			requestAnimationFrame: (): number => 1,
 			sendDisposition: (): void => {},
 		}),
-		renderStore: createBridgeMainRenderSnapshotStore(),
+		renderStore,
 		send: (command): string => {
 			sentCommands.push(command);
 			const requestId = workerRequestIds[nextWorkerRequestIndex];
@@ -312,7 +337,7 @@ function createSurfaceClientHarness(workerRequestIds: readonly string[] = ['work
 				listener = null;
 			};
 		},
-		surface: 'fileView',
+		surface,
 	} satisfies BridgePaneSurfaceClient;
 	return {
 		client: createWorktreeAnnotationSurfaceClient(surfaceClient, {
@@ -330,6 +355,22 @@ function createSurfaceClientHarness(workerRequestIds: readonly string[] = ['work
 		telemetrySamples,
 	};
 }
+
+const reviewPublicationIdentity = {
+	packageId: 'package-installed',
+	publicationId: '00000000-0000-7000-8000-000000000041',
+	reviewGeneration: 7,
+	revision: 3,
+	sourceIdentity: 'source-installed',
+} as const;
+
+const reviewMainIdentity = {
+	generation: reviewPublicationIdentity.reviewGeneration,
+	packageId: reviewPublicationIdentity.packageId,
+	publicationId: reviewPublicationIdentity.publicationId,
+	revision: reviewPublicationIdentity.revision,
+	sourceIdentity: reviewPublicationIdentity.sourceIdentity,
+} as const;
 
 function outputHistorySummary(
 	outputSessionId: string,

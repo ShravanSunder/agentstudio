@@ -4,6 +4,7 @@ extension WorktreeAnnotationTransportAdapter {
     func executeOutputPreparation(
         _ body: BridgeProductWorktreeAnnotationOperation.OutputScopeCommitBody,
         surface: BridgeProductSurface,
+        reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity?,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationOutputCommandOutcome {
         guard let outputCoordinator, let outputLabels else {
@@ -16,7 +17,11 @@ extension WorktreeAnnotationTransportAdapter {
             expectedProjectionRevision: body.displayedProjectionRevision
         )
         guard
-            try await sourceResolver.currentSourceGeneration(surface, productAdmission)
+            try await sourceResolver.currentSourceGeneration(
+                surface,
+                reviewPublicationIdentity,
+                productAdmission
+            )
                 == body.sourceGeneration
         else {
             throw WorktreeAnnotationServiceError.staleSourceEpoch
@@ -26,6 +31,7 @@ extension WorktreeAnnotationTransportAdapter {
         )
         let sourceCapture = try await sourceResolver.refresh(
             surface,
+            reviewPublicationIdentity,
             productAdmission,
             sourceSnapshot.requirements
         )
@@ -40,7 +46,11 @@ extension WorktreeAnnotationTransportAdapter {
             )
         )
         guard
-            try await sourceResolver.currentSourceGeneration(surface, productAdmission)
+            try await sourceResolver.currentSourceGeneration(
+                surface,
+                reviewPublicationIdentity,
+                productAdmission
+            )
                 == body.sourceGeneration
         else {
             throw WorktreeAnnotationServiceError.staleSourceEpoch

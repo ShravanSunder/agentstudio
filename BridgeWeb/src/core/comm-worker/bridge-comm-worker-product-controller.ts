@@ -8,6 +8,7 @@ import {
 } from './bridge-comm-worker-annotation-projection-query-controller.js';
 import {
 	bridgeProductWorktreeAnnotationDecodedCommandResultSchema,
+	type BridgeProductReviewAnnotationPublicationIdentity,
 	type BridgeProductCallResult,
 	type BridgeProductWorktreeAnnotationOperation,
 } from './bridge-product-call-contracts.js';
@@ -75,6 +76,8 @@ export class BridgeCommWorkerProductController {
 		file: null,
 		review: null,
 	};
+	#reviewAnnotationPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity | null =
+		null;
 	readonly #annotationSourceReconciliationBySurface: Record<
 		'file' | 'review',
 		Promise<void> | null
@@ -191,8 +194,11 @@ export class BridgeCommWorkerProductController {
 		this.#publishAnnotationProjectionDemand('review');
 	}
 
-	setReviewAnnotationProjectionGeneration(sourceGeneration: number | null): void {
-		this.#annotationSourceGeneration.review = sourceGeneration;
+	setReviewAnnotationProjectionIdentity(
+		identity: BridgeProductReviewAnnotationPublicationIdentity | null,
+	): void {
+		this.#reviewAnnotationPublicationIdentity = identity;
+		this.#annotationSourceGeneration.review = identity?.reviewGeneration ?? null;
 		this.#publishAnnotationProjectionDemand('review');
 	}
 
@@ -313,9 +319,13 @@ export class BridgeCommWorkerProductController {
 			case 'file.refresh.retry':
 				return await this.#productTransport.call('file.refresh.retry', {});
 			case 'file.annotations.command':
-				return await this.#sendAnnotationCommand('file', command.params.operation);
+				return await this.#sendAnnotationCommand('file', command.params.operation, null);
 			case 'review.annotations.command':
-				return await this.#sendAnnotationCommand('review', command.params.operation);
+				return await this.#sendAnnotationCommand(
+					'review',
+					command.params.operation,
+					command.params['reviewPublicationIdentity'],
+				);
 			case 'review.markFileViewed':
 				return await this.#productTransport.call('review.markFileViewed', {
 					itemId: command.params.fileId,
@@ -326,6 +336,13 @@ export class BridgeCommWorkerProductController {
 				});
 			case 'review.comparisonTargets.query':
 				return await this.#productTransport.call('review.comparisonTargets.query', {});
+			case 'review.publication.install.admit':
+				return await this.#productTransport.call(
+					'review.publication.install.admit',
+					command.params,
+				);
+			case 'review.publication.applied':
+				return await this.#productTransport.call('review.publication.applied', command.params);
 			case 'bridge.activeViewerMode.update':
 				return await this.#sendActiveViewerModeUpdate(command);
 			case 'bridge.intakeReady':
@@ -341,11 +358,16 @@ export class BridgeCommWorkerProductController {
 	async #sendAnnotationCommand(
 		surface: 'file' | 'review',
 		operation: BridgeProductWorktreeAnnotationOperation,
+		reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity | null,
 	): Promise<unknown> {
 		const result =
 			surface === 'file'
 				? await this.#productTransport.call('file.annotations.command', { operation })
-				: await this.#productTransport.call('review.annotations.command', { operation });
+				: await this.#productTransport.call('review.annotations.command', {
+						operation,
+						reviewPublicationIdentity:
+							requireReviewAnnotationPublicationIdentity(reviewPublicationIdentity),
+					});
 		const parsedResult = bridgeProductWorktreeAnnotationDecodedCommandResultSchema.parse(result);
 		if (parsedResult.outcome.status.kind !== 'committed') return parsedResult;
 		if (operation.kind === 'demand.acquire') {
@@ -361,6 +383,8 @@ export class BridgeCommWorkerProductController {
 	#publishAnnotationProjectionDemand(surface: 'file' | 'review'): void {
 		this.#annotationProjectionBySurface[surface].setDemand({
 			active: this.#annotationSurfaceActive[surface],
+			reviewPublicationIdentity:
+				surface === 'review' ? this.#reviewAnnotationPublicationIdentity : null,
 			sessionIds: [...this.#annotationSessionIdsBySurface[surface]],
 			sourceGeneration: this.#annotationSourceGeneration[surface],
 		} satisfies BridgeCommWorkerAnnotationProjectionDemand);
@@ -427,7 +451,6 @@ export class BridgeCommWorkerProductController {
 					) {
 						continue;
 					}
-					await this.#productTransport.call('review.publication.applied', applicationReceipt);
 					this.#reviewRecoveryPublicationId = null;
 				} catch (error) {
 					await this.#recoverReviewMetadataApplicationFailure(
@@ -690,6 +713,15 @@ export class BridgeCommWorkerProductController {
 			? await this.#productTransport.call('review.activeViewerMode.update', request)
 			: await this.#productTransport.call('file.activeViewerMode.update', request);
 	}
+}
+
+function requireReviewAnnotationPublicationIdentity(
+	identity: BridgeProductReviewAnnotationPublicationIdentity | null,
+): BridgeProductReviewAnnotationPublicationIdentity {
+	if (identity === null) {
+		throw new Error('Review annotation command has no installed publication identity.');
+	}
+	return identity;
 }
 
 const fileMetadataInterestLanePriority: readonly FileMetadataInterestLane[] = [

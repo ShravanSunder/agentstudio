@@ -4,6 +4,14 @@ import { makeBridgeWorkerRenderReceiptIdentity } from '../../core/comm-worker/br
 import { parseBridgeCodeViewDiffForBrowserTest } from '../code-view/bridge-code-view-browser-test-diff.js';
 import type { BridgeReviewRecoveryWitnessFile } from './bridge-viewer-browser.recovery-witness.test-support.js';
 
+const TEST_REVIEW_PUBLICATION_IDENTITY = {
+	packageId: 'test-review-package',
+	publicationId: '00000000-0000-7000-8000-000000000001',
+	reviewGeneration: 1,
+	revision: 1,
+	sourceIdentity: 'test-review-source',
+} as const;
+
 export function completeReviewContentMessages(
 	file: BridgeReviewRecoveryWitnessFile,
 	publicationSequence: number,
@@ -51,6 +59,7 @@ export function completeReviewContentMessages(
 			direction: 'serverWorkerToMain',
 			job,
 			kind: 'reviewPierreRenderJob',
+			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 			publicationSequence,
 			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
 				itemId: job.itemId,
@@ -73,6 +82,7 @@ export function completeReviewContentMessages(
 		{
 			direction: 'serverWorkerToMain',
 			kind: 'reviewRenderPatch',
+			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 			patches: [
 				{
 					itemId: file.itemId,
@@ -134,6 +144,7 @@ export function completeReviewFileContentMessages(
 			direction: 'serverWorkerToMain',
 			job,
 			kind: 'reviewPierreRenderJob',
+			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 			publicationSequence,
 			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
 				itemId: job.itemId,
@@ -156,6 +167,7 @@ export function completeReviewFileContentMessages(
 		{
 			direction: 'serverWorkerToMain',
 			kind: 'reviewRenderPatch',
+			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 			patches: [
 				{
 					itemId: file.itemId,

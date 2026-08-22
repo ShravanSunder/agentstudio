@@ -242,17 +242,22 @@ describe('Bridge comm worker product controller', () => {
 		]);
 	});
 
-	test('sends the exact Review publication receipt after worker application', async () => {
+	test('does not send a Review publication receipt after worker metadata application', async () => {
 		const events = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
 		>(64);
 		const calls: Array<{ readonly method: string; readonly request: unknown }> = [];
-		const receiptSent = createBridgeProductDeferred<void>();
+		const allMetadataApplied = createBridgeProductDeferred<void>();
+		let metadataApplicationCount = 0;
 		let reviewEpoch = 0;
 		const publicationId = '00000000-0000-7000-8000-000000000011';
 		const controller = new BridgeCommWorkerProductController({
 			onFileMetadataEvent: (): void => {},
-			onReviewMetadataEvent: (): { readonly publicationId: string } => ({ publicationId }),
+			onReviewMetadataEvent: (event): { readonly publicationId: string } => {
+				metadataApplicationCount += 1;
+				if (metadataApplicationCount === 2) allMetadataApplied.resolve();
+				return { publicationId: event.publicationId };
+			},
 			productTransport: {
 				...unusedProductTransport(),
 				bumpWorkerDerivationEpoch: (surface): number => {
@@ -262,8 +267,7 @@ describe('Bridge comm worker product controller', () => {
 				call: async (...arguments_): Promise<never> => {
 					const [method, request] = arguments_;
 					calls.push({ method, request });
-					receiptSent.resolve();
-					// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This fake accepts only the asserted null-result receipt call recorded above.
+					// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This fake records any unexpected product call before returning its closed null result.
 					return null as never;
 				},
 				workerDerivationEpoch: (surface): number => (surface === 'review' ? reviewEpoch : 0),
@@ -287,57 +291,46 @@ describe('Bridge comm worker product controller', () => {
 			revision: 11,
 			sourceIdentity: 'source-1',
 		});
-		await receiptSent.promise;
+		events.push({
+			eventKind: 'review.sourceAccepted',
+			operationCorrelationId: null,
+			generation: 8,
+			packageId: 'package-2',
+			publicationId: '00000000-0000-7000-8000-000000000012',
+			revision: 12,
+			sourceIdentity: 'source-2',
+		});
+		await allMetadataApplied.promise;
 
-		expect(calls).toEqual([{ method: 'review.publication.applied', request: { publicationId } }]);
+		expect(metadataApplicationCount).toBe(2);
+		expect(calls).toEqual([]);
 	});
 
-	test('bounds failed receipt recovery to one Review-only reopen while File keeps draining', async () => {
-		const firstReviewEvents = new BridgeProductBoundedAsyncQueue<
+	test('keeps draining Review metadata without coupling applied-call failure to recovery', async () => {
+		const reviewEvents = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
 		>(64);
-		const replayReviewEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
-		const fileEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
-		const secondReviewOpened = createBridgeProductDeferred<void>();
-		const secondReviewCancelled = createBridgeProductDeferred<void>();
-		const fileEventObserved = createBridgeProductDeferred<void>();
+		const terminalObservation = createBridgeProductDeferred<
+			'metadataContinued' | 'metadataFailure'
+		>();
 		const publicationId = '00000000-0000-7000-8000-000000000011';
 		let reviewEpoch = 0;
 		let reviewSubscriptionCount = 0;
-		let receiptCallCount = 0;
-		let fileCancelCount = 0;
-		const reviewCancelCounts = [0, 0];
-		const reviewSubscriptions: readonly BridgeProductSubscription<'review.metadata'>[] = [
-			{
-				cancel: async (): Promise<void> => {
-					reviewCancelCounts[0] = (reviewCancelCounts[0] ?? 0) + 1;
-				},
-				events: firstReviewEvents,
-				subscriptionId: 'review-receipt-failure-1',
-				subscriptionKind: 'review.metadata',
-				update: async (): Promise<void> => {},
-			},
-			{
-				cancel: async (): Promise<void> => {
-					reviewCancelCounts[1] = (reviewCancelCounts[1] ?? 0) + 1;
-					secondReviewCancelled.resolve();
-				},
-				events: replayReviewEvents,
-				subscriptionId: 'review-receipt-failure-2',
-				subscriptionKind: 'review.metadata',
-				update: async (): Promise<void> => {},
-			},
-		];
+		let metadataApplicationCount = 0;
+		let appliedCallCount = 0;
+		let reviewCancelCount = 0;
+		let reviewFailureCount = 0;
 		const controller = new BridgeCommWorkerProductController({
-			callCurrentFileSource: discoverCurrentFileSource,
-			onFileMetadataEvent: (): void => {
-				fileEventObserved.resolve();
+			onFileMetadataEvent: (): void => {},
+			onReviewMetadataEvent: (): { readonly publicationId: string } => {
+				metadataApplicationCount += 1;
+				if (metadataApplicationCount === 2) terminalObservation.resolve('metadataContinued');
+				return { publicationId };
 			},
-			onReviewMetadataEvent: (): { readonly publicationId: string } => ({ publicationId }),
+			onReviewMetadataFailure: (): void => {
+				reviewFailureCount += 1;
+				terminalObservation.resolve('metadataFailure');
+			},
 			productTransport: {
 				...unusedProductTransport(),
 				bumpWorkerDerivationEpoch: (surface): number => {
@@ -347,34 +340,29 @@ describe('Bridge comm worker product controller', () => {
 				call: async (...arguments_): Promise<never> => {
 					const [method] = arguments_;
 					if (method === 'review.publication.applied') {
-						receiptCallCount += 1;
+						appliedCallCount += 1;
 						throw new Error('injected receipt transport failure');
 					}
 					throw new Error(`Unexpected product call ${method}.`);
 				},
-				workerDerivationEpoch: (surface): number => (surface === 'review' ? reviewEpoch : 1),
+				workerDerivationEpoch: (surface): number => (surface === 'review' ? reviewEpoch : 0),
 			},
-			subscribeFile: () => ({
-				cancel: async (): Promise<void> => {
-					fileCancelCount += 1;
-				},
-				events: fileEvents,
-				subscriptionId: 'file-preserved-through-review-receipt-failure',
-				subscriptionKind: 'file.metadata',
-				update: async (): Promise<void> => {},
-			}),
 			subscribeReview: () => {
-				const subscription = reviewSubscriptions[reviewSubscriptionCount];
-				if (subscription === undefined) throw new Error('Unexpected third Review subscription.');
 				reviewSubscriptionCount += 1;
-				if (reviewSubscriptionCount === 2) secondReviewOpened.resolve();
-				return subscription;
+				return {
+					cancel: async (): Promise<void> => {
+						reviewCancelCount += 1;
+					},
+					events: reviewEvents,
+					subscriptionId: `review-metadata-independent-${reviewSubscriptionCount}`,
+					subscriptionKind: 'review.metadata',
+					update: async (): Promise<void> => {},
+				};
 			},
 		});
-		await controller.ensureFileSource();
 		controller.ensureReviewMetadata();
 
-		firstReviewEvents.push({
+		reviewEvents.push({
 			eventKind: 'review.sourceAccepted',
 			operationCorrelationId: null,
 			generation: 7,
@@ -383,24 +371,23 @@ describe('Bridge comm worker product controller', () => {
 			revision: 11,
 			sourceIdentity: 'source-1',
 		});
-		await secondReviewOpened.promise;
-		fileEvents.push({ eventKind: 'file.sourceAccepted', source });
-		await fileEventObserved.promise;
-		replayReviewEvents.push({
+		reviewEvents.push({
 			eventKind: 'review.sourceAccepted',
 			operationCorrelationId: null,
-			generation: 7,
-			packageId: 'package-1',
-			publicationId,
-			revision: 11,
-			sourceIdentity: 'source-1',
+			generation: 8,
+			packageId: 'package-2',
+			publicationId: '00000000-0000-7000-8000-000000000012',
+			revision: 12,
+			sourceIdentity: 'source-2',
 		});
-		await secondReviewCancelled.promise;
+		const observation = await terminalObservation.promise;
 
-		expect(receiptCallCount).toBe(2);
-		expect(reviewSubscriptionCount).toBe(2);
-		expect(reviewCancelCounts).toEqual([1, 1]);
-		expect(fileCancelCount).toBe(0);
+		expect(observation).toBe('metadataContinued');
+		expect(metadataApplicationCount).toBe(2);
+		expect(appliedCallCount).toBe(0);
+		expect(reviewFailureCount).toBe(0);
+		expect(reviewCancelCount).toBe(0);
+		expect(reviewSubscriptionCount).toBe(1);
 	});
 
 	test('retains early File demand and reconciles it after one discovered source opens', async () => {

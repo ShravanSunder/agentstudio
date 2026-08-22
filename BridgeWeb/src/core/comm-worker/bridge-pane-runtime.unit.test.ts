@@ -926,6 +926,7 @@ function makeReviewSourceFailurePatchEvent(props: {
 		direction: 'serverWorkerToMain',
 		epoch: props.epoch,
 		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: null,
 		patches: [
 			{
 				operation: 'failed',

@@ -572,6 +572,13 @@ describe('BridgeWorkerContracts', () => {
 			job,
 			publicationSequence: 11,
 			renderReceiptIdentity: receiptIdentity,
+			reviewPublicationIdentity: {
+				packageId: 'review-package-11',
+				publicationId: '00000000-0000-7000-8000-000000000011',
+				reviewGeneration: 4,
+				revision: 11,
+				sourceIdentity: 'review-source-11',
+			},
 			surface: 'review',
 			workerDerivationEpoch: 4,
 		};

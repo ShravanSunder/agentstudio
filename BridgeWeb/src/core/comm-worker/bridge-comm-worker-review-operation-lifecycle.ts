@@ -13,6 +13,7 @@ import {
 } from './bridge-operation-lifecycle-telemetry.js';
 import type {
 	BridgeWorkerReviewDisplayPatch,
+	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 
@@ -156,6 +157,7 @@ export class BridgeCommWorkerReviewDisplayLifecyclePublisher {
 			| undefined;
 		readonly operationCorrelationId?: string | null;
 		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+		readonly reviewPublicationIdentity?: BridgeWorkerReviewPublicationIdentity | null;
 		readonly workerDerivationEpoch: number;
 	}): void {
 		const admitted = admitBridgeCommWorkerReviewDisplayPatches({
@@ -168,7 +170,13 @@ export class BridgeCommWorkerReviewDisplayLifecyclePublisher {
 		const patches = this.#queryProjection.applyDisplayPatches(admitted.patches);
 		if (patches.length === 0) return;
 		this.#lifecycle.publishPanel(publication.operationCorrelationId, (): void => {
-			this.post({ patches, workerDerivationEpoch: publication.workerDerivationEpoch });
+			this.post({
+				patches,
+				...(publication.reviewPublicationIdentity === undefined
+					? {}
+					: { reviewPublicationIdentity: publication.reviewPublicationIdentity }),
+				workerDerivationEpoch: publication.workerDerivationEpoch,
+			});
 		});
 		if (admitted.sourceIdentity !== null) this.#onSourceIdentity(admitted.sourceIdentity);
 		if (admitted.reviewComparison === undefined) return;
@@ -184,6 +192,7 @@ export class BridgeCommWorkerReviewDisplayLifecyclePublisher {
 
 	post(publication: {
 		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+		readonly reviewPublicationIdentity?: BridgeWorkerReviewPublicationIdentity | null;
 		readonly workerDerivationEpoch: number;
 	}): void {
 		this.#projectionRevision += 1;
@@ -191,6 +200,7 @@ export class BridgeCommWorkerReviewDisplayLifecyclePublisher {
 			bridgeCommWorkerReviewDisplayPatchEvent({
 				patches: publication.patches,
 				projectionRevision: this.#projectionRevision,
+				reviewPublicationIdentity: publication.reviewPublicationIdentity ?? null,
 				sequence: this.#createSequence(),
 				workerDerivationEpoch: publication.workerDerivationEpoch,
 			}),

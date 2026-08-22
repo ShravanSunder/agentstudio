@@ -42,6 +42,7 @@ describe('Bridge comm worker Review product source failure policy', () => {
 			.filter((message) => message['kind'] === 'reviewDisplayPatch');
 		expect(reviewDisplayEvents.at(-1)).toMatchObject({
 			kind: 'reviewDisplayPatch',
+			reviewPublicationIdentity: null,
 			patches: [
 				{
 					operation: 'failed',

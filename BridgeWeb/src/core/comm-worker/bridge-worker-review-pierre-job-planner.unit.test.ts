@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { makeReviewPublicationIdentity } from './bridge-comm-worker-entry.test-support.js';
 import type { BridgeWorkerReviewRenderSemantics } from './bridge-worker-contracts.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
@@ -621,6 +622,7 @@ describe('Bridge worker review Pierre job planner', () => {
 				surface: 'review',
 				workerDerivationEpoch: 7,
 			}),
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -681,6 +683,7 @@ describe('Bridge worker review Pierre job planner', () => {
 				surface: 'review',
 				workerDerivationEpoch: 7,
 			}),
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:head',
@@ -724,6 +727,7 @@ describe('Bridge worker review Pierre job planner', () => {
 				surface: 'review',
 				workerDerivationEpoch: 7,
 			}),
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:file',
@@ -768,6 +772,7 @@ describe('Bridge worker review Pierre job planner', () => {
 				surface: 'review',
 				workerDerivationEpoch: 7,
 			}),
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			resources: [
 				makeFetchedReviewContentResource({
 					role: 'base',

@@ -23,6 +23,14 @@ import {
 	type BridgeWorkerRenderDispositionReceipt,
 	type BridgeWorkerRenderRejectionReason,
 } from './bridge-worker-render-fulfillment.js';
+
+export const bridgeWorkerTestReviewPublicationIdentity = {
+	packageId: 'test-review-package',
+	publicationId: '00000000-0000-7000-8000-000000000001',
+	reviewGeneration: 1,
+	revision: 1,
+	sourceIdentity: 'test-review-source',
+} as const;
 import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 
 export type {
@@ -177,6 +185,13 @@ interface MakePublicationProps {
 	readonly itemId: string;
 	readonly operationCorrelationId?: string | null;
 	readonly publicationSequence: number;
+	readonly reviewPublicationIdentity?: {
+		readonly packageId: string;
+		readonly publicationId: string;
+		readonly reviewGeneration: number;
+		readonly revision: number;
+		readonly sourceIdentity: string;
+	};
 	readonly sourceCorrelations?: readonly BridgeWorkerRenderSourceCorrelation[];
 }
 
@@ -189,6 +204,8 @@ export function makeReviewPublication(
 		direction: 'serverWorkerToMain',
 		transferDescriptors: [],
 		kind: 'reviewPierreRenderJob',
+		reviewPublicationIdentity:
+			props.reviewPublicationIdentity ?? bridgeWorkerTestReviewPublicationIdentity,
 		job: buildBridgeWorkerPierreRenderJob({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 4096, maxWindowLines: 20 },

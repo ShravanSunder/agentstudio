@@ -47,7 +47,7 @@ enum WorktreeAnnotationSourceCapture {
         reviewContentLoaderCache: BridgeReviewContentLoaderCache
     ) -> WorktreeAnnotationSourceResolver {
         WorktreeAnnotationSourceResolver(
-            capture: { origin, surface, productAdmission in
+            capture: { origin, surface, reviewPublicationIdentity, productAdmission in
                 switch surface {
                 case .file:
                     try await fileMetadataSource.captureWorktreeAnnotationSource(
@@ -57,13 +57,14 @@ enum WorktreeAnnotationSourceCapture {
                 case .review:
                     try await captureReviewSource(
                         origin: origin,
+                        identity: try requireReviewIdentity(reviewPublicationIdentity),
                         publicationCoordinator: reviewPublicationCoordinator,
                         contentLoaderCache: reviewContentLoaderCache,
                         productAdmission: productAdmission
                     )
                 }
             },
-            currentFingerprint: { surface, productAdmission in
+            currentFingerprint: { surface, reviewPublicationIdentity, productAdmission in
                 switch surface {
                 case .file:
                     try await fileMetadataSource.currentWorktreeAnnotationFingerprint(
@@ -71,12 +72,13 @@ enum WorktreeAnnotationSourceCapture {
                     )
                 case .review:
                     try await reviewFingerprint(
+                        identity: try requireReviewIdentity(reviewPublicationIdentity),
                         publicationCoordinator: reviewPublicationCoordinator,
                         productAdmission: productAdmission
                     )
                 }
             },
-            refresh: { surface, productAdmission, requirements in
+            refresh: { surface, reviewPublicationIdentity, productAdmission, requirements in
                 switch surface {
                 case .file:
                     try await fileMetadataSource.currentWorktreeAnnotationRefresh(
@@ -85,6 +87,7 @@ enum WorktreeAnnotationSourceCapture {
                     )
                 case .review:
                     try await reviewRefresh(
+                        identity: try requireReviewIdentity(reviewPublicationIdentity),
                         publicationCoordinator: reviewPublicationCoordinator,
                         contentLoaderCache: reviewContentLoaderCache,
                         requirements: requirements,
@@ -92,20 +95,18 @@ enum WorktreeAnnotationSourceCapture {
                     )
                 }
             },
-            currentSourceGeneration: { surface, productAdmission in
+            currentSourceGeneration: { surface, reviewPublicationIdentity, productAdmission in
                 switch surface {
                 case .file:
                     return try await fileMetadataSource.currentWorktreeAnnotationSourceGeneration(
                         productAdmission: productAdmission
                     )
                 case .review:
-                    guard
-                        let publication =
-                            await reviewPublicationCoordinator
-                            .committedPublicationForReplay(productAdmission: productAdmission)
-                    else {
-                        throw WorktreeAnnotationSourceResolutionError.unavailable
-                    }
+                    let publication = try await retainedReviewPublication(
+                        identity: try requireReviewIdentity(reviewPublicationIdentity),
+                        publicationCoordinator: reviewPublicationCoordinator,
+                        productAdmission: productAdmission
+                    )
                     return publication.package.reviewGeneration.rawValue
                 }
             }
@@ -113,18 +114,17 @@ enum WorktreeAnnotationSourceCapture {
     }
 
     static func reviewRefresh(
+        identity: BridgeProductReviewAnnotationPublicationIdentity,
         publicationCoordinator: BridgeReviewPublicationCoordinator,
         contentLoaderCache: BridgeReviewContentLoaderCache,
         requirements: [WorktreeAnnotationSourceRefreshRequirement],
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceRefreshCapture {
-        guard
-            let publication = await publicationCoordinator.committedPublicationForReplay(
-                productAdmission: productAdmission
-            )
-        else {
-            throw WorktreeAnnotationSourceResolutionError.unavailable
-        }
+        let publication = try await retainedReviewPublication(
+            identity: identity,
+            publicationCoordinator: publicationCoordinator,
+            productAdmission: productAdmission
+        )
         let fingerprint = try reviewFingerprint(for: publication.package)
         let candidates = try reviewRefreshCandidates(
             requirements: requirements,
@@ -321,17 +321,16 @@ enum WorktreeAnnotationSourceCapture {
 
     private static func captureReviewSource(
         origin: BridgeProductWorktreeAnnotationOrigin,
+        identity: BridgeProductReviewAnnotationPublicationIdentity,
         publicationCoordinator: BridgeReviewPublicationCoordinator,
         contentLoaderCache: BridgeReviewContentLoaderCache,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationCapturedSource {
-        guard
-            let publication = await publicationCoordinator.committedPublicationForReplay(
-                productAdmission: productAdmission
-            )
-        else {
-            throw WorktreeAnnotationSourceResolutionError.unavailable
-        }
+        let publication = try await retainedReviewPublication(
+            identity: identity,
+            publicationCoordinator: publicationCoordinator,
+            productAdmission: productAdmission
+        )
         let fingerprint = try reviewFingerprint(for: publication.package)
         let resolved = try reviewHandle(
             path: origin.path,
@@ -360,17 +359,39 @@ enum WorktreeAnnotationSourceCapture {
     }
 
     private static func reviewFingerprint(
+        identity: BridgeProductReviewAnnotationPublicationIdentity,
         publicationCoordinator: BridgeReviewPublicationCoordinator,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceFingerprint {
+        let publication = try await retainedReviewPublication(
+            identity: identity,
+            publicationCoordinator: publicationCoordinator,
+            productAdmission: productAdmission
+        )
+        return try reviewFingerprint(for: publication.package)
+    }
+
+    private static func retainedReviewPublication(
+        identity: BridgeProductReviewAnnotationPublicationIdentity,
+        publicationCoordinator: BridgeReviewPublicationCoordinator,
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> BridgeReviewCommittedPublication {
         guard
-            let publication = await publicationCoordinator.committedPublicationForReplay(
+            let publication = await publicationCoordinator.retainedPublication(
+                matching: identity,
                 productAdmission: productAdmission
             )
         else {
             throw WorktreeAnnotationSourceResolutionError.unavailable
         }
-        return try reviewFingerprint(for: publication.package)
+        return publication
+    }
+
+    private static func requireReviewIdentity(
+        _ identity: BridgeProductReviewAnnotationPublicationIdentity?
+    ) throws -> BridgeProductReviewAnnotationPublicationIdentity {
+        guard let identity else { throw WorktreeAnnotationSourceResolutionError.unavailable }
+        return identity
     }
 
     private static func reviewFingerprint(

@@ -1,7 +1,11 @@
 import { z } from 'zod';
 
 import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-call-contracts.js';
-import { bridgeProductWorktreeAnnotationOperationSchema } from './bridge-product-call-contracts.js';
+import {
+	bridgeProductReviewAnnotationPublicationIdentitySchema,
+	bridgeProductWorktreeAnnotationOperationSchema,
+} from './bridge-product-call-contracts.js';
+import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 
 export const bridgeActiveViewerSourceSchema = z
 	.object({
@@ -37,10 +41,22 @@ const bridgeProductControlMarkFileViewedCommandSchema = z
 	})
 	.strict();
 
-const bridgeProductControlWorktreeAnnotationCommandSchema = z
+const bridgeProductControlFileWorktreeAnnotationCommandSchema = z
 	.object({
-		method: z.enum(['file.annotations.command', 'review.annotations.command']),
+		method: z.literal('file.annotations.command'),
 		params: z.object({ operation: bridgeProductWorktreeAnnotationOperationSchema }).strict(),
+	})
+	.strict();
+
+const bridgeProductControlReviewWorktreeAnnotationCommandSchema = z
+	.object({
+		method: z.literal('review.annotations.command'),
+		params: z
+			.object({
+				operation: bridgeProductWorktreeAnnotationOperationSchema,
+				reviewPublicationIdentity: bridgeProductReviewAnnotationPublicationIdentitySchema,
+			})
+			.strict(),
 	})
 	.strict();
 
@@ -72,6 +88,25 @@ const bridgeProductControlReviewComparisonTargetsQueryCommandSchema = z
 	})
 	.strict();
 
+const bridgeProductControlReviewPublicationInstallAdmitCommandSchema = z
+	.object({
+		method: z.literal('review.publication.install.admit'),
+		params: z
+			.object({
+				candidatePublicationId: bridgeProductReviewPublicationIdSchema,
+				expectedDisplayedPublicationId: bridgeProductReviewPublicationIdSchema.nullable(),
+			})
+			.strict(),
+	})
+	.strict();
+
+const bridgeProductControlReviewPublicationAppliedCommandSchema = z
+	.object({
+		method: z.literal('review.publication.applied'),
+		params: z.object({ publicationId: bridgeProductReviewPublicationIdSchema }).strict(),
+	})
+	.strict();
+
 const bridgeProductControlIntakeReadyCommandSchema = z
 	.object({
 		method: z.literal('bridge.intakeReady'),
@@ -81,10 +116,13 @@ const bridgeProductControlIntakeReadyCommandSchema = z
 
 export const bridgeProductControlCommandSchema = z.discriminatedUnion('method', [
 	bridgeProductControlFileRefreshRetryCommandSchema,
-	bridgeProductControlWorktreeAnnotationCommandSchema,
+	bridgeProductControlFileWorktreeAnnotationCommandSchema,
+	bridgeProductControlReviewWorktreeAnnotationCommandSchema,
 	bridgeProductControlMarkFileViewedCommandSchema,
 	bridgeProductControlReviewComparisonUpdateCommandSchema,
 	bridgeProductControlReviewComparisonTargetsQueryCommandSchema,
+	bridgeProductControlReviewPublicationInstallAdmitCommandSchema,
+	bridgeProductControlReviewPublicationAppliedCommandSchema,
 	bridgeProductControlActiveViewerModeUpdateCommandSchema,
 	bridgeProductControlIntakeReadyCommandSchema,
 ]);
