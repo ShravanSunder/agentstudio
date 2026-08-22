@@ -89,7 +89,7 @@ export async function proveFreshReviewRoute(props: {
 	const initialVisibleItemIds = viewportState.visibleItems.map((item): string => item.itemId);
 	recordMountedHeaderOrderViolation({
 		expectedItemIndexById,
-		mountedItemIds: viewportState.mountedItemIds,
+		mountedItemIds: initialVisibleItemIds,
 		mountedHeaderOrderViolations,
 		mountedHeaderOrderViolationSignatures,
 	});
@@ -135,7 +135,7 @@ export async function proveFreshReviewRoute(props: {
 		viewportState = await readFreshReviewViewportState(props.page);
 		recordMountedHeaderOrderViolation({
 			expectedItemIndexById,
-			mountedItemIds: viewportState.mountedItemIds,
+			mountedItemIds: viewportState.visibleItems.map((item): string => item.itemId),
 			mountedHeaderOrderViolations,
 			mountedHeaderOrderViolationSignatures,
 		});
@@ -188,7 +188,7 @@ export async function proveFreshReviewRoute(props: {
 	viewportState = await readFreshReviewViewportState(props.page);
 	recordMountedHeaderOrderViolation({
 		expectedItemIndexById,
-		mountedItemIds: viewportState.mountedItemIds,
+		mountedItemIds: viewportState.visibleItems.map((item): string => item.itemId),
 		mountedHeaderOrderViolations,
 		mountedHeaderOrderViolationSignatures,
 	});
@@ -214,7 +214,7 @@ export async function proveFreshReviewRoute(props: {
 		viewportState = await readFreshReviewViewportState(props.page);
 		recordMountedHeaderOrderViolation({
 			expectedItemIndexById,
-			mountedItemIds: viewportState.mountedItemIds,
+			mountedItemIds: viewportState.visibleItems.map((item): string => item.itemId),
 			mountedHeaderOrderViolations: backwardMountedHeaderOrderViolations,
 			mountedHeaderOrderViolationSignatures: backwardMountedHeaderOrderViolationSignatures,
 		});
@@ -355,7 +355,7 @@ export async function proveReviewTreeSelection(props: {
 		codeViewManifestItemCountBeforeSelection: beforeSelection.codeViewManifestItemCount,
 		mountedHeaderOrderViolation: mountedHeaderOrderViolationForExpectedOrder({
 			expectedItemIndexById,
-			mountedItemIds: afterSelection.mountedItemIds,
+			mountedItemIds: afterSelection.visibleItems.map((item): string => item.itemId),
 		}),
 		selectedContentState: targetVisibleItem?.contentState ?? null,
 		selectedItemIdAtCompletion: afterSelection.selectedItemId,

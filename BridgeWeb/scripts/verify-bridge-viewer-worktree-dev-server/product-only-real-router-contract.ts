@@ -599,7 +599,8 @@ function requireFreshReviewRoute(props: {
 		props.violations.push({
 			actual: props.proof.mountedHeaderOrderViolations,
 			code: 'REVIEW_FRESH_ROUTE_LOGICAL_ORDER_MISMATCH',
-			expected: 'every mounted Pierre CodeView viewport preserves the authoritative catalog order',
+			expected:
+				'every viewport-intersecting Pierre CodeView header preserves the authoritative catalog order',
 		});
 	}
 	const mixedInitialDisclosure = props.proof.initialDirectoryDisclosure.filter(
