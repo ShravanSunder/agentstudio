@@ -1,10 +1,37 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 
+import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+const canonicalHomeUrl = "https://getagentstudio.dev/";
+const canonicalSitemapUrl = "https://getagentstudio.dev/sitemap.xml";
+const expectedMetadataTitle = "Agent Studio: Native macOS workspace for coding agents";
 const previewPort = 20_000 + (process.pid % 10_000);
 const previewOrigin = `http://127.0.0.1:${previewPort}`;
 let previewProcess: ChildProcess | undefined;
+
+const parseAttributes = (tag: string): ReadonlyMap<string, string> => {
+  const attributes = new Map<string, string>();
+  for (const match of tag.matchAll(/([:\w-]+)=["']([^"']*)["']/g)) {
+    const [, name, value] = match;
+    if (name !== undefined && value !== undefined) {
+      attributes.set(name, value);
+    }
+  }
+  return attributes;
+};
+
+const findTagAttributes = (
+  html: string,
+  tagName: "link" | "meta",
+  selectorName: string,
+  selectorValue: string,
+): ReadonlyMap<string, string> | undefined => {
+  const tags = html.match(new RegExp(`<${tagName}\\b[^>]*>`, "gi")) ?? [];
+  return tags
+    .map(parseAttributes)
+    .find((attributes) => attributes.get(selectorName) === selectorValue);
+};
 
 const waitForPreview = async (deadline = Date.now() + 10_000): Promise<void> => {
   try {
@@ -26,7 +53,7 @@ const waitForPreview = async (deadline = Date.now() + 10_000): Promise<void> => 
   await waitForPreview(deadline);
 };
 
-describe("favicon metadata", () => {
+describe("site discovery metadata", () => {
   beforeAll(async (): Promise<void> => {
     const buildResult = spawnSync("pnpm", ["run", "build"], {
       cwd: process.cwd(),
@@ -70,5 +97,91 @@ describe("favicon metadata", () => {
     const faviconResponse = await fetch(new URL(faviconHref, previewOrigin));
     expect(faviconResponse.status).toBe(200);
     expect(faviconResponse.headers.get("content-type")).toMatch(/^image\//);
+  });
+
+  it("publishes canonical search and social metadata with a usable social card", async (): Promise<void> => {
+    const homePageResponse = await fetch(previewOrigin);
+    expect(homePageResponse.status).toBe(200);
+
+    const homePageHtml = await homePageResponse.text();
+    expect(homePageHtml).toContain(`<title>${expectedMetadataTitle}</title>`);
+
+    const canonicalLink = findTagAttributes(homePageHtml, "link", "rel", "canonical");
+    expect(canonicalLink?.get("href")).toBe(canonicalHomeUrl);
+
+    const pageDescription = findTagAttributes(homePageHtml, "meta", "name", "description")?.get(
+      "content",
+    );
+    expect(pageDescription).toBeTruthy();
+
+    const expectedMetadata = new Map<string, string>([
+      ["og:type", "website"],
+      ["og:site_name", "Agent Studio"],
+      ["og:title", expectedMetadataTitle],
+      ["og:description", pageDescription ?? ""],
+      ["og:url", canonicalHomeUrl],
+      ["og:image:type", "image/png"],
+      ["og:image:width", "1200"],
+      ["og:image:height", "630"],
+      ["twitter:card", "summary_large_image"],
+      ["twitter:title", expectedMetadataTitle],
+      ["twitter:description", pageDescription ?? ""],
+    ]);
+
+    for (const [metadataName, expectedValue] of expectedMetadata) {
+      const selectorName = metadataName.startsWith("og:") ? "property" : "name";
+      const metadataTag = findTagAttributes(homePageHtml, "meta", selectorName, metadataName);
+      expect(metadataTag?.get("content"), metadataName).toBe(expectedValue);
+    }
+
+    const openGraphImage = findTagAttributes(homePageHtml, "meta", "property", "og:image");
+    const xImage = findTagAttributes(homePageHtml, "meta", "name", "twitter:image");
+    const openGraphImageAlt = findTagAttributes(
+      homePageHtml,
+      "meta",
+      "property",
+      "og:image:alt",
+    )?.get("content");
+    const xImageAlt = findTagAttributes(homePageHtml, "meta", "name", "twitter:image:alt")?.get(
+      "content",
+    );
+    const socialImageUrl = openGraphImage?.get("content");
+    expect(socialImageUrl).toBe("https://getagentstudio.dev/agent-studio-social-card.png");
+    expect(xImage?.get("content")).toBe(socialImageUrl);
+    expect(openGraphImageAlt).toBeTruthy();
+    expect(xImageAlt).toBe(openGraphImageAlt);
+
+    if (socialImageUrl === undefined) {
+      throw new Error("The built home page did not advertise a social-card image");
+    }
+
+    const socialImageResponse = await fetch(
+      new URL(new URL(socialImageUrl).pathname, previewOrigin),
+    );
+    expect(socialImageResponse.status).toBe(200);
+    expect(socialImageResponse.headers.get("content-type")).toBe("image/png");
+
+    const socialImageMetadata = await sharp(
+      Buffer.from(await socialImageResponse.arrayBuffer()),
+    ).metadata();
+    expect(socialImageMetadata.width).toBe(1200);
+    expect(socialImageMetadata.height).toBe(630);
+  });
+
+  it("publishes only the canonical home page in the sitemap and advertises it in robots", async (): Promise<void> => {
+    const sitemapResponse = await fetch(new URL("/sitemap.xml", previewOrigin));
+    expect(sitemapResponse.status).toBe(200);
+    expect(sitemapResponse.headers.get("content-type")).toMatch(/^application\/xml/);
+
+    const sitemapXml = await sitemapResponse.text();
+    expect(sitemapXml).toContain(`<loc>${canonicalHomeUrl}</loc>`);
+    expect(sitemapXml).not.toContain("topology-full-page-lab");
+
+    const robotsResponse = await fetch(new URL("/robots.txt", previewOrigin));
+    expect(robotsResponse.status).toBe(200);
+    const robotsText = await robotsResponse.text();
+    expect(robotsText).toContain("User-agent: *");
+    expect(robotsText).toContain("Allow: /");
+    expect(robotsText).toContain(`Sitemap: ${canonicalSitemapUrl}`);
   });
 });

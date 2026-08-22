@@ -2,6 +2,7 @@
 import appLogo from "@/assets/brand/app-logo-transparent.svg";
 import GitHubMark from "@/github-action/GitHubMark.astro";
 import { marketingCopy } from "@/marketing-copy";
+import { siteMetadata } from "@/site-metadata";
 import XMark from "@/social-links/XMark.astro";
 import "@/styles/global.css";
 
@@ -13,6 +14,8 @@ interface Props {
 }
 
 const { title, description } = Astro.props;
+const canonicalUrl = new URL(Astro.url.pathname, siteMetadata.canonicalOrigin).href;
+const socialImageUrl = new URL(siteMetadata.socialCard.path, siteMetadata.canonicalOrigin).href;
 ---
 
 <!doctype html>
@@ -22,7 +25,23 @@ const { title, description } = Astro.props;
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={description} />
     <meta name="theme-color" content="#2E3036" />
+    <link rel="canonical" href={canonicalUrl} />
     <link rel="icon" href={appLogo.src} type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={marketingCopy.productName} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={socialImageUrl} />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content={String(siteMetadata.socialCard.width)} />
+    <meta property="og:image:height" content={String(siteMetadata.socialCard.height)} />
+    <meta property="og:image:alt" content={siteMetadata.socialCard.alt} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={socialImageUrl} />
+    <meta name="twitter:image:alt" content={siteMetadata.socialCard.alt} />
     <title>{title}</title>
   </head>
   <body>
