@@ -136,9 +136,7 @@ test("hides the complete topology until both gutters fit two usable columns", as
   );
 });
 
-test("selects the authored 1, 3, and 5-worktree variants from gutter capacity", async ({
-  page,
-}) => {
+test("selects the authored worktree variants from gutter capacity", async ({ page }) => {
   await page.goto("/");
   await expectTopologyVariant(page, {
     expectedBridgeSurfaceIndexes: [],
@@ -149,7 +147,7 @@ test("selects the authored 1, 3, and 5-worktree variants from gutter capacity", 
     width: 2200,
   });
   await expectTopologyVariant(page, {
-    expectedBridgeSurfaceIndexes: [1, 3],
+    expectedBridgeSurfaceIndexes: [0, 3],
     expectedColumns: 3,
     expectedLanes: [1, 2, 3],
     expectedVariant: "standard",
@@ -157,11 +155,11 @@ test("selects the authored 1, 3, and 5-worktree variants from gutter capacity", 
     width: 2300,
   });
   await expectTopologyVariant(page, {
-    expectedBridgeSurfaceIndexes: [1, 2, 3],
+    expectedBridgeSurfaceIndexes: [0, 1, 3],
     expectedColumns: 4,
-    expectedLanes: [1, 2, 3, 4, 2],
+    expectedLanes: [1, 2, 3, 4, 1, 2],
     expectedVariant: "expanded",
-    expectedWorktrees: 5,
+    expectedWorktrees: 6,
     width: 2400,
   });
 });
@@ -355,8 +353,10 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
           endPoint.y - Number(end.getAttribute("cy")),
         ),
         endKind: group.dataset["endKind"],
+        endRow: Number(end.dataset["resolvedRow"]),
         endX: Number(end.getAttribute("cx")),
         forkX: Number(fork.getAttribute("cx")),
+        forkRow: Number(fork.dataset["resolvedRow"]),
         lane: Number(group.dataset["resolvedLane"]),
         minimumX: Math.min(...routePoints.map((point) => point.x)),
         startDelta: Math.hypot(
@@ -497,6 +497,7 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
           Math.abs(Number(node.getAttribute("cx")) - mainline.getPointAtLength(0).x) > 0.01,
       ).length,
       mainlineForkX: routeFacts[0]?.forkX,
+      finalRow: Number(svg.dataset["finalRow"]),
       rowCount: Number(svg.dataset["rowCount"]),
       routeFacts,
       visibleNodeCount: visibleNodes.length,
@@ -505,18 +506,29 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
   });
 
   expect(await page.locator("main").innerText()).toBe("");
-  expect(state.worktreeCount).toBe(5);
+  expect(state.worktreeCount).toBe(7);
   expect(state.visibleNodeCount).toBe(state.rowCount);
   expect(state.duplicateRowCount).toBe(0);
   expect(new Set(state.fillerOwnerIds)).toEqual(
-    new Set(["main", "worktree-a", "worktree-b", "worktree-c", "worktree-d", "worktree-e"]),
+    new Set([
+      "main",
+      "worktree-a",
+      "worktree-b",
+      "worktree-c",
+      "worktree-d",
+      "worktree-e",
+      "worktree-f",
+      "worktree-g",
+    ]),
   );
   expect(state.fillerOwnerIds.filter((ownerId) => ownerId === "main").length).toBeLessThan(
     state.fillerOwnerIds.length,
   );
   expect(state.fillerColorMismatchCount).toBe(0);
   expect(state.inactiveWorktreeOwnerCount).toBe(0);
-  expect(state.routeFacts.map((route) => route.lane)).toEqual([1, 2, 3, 4, 2]);
+  expect(state.routeFacts.map((route) => route.lane)).toEqual([1, 2, 3, 4, 1, 2, 5]);
+  expect(state.routeFacts.slice(0, 2).map((route) => route.forkRow)).toEqual([2, 4]);
+  expect(state.routeFacts.slice(0, 2).map((route) => route.endRow)).toEqual([15, 16]);
   expect(new Set(state.routeFacts.map((route) => route.forkX)).size).toBe(1);
   expect(state.mainlineForkX).toBe(2800 - 144);
   expect(state.maximumForkMainlineDelta).toBeLessThanOrEqual(0.01);
@@ -535,7 +547,9 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
     2800 - 336,
     144 + (6 - 1) * 96,
     144 + (6 - 2) * 96,
+    2800 - 240,
     2800 - 336,
+    144 + (6 - 3) * 96,
   ]);
   expect(state.routeFacts.every((route) => route.targetX < route.forkX)).toBe(true);
   expect(
@@ -548,6 +562,11 @@ test("proves main-based allocation and row occupancy on the uncluttered topology
       .filter((route) => route.endKind === "merge")
       .every((route) => route.endX === route.forkX),
   ).toBe(true);
-  expect(state.routeFacts.filter((route) => route.endKind === "open")).toHaveLength(3);
-  expect(state.routeFacts.filter((route) => route.endKind === "merge")).toHaveLength(2);
+  expect(state.routeFacts.filter((route) => route.endKind === "open")).toHaveLength(4);
+  expect(
+    state.routeFacts
+      .filter((route) => route.endKind === "open")
+      .every((route) => route.endRow >= state.finalRow - 4),
+  ).toBe(true);
+  expect(state.routeFacts.filter((route) => route.endKind === "merge")).toHaveLength(3);
 });

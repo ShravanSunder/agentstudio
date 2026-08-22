@@ -63,6 +63,37 @@ afterEach(() => {
 });
 
 describe("full-page topology layout", () => {
+  it("preserves distinct absolute bottom rows instead of quantizing them through glass slots", () => {
+    const artwork = createArtwork(576, 1424);
+    const firstRoute = artwork.querySelector<SVGGElement>("[data-topology-route-group]");
+    if (firstRoute === null) {
+      throw new Error("Full-page topology fixture route is missing");
+    }
+    firstRoute.querySelector('[data-node-position="target"]')?.remove();
+    firstRoute.dataset["forkPageRow"] = "2";
+    firstRoute.dataset["endPageOffset"] = "3";
+
+    const secondRoute = firstRoute.cloneNode(true);
+    if (!(secondRoute instanceof SVGGElement)) {
+      throw new Error("Cloned topology route is not an SVG group");
+    }
+    secondRoute.dataset["routeId"] = "d";
+    secondRoute.dataset["forkPageRow"] = "4";
+    secondRoute.dataset["forkSlot"] = "4";
+    secondRoute.dataset["endPageOffset"] = "4";
+    secondRoute.dataset["endSlot"] = "17";
+    artwork.append(secondRoute);
+
+    expect(layoutFullPageTopology(artwork)).toBe(true);
+    expect(artwork.style.visibility).toBe("visible");
+    expect(artwork.dataset["topologyHiddenReason"]).toBeUndefined();
+    expect(
+      [...artwork.querySelectorAll<SVGGraphicsElement>('[data-node-position="end"]')].map((node) =>
+        Number(node.dataset["resolvedRow"]),
+      ),
+    ).toEqual([49, 48]);
+  });
+
   it("projects a main-based worktree into the nearest free gutter column", () => {
     const artwork = createArtwork(576, 1424);
 

@@ -12,11 +12,14 @@ interface AuthoredWorktree {
   readonly accent: RouteAccent;
   readonly endKind: RouteEndKind;
   readonly endGlassIndex?: number;
+  readonly endPageOffset?: number;
+  readonly endPageRow?: number;
   readonly endSlot: number;
   readonly forkSlot: number;
   readonly forkGlassIndex?: number;
+  readonly forkPageRow?: number;
   readonly id: string;
-  readonly minimumColumns: 2 | 3 | 4;
+  readonly minimumColumns: 2 | 3 | 4 | 5;
   readonly nodeSlots: readonly number[];
 }
 
@@ -24,9 +27,11 @@ const { mainlineAnchorSelector, portalFrameSelector, portalSurfaceSelector } = A
 const worktrees: readonly AuthoredWorktree[] = [
   {
     accent: "peach",
-    endKind: "open",
-    endSlot: 18,
-    forkSlot: 2,
+    endKind: "merge",
+    endPageRow: 15,
+    endSlot: 5,
+    forkPageRow: 2,
+    forkSlot: 0,
     id: "worktree-a",
     minimumColumns: 2,
     nodeSlots: [],
@@ -34,8 +39,10 @@ const worktrees: readonly AuthoredWorktree[] = [
   {
     accent: "cyan",
     endKind: "merge",
-    endSlot: 10,
-    forkSlot: 4,
+    endPageRow: 16,
+    endSlot: 6,
+    forkPageRow: 4,
+    forkSlot: 1,
     id: "worktree-b",
     minimumColumns: 3,
     nodeSlots: [],
@@ -45,8 +52,8 @@ const worktrees: readonly AuthoredWorktree[] = [
     endGlassIndex: 3,
     endKind: "merge",
     endSlot: 20,
-    forkGlassIndex: 1,
-    forkSlot: 8,
+    forkGlassIndex: 0,
+    forkSlot: 0,
     id: "worktree-c",
     minimumColumns: 3,
     nodeSlots: [],
@@ -55,8 +62,9 @@ const worktrees: readonly AuthoredWorktree[] = [
     accent: "cyan",
     endKind: "open",
     endSlot: 16,
-    forkGlassIndex: 2,
-    forkSlot: 14,
+    endPageOffset: 4,
+    forkGlassIndex: 1,
+    forkSlot: 6,
     id: "worktree-d",
     minimumColumns: 4,
     nodeSlots: [],
@@ -64,10 +72,34 @@ const worktrees: readonly AuthoredWorktree[] = [
   {
     accent: "peach",
     endKind: "open",
-    endSlot: 17,
-    forkSlot: 11,
+    endPageOffset: 3,
+    endSlot: 18,
+    forkPageRow: 17,
+    forkSlot: 7,
     id: "worktree-e",
     minimumColumns: 4,
+    nodeSlots: [],
+  },
+  {
+    accent: "cyan",
+    endKind: "open",
+    endPageOffset: 2,
+    endSlot: 19,
+    forkPageRow: 18,
+    forkSlot: 8,
+    id: "worktree-f",
+    minimumColumns: 4,
+    nodeSlots: [],
+  },
+  {
+    accent: "peach",
+    endKind: "open",
+    endPageOffset: 1,
+    endSlot: 19,
+    forkGlassIndex: 2,
+    forkSlot: 14,
+    id: "worktree-g",
+    minimumColumns: 5,
     nodeSlots: [],
   },
 ] as const;
@@ -122,8 +154,11 @@ const worktrees: readonly AuthoredWorktree[] = [
         data-minimum-columns={worktree.minimumColumns}
         data-fork-slot={worktree.forkSlot}
         data-fork-glass-index={worktree.forkGlassIndex}
+        data-fork-page-row={worktree.forkPageRow}
         data-end-slot={worktree.endSlot}
         data-end-glass-index={worktree.endGlassIndex}
+        data-end-page-offset={worktree.endPageOffset}
+        data-end-page-row={worktree.endPageRow}
         data-end-kind={worktree.endKind}
       >
         <path
