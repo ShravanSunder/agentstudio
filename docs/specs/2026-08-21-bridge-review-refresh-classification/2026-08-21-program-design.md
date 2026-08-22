@@ -240,6 +240,19 @@ displayed. Before that, `acknowledgedDisplayed` is absent and same-source
 classification does not apply. Worker replacement preserves main's active bank
 and re-establishes the mirror by replaying its exact applied receipt.
 
+Full browser-document replacement has a different lifetime: native may still
+retain `acknowledgedDisplayed` from the prior document while the fresh main
+store has no active bank. The publication coordinator records which existing
+`BridgeProductAdmissionContext` last established display. A current product
+admission that has not established display may admit exactly `nativeCurrent`
+with a null expected predecessor. The coordinator does not clear
+`acknowledgedDisplayed`; it retains that prior publication until the fresh main
+atomically promotes the bootstrap candidate and sends the existing applied
+receipt. That receipt establishes display for the current product admission,
+after which the ordinary exact-predecessor CAS rule applies. A worker replacement
+whose main store still retains an active bank sends that exact active predecessor
+and never uses fresh-session bootstrap.
+
 Every visible replacement, ordinary or promoted, follows this bounded path:
 
 ```text
@@ -389,6 +402,10 @@ active(B)+receiptPending(B)
   applied receipt acknowledged -------------------> active(B)
   receipt delayed/lost ---------------------------> active(B)+conservative
 
+freshMain(empty)+nativeCurrent(B)
+  product admission has no established display
+    + bootstrap admission(nil, B) accepted --------> active(B)+receiptPending(B)
+
 receiving/candidate + worker replacement ----------> active(A)
 close --------------------------------------------> disposed
 ```
@@ -502,6 +519,10 @@ not a third presentation class or a second bank.
   main store's worker-replacement preparation, discards the candidate bank and
   promoted chrome immediately, then resends the publication-applied receipt for
   the retained active bank after worker bootstrap.
+- Full document replacement: the new main store has no active bank. Its current
+  product admission uses the bounded null-predecessor bootstrap rule to install
+  only `nativeCurrent`; the prior acknowledged publication remains retained
+  until the existing applied receipt establishes the new session's display.
 - Main continuity failure: do not promote the bank; preserve editor and active
   Review; expose failure.
 - Install-admission rejection: retain the active bank and annotation authority,

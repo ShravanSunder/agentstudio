@@ -72,6 +72,15 @@ newest native-complete publication at the admission point. Admission is the
 installation linearization point: a publication completing afterward is a new
 successor and does not retroactively invalidate the admitted installation.
 
+A fresh main product session whose presentation bank is empty MAY use a null
+displayed predecessor to bootstrap only the newest native-complete publication
+when that product session has not yet established a displayed Review. Native
+MUST retain the previously acknowledged displayed publication until the fresh
+session applies its bootstrap publication. After that first applied receipt,
+every installation in the session MUST use the exact displayed predecessor.
+This bootstrap rule MUST NOT apply to an existing main session that retains an
+active Review across worker replacement.
+
 If complete impact classification cannot be obtained, Bridge MUST continue the
 replacement and conservatively use promoted presentation.
 
@@ -213,6 +222,12 @@ publication through an idempotent applied receipt. A delayed or lost receipt
 MUST NOT roll back the visible Review or make annotation work use another
 publication; it may only prolong conservative promotion and source retention.
 
+Replacing the complete browser document MUST NOT strand Review presentation
+when native still acknowledges the prior document's displayed publication. The
+fresh document MUST bootstrap the newest complete publication through the same
+installation and applied-receipt path, while the prior displayed material
+remains retained until that receipt.
+
 If a promoted replacement fails, Bridge MUST discard its candidate and retain
 the last complete Review. While an affected context remains the reviewer’s
 semantic focus, Bridge MUST show `Update unavailable` and expose `Retry` only
@@ -313,7 +328,8 @@ promoted:
   candidate readiness, semantic focus changes, Apply now, multiple completed
   candidates including completion immediately before and after install
   admission, an ordinary successor to a held candidate, delayed/lost applied
-  receipt, stale late arrival, close, and worker replacement.
+  receipt, stale late arrival, close, worker replacement with a retained main
+  bank, and full document replacement with an empty fresh main bank.
 - V-RRC-003 automated integration: one real update pipeline feeds both
   presentation classes; ordinary has no bar; promoted presentation holds only
   the display swap.
