@@ -236,6 +236,37 @@ test("reveals the authored topology by scroll progress and ends on the mainline 
     finalHaloAnimation: "topology-terminal-node-halo",
     startHaloAnimation: "none",
   });
+
+  await page.evaluate(() => window.scrollTo({ behavior: "instant", top: 0 }));
+  await waitForTopologyRender(page);
+  const reversedState = await artwork.evaluate((svg) => {
+    const revealSolid = svg.querySelector<SVGRectElement>("[data-topology-reveal-solid]");
+    const startHalo = svg
+      .querySelector('[data-mainline-node="start"]')
+      ?.querySelector(".node-terminal-halo");
+    const finalHalo = svg
+      .querySelector('[data-mainline-node="end"]')
+      ?.querySelector(".node-terminal-halo");
+    return {
+      atStart: svg.hasAttribute("data-topology-at-start"),
+      finalHaloAnimation:
+        finalHalo === null || finalHalo === undefined
+          ? null
+          : getComputedStyle(finalHalo).animationName,
+      revealEdgeY: Number(svg.dataset["topologyRevealEdgeY"]),
+      solidHeight: revealSolid === null ? null : Number(revealSolid.getAttribute("height")),
+      startHaloAnimation:
+        startHalo === null || startHalo === undefined
+          ? null
+          : getComputedStyle(startHalo).animationName,
+      topologyStartY: Number(svg.dataset["topologyStartY"]),
+    };
+  });
+  expect(reversedState.atStart).toBe(true);
+  expect(reversedState.revealEdgeY).toBeCloseTo(reversedState.topologyStartY, 4);
+  expect(reversedState.solidHeight).toBeCloseTo(reversedState.topologyStartY, 4);
+  expect(reversedState.startHaloAnimation).toBe("topology-terminal-node-halo");
+  expect(reversedState.finalHaloAnimation).toBe("none");
 });
 
 test("keeps the topology hidden below xl and static for reduced motion", async ({ page }) => {
