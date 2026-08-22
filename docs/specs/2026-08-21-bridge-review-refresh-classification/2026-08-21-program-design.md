@@ -186,6 +186,10 @@ the existing worker RPC connection and adds no physical route.
 The worker no longer sends or awaits `review.publication.applied` merely because
 it committed metadata. It continues consuming newer metadata, while the main
 installation gate returns that existing call only after atomic bank promotion.
+The cutover removes the current sender and its application-failure recovery
+branch from `BridgeCommWorkerProductController.#consumeReviewMetadataEvents`;
+leaving either path active would incorrectly acknowledge worker-current as
+displayed.
 
 ### Installation admission
 
@@ -264,6 +268,13 @@ receipt for its active bank. If the worker session ends before main installs an
 admitted publication, session teardown releases the admission lease and leaves
 `acknowledgedDisplayed` unchanged. No abort protocol or forced replacement is
 required.
+
+The publication coordinator accepts an applied receipt for any exact retained
+publication that is newer than `acknowledgedDisplayed`, even when
+`nativeCurrent` has already advanced. A receipt for an unknown, ambiguous,
+older, or already acknowledged publication is rejected or treated as an
+idempotent duplicate; acceptance never depends on the publication still being
+native-current.
 
 If main displays B while B's receipt is still unacknowledged, admission of a
 later C first retries B's receipt; it never guesses past the mismatched expected
@@ -519,7 +530,9 @@ not a third presentation class or a second bank.
   hold/install terminal, and duration only. Paths, source, selections, comments,
   and edit tokens are prohibited.
 - Compatibility: pre-release internal Swift/worker contracts cut over together;
-  the three physical Bridge routes and Review package schema remain singular.
+  the app and `BridgeDevelopmentProductHost` compose the same install-admission,
+  applied-receipt, and retained-publication owners; the three physical Bridge
+  routes and Review package schema remain singular.
 - Security: no new trust boundary, authentication, authorization, or external
   input surface is introduced.
 
@@ -548,3 +561,44 @@ Production-real proof must cross native invalidation, the existing Swift
 backend/metadata route, comm worker, main render store, Review viewer, and
 annotation persistence/source evaluation. Fakes may control interleavings but
 cannot replace the final cross-boundary observation.
+
+## Proof pyramid and development-server system
+
+The proof pyramid climbs from deterministic policy to the real runnable surface:
+
+```text
+many unit proofs
+  classification thresholds; lineage comparison; install-admission CAS;
+  register monotonicity; one-candidate state transitions; attention/file mapping
+
+fewer integration proofs
+  worker final-barrier -> candidate bank; main-installed message -> existing
+  publication-applied call; retained-publication annotation/output resolution;
+  delayed receipt, supersession, worker replacement, and continuity interleavings
+
+real development-server smoke and E2E
+  seeded disposable Git worktree -> Darwin/native invalidation -> Swift
+  development backend -> production metadata/content/control routes -> comm
+  worker -> Vite Review UI -> visible active/candidate behavior
+
+packaged boundary proof
+  packaged BridgeWeb in WKWebView plus native lifecycle/chrome, real comment
+  persistence/output, accessibility/focus, reduced motion, and atomic geometry
+```
+
+Unit tests own pure decisions and illegal transitions. Integration tests use
+fakes only to control ordering; the real production owners on each side of the
+boundary remain in the test. The Swift development backend plus Vite is the
+primary fast cross-boundary proof system because it exercises real worktrees,
+native Git/source computation, production Bridge routes, and browser workers
+without rebuilding the app for every iteration. It must prove at least ordinary
+silent installation, promoted hold and Apply now, automatic install after
+leaving an affected file, A-relative annotations and output while B waits,
+successor admission around the linearization point, and delayed applied-receipt
+recovery.
+
+The development server cannot prove WKWebView packaging, App/native chrome,
+LaunchServices lifecycle, or final accessibility and focus behavior. Those stay
+in the small packaged proof cap. No mocked/unit lane may be reported as smoke,
+and neither development-server nor packaged proof replaces the cheaper
+deterministic layers.

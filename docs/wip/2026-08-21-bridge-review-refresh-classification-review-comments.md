@@ -142,3 +142,105 @@ affectedness, prescribed editor-field duplication, and prescribed candidate
 cloning. Planning-readiness now requires either explicit permission for a second
 independent design review or an owner decision to proceed on parent self-check
 alone; implementation acceptance is not claimed.
+
+---
+
+# Round 2 — owner-authorized re-review of the simplified (two-register) rewrite
+
+Date: 2026-08-21 (later). Reviewer: parent session directly, at the owner's
+instruction ("verify the spec, think clearly, not rubber-stamp"); no subagent.
+Working notes with every scenario walked through:
+`<session scratchpad>/rrc-round2/working-notes.md` (artifact baselines copied
+alongside).
+
+Reviewed identities: requirements `adfd47ea…`, specification `d002b892…`,
+program-design `a4b75929…` (the design changed mid-review from `9290bbcc…`;
+sections re-verified against the final text; file quiet >1h before closing).
+
+## Verdict: ready — with three minor notes, none blocking planning
+
+Every load-bearing foundation claim was checked in code this session (12-row
+claim ledger in the working notes). The ones that decide the model:
+
+- `review.publication.applied` exists on both sides
+  (`BridgeProductCallContracts.swift:196,390,534`;
+  `bridge-product-call-contracts.ts:340`) and today fires post-worker-application
+  (`bridge-comm-worker-product-controller.ts:418-431`) — so "moves from
+  post-worker application to post-main installation" is a true description of a
+  real semantic move, not an invented foundation.
+- The coordinator already retains multiple publications with content leases
+  (`BridgeReviewPublicationCoordinator.swift:244-247`), grounding the
+  displayed/admitted/current retention triple on existing machinery.
+- Worker display publication is single-shot at the atomic final-barrier commit,
+  so the candidate bank is the only timely hold point (round-1 verification).
+
+All twelve round-1 findings verified remediated in the current text (per-finding
+anchors in the working notes): annotation plane pinned to displayed (R-RRC-007),
+acknowledgedDisplayed register + receipt (R-RRC-009/R-RRC-012), ordinary
+successor releases a held candidate (R-RRC-003 + state model), reading-position
+leading-edge rule, provisional/updateReady XOR with the one-candidate bound,
+worker-replacement discard owner, Apply-now commit rule, unknown→all-affected,
+naming, class ownership, package identity, same-source definition.
+
+Deletion-tested the surviving mechanisms (working notes S1-S2): removing the
+CAS admission breaks anchor truth (a successor completing just before install
+lets native release the about-to-be-displayed publication's material); removing
+the receipt breaks register convergence. Both earn their place. Everything that
+did not earn its place is gone: transition IDs, prepare/confirm/abort, forced
+worker replacement on lost confirm, thread-level affectedness, prescribed
+candidate clone, copied editor fields.
+
+## New minor notes (route: program-design, one line each)
+
+- **N1 — dual-sender cutover pointer.** The design states the worker no longer
+  sends the applied receipt, but the worker's current sender and its
+  failure-recovery branch (`#consumeReviewMetadataEvents` →
+  `#recoverReviewMetadataApplicationFailure`,
+  `bridge-comm-worker-product-controller.ts:418-440`) are not pointed at. If the
+  send is left in place, a post-application receipt advances
+  `acknowledgedDisplayed` at application time — recreating round-1 F1.
+- **N2 — dev-host parity.** `BridgeDevelopmentProductHost+ProductComposition.swift:236`
+  wires the same recorder; the compatibility section should name the dev host in
+  the cutover (known drift-hazard class).
+- **N3 — recorder acceptance rule.** Today's `recordWorkerApplication`
+  (`BridgeReviewPublicationCoordinator.swift:544`) accepts only the active
+  publication. A receipt for B arriving after native's current moved to C would
+  be dropped, prolonging conservative promotion until the next install (it
+  self-heals — worked through in notes S3 — but the design should say the
+  recorder accepts lineage-monotonic receipts over the retained set).
+
+## Named residual (owner policy, not a finding)
+
+A sub-threshold ordinary update to the very file being read (no editor open)
+installs silently and may shift the reading view. The requirements explicitly
+authorize the numeric thresholds as tunable initial policy; reading position
+holds only promoted candidates. Deliberate tradeoff against hold-churn under
+rapid agent edits.
+
+## Parent validation of Round 2
+
+The three notes reproduce in current source and are accepted as minor Program
+Design corrections:
+
+- **N1 accepted:** the current worker sends `review.publication.applied` inside
+  `BridgeCommWorkerProductController.#consumeReviewMetadataEvents`, and its catch
+  path routes the send failure into metadata-application recovery. The design now
+  names removal of both worker-side paths so only post-main-install owns the
+  receipt.
+- **N2 accepted:** both the app bootstrap and
+  `BridgeDevelopmentProductHost+ProductComposition` wire
+  `recordReviewPublicationApplication`. The compatibility contract now requires
+  identical cutover composition in both hosts.
+- **N3 accepted:** `recordWorkerApplication` currently requires the active
+  publication. The design now requires the renamed applied-receipt owner to
+  accept exact lineage-monotonic acknowledgments across the retained publication
+  set even after `nativeCurrent` advances.
+
+The residual ordinary-update jump is correctly classified as owner policy, not
+a defect: ordinary presentation is intentionally silent below the promotion
+limits unless active-editor continuity forces promotion.
+
+The Round 2 semantic work is useful evidence, but its parent-session reviewer is
+not independent under the design-review contract. Its `ready` label therefore
+does not by itself restore planning readiness. A fresh-context independent review
+of the current corrected artifacts remains the design gate.
