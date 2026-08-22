@@ -295,6 +295,8 @@ func insertMigration015WorkspaceAndTopology(
     _ database: Database,
     ids: Migration015FixtureIDs
 ) throws {
+    let mainWorktreePath = URL(filePath: "/tmp/migration-015")
+    let mainWorktreeStableKey = StableKey.fromPath(mainWorktreePath)
     try database.execute(
         sql: "INSERT INTO workspace(id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
         arguments: [ids.workspaceID.uuidString, "Migration 015", 1.0, 2.0]
@@ -315,8 +317,8 @@ func insertMigration015WorkspaceAndTopology(
         arguments: [
             ids.repositoryID.uuidString,
             "Migration 015",
-            "/tmp/migration-015",
-            ids.repositoryID.uuidString,
+            mainWorktreePath.path,
+            mainWorktreeStableKey,
             2.0,
         ]
     )
@@ -329,8 +331,8 @@ func insertMigration015WorkspaceAndTopology(
             ids.worktreeID.uuidString,
             ids.repositoryID.uuidString,
             "main",
-            "/tmp/migration-015",
-            ids.worktreeID.uuidString,
+            mainWorktreePath.path,
+            mainWorktreeStableKey,
             1,
         ]
     )
