@@ -108,6 +108,7 @@ extension BridgePaneController {
             )
             return .rejected
         }
+        _ = scheduleProductPresentationPublication(traceContext: traceContext)
         await recordReviewCommitTerminal(
             operationCorrelationID: operationCorrelationID,
             result: .success,

@@ -178,6 +178,62 @@ extension WebKitSerializedTests {
             #expect(controller.pendingReviewPackageBuildReasons.isEmpty)
         }
 
+        @Test("target replacement publishes settled pane presentation after package commit")
+        func targetReplacementPublishesSettledPanePresentationAfterPackageCommit() async throws {
+            // Arrange
+            let initialTarget = WorkspaceReviewContributionTarget.branch(name: "main")
+            let successorTarget = WorkspaceReviewContributionTarget.branch(name: "stack/base")
+            let canonicalSuccessorState = BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(
+                    rootPath: "/tmp/bridge-refresh-admission",
+                    baseline: WorkspaceBaseline(contributionTarget: successorTarget)
+                )
+            )
+            let fixture = try await makeRefreshAdmissionIntegrationFixture(
+                initialContributionTarget: initialTarget,
+                contributionTargetCommit: { _ in .applied(canonicalSuccessorState) }
+            )
+            defer { fixture.controller.teardown() }
+            try await fixture.loadInitialReviewPackage()
+            _ = try await fixture.consumeQueuedMetadataFrames()
+            let contributionCaptureGate = BridgeContributionCaptureGate()
+            await fixture.reviewProvider.setContributionCaptureGate(contributionCaptureGate)
+
+            // Act
+            let didAdopt = await fixture.controller.handleCommittedProductReviewComparisonUpdate(
+                BridgeProductReviewComparisonUpdateRequest(target: successorTarget),
+                productAdmission: fixture.productAdmission
+            )
+            await contributionCaptureGate.waitForStart()
+            #expect(await waitForRefreshAdmissionQueuedMetadataFrame(fixture))
+            let pendingFrames = try await fixture.consumeQueuedMetadataFrames()
+            await contributionCaptureGate.releaseAll()
+            await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
+            _ = await waitForRefreshAdmissionQueuedMetadataFrame(fixture)
+            let terminalFrames = try await fixture.consumeQueuedMetadataFrames()
+
+            // Assert
+            let pendingPresentations: [BridgeProductPanePresentationFrame] = pendingFrames.compactMap { frame in
+                guard case .panePresentation(let presentation) = frame else { return nil }
+                return presentation
+            }
+            let terminalPresentations: [BridgeProductPanePresentationFrame] = terminalFrames.compactMap { frame in
+                guard case .panePresentation(let presentation) = frame else { return nil }
+                return presentation
+            }
+            #expect(didAdopt)
+            #expect(
+                pendingPresentations.last?.reviewComparison?.attempt
+                    == .pending(reviewGeneration: 2)
+            )
+            #expect(terminalPresentations.last?.reviewComparison?.activeTarget == successorTarget)
+            #expect(
+                terminalPresentations.last?.reviewComparison?.attempt
+                    == .settled(reviewGeneration: 2)
+            )
+        }
+
         @Test("filesystem reload preserves settled comparison presentation")
         func filesystemReloadPreservesSettledComparisonPresentation() async throws {
             let target = WorkspaceReviewContributionTarget.branch(name: "main")

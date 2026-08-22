@@ -350,9 +350,10 @@ final class BridgeReviewPublicationCoordinator {
 
     /// Commits native B and presents pane B without suspension.
     ///
-    /// `presentCommitted` executes while the admission gate linearizes the
-    /// state transition with pane teardown. It may synchronously inspect the
-    /// committed state, but must not call a mutating coordinator method.
+    /// The capture and presentation callbacks execute while the admission gate
+    /// linearizes the commit with pane teardown. They may synchronously commit
+    /// colocated MainActor presentation state, but must not suspend or re-enter
+    /// this publication coordinator.
     func commit(
         _ token: BridgeReviewPublicationToken,
         productAdmission: BridgeProductAdmissionContext,

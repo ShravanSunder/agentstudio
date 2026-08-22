@@ -58,6 +58,14 @@ struct RefreshAdmissionIntegrationFixture {
         return try #require(try decoder.append(queuedFrame.data).first)
     }
 
+    func consumeQueuedMetadataFrames() async throws -> [BridgeProductMetadataFrame] {
+        var frames: [BridgeProductMetadataFrame] = []
+        while await productInstallation.session.producerSnapshot().queuedFrameCount > 0 {
+            frames.append(try await consumeNextMetadataFrame())
+        }
+        return frames
+    }
+
     func openFileMetadataSubscription() async throws {
         let request = try refreshAdmissionFileSubscriptionOpenRequest(
             installation: productInstallation
@@ -130,7 +138,10 @@ func makeRefreshAdmissionIntegrationFixture(
     failsReviewDelivery: Bool = false,
     fileChangesetPublicationGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
     fileMetadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
-    reviewMetadataReservationGate: RefreshAdmissionReviewReservationGate? = nil
+    reviewMetadataReservationGate: RefreshAdmissionReviewReservationGate? = nil,
+    initialContributionTarget: WorkspaceReviewContributionTarget? = nil,
+    contributionTargetCommit:
+        (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
 ) async throws -> RefreshAdmissionIntegrationFixture {
     let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
     let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
@@ -144,13 +155,11 @@ func makeRefreshAdmissionIntegrationFixture(
         path: "Sources/App/Refreshed.swift",
         sizeBytes: 100
     )
-    let reviewProvider = BridgeReviewSourceProviderFake(
-        comparison: BridgeEndpointComparison(
-            baseEndpoint: baseEndpoint,
-            headEndpoint: headEndpoint,
-            changedFiles: [initialFile]
-        ),
-        contentByHandleId: [:],
+    let reviewProvider = makeRefreshAdmissionReviewProvider(
+        baseEndpoint: baseEndpoint,
+        headEndpoint: headEndpoint,
+        initialFile: initialFile,
+        initialContributionTarget: initialContributionTarget,
         comparisonGate: comparisonGate
     )
     let fileMetadataSource = RefreshAdmissionTrackingFileMetadataSource(
@@ -185,7 +194,8 @@ func makeRefreshAdmissionIntegrationFixture(
             panelKind: .diffViewer,
             source: .workspace(
                 rootPath: "/tmp/bridge-refresh-admission",
-                baseline: .staged)
+                baseline: initialContributionTarget.map(WorkspaceBaseline.init(contributionTarget:))
+                    ?? .staged)
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
@@ -208,7 +218,8 @@ func makeRefreshAdmissionIntegrationFixture(
                 activeInstallation: installation
             ),
             productProvider: productProvider
-        )
+        ),
+        contributionTargetCommit: contributionTargetCommit
     )
     let productAdmission = try #require(productAdmissionGate.acquire())
     let metadataProducerLease = try await installRefreshAdmissionMetadataProducer(
@@ -231,5 +242,34 @@ func makeRefreshAdmissionIntegrationFixture(
         productAdmission: productAdmission,
         productProvider: productProvider,
         controller: controller
+    )
+}
+
+private func makeRefreshAdmissionReviewProvider(
+    baseEndpoint: BridgeSourceEndpoint,
+    headEndpoint: BridgeSourceEndpoint,
+    initialFile: BridgeEndpointChangedFile,
+    initialContributionTarget: WorkspaceReviewContributionTarget?,
+    comparisonGate: BridgeComparisonGate?
+) -> BridgeReviewSourceProviderFake {
+    let comparison = BridgeEndpointComparison(
+        baseEndpoint: baseEndpoint,
+        headEndpoint: headEndpoint,
+        changedFiles: [initialFile]
+    )
+    let contributionCapture = initialContributionTarget.map { _ in
+        BridgeContributionComparisonCapture(
+            resolvedTargetOID: "resolved-target-oid",
+            reviewedHeadOID: "reviewed-head-oid",
+            baseRole: .commonCommit,
+            baseOID: "contribution-base-oid",
+            comparison: comparison
+        )
+    }
+    return BridgeReviewSourceProviderFake(
+        comparison: comparison,
+        contentByHandleId: [:],
+        contributionCapture: contributionCapture,
+        comparisonGate: comparisonGate
     )
 }
