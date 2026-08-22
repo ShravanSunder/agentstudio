@@ -1,25 +1,29 @@
 @MainActor
 package final class EagerDerivedAtomFamily<
     Key: Hashable & Sendable,
-    Request: Sendable,
-    RequestIdentity: Equatable & Sendable,
+    Intent: Sendable,
+    IntentIdentity: Equatable & Sendable,
+    Work: Sendable,
+    Candidate: Sendable,
     Value: Sendable
 > {
-    package typealias Atom = EagerDerivedAtom<Request, RequestIdentity, Value>
+    package typealias Atom = EagerDerivedAtom<Intent, IntentIdentity, Work, Candidate, Value>
 
     private struct Slot {
         let id: UInt64
         let atom: Atom
-        var admittedIdentity: RequestIdentity?
-        var readyIdentity: RequestIdentity?
+        var admittedIdentity: IntentIdentity?
+        var readyIdentity: IntentIdentity?
     }
 
-    private let requestIdentity: @Sendable (Request) -> RequestIdentity
-    private let combinePendingRequests: @Sendable (Request, Request) -> Request
+    private let intentIdentity: @Sendable (Intent) -> IntentIdentity
+    private let combinePendingIntents: @Sendable (Intent, Intent) -> Intent
     private let telemetryLabel: String?
     private let performanceOutcome: @MainActor @Sendable (String, String) -> Void
-    private let isValueEqual: @Sendable (Value, Value) -> Bool
-    private let project: @Sendable (Request) throws(CancellationError) -> Value
+    private let prepare: @MainActor @Sendable (Intent, UInt64) -> Atom.PreparationDisposition
+    private let project: @Sendable (Work) throws(CancellationError) -> Candidate
+    private let classify: @MainActor @Sendable (Candidate, Value?) -> Atom.CandidateDisposition
+    private let onAwaitingOwner: @MainActor @Sendable (Key, Atom.CandidateToken, Candidate, Value) -> Void
     private let onProjectionCompletion: @MainActor @Sendable (Key, Atom.ProjectionCompletion) -> Void
     private var slotByKey: [Key: Slot] = [:]
     private var stoppedInFlightAtomBySlotID: [UInt64: Atom] = [:]
@@ -29,19 +33,30 @@ package final class EagerDerivedAtomFamily<
     package init(
         telemetryLabel: String? = nil,
         performanceOutcome: @escaping @MainActor @Sendable (String, String) -> Void = { _, _ in },
-        requestIdentity: @escaping @Sendable (Request) -> RequestIdentity,
-        combinePendingRequests: @escaping @Sendable (Request, Request) -> Request,
-        isValueEqual: @escaping @Sendable (Value, Value) -> Bool,
-        project: @escaping @Sendable (Request) throws(CancellationError) -> Value,
+        intentIdentity: @escaping @Sendable (Intent) -> IntentIdentity,
+        combinePendingIntents: @escaping @Sendable (Intent, Intent) -> Intent,
+        prepare: @escaping @MainActor @Sendable (Intent, UInt64) -> Atom.PreparationDisposition,
+        project: @escaping @Sendable (Work) throws(CancellationError) -> Candidate,
+        classify:
+            @escaping @MainActor @Sendable (Candidate, Value?) -> Atom.CandidateDisposition,
+        onAwaitingOwner:
+            @escaping @MainActor @Sendable (
+                Key,
+                Atom.CandidateToken,
+                Candidate,
+                Value
+            ) -> Void = { _, _, _, _ in },
         onProjectionCompletion:
             @escaping @MainActor @Sendable (Key, Atom.ProjectionCompletion) -> Void = { _, _ in }
     ) {
         self.telemetryLabel = telemetryLabel
         self.performanceOutcome = performanceOutcome
-        self.requestIdentity = requestIdentity
-        self.combinePendingRequests = combinePendingRequests
-        self.isValueEqual = isValueEqual
+        self.intentIdentity = intentIdentity
+        self.combinePendingIntents = combinePendingIntents
+        self.prepare = prepare
         self.project = project
+        self.classify = classify
+        self.onAwaitingOwner = onAwaitingOwner
         self.onProjectionCompletion = onProjectionCompletion
     }
 
@@ -58,10 +73,14 @@ package final class EagerDerivedAtomFamily<
         nextSlotID &+= 1
         let slotID = nextSlotID
         let atom = Atom(
-            requestIdentity: requestIdentity,
-            combinePendingRequests: combinePendingRequests,
-            isValueEqual: isValueEqual,
+            intentIdentity: intentIdentity,
+            combinePendingIntents: combinePendingIntents,
+            prepare: prepare,
             project: project,
+            classify: classify,
+            onAwaitingOwner: { [weak self] token, candidate, proposedValue in
+                self?.onAwaitingOwner(key, token, candidate, proposedValue)
+            },
             onProjectionCompletion: { [weak self] completion in
                 self?.handleProjectionCompletion(completion, for: key, slotID: slotID)
             }
@@ -79,7 +98,7 @@ package final class EagerDerivedAtomFamily<
         slotByKey[key]?.atom
     }
 
-    package func admit(_ request: Request, for key: Key) {
+    package func admit(_ intent: Intent, for key: Key) {
         guard !hasStopped, let atom = materialize(for: key) else { return }
         performanceOutcome("eager_admission", "admitted")
         if let telemetryLabel {
@@ -88,7 +107,7 @@ package final class EagerDerivedAtomFamily<
                 operation: "admit"
             )
         }
-        let identity = requestIdentity(request)
+        let identity = intentIdentity(intent)
         let preservesReadiness =
             slotByKey[key]?.admittedIdentity == identity
             && slotByKey[key]?.readyIdentity == identity
@@ -97,7 +116,7 @@ package final class EagerDerivedAtomFamily<
         if !preservesReadiness {
             slotByKey[key]?.readyIdentity = nil
         }
-        atom.admit(request)
+        atom.admit(intent)
     }
 
     package func currentValue(for key: Key) -> Value? {
@@ -161,11 +180,11 @@ package final class EagerDerivedAtomFamily<
         }
         guard var slot = slotByKey[key], slot.id == slotID else { return }
 
-        let completedIdentity: RequestIdentity
+        let completedIdentity: IntentIdentity
         switch completion {
         case .published(let identity), .equal(let identity):
             completedIdentity = identity
-        case .superseded, .cancelled:
+        case .rejected, .superseded, .cancelled:
             return
         }
         guard slot.admittedIdentity == completedIdentity,
@@ -183,6 +202,8 @@ package final class EagerDerivedAtomFamily<
             "published"
         case .equal:
             "equal"
+        case .rejected:
+            "rejected"
         case .superseded:
             "superseded"
         case .cancelled:
@@ -192,9 +213,12 @@ package final class EagerDerivedAtomFamily<
 
     private func stopAndRetainInFlightAtomIfNeeded(_ slot: Slot) {
         let hasInFlightProjection = slot.atom.hasUnsettledProjectionTasks
-        slot.atom.stop()
         if hasInFlightProjection {
             stoppedInFlightAtomBySlotID[slot.id] = slot.atom
+        }
+        slot.atom.stop()
+        if !slot.atom.hasUnsettledProjectionTasks {
+            stoppedInFlightAtomBySlotID.removeValue(forKey: slot.id)
         }
     }
 }

@@ -50,6 +50,8 @@ private struct RepoExplorerRenderedWorktreeContent: Equatable {
 typealias RepoExplorerMaterializedProjection = EagerDerivedAtom<
     RepoExplorerProjectionWork,
     Int,
+    RepoExplorerProjectionWork,
+    RepoExplorerProjectionResult,
     RepoExplorerProjectionResult
 >
 
@@ -57,6 +59,8 @@ private typealias RepoExplorerMaterializedProjectionFamily = EagerDerivedAtomFam
     RepoExplorerProjectionSlot,
     RepoExplorerProjectionWork,
     Int,
+    RepoExplorerProjectionWork,
+    RepoExplorerProjectionResult,
     RepoExplorerProjectionResult
 >
 
@@ -122,10 +126,19 @@ final class RepoExplorerProjectionAdapter {
             performanceOutcome: { stage, outcome in
                 RepoExplorerPerformanceTelemetry.shared.record(stage: stage, outcome: outcome)
             },
-            requestIdentity: \.generation,
-            combinePendingRequests: RepoExplorerProjectionWork.combinePending,
-            isValueEqual: Self.hasEqualRenderedContent,
+            intentIdentity: \.generation,
+            combinePendingIntents: RepoExplorerProjectionWork.combinePending,
+            // SLICE-11-CUTOVER: Repo Explorer temporarily maps Intent to its existing Work and
+            // settles changed candidates immediately so the current SwiftUI List remains runnable.
+            // Slice 4 introduces execution-time baseline preparation; Slice 11 removes this route.
+            prepare: { intent, _ in .prepared(intent) },
             project: project,
+            classify: { candidate, currentValue in
+                if let currentValue, Self.hasEqualRenderedContent(currentValue, candidate) {
+                    return .equalCurrent(candidate)
+                }
+                return .immediateAccepted(candidate)
+            },
             onProjectionCompletion: { [weak self] _, completion in
                 self?.handleProjectionCompletion(completion)
             }
@@ -211,7 +224,7 @@ final class RepoExplorerProjectionAdapter {
             }
             projectionBaselineResult = result
             onProjectionSuppressed(result)
-        case .superseded, .cancelled:
+        case .rejected, .superseded, .cancelled:
             break
         }
     }

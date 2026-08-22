@@ -180,6 +180,8 @@ func makeEagerDerivedAtomTestRequest(
 typealias EagerDerivedAtomTestNode = EagerDerivedAtom<
     EagerDerivedAtomTestRequest,
     Int,
+    EagerDerivedAtomTestRequest,
+    EagerDerivedAtomTestValue,
     EagerDerivedAtomTestValue
 >
 
@@ -247,10 +249,15 @@ func makeEagerDerivedAtomTestNode(
         ) -> EagerDerivedAtomTestRequest = { _, latestRequest in latestRequest }
 ) -> EagerDerivedAtomTestNode {
     EagerDerivedAtom(
-        requestIdentity: \EagerDerivedAtomTestRequest.identity,
-        combinePendingRequests: combinePendingRequests,
-        isValueEqual: { lhs, rhs in lhs.content == rhs.content },
+        intentIdentity: \EagerDerivedAtomTestRequest.identity,
+        combinePendingIntents: combinePendingRequests,
+        prepare: { request, _ in .prepared(request) },
         project: projectEagerDerivedAtomTestRequest,
+        classify: { candidate, currentValue in
+            currentValue?.content == candidate.content
+                ? .equalCurrent(candidate)
+                : .immediateAccepted(candidate)
+        },
         onProjectionCompletion: { completion in
             completionRecorder?.record(completion)
         }

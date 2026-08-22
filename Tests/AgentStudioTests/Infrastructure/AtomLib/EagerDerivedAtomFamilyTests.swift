@@ -7,6 +7,8 @@ typealias EagerDerivedAtomTestFamily = EagerDerivedAtomFamily<
     Int,
     EagerDerivedAtomTestRequest,
     Int,
+    EagerDerivedAtomTestRequest,
+    EagerDerivedAtomTestValue,
     EagerDerivedAtomTestValue
 >
 
@@ -60,10 +62,15 @@ private func makeEagerDerivedAtomTestFamily(
     completionRecorder: EagerDerivedAtomFamilyCompletionRecorder? = nil
 ) -> EagerDerivedAtomTestFamily {
     EagerDerivedAtomTestFamily(
-        requestIdentity: \EagerDerivedAtomTestRequest.identity,
-        combinePendingRequests: { _, latestRequest in latestRequest },
-        isValueEqual: { lhs, rhs in lhs.content == rhs.content },
+        intentIdentity: \EagerDerivedAtomTestRequest.identity,
+        combinePendingIntents: { _, latestRequest in latestRequest },
+        prepare: { request, _ in .prepared(request) },
         project: projectEagerDerivedAtomTestRequest,
+        classify: { candidate, currentValue in
+            currentValue?.content == candidate.content
+                ? .equalCurrent(candidate)
+                : .immediateAccepted(candidate)
+        },
         onProjectionCompletion: { key, completion in
             completionRecorder?.record(key: key, completion: completion)
         }
@@ -96,10 +103,15 @@ struct EagerDerivedAtomFamilyTests {
         let completionRecorder = EagerDerivedAtomFamilyCompletionRecorder()
         let family = EagerDerivedAtomTestFamily(
             telemetryLabel: "repo_explorer_projection",
-            requestIdentity: \EagerDerivedAtomTestRequest.identity,
-            combinePendingRequests: { _, latestRequest in latestRequest },
-            isValueEqual: { lhs, rhs in lhs.content == rhs.content },
+            intentIdentity: \EagerDerivedAtomTestRequest.identity,
+            combinePendingIntents: { _, latestRequest in latestRequest },
+            prepare: { request, _ in .prepared(request) },
             project: projectEagerDerivedAtomTestRequest,
+            classify: { candidate, currentValue in
+                currentValue?.content == candidate.content
+                    ? .equalCurrent(candidate)
+                    : .immediateAccepted(candidate)
+            },
             onProjectionCompletion: { key, completion in
                 completionRecorder.record(key: key, completion: completion)
             }

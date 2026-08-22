@@ -68,6 +68,21 @@ struct RepoExplorerHotPathArchitectureTests {
         // This slice proves only that new identity construction/materialization stays off MainActor.
     }
 
+    @Test("Repo Explorer immediate Eager settlement is an explicit bounded cutover bridge")
+    func repoExplorerImmediateSettlementIsMarkedForAtomicRemoval() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let adapterSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionAdapter.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(adapterSource.contains("SLICE-11-CUTOVER"))
+        #expect(adapterSource.contains("return .immediateAccepted(candidate)"))
+        #expect(adapterSource.contains("prepare: { intent, _ in .prepared(intent) }"))
+    }
+
     @Test("RepoExplorerView renders from row index instead of walking groups per row")
     func repoExplorerViewRendersFromRowIndex() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

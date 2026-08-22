@@ -7,6 +7,8 @@ import Synchronization
 typealias TabBarMaterializedProjection = EagerDerivedAtom<
     TabBarProjectionRequest,
     TabBarProjectionGeneration,
+    TabBarProjectionRequest,
+    TabBarProjection,
     TabBarProjection
 >
 
@@ -14,6 +16,8 @@ typealias TabBarMaterializedProjectionFamily = EagerDerivedAtomFamily<
     UUID,
     TabBarProjectionRequest,
     TabBarProjectionGeneration,
+    TabBarProjectionRequest,
+    TabBarProjection,
     TabBarProjection
 >
 
@@ -125,10 +129,15 @@ final class TabBarAdapter {
         self.projectionTelemetry = projectionTelemetry
         self.onProjectionCompletion = onProjectionCompletion
         self.materializedProjectionFamily = TabBarMaterializedProjectionFamily(
-            requestIdentity: \.generation,
-            combinePendingRequests: { _, latestRequest in latestRequest },
-            isValueEqual: ==,
+            intentIdentity: \.generation,
+            combinePendingIntents: { _, latestRequest in latestRequest },
+            prepare: { request, _ in .prepared(request) },
             project: measuredProject,
+            classify: { candidate, currentValue in
+                currentValue == candidate
+                    ? .equalCurrent(candidate)
+                    : .immediateAccepted(candidate)
+            },
             onProjectionCompletion: { [weak self] tabId, completion in
                 self?.handleProjectionCompletion(completion, for: tabId)
             }
@@ -250,7 +259,7 @@ final class TabBarAdapter {
         switch completion {
         case .published, .equal:
             break
-        case .superseded, .cancelled:
+        case .rejected, .superseded, .cancelled:
             return
         }
         guard orderedTabIds.contains(tabId) else { return }
@@ -465,6 +474,10 @@ private final class TabBarProjectionTelemetry: Sendable {
         case .equal(let generation):
             sequence = generation.value
             outcome = "equal"
+            didPublish = false
+        case .rejected(let generation):
+            sequence = generation.value
+            outcome = "rejected"
             didPublish = false
         case .superseded(let generation):
             sequence = generation.value

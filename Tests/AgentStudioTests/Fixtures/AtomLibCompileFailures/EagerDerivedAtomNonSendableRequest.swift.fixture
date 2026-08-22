@@ -4,10 +4,13 @@ private class EagerDerivedAtomNonSendableRequest {
 
 @MainActor
 private func buildEagerDerivedAtomWithNonSendableRequest() {
-    _ = EagerDerivedAtom<EagerDerivedAtomNonSendableRequest, Int, Int>(
-        requestIdentity: { $0.value },
-        combinePendingRequests: { _, latestRequest in latestRequest },
-        isValueEqual: ==,
-        project: { $0.value }
+    _ = EagerDerivedAtom<EagerDerivedAtomNonSendableRequest, Int, Int, Int, Int>(
+        intentIdentity: { $0.value },
+        combinePendingIntents: { _, latestIntent in latestIntent },
+        prepare: { intent, _ in .prepared(intent.value) },
+        project: { $0 },
+        classify: { candidate, currentValue in
+            currentValue == candidate ? .equalCurrent(candidate) : .immediateAccepted(candidate)
+        }
     )
 }
