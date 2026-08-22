@@ -1,5 +1,6 @@
 ---
 type RouteAccent = "cyan" | "peach";
+type RouteEndKind = "merge" | "open";
 
 interface Props {
   readonly mainlineAnchorSelector?: string;
@@ -7,80 +8,75 @@ interface Props {
   readonly portalSurfaceSelector?: string;
 }
 
-interface FullPageRoute {
+interface AuthoredWorktree {
   readonly accent: RouteAccent;
-  readonly arrivalRow: number;
-  readonly forkRow: number;
-  readonly lane: number;
-  readonly mergeApproachRow?: number;
-  readonly mergeRow?: number;
-  readonly openEndRow?: number;
-  readonly sourceLane?: number;
+  readonly endKind: RouteEndKind;
+  readonly endGlassIndex?: number;
+  readonly endSlot: number;
+  readonly forkSlot: number;
+  readonly forkGlassIndex?: number;
+  readonly id: string;
+  readonly minimumColumns: 2 | 3 | 4;
+  readonly nodeSlots: readonly number[];
 }
 
-const finalRow = 52;
 const { mainlineAnchorSelector, portalFrameSelector, portalSurfaceSelector } = Astro.props;
-const routes: readonly FullPageRoute[] = [
-  { accent: "peach", arrivalRow: 5, forkRow: 3, lane: 2, mergeApproachRow: 28, mergeRow: 30 },
-  { accent: "cyan", arrivalRow: 8, forkRow: 6, lane: 4, mergeApproachRow: 26, mergeRow: 28, sourceLane: 2 },
-  { accent: "peach", arrivalRow: 12, forkRow: 10, lane: 1, openEndRow: 52 },
-  { accent: "cyan", arrivalRow: 17, forkRow: 14, lane: 6, mergeApproachRow: 24, mergeRow: 26, sourceLane: 4 },
-  { accent: "peach", arrivalRow: 21, forkRow: 19, lane: 3, mergeApproachRow: 45, mergeRow: 47, sourceLane: 1 },
-  { accent: "cyan", arrivalRow: 20, forkRow: 18, lane: 8, openEndRow: 52, sourceLane: 6 },
-  { accent: "peach", arrivalRow: 31, forkRow: 29, lane: 5, mergeApproachRow: 43, mergeRow: 45, sourceLane: 3 },
-  { accent: "cyan", arrivalRow: 36, forkRow: 34, lane: 2, openEndRow: 52, sourceLane: 1 },
-  { accent: "peach", arrivalRow: 41, forkRow: 39, lane: 7, mergeApproachRow: 41, mergeRow: 43, sourceLane: 5 },
-];
-
-const mainlineNodes = [0, 2, 9, 25, 50, 52];
-const routeNodeRows = [
-  [5, 12],
-  [8, 17],
-  [15, 33, 42, 48],
-  [20, 23],
-  [27, 31, 44],
-  [21],
-  [36, 40],
-  [37, 46],
-  [],
+const worktrees: readonly AuthoredWorktree[] = [
+  {
+    accent: "peach",
+    endKind: "open",
+    endSlot: 18,
+    forkSlot: 2,
+    id: "worktree-a",
+    minimumColumns: 2,
+    nodeSlots: [],
+  },
+  {
+    accent: "cyan",
+    endKind: "merge",
+    endSlot: 10,
+    forkSlot: 4,
+    id: "worktree-b",
+    minimumColumns: 3,
+    nodeSlots: [],
+  },
+  {
+    accent: "peach",
+    endGlassIndex: 3,
+    endKind: "merge",
+    endSlot: 20,
+    forkGlassIndex: 1,
+    forkSlot: 8,
+    id: "worktree-c",
+    minimumColumns: 3,
+    nodeSlots: [],
+  },
+  {
+    accent: "cyan",
+    endKind: "open",
+    endSlot: 16,
+    forkGlassIndex: 2,
+    forkSlot: 14,
+    id: "worktree-d",
+    minimumColumns: 4,
+    nodeSlots: [],
+  },
+  {
+    accent: "peach",
+    endKind: "open",
+    endSlot: 17,
+    forkSlot: 11,
+    id: "worktree-e",
+    minimumColumns: 4,
+    nodeSlots: [],
+  },
 ] as const;
-const leadingEdgeBands = [
-  { end: 1 / 6, opacity: 1, start: 0 },
-  { end: 2 / 6, opacity: 0.78, start: 1 / 6 },
-  { end: 3 / 6, opacity: 0.56, start: 2 / 6 },
-  { end: 4 / 6, opacity: 0.34, start: 3 / 6 },
-  { end: 5 / 6, opacity: 0.16, start: 4 / 6 },
-  { end: 1, opacity: 0.04, start: 5 / 6 },
-] as const;
 
-function routeEndRow(route: FullPageRoute): number {
-  return route.mergeRow ?? route.openEndRow ?? finalRow;
-}
-
-function accentForLaneAtRow(lane: number, row: number): "main" | RouteAccent {
-  if (lane === 0) {
-    return "main";
-  }
-  const sourceRoute = routes.findLast(
-    (route) => route.lane === lane && route.arrivalRow <= row && routeEndRow(route) >= row,
-  );
-  return sourceRoute?.accent ?? "main";
-}
-
-const mainlineJunctionRows = new Set(
-  routes.flatMap((route) => {
-    if ((route.sourceLane ?? 0) !== 0) {
-      return [];
-    }
-    return route.mergeRow === undefined ? [route.forkRow] : [route.forkRow, route.mergeRow];
-  }),
-);
 ---
 
 <svg
   class="block h-full w-full"
   data-full-page-topology
-  data-design-final-row={finalRow}
   data-mainline-anchor-selector={mainlineAnchorSelector}
   data-portal-frame-selector={portalFrameSelector}
   data-portal-surface-selector={portalSurfaceSelector}
@@ -88,21 +84,25 @@ const mainlineJunctionRows = new Set(
   preserveAspectRatio="none"
   aria-hidden="true"
 >
+  <defs>
+    <linearGradient id="topology-vertical-reveal-gradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="white" stop-opacity="1" />
+      <stop offset="1" stop-color="white" stop-opacity="0" />
+    </linearGradient>
+    <mask id="topology-vertical-reveal-mask" maskUnits="userSpaceOnUse">
+      <rect data-topology-reveal-solid x="0" y="0" width="1000" height="0" fill="white" />
+      <rect
+        data-topology-reveal-fade
+        x="0"
+        y="0"
+        width="1000"
+        height="0"
+        fill="url(#topology-vertical-reveal-gradient)"
+      />
+    </mask>
+  </defs>
+  <g data-topology-reveal-layer mask="url(#topology-vertical-reveal-mask)">
   <g class="topology-primary">
-    {
-      leadingEdgeBands.map((band) => (
-        <path
-          class="topology-mainline topology-leading-edge topology-reveal-path"
-          data-mainline
-          data-topology-lead-start={band.start}
-          data-topology-lead-end={band.end}
-          data-topology-path-role="leading-band"
-          data-topology-path-start="0"
-          data-topology-path-end="1"
-          style={`opacity: ${band.opacity}`}
-        />
-      ))
-    }
     <path
       class="topology-mainline topology-line topology-reveal-path"
       data-mainline
@@ -113,141 +113,91 @@ const mainlineJunctionRows = new Set(
   </g>
 
   {
-    routes.map((route, routeIndex) => {
-      const routeEnd = routeEndRow(route);
-      return (
-        <g
-          class={`topology-route accent-${route.accent}`}
-          data-topology-route-group
-          data-route-lane={route.lane}
-          data-route-source-lane={route.sourceLane ?? 0}
-        >
-          {leadingEdgeBands.map((band) => (
-            <path
-              class="topology-leading-edge topology-reveal-path"
-              data-route
-              data-source-lane={route.sourceLane ?? 0}
-              data-lane={route.lane}
-              data-fork-row={route.forkRow}
-              data-arrival-row={route.arrivalRow}
-              data-merge-approach-row={route.mergeApproachRow}
-              data-merge-row={route.mergeRow}
-              data-open-end-row={route.openEndRow}
-              data-topology-lead-start={band.start}
-              data-topology-lead-end={band.end}
-              data-topology-path-role="leading-band"
-              data-topology-path-start={route.forkRow / finalRow}
-              data-topology-path-end={routeEnd / finalRow}
-              style={`opacity: ${band.opacity}`}
-            />
-          ))}
+    worktrees.map((worktree) => (
+      <g
+        class={`topology-route accent-${worktree.accent}`}
+        data-topology-route-group
+        data-route-id={worktree.id}
+        data-minimum-columns={worktree.minimumColumns}
+        data-fork-slot={worktree.forkSlot}
+        data-fork-glass-index={worktree.forkGlassIndex}
+        data-end-slot={worktree.endSlot}
+        data-end-glass-index={worktree.endGlassIndex}
+        data-end-kind={worktree.endKind}
+      >
+        <path
+          class="topology-clearance topology-reveal-path"
+          data-route
+          data-topology-path-role="clearance"
+          data-topology-path-start="0"
+          data-topology-path-end="1"
+        />
         <path
           class="topology-line topology-reveal-path"
           data-route
-          data-source-lane={route.sourceLane ?? 0}
-          data-lane={route.lane}
-          data-fork-row={route.forkRow}
-          data-arrival-row={route.arrivalRow}
-          data-merge-approach-row={route.mergeApproachRow}
-          data-merge-row={route.mergeRow}
-          data-open-end-row={route.openEndRow}
           data-topology-path-role="core"
-          data-topology-path-start={route.forkRow / finalRow}
-          data-topology-path-end={routeEnd / finalRow}
+          data-topology-path-start="0"
+          data-topology-path-end="1"
         />
-        {routeNodeRows[routeIndex]?.map((row) => (
+        <circle
+          class="accent-main"
+          data-node
+          data-node-position="fork"
+          data-topology-route-node
+          data-topology-node-progress="1"
+          r="4"
+        />
+        {worktree.nodeSlots.map((slot) => (
           <circle
             data-node
-            data-lane={route.lane}
-            data-row={row}
-            data-topology-node-progress={row / finalRow}
+            data-node-position="target"
+            data-node-slot={slot}
+            data-topology-node-progress="1"
             r="4"
           />
         ))}
+        <circle
+          class={worktree.endKind === "merge" ? "accent-main" : undefined}
+          data-node
+          data-node-position="end"
+          data-topology-route-node
+          data-topology-node-progress="1"
+          r="4"
+        />
       </g>
-      );
-    })
+    ))
   }
 
+  <g
+    class="node-terminal-group accent-main"
+    data-node
+    data-mainline-node="start"
+    data-topology-node-progress="0"
+  >
+    <circle class="node-terminal-halo" r="7" />
+    <circle class="node-terminal" r="7" />
+  </g>
+  <g
+    class="node-terminal-group accent-main"
+    data-node
+    data-mainline-node="end"
+    data-topology-node-progress="1"
+  >
+    <circle class="node-terminal-halo" r="7" />
+    <circle class="node-terminal" r="7" />
+  </g>
   {
-    mainlineNodes.filter((row) => !mainlineJunctionRows.has(row)).map((row) => {
-      const terminal = row === 0 || row === finalRow;
-      if (terminal) {
-        return (
-          <g
-            class="node-terminal-group accent-main"
-            data-node
-            data-lane="0"
-            data-row={row}
-            data-topology-node-progress={row / finalRow}
-          >
-            <circle class="node-terminal-halo" r="7" />
-            <circle class="node-terminal" r="7" />
-          </g>
-        );
-      }
-      return (
-        <circle
-          class="node-filled"
-          data-node
-          data-lane="0"
-          data-row={row}
-          data-topology-node-progress={row / finalRow}
-          r="4"
-        />
-      );
-    })
+    Array.from({ length: 64 }, (_, index) => (
+      <circle
+        class="accent-main"
+        data-node
+        data-mainline-fill-index={index}
+        data-topology-node-progress="1"
+        r="4"
+      />
+    ))
   }
-
-  {
-    routes.map((route) => {
-      const sourceLane = route.sourceLane ?? 0;
-      const sourceAccent = accentForLaneAtRow(sourceLane, route.forkRow);
-      return (
-        <circle
-          class={sourceAccent === "main" ? "accent-main" : `accent-${sourceAccent}`}
-          data-node
-          data-topology-route-node
-          data-route-node-kind="fork"
-          data-route-lane={route.lane}
-          data-route-source-lane={sourceLane}
-          data-lane={sourceLane}
-          data-row={route.forkRow}
-          data-topology-node-progress={route.forkRow / finalRow}
-          r="4"
-        />
-      );
-    })
-  }
-
-  {
-    routes.map((route) => {
-      if (route.mergeRow === undefined) {
-        return null;
-      }
-      const sourceLane = route.sourceLane ?? 0;
-      const sourceAccent = accentForLaneAtRow(sourceLane, route.mergeRow);
-      return (
-        <g
-          class:list={[
-            "node-merge",
-            sourceAccent === "main" ? "accent-main" : `accent-${sourceAccent}`,
-          ]}
-          data-node
-          data-topology-route-node
-          data-route-node-kind="merge"
-          data-route-lane={route.lane}
-          data-route-source-lane={sourceLane}
-          data-lane={sourceLane}
-          data-row={route.mergeRow}
-          data-topology-node-progress={route.mergeRow / finalRow}
-        >
-          <circle r="8" />
-          <path d="M -3 -1 L 0 2 L 3 -1" />
-        </g>
-      );
-    })
-  }
+  </g>
 </svg>
 
 <script>
@@ -282,24 +232,22 @@ const mainlineJunctionRows = new Set(
     stroke-width: 1px;
   }
 
-  .topology-reveal-path {
-    stroke-dasharray: 1;
-    stroke-dashoffset: 1;
+  .topology-route > .topology-clearance {
+    stroke: var(--color-canvas);
+    stroke-width: 5px;
   }
 
-  .topology-leading-edge {
-    stroke-linecap: butt;
+  .topology-reveal-path {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
   }
 
   [data-topology-node-progress] {
     opacity: 0;
   }
 
-  [data-topology-at-start] [data-topology-node-progress="0"] {
-    animation: topology-start-node-breathe 3.2s ease-in-out infinite;
-  }
-
-  [data-topology-at-end] .node-terminal-halo {
+  [data-topology-at-start] [data-topology-node-progress="0"] .node-terminal-halo,
+  [data-topology-at-end] [data-topology-node-progress="1"] .node-terminal-halo {
     animation: topology-terminal-node-halo 3.2s ease-out infinite;
   }
 
@@ -328,11 +276,6 @@ const mainlineJunctionRows = new Set(
     stroke: currentColor;
   }
 
-  .node-filled,
-  .node-terminal {
-    color: #89b4fa;
-  }
-
   .node-terminal {
     fill: #89b4fa;
     stroke: #89b4fa;
@@ -345,31 +288,6 @@ const mainlineJunctionRows = new Set(
     opacity: 0;
     transform-box: fill-box;
     transform-origin: center;
-  }
-
-  .node-merge circle {
-    fill: #2e3036;
-    stroke: currentColor;
-    stroke-width: 1.5px;
-  }
-
-  .node-merge path {
-    fill: none;
-    stroke: currentColor;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    stroke-width: 1.5px;
-  }
-
-  @keyframes topology-start-node-breathe {
-    0%,
-    100% {
-      opacity: 0.2;
-    }
-
-    50% {
-      opacity: 0.8;
-    }
   }
 
   @keyframes topology-terminal-node-halo {
@@ -386,12 +304,8 @@ const mainlineJunctionRows = new Set(
   }
 
   @media (prefers-reduced-motion: reduce) {
-    [data-topology-node-progress="0"],
     .node-terminal-halo {
       animation: none;
-    }
-
-    .node-terminal-halo {
       opacity: 0;
     }
   }

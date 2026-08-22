@@ -9,254 +9,427 @@ async function waitForTopologyRender(page: Page): Promise<void> {
   );
 }
 
-test("mounts the responsive full-page topology from the hero icon anchor", async ({ page }) => {
-  await page.setViewportSize({ width: 1810, height: 1066 });
-  await page.goto("/");
-  await waitForTopologyRender(page);
-
-  const backdrop = page.locator("[data-site-topology-backdrop]");
-  const artwork = page.locator("[data-full-page-topology]");
-  await expect(backdrop).toBeVisible();
-
-  const geometry = await artwork.evaluate((svg) => {
+async function inspectVisibleTopology(page: Page): Promise<{
+  readonly bridgeSurfaceIndexes: readonly number[];
+  readonly columnCount: number;
+  readonly duplicateNodeRowCount: number;
+  readonly mainlineX: number;
+  readonly maximumReverseYStep: number;
+  readonly resolvedLanes: readonly number[];
+  readonly rowCount: number;
+  readonly topologyVariant: string | undefined;
+  readonly worktreesMovingLeftCount: number;
+  readonly visibleWorktreeCount: number;
+  readonly visibleNodeCount: number;
+  readonly worktreeCount: number;
+}> {
+  return page.locator("[data-full-page-topology]").evaluate((svg) => {
     if (!(svg instanceof SVGSVGElement)) {
       throw new Error("Homepage topology artwork is not an SVG");
     }
-    const anchor = document.querySelector("[data-topology-mainline-anchor]");
-    const mainline = svg.querySelector<SVGPathElement>(
-      '[data-mainline][data-topology-path-role="core"]',
-    );
-    const startNode = svg.querySelector<SVGGraphicsElement>('[data-topology-node-progress="0"]');
-    if (!(anchor instanceof HTMLElement) || mainline === null || startNode === null) {
-      throw new Error("Homepage topology anchor geometry is incomplete");
-    }
-
     const artworkBounds = svg.getBoundingClientRect();
-    const anchorBounds = anchor.getBoundingClientRect();
-    const frameBounds = document.querySelector(".site-frame")?.getBoundingClientRect();
-    if (frameBounds === undefined) {
-      throw new Error("Homepage frame geometry is missing");
-    }
-    const anchorRight = anchorBounds.right - artworkBounds.left;
-    const frameRight = frameBounds.right - artworkBounds.left;
-    const startPoint = mainline.getPointAtLength(0);
-    const startMatrix = startNode.transform.baseVal.consolidate()?.matrix;
-    const nodeAspectRatios = [...svg.querySelectorAll<SVGGraphicsElement>("[data-node]")].flatMap(
-      (node) => {
-        const bounds = node.getBoundingClientRect();
-        return bounds.width > 0 && bounds.height > 0 ? [bounds.width / bounds.height] : [];
-      },
-    );
-    const routes = [
-      ...svg.querySelectorAll<SVGPathElement>('[data-route][data-topology-path-role="core"]'),
-    ];
-    const nodeRows = [...svg.querySelectorAll<SVGGraphicsElement>("[data-node]")].reduce(
-      (rows, node) => {
-        const row = node.dataset["row"];
-        if (row !== undefined) {
-          rows.set(row, (rows.get(row) ?? 0) + 1);
-        }
-        return rows;
-      },
-      new Map<string, number>(),
-    );
-    const visibleRoutes = routes.filter(
-      (route) =>
-        route.parentElement !== null && getComputedStyle(route.parentElement).display !== "none",
-    );
-    const mergingRoutes = routes.filter((route) => route.dataset["mergeRow"] !== undefined);
-    const teleportRowDeltas = visibleRoutes.flatMap((route) => {
-      const pathData = route.getAttribute("d") ?? "";
-      return [
-        ...pathData.matchAll(
-          /M (-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?) M (-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g,
-        ),
-      ]
-        .filter((match) => Math.abs(Number(match[1]) - Number(match[3])) > frameBounds.width / 2)
-        .map((match) => Math.abs(Number(match[2]) - Number(match[4])));
-    });
-
-    return {
-      anchorCenterY: anchorBounds.top + anchorBounds.height / 2 - artworkBounds.top,
-      clientWidth: document.documentElement.clientWidth,
-      columnCount: Number(svg.dataset["columnCount"]),
-      documentHeight: document.documentElement.scrollHeight,
-      expectedMainlineX: Math.max(
-        anchorRight + ((artworkBounds.width - anchorRight) * 2) / 3,
-        frameRight + (artworkBounds.width - frameRight) / 2,
-      ),
-      maximumNodeAspectRatio: Math.max(...nodeAspectRatios),
-      maximumNodesPerRow: Math.max(...nodeRows.values()),
-      minimumNodeAspectRatio: Math.min(...nodeAspectRatios),
-      minimumMergeRowSpan: Math.min(
-        ...mergingRoutes.map(
-          (route) => Number(route.dataset["mergeRow"]) - Number(route.dataset["mergeApproachRow"]),
-        ),
-      ),
-      openRouteCount: routes.filter((route) => route.dataset["openEndRow"] !== undefined).length,
-      portalActive: svg.hasAttribute("data-topology-portal-active"),
-      rowCount: Number(svg.dataset["rowCount"]),
-      scrollWidth: document.documentElement.scrollWidth,
-      startNode: { x: startMatrix?.e, y: startMatrix?.f },
-      startPoint: { x: startPoint.x, y: startPoint.y },
-      svgHeight: artworkBounds.height,
-      svgWidth: artworkBounds.width,
-      teleportCount: teleportRowDeltas.length,
-      maximumTeleportRowDelta: Math.max(...teleportRowDeltas),
-      totalRouteCount: routes.length,
-      visibleRouteCount: visibleRoutes.length,
-      viewBoxHeight: svg.viewBox.baseVal.height,
-      viewBoxWidth: svg.viewBox.baseVal.width,
-    };
-  });
-
-  expect(geometry.scrollWidth).toBe(geometry.clientWidth);
-  expect(geometry.svgHeight).toBeGreaterThanOrEqual(geometry.documentHeight - 20);
-  expect(geometry.viewBoxWidth).toBeCloseTo(geometry.svgWidth, 0);
-  expect(geometry.viewBoxHeight).toBeCloseTo(geometry.svgHeight, 0);
-  expect(geometry.columnCount).toBeGreaterThan(1);
-  expect(geometry.rowCount).toBeGreaterThan(1);
-  expect(geometry.startPoint.x).toBeCloseTo(geometry.expectedMainlineX, 3);
-  expect(geometry.startPoint.y).toBeCloseTo(geometry.anchorCenterY, 3);
-  expect(geometry.startNode.x).toBeCloseTo(geometry.startPoint.x, 3);
-  expect(geometry.startNode.y).toBeCloseTo(geometry.startPoint.y, 3);
-  expect(geometry.minimumNodeAspectRatio).toBeGreaterThanOrEqual(0.99);
-  expect(geometry.maximumNodeAspectRatio).toBeLessThanOrEqual(1.01);
-  expect(geometry.maximumNodesPerRow).toBe(1);
-  expect(geometry.openRouteCount).toBe(3);
-  expect(geometry.minimumMergeRowSpan).toBeGreaterThanOrEqual(2);
-  expect(geometry.portalActive).toBe(true);
-  expect(geometry.visibleRouteCount).toBeGreaterThan(0);
-  expect(geometry.visibleRouteCount).toBeLessThan(geometry.totalRouteCount);
-  expect(geometry.teleportCount).toBeGreaterThan(0);
-  expect(geometry.maximumTeleportRowDelta).toBe(0);
-
-  await page.setViewportSize({ width: 3007, height: 1066 });
-  await waitForTopologyRender(page);
-  expect(
-    await artwork.evaluate(
-      (svg) =>
-        [...svg.querySelectorAll("[data-topology-route-group]")].filter(
-          (route) => getComputedStyle(route).display !== "none",
-        ).length,
-    ),
-  ).toBe(9);
-  await page.setViewportSize({ width: 1810, height: 1066 });
-  await waitForTopologyRender(page);
-
-  const initialState = await artwork.evaluate((svg) => {
-    const startNode = svg.querySelector('[data-topology-node-progress="0"]');
-    const mainline = svg.querySelector<SVGPathElement>(
-      '[data-mainline][data-topology-path-role="core"]',
-    );
-    return {
-      atStart: svg.hasAttribute("data-topology-at-start"),
-      mainlineVisibility: mainline === null ? null : getComputedStyle(mainline).visibility,
-      startAnimation: startNode === null ? null : getComputedStyle(startNode).animationName,
-    };
-  });
-  expect(initialState).toEqual({
-    atStart: true,
-    mainlineVisibility: "hidden",
-    startAnimation: "topology-start-node-breathe",
-  });
-
-  await page.evaluate(() => {
-    const maximumScroll = document.documentElement.scrollHeight - window.innerHeight;
-    window.scrollTo({ top: maximumScroll * 0.5, behavior: "instant" });
-  });
-  await waitForTopologyRender(page);
-
-  const middleState = await artwork.evaluate((svg) => {
     const mainline = svg.querySelector<SVGPathElement>(
       '[data-mainline][data-topology-path-role="core"]',
     );
     if (mainline === null) {
       throw new Error("Homepage topology mainline is missing");
     }
+    const visibleRoutes = [
+      ...svg.querySelectorAll<SVGGElement>("[data-topology-route-group]"),
+    ].filter((group) => getComputedStyle(group).display !== "none");
+    const routeYSteps = visibleRoutes.flatMap((group) => {
+      const route = group.querySelector<SVGPathElement>(
+        '[data-route][data-topology-path-role="core"]',
+      );
+      if (route === null) {
+        return [];
+      }
+      const routeLength = route.getTotalLength();
+      const points = Array.from({ length: 101 }, (_, index) =>
+        route.getPointAtLength((routeLength * index) / 100),
+      );
+      return points.flatMap((point, index) => {
+        const previousPoint = points[index - 1];
+        return previousPoint === undefined ? [] : [previousPoint.y - point.y];
+      });
+    });
+    const visibleNodes = [...svg.querySelectorAll<SVGGraphicsElement>("[data-node]")].filter(
+      (node) => {
+        const routeGroup = node.closest<SVGGElement>("[data-topology-route-group]");
+        return (
+          getComputedStyle(node).display !== "none" &&
+          (routeGroup === null || getComputedStyle(routeGroup).display !== "none")
+        );
+      },
+    );
+    const resolvedRows = visibleNodes.map((node) => node.dataset["resolvedRow"]);
+    const bridgeNodes = visibleNodes.filter((node) =>
+      node.hasAttribute("data-topology-glass-bridge"),
+    );
+    const glassSurfaces = [
+      ...document.querySelectorAll<HTMLElement>("[data-scroll-material-surface]"),
+    ].map((surface) => surface.getBoundingClientRect());
+    const bridgeSurfaceIndexes = bridgeNodes
+      .map((node) => {
+        const bounds = node.getBoundingClientRect();
+        const centerY = bounds.top + bounds.height / 2;
+        return glassSurfaces.findIndex(
+          (surface) => centerY >= surface.top && centerY <= surface.bottom,
+        );
+      })
+      .toSorted((left, right) => left - right);
     return {
-      mainlineProgress:
-        Number.parseFloat(mainline.style.strokeDasharray) / mainline.getTotalLength(),
-      visibleLeadingBands: [
-        ...svg.querySelectorAll('[data-topology-path-role="leading-band"]'),
-      ].filter((path) => getComputedStyle(path).visibility !== "hidden").length,
+      bridgeSurfaceIndexes,
+      columnCount: Number(svg.dataset["columnCount"]),
+      duplicateNodeRowCount: resolvedRows.length - new Set(resolvedRows).size,
+      mainlineX: mainline.getPointAtLength(0).x - artworkBounds.left,
+      maximumReverseYStep: Math.max(...routeYSteps),
+      resolvedLanes: visibleRoutes.map((group) => Number(group.dataset["resolvedLane"])),
+      rowCount: Number(svg.dataset["rowCount"]),
+      topologyVariant: svg.dataset["topologyVariant"],
+      worktreesMovingLeftCount: visibleRoutes.filter((group) => {
+        return Number(group.dataset["resolvedTargetX"]) < Number(group.dataset["resolvedSourceX"]);
+      }).length,
+      visibleWorktreeCount: visibleRoutes.length,
+      visibleNodeCount: visibleNodes.length,
+      worktreeCount: Number(svg.dataset["worktreeCount"]),
     };
   });
-  expect(middleState.mainlineProgress).toBeCloseTo(0.5, 2);
-  expect(middleState.visibleLeadingBands).toBeGreaterThan(0);
+}
+
+interface ExpectedTopologyVariant {
+  readonly expectedBridgeSurfaceIndexes: readonly number[];
+  readonly expectedColumns: number;
+  readonly expectedLanes: readonly number[];
+  readonly expectedVariant: string;
+  readonly expectedWorktrees: number;
+  readonly width: number;
+}
+
+async function expectTopologyVariant(page: Page, expected: ExpectedTopologyVariant): Promise<void> {
+  await page.setViewportSize({ height: 1066, width: expected.width });
+  await waitForTopologyRender(page);
+  const state = await inspectVisibleTopology(page);
+  expect(state.columnCount).toBe(expected.expectedColumns);
+  expect(state.topologyVariant).toBe(expected.expectedVariant);
+  expect(state.visibleWorktreeCount).toBe(expected.expectedWorktrees);
+  expect(state.worktreeCount).toBe(expected.expectedWorktrees);
+  expect(state.resolvedLanes).toEqual(expected.expectedLanes);
+  expect(state.duplicateNodeRowCount).toBe(0);
+  expect(state.visibleNodeCount).toBe(state.rowCount);
+  expect(state.worktreesMovingLeftCount).toBe(expected.expectedWorktrees);
+  expect(state.bridgeSurfaceIndexes).toEqual(expected.expectedBridgeSurfaceIndexes);
+  expect(state.mainlineX).toBeCloseTo(expected.width - 144, 3);
+  expect(state.maximumReverseYStep).toBeLessThanOrEqual(0.01);
+}
+
+test("hides the complete topology until both gutters fit two usable columns", async ({ page }) => {
+  await page.setViewportSize({ height: 1066, width: 1810 });
+  await page.goto("/");
+  await waitForTopologyRender(page);
+
+  const artwork = page.locator("[data-full-page-topology]");
+  await expect(artwork).toBeHidden();
+  await expect(artwork).toHaveAttribute(
+    "data-topology-hidden-reason",
+    "insufficient-gutter-capacity",
+  );
+});
+
+test("selects the authored 1, 3, and 5-worktree variants from gutter capacity", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expectTopologyVariant(page, {
+    expectedBridgeSurfaceIndexes: [],
+    expectedColumns: 2,
+    expectedLanes: [1],
+    expectedVariant: "compact",
+    expectedWorktrees: 1,
+    width: 2200,
+  });
+  await expectTopologyVariant(page, {
+    expectedBridgeSurfaceIndexes: [1, 3],
+    expectedColumns: 3,
+    expectedLanes: [1, 2, 3],
+    expectedVariant: "standard",
+    expectedWorktrees: 3,
+    width: 2300,
+  });
+  await expectTopologyVariant(page, {
+    expectedBridgeSurfaceIndexes: [1, 2, 3],
+    expectedColumns: 4,
+    expectedLanes: [1, 2, 3, 4, 2],
+    expectedVariant: "expanded",
+    expectedWorktrees: 5,
+    width: 2400,
+  });
+});
+
+test("reveals the authored topology by scroll progress and ends on the mainline halo", async ({
+  page,
+}) => {
+  await page.setViewportSize({ height: 1066, width: 2400 });
+  await page.goto("/");
+  await waitForTopologyRender(page);
+
+  const artwork = page.locator("[data-full-page-topology]");
+  await page.evaluate(() => {
+    const maximumScroll = document.documentElement.scrollHeight - window.innerHeight;
+    window.scrollTo({ behavior: "instant", top: maximumScroll * 0.5 });
+  });
+  await waitForTopologyRender(page);
+  const middleReveal = await artwork.evaluate((svg) => {
+    const revealPaths = [...svg.querySelectorAll<SVGPathElement>("[data-topology-path-start]")];
+    const revealLayer = svg.querySelector<SVGGElement>("[data-topology-reveal-layer]");
+    const revealSolid = svg.querySelector<SVGRectElement>("[data-topology-reveal-solid]");
+    const revealFade = svg.querySelector<SVGRectElement>("[data-topology-reveal-fade]");
+    if (revealLayer === null || revealSolid === null || revealFade === null) {
+      throw new Error("Topology vertical reveal mask is incomplete");
+    }
+    const topologyStartY = Number(svg.dataset["topologyStartY"]);
+    const topologyEndY = Number(svg.dataset["topologyEndY"]);
+    return {
+      fadeHeight: Number(revealFade.getAttribute("height")),
+      fadeY: Number(revealFade.getAttribute("y")),
+      maskReference: revealLayer.getAttribute("mask"),
+      pathDashArrays: revealPaths.map((path) => path.style.strokeDasharray),
+      expectedRevealEdgeY: topologyStartY + (topologyEndY - topologyStartY) * 0.5,
+      leadingBandCount: [
+        ...svg.querySelectorAll<SVGPathElement>('[data-topology-path-role="leading-band"]'),
+      ].filter((path) => getComputedStyle(path).visibility !== "hidden").length,
+      revealEdgeY: Number(svg.dataset["topologyRevealEdgeY"]),
+      solidHeight: Number(revealSolid.getAttribute("height")),
+    };
+  });
+  expect(middleReveal.leadingBandCount).toBe(0);
+  expect(middleReveal.maskReference).toBe("url(#topology-vertical-reveal-mask)");
+  expect(new Set(middleReveal.pathDashArrays)).toEqual(new Set(["none"]));
+  expect(Math.abs(middleReveal.revealEdgeY - middleReveal.expectedRevealEdgeY)).toBeLessThan(1);
+  expect(middleReveal.solidHeight).toBeCloseTo(middleReveal.revealEdgeY, 4);
+  expect(middleReveal.fadeY).toBeCloseTo(middleReveal.revealEdgeY, 4);
+  expect(middleReveal.fadeHeight).toBeGreaterThan(0);
 
   await page.evaluate(() =>
-    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" }),
+    window.scrollTo({ behavior: "instant", top: document.documentElement.scrollHeight }),
+  );
+  await waitForTopologyRender(page);
+  const finalState = await artwork.evaluate((svg) => {
+    const finalNode = svg.querySelector('[data-mainline-node="end"]');
+    const finalHalo = finalNode?.querySelector(".node-terminal-halo");
+    const startNode = svg.querySelector('[data-mainline-node="start"]');
+    const startHalo = startNode?.querySelector(".node-terminal-halo");
+    return {
+      atEnd: svg.hasAttribute("data-topology-at-end"),
+      finalHaloAnimation:
+        finalHalo === null || finalHalo === undefined
+          ? null
+          : getComputedStyle(finalHalo).animationName,
+      startHaloAnimation:
+        startHalo === null || startHalo === undefined
+          ? null
+          : getComputedStyle(startHalo).animationName,
+    };
+  });
+  expect(finalState).toEqual({
+    atEnd: true,
+    finalHaloAnimation: "topology-terminal-node-halo",
+    startHaloAnimation: "none",
+  });
+});
+
+test("keeps the topology hidden below xl and static for reduced motion", async ({ page }) => {
+  await page.setViewportSize({ height: 900, width: 1279 });
+  await page.goto("/");
+  await expect(page.locator("[data-site-topology-backdrop]")).toBeHidden();
+
+  await page.setViewportSize({ height: 1066, width: 2400 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await waitForTopologyRender(page);
+  const state = await page.locator("[data-full-page-topology]").evaluate((svg) => {
+    const nodes = [
+      ...svg.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]"),
+    ].filter((node) => {
+      const group = node.closest<SVGGElement>("[data-topology-route-group]");
+      return group === null || getComputedStyle(group).display !== "none";
+    });
+    return {
+      totalNodes: nodes.length,
+      visibleNodes: nodes.filter((node) => Number(getComputedStyle(node).opacity) > 0).length,
+    };
+  });
+  expect(state.visibleNodes).toBe(state.totalNodes);
+});
+
+test("proves main-based allocation and row occupancy on the uncluttered topology lab", async ({
+  page,
+}) => {
+  await page.setViewportSize({ height: 1066, width: 2800 });
+  await page.goto("/topology-full-page-lab");
+  await page.evaluate(() =>
+    window.scrollTo({ behavior: "instant", top: document.documentElement.scrollHeight }),
   );
   await waitForTopologyRender(page);
 
-  const finalState = await artwork.evaluate((svg) => {
-    const finalNode = svg.querySelector('.node-terminal-group[data-topology-node-progress="1"]');
-    const terminalHalo = finalNode?.querySelector(".node-terminal-halo");
-    const topologyNodes = [...svg.querySelectorAll("[data-topology-node-progress]")];
-    const progressOneNodes = topologyNodes.filter(
-      (node) => node.getAttribute("data-topology-node-progress") === "1",
-    );
-    return {
-      atEnd: svg.hasAttribute("data-topology-at-end"),
-      finalNodeOpacity: finalNode === null ? null : getComputedStyle(finalNode).opacity,
-      haloAnimation:
-        terminalHalo === null || terminalHalo === undefined
-          ? null
-          : getComputedStyle(terminalHalo).animationName,
-      totalNodes: topologyNodes.length,
-      progressOneNodeCount: progressOneNodes.length,
-      visibleLeadingBands: [
-        ...svg.querySelectorAll('[data-topology-path-role="leading-band"]'),
-      ].filter((path) => getComputedStyle(path).visibility !== "hidden").length,
-      visibleNodes: topologyNodes.filter((node) => Number(getComputedStyle(node).opacity) > 0)
-        .length,
-    };
-  });
-  expect(finalState.atEnd).toBe(true);
-  expect(finalState.finalNodeOpacity).toBe("1");
-  expect(finalState.haloAnimation).toBe("topology-terminal-node-halo");
-  expect(finalState.visibleLeadingBands).toBe(0);
-  expect(finalState.visibleNodes).toBe(finalState.totalNodes);
-  expect(finalState.progressOneNodeCount).toBe(1);
-});
-
-test("hides the topology below the xl breakpoint", async ({ page }) => {
-  await page.setViewportSize({ width: 1279, height: 900 });
-  await page.goto("/");
-
-  await expect(page.locator("[data-site-topology-backdrop]")).toBeHidden();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth === document.documentElement.clientWidth,
-    ),
-  ).toBe(true);
-});
-
-test("renders the complete grid without animation for reduced motion", async ({ page }) => {
-  await page.setViewportSize({ width: 1810, height: 1066 });
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/");
-  await waitForTopologyRender(page);
-
   const state = await page.locator("[data-full-page-topology]").evaluate((svg) => {
-    const startNode = svg.querySelector('[data-topology-node-progress="0"]');
-    const finalNode = svg.querySelector('.node-terminal-group[data-topology-node-progress="1"]');
-    const terminalHalo = finalNode?.querySelector(".node-terminal-halo");
-    const topologyNodes = [...svg.querySelectorAll("[data-topology-node-progress]")];
+    const svgBounds = svg.getBoundingClientRect();
+    const frameBounds = document
+      .querySelector<HTMLElement>("[data-topology-lab-frame]")
+      ?.getBoundingClientRect();
+    if (frameBounds === undefined) {
+      throw new Error("Topology lab frame is missing");
+    }
+    const frameLeft = frameBounds.left - svgBounds.left;
+    const frameRight = frameBounds.right - svgBounds.left;
+    const glassBands = [
+      ...document.querySelectorAll<HTMLElement>("[data-topology-lab-surface]"),
+    ].map((surface) => {
+      const bounds = surface.getBoundingClientRect();
+      return { bottom: bounds.bottom - svgBounds.top, top: bounds.top - svgBounds.top };
+    });
+    const visibleGroups = [
+      ...svg.querySelectorAll<SVGGElement>("[data-topology-route-group]"),
+    ].filter((group) => getComputedStyle(group).display !== "none");
+    const visibleNodes = [...svg.querySelectorAll<SVGGraphicsElement>("[data-node]")].filter(
+      (node) => {
+        const group = node.closest<SVGGElement>("[data-topology-route-group]");
+        return (
+          getComputedStyle(node).display !== "none" &&
+          Number(getComputedStyle(node).opacity) > 0 &&
+          (group === null || getComputedStyle(group).display !== "none")
+        );
+      },
+    );
+    const routeFacts = visibleGroups.map((group) => {
+      const fork = group.querySelector<SVGCircleElement>('[data-node-position="fork"]');
+      const end = group.querySelector<SVGCircleElement>('[data-node-position="end"]');
+      const route = group.querySelector<SVGPathElement>(
+        '[data-route][data-topology-path-role="core"]',
+      );
+      if (fork === null || end === null || route === null) {
+        throw new Error("Topology lab route nodes are incomplete");
+      }
+      const routeLength = route.getTotalLength();
+      const routePoints = Array.from({ length: 401 }, (_, pointIndex) =>
+        route.getPointAtLength((routeLength * pointIndex) / 400),
+      );
+      const startPoint = routePoints[0];
+      const endPoint = routePoints.at(-1);
+      if (startPoint === undefined || endPoint === undefined) {
+        throw new Error("Topology lab route geometry is empty");
+      }
+      return {
+        endDelta: Math.hypot(
+          endPoint.x - Number(end.getAttribute("cx")),
+          endPoint.y - Number(end.getAttribute("cy")),
+        ),
+        endKind: group.dataset["endKind"],
+        endX: Number(end.getAttribute("cx")),
+        forkX: Number(fork.getAttribute("cx")),
+        lane: Number(group.dataset["resolvedLane"]),
+        minimumX: Math.min(...routePoints.map((point) => point.x)),
+        startDelta: Math.hypot(
+          startPoint.x - Number(fork.getAttribute("cx")),
+          startPoint.y - Number(fork.getAttribute("cy")),
+        ),
+        targetX: Number(group.dataset["resolvedTargetX"]),
+        unauthorizedFramePointCount: routePoints.filter(
+          (point) =>
+            point.x > frameLeft &&
+            point.x < frameRight &&
+            !glassBands.some((band) => point.y >= band.top && point.y <= band.bottom),
+        ).length,
+      };
+    });
+    const mainline = svg.querySelector<SVGPathElement>(
+      '[data-mainline][data-topology-path-role="core"]',
+    );
+    if (mainline === null) {
+      throw new Error("Topology lab mainline is missing");
+    }
+    const mainlineXAtY = (targetY: number): number => {
+      const totalLength = mainline.getTotalLength();
+      let lowerLength = 0;
+      let upperLength = totalLength;
+      for (let iteration = 0; iteration < 24; iteration += 1) {
+        const middleLength = lowerLength + (upperLength - lowerLength) / 2;
+        if (mainline.getPointAtLength(middleLength).y <= targetY) {
+          lowerLength = middleLength;
+        } else {
+          upperLength = middleLength;
+        }
+      }
+      return mainline.getPointAtLength(lowerLength).x;
+    };
+    const resolvedRows = visibleNodes.map((node) => Number(node.dataset["resolvedRow"]));
     return {
-      haloAnimation:
-        terminalHalo === null || terminalHalo === undefined
-          ? null
-          : getComputedStyle(terminalHalo).animationName,
-      startAnimation: startNode === null ? null : getComputedStyle(startNode).animationName,
-      totalNodes: topologyNodes.length,
-      visibleNodes: topologyNodes.filter((node) => Number(getComputedStyle(node).opacity) > 0)
-        .length,
+      duplicateRowCount: resolvedRows.length - new Set(resolvedRows).size,
+      maximumForkMainlineDelta: Math.max(
+        ...visibleGroups.map((group) => {
+          const fork = group.querySelector<SVGCircleElement>('[data-node-position="fork"]');
+          if (fork === null) {
+            throw new Error("Topology lab fork is missing");
+          }
+          return Math.abs(
+            Number(fork.getAttribute("cx")) - mainlineXAtY(Number(fork.getAttribute("cy"))),
+          );
+        }),
+      ),
+      maximumLocalLaneSpacingError: Math.max(
+        ...routeFacts
+          .filter((route) => route.lane <= 2)
+          .map((route) => Math.abs(route.forkX - route.targetX - route.lane * 96)),
+      ),
+      maximumMainlineXDrift: Math.max(
+        ...Array.from({ length: 101 }, (_, index) =>
+          Math.abs(
+            mainline.getPointAtLength((mainline.getTotalLength() * index) / 100).x -
+              mainline.getPointAtLength(0).x,
+          ),
+        ),
+      ),
+      mainlineForkX: routeFacts[0]?.forkX,
+      rowCount: Number(svg.dataset["rowCount"]),
+      routeFacts,
+      visibleNodeCount: visibleNodes.length,
+      worktreeCount: Number(svg.dataset["worktreeCount"]),
     };
   });
 
-  expect(state.haloAnimation).toBe("none");
-  expect(state.startAnimation).toBe("none");
-  expect(state.visibleNodes).toBe(state.totalNodes);
+  expect(await page.locator("main").innerText()).toBe("");
+  expect(state.worktreeCount).toBe(5);
+  expect(state.visibleNodeCount).toBe(state.rowCount);
+  expect(state.duplicateRowCount).toBe(0);
+  expect(state.routeFacts.map((route) => route.lane)).toEqual([1, 2, 3, 4, 2]);
+  expect(new Set(state.routeFacts.map((route) => route.forkX)).size).toBe(1);
+  expect(state.mainlineForkX).toBe(2800 - 144);
+  expect(state.maximumForkMainlineDelta).toBeLessThanOrEqual(0.01);
+  expect(state.maximumLocalLaneSpacingError).toBeLessThanOrEqual(0.01);
+  expect(state.maximumMainlineXDrift).toBeLessThanOrEqual(0.01);
+  expect(state.routeFacts.every((route) => route.startDelta <= 0.01)).toBe(true);
+  expect(state.routeFacts.every((route) => route.endDelta <= 0.01)).toBe(true);
+  expect(state.routeFacts.every((route) => Math.abs(route.minimumX - route.targetX) <= 0.01)).toBe(
+    true,
+  );
+  expect(state.routeFacts.every((route) => route.unauthorizedFramePointCount === 0)).toBe(true);
+  expect(state.routeFacts.map((route) => route.targetX)).toEqual([
+    2800 - 240,
+    2800 - 336,
+    144 + (6 - 1) * 96,
+    144 + (6 - 2) * 96,
+    2800 - 336,
+  ]);
+  expect(state.routeFacts.every((route) => route.targetX < route.forkX)).toBe(true);
+  expect(
+    state.routeFacts
+      .filter((route) => route.endKind === "open")
+      .every((route) => route.endX === route.targetX),
+  ).toBe(true);
+  expect(
+    state.routeFacts
+      .filter((route) => route.endKind === "merge")
+      .every((route) => route.endX === route.forkX),
+  ).toBe(true);
+  expect(state.routeFacts.filter((route) => route.endKind === "open")).toHaveLength(3);
+  expect(state.routeFacts.filter((route) => route.endKind === "merge")).toHaveLength(2);
 });

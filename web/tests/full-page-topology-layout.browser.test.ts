@@ -4,33 +4,39 @@ import { layoutFullPageTopology } from "../src/topology-lab/full-page-topology-l
 
 const fixtures: HTMLDivElement[] = [];
 
-function createArtwork(width: number, height: number): SVGSVGElement {
+function createArtwork(frameLeft: number, frameRight: number): SVGSVGElement {
   const host = document.createElement("div");
+  host.style.cssText = "position:relative;width:2000px;height:5200px";
   host.innerHTML = `
+    <div data-anchor style="position:absolute;top:89px;left:1900px;width:14px;height:14px"></div>
+    <div data-frame style="position:absolute;top:0;left:${frameLeft}px;width:${frameRight - frameLeft}px;height:5200px"></div>
+    <div data-glass style="position:absolute;top:480px;left:${frameLeft}px;width:${frameRight - frameLeft}px;height:192px"></div>
+    <div data-glass style="position:absolute;top:1728px;left:${frameLeft}px;width:${frameRight - frameLeft}px;height:192px"></div>
+    <div data-glass style="position:absolute;top:2496px;left:${frameLeft}px;width:${frameRight - frameLeft}px;height:192px"></div>
+    <div data-glass style="position:absolute;top:2592px;left:${frameLeft}px;width:${frameRight - frameLeft}px;height:192px"></div>
     <svg
-      data-design-final-row="52"
-      style="display: block; width: ${width}px; height: ${height}px"
-      viewBox="0 0 1 1"
+      data-full-page-topology
+      data-mainline-anchor-selector="[data-anchor]"
+      data-portal-frame-selector="[data-frame]"
+      data-portal-surface-selector="[data-glass]"
+      style="display:block;width:2000px;height:5200px"
     >
-      <path data-mainline></path>
-      <path
-        data-route
-        data-source-lane="0"
-        data-lane="8"
-        data-fork-row="0"
-        data-arrival-row="4"
-        data-open-end-row="52"
-      ></path>
-      <path
-        data-route
-        data-source-lane="0"
-        data-lane="4"
-        data-fork-row="10"
-        data-arrival-row="14"
-        data-merge-approach-row="48"
-        data-merge-row="52"
-      ></path>
-      <circle data-node data-lane="8" data-row="52" r="4"></circle>
+      <path data-mainline data-topology-path-role="core"></path>
+      <g
+        data-topology-route-group
+        data-route-id="a"
+        data-minimum-columns="2"
+        data-fork-slot="2"
+        data-end-slot="18"
+        data-end-kind="open"
+      >
+        <path data-route data-topology-path-role="core"></path>
+        <circle data-node data-node-position="fork" r="4"></circle>
+        <circle data-node data-node-position="target" data-node-slot="3" r="4"></circle>
+        <circle data-node data-node-position="end" r="4"></circle>
+      </g>
+      <g data-node data-mainline-node="start"></g>
+      <g data-node data-mainline-node="end"></g>
     </svg>
   `;
   document.body.append(host);
@@ -39,6 +45,12 @@ function createArtwork(width: number, height: number): SVGSVGElement {
   const artwork = host.querySelector<SVGSVGElement>("svg");
   if (artwork === null) {
     throw new Error("Full-page topology fixture is missing its artwork");
+  }
+  for (let fillIndex = 0; fillIndex < 64; fillIndex += 1) {
+    const fillNode = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    fillNode.dataset["node"] = "";
+    fillNode.dataset["mainlineFillIndex"] = String(fillIndex);
+    artwork.append(fillNode);
   }
   return artwork;
 }
@@ -50,60 +62,40 @@ afterEach(() => {
 });
 
 describe("full-page topology layout", () => {
-  it("uses measured grid slots and single-bend fork curves", () => {
-    const artwork = createArtwork(960, 2120);
+  it("projects a main-based worktree into the nearest free gutter column", () => {
+    const artwork = createArtwork(576, 1424);
 
     expect(layoutFullPageTopology(artwork)).toBe(true);
-    expect(artwork.dataset["columnCount"]).toBe("9");
-    expect(artwork.dataset["rowCount"]).toBe("21");
-    expect(artwork.dataset["finalRow"]).toBe("20");
+    expect(artwork.dataset["columnCount"]).toBe("5");
+    expect(artwork.dataset["topologyVariant"]).toBe("expanded");
+    expect(artwork.dataset["firstGlassRow"]).toBe("5");
+    expect(artwork.dataset["lastGlassRow"]).toBe("27");
+    expect(artwork.dataset["worktreeCount"]).toBe("1");
 
-    const route = artwork.querySelector<SVGPathElement>("[data-route]");
-    const finalNode = artwork.querySelector<SVGCircleElement>("[data-node]");
-    if (route === null || finalNode === null) {
-      throw new Error("Full-page topology fixture geometry is incomplete");
+    const route = artwork.querySelector<SVGPathElement>(
+      '[data-route][data-topology-path-role="core"]',
+    );
+    if (route === null) {
+      throw new Error("Full-page topology route is missing");
     }
+    expect(route.getAttribute("d")).toBe(
+      "M 1856 768 C 1769.6 775.68 1760 777.6 1760 864 L 1760 2496",
+    );
 
-    const routePath = route.getAttribute("d") ?? "";
-    expect(routePath).toMatch(/^M .+ C .+ L .+$/);
-    const routeCoordinates = routePath.match(/-?\d+(?:\.\d+)?/g)?.map(Number);
-    expect(routeCoordinates).toHaveLength(10);
-    const expectedCoordinates = [878.4, 96, 187.2, 111.36, 110.4, 115.2, 110.4, 288, 110.4, 2016];
-    for (const [index, expectedCoordinate] of expectedCoordinates.entries()) {
-      expect(routeCoordinates?.[index]).toBeCloseTo(expectedCoordinate, 6);
-    }
-    expect(Number(finalNode.getAttribute("cx"))).toBeCloseTo(110.4, 6);
-    expect(Number(finalNode.getAttribute("cy"))).toBe(2016);
-
-    const mergingRoute = artwork.querySelector<SVGPathElement>('[data-merge-row="52"]');
-    if (mergingRoute === null) {
-      throw new Error("Full-page topology fixture merging route is missing");
-    }
-    const mergePath = mergingRoute.getAttribute("d") ?? "";
-    const mergeCoordinates = mergePath.match(/-?\d+(?:\.\d+)?/g)?.map(Number);
-    const expectedMergeCoordinates = [
-      878.4, 480, 532.8, 487.68, 494.4, 489.6, 494.4, 576, 494.4, 1824, 494.4, 1996.8, 532.8,
-      2000.64, 878.4, 2016,
-    ];
-    expect(mergeCoordinates).toHaveLength(expectedMergeCoordinates.length);
-    for (const [index, expectedCoordinate] of expectedMergeCoordinates.entries()) {
-      expect(mergeCoordinates?.[index]).toBeCloseTo(expectedCoordinate, 6);
-    }
+    const resolvedRows = [...artwork.querySelectorAll<SVGGraphicsElement>("[data-node]")]
+      .filter((node) => getComputedStyle(node).display !== "none")
+      .map((node) => Number(node.dataset["resolvedRow"]))
+      .toSorted((left, right) => left - right);
+    expect(resolvedRows).toEqual(Array.from({ length: 53 }, (_, row) => row));
+    expect(new Set(resolvedRows).size).toBe(resolvedRows.length);
   });
 
-  it("recomputes available slots without stretching fixed column and row units", () => {
-    const artwork = createArtwork(672, 1352);
+  it("hides the complete composition when either gutter has fewer than two usable columns", () => {
+    const artwork = createArtwork(287, 1713);
 
     expect(layoutFullPageTopology(artwork)).toBe(true);
-    expect(artwork.dataset["columnCount"]).toBe("6");
-    expect(artwork.dataset["rowCount"]).toBe("13");
-    expect(artwork.dataset["finalRow"]).toBe("12");
-
-    const finalNode = artwork.querySelector<SVGCircleElement>("[data-node]");
-    if (finalNode === null) {
-      throw new Error("Full-page topology fixture final node is missing");
-    }
-    expect(Number(finalNode.getAttribute("cx"))).toBe(128);
-    expect(Number(finalNode.getAttribute("cy"))).toBe(1248);
+    expect(artwork.style.visibility).toBe("hidden");
+    expect(artwork.dataset["topologyHiddenReason"]).toBe("insufficient-gutter-capacity");
+    expect(artwork.dataset["topologyVariant"]).toBeUndefined();
   });
 });

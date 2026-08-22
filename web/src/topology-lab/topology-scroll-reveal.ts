@@ -14,6 +14,8 @@ export function initializeTopologyScrollReveal(
   const revealNodes = [
     ...artwork.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]"),
   ];
+  const verticalRevealSolid = artwork.querySelector<SVGRectElement>("[data-topology-reveal-solid]");
+  const verticalRevealFade = artwork.querySelector<SVGRectElement>("[data-topology-reveal-fade]");
   const lifecycle = new AbortController();
   const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   let lastLayoutHeight = 0;
@@ -45,6 +47,37 @@ export function initializeTopologyScrollReveal(
       "data-topology-at-end",
       !reducedMotionQuery.matches && scrollProgress >= 0.9999,
     );
+
+    if (verticalRevealSolid !== null && verticalRevealFade !== null) {
+      const topologyStartY = Number(artwork.dataset["topologyStartY"]);
+      const topologyEndY = Number(artwork.dataset["topologyEndY"]);
+      if (!Number.isFinite(topologyStartY) || !Number.isFinite(topologyEndY)) {
+        return;
+      }
+      const revealY = topologyStartY + (topologyEndY - topologyStartY) * revealProgress;
+      const fadeHeight =
+        revealProgress >= 1
+          ? 0
+          : Math.min(288, Math.max(96, (topologyEndY - topologyStartY) * 0.06));
+      verticalRevealSolid.setAttribute(
+        "height",
+        String(revealProgress >= 1 ? artwork.clientHeight : revealY),
+      );
+      verticalRevealFade.setAttribute("y", String(revealY));
+      verticalRevealFade.setAttribute("height", String(fadeHeight));
+      artwork.dataset["topologyRevealEdgeY"] = String(revealY);
+
+      for (const path of revealPaths) {
+        const leadingBand = path.dataset["topologyPathRole"] === "leading-band";
+        path.style.visibility = leadingBand ? "hidden" : "visible";
+        path.style.strokeDasharray = leadingBand ? "0 1" : "none";
+        path.style.strokeDashoffset = "0";
+      }
+      for (const node of revealNodes) {
+        node.style.opacity = "1";
+      }
+      return;
+    }
 
     for (const path of revealPaths) {
       const totalLength = path.getTotalLength();

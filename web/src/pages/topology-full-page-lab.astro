@@ -2,12 +2,7 @@
 import FullPageTopologyArtwork from "@/topology-lab/FullPageTopologyArtwork.astro";
 import "@/styles/global.css";
 
-const glassSections = [
-  { eyebrow: "ORGANIZED PARALLELISM", headline: "Keep parallel work separate, but visible.", top: 840 },
-  { eyebrow: "THE WORK AROUND THE AGENT", headline: "Files, reviews, sessions, and layouts stay together.", top: 1720 },
-  { eyebrow: "PERSISTENT CONTEXT", headline: "Close the app. Keep your place.", top: 2660 },
-  { eyebrow: "MANY WORKTREES", headline: "Different tasks can stay open without becoming noise.", top: 3600 },
-] as const;
+const glassSurfaces = [840, 1720, 2660, 3600] as const;
 ---
 
 <!doctype html>
@@ -17,62 +12,40 @@ const glassSections = [
     <meta name="viewport" content="width=device-width" />
     <meta name="robots" content="noindex, nofollow" />
     <meta name="theme-color" content="#2E3036" />
-    <title>Agent Studio full-page topology study</title>
+    <title>Agent Studio full-page topology lab</title>
   </head>
   <body>
     <main class="relative h-[5200px] min-w-[1280px] overflow-hidden bg-canvas">
       <div class="absolute inset-0 z-0">
-        <FullPageTopologyArtwork />
+        <FullPageTopologyArtwork
+          mainlineAnchorSelector="[data-topology-lab-anchor]"
+          portalFrameSelector="[data-topology-lab-frame]"
+          portalSurfaceSelector="[data-topology-lab-surface]"
+        />
       </div>
 
-      <section class="absolute inset-x-0 top-0 z-10 h-[760px] px-[7vw] pt-20">
-        <div class="ml-auto w-[min(72vw,1320px)]">
-          <div
-            class="ml-auto mr-[12%] h-28 w-40 rounded-product border border-primary/40 bg-ground/50"
-            aria-hidden="true"
-          ></div>
-          <p class="mt-20 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase">
-            Full-page topology study
-          </p>
-          <h1 class="m-0 mt-4 max-w-[980px] font-display text-[clamp(64px,7vw,124px)] leading-[0.88] font-extrabold tracking-[-0.065em]">
-            One repository.<br /><span class="text-primary">Many active paths.</span>
-          </h1>
-        </div>
-      </section>
+      <div
+        class="pointer-events-none absolute top-24 right-36 size-px"
+        data-topology-lab-anchor
+        aria-hidden="true"
+      ></div>
+
+      <div
+        class="pointer-events-none absolute inset-y-0 left-1/2 w-[min(calc(100%-32px),1440px)] -translate-x-1/2"
+        data-topology-lab-frame
+        aria-hidden="true"
+      ></div>
 
       {
-        glassSections.map((section, index) => (
-          <section
-            class:list={[
-              "absolute z-10 min-h-[660px] rounded-[28px] border border-[rgb(137_180_250/18%)] bg-[rgb(30_30_46/56%)] px-[clamp(48px,6vw,104px)] py-[clamp(52px,6vw,96px)] shadow-[0_28px_80px_rgb(8_9_14/24%)] backdrop-blur-xl",
-              index % 2 === 0
-                ? "right-[6vw] left-[19vw]"
-                : "right-[18vw] left-[7vw]",
-            ]}
-            style={`top: ${section.top}px`}
-          >
-            <p class="m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase">
-              {section.eyebrow}
-            </p>
-            <h2 class="m-0 mt-4 max-w-[900px] font-display text-[clamp(48px,5.8vw,92px)] leading-[0.92] font-extrabold tracking-[-0.055em]">
-              {section.headline}
-            </h2>
-            <div class="mt-16 grid grid-cols-[0.8fr_1.2fr] gap-12">
-              <div class="h-48 rounded-product border border-line bg-[rgb(36_38_43/68%)]"></div>
-              <div class="h-80 rounded-product border border-line bg-[rgb(17_17_27/74%)]"></div>
-            </div>
-          </section>
+        glassSurfaces.map((top) => (
+          <div
+            class="pointer-events-none absolute left-1/2 h-[560px] w-[min(calc(100%-32px),1440px)] -translate-x-1/2"
+            style={`top: ${top}px`}
+            data-topology-lab-surface
+            aria-hidden="true"
+          ></div>
         ))
       }
-
-      <section class="absolute right-[8vw] bottom-28 left-[26vw] z-10 text-right">
-        <p class="font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase">
-          Ongoing work continues beyond the page
-        </p>
-        <h2 class="m-0 ml-auto max-w-[900px] font-display text-[clamp(58px,6vw,104px)] leading-[0.9] font-extrabold tracking-[-0.06em]">
-          Work keeps moving.
-        </h2>
-      </section>
     </main>
   </body>
 </html>
