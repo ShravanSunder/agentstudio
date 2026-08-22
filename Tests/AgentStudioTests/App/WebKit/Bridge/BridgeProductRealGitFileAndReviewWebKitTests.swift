@@ -489,6 +489,14 @@ extension WebKitSerializedTests {
                         productAdmission: productAdmission
                     )
                 },
+                admitReviewPublicationInstallation: { request, correlation, productAdmission in
+                    controllerTarget.controller?.reviewPublicationCoordinator.admitDisplayInstallation(
+                        expectedDisplayedPublicationId: request.expectedDisplayedPublicationId,
+                        candidatePublicationId: request.candidatePublicationId,
+                        workerInstanceId: correlation.workerInstanceId,
+                        productAdmission: productAdmission
+                    ) ?? .rejected
+                },
                 recordReviewPublicationApplication: { publicationId, correlation, productAdmission in
                     controllerTarget.recordApplication(
                         publicationId,
