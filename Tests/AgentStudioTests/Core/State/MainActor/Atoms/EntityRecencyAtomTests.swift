@@ -1,7 +1,21 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudioCore
+
+private final class EntityRecencyObservationRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedChangeCount = 0
+
+    var changeCount: Int {
+        lock.withLock { storedChangeCount }
+    }
+
+    func recordChange() {
+        lock.withLock { storedChangeCount += 1 }
+    }
+}
 
 @MainActor
 @Suite("EntityRecencyAtom")
@@ -144,5 +158,41 @@ struct EntityRecencyAtomTests {
 
         #expect(atom.workspaceID == nil)
         #expect(atom.recentEntities.isEmpty)
+    }
+
+    @Test("workspace keyed recency ignores changes for another pane")
+    func workspaceKeyedRecencyObservesOnlyTheRequestedPane() throws {
+        let atom = WorkspaceEntityRecencyAtom()
+        let workspaceID = UUID(uuidString: "00000000-0000-7000-8000-000000000001")!
+        let observedPaneID = UUID(uuidString: "00000000-0000-7000-8000-000000000002")!
+        let unrelatedPaneID = UUID(uuidString: "00000000-0000-7000-8000-000000000003")!
+        atom.hydrate(workspaceID: workspaceID, recentEntities: [])
+        let observationRecorder = EntityRecencyObservationRecorder()
+
+        _ = withObservationTracking {
+            atom.recency(for: .pane(paneID: observedPaneID))
+        } onChange: {
+            observationRecorder.recordChange()
+        }
+
+        atom.record(
+            try WorkspaceEntityRecency(
+                workspaceID: workspaceID,
+                entity: .pane(paneID: unrelatedPaneID),
+                interaction: .focused,
+                lastInteractedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        #expect(observationRecorder.changeCount == 0)
+
+        atom.record(
+            try WorkspaceEntityRecency(
+                workspaceID: workspaceID,
+                entity: .pane(paneID: observedPaneID),
+                interaction: .focused,
+                lastInteractedAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+        #expect(observationRecorder.changeCount == 1)
     }
 }

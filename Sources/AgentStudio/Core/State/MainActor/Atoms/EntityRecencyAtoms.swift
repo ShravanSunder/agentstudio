@@ -89,28 +89,47 @@ package final class ApplicationEntityRecencyAtom {
 package final class WorkspaceEntityRecencyAtom {
     package private(set) var workspaceID: UUID?
     package private(set) var recentEntities: [WorkspaceEntityRecency] = []
+    @ObservationIgnored private let recencyFamily = AtomFamily<WorkspaceRecentEntity, WorkspaceEntityRecency>(
+        telemetryLabel: "workspace_entity_recency",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let acceptedCommitRevision = AtomRevision()
 
     package init() {}
 
     package func record(_ recency: WorkspaceEntityRecency) {
         guard workspaceID == recency.workspaceID else { return }
-        recentEntities = Self.normalized(recentEntities + [recency])
+        replaceRecentEntities(Self.normalized(recentEntities + [recency]))
     }
 
     package func hydrate(workspaceID: UUID, recentEntities: [WorkspaceEntityRecency]) {
         self.workspaceID = workspaceID
-        self.recentEntities = Self.normalized(
-            recentEntities.filter { $0.workspaceID == workspaceID }
+        replaceRecentEntities(
+            Self.normalized(recentEntities.filter { $0.workspaceID == workspaceID })
         )
     }
 
     package func remove(_ entity: WorkspaceRecentEntity) {
-        recentEntities.removeAll { $0.entity == entity }
+        replaceRecentEntities(recentEntities.filter { $0.entity != entity })
     }
 
     package func clear() {
         workspaceID = nil
-        recentEntities = []
+        replaceRecentEntities([])
+    }
+
+    package func recency(for entity: WorkspaceRecentEntity) -> WorkspaceEntityRecency? {
+        recencyFamily.value(for: entity)
+    }
+
+    private func replaceRecentEntities(_ replacement: [WorkspaceEntityRecency]) {
+        recentEntities = replacement
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        recencyFamily.replaceAll(
+            Dictionary(uniqueKeysWithValues: replacement.map { ($0.entity, $0) }),
+            mutation: mutation
+        )
+        mutation.commit()
     }
 
     private static func normalized(
