@@ -627,6 +627,7 @@ struct BridgeProductWebKitCarrierHostSnapshot: Equatable, Sendable, CustomString
 @MainActor
 enum BridgeProductWebKitCarrierTestSupport {
     private static var retainedPage: WebPage?
+    private static var retainedWindow: NSWindow?
 
     static func withHostedController<Value>(
         _ controller: BridgePaneController,
@@ -645,6 +646,8 @@ enum BridgeProductWebKitCarrierTestSupport {
         window.alphaValue = 0.01
         window.ignoresMouseEvents = true
         window.makeKeyAndOrderFront(nil)
+        retainedWindow?.orderOut(nil)
+        retainedWindow = nil
 
         do {
             let value = try await operation(controller)
@@ -880,11 +883,11 @@ enum BridgeProductWebKitCarrierTestSupport {
         for _ in 0..<10_000 where controller.page.isLoading {
             await Task.yield()
         }
-        window.orderOut(nil)
         window.contentView = nil
         await settleAsyncCallbacks()
         let snapshot = await controller.productSessionOwner.snapshot()
         retainedPage = controller.page
+        retainedWindow = window
         return snapshot
     }
 
