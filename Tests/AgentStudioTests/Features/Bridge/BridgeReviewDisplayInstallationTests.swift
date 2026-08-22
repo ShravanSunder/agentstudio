@@ -7,6 +7,56 @@ import Testing
 @MainActor
 @Suite("Display installation")
 struct DisplayInstallationTests {
+    @Test("fresh worker duplicate application settles its exact bootstrap admission")
+    func freshWorkerDuplicateApplicationSettlesBootstrapAdmission() async throws {
+        // Arrange
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let coordinator = BridgeReviewPublicationCoordinator()
+        let publicationA = try await makeReviewPreparedPublication(
+            suffix: "fresh-worker-duplicate-a",
+            reviewGeneration: 1
+        )
+        let committedA = try commitObserved(
+            publicationA,
+            in: coordinator,
+            productAdmission: productAdmission.context
+        )
+        #expect(
+            coordinator.admitDisplayInstallation(
+                expectedDisplayedPublicationId: nil,
+                candidatePublicationId: committedA.publicationId,
+                workerInstanceId: "worker-a",
+                productAdmission: productAdmission.context
+            ) == .admitted
+        )
+        #expect(
+            coordinator.recordDisplayedApplication(
+                publicationId: committedA.publicationId,
+                workerInstanceId: "worker-a",
+                productAdmission: productAdmission.context
+            ) == .advanced
+        )
+        #expect(
+            coordinator.admitDisplayInstallation(
+                expectedDisplayedPublicationId: nil,
+                candidatePublicationId: committedA.publicationId,
+                workerInstanceId: "worker-b",
+                productAdmission: productAdmission.context
+            ) == .admitted
+        )
+
+        // Act
+        let result = coordinator.recordDisplayedApplication(
+            publicationId: committedA.publicationId,
+            workerInstanceId: "worker-b",
+            productAdmission: productAdmission.context
+        )
+
+        // Assert
+        #expect(result == .duplicate)
+        #expect(coordinator.diagnosticSnapshot.admitted == nil)
+    }
+
     @Test("duplicate applied receipt establishes replacement worker exact-predecessor authority")
     func duplicateReceiptEstablishesReplacementWorker() async throws {
         // Arrange

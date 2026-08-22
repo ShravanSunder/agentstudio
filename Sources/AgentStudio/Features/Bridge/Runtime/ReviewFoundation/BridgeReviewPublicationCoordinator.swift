@@ -691,6 +691,15 @@ final class BridgeReviewPublicationCoordinator {
             }
             if acknowledgedDisplayedPublicationId == publicationId {
                 displayEstablishedWorkerInstanceId = workerInstanceId
+                if admittedDisplayInstallation
+                    == DisplayInstallationAdmission(
+                        workerInstanceId: workerInstanceId,
+                        publicationId: publicationId
+                    )
+                {
+                    admittedDisplayInstallation = nil
+                    releaseSupersededUnprotectedRetiringPublications()
+                }
                 return .duplicate
             }
             guard

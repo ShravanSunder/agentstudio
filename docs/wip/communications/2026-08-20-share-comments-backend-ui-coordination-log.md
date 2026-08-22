@@ -771,3 +771,26 @@ Next: add scrubbed operand/result assertions for both browser documents and the
 focused real development-host retained-main/B→C lifecycle test, then checkpoint.
 Notes: the broad gate was not weakened and no UI, security/auth, route, scheduler,
 polling, persistence, compatibility, or PR2 change was made.
+
+### 2026-08-22 14:13 EDT — Real host W1/W2/W3 and B→C lifecycle green
+
+State: the deterministic real development-host lifecycle is green and one
+worker-qualified admission leak found by that proof is fixed
+Head: `37377ea5e`; this native lifecycle checkpoint is currently uncommitted
+Owns: native Review publication coordinator and development-host proof only; no
+visual UI or BridgeWeb product code changed
+Changed: when an already-acknowledged publication is applied by a fresh worker,
+the duplicate path now establishes that worker and clears only its exact matching
+`(workerInstanceId, publicationId)` admission before returning. Previously that
+lease remained and blocked the next install.
+Proof: coordinator display-installation suite passes 7/7. The real development
+host route test passes 1/1 and proves W1 null-admit/apply A; fresh W2 authority
+rotation and null-admit/apply A; retained-main W3 duplicate-apply A; null B
+rejection and exact-A B admission; C commit while B is admitted; B apply; exact-B
+C admission/apply; and final coordinator admitted state empty. Scoped Swift
+format, SwiftLint, architecture lint, and diff checks pass.
+Needs from UI lane: none. This changes no UI seam or presentation behavior.
+Next: checkpoint the native lifecycle correction, then add scrubbed operand/result
+assertions to the already-green real browser document-1/document-2 transcript.
+Notes: no new route, hook, persistence, security/auth, polling, compatibility, or
+PR2 change. The three protected PR2 files remain untouched.
