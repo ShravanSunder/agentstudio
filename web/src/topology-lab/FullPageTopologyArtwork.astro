@@ -144,7 +144,7 @@ const worktrees: readonly AuthoredWorktree[] = [
 ---
 
 <svg
-  class="block h-full w-full"
+  class="block h-full w-full opacity-90"
   data-full-page-topology
   data-mainline-anchor-selector={mainlineAnchorSelector}
   data-portal-frame-selector={portalFrameSelector}
@@ -325,6 +325,12 @@ const worktrees: readonly AuthoredWorktree[] = [
     animation: topology-terminal-node-halo 3.2s ease-out infinite;
   }
 
+  [data-topology-current-node]:not(.node-terminal-group) {
+    animation: topology-current-node-pulse 2.8s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
   .accent-peach {
     color: #ef9f76;
   }
@@ -377,7 +383,24 @@ const worktrees: readonly AuthoredWorktree[] = [
     }
   }
 
+  @keyframes topology-current-node-pulse {
+    0%,
+    100% {
+      filter: brightness(1);
+      transform: scale(1);
+    }
+
+    50% {
+      filter: brightness(1.16);
+      transform: scale(1.14);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
+    [data-topology-current-node] {
+      animation: none;
+    }
+
     .node-terminal-halo {
       animation: none;
       opacity: 0;

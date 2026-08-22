@@ -54,22 +54,22 @@ function createTopologyFixture(verticalMask = false): TopologyFixture {
         data-topology-path-end="1"
         d="M 50 0 L 50 100"
       ></path>
-      <g data-topology-node-kind="terminal" data-topology-node-lane="0" data-topology-node-progress="0" data-topology-node-row="0" transform="translate(50 5)">
+      <g data-node-owner="main" data-topology-node-kind="terminal" data-topology-node-lane="0" data-topology-node-progress="0" data-topology-node-row="0" transform="translate(50 5)">
         <g data-topology-node-shape>
           <circle class="node-terminal-halo" r="7"></circle>
           <circle class="node-terminal" r="7"></circle>
         </g>
       </g>
-      <g data-topology-node-kind="regular" data-topology-node-lane="2" data-topology-node-progress="0.5" data-topology-node-row="13" transform="translate(50 50)">
+      <g data-node-owner="main" data-topology-node-kind="regular" data-topology-node-lane="2" data-topology-node-progress="0.5" data-topology-node-row="13" transform="translate(50 50)">
         <g data-topology-node-shape><circle r="4"></circle></g>
       </g>
-      <g data-topology-node-kind="merge" data-topology-node-lane="0" data-topology-node-progress="0.75" data-topology-node-row="20" transform="translate(50 75)">
+      <g data-node-owner="main" data-topology-node-kind="merge" data-topology-node-lane="0" data-topology-node-progress="0.75" data-topology-node-row="20" transform="translate(50 75)">
         <g data-topology-node-shape>
           <circle r="8"></circle>
           <path d="M -3 -1 L 0 2 L 3 -1"></path>
         </g>
       </g>
-      <g data-topology-node-kind="terminal" data-topology-node-lane="0" data-topology-node-progress="1" data-topology-node-row="26" transform="translate(50 95)">
+      <g data-node-owner="main" data-topology-node-kind="terminal" data-topology-node-lane="0" data-topology-node-progress="1" data-topology-node-row="26" transform="translate(50 95)">
         <g data-topology-node-shape>
           <circle class="node-terminal-halo" r="7"></circle>
           <circle class="node-terminal" r="7"></circle>
@@ -190,6 +190,8 @@ describe("topology scroll reveal", () => {
     );
     expect(fixture.corePath.style.strokeDashoffset).toBe("0");
     expect(fixture.middleNode.style.opacity).toBe("1");
+    expect(fixture.middleNode.hasAttribute("data-topology-current-node")).toBe(true);
+    expect(fixture.startNode.hasAttribute("data-topology-current-node")).toBe(false);
     expect(fixture.finalNode.style.opacity).toBe("0");
     expect(fixture.leadingBand.style.visibility).toBe("visible");
 
@@ -208,6 +210,7 @@ describe("topology scroll reveal", () => {
     expect(fixture.artwork.hasAttribute("data-topology-at-end")).toBe(false);
     expect(fixture.finalNode.style.opacity).toBe("0");
     expect(fixture.corePath.style.visibility).toBe("hidden");
+    expect(fixture.middleNode.hasAttribute("data-topology-current-node")).toBe(false);
   });
 
   it("recomputes circular node glyphs through non-uniform viewport resizes", async () => {
@@ -298,6 +301,7 @@ describe("topology scroll reveal", () => {
       ...fixture.artwork.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]"),
     ];
     expect(nodes.every((node) => node.style.opacity === "1")).toBe(true);
+    expect(nodes.some((node) => node.hasAttribute("data-topology-current-node"))).toBe(false);
     expect(Number(fixture.corePath.style.strokeDasharray.split(/[ ,]+/)[0])).toBeCloseTo(
       fixture.corePath.getTotalLength(),
       3,

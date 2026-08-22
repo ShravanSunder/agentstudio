@@ -609,6 +609,7 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
     }
     const y = yForRow(row);
     setNodePosition(node, mainlineX, y);
+    node.dataset["nodeOwner"] = "main";
     node.dataset["resolvedRow"] = String(row);
     node.removeAttribute("data-topology-glass-bridge");
     node.dataset["topologyNodeProgress"] = kind === "start" ? "0" : "1";
@@ -682,6 +683,10 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
       }
       const y = yForRow(row);
       setNodePosition(node, x, y);
+      node.dataset["nodeOwner"] =
+        position === "fork" || (position === "end" && dataset.endKind === "merge")
+          ? "main"
+          : dataset.id;
       node.dataset["resolvedRow"] = String(row);
       node.toggleAttribute(
         "data-topology-glass-bridge",

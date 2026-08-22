@@ -14,6 +14,7 @@ export function initializeTopologyScrollReveal(
   const revealNodes = [
     ...artwork.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]"),
   ];
+  const routeGroups = [...artwork.querySelectorAll<SVGGElement>("[data-topology-route-group]")];
   const verticalRevealSolid = artwork.querySelector<SVGRectElement>("[data-topology-reveal-solid]");
   const verticalRevealFade = artwork.querySelector<SVGRectElement>("[data-topology-reveal-fade]");
   const lifecycle = new AbortController();
@@ -22,6 +23,74 @@ export function initializeTopologyScrollReveal(
   let lastLayoutWidth = 0;
   let layoutNeedsUpdate = true;
   let pendingAnimationFrame: number | undefined;
+  let currentNodes = new Set<SVGGraphicsElement>();
+
+  const updateCurrentNodes = (revealProgress: number, enabled: boolean): void => {
+    const nextCurrentNodes = new Set<SVGGraphicsElement>();
+    if (enabled) {
+      const activeOwnerIds = new Set(["main"]);
+      for (const group of routeGroups) {
+        if (group.style.display === "none") {
+          continue;
+        }
+        const routeId = group.dataset["routeId"];
+        const route = group.querySelector<SVGPathElement>(
+          '[data-route][data-topology-path-role="core"]',
+        );
+        if (routeId === undefined || route === null) {
+          continue;
+        }
+        const start = Number(route.dataset["topologyPathStart"]);
+        const end = Number(route.dataset["topologyPathEnd"]);
+        const remainsOpen = group.dataset["endKind"] === "open";
+        if (
+          Number.isFinite(start) &&
+          Number.isFinite(end) &&
+          revealProgress >= start &&
+          (remainsOpen || revealProgress < end)
+        ) {
+          activeOwnerIds.add(routeId);
+        }
+      }
+      const leaderByOwnerId = new Map<
+        string,
+        { readonly node: SVGGraphicsElement; readonly progress: number }
+      >();
+      for (const node of revealNodes) {
+        const routeGroup = node.closest<SVGGElement>("[data-topology-route-group]");
+        const ownerId = node.dataset["nodeOwner"];
+        const nodeProgress = Number(node.dataset["topologyNodeProgress"]);
+        if (
+          ownerId === undefined ||
+          !activeOwnerIds.has(ownerId) ||
+          node.style.display === "none" ||
+          routeGroup?.style.display === "none" ||
+          !Number.isFinite(nodeProgress) ||
+          nodeProgress > revealProgress
+        ) {
+          continue;
+        }
+        const currentLeader = leaderByOwnerId.get(ownerId);
+        if (currentLeader === undefined || nodeProgress > currentLeader.progress) {
+          leaderByOwnerId.set(ownerId, { node, progress: nodeProgress });
+        }
+      }
+      for (const { node } of leaderByOwnerId.values()) {
+        nextCurrentNodes.add(node);
+      }
+    }
+    for (const node of currentNodes) {
+      if (!nextCurrentNodes.has(node)) {
+        node.removeAttribute("data-topology-current-node");
+      }
+    }
+    for (const node of nextCurrentNodes) {
+      if (!currentNodes.has(node)) {
+        node.setAttribute("data-topology-current-node", "");
+      }
+    }
+    currentNodes = nextCurrentNodes;
+  };
 
   const renderReveal = (): void => {
     pendingAnimationFrame = undefined;
@@ -66,6 +135,7 @@ export function initializeTopologyScrollReveal(
         for (const node of revealNodes) {
           node.style.opacity = node.dataset["topologyNodeProgress"] === "0" ? "1" : "0";
         }
+        updateCurrentNodes(revealProgress, false);
         return;
       }
       const revealY = topologyStartY + (topologyEndY - topologyStartY) * revealProgress;
@@ -90,6 +160,7 @@ export function initializeTopologyScrollReveal(
       for (const node of revealNodes) {
         node.style.opacity = "1";
       }
+      updateCurrentNodes(revealProgress, !reducedMotionQuery.matches);
       return;
     }
 
@@ -133,6 +204,7 @@ export function initializeTopologyScrollReveal(
       const nodeProgress = Number(node.dataset["topologyNodeProgress"]);
       node.style.opacity = nodeProgress === 0 || revealProgress >= nodeProgress ? "1" : "0";
     }
+    updateCurrentNodes(revealProgress, !reducedMotionQuery.matches && !atStart);
   };
 
   const scheduleRender = (): void => {
@@ -169,6 +241,7 @@ export function initializeTopologyScrollReveal(
   return (): void => {
     lifecycle.abort();
     artworkResizeObserver.disconnect();
+    updateCurrentNodes(0, false);
     if (pendingAnimationFrame !== undefined) {
       window.cancelAnimationFrame(pendingAnimationFrame);
     }
