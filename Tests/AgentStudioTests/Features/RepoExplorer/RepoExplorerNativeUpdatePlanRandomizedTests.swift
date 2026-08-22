@@ -38,6 +38,13 @@ struct RepoExplorerNativeUpdatePlanRandomizedTests {
                 nativePlanOracleIDs(plan: plan, oldSnapshot: oldSnapshot, candidate: newSnapshot)
                     == newSnapshot.rows.map(\.id)
             )
+            #expect(
+                nativePlanAnchorFallbacks(plan: plan)
+                    == nativePlanAnchorFallbackOracle(
+                        oldIDs: oldSnapshot.rows.map(\.id),
+                        newIDs: newSnapshot.rows.map(\.id)
+                    )
+            )
         }
     }
 
@@ -103,6 +110,13 @@ struct RepoExplorerNativeUpdatePlanRandomizedTests {
                     candidate: newSnapshot
                 ) == newSnapshot.rows.map(\.id)
             )
+            #expect(
+                nativePlanAnchorFallbacks(plan: forward.nativeUpdatePlan)
+                    == nativePlanAnchorFallbackOracle(
+                        oldIDs: oldSnapshot.rows.map(\.id),
+                        newIDs: newSnapshot.rows.map(\.id)
+                    )
+            )
 
             let targetBaseline = RepoExplorerMaterializationBaseline(
                 lifetimeID: forward.lifetimeID,
@@ -124,7 +138,44 @@ struct RepoExplorerNativeUpdatePlanRandomizedTests {
                     candidate: oldSnapshot
                 ) == oldSnapshot.rows.map(\.id)
             )
+            #expect(
+                nativePlanAnchorFallbacks(plan: reverse.nativeUpdatePlan)
+                    == nativePlanAnchorFallbackOracle(
+                        oldIDs: newSnapshot.rows.map(\.id),
+                        newIDs: oldSnapshot.rows.map(\.id)
+                    )
+            )
         }
+    }
+}
+
+private func nativePlanAnchorFallbacks(
+    plan: RepoExplorerNativeUpdatePlan
+) -> [RepoExplorerNativeRemovedRowAnchorFallback] {
+    guard case .changed(let changed) = plan.kind,
+        case .contentToContent(.membership(let membership)) = changed.presentation
+    else {
+        return []
+    }
+    return membership.anchorFallbacks.entries
+}
+
+private func nativePlanAnchorFallbackOracle(
+    oldIDs: [RepoExplorerRowID],
+    newIDs: [RepoExplorerRowID]
+) -> [RepoExplorerNativeRemovedRowAnchorFallback] {
+    let survivingIDs = Set(newIDs)
+    return oldIDs.indices.compactMap { removedIndex in
+        let removedRowID = oldIDs[removedIndex]
+        guard !survivingIDs.contains(removedRowID) else { return nil }
+        let successor = oldIDs[oldIDs.index(after: removedIndex)...]
+            .first(where: survivingIDs.contains)
+        let predecessor = oldIDs[..<removedIndex]
+            .last(where: survivingIDs.contains)
+        return RepoExplorerNativeRemovedRowAnchorFallback(
+            removedRowID: removedRowID,
+            targetRowID: successor ?? predecessor
+        )
     }
 }
 

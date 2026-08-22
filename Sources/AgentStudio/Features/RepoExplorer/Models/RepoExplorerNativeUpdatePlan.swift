@@ -65,6 +65,27 @@ struct RepoExplorerNativeRowMove: Equatable, Sendable {
     let newIndex: Int
 }
 
+struct RepoExplorerNativeRemovedRowAnchorFallback: Equatable, Sendable {
+    let removedRowID: RepoExplorerRowID
+    let targetRowID: RepoExplorerRowID?
+}
+
+struct RepoExplorerNativeAnchorFallbackLookup: Equatable, Sendable {
+    let entries: [RepoExplorerNativeRemovedRowAnchorFallback]
+    private let entryIndexByRemovedRowID: [RepoExplorerRowID: Int]
+
+    init(entries: [RepoExplorerNativeRemovedRowAnchorFallback]) {
+        self.entries = entries
+        entryIndexByRemovedRowID = Dictionary(
+            uniqueKeysWithValues: entries.enumerated().map { ($1.removedRowID, $0) }
+        )
+    }
+
+    func targetRowID(forRemovedRowID rowID: RepoExplorerRowID) -> RepoExplorerRowID? {
+        entryIndexByRemovedRowID[rowID].flatMap { entries[$0].targetRowID }
+    }
+}
+
 struct RepoExplorerNativeMembershipUpdatePlan: Equatable, Sendable {
     let oldCount: Int
     let newCount: Int
@@ -73,6 +94,7 @@ struct RepoExplorerNativeMembershipUpdatePlan: Equatable, Sendable {
     let removeRowsInOldSpace: IndexSet
     let insertRowsInNewSpace: IndexSet
     let movesFromOldToNewSpace: [RepoExplorerNativeRowMove]
+    let anchorFallbacks: RepoExplorerNativeAnchorFallbackLookup
     let reloadRowsInNewSpace: IndexSet
     let heightReloadRowsInNewSpace: IndexSet
 }
@@ -399,6 +421,7 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
             )
         }
         .sorted { lhs, rhs in lhs.oldIndex < rhs.oldIndex }
+        let anchorFallbacks = makeAnchorFallbacks(oldIDs: oldIDs, newIDs: newIDs)
 
         return .membership(
             RepoExplorerNativeMembershipUpdatePlan(
@@ -409,9 +432,52 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
                 removeRowsInOldSpace: removed,
                 insertRowsInNewSpace: inserted,
                 movesFromOldToNewSpace: moves,
+                anchorFallbacks: anchorFallbacks,
                 reloadRowsInNewSpace: reloadRows,
                 heightReloadRowsInNewSpace: heightReloadRows
             )
+        )
+    }
+
+    private static func makeAnchorFallbacks(
+        oldIDs: [RepoExplorerRowID],
+        newIDs: [RepoExplorerRowID]
+    ) -> RepoExplorerNativeAnchorFallbackLookup {
+        let survivingIDs = Set(newIDs)
+        var predecessorByOldIndex: [RepoExplorerRowID?] = Array(
+            repeating: nil,
+            count: oldIDs.count
+        )
+        var predecessor: RepoExplorerRowID?
+        for oldIndex in oldIDs.indices {
+            predecessorByOldIndex[oldIndex] = predecessor
+            if survivingIDs.contains(oldIDs[oldIndex]) {
+                predecessor = oldIDs[oldIndex]
+            }
+        }
+
+        var successorByOldIndex: [RepoExplorerRowID?] = Array(
+            repeating: nil,
+            count: oldIDs.count
+        )
+        var successor: RepoExplorerRowID?
+        for oldIndex in oldIDs.indices.reversed() {
+            successorByOldIndex[oldIndex] = successor
+            if survivingIDs.contains(oldIDs[oldIndex]) {
+                successor = oldIDs[oldIndex]
+            }
+        }
+
+        return RepoExplorerNativeAnchorFallbackLookup(
+            entries: oldIDs.indices.compactMap { oldIndex in
+                let removedRowID = oldIDs[oldIndex]
+                guard !survivingIDs.contains(removedRowID) else { return nil }
+                return RepoExplorerNativeRemovedRowAnchorFallback(
+                    removedRowID: removedRowID,
+                    targetRowID: successorByOldIndex[oldIndex]
+                        ?? predecessorByOldIndex[oldIndex]
+                )
+            }
         )
     }
 
@@ -509,6 +575,15 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
         }
 
         let removedIDs = Set(plan.removeRowsInOldSpace.map { oldSnapshot.rows[$0].id })
+        let expectedAnchorFallbacks = makeAnchorFallbacks(
+            oldIDs: oldSnapshot.rows.map(\.id),
+            newIDs: newSnapshot.rows.map(\.id)
+        )
+        guard plan.anchorFallbacks == expectedAnchorFallbacks,
+            Set(plan.anchorFallbacks.entries.map(\.removedRowID)) == removedIDs
+        else {
+            return false
+        }
         let movedIDs = Set(plan.movesFromOldToNewSpace.map(\.rowID))
         let untouchedIDs = oldSnapshot.rows.map(\.id).filter {
             !removedIDs.contains($0) && !movedIDs.contains($0)

@@ -132,6 +132,39 @@ struct RepoExplorerHotPathArchitectureTests {
         )
     }
 
+    @Test("native table materialization consumes worker plans without fleet derivation or fallback reload")
+    func nativeTableMaterializationStaysBoundedToRepresentedRows() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let featureRoot = projectRoot.appending(
+            path: "Sources/AgentStudio/Features/RepoExplorer"
+        )
+        let materializer = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerTableMaterializer.swift"),
+            encoding: .utf8
+        )
+        let nativePlan = try String(
+            contentsOf: featureRoot.appending(path: "Models/RepoExplorerNativeUpdatePlan.swift"),
+            encoding: .utf8
+        )
+
+        #expect(materializer.contains("RepoExplorerNativeTransactionApplier.apply("))
+        #expect(materializer.contains("pendingReloadRows.intersection(represented)"))
+        #expect(materializer.contains("pendingHeightRows.intersection(represented)"))
+        #expect(materializer.contains("membership.anchorFallbacks.targetRowID("))
+        #expect(nativePlan.contains("private static func makeAnchorFallbacks("))
+        #expect(!materializer.contains("tableView.reloadData()"))
+        #expect(!materializer.contains("RepoExplorerNativeUpdatePlan.validating"))
+        #expect(!materializer.contains("longestCommonSubsequence"))
+        #expect(!materializer.contains("RepoExplorerVisibleRowsBridge"))
+        #expect(!materializer.contains("enclosingScrollView"))
+        #expect(!materializer.contains("projectionAdapter"))
+        #expect(!materializer.contains("atom("))
+        #expect(!materializer.contains("snapshot.rows.map"))
+        #expect(!materializer.contains("snapshot.rows.filter"))
+        #expect(!materializer.contains("snapshot.rows.enumerated"))
+        #expect(!materializer.contains("for row in snapshot.rows"))
+    }
+
     @Test("RepoExplorerView renders from row index instead of walking groups per row")
     func repoExplorerViewRendersFromRowIndex() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

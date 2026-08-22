@@ -140,6 +140,50 @@ struct RepoExplorerNativeUpdatePlanTests {
         #expect(membership.heightReloadRowsInNewSpace.isEmpty)
         #expect(membership.oldCount == 4)
         #expect(membership.newCount == 4)
+        #expect(
+            membership.anchorFallbacks.entries == [
+                RepoExplorerNativeRemovedRowAnchorFallback(
+                    removedRowID: .group(groupID: "C"),
+                    targetRowID: .group(groupID: "D")
+                )
+            ]
+        )
+    }
+
+    @Test("removed anchor fallback prefers successor then predecessor")
+    func removedAnchorFallbackUsesOldOrdering() throws {
+        let oldSnapshot = nativePlanSnapshot(["A", "B", "C", "D", "E"])
+        let newSnapshot = nativePlanSnapshot(["E", "A"])
+        let baseline = nativePlanBaseline(snapshot: oldSnapshot, revision: 2)
+        let plan = try RepoExplorerNativeUpdatePlan.validating(
+            baseline: baseline,
+            candidate: nativePlanContent(newSnapshot),
+            requestGeneration: 3
+        ).get()
+
+        guard case .changed(let changed) = plan.kind,
+            case .contentToContent(.membership(let membership)) = changed.presentation
+        else {
+            Issue.record("Expected membership plan")
+            return
+        }
+
+        #expect(
+            membership.anchorFallbacks.entries == [
+                RepoExplorerNativeRemovedRowAnchorFallback(
+                    removedRowID: .group(groupID: "B"),
+                    targetRowID: .group(groupID: "E")
+                ),
+                RepoExplorerNativeRemovedRowAnchorFallback(
+                    removedRowID: .group(groupID: "C"),
+                    targetRowID: .group(groupID: "E")
+                ),
+                RepoExplorerNativeRemovedRowAnchorFallback(
+                    removedRowID: .group(groupID: "D"),
+                    targetRowID: .group(groupID: "E")
+                ),
+            ]
+        )
     }
 
     @Test("validation rejects stale baseline identity and malformed snapshots")

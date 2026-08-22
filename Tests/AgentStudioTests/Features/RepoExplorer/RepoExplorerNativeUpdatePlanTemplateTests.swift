@@ -70,6 +70,34 @@ struct RepoExplorerNativeUpdatePlanTemplateTests {
         #expect(reverseCandidate.presentation == source)
         #expect(reverseCandidate.expectedRevision == 42)
         #expect(reverseCandidate.proposedRevision == 43)
+
+        let forwardTablePlan = try #require(firstCandidate.nativeUpdatePlan.tableUpdatePlan())
+        guard case .membership(let forwardMembership) = forwardTablePlan else {
+            Issue.record("Expected forward membership plan")
+            return
+        }
+        #expect(
+            forwardMembership.anchorFallbacks.entries == [
+                RepoExplorerNativeRemovedRowAnchorFallback(
+                    removedRowID: .group(groupID: "B"),
+                    targetRowID: .group(groupID: "C")
+                )
+            ]
+        )
+
+        let reverseTablePlan = try #require(reverseCandidate.nativeUpdatePlan.tableUpdatePlan())
+        guard case .membership(let reverseMembership) = reverseTablePlan else {
+            Issue.record("Expected reverse membership plan")
+            return
+        }
+        #expect(
+            reverseMembership.anchorFallbacks.entries == [
+                RepoExplorerNativeRemovedRowAnchorFallback(
+                    removedRowID: .group(groupID: "D"),
+                    targetRowID: .group(groupID: "A")
+                )
+            ]
+        )
     }
 
     @Test("instantiation rejects stale kind count fingerprint and revision overflow")
