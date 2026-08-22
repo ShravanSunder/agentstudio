@@ -7,6 +7,8 @@ import { marketingCopy } from "@/marketing-copy";
 interface Props {
   readonly beforeImage: ImageMetadata;
   readonly restoredImage: ImageMetadata;
+  readonly beforePhoneImage?: ImageMetadata;
+  readonly restoredPhoneImage?: ImageMetadata;
   readonly beforeLabel?: string;
   readonly restoredLabel?: string;
   readonly beforeImageDescription?: string;
@@ -17,6 +19,8 @@ interface Props {
 const {
   beforeImage,
   restoredImage,
+  beforePhoneImage,
+  restoredPhoneImage,
   beforeLabel = marketingCopy.stories.persistence.beforeLabel,
   restoredLabel = marketingCopy.stories.persistence.restoredLabel,
   beforeImageDescription = marketingCopy.stories.persistence.beforeImageDescription,
@@ -52,28 +56,34 @@ const {
   </div>
 
   <figure class="m-0 overflow-clip rounded-control" data-persistence-frame="before">
-    <Image
-      src={beforeImage}
-      alt={beforeImageDescription}
-      widths={[720, 1080, 1440, 2160]}
-      sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
-      format="png"
-      loading="lazy"
-      decoding="async"
-      class="block h-auto w-full"
-    />
+    <picture class="block">
+      {beforePhoneImage !== undefined && <source media="(max-width: 620px)" srcset={beforePhoneImage.src} />}
+      <Image
+        src={beforeImage}
+        alt={beforeImageDescription}
+        widths={[720, 1080, 1440, 2160]}
+        sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
+        format="png"
+        loading="lazy"
+        decoding="async"
+        class="block h-auto w-full"
+      />
+    </picture>
   </figure>
   <figure class="m-0 overflow-clip rounded-control" data-persistence-frame="restored" hidden>
-    <Image
-      src={restoredImage}
-      alt={restoredImageDescription}
-      widths={[720, 1080, 1440, 2160]}
-      sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
-      format="png"
-      loading="lazy"
-      decoding="async"
-      class="block h-auto w-full"
-    />
+    <picture class="block">
+      {restoredPhoneImage !== undefined && <source media="(max-width: 620px)" srcset={restoredPhoneImage.src} />}
+      <Image
+        src={restoredImage}
+        alt={restoredImageDescription}
+        widths={[720, 1080, 1440, 2160]}
+        sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
+        format="png"
+        loading="lazy"
+        decoding="async"
+        class="block h-auto w-full"
+      />
+    </picture>
   </figure>
 </div>
 

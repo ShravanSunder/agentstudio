@@ -75,6 +75,8 @@ async function verifyCaptureAssets(): Promise<void> {
       if ("phoneAssetPath" in capture && "phoneWebsiteAssetSha256" in capture) {
         const phoneBytes = await readFile(new URL(capture.phoneAssetPath, manifestUrl));
         const phoneMetadata = await sharp(phoneBytes).metadata();
+        const phonePixelSize =
+          "phonePixelSize" in capture ? capture.phonePixelSize : ([1280, 1600] as const);
         const phoneHasCanonicalSrgbChunk =
           hasPngChunk(phoneBytes, "sRGB") && !hasPngChunk(phoneBytes, "iCCP");
         const phoneHasCanonicalSrgbIcc =
@@ -87,8 +89,9 @@ async function verifyCaptureAssets(): Promise<void> {
           `${capture.id} phone: asset is not a PNG`,
         );
         assertCapture(
-          phoneBytes.readUInt32BE(16) === 1280 && phoneBytes.readUInt32BE(20) === 1600,
-          `${capture.id} phone: dimensions must be 1280×1600`,
+          phoneBytes.readUInt32BE(16) === phonePixelSize[0] &&
+            phoneBytes.readUInt32BE(20) === phonePixelSize[1],
+          `${capture.id} phone: dimensions must be ${phonePixelSize[0]}×${phonePixelSize[1]}`,
         );
         assertCapture(
           phoneHasCanonicalSrgbChunk || phoneHasCanonicalSrgbIcc,

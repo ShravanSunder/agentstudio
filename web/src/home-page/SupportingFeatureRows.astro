@@ -1,9 +1,16 @@
 ---
 import { Image } from "astro:assets";
 
-import arrangementSavedImage from "@/assets/captures/arrangement-saved.png";
-import filesReviewTabsImage from "@/assets/captures/files-review-tabs.png";
-import paneZoomImage from "@/assets/captures/pane-zoom.png";
+import gitContextFilesImage from "@/assets/captures/git-context-files.png";
+import gitContextFilesPhoneImage from "@/assets/captures/git-context-files-phone.png";
+import layoutPaneZoomImage from "@/assets/captures/layout-pane-zoom.png";
+import layoutPaneZoomPhoneImage from "@/assets/captures/layout-pane-zoom-phone.png";
+import layoutSavedImage from "@/assets/captures/layout-saved.png";
+import layoutSavedPhoneImage from "@/assets/captures/layout-saved-phone.png";
+import sidebarNavigationPhoneImage from "@/assets/captures/sidebar-navigation-phone.png";
+import sidebarNavigationImage from "@/assets/captures/sidebar-navigation.png";
+import taskDrawerToolsPhoneImage from "@/assets/captures/task-drawer-tools-phone.png";
+import taskDrawerToolsImage from "@/assets/captures/task-drawer-tools.png";
 import sessionRestorePoster from "@/assets/media/session-restore-poster.jpg";
 import sessionRestoreVideoUrl from "@/assets/media/session-restore.mp4?url";
 import { marketingCopy } from "@/marketing-copy";
@@ -13,7 +20,18 @@ import ScrollAutoplayVideo from "./ScrollAutoplayVideo.astro";
 import ScrollMaterialSurface from "./ScrollMaterialSurface.astro";
 
 const mediaByFeatureId = {
-  "pane-types": filesReviewTabsImage,
+  navigation: {
+    image: sidebarNavigationImage,
+    phoneImage: sidebarNavigationPhoneImage,
+  },
+  "task-tools": {
+    image: taskDrawerToolsImage,
+    phoneImage: taskDrawerToolsPhoneImage,
+  },
+  "git-context": {
+    image: gitContextFilesImage,
+    phoneImage: gitContextFilesPhoneImage,
+  },
 } as const;
 ---
 
@@ -68,8 +86,10 @@ const mediaByFeatureId = {
                 />
               ) : item.id === "arrangements" ? (
                 <PersistenceProof
-                  beforeImage={arrangementSavedImage}
-                  restoredImage={paneZoomImage}
+                  beforeImage={layoutSavedImage}
+                  restoredImage={layoutPaneZoomImage}
+                  beforePhoneImage={layoutSavedPhoneImage}
+                  restoredPhoneImage={layoutPaneZoomPhoneImage}
                   beforeLabel={item.savedArrangementLabel}
                   restoredLabel={item.paneZoomLabel}
                   beforeImageDescription={item.savedArrangementImageDescription}
@@ -78,8 +98,16 @@ const mediaByFeatureId = {
                 />
               ) : (
                 <picture class="block overflow-clip rounded-control">
+                  {
+                    mediaByFeatureId[item.id].phoneImage !== undefined && (
+                      <source
+                        media="(max-width: 620px)"
+                        srcset={mediaByFeatureId[item.id].phoneImage?.src}
+                      />
+                    )
+                  }
                   <Image
-                    src={mediaByFeatureId[item.id]}
+                    src={mediaByFeatureId[item.id].image}
                     alt={item.imageDescription}
                     widths={[720, 1080, 1440, 2160]}
                     sizes="(max-width: 900px) 100vw, 62vw"

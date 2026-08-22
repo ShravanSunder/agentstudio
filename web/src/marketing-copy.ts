@@ -86,20 +86,6 @@ export const marketingCopy = {
     description: "Sessions, source, reviews, and layouts stay close to the work that needs them.",
     items: [
       {
-        id: "pane-types",
-        title: {
-          kind: "accented",
-          beforeAccent: "Keep ",
-          accent: "tabs",
-          afterAccent: " on your code.",
-        },
-        summary: "Browse source and review every changed file without leaving the workspace.",
-        detail:
-          "Files keeps the repository tree close. Review puts every changed file into one continuous diff.",
-        imageDescription:
-          "Agent Studio with Files and Review tabs above a changed-files tree and continuous diff, with the global sidebar hidden.",
-      },
-      {
         id: "persistence",
         title: {
           kind: "accented",
@@ -112,6 +98,46 @@ export const marketingCopy = {
           "Reopen the app to restore your tabs, panes, drawers, arrangements, and visible terminal sessions.",
       },
       {
+        id: "navigation",
+        title: {
+          kind: "accented",
+          beforeAccent: "Find ",
+          accent: "your way",
+          afterAccent: " around.",
+        },
+        summary: "Filter the sidebar to find matching repositories and worktrees.",
+        detail: "Keep each result's branch and dirty-change state in view.",
+        imageDescription:
+          "Agent Studio's sidebar filtered to two matching worktrees, with their branch names and dirty-change badges visible.",
+      },
+      {
+        id: "task-tools",
+        title: {
+          kind: "accented",
+          beforeAccent: "Give ",
+          accent: "your tools",
+          afterAccent: " a home.",
+        },
+        summary:
+          "Keep each task in a main pane, with related terminals and tools organized in its drawer.",
+        detail: "Its attached drawer keeps those tools with the task.",
+        imageDescription:
+          "Agent Studio showing a Codex task with a related terminal in its attached drawer.",
+      },
+      {
+        id: "git-context",
+        title: {
+          kind: "accented",
+          beforeAccent: "Keep ",
+          accent: "your Git",
+          afterAccent: " close.",
+        },
+        summary: "Keep the worktree, branch, and PR reference in view.",
+        detail: "The terminal keeps that Git context beside the task that produced it.",
+        imageDescription:
+          "Agent Studio showing a worktree and branch with PR 201 visible in its terminal.",
+      },
+      {
         id: "arrangements",
         title: {
           kind: "accented",
@@ -119,14 +145,14 @@ export const marketingCopy = {
           accent: "one pane",
           afterAccent: ".",
         },
-        summary: "Save arrangements for the layouts you return to.",
-        detail:
-          "When one pane needs your full attention, Pane Zoom gives it the whole workspace without stopping work in your other panes.",
+        summary: "Keep a named layout for the wider workspace.",
+        detail: "When one task needs your full attention, Pane Zoom gives it the workspace.",
         savedArrangementLabel: "Saved layout",
         paneZoomLabel: "Pane Zoom",
         savedArrangementImageDescription:
-          "Agent Studio with the Parallel agents arrangement active, showing Codex and Claude Code side by side with the global sidebar hidden.",
-        paneZoomImageDescription: "Claude Code filling the Agent Studio workspace in Pane Zoom.",
+          "Agent Studio Layout 1 showing two terminal panes side by side with the global sidebar hidden.",
+        paneZoomImageDescription:
+          "The same Agent Studio task in Pane Zoom with its terminal, code, and Files context filling the workspace.",
       },
     ],
   },

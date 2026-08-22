@@ -2,15 +2,13 @@ export type WebsiteCaptureId =
   | "parallel-work"
   | "watch-folder"
   | "files"
-  | "pane-drawer"
   | "quick-find"
   | "review"
-  | "git-context"
-  | "files-review-tabs"
-  | "arrangement-saved"
-  | "pane-zoom"
-  | "persistent-before"
-  | "persistent-restored";
+  | "sidebar-navigation"
+  | "task-drawer-tools"
+  | "git-context-files"
+  | "layout-saved"
+  | "layout-pane-zoom";
 
 export interface NormalizedFocusRegion {
   readonly left: number;
@@ -35,7 +33,10 @@ export interface WebsiteCaptureRecord {
   readonly normalizedMasterSha256: string;
   readonly websiteAssetSha256: string;
   readonly phoneWebsiteAssetSha256?: string;
+  readonly phonePixelSize?: readonly [width: number, height: number];
+  readonly phoneFocusRegion?: NormalizedFocusRegion;
   readonly focusRegion: NormalizedFocusRegion | null;
+  readonly focusRegions?: readonly NormalizedFocusRegion[];
   readonly focusRadiusPixels: number | null;
   readonly focusRail: boolean;
   readonly settledAtSeconds: number;
@@ -65,12 +66,13 @@ export const websiteCaptureSuite = {
   colorProfile: "sRGB IEC61966-2.1",
   treatment: {
     renderer: "Native macOS",
-    compositorVersion: "Peekaboo 4.2.2 exact-window Retina capture",
+    compositorVersion: "Peekaboo 4.2.2 capture; HyperFrames 0.8.9 focus-isolation export",
     exportCompositor:
       "ColorSync sRGB conversion without resizing; canonical same-geometry native alpha boundary for Parallel agents; frozen phone crops",
     focalPixelPolicy:
       "Native app and sheet RGB pixels remain unchanged after capture except for recorded privacy treatment and color-profile normalization",
-    contextualScrim: "Native Agent Studio treatment only",
+    contextualScrim:
+      "HyperFrames #1D2026 at 68 percent; task-drawer top-left context segment at 58 percent",
     focusRail: "None",
     duplicateProductMedia: false,
   },
@@ -142,28 +144,6 @@ export const websiteCaptureSuite = {
       settledAtSeconds: 1,
     },
     {
-      id: "pane-drawer",
-      assetPath: "../assets/captures/pane-drawer.png",
-      phoneAssetPath: "../assets/captures/pane-drawer-phone.png",
-      alternativeText:
-        "A Git-status drawer attached beneath Antigravity with the global sidebar hidden.",
-      source: {
-        productRevision: "0.0.90-beta.30 (151)",
-        fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
-        bundleIdentifier: "com.agentstudio.app.beta",
-        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
-      },
-      processGeneration: "A",
-      sourceSha256: "937d5463f85511eccbc2c609fb9106b972f808136a8b75aee415d2a148ab14d4",
-      normalizedMasterSha256: "e1bd4bc933ac4517c2d205be8b676689661f96220640d36b40858859d6ea30e5",
-      websiteAssetSha256: "e1bd4bc933ac4517c2d205be8b676689661f96220640d36b40858859d6ea30e5",
-      phoneWebsiteAssetSha256: "287f9cb1686f76fecbc1966fa7ae1395899edb14910a6ebd74c05c9bf6701152",
-      focusRegion: null,
-      focusRadiusPixels: null,
-      focusRail: false,
-      settledAtSeconds: 1,
-    },
-    {
       id: "quick-find",
       assetPath: "../assets/captures/command-bar.png",
       phoneAssetPath: "../assets/captures/command-bar-phone.png",
@@ -208,127 +188,126 @@ export const websiteCaptureSuite = {
       settledAtSeconds: 1,
     },
     {
-      id: "git-context",
-      assetPath: "../assets/captures/git-pull-request-context.png",
-      phoneAssetPath: "../assets/captures/git-pull-request-context-phone.png",
+      id: "sidebar-navigation",
+      assetPath: "../assets/captures/sidebar-navigation.png",
+      phoneAssetPath: "../assets/captures/sidebar-navigation-phone.png",
       alternativeText:
-        "Agent Studio filtered to workspace-local, with PR 201 and branch status beside the By Repo sidebar.",
+        "Agent Studio's sidebar filtered to two matching worktrees, with their branch names and dirty-change badges visible.",
       source: {
         productRevision: "0.0.90-beta.30 (151)",
-        fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
-        bundleIdentifier: "com.agentstudio.app.beta",
-        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
-      },
-      processGeneration: "A",
-      sourceSha256: "ead7e84a074b7e23ba5081e4db33f8658f5d9a8e8761088cf0c289daa635eca5",
-      normalizedMasterSha256: "c1fde40d20129e9d7a29da4a458b8f3d5d6db7522ef704c94380e14fc8e7ea67",
-      websiteAssetSha256: "c1fde40d20129e9d7a29da4a458b8f3d5d6db7522ef704c94380e14fc8e7ea67",
-      phoneWebsiteAssetSha256: "e3ee77a2b8660b49d6ec6f6fd899e7fc4c8cab14a8adb54256a73fd226028ad4",
-      focusRegion: null,
-      focusRadiusPixels: null,
-      focusRail: false,
-      settledAtSeconds: 1,
-    },
-    {
-      id: "files-review-tabs",
-      assetPath: "../assets/captures/files-review-tabs.png",
-      phoneAssetPath: "../assets/captures/files-review-tabs-phone.png",
-      alternativeText:
-        "Agent Studio with Files and Review tabs above a changed-files tree and continuous diff, with the global sidebar hidden.",
-      source: {
-        productRevision: "0.0.90-beta.30 (151)",
-        fixtureIdentity: "owner-prepared-beta-workspace-2026-08-21",
+        fixtureIdentity: "owner-prepared-beta-sidebar-navigation-2026-08-22",
         bundleIdentifier: "com.agentstudio.app.beta",
         executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
       },
       processGeneration: "B",
-      sourceSha256: "7023788ecebfdd6efd11f0b72747185dbf4590247686fa0d1300610e6a8fe644",
-      normalizedMasterSha256: "7b30828ae58243c819bf485e4669268d71f24392c729428d9102609cc2abe214",
-      websiteAssetSha256: "7b30828ae58243c819bf485e4669268d71f24392c729428d9102609cc2abe214",
-      phoneWebsiteAssetSha256: "c16e2c745f578d0ad6fb5cd3a60b79600dfebbe3771584273e8d702dd4afe129",
-      focusRegion: null,
+      sourceSha256: "6bb39d744847bd578a07808e75576e97f1bbdb810502abb88d32e8b2ac5f6894",
+      normalizedMasterSha256: "6bb39d744847bd578a07808e75576e97f1bbdb810502abb88d32e8b2ac5f6894",
+      websiteAssetSha256: "49004c457b52601dd395e0bf8edf04867d94fcfc3fcb9772d203d7b97bc9381b",
+      phoneWebsiteAssetSha256: "1f05f9412a6a48c3c7e22d6db99fb7c57da0e07013cdc19bbdd8e3784e81c7e6",
+      phonePixelSize: [610, 800],
+      focusRegion: { left: 0, top: 0, right: 0.24609375, bottom: 1 },
       focusRadiusPixels: null,
       focusRail: false,
-      settledAtSeconds: 1,
+      settledAtSeconds: 6.72,
     },
     {
-      id: "arrangement-saved",
-      assetPath: "../assets/captures/arrangement-saved.png",
+      id: "task-drawer-tools",
+      assetPath: "../assets/captures/task-drawer-tools.png",
+      phoneAssetPath: "../assets/captures/task-drawer-tools-phone.png",
       alternativeText:
-        "Agent Studio with the Parallel agents arrangement active, showing Codex and Claude Code side by side with the global sidebar hidden.",
+        "Agent Studio showing a Codex task with a related terminal in its attached drawer.",
       source: {
         productRevision: "0.0.90-beta.30 (151)",
-        fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
-        bundleIdentifier: "com.agentstudio.app.beta",
-        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
-      },
-      processGeneration: "A",
-      sourceSha256: "3b0a01201b1b66cc8dd8205c7eefea38a4fce1ad3c633566386666347cf6f40f",
-      normalizedMasterSha256: "839cad625cbf95181715b924075a2dd73615cae6b65ebb5d125c6ea0e42d96d6",
-      websiteAssetSha256: "839cad625cbf95181715b924075a2dd73615cae6b65ebb5d125c6ea0e42d96d6",
-      focusRegion: null,
-      focusRadiusPixels: null,
-      focusRail: false,
-      settledAtSeconds: 1,
-    },
-    {
-      id: "pane-zoom",
-      assetPath: "../assets/captures/pane-zoom.png",
-      alternativeText: "Claude Code filling the Agent Studio workspace in Pane Zoom.",
-      source: {
-        productRevision: "0.0.90-beta.30 (151)",
-        fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
-        bundleIdentifier: "com.agentstudio.app.beta",
-        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
-      },
-      processGeneration: "A",
-      sourceSha256: "7b5ed5a79df6adcda772e92a65deb2c5e0b3397360fd8c7244556f07d9446c2f",
-      normalizedMasterSha256: "e41ad06b0da16b974611469d48a7d647ab35cbb543d859fdda017398bd2e81db",
-      websiteAssetSha256: "e41ad06b0da16b974611469d48a7d647ab35cbb543d859fdda017398bd2e81db",
-      focusRegion: null,
-      focusRadiusPixels: null,
-      focusRail: false,
-      settledAtSeconds: 1,
-    },
-    {
-      id: "persistent-before",
-      assetPath: "../assets/captures/persistence-claude-before.png",
-      alternativeText:
-        "Agent Studio before closing with All Panes, the Parallel agents arrangement, Codex, and Claude Code visible.",
-      source: {
-        productRevision: "0.0.90-beta.30 (151)",
-        fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
-        bundleIdentifier: "com.agentstudio.app.beta",
-        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
-      },
-      processGeneration: "A",
-      sourceSha256: "f2c578f3888731018e4652653ac418e8bd70f8c72b6aaa93c5c1bf5a18c81b7b",
-      normalizedMasterSha256: "8fe88d440c0ec59d031270b97c46187e7c0fc83d1156f30b98dabfc48a80585c",
-      websiteAssetSha256: "8fe88d440c0ec59d031270b97c46187e7c0fc83d1156f30b98dabfc48a80585c",
-      focusRegion: null,
-      focusRadiusPixels: null,
-      focusRail: false,
-      settledAtSeconds: 1,
-    },
-    {
-      id: "persistent-restored",
-      assetPath: "../assets/captures/persistence-claude-restored.png",
-      alternativeText:
-        "Agent Studio after reopening in the Parallel agents arrangement with All Panes, Codex, and continued Claude Code terminal output visible.",
-      source: {
-        productRevision: "0.0.90-beta.30 (151)",
-        fixtureIdentity: "owner-prepared-beta-workspace-2026-08-20",
+        fixtureIdentity: "owner-prepared-beta-task-drawer-2026-08-22",
         bundleIdentifier: "com.agentstudio.app.beta",
         executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
       },
       processGeneration: "B",
-      sourceSha256: "4c84f5a68a52c7074c5c9fa084bbf589b57c7d2b69e0cacc7b97007d6443bc16",
-      normalizedMasterSha256: "dc6ecb25de709cf1b86873edf467e596546437a63ac1ee7ff698b202c8f4a8e3",
-      websiteAssetSha256: "dc6ecb25de709cf1b86873edf467e596546437a63ac1ee7ff698b202c8f4a8e3",
+      sourceSha256: "c9e572f7c4f06905bb49b5a33b6f8da4cb01dfeffdec2aa3b57cdf6e7317462f",
+      normalizedMasterSha256: "c9e572f7c4f06905bb49b5a33b6f8da4cb01dfeffdec2aa3b57cdf6e7317462f",
+      websiteAssetSha256: "acddc26e5d2b59f04e103e388fe4871c15f3032a2452144c7e47aeb0e5341bcc",
+      phoneWebsiteAssetSha256: "7ab4d59bba237b90843a5f988db3e34a835b7950254495bb91f8e37a3e875d1c",
+      phonePixelSize: [1300, 1520],
+      focusRegion: null,
+      focusRegions: [
+        { left: 0, top: 0, right: 1, bottom: 0.03875 },
+        { left: 0.4921875, top: 0.03875, right: 1, bottom: 1 },
+        { left: 0.196875, top: 0.390625, right: 1, bottom: 0.90625 },
+      ],
+      focusRadiusPixels: null,
+      focusRail: false,
+      settledAtSeconds: 7.72,
+    },
+    {
+      id: "git-context-files",
+      assetPath: "../assets/captures/git-context-files.png",
+      phoneAssetPath: "../assets/captures/git-context-files-phone.png",
+      alternativeText:
+        "Agent Studio showing a worktree and branch with PR 201 visible in its terminal.",
+      source: {
+        productRevision: "0.0.90-beta.30 (151)",
+        fixtureIdentity: "owner-prepared-beta-git-context-2026-08-22",
+        bundleIdentifier: "com.agentstudio.app.beta",
+        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
+      },
+      processGeneration: "B",
+      sourceSha256: "c938075251690789315fd5bc37949535a5f031aba8fb5584561b823d2aea51fd",
+      normalizedMasterSha256: "c938075251690789315fd5bc37949535a5f031aba8fb5584561b823d2aea51fd",
+      websiteAssetSha256: "c938075251690789315fd5bc37949535a5f031aba8fb5584561b823d2aea51fd",
+      phoneWebsiteAssetSha256: "29cd68fac9c03c0b8d07164fe0e24dddfac8e3241f45605d8f6f5ab946a2603e",
+      phonePixelSize: [810, 570],
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,
-      settledAtSeconds: 1,
+      settledAtSeconds: 8.72,
+    },
+    {
+      id: "layout-saved",
+      assetPath: "../assets/captures/layout-saved.png",
+      phoneAssetPath: "../assets/captures/layout-saved-phone.png",
+      alternativeText:
+        "Agent Studio Layout 1 showing two terminal panes side by side with the global sidebar hidden.",
+      source: {
+        productRevision: "0.0.90-beta.30 (151)",
+        fixtureIdentity: "owner-prepared-beta-layout-2026-08-22",
+        bundleIdentifier: "com.agentstudio.app.beta",
+        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
+      },
+      processGeneration: "B",
+      sourceSha256: "e7a928f3fbdc46514560034cc0f666b87d1dc9cc03472103de6ad7ac2585585b",
+      normalizedMasterSha256: "e7a928f3fbdc46514560034cc0f666b87d1dc9cc03472103de6ad7ac2585585b",
+      websiteAssetSha256: "e7a928f3fbdc46514560034cc0f666b87d1dc9cc03472103de6ad7ac2585585b",
+      phoneWebsiteAssetSha256: "ea76a12ef2736858864212be3db4177814b4593438b19920fb484b615d3f8c11",
+      phonePixelSize: [640, 400],
+      phoneFocusRegion: { left: 0.3125, top: 0, right: 0.75, bottom: 0.2 },
+      focusRegion: null,
+      focusRadiusPixels: null,
+      focusRail: false,
+      settledAtSeconds: 9.72,
+    },
+    {
+      id: "layout-pane-zoom",
+      assetPath: "../assets/captures/layout-pane-zoom.png",
+      phoneAssetPath: "../assets/captures/layout-pane-zoom-phone.png",
+      alternativeText:
+        "The same Agent Studio task in Pane Zoom with its terminal, code, and Files context filling the workspace.",
+      source: {
+        productRevision: "0.0.90-beta.30 (151)",
+        fixtureIdentity: "owner-prepared-beta-layout-2026-08-22",
+        bundleIdentifier: "com.agentstudio.app.beta",
+        executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
+      },
+      processGeneration: "B",
+      sourceSha256: "25f194ac2efdf73328b1461a8e4f9169fca9728cd2545251e6e9100b2b99af5e",
+      normalizedMasterSha256: "25f194ac2efdf73328b1461a8e4f9169fca9728cd2545251e6e9100b2b99af5e",
+      websiteAssetSha256: "25f194ac2efdf73328b1461a8e4f9169fca9728cd2545251e6e9100b2b99af5e",
+      phoneWebsiteAssetSha256: "243b23f1fd22dad68f2481a16f945d6b1ad8c49237283c2497a74a92e0f89c92",
+      phonePixelSize: [640, 400],
+      phoneFocusRegion: { left: 0.3125, top: 0, right: 0.890625, bottom: 0.2 },
+      focusRegion: null,
+      focusRadiusPixels: null,
+      focusRail: false,
+      settledAtSeconds: 10.72,
     },
   ],
 } as const satisfies WebsiteCaptureSuite;
