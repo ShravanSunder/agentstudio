@@ -555,3 +555,24 @@ Next: obtain explicit permission for a second independent design review, or an
 explicit owner decision to proceed on parent self-check alone
 Notes: one pipeline, active-plus-one presentation bound, existing physical
 routes, and unrelated PR2 ownership remain unchanged
+
+### 2026-08-21 23:11 EDT — Refresh classification S1 checkpoint
+
+State: native lineage authority and strict install-admission contracts committed
+Head: `0e15267a9` (`feat(bridge): add review display install admission`)
+Owns: backend coordinator, existing product-control contract, app/dev-host
+composition, and focused proof only
+Changed: exact displayed/candidate CAS admission; lineage-monotonic displayed
+receipt over retained publications; bounded displayed/admitted/current/source-
+lease retention; strict Swift/TypeScript call corpus; policy values 10 commits,
+25 files, and 1,000 changed lines
+Proof: retention-bound red reproduced 3 retiring publications and green retained
+only displayed A plus admitted B beside current D; focused Swift 52/52 across 6
+suites; BridgeWeb check, scoped format/lint/architecture lint, shared-corpus byte
+parity, and diff checks passed
+Needs from other lane: UI remains untouched; consume typed refresh state only
+after the S2/S3 backend state exists, and do not add a parallel refresh path
+Next: implement S2 worker applied-receipt cutover and the main active-plus-one
+candidate bank on the existing worker/product routes
+Notes: no security/auth, persistence, polling, queue, route, PR2, or visual UI
+change; the checkpoint used unsigned fallback after two 1Password signing failures
