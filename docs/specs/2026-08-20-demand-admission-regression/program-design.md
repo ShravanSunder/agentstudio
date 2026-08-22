@@ -80,7 +80,7 @@ The system is legacy-ownership-bound, not greenfield:
 - `TerminalLocalActionAccumulator` and `TerminalActivityProjector` already own bounded raw-signal contraction; `PaneActivityStatusAtom` is the keyed MainActor read owner but discards changed values inside its interval.
 - `ForgeActor` already owns demand, freshness, backoff, origin/generation validation, one active provider task, and one pending follow-up. `v0.0.90` exposes its loading edges as separate events and mutates success/publication baselines before final scope validation.
 - `RepositoryTopologyAtom` already owns stable-key indexes, but `RepoPresentationItem.init(repo:)` recomputes path-derived keys during hot capture.
-- OTLP projection and taxonomy allowlisting remain source-scrubbed. The App startup-diagnostic target imports `AgentStudioRepoExplorer`, but its adapter, worker, host, delivery envelopes, content-child protocol, and native applier are intentionally module-internal; `@testable` coverage cannot compose the packaged pilot, while widening or rebuilding them in App breaks Feature ownership. The first S6 experiment then proved a second constraint: a synchronous `@MainActor` facade pumping `RunLoop.main` timed out at 30.004 seconds with visible generation zero and no measurements because Eager's detached worker awaited its MainActor `receiveCandidate` continuation, which nested RunLoop servicing did not run.
+- OTLP projection and taxonomy allowlisting remain source-scrubbed. App imports `AgentStudioRepoExplorer`, whose adapter/worker/host/envelopes/child/applier remain internal. The first S6 experiment proved synchronous MainActor RunLoop pumping starved Eager's MainActor continuation (30.004 seconds, generation zero, no measurements). Two subsequent async runs proved 440 full projections cannot finish within the fixed 30 seconds and exposed unsafe cancellation teardown: crash reports `swiftpm-testing-helper-2026-08-22-152405.ips` and `...152545.ips` show main-thread `objc_release`/autorelease `EXC_BAD_ACCESS` while a user-initiated Eager detached attempt still executed `GitBranchStatus.status/merge` through `RepoExplorerProjectionWorker:451`. Current `stop` cancels but has no awaitable task-drain receipt, so fixture/work release raced the worker.
 
 The AppKit/SwiftUI architecture recommends SwiftUI for dynamic lists as the ordinary implementation default, while explicitly supporting persistent `NSHostingView` instances for custom cells. The measured Repo Explorer path is the justified exception: the generic SwiftUI outline coordinator is the dominant remaining CPU owner, and the selected table retains the existing SwiftUI row components inside reused native cells rather than replacing their product presentation. This exception is feature-local and does not change the repository-wide UI default.
 
@@ -100,7 +100,7 @@ The crux is where a source change becomes a consumer-relevant semantic invalidat
 | Feature-owned view-based `NSTableView` | Consume immutable rows through a direct table data source, reuse hosted visible cells, apply precomputed update scope, and own the exact visible range | Removes generic outline diffing while preserving native scrolling, focus, accessibility, row reuse, and exact viewport demand | Larger feature-local AppKit boundary and cell lifecycle to maintain | Selected for UI materialization |
 | New generic derived-state scheduler | Central admission/deadline/control service | Uniform mechanics | New authority/control plane, broad migration, and scope beyond the confirmed goal | Rejected |
 
-The selected direction spends complexity in the existing adapter and one persistent host with a conditional table child. Domain owners retain semantic currentness; no generic UI framework is introduced. Native proof uses one async package-visible Feature facade rather than widening internals or duplicating their path in App; synchronous facade/adapter modes and RunLoop pumping are rejected by the 30.004-second falsifier. Revisit `LazyVStack` only if this host misses performance/row composition, and a broader scheduler only if three unrelated consumers require identical policy.
+The selected direction spends complexity in the existing adapter and persistent host. Native proof uses one async Feature facade, one normal full-path liveness transition per scale, then validated forward/reverse native-plan templates through that same host/child/applier. This preserves the fixed 30 seconds without pretending 440 full projections are native timing. RunLoop/synchronous modes, per-transaction projection, and scoped delta as an unproven drain workaround are rejected. Revisit the table only on its UX/CPU falsifiers, and a broader scheduler only if three unrelated consumers require identical policy.
 
 ## Components, Ownership, And Interfaces
 
@@ -112,12 +112,12 @@ Repo Explorer feature
     consumed by: Eager execution lane, RepoExplorerView, table acknowledgment
     changes when: source admission, currentness, or baseline-broker policy changes
   RepoExplorerProjectionWorker
-    owns: off-main grouping, row content, stored row identity/index, plan derivation
+    owns: off-main grouping, row identity/content/index, plan and immutable template derivation
     consumed by: adapter and materialization host through one immutable candidate envelope
     changes when: derived sidebar meaning or off-main plan derivation changes;
                   never owns acceptance or increments accepted revision
   RepoExplorerNativeTablePilot
-    owns: @MainActor async one-shot structured composition of the real internal pilot path;
+    owns: async liveness/drain, template replay, and native-only timing composition;
           consumed by App startup diagnostic; changes only with pilot composition
   RepoExplorerView
     owns: SwiftUI shell composition and filter/toolbar wiring
@@ -128,7 +128,6 @@ Repo Explorer feature
           visible generation/readiness, acceptance acknowledgment
     consumed by: RepoExplorerView, adapter acknowledgment
     changes when: presentation acceptance or demanded-host lifecycle changes
-
   RepoExplorerTableMaterializer
     owns: non-empty child transaction, visible cells, scrolling, viewport demand
     consumed by: persistent materialization host
@@ -137,7 +136,6 @@ Repo Explorer feature
     owns: one reusable native cell and persistent SwiftUI row-content slot
     consumed by: table materializer
     changes when: cell reuse/binding or row-host integration changes
-
 App composition
   Existing startup diagnostic — owns debug selection plus outer MainActor task/await, never pilot execution
   RepoExplorerCommandPresentationBatch
@@ -175,7 +173,7 @@ invalidate(scope, cause)
 hostDidAccept(candidateIdentity, acceptedBaseline)
 hostDidReject(candidateIdentity, reason)
 hostDidDetach(lifetime)
-stop()
+stopAndDrain() async
 publishedResult
 ```
 
@@ -256,14 +254,14 @@ EagerDerivedAtom<Intent, IntentIdentity, Work, Candidate, Value>
     equalCurrent(Value) | changedAwaitingOwner(Value) |
     immediateAccepted(Value) | rejected(revoked | stale | failed)
   onAwaitingOwner(candidateToken, Candidate, proposed Value)
-  settle(candidateToken, accepted(Value) | rejected(outcome))
+  settle(candidateToken, accepted(Value) | rejected(outcome)); stopAndDrain() async
 ```
 
 `admit` assigns identity/generation and stores or purely combines only the latest pending `Intent`. When the lane may start, the owner-provided MainActor `prepare` converts that intent to immutable `Sendable Work` from then-current baselines; rejection is terminal for that attempt and starts no task. `project` returns `Candidate` without mutating value, latest-accepted value, readiness, equality, or revision. Configured behavior functions live once on the primitive; Intent/Work/Candidate store no effectful closures.
 
 After validation, equal commits latest-accepted/current readiness without revision; immediate acceptance commits changed value/current readiness/revision. Awaiting-owner mints one opaque token, stores Candidate/proposed Value, invokes the configured owner callback, and stays unsettled. `settle` accepts only that token: acceptance commits proposed state; rejection retains stored value but leaves admitted identity invalidated/not-ready, then prepares pending Intent or reports terminal outcome. Late/duplicate tokens are controlled no-ops.
 
-Demand revocation advances epoch, cancels active work, rejects awaiting settlement, discards pending intent, and retains last committed value as declared by the owner. Family removal does the same and removes readiness/slot authority while retaining an in-flight task only for drainage; `stop` is terminal for every slot. Eager remains the sole active/pending owner—never the adapter, a stored closure, or a second scheduler.
+Demand revocation keeps its existing semantics. `stopAndDrain()` first performs idempotent terminal revocation: reject pending/awaiting, cancel every active attempt, and forbid later publication. The atom retains its task, captured Work/Candidate, terminal identity, and every checked-continuation drain waiter until all detached attempts terminate and MainActor completion bookkeeping runs; it then clears retained state and resumes every waiter exactly once. Repeated stop/drain calls share that terminal state. Family `removeAndDrain(for:)` removes readiness immediately but retains the slot/atom until its drain completes; family `stopAndDrain()` drains every snapshot slot before release. No polling, sleep, leak, unstructured cleanup, or late publication is permitted; Repo Explorer and Tab Bar must preserve their current equality/readiness behavior across stop/removal.
 
 Repo Explorer maps `Intent` to the pure schema above; `prepare` adds current semantic/native baselines and promotes incompatible scoped intent to full. Its classifier returns equal-current, changed-awaiting-owner, or rejected. Newer intent before host apply revokes the candidate; synchronous host apply cannot interleave on MainActor.
 
@@ -328,7 +326,7 @@ presentation(
 )
 ```
 
-The plan's private off-main constructor validates bounds, unique row IDs, disjoint remove/insert/move participation, move identity, and that applying the simultaneous old-space removals, new-space insertions, and old-to-new survivor moves to the exact acknowledged immutable baseline produces the candidate rows and fingerprint. Reload and height-reload indexes always address the final candidate snapshot. The value is immutable and cannot be constructed without that validation. The worker emits `.equal R→R` or `.changed R→R+1`; `R+1` is only a proposed acceptance. Superseded candidates may propose the same numeric `R+1`; the worker never increments or owns accepted revision.
+The private off-main production constructor validates bounds, unique row IDs, disjoint remove/insert/move participation, move identity, and exact baseline→candidate rows/fingerprint; reload indexes address final space. It may also seal a `RepoExplorerNativeUpdatePlanTemplate` from exact source/target snapshots and operations. The O(1) production `instantiate(template, baseline, requestGeneration, visibleGeneration)` may replace only lifetime, epoch, request/visible generation, and R→R+1 identity after matching baseline count/fingerprint; operations, source/target fingerprints, and presentation are immutable. Worker plans and instantiated plans remain indistinguishable to host preflight; the worker never owns accepted revision.
 
 MainActor preflight is O(1): adapter/host lifetime, epoch, request generation, candidate identity, old revision/count/fingerprint, proposed revision, and presentation fingerprint must match the envelope and host baseline. An equal plan is a host no-op. A changed plan's presentation kind and new count/fingerprint must match the enclosed presentation. Stale input is rejected before child update, while malformed current plans fail invariant precondition rather than broad reload.
 
@@ -336,7 +334,9 @@ For `equal`, no host child or acknowledgment advances revision. The host itself 
 
 No ordinary update calls broad `reloadData`. Initial empty-to-current installation may use the same insertion transaction only after a cell-free pilot proves the API boundary. Objective-C/AppKit consistency exceptions are fatal process conditions, not recoverable Swift returns; correctness is provided by the off-main plan constructor, O(1) preflight, deterministic transaction proof, and the pilot. Before hosted cells or command integration depend on this boundary, the pilot runs the real 150/180/12/36 membership plans with a fixed visible-row count and then doubles offscreen rows. It falsifies the table design if app-owned fleet iteration appears, native membership MainActor p95 exceeds the `AppPolicies` four-millisecond bound, or p95 grows by more than twenty percent when only offscreen membership doubles. A falsifier returns to Program Design rather than permitting `reloadData` or a MainActor diff.
 
-`RepoExplorerNativeTablePilot` lives in the Feature's `Diagnostics/` boundary and is the only `package` native-pilot API. Its sole entry is `@MainActor package static func run(performanceTraceRecorder:) async -> RepoExplorerNativeTablePilotResult`. It reads immutable `AppPolicies.SidebarPerformanceProof`, establishes one global 30-second deadline through an internally injectable `Clock`, records within the launch marker, creates an isolated fixture, and admits the exact adapter → normal Eager detached worker → persistent host → cell-free real `NSTableView` child → sole applier path. Each admitted generation awaits its exact host acceptance/visible-generation event through an invocation-local continuation/async-sequence seam; a structured task group inside the existing App diagnostic task races that event against the one policy deadline. Awaiting yields MainActor so Eager's `receiveCandidate` can publish; the facade creates no unstructured task, timer, RunLoop pump, observer, retained registry, or background owner. Only the synchronous sole-applier call duration enters the pilot distribution—worker, wait, continuation, settlement, and timeout time do not. App's existing debug-only sidebar-performance task `await`s the facade and projects its scrubbed bounded result (policy identity, counts, p95, growth, exactness, pass/fail; never rows/IDs/paths/internal types); there is no new task, public/command/IPC/auth surface, stable/beta selector, `#if DEBUG` Feature hook, mock, synchronous adapter mode, alternate diff, or alternate applier. Success cancels the deadline child; timeout cancels the event child, stops the adapter, fails the whole marker without retry, and `defer` detaches host/child/table/fixture before return. The later production child reuses the applier, not the facade.
+`RepoExplorerNativeTablePilot` remains the sole package API: `@MainActor run(recorder:) async -> scrubbed Result`. One global injected-Clock deadline covers both scales. Per scale, it creates an isolated fixture and persistent host, admits exactly one normal full adapter→Eager worker→host→typed child→sole-applier transition, awaits its exact acceptance event, then awaits adapter/family `stopAndDrain()` before native timing. It derives exact forward/reverse templates once off-main through the production constructor. The existing App diagnostic task awaits this work; no public/command/IPC/auth/stable-beta/Feature-DEBUG surface, RunLoop, polling, unstructured task, timer, observer, registry, mock, alternate diff/applier, or synchronous adapter exists.
+
+After liveness/drain, the pilot alternates O(1)-instantiated forward/reverse membership plans through the same persistent host, typed cell-free real `NSTableView` child, and sole applier for exactly 20 warmups + 200 measurements per scale. Host preflights and acknowledges every candidate; templates cannot change operations/fingerprints/presentation. Only the synchronous applier call is timed—liveness, worker, template preparation/instantiation, waits, acknowledgments, and cleanup are excluded; later full-journey populations own end-to-end CPU. The fixed 30 seconds still covers liveness, template preparation, and both native populations; missing it irrevocably fails the marker. Timeout latches failure and cancels/stops, then enters an unmeasured safety drain before finishing the event stream and defer-detaching host/table/fixture. The facade never releases captured resources or returns before drain; if cooperative termination never completes, the existing outer launcher/verifier terminates the failed process rather than permitting unsafe teardown. No retry or policy relaxation follows. Later production uses the applier, not pilot wrappers.
 
 ### RepoExplorerMaterializationHost — total empty/content acceptance
 
@@ -521,7 +521,7 @@ Terminal/Core/Forge -> Repo Explorer row formatting
 RepoExplorerView -> filesystem/Git/provider work or broad observation lifecycle
 MainActor/table host -> fleet diff, sort, identity construction, content comparison, or projection-owner reads
 broker/host/table -> strip, rebuild, substitute, side-store, or rediff a worker plan
-App/facade -> RunLoop/blocking wait, synchronous adapter mode, unstructured timeout task, internal leakage, App-owned execution, or alternate path/applier
+App/facade -> RunLoop/polling/blocking, synchronous adapter, undrained release, scoped-delta drain workaround, per-measurement projection, mutable/manual template, host bypass, or alternate path/applier
 worker -> accepted revision increment, visible acceptance, or mutable adapter/host state
 adapter -> assume projected/read-model-bound candidate is native accepted
 successor execution -> unacknowledged candidate baseline
@@ -558,7 +558,7 @@ Architecture lint/tests enforce imports and forbidden hot-path calls. Behavioral
 | running A | completion after B/C accepted | current unchanged | superseded; cannot bind |
 | running | cancelled/superseded/failed | idle/current(existing) | exact terminal outcome |
 | demanded lane | demand loss | advance demand epoch; revoke active/awaiting; discard pending | no late read-model/native acceptance |
-| any | stop/removal | retire adapter lifetime; revoke/cancel/drain | no later binding or acknowledgment |
+| any | stop/removal | revoke immediately; retain task/work/slot until async drain + terminal bookkeeping | all waiters resume once; no later binding/release race |
 
 No two executions for one key overlap. Different keys may execute concurrently under their existing family bounds.
 
@@ -580,7 +580,7 @@ No two executions for one key overlap. Different keys may execute concurrently u
 | any | cell reuse | `prepareForReuse`; clear identity state; install fresh keyed subtree | no stale state, action, focus, or accessibility value |
 | surviving host | demand loss/hide | clear viewport, retain empty/content R, reject late candidate | reentry re-acknowledges R under new demand epoch |
 | teardown | detach host lifetime | clear child/candidate; adapter discards baseline | replacement host registers new lifetime + empty R0 |
-| pilot running | exact host event or global 30-second deadline wins | structured race yields MainActor; timeout cancels/stops, then defer-detaches | one scrubbed result; no retry/background owner |
+| pilot running | one full liveness acceptance per scale, then template replay; or 30s wins | await drain before replay/release; timeout latches failure then safety-drains | native-only distribution or failed marker; never retry/pass on cleanup |
 
 Assignment to `publishedResult` is **read-model binding**. The host's prior baseline remains visible authority until empty-shell/table update, layout/focus/accessibility, viewport publication, and R+1 acknowledgment complete; those are **visible UI update** outcomes. MainActor serialization prevents child-state interleaving.
 
@@ -721,7 +721,7 @@ Unchanged and preserved: demand projection, active/follow-up bound, provider bat
 - **Demand loss while projecting or awaiting native acceptance:** advance the demand epoch, revoke active/awaiting work, discard pending intent, and reject late binding/acknowledgment. Same-host hidden state may retain only its last acknowledged baseline; no unacknowledged candidate becomes reentry authority.
 - **Host empty/content transition failure:** preflight rejection retains prior accepted child/baseline. A malformed current transition is an invariant failure. Empty presentation never bypasses the host, and content→empty clears viewport only as part of the acknowledged transition.
 - **Host teardown/replacement:** detach retires its lifetime and baseline. A replacement host synchronously installs/acknowledges empty R0. Numeric generations/revisions may repeat, but old work cannot pass lifetime validation.
-- **Native plan or pilot failure:** stale revision/generation rejects before AppKit and recovers through one current replacement plan; malformed plans fail construction/precondition. Facade exactness, threshold, event, or caught-exception failure returns one scrubbed failure. If the global 30-second deadline wins, its structured owner cancels the event wait, stops the adapter, finishes the local continuation/sequence, and defer-detaches host/child/table/fixture; fatal termination or missing completion fails in the external verifier. No retry, RunLoop pump, synchronous adapter, `reloadData`, SwiftUI `List`, or alternate algorithm is allowed.
+- **Drain or pilot failure:** stop revokes immediately but resources remain retained until every detached attempt and MainActor terminal callback drains; late work can only cancel. Family removal awaits the same receipt. At the 30-second deadline the pilot latches failure, cancels/stops, awaits safety drain outside the accepted distribution, finishes events, then detaches. Non-cooperative drain never releases resources or returns; the outer verifier terminates the failed process. No retry, scoped-delta workaround, timeout/threshold change, `reloadData`, SwiftUI `List`, or alternate algorithm is allowed.
 - **Cell reuse race:** `prepareForReuse` clears the prior slot and identity-keyed subtree before installing the next row. Delayed hover, accessibility, measurement, or command callbacks validate generation, row ID, and reuse token and otherwise do nothing.
 - **Width/height race:** a measurement carries row ID, content revision, and width revision. Mismatch is discarded; a current changed height invalidates only the represented current row and restores the row-ID scroll anchor.
 - **Command-presentation race:** a delta with stale materialization generation, visible revision, or command generation is rejected. Current visible demand re-arms the App batch. Offscreen rows bind the latest accepted complete presentation on reuse, and dispatcher execution remains authoritative.
@@ -762,7 +762,7 @@ One real-size fixture identity contains 150 repositories, 180 worktrees, 12 tabs
 | host envelope | unrelated host CPU at or below 20%; normal memory pressure; nominal thermal state; AC power with Low Power Mode off and unchanged; no agent, terminal command/output producer, build, test, or profiler; maximum sampler gap 1.25 seconds |
 | standard tags | exactly `performance,app.startup,terminal.startup` |
 | diagnostic perturbation | paired diagnostic minus standard process-CPU p95 at most 5 percentage points and interaction-time p95 at most 10% |
-| native-table pilot | one global 30-second completion deadline; 24 represented rows; 20 warmups and 200 measured transactions per scale; 180-worktree baseline and 360-worktree doubled-offscreen case; sole-applier-call MainActor p95 at most 4 milliseconds and doubled-scale growth at most 20% |
+| native-table pilot | one global 30s deadline covering one full liveness+drain and one off-main forward/reverse template pair per scale, then 24-row host replay with 20 warmups +200 measurements at 180/360 worktrees; sole-applier-call p95 ≤4ms and growth ≤20%; safety drain cannot pass a timeout |
 
 The descriptor is safely projected through the existing startup diagnostic with a policy version/hash and controlled values only, so the verifier binds evidence to the candidate's actual policy identity instead of duplicating or overriding it through environment values. Timing, threshold, admission, and validity constants have no environment override.
 
@@ -785,13 +785,13 @@ The historical `v0.0.88` and faulty-release evidence remains diagnostic comparis
 Proof paths and real/fixed boundaries:
 
 ```text
-FAILED: App MainActor task -> synchronous facade -> admit -> RunLoop pump
-  -> Eager detached worker -> await MainActor receiveCandidate -X-> blocked
-  <- 30.004s timeout; visible generation 0; measurements 0
-TARGET: same App task -> await async package facade -> normal Eager worker
-  -> structured exact-event vs 30s Clock race; await yields MainActor
-  -> host ack -> cell-free child -> sole applier (only measured interval)
-  <- bounded result; timeout cancels/stops/defer-detaches -> verifier
+FAILED v7: async facade -> 440 full projections -> 30s/no usable population
+  -> timeout stop + detach before drain; Eager worker still in Git merge
+  <- main release/autorelease EXC_BAD_ACCESS; no p95/growth
+TARGET/scale: one full-path liveness -> host ack -> stopAndDrain
+  -> production constructor seals forward/reverse templates off-main
+  -> O(1) identity-only instantiate -> same host/child/sole applier 20+200
+  <- applier-only distribution; timeout latches fail before safety drain/detach
 
 LATER production acceptance: verifier -> fixed fixture -> isolated debug launcher
   -> real app composition -> adapter/worker -> production table/viewport
@@ -856,7 +856,7 @@ Each often/heavy domain owns a non-observable fixed-state accumulator before the
 | S1-S5 | RepoExplorerProjectionAdapter, topology stable-key index | deterministic grouping/key invalidation tests; forbidden-call architecture check; marker stage ratios |
 | S6-S8 | Ghostty disposition/accumulator/projector, PaneActivityStatusAtom | exact-pressure integration; latest-sequence R-INV; pinned Ghostty tail-read contract; deadline test |
 | S9-S12 | ForgeActor repository projection, coalesced coordinator apply, RepoCacheAtom | A→B→A controlled provider; atomic cache observation; unrelated-repo isolation; one-active/one-follow-up |
-| S13-S14 | adapter broker, inseparable presentation/plan candidate, replacement Eager interface, projection worker, persistent host, async package pilot facade, table child/sole native applier, acknowledged baseline, App command batch | 30.004s deadlock falsifier; async event/deadline/actor-yield enforcement; candidate-plan identity; A/B/C/settlement; empty/content R→R/R+1 oracle; no-rediff/sole-applier; semantic/native non-poisoning; hide/reentry/lifetime; Tab Bar immediate/no-partial; AppKit pilot; visible-only rows |
+| S13-S14 | Eager/Family drain receipt, adapter broker, candidate/plan, worker/template constructor, host, async pilot, child/sole applier, baseline, App batch | two crash/drain falsifiers; repeated-stop/waiter/family-remove/late-completion and Repo/Tab-Bar preservation; one full liveness+drain per scale; immutable template/identity-only instantiation oracle; host replay/applier-only timing; no-rediff/bypass/scoped-delta workaround; existing lifecycle/currentness/UX proof |
 | S15 | idle fixture, quiescence detector, host-pressure guard, process sampler | separate zero-PTY and quiescent-PTY markers; complete distributions; p99 gate; scheduled-background-work and zero-drop evidence |
 | S16 | existing command dispatch, debug-only native search driver, semantic/table readiness observation | separate search/grouping/visibility/tab markers; 100-action and 200-sample floors; boundary attribution; nearest-rank p95; whole-population invalidation |
 | S17 | immutable versioned `AppPolicies.SidebarPerformanceProof` descriptor and verifier | exact tags/pacing/timeout/host envelope/perturbation; external-load and sampler-gap rejection; historical comparison without threshold substitution |
@@ -887,7 +887,7 @@ DeepWiki inspection of `ghostty-org/ghostty` identifies `ghostty_surface_read_te
 - Key-specific observations add lifecycle bookkeeping to the adapter. The adapter owns this cost because it alone knows grouping and rendered demand. Revisit only if observation registration itself becomes an often/heavy measured lane.
 - The persistent host and table child replace a concise conditional empty/`List` tree. Repo Explorer pays explicit shell/cell/viewport lifecycle so every visible state has one acceptance owner; revisit only if it misses UX or CPU targets.
 - Full grouping, sort, search, or membership replacement uses the exact off-main `RepoExplorerNativeUpdatePlan`; AppKit receives prevalidated old/new index spaces while cells remain visible-bounded. This increases plan proof and anchor complexity, paid by Repo Explorer. The mandatory cell-free pilot is the falsifier: failure returns to design rather than licensing broad reload or MainActor diff.
-- The async package pilot facade adds one narrow cross-target API so packaged proof reaches the real Feature-owned seam without exposing types. Repo Explorer pays invocation-local event/timeout structure; App retains its existing task plus selector/await/result projection. Revisit on row/ID/internal exposure—not by restoring blocking, RunLoop pumping, or synchronous adapter execution.
+- Async drain adds continuation bookkeeping and can extend failed-run cleanup beyond 30 seconds; Eager/Family pays it because only the primitive knows detached termination. The pilot pays one full liveness projection and immutable template preparation per scale, then measures native replay. Revisit if this honest composition still misses 30 seconds—never by releasing undrained work, weakening policy, using scoped delta, or restoring 440 full projections.
 - Native acceptance adds one feature-private acknowledgment and holds the existing Eager lane open through downstream settlement. The cost is slightly longer pending latency and explicit lifetime/demand/baseline state; the gain is that no successor can plan from unaccepted rows. Revisit only if synchronous native application demonstrably makes the barrier unnecessary; do not replace it with a second scheduler or generation-as-revision shortcut.
 - The adapter retains two baselines: latest current semantic result and last native acknowledgment. This is intentional rather than duplicated truth because equal semantic changes can feed the next delta without changing rendered rows. The invariant is that semantic sequence may advance on equal, while native revision advances iff a changed AppKit transaction acknowledges success.
 - Stable layout classes avoid fleet measurement, while wrapping rows pay one represented-visible width measurement and possible anchored height correction. Repo Explorer owns the small correction risk; offscreen eager measurement is forbidden.
