@@ -43,19 +43,23 @@ describe('worktree annotation inline shell', () => {
 		const compactThreadHeight = compactThread.getBoundingClientRect().height;
 		const followingDiffRowTop = followingDiffRow.getBoundingClientRect().top;
 		const expandButton = rendered.getByRole('button', { name: 'Expand 2 messages' }).element();
-		expect(expandButton.classList).toContain('rounded-md');
-		expect(expandButton.classList).not.toContain('rounded-full');
+		expect(expandButton.classList).toContain('rounded-full');
 		expect(expandButton.classList).not.toContain('border-comment-border');
-		await expect.element(rendered.getByTestId('worktree-annotation-summary-node')).toBeVisible();
+		await expect.element(rendered.getByText('1 new')).toBeVisible();
+		const newStatus = rendered.getByTestId('worktree-annotation-new-status').element();
+		expect(newStatus.querySelector('.bg-comment-active')).not.toBeNull();
 
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Expand 2 messages' }).click();
-			await Promise.resolve();
 		});
+		const historyPanel = rendered.getByTestId('worktree-annotation-thread-history').element();
+		await settleThreadMotion(historyPanel, 'Expected thread expansion motion to settle.');
 
 		const thread = rendered.getByTestId('worktree-annotation-thread').element();
 		await expect.element(rendered.getByText('Root message.')).toBeVisible();
-		expect(document.querySelector('[data-testid="worktree-annotation-summary-node"]')).toBeNull();
+		await expect.element(rendered.getByText('1 new')).toBeVisible();
+		expect(rendered.getByTestId('worktree-annotation-new-status').element()).toBe(newStatus);
+		expect(getComputedStyle(historyPanel).transitionProperty).toContain('height');
 		expect(rendered.getByText('Latest message.').all()).toHaveLength(1);
 		const expandedMessages = [
 			...thread.querySelectorAll<HTMLElement>('[data-testid="worktree-annotation-message"]'),
@@ -97,9 +101,11 @@ describe('worktree annotation inline shell', () => {
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Collapse 2 messages' }).click();
 		});
+		await settleThreadMotion(historyPanel, 'Expected thread collapse motion to settle.');
 		await settleBrowserCondition(
 			(): boolean => !document.body.textContent?.includes('Root message.'),
-			'Expected Collapse to restore the compact summary and latest message.',
+			'Expected thread collapse motion to settle.',
+			30,
 		);
 		await expect.element(visibleLatestMessage).toBeVisible();
 		expect(followingDiffRow.getBoundingClientRect().top).toBeCloseTo(followingDiffRowTop, 1);
@@ -113,6 +119,10 @@ describe('worktree annotation inline shell', () => {
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
 		});
+		await settleThreadMotion(
+			rendered.getByTestId('worktree-annotation-thread-history').element(),
+			'Expected reply expansion motion to settle.',
+		);
 
 		const thread = rendered.getByTestId('worktree-annotation-thread').element();
 		const composer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
@@ -327,7 +337,7 @@ async function publishTwoMessageThread(surface: RecordingAnnotationBrowserSurfac
 		surface.publishThreadMessages({
 			context: locatedContext,
 			messages: [
-				makeSavedMessage({ body: 'Root message.', messageId: rootMessageId }),
+				makeSavedMessage({ body: 'Root message.', handled: true, messageId: rootMessageId }),
 				makeSavedMessage({ body: 'Latest message.', messageId: latestMessageId, ordinal: 1 }),
 			],
 		});
@@ -337,6 +347,7 @@ async function publishTwoMessageThread(surface: RecordingAnnotationBrowserSurfac
 
 function makeSavedMessage(props: {
 	readonly body: string;
+	readonly handled?: boolean;
 	readonly messageId: string;
 	readonly ordinal?: number;
 }): WorktreeAnnotationMessageEntry {
@@ -348,6 +359,7 @@ function makeSavedMessage(props: {
 			threadId,
 		}),
 		createdAt: Date.now() / 1000 - 978_307_200 - (props.ordinal ?? 0) * 60,
+		handled: props.handled ?? false,
 		savedBody: props.body,
 	};
 }
@@ -382,4 +394,23 @@ async function settleBrowserCondition(
 	if (predicate()) return;
 	if (remainingFrames <= 0) throw new Error(failureMessage);
 	await settleBrowserCondition(predicate, failureMessage, remainingFrames - 1);
+}
+
+async function settleThreadMotion(panel: Element, failureMessage: string): Promise<void> {
+	await settleBrowserCondition(
+		(): boolean => !panel.hasAttribute('data-starting-style'),
+		failureMessage,
+	);
+	await act(async (): Promise<void> => {
+		await Promise.all(
+			panel.getAnimations({ subtree: true }).map(async (animation): Promise<void> => {
+				try {
+					await animation.finished;
+				} catch {
+					// Reversing an in-flight transition cancels its predecessor.
+				}
+			}),
+		);
+		await Promise.resolve();
+	});
 }

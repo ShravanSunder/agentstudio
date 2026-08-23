@@ -51,12 +51,12 @@ export function deriveWorktreeAnnotationShareProjection<
 	const otherThreads: FilteredShareThread<TThread>[] = [];
 
 	for (const thread of props.threads) {
-		const currentSavedMessages = thread.messages.filter(isCurrentSavedMessage);
+		const currentSavedMessages = thread.messages.filter(isCurrentSavedWorktreeAnnotationMessage);
 		allCount += currentSavedMessages.length;
-		newCount += currentSavedMessages.filter((message) => !message.handled).length;
+		newCount += currentSavedMessages.filter(isNewWorktreeAnnotationMessage).length;
 		const participatingMessages =
 			props.scope === 'new'
-				? currentSavedMessages.filter((message) => !message.handled)
+				? currentSavedMessages.filter(isNewWorktreeAnnotationMessage)
 				: currentSavedMessages;
 		if (participatingMessages.length === 0) continue;
 		const filteredThread: FilteredShareThread<TThread> = {
@@ -73,6 +73,14 @@ export function deriveWorktreeAnnotationShareProjection<
 	return { allCount, inlineThreads, newCount, otherThreads };
 }
 
-function isCurrentSavedMessage(message: WorktreeAnnotationShareMessageFacts): boolean {
+export function isCurrentSavedWorktreeAnnotationMessage(
+	message: WorktreeAnnotationShareMessageFacts,
+): boolean {
 	return message.savedBody !== null && message.draft === null;
+}
+
+export function isNewWorktreeAnnotationMessage(
+	message: WorktreeAnnotationShareMessageFacts,
+): boolean {
+	return isCurrentSavedWorktreeAnnotationMessage(message) && !message.handled;
 }

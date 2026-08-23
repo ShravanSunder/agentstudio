@@ -123,10 +123,11 @@ function WorktreeAnnotationSurfaceCard(props: WorktreeAnnotationSurfaceCardProps
 }
 
 export interface WorktreeAnnotationCommandButtonProps {
-	readonly appearance?: 'message' | 'primary' | 'toolbar' | undefined;
+	readonly appearance?: 'message' | 'primary' | 'timeline' | 'toolbar' | undefined;
 	readonly buttonRef?: Ref<HTMLButtonElement> | undefined;
 	readonly children: ReactNode;
 	readonly disabled?: boolean | undefined;
+	readonly expanded?: boolean | undefined;
 	readonly label: string;
 	readonly onClick: (event: MouseEvent<HTMLButtonElement>) => void;
 	readonly preserveEditorFocus?: boolean | undefined;
@@ -142,19 +143,24 @@ export function WorktreeAnnotationCommandButton(
 				render={
 					<Button
 						aria-label={props.label}
+						aria-expanded={props.expanded}
 						className={
 							appearance === 'primary'
 								? undefined
-								: appearance === 'toolbar'
+								: appearance === 'toolbar' || appearance === 'timeline'
 									? 'text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
 									: 'border-comment-border bg-comment-surface text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
 						}
 						disabled={props.disabled}
 						ref={props.buttonRef}
 						shape={appearance === 'toolbar' ? 'default' : 'circle'}
-						size="icon-sm"
+						size={appearance === 'timeline' ? 'icon' : 'icon-sm'}
 						variant={
-							appearance === 'primary' ? 'tint' : appearance === 'toolbar' ? 'ghost' : 'outline'
+							appearance === 'primary'
+								? 'tint'
+								: appearance === 'toolbar' || appearance === 'timeline'
+									? 'ghost'
+									: 'outline'
 						}
 						onClick={props.onClick}
 						onPointerDown={(event) => {
