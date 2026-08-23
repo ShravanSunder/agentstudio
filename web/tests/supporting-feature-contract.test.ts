@@ -49,7 +49,12 @@ describe("supporting feature campaign", () => {
       projectionPolicy: "purpose-crop",
       focusRegion: null,
     });
-    expect(captureById.get("task-drawer-tools")).toHaveProperty("phonePixelSize", [1300, 1520]);
+    expect(captureById.get("task-drawer-tools")).toMatchObject({
+      desktopPixelSize: [2560, 1400],
+      phonePixelSize: [2300, 1450],
+      projectionPolicy: "purpose-crop",
+      focusRegion: null,
+    });
     expect(captureById.get("git-context-files")).toHaveProperty("phonePixelSize", [810, 570]);
     expect(captureById.get("layout-saved")).toHaveProperty("phonePixelSize", [640, 400]);
     expect(captureById.get("layout-pane-zoom")).toHaveProperty("phonePixelSize", [640, 400]);
