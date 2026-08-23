@@ -33,11 +33,19 @@ import {
 	WorktreeAnnotationMessageEditor,
 } from './worktree-annotation-thread-message.js';
 
-const annotationHistoryCascadeIntervalMilliseconds = 12;
-
-interface WorktreeAnnotationHistoryPanelStyle extends CSSProperties {
-	readonly '--annotation-history-collapse-delay': string;
-}
+const annotationHistoryMaskStyle: CSSProperties = {
+	WebkitMaskImage:
+		'linear-gradient(to bottom, black 0%, black 45.45%, transparent 50%, transparent 100%)',
+	WebkitMaskRepeat: 'no-repeat',
+	WebkitMaskSize: '100% 220%',
+	maskImage:
+		'linear-gradient(to bottom, black 0%, black 45.45%, transparent 50%, transparent 100%)',
+	maskRepeat: 'no-repeat',
+	maskSize: '100% 220%',
+	transitionDuration: 'var(--motion-fast)',
+	transitionProperty: 'mask-position, -webkit-mask-position',
+	transitionTimingFunction: 'ease-out',
+};
 
 export interface WorktreeAnnotationThreadProps {
 	readonly rangeIdentity?:
@@ -179,14 +187,6 @@ export function WorktreeAnnotationThread(
 		</>
 	);
 	const earlierMessages = visibleMessages.slice(0, -1);
-	const historyPanelStyle: WorktreeAnnotationHistoryPanelStyle = {
-		'--annotation-history-collapse-delay': `calc(var(--motion-fast) + ${Math.max(earlierMessages.length - 1, 0) * annotationHistoryCascadeIntervalMilliseconds}ms)`,
-	};
-	const historyMessageStyle = (messageIndex: number): CSSProperties => ({
-		transitionDelay: isExpanded
-			? `calc(var(--motion-fast) + ${messageIndex * annotationHistoryCascadeIntervalMilliseconds}ms)`
-			: `${(earlierMessages.length - messageIndex - 1) * annotationHistoryCascadeIntervalMilliseconds}ms`,
-	});
 	const renderMessage = (
 		message: WorktreeAnnotationMessageEntry,
 		continueTimeline: boolean,
@@ -264,24 +264,15 @@ export function WorktreeAnnotationThread(
 				<div className="grid" data-testid="worktree-annotation-thread-chronology">
 					{!hasMultipleMessages ? null : (
 						<CollapsibleContent
-							className="group/annotation-history duration-[var(--motion-fast)] data-ending-style:[transition-delay:var(--annotation-history-collapse-delay)] data-ending-style:duration-[var(--motion-fast)]"
+							className="group/annotation-history duration-[var(--motion-fast)] data-ending-style:duration-[var(--motion-fast)]"
 							data-testid="worktree-annotation-thread-history"
-							style={historyPanelStyle}
 						>
 							<div
-								className="grid gap-1 pb-1"
+								className="grid gap-1 pb-1 [-webkit-mask-position:0_0] [mask-position:0_0] group-data-ending-style/annotation-history:[-webkit-mask-position:0_100%] group-data-ending-style/annotation-history:[mask-position:0_100%] group-data-starting-style/annotation-history:[-webkit-mask-position:0_100%] group-data-starting-style/annotation-history:[mask-position:0_100%] motion-reduce:transition-none"
 								data-testid="worktree-annotation-thread-history-group"
+								style={annotationHistoryMaskStyle}
 							>
-								{earlierMessages.map((message, messageIndex) => (
-									<div
-										key={message.messageId}
-										className="transition-opacity duration-[var(--motion-fast)] ease-out group-data-ending-style/annotation-history:opacity-0 group-data-starting-style/annotation-history:opacity-0 motion-reduce:transition-none"
-										data-testid="worktree-annotation-thread-history-message"
-										style={historyMessageStyle(messageIndex)}
-									>
-										{renderMessage(message, true, false)}
-									</div>
-								))}
+								{earlierMessages.map((message) => renderMessage(message, true, false))}
 							</div>
 						</CollapsibleContent>
 					)}

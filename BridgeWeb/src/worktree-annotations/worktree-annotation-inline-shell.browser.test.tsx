@@ -156,7 +156,7 @@ describe('worktree annotation inline shell', () => {
 		expect(thread.contains(composer.element())).toBe(true);
 	});
 
-	test('reveals five-message history with one tightly overlapping cascade', async () => {
+	test('reveals five-message history with one downward soft mask', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderInlineShell(surface);
 		await publishFiveMessageThread(surface);
@@ -185,38 +185,32 @@ describe('worktree annotation inline shell', () => {
 			historyGroup.querySelectorAll('[data-testid="worktree-annotation-message"]'),
 		).toHaveLength(4);
 		expect(getComputedStyle(historyPanel).transitionDuration).toBe('0.12s');
-		const cascadingMessages = [
-			...historyGroup.querySelectorAll<HTMLElement>(
-				'[data-testid="worktree-annotation-thread-history-message"]',
-			),
-		];
-		expect(cascadingMessages).toHaveLength(4);
 		expect(
-			cascadingMessages.map((message) => getComputedStyle(message).transitionProperty),
-		).toEqual(['opacity', 'opacity', 'opacity', 'opacity']);
-		expect(cascadingMessages.map((message) => getComputedStyle(message).transitionDelay)).toEqual([
-			'0.12s',
-			'0.132s',
-			'0.144s',
-			'0.156s',
-		]);
-		expect(
-			cascadingMessages.map((message) => getComputedStyle(message).transitionDuration),
-		).toEqual(['0.12s', '0.12s', '0.12s', '0.12s']);
+			historyGroup.querySelectorAll('[data-testid="worktree-annotation-thread-history-message"]'),
+		).toHaveLength(0);
+		expect(getComputedStyle(historyGroup).maskImage).toContain('linear-gradient');
+		expect(getComputedStyle(historyGroup).maskSize).toBe('100% 220%');
+		expect(getComputedStyle(historyGroup).transitionProperty).toContain('mask-position');
+		expect(getComputedStyle(historyGroup).transitionDelay).toBe('0s');
+		expect(getComputedStyle(historyGroup).transitionDuration).toBe('0.12s');
 		await settleThreadMotion(historyPanel, 'Expected grouped five-message motion to settle.');
 		await page.screenshot({ path: '../../../tmp/bridgeweb-inline-five-message-expanded.png' });
 
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Collapse 5 messages' }).click();
 		});
-		expect(cascadingMessages.map((message) => getComputedStyle(message).transitionDelay)).toEqual([
-			'0.036s',
-			'0.024s',
-			'0.012s',
-			'0s',
-		]);
-		expect(getComputedStyle(historyPanel).transitionDelay).toBe('0.156s');
-		await settleThreadMotion(historyPanel, 'Expected reversed five-message cascade to settle.');
+		const reverseMaskKeyframes = historyGroup
+			.getAnimations()
+			.flatMap((animation) =>
+				animation.effect instanceof KeyframeEffect ? animation.effect.getKeyframes() : [],
+			);
+		expect(
+			reverseMaskKeyframes.some((keyframe) =>
+				Object.values(keyframe).some((value) => String(value).includes('100%')),
+			),
+		).toBe(true);
+		expect(getComputedStyle(historyPanel).transitionDelay).toBe('0s');
+		await settleThreadMotion(historyPanel, 'Expected reversed soft mask motion to settle.');
 	});
 
 	test('activates on focus and expands the compact thread surface on click', async () => {
