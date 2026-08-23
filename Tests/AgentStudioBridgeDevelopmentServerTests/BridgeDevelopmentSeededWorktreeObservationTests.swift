@@ -237,8 +237,8 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
         #expect(await bus.subscriberCount == 0)
     }
 
-    @Test("real Darwin observation refreshes Review after edit and deletion")
-    func realDarwinObservationRefreshesReviewAfterEditAndDeletion() async throws {
+    @Test("real Darwin deletion emits a file invalidation and refreshes Review")
+    func realDarwinDeletionEmitsInvalidationAndRefreshesReview() async throws {
         // Arrange
         let root = try FilesystemTestGitRepo.create(
             named: "bridge-development-live-review"
@@ -248,7 +248,9 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
         try "initial\n".write(to: trackedFile, atomically: true, encoding: .utf8)
         try FilesystemTestGitRepo.runGit(at: root, args: ["add", "tracked.txt"])
         try FilesystemTestGitRepo.runGit(at: root, args: ["commit", "-m", "Initial"])
+        try "initial\nupdated\n".write(to: trackedFile, atomically: false, encoding: .utf8)
         let source = BridgeDevelopmentObservationFixture.makeSource(root: root)
+        let probe = BridgeDevelopmentObservationProbe()
         let host = try await BridgeDevelopmentProductHost(
             source: source,
             contributionTargetCommit: { _ in .unchanged(source.paneState) }
@@ -257,6 +259,7 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
             source: source,
             invalidationSink: { invalidation in
                 await host.handleObservedWorktreeInvalidation(invalidation)
+                await probe.record(invalidation)
             }
         )
         do {
@@ -270,9 +273,7 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
             _ = try await host.issueBootstrap(for: bootstrapRequest)
             try await observation.start()
             #expect(await host.diagnosticCommittedReviewPublication()?.package.reviewGeneration == 1)
-
-            // Act
-            try "initial\nupdated\n".write(to: trackedFile, atomically: false, encoding: .utf8)
+            #expect(await probe.waitForStatusCount(1, timeout: .seconds(5)))
             #expect(
                 await waitForCommittedReviewGeneration(
                     2,
@@ -280,23 +281,29 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
                     timeout: .seconds(5)
                 )
             )
+            let baselinePublication = try #require(
+                await host.diagnosticCommittedReviewPublication()
+            )
+            #expect(
+                baselinePublication.package.itemsById.values.contains {
+                    $0.headPath == "tracked.txt"
+                }
+            )
 
-            // Assert edit
-            let editedPublication = try #require(await host.diagnosticCommittedReviewPublication())
-            #expect(editedPublication.package.reviewGeneration >= 2)
-            #expect(editedPublication.package.itemsById.values.contains { $0.headPath == "tracked.txt" })
-
-            // Act deletion
+            // Act deletion as the only post-start filesystem mutation.
             try FileManager.default.removeItem(at: trackedFile)
+            #expect(await probe.waitForFileChangesetCount(1, timeout: .seconds(5)))
+            let deletionChangeset = try #require(await probe.fileChangesets.last)
+            #expect(deletionChangeset.paths == ["tracked.txt"])
             #expect(
                 await waitForCommittedReviewGeneration(
-                    editedPublication.package.reviewGeneration.rawValue + 1,
+                    baselinePublication.package.reviewGeneration.rawValue + 1,
                     host: host,
                     timeout: .seconds(5)
                 )
             )
 
-            // Assert deletion
+            // Assert deletion.
             let deletedPublication = try #require(await host.diagnosticCommittedReviewPublication())
             #expect(
                 deletedPublication.package.itemsById.values.contains {
