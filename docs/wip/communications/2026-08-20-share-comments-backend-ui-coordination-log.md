@@ -897,3 +897,50 @@ same exact attempt action once. Do not add a wire field, backend retry loop, or
 loosen native admission for this race.
 Next: land the UI-owned correction, then rerun the six-test packaged suite and
 exact-HEAD aggregate gate.
+
+### 2026-08-22 20:29 EDT — Share conflict recovery committed; packaged host visibility under investigation
+
+State: the Share unhandle coordination race is fixed and independently bounded;
+the remaining failed gate is serialized packaged WebKit host visibility, not
+annotation/native admission or product UI behavior
+Head: `613de26a8`
+Changed: both existing unhandle controls now send the current exact session
+revision, retry only one typed `conflict` after the same session projection
+advances, and terminate without retry if that session disappears. Native CAS
+remains authoritative; no protocol, backend retry, polling, compatibility, or
+new bank was added.
+Proof: focused browser Share suite passes 8/8; complete BridgeWeb quality check
+passes; focused packaged Share/unhandle passes. A fresh bounded reviewer reports
+no blocker or important finding.
+Open gate: the six-test packaged suite can leave the later bundled document at
+`visibilityState=hidden` with RAF scheduled but not fired while native streams
+remain healthy. The failing bundled and two-pane cases pass alone. Three
+test-host visibility hypotheses were tried, failed, and removed; fresh
+read-only root-cause investigation is active.
+Needs from UI lane: none. Do not change UI product behavior for this harness
+failure.
+Next: prove and correct only the packaged WebKit lifecycle owner, rerun the six
+packaged cases, then exact-HEAD aggregate and independent implementation review.
+Notes: protected PR2 files remain untouched.
+
+### 2026-08-22 20:52 EDT — Packaged aggregate blocker localized to SwiftPM GUI host
+
+State: no remaining known product/backend failure; local aggregate packaged
+proof is blocked by the SwiftPM test helper's GUI activation capability
+Head: `613de26a8` plus one diagnostic-only assertion change
+Evidence: on the repeated bundled failure, native transport and metadata are
+healthy, mount and hosting views are attached at 960 x 720, but the host reports
+`appActive=false`, `windowKey=false`, `occlusionVisible=false`; WebKit therefore
+reports `document.visibilityState=hidden` and suspends RAF. Focused packaged
+Share passes, focused two-pane passes, and clean+bundled can pass in an active
+host run. Attempts to adopt accessory policy, finish launching, activate, front,
+and key a test-only window were rejected by this SwiftPM helper environment and
+were fully removed.
+Changed: only the existing bundled failure message now includes the already
+captured host snapshot so future failures identify this boundary directly.
+Needs from UI lane: none.
+Exact unblock: rerun the packaged/aggregate gate from a macOS GUI test context
+that can make the SwiftPM helper window occlusion-visible, or provide the repo's
+canonical GUI-capable runner if one exists. Do not change product rendering,
+timeouts, native admission, or UI behavior to compensate.
+Notes: no security, protocol, polling, compatibility, second-bank, or PR2 change.

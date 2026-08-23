@@ -967,7 +967,7 @@ extension WebKitSerializedTests {
                     && reviewDOM.reviewSelectedContentLineCount > 0
                     && reviewDOM.reviewSelectedContentHashes
                         == run.value.reviewSelectedContentHashes,
-                "W0 content-observation seam: Swift emitted successor Review content, but the worker did not acknowledge and drain it into a ready CodeView; reviewDOM=\(reviewDOM), native=\(run.value.native)"
+                "W0 content-observation seam: Swift emitted successor Review content, but the worker did not acknowledge and drain it into a ready CodeView; reviewDOM=\(reviewDOM), native=\(run.value.native), host=\(run.hostSnapshot)"
             )
             #expect(
                 reviewDOM.reviewSelectedDisplayPath == run.value.sourceOracle.path,
