@@ -3,6 +3,8 @@ import { describe, expect, test, vi } from 'vitest';
 import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	buildBridgeWorkerReviewCandidateReadyEvent,
+	buildBridgeWorkerReviewCandidateFailedEvent,
+	buildBridgeWorkerReviewCandidateStartedEvent,
 	buildBridgeWorkerReviewPublicationInstallAdmissionEvent,
 } from './bridge-comm-worker-protocol.js';
 import { makeReviewPublication } from './bridge-main-render-fulfillment-coordinator.test-support.js';
@@ -40,7 +42,7 @@ describe('Bridge main Review publication integration', () => {
 		harness.receive({
 			...reviewDisplayEvent(ACTIVE, 'item-active-query'),
 			projectionRevision: 2,
-			sequence: 2,
+			sequence: 3,
 		});
 
 		// Assert
@@ -48,6 +50,7 @@ describe('Bridge main Review publication integration', () => {
 		expect(harness.store.getReviewRefreshPresentation()).toEqual({
 			activeIdentity: mainIdentity(ACTIVE),
 			candidate: null,
+			failure: null,
 		});
 		expect(harness.pendingCommandCount('reviewPublicationInstallAdmit')).toBe(0);
 		harness.dispose();
@@ -61,7 +64,7 @@ describe('Bridge main Review publication integration', () => {
 			...reviewDisplayEvent(ACTIVE, 'item-active-query'),
 			epoch: 2,
 			projectionRevision: 2,
-			sequence: 2,
+			sequence: 3,
 		};
 
 		// Act
@@ -107,6 +110,7 @@ describe('Bridge main Review publication integration', () => {
 		expect(harness.store.getReviewRefreshPresentation()).toEqual({
 			activeIdentity: mainIdentity(CANDIDATE),
 			candidate: null,
+			failure: null,
 		});
 		expect(harness.store.getReviewItemSnapshot('item-b')).toBeDefined();
 		expect(installed).toMatchObject({
@@ -195,6 +199,7 @@ describe('Bridge main Review publication integration', () => {
 		expect(harness.store.getReviewRefreshPresentation()).toEqual({
 			activeIdentity: mainIdentity(SUCCESSOR),
 			candidate: null,
+			failure: null,
 		});
 		expect(harness.courierJobs.map((job) => job.itemId)).toEqual(['item-c']);
 		expect(harness.store.getReviewCodeViewItemSnapshot('item-c')).toBeDefined();
@@ -237,6 +242,7 @@ describe('Bridge main Review publication integration', () => {
 		expect(harness.store.getReviewRefreshPresentation()).toEqual({
 			activeIdentity: mainIdentity(LATEST),
 			candidate: null,
+			failure: null,
 		});
 		harness.dispose();
 	});
@@ -264,6 +270,7 @@ describe('Bridge main Review publication integration', () => {
 		const harness = createHarness();
 		await installPublication(harness, ACTIVE, 'item-a');
 		harness.integration.setSemanticAttention({ stableFileIdentities: ['file-b'] });
+		harness.startCandidate(CANDIDATE, 'promoted', ['file-b']);
 		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
 		harness.receive(candidateReady(CANDIDATE, 'promoted', ['file-b']));
 		await harness.integration.whenSettled();
@@ -276,6 +283,7 @@ describe('Bridge main Review publication integration', () => {
 		expect(harness.pendingCommandCount('reviewPublicationInstallAdmit')).toBe(0);
 
 		// Arrange successor before action commit
+		harness.startCandidate(SUCCESSOR, 'promoted', ['file-c']);
 		harness.receive(reviewDisplayEvent(SUCCESSOR, 'item-c'));
 		harness.integration.setSemanticAttention({ stableFileIdentities: ['file-c'] });
 		harness.receive(candidateReady(SUCCESSOR, 'promoted', ['file-c']));
@@ -356,6 +364,7 @@ describe('Bridge main Review publication integration', () => {
 		expect(harness.store.getReviewRefreshPresentation()).toEqual({
 			activeIdentity: mainIdentity(ACTIVE),
 			candidate: null,
+			failure: null,
 		});
 		expect(harness.rejectedItemIds).toContain('item-b');
 		expect(harness.pendingCommandCount('reviewPublicationInstalled')).toBe(0);
@@ -367,6 +376,68 @@ describe('Bridge main Review publication integration', () => {
 					sample.stringAttributes['agentstudio.bridge.result_reason'] === 'worker_replacement',
 			),
 		).toBe(true);
+		harness.dispose();
+	});
+
+	test('ignores stale B failure, retains affected C failure, and clears it when attention leaves', async () => {
+		const harness = createHarness();
+		await installPublication(harness, ACTIVE, 'item-a');
+		harness.integration.setSemanticAttention({ stableFileIdentities: ['any-review-file'] });
+		harness.startCandidate(CANDIDATE, 'promoted', ['file-b']);
+		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
+		harness.startCandidate(SUCCESSOR, 'promoted', ['any-review-file']);
+		harness.receive(reviewDisplayEvent(SUCCESSOR, 'item-c'));
+
+		harness.receive(candidateFailed(CANDIDATE, true));
+		expect(harness.store.getReviewRefreshPresentation().candidate?.identity).toEqual(
+			mainIdentity(SUCCESSOR),
+		);
+		expect(harness.store.getReviewRefreshPresentation().failure).toBeNull();
+
+		harness.receive(candidateFailed(SUCCESSOR, true));
+		expect(harness.store.getReviewRefreshPresentation().candidate).toBeNull();
+		expect(harness.store.getReviewRefreshPresentation().failure).toMatchObject({
+			identity: mainIdentity(SUCCESSOR),
+			presentationClass: { kind: 'promoted', reason: 'files' },
+			retryable: true,
+		});
+
+		harness.integration.setSemanticAttention({ stableFileIdentities: [] });
+		await harness.integration.whenSettled();
+		expect(harness.store.getReviewRefreshPresentation().failure).toBeNull();
+		harness.dispose();
+	});
+
+	test('fences same-publication ready and failure to the restarted worker epoch', async () => {
+		const harness = createHarness();
+		await installPublication(harness, ACTIVE, 'item-a');
+		harness.receive({ ...candidateStarted(CANDIDATE, 'promoted', ['file-b']), epoch: 1 });
+		harness.store.prepareForWorkerReplacement();
+		harness.integration.setSemanticAttention({ stableFileIdentities: ['file-b'] });
+		harness.startCandidate(CANDIDATE, 'promoted', ['file-b']);
+		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
+
+		harness.receive({ ...candidateReady(CANDIDATE, 'promoted', ['file-b']), epoch: 1 });
+		await harness.integration.whenSettled();
+		expect(harness.store.getReviewRefreshPresentation().candidate).toMatchObject({
+			identity: mainIdentity(CANDIDATE),
+			role: 'provisional',
+		});
+
+		harness.receive(candidateReady(CANDIDATE, 'promoted', ['file-b']));
+		await harness.integration.whenSettled();
+		expect(harness.store.getReviewRefreshPresentation().candidate?.role).toBe('updateReady');
+
+		harness.receive({ ...candidateFailed(CANDIDATE, true), epoch: 1 });
+		expect(harness.store.getReviewRefreshPresentation().candidate?.role).toBe('updateReady');
+		expect(harness.store.getReviewRefreshPresentation().failure).toBeNull();
+
+		harness.receive(candidateFailed(CANDIDATE, true));
+		expect(harness.store.getReviewRefreshPresentation().candidate).toBeNull();
+		expect(harness.store.getReviewRefreshPresentation().failure).toMatchObject({
+			identity: mainIdentity(CANDIDATE),
+			retryable: true,
+		});
 		harness.dispose();
 	});
 });
@@ -399,6 +470,11 @@ interface Harness {
 	) => Promise<BridgeWorkerMainToServerMessage>;
 	readonly pendingCommandCount: (kind: BridgeWorkerMainToServerMessage['command']) => number;
 	readonly receive: (message: BridgeWorkerServerToMainMessage) => void;
+	readonly startCandidate: (
+		identity: ReviewIdentity,
+		presentationClass: 'ordinary' | 'promoted',
+		affectedStableFileIdentities: readonly string[],
+	) => void;
 }
 
 function createHarness(
@@ -486,8 +562,21 @@ function createHarness(
 	const unsubscribe = rpcClient.subscribe((message): void => {
 		integration.handleMessage(message);
 	});
-	const receive = (message: BridgeWorkerServerToMainMessage): void => {
+	const receiveRaw = (message: BridgeWorkerServerToMainMessage): void => {
 		rpcClient.receive(message);
+	};
+	const startCandidate = (
+		identity: ReviewIdentity,
+		presentationClass: 'ordinary' | 'promoted',
+		affectedStableFileIdentities: readonly string[],
+	): void => {
+		receiveRaw(candidateStarted(identity, presentationClass, affectedStableFileIdentities));
+	};
+	const receive = (message: BridgeWorkerServerToMainMessage): void => {
+		if (message.kind === 'reviewDisplayPatch' && message.reviewPublicationIdentity !== null) {
+			startCandidate(message.reviewPublicationIdentity, 'ordinary', []);
+		}
+		receiveRaw(message);
 	};
 	return {
 		ack: (command): void => {
@@ -546,6 +635,7 @@ function createHarness(
 		pendingCommandCount: (kind): number =>
 			commandQueue.filter((command) => command.command === kind).length,
 		receive,
+		startCandidate,
 		rejectedItemIds,
 		store,
 		telemetrySamples,
@@ -588,21 +678,56 @@ function mainIdentity(identity: ReviewIdentity): BridgeMainReviewPublicationIden
 
 function candidateReady(
 	identity: ReviewIdentity,
-	presentationClass: 'ordinary' | 'promoted',
-	affectedStableFileIdentities: readonly string[],
+	_presentationClass: 'ordinary' | 'promoted',
+	_affectedStableFileIdentities: readonly string[],
 ): ReturnType<typeof buildBridgeWorkerReviewCandidateReadyEvent> {
 	return buildBridgeWorkerReviewCandidateReadyEvent({
-		affectedStableFileIdentities,
 		epoch: identity.reviewGeneration,
 		packageId: identity.packageId,
-		preDeliveryPresentationClass:
-			presentationClass === 'ordinary'
-				? { kind: 'ordinary' }
-				: { kind: 'promoted', reason: 'files' },
 		publicationId: identity.publicationId,
 		reviewGeneration: identity.reviewGeneration,
 		revision: identity.revision,
-		sequence: identity.reviewGeneration,
+		sequence: identity.reviewGeneration * 2 + 1,
+		sourceIdentity: identity.sourceIdentity,
+	});
+}
+
+function candidateFailed(
+	identity: ReviewIdentity,
+	retryable: boolean,
+): ReturnType<typeof buildBridgeWorkerReviewCandidateFailedEvent> {
+	return buildBridgeWorkerReviewCandidateFailedEvent({
+		epoch: identity.reviewGeneration,
+		packageId: identity.packageId,
+		publicationId: identity.publicationId,
+		retryable,
+		reviewGeneration: identity.reviewGeneration,
+		revision: identity.revision,
+		sequence: identity.reviewGeneration * 2 + 1,
+		sourceIdentity: identity.sourceIdentity,
+	});
+}
+
+function candidateStarted(
+	identity: ReviewIdentity,
+	presentationClass: 'ordinary' | 'promoted',
+	affectedStableFileIdentities: readonly string[],
+): ReturnType<typeof buildBridgeWorkerReviewCandidateStartedEvent> {
+	return buildBridgeWorkerReviewCandidateStartedEvent({
+		disposition: {
+			affectedStableFileIdentities,
+			kind: 'sameSource',
+			presentationClass:
+				presentationClass === 'ordinary'
+					? { kind: 'ordinary' }
+					: { kind: 'promoted', reason: 'files' },
+		},
+		epoch: identity.reviewGeneration,
+		packageId: identity.packageId,
+		publicationId: identity.publicationId,
+		reviewGeneration: identity.reviewGeneration,
+		revision: identity.revision,
+		sequence: identity.reviewGeneration * 2 - 1,
 		sourceIdentity: identity.sourceIdentity,
 	});
 }
@@ -672,7 +797,7 @@ function reviewDisplayEvent(
 		],
 		projectionRevision: identity.reviewGeneration,
 		reviewPublicationIdentity: identity,
-		sequence: identity.reviewGeneration,
+		sequence: identity.reviewGeneration * 2,
 		surface: 'review',
 		transferDescriptors: [],
 		wireVersion: 1,

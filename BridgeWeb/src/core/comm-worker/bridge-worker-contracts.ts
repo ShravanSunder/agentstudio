@@ -58,7 +58,9 @@ import {
 	bridgeWorkerReviewDisplayPatchSchema,
 } from './bridge-worker-review-display-patch-contracts.js';
 import {
+	bridgeWorkerReviewCandidateFailedEventSchema,
 	bridgeWorkerReviewCandidateReadyEventSchema,
+	bridgeWorkerReviewCandidateStartedEventSchema,
 	bridgeWorkerReviewPublicationInstallAdmissionEventSchema,
 	bridgeWorkerReviewPublicationInstallAdmitCommandSchema,
 	bridgeWorkerReviewPublicationInstalledCommandSchema,
@@ -84,7 +86,10 @@ export type {
 } from './bridge-worker-review-comparison-target-query-contracts.js';
 export {
 	BRIDGE_WORKER_REVIEW_AFFECTED_STABLE_FILE_IDENTITY_LIMIT,
+	bridgeWorkerReviewCandidateFailedEventSchema,
 	bridgeWorkerReviewCandidateReadyEventSchema,
+	bridgeWorkerReviewCandidateStartDispositionSchema,
+	bridgeWorkerReviewCandidateStartedEventSchema,
 	bridgeWorkerReviewPreDeliveryPresentationClassSchema,
 	bridgeWorkerReviewPublicationInstallAdmissionEventSchema,
 	bridgeWorkerReviewPublicationInstallAdmitCommandSchema,
@@ -92,7 +97,10 @@ export {
 	bridgeWorkerReviewPublicationIdentitySchema,
 } from './bridge-worker-review-publication-contracts.js';
 export type {
+	BridgeWorkerReviewCandidateFailedEvent,
 	BridgeWorkerReviewCandidateReadyEvent,
+	BridgeWorkerReviewCandidateStartDisposition,
+	BridgeWorkerReviewCandidateStartedEvent,
 	BridgeWorkerReviewPreDeliveryPresentationClass,
 	BridgeWorkerReviewPublicationInstallAdmissionEvent,
 	BridgeWorkerReviewPublicationInstallAdmitCommand,
@@ -917,7 +925,9 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 	bridgeWorkerSubscriptionEventSchema,
 	bridgeWorkerReviewComparisonTargetsQueryEventSchema,
 	bridgeWorkerNativeSurfaceSelectionRequestSchema,
+	bridgeWorkerReviewCandidateFailedEventSchema,
 	bridgeWorkerReviewCandidateReadyEventSchema,
+	bridgeWorkerReviewCandidateStartedEventSchema,
 	bridgeWorkerReviewPublicationInstallAdmissionEventSchema,
 	bridgeWorkerReviewPierreRenderJobEventSchema,
 	bridgeWorkerFilePierreRenderJobEventSchema,
@@ -937,7 +947,9 @@ export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('k
 	bridgeWorkerSubscriptionEventSchema,
 	bridgeWorkerReviewComparisonTargetsQueryEventSchema,
 	bridgeWorkerNativeSurfaceSelectionRequestSchema,
+	bridgeWorkerReviewCandidateFailedEventSchema,
 	bridgeWorkerReviewCandidateReadyEventSchema,
+	bridgeWorkerReviewCandidateStartedEventSchema,
 	bridgeWorkerReviewPublicationInstallAdmissionEventSchema,
 	bridgeWorkerReviewPierreRenderJobEventSchema,
 	bridgeWorkerFilePierreRenderJobEventSchema,

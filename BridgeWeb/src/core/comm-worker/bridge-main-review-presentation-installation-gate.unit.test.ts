@@ -14,7 +14,11 @@ import {
 	type BridgeMainReviewRefreshLifecycleEvent,
 	type BridgeMainReviewSemanticAttention,
 } from './bridge-main-review-presentation-installation-gate.js';
-import type { BridgeWorkerReviewCandidateReadyEvent } from './bridge-worker-review-publication-contracts.js';
+import type {
+	BridgeWorkerReviewCandidateReadyEvent,
+	BridgeWorkerReviewCandidateFailedEvent,
+	BridgeWorkerReviewCandidateStartDisposition,
+} from './bridge-worker-review-publication-contracts.js';
 
 const ACTIVE = identity(1, '11');
 const CANDIDATE = identity(2, '12');
@@ -23,7 +27,11 @@ const SUCCESSOR = identity(3, '13');
 describe('Bridge main Review presentation installation gate', () => {
 	test('reports one scrubbed lifecycle sequence for hold, Apply now, and cleanup', async () => {
 		// Arrange
-		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
+		const store = new FakeCandidateStore(
+			ACTIVE,
+			CANDIDATE,
+			sameSourceStart({ kind: 'promoted', reason: 'files' }, ['file-b']),
+		);
 		const port = new ImmediateInstallationPort(['admitted']);
 		const events: BridgeMainReviewRefreshLifecycleEvent[] = [];
 		const gate = createBridgeMainReviewPresentationInstallationGate({
@@ -83,7 +91,11 @@ describe('Bridge main Review presentation installation gate', () => {
 
 	test('auto-installs an ordinary candidate and sends its installed receipt', async () => {
 		// Arrange
-		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
+		const store = new FakeCandidateStore(
+			ACTIVE,
+			CANDIDATE,
+			sameSourceStart({ kind: 'promoted', reason: 'files' }, ['file-b']),
+		);
 		const port = new ImmediateInstallationPort(['admitted']);
 		const gate = createBridgeMainReviewPresentationInstallationGate({
 			installationPort: port,
@@ -110,7 +122,11 @@ describe('Bridge main Review presentation installation gate', () => {
 
 	test('holds an affected promoted candidate and installs when semantic attention leaves', async () => {
 		// Arrange
-		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
+		const store = new FakeCandidateStore(
+			ACTIVE,
+			CANDIDATE,
+			sameSourceStart({ kind: 'promoted', reason: 'files' }, ['file-b']),
+		);
 		const port = new ImmediateInstallationPort(['admitted']);
 		const gate = createBridgeMainReviewPresentationInstallationGate({
 			installationPort: port,
@@ -141,16 +157,17 @@ describe('Bridge main Review presentation installation gate', () => {
 
 	test('treats promoted unknown as affecting any current Review attention without an identity union', async () => {
 		// Arrange
-		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
+		const store = new FakeCandidateStore(
+			ACTIVE,
+			CANDIDATE,
+			sameSourceStart({ kind: 'promoted', reason: 'unknown' }, []),
+		);
 		const port = new ImmediateInstallationPort(['admitted']);
 		const gate = createBridgeMainReviewPresentationInstallationGate({
 			installationPort: port,
 			store,
 		});
-		const unknownCandidate = {
-			...candidateReady(CANDIDATE, 'promoted', []),
-			preDeliveryPresentationClass: { kind: 'promoted', reason: 'unknown' } as const,
-		};
+		const unknownCandidate = candidateReady(CANDIDATE, 'promoted', []);
 
 		// Act
 		await gate.handleCandidateReady(unknownCandidate, attention(['any-current-review-file']));
@@ -168,7 +185,11 @@ describe('Bridge main Review presentation installation gate', () => {
 
 	test('Apply now admits the newest complete candidate present at action commit', async () => {
 		// Arrange
-		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
+		const store = new FakeCandidateStore(
+			ACTIVE,
+			CANDIDATE,
+			sameSourceStart({ kind: 'promoted', reason: 'files' }, ['file-b']),
+		);
 		const port = new ImmediateInstallationPort(['admitted']);
 		const gate = createBridgeMainReviewPresentationInstallationGate({
 			installationPort: port,
@@ -178,7 +199,10 @@ describe('Bridge main Review presentation installation gate', () => {
 			candidateReady(CANDIDATE, 'promoted', ['file-b']),
 			attention(['file-b']),
 		);
-		store.replaceCandidate(SUCCESSOR);
+		store.replaceCandidate(
+			SUCCESSOR,
+			sameSourceStart({ kind: 'promoted', reason: 'files' }, ['file-c']),
+		);
 		await gate.handleCandidateReady(
 			candidateReady(SUCCESSOR, 'promoted', ['file-c']),
 			attention(['file-c']),
@@ -310,6 +334,50 @@ describe('Bridge main Review presentation installation gate', () => {
 		expect(retrySucceeded).toBe(true);
 		expect(port.receiptAttempts).toEqual([CANDIDATE.publicationId, CANDIDATE.publicationId]);
 	});
+
+	test('retains only affected promoted failure and ignores stale B failure after C starts', async () => {
+		const store = new FakeCandidateStore(
+			ACTIVE,
+			CANDIDATE,
+			sameSourceStart({ kind: 'promoted', reason: 'files' }, ['file-b']),
+		);
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: new ImmediateInstallationPort([]),
+			store,
+		});
+		store.replaceCandidate(SUCCESSOR, sameSourceStart({ kind: 'promoted', reason: 'unknown' }, []));
+
+		gate.handleCandidateFailed(candidateFailed(CANDIDATE, true), attention(['file-b']));
+		expect(store.presentation.candidate?.identity).toEqual(SUCCESSOR);
+		expect(store.presentation.failure).toBeNull();
+
+		gate.handleCandidateFailed(candidateFailed(SUCCESSOR, true), attention(['any-file']));
+		expect(store.presentation.candidate).toBeNull();
+		expect(store.presentation.failure).toMatchObject({
+			identity: SUCCESSOR,
+			presentationClass: { kind: 'promoted', reason: 'unknown' },
+			retryable: true,
+		});
+
+		await gate.semanticAttentionChanged(attention([]));
+		expect(store.presentation.failure).toBeNull();
+	});
+
+	test('keeps ordinary and replacement candidate failure off the global presentation', () => {
+		for (const startDisposition of [
+			sameSourceStart({ kind: 'ordinary' }, ['file-b']),
+			{ kind: 'replacement' as const },
+		]) {
+			const store = new FakeCandidateStore(ACTIVE, CANDIDATE, startDisposition);
+			const gate = createBridgeMainReviewPresentationInstallationGate({
+				installationPort: new ImmediateInstallationPort([]),
+				store,
+			});
+			gate.handleCandidateFailed(candidateFailed(CANDIDATE, true), attention(['file-b']));
+			expect(store.presentation.candidate).toBeNull();
+			expect(store.presentation.failure).toBeNull();
+		}
+	});
 });
 
 class FakeCandidateStore implements BridgeMainReviewCandidateStore {
@@ -321,28 +389,68 @@ class FakeCandidateStore implements BridgeMainReviewCandidateStore {
 	constructor(
 		activeIdentity: BridgeMainReviewPublicationIdentity,
 		candidateIdentity: BridgeMainReviewPublicationIdentity,
+		startDisposition: BridgeWorkerReviewCandidateStartDisposition = sameSourceStart(
+			{ kind: 'ordinary' },
+			[],
+		),
 	) {
-		this.presentation = candidatePresentation(activeIdentity, candidateIdentity);
+		this.presentation = candidatePresentation(activeIdentity, candidateIdentity, startDisposition);
 	}
 
 	getReviewRefreshPresentation = (): BridgeMainReviewRefreshPresentation => this.presentation;
 	subscribeReviewRefreshPresentation = (): (() => void) => (): void => {};
 	setReviewCandidateCodeViewItem = (): boolean => false;
+	startReviewCandidate = (): boolean => false;
+	failReviewCandidate = (props: {
+		readonly identity: BridgeMainReviewPublicationIdentity;
+		readonly retryable: boolean;
+	}): boolean => {
+		const candidate = this.presentation.candidate;
+		if (
+			candidate === null ||
+			!sameIdentity(candidate.identity, props.identity) ||
+			candidate.role === 'installing'
+		)
+			return false;
+		const start = candidate.startDisposition;
+		this.presentation = {
+			...this.presentation,
+			candidate: null,
+			failure:
+				start?.kind === 'sameSource' && start.presentationClass.kind === 'promoted'
+					? {
+							affectedStableFileIdentities: start.affectedStableFileIdentities,
+							identity: candidate.identity,
+							presentationClass: start.presentationClass,
+							retryable: props.retryable,
+						}
+					: null,
+		};
+		return true;
+	};
+	clearReviewCandidateFailure = (): boolean => {
+		if (this.presentation.failure === null || this.presentation.failure === undefined) return false;
+		this.presentation = { ...this.presentation, failure: null };
+		return true;
+	};
 	stageReviewCandidateDisplayEvent = (): boolean => false;
 	applyReviewCandidateSnapshotUpdate = (): boolean => false;
 	markReviewCandidateReady = (props: {
-		readonly affectedStableFileIdentities: readonly string[];
 		readonly identity: BridgeMainReviewPublicationIdentity;
 		readonly role: BridgeMainReviewCandidateRole;
 	}): boolean => {
 		if (!this.candidateIs(props.identity)) return false;
+		const startDisposition = this.presentation.candidate?.startDisposition;
+		if (startDisposition === undefined) return false;
 		this.roles.push(props.role);
 		this.presentation = {
 			...this.presentation,
 			candidate: {
-				affectedStableFileIdentities: props.affectedStableFileIdentities,
+				affectedStableFileIdentities:
+					this.presentation.candidate?.affectedStableFileIdentities ?? [],
 				identity: props.identity,
 				role: props.role,
+				startDisposition,
 			},
 		};
 		return true;
@@ -350,7 +458,7 @@ class FakeCandidateStore implements BridgeMainReviewCandidateStore {
 	promoteReviewCandidate = (candidateIdentity: BridgeMainReviewPublicationIdentity): boolean => {
 		if (!this.candidateIs(candidateIdentity)) return false;
 		this.promotions.push(candidateIdentity.publicationId);
-		this.presentation = { activeIdentity: candidateIdentity, candidate: null };
+		this.presentation = { activeIdentity: candidateIdentity, candidate: null, failure: null };
 		return true;
 	};
 	discardReviewCandidate = (candidateIdentity?: BridgeMainReviewPublicationIdentity): boolean => {
@@ -365,9 +473,19 @@ class FakeCandidateStore implements BridgeMainReviewCandidateStore {
 		return true;
 	};
 
-	replaceCandidate(candidateIdentity: BridgeMainReviewPublicationIdentity): boolean {
+	replaceCandidate(
+		candidateIdentity: BridgeMainReviewPublicationIdentity,
+		startDisposition: BridgeWorkerReviewCandidateStartDisposition = sameSourceStart(
+			{ kind: 'ordinary' },
+			[],
+		),
+	): boolean {
 		if (this.presentation.candidate?.role === 'installing') return false;
-		this.presentation = candidatePresentation(this.presentation.activeIdentity, candidateIdentity);
+		this.presentation = candidatePresentation(
+			this.presentation.activeIdentity,
+			candidateIdentity,
+			startDisposition,
+		);
 		return true;
 	}
 
@@ -473,20 +591,36 @@ function identity(generation: number, suffix: string): BridgeMainReviewPublicati
 
 function candidateReady(
 	candidateIdentity: BridgeMainReviewPublicationIdentity,
-	presentationClass: 'ordinary' | 'promoted',
-	affectedStableFileIdentities: readonly string[],
+	_presentationClass: 'ordinary' | 'promoted',
+	_affectedStableFileIdentities: readonly string[],
 ): BridgeWorkerReviewCandidateReadyEvent {
 	return {
-		affectedStableFileIdentities,
 		direction: 'serverWorkerToMain',
 		epoch: candidateIdentity.generation,
 		kind: 'reviewCandidateReady',
 		packageId: candidateIdentity.packageId,
-		preDeliveryPresentationClass:
-			presentationClass === 'ordinary'
-				? { kind: 'ordinary' }
-				: { kind: 'promoted', reason: 'files' },
 		publicationId: candidateIdentity.publicationId,
+		reviewGeneration: candidateIdentity.generation,
+		revision: candidateIdentity.revision,
+		sequence: candidateIdentity.generation,
+		sourceIdentity: candidateIdentity.sourceIdentity,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: 1,
+	};
+}
+
+function candidateFailed(
+	candidateIdentity: BridgeMainReviewPublicationIdentity,
+	retryable: boolean,
+): BridgeWorkerReviewCandidateFailedEvent {
+	return {
+		direction: 'serverWorkerToMain',
+		epoch: candidateIdentity.generation,
+		kind: 'reviewCandidateFailed',
+		packageId: candidateIdentity.packageId,
+		publicationId: candidateIdentity.publicationId,
+		retryable,
 		reviewGeneration: candidateIdentity.generation,
 		revision: candidateIdentity.revision,
 		sequence: candidateIdentity.generation,
@@ -504,15 +638,31 @@ function attention(stableFileIdentities: readonly string[]): BridgeMainReviewSem
 function candidatePresentation(
 	activeIdentity: BridgeMainReviewPublicationIdentity | null,
 	candidateIdentity: BridgeMainReviewPublicationIdentity,
+	startDisposition: BridgeWorkerReviewCandidateStartDisposition,
 ): BridgeMainReviewRefreshPresentation {
 	return {
 		activeIdentity,
 		candidate: {
-			affectedStableFileIdentities: [],
+			affectedStableFileIdentities:
+				startDisposition.kind === 'sameSource' ? startDisposition.affectedStableFileIdentities : [],
 			identity: candidateIdentity,
 			role: 'provisional',
+			startDisposition,
 		},
+		failure: null,
 	};
+}
+
+function sameSourceStart(
+	presentationClass:
+		| { readonly kind: 'ordinary' }
+		| {
+				readonly kind: 'promoted';
+				readonly reason: 'commits' | 'files' | 'lines' | 'unknown';
+		  },
+	affectedStableFileIdentities: readonly string[],
+): BridgeWorkerReviewCandidateStartDisposition {
+	return { affectedStableFileIdentities, kind: 'sameSource', presentationClass };
 }
 
 function sameIdentity(

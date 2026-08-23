@@ -4,6 +4,7 @@ import { render } from 'vitest-browser-react';
 import { BridgeReviewViewerMode } from '../../app/bridge-app-review-viewer-mode.js';
 import {
 	buildBridgeWorkerReviewCandidateReadyEvent,
+	buildBridgeWorkerReviewCandidateStartedEvent,
 	buildBridgeWorkerReviewPublicationInstallAdmissionEvent,
 } from '../../core/comm-worker/bridge-comm-worker-protocol.js';
 import { createBridgeMainRenderFulfillmentCoordinator } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
@@ -162,24 +163,41 @@ export async function renderBridgeReviewRecoveryWitness(
 		event: BridgeWorkerReviewDisplayPatchEvent,
 		candidateReady = true,
 	): void => {
-		reviewProjectionRouter.publishRaw(event);
+		const identity = event.reviewPublicationIdentity;
+		if (identity !== null && messageListener !== null) {
+			const candidateSequence = event.sequence * 3;
+			messageListener(
+				buildBridgeWorkerReviewCandidateStartedEvent({
+					disposition: { kind: 'replacement' },
+					epoch: event.epoch,
+					packageId: identity.packageId,
+					publicationId: identity.publicationId,
+					reviewGeneration: identity.reviewGeneration,
+					revision: identity.revision,
+					sequence: candidateSequence,
+					sourceIdentity: identity.sourceIdentity,
+				}),
+			);
+			reviewProjectionRouter.publishRaw({ ...event, sequence: candidateSequence + 1 });
+		} else {
+			reviewProjectionRouter.publishRaw(event);
+		}
 		if (event.reviewPublicationIdentity !== null) {
 			activeReviewPublicationIdentity = event.reviewPublicationIdentity;
 		}
 		if (!candidateReady || event.reviewPublicationIdentity === null || messageListener === null)
 			return;
-		const identity = event.reviewPublicationIdentity;
+		const readyIdentity = event.reviewPublicationIdentity;
+		const candidateSequence = event.sequence * 3;
 		messageListener(
 			buildBridgeWorkerReviewCandidateReadyEvent({
-				affectedStableFileIdentities: [],
 				epoch: event.epoch,
-				packageId: identity.packageId,
-				preDeliveryPresentationClass: { kind: 'ordinary' },
-				publicationId: identity.publicationId,
-				reviewGeneration: identity.reviewGeneration,
-				revision: identity.revision,
-				sequence: event.sequence + 1,
-				sourceIdentity: identity.sourceIdentity,
+				packageId: readyIdentity.packageId,
+				publicationId: readyIdentity.publicationId,
+				reviewGeneration: readyIdentity.reviewGeneration,
+				revision: readyIdentity.revision,
+				sequence: candidateSequence + 2,
+				sourceIdentity: readyIdentity.sourceIdentity,
 			}),
 		);
 	};

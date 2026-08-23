@@ -345,11 +345,16 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             return [.delta(delta)]
         }
         let identity = try identity(for: nextPublication)
+        let resetRefreshImpact =
+            hasSameSourceIdentity(currentPackage, nextPackage)
+            ? nextPublication.refreshImpact
+            : nil
         return [
             .reset(
                 .init(
                     identity: identity,
                     comparisonOrigin: nextPackage.comparisonOrigin,
+                    refreshImpact: resetRefreshImpact,
                     reason: .sourceChanged,
                     reviewedSubjectLabel: nextPackage.reviewedSubjectLabel
                 )
@@ -631,7 +636,6 @@ private struct ReviewPackageProjection {
                     itemWindow: itemWindow,
                     presentationRevision: isFinalBarrier ? presentationRevision : nil,
                     query: query,
-                    refreshImpact: isFinalBarrier ? refreshImpact : nil,
                     reviewComparison: isFinalBarrier ? reviewComparison : nil,
                     reviewedSubjectLabel: reviewedSubjectLabel,
                     summary: summary,
@@ -648,7 +652,6 @@ private struct ReviewPackageProjection {
                 itemMetadata: itemSlice.map(\.metadata),
                 itemWindow: itemWindow,
                 presentationRevision: isFinalBarrier ? presentationRevision : nil,
-                refreshImpact: isFinalBarrier ? refreshImpact : nil,
                 reviewComparison: isFinalBarrier ? reviewComparison : nil,
                 summary: summary,
                 treeRows: treeSlice,

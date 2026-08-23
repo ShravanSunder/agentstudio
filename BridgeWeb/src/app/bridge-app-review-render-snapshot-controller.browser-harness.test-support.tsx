@@ -3,6 +3,7 @@ import { vi } from 'vitest';
 
 import {
 	buildBridgeWorkerReviewCandidateReadyEvent,
+	buildBridgeWorkerReviewCandidateStartedEvent,
 	buildBridgeWorkerReviewPublicationInstallAdmissionEvent,
 } from '../core/comm-worker/bridge-comm-worker-protocol.js';
 import {
@@ -13,6 +14,7 @@ import { createBridgeMainRenderSnapshotStore } from '../core/comm-worker/bridge-
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type {
 	BridgeWorkerFileDisplayPatchEvent,
+	BridgeWorkerReviewCandidateStartDisposition,
 	BridgeWorkerReviewDisplayPatchEvent,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
@@ -102,7 +104,10 @@ export interface ReviewSurfaceHarness {
 	readonly lifecycleStore: BridgeWorkerRpcLifecycleStore;
 	readonly publish: (
 		message: BridgeWorkerServerToMainMessage,
-		options?: { readonly completesReviewPublication?: boolean },
+		options?: {
+			readonly candidateDisposition?: BridgeWorkerReviewCandidateStartDisposition;
+			readonly completesReviewPublication?: boolean;
+		},
 	) => void;
 	readonly reviewClient: BridgePaneSurfaceClient;
 	readonly sentCommands: BridgeWorkerRpcCommandInput[];
@@ -147,27 +152,37 @@ export function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
 		lifecycleStore,
 		publish: (message, options): void => {
 			if (messageListener === null) throw new Error('Expected the Review message listener.');
-			messageListener(message);
-			if (
-				message.kind === 'reviewDisplayPatch' &&
-				message.reviewPublicationIdentity !== null &&
-				options?.completesReviewPublication !== false
-			) {
+			if (message.kind === 'reviewDisplayPatch' && message.reviewPublicationIdentity !== null) {
 				const identity = message.reviewPublicationIdentity;
+				const candidateSequence = message.sequence * 3;
 				messageListener(
-					buildBridgeWorkerReviewCandidateReadyEvent({
-						affectedStableFileIdentities: [],
+					buildBridgeWorkerReviewCandidateStartedEvent({
+						disposition: options?.candidateDisposition ?? { kind: 'replacement' },
 						epoch: message.epoch,
 						packageId: identity.packageId,
-						preDeliveryPresentationClass: { kind: 'ordinary' },
 						publicationId: identity.publicationId,
 						reviewGeneration: identity.reviewGeneration,
 						revision: identity.revision,
-						sequence: message.sequence + 1,
+						sequence: candidateSequence,
 						sourceIdentity: identity.sourceIdentity,
 					}),
 				);
+				messageListener({ ...message, sequence: candidateSequence + 1 });
+				if (options?.completesReviewPublication === false) return;
+				messageListener(
+					buildBridgeWorkerReviewCandidateReadyEvent({
+						epoch: message.epoch,
+						packageId: identity.packageId,
+						publicationId: identity.publicationId,
+						reviewGeneration: identity.reviewGeneration,
+						revision: identity.revision,
+						sequence: candidateSequence + 2,
+						sourceIdentity: identity.sourceIdentity,
+					}),
+				);
+				return;
 			}
+			messageListener(message);
 		},
 		reviewClient: {
 			lifecycle: lifecycleStore,

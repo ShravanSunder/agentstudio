@@ -5,8 +5,8 @@ import Testing
 @MainActor
 @Suite("Bridge pane product Review metadata refresh impact")
 struct BridgePaneProductReviewMetadataRefreshImpactTests {
-    @Test("carries refresh impact only on the atomic final Review metadata barrier")
-    func carriesRefreshImpactOnlyOnFinalBarrier() async throws {
+    @Test("initial Review windows omit same-source refresh classification")
+    func initialReviewWindowsOmitSameSourceRefreshClassification() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let package = makeReviewPackage(itemCount: 130)
         let impact = BridgeReviewRefreshImpact.exact(
@@ -32,19 +32,12 @@ struct BridgePaneProductReviewMetadataRefreshImpactTests {
             productAdmission: productAdmission.context
         )
 
-        let windowImpacts = await collector.events.compactMap { event -> (BridgeReviewRefreshImpact?)? in
-            switch event {
-            case .snapshot(let snapshot):
-                return snapshot.refreshImpact
-            case .window(let window):
-                return window.refreshImpact
-            default:
-                return nil
-            }
-        }
-        #expect(windowImpacts.count > 1)
-        #expect(windowImpacts.dropLast().allSatisfy { $0 == nil })
-        #expect(windowImpacts.last == impact)
+        let windowCount = await collector.events.filter { event in
+            if case .snapshot = event { return true }
+            if case .window = event { return true }
+            return false
+        }.count
+        #expect(windowCount > 1)
     }
 
     @Test("promoted unknown remains encodable beyond one metadata-window identity limit")
@@ -74,15 +67,7 @@ struct BridgePaneProductReviewMetadataRefreshImpactTests {
         )
 
         // Assert
-        let finalImpact = await collector.events.compactMap { event -> BridgeReviewRefreshImpact? in
-            switch event {
-            case .snapshot(let snapshot): snapshot.refreshImpact
-            case .window(let window): window.refreshImpact
-            default: nil
-            }
-        }.last
         #expect(impact.affectedStableFileIdentities.isEmpty)
-        #expect(finalImpact == impact)
     }
 }
 

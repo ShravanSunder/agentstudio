@@ -18,6 +18,16 @@ describe('Bridge Review refresh lifecycle telemetry', () => {
 		// Act
 		recordBridgeReviewRefreshLifecycleTelemetry({
 			event: {
+				affectedStableFileCount: 0,
+				generation: 8,
+				phase: 'candidateFailed',
+				presentationClass: { kind: 'promoted', reason: 'unknown' },
+				retryable: true,
+			},
+			recorder,
+		});
+		recordBridgeReviewRefreshLifecycleTelemetry({
+			event: {
 				affectedStableFileCount: 3,
 				generation: 7,
 				phase: 'installTerminal',
@@ -40,7 +50,7 @@ describe('Bridge Review refresh lifecycle telemetry', () => {
 
 		// Assert
 		expect(record).toHaveBeenNthCalledWith(
-			1,
+			2,
 			expect.objectContaining({
 				name: 'performance.bridge.web.review_refresh_lifecycle',
 				numericAttributes: {
@@ -58,7 +68,17 @@ describe('Bridge Review refresh lifecycle telemetry', () => {
 			}),
 		);
 		expect(record).toHaveBeenNthCalledWith(
-			2,
+			1,
+			expect.objectContaining({
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.phase': 'review_refresh_candidate_failed',
+					'agentstudio.bridge.result': 'failure',
+					'agentstudio.bridge.result_reason': 'retryable',
+				}),
+			}),
+		);
+		expect(record).toHaveBeenNthCalledWith(
+			3,
 			expect.objectContaining({
 				numericAttributes: {
 					'agentstudio.bridge.review.refresh.active_bank.count': 0,

@@ -54,6 +54,8 @@ function telemetryPhase(event: BridgeMainReviewRefreshLifecycleEvent): string {
 			return 'review_refresh_candidate_ready';
 		case 'candidateHeld':
 			return 'review_refresh_candidate_held';
+		case 'candidateFailed':
+			return 'review_refresh_candidate_failed';
 		case 'installRequested':
 			return 'review_refresh_install_requested';
 		case 'installTerminal':
@@ -75,6 +77,8 @@ function telemetryResult(event: BridgeMainReviewRefreshLifecycleEvent): string {
 		case 'installTerminal':
 			return event.result;
 		case 'receiptFailed':
+			return 'failure';
+		case 'candidateFailed':
 			return 'failure';
 		case 'candidateReady':
 		case 'candidateHeld':
@@ -102,6 +106,8 @@ function telemetryResultReason(event: BridgeMainReviewRefreshLifecycleEvent): st
 			}
 		case 'receiptFailed':
 			return 'receipt_failed';
+		case 'candidateFailed':
+			return event.retryable ? 'retryable' : 'not_retryable';
 		case 'cleanup':
 			return event.reason === 'workerReplacement' ? 'worker_replacement' : 'close';
 		case 'candidateReady':

@@ -231,6 +231,8 @@ function bridgeWorkerMessageMatchesSurface(
 			return surface === 'fileView';
 		case 'reviewDisplayPatch':
 		case 'reviewCandidateReady':
+		case 'reviewCandidateFailed':
+		case 'reviewCandidateStarted':
 		case 'reviewPierreRenderJob':
 		case 'reviewPublicationInstallAdmission':
 		case 'reviewRenderPatch':

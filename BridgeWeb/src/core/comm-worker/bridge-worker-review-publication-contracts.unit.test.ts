@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
 	buildBridgeWorkerReviewCandidateReadyEvent,
+	buildBridgeWorkerReviewCandidateStartedEvent,
 	buildBridgeWorkerReviewPublicationInstallAdmissionEvent,
 	encodeBridgeWorkerReviewPublicationInstallAdmitCommand,
 	encodeBridgeWorkerReviewPublicationInstalledCommand,
@@ -11,6 +12,7 @@ import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerMainToServerMessageSchema,
 	bridgeWorkerReviewCandidateReadyEventSchema,
+	bridgeWorkerReviewCandidateStartDispositionSchema,
 	bridgeWorkerReviewPublicationInstallAdmissionEventSchema,
 	bridgeWorkerServerToMainMessageSchema,
 } from './bridge-worker-contracts.js';
@@ -51,10 +53,8 @@ describe('Bridge worker Review publication lifecycle contracts', () => {
 
 	test('builds strict candidate-ready and correlated admission events', () => {
 		const candidateReady = buildBridgeWorkerReviewCandidateReadyEvent({
-			affectedStableFileIdentities: ['stable-source-app', 'stable-test-app'],
 			epoch: 8,
 			packageId: 'review-package-12',
-			preDeliveryPresentationClass: { kind: 'promoted', reason: 'files' },
 			publicationId: publicationB,
 			reviewGeneration: 12,
 			revision: 4,
@@ -66,8 +66,23 @@ describe('Bridge worker Review publication lifecycle contracts', () => {
 			requestId: 'review-install-admit-1',
 			status: 'admitted',
 		});
+		const candidateStarted = buildBridgeWorkerReviewCandidateStartedEvent({
+			disposition: {
+				affectedStableFileIdentities: ['stable-source-app', 'stable-test-app'],
+				kind: 'sameSource',
+				presentationClass: { kind: 'promoted', reason: 'files' },
+			},
+			epoch: 8,
+			packageId: 'review-package-12',
+			publicationId: publicationB,
+			reviewGeneration: 12,
+			revision: 4,
+			sequence: 19,
+			sourceIdentity: 'review-source-12',
+		});
 
 		expect(bridgeWorkerServerToMainMessageSchema.parse(candidateReady)).toEqual(candidateReady);
+		expect(bridgeWorkerServerToMainMessageSchema.parse(candidateStarted)).toEqual(candidateStarted);
 		expect(bridgeWorkerServerToMainMessageSchema.parse(admission)).toEqual(admission);
 		expect(candidateReady).toMatchObject({
 			direction: 'serverWorkerToMain',
@@ -76,6 +91,22 @@ describe('Bridge worker Review publication lifecycle contracts', () => {
 			transferDescriptors: [],
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 		});
+		expect(candidateReady).not.toHaveProperty('preDeliveryPresentationClass');
+		expect(candidateReady).not.toHaveProperty('affectedStableFileIdentities');
+		expect(
+			bridgeWorkerReviewCandidateStartDispositionSchema.parse({
+				affectedStableFileIdentities: ['stable-source-app', 'stable-test-app'],
+				kind: 'sameSource',
+				presentationClass: { kind: 'promoted', reason: 'files' },
+			}),
+		).toMatchObject({ kind: 'sameSource' });
+		expect(
+			bridgeWorkerReviewCandidateStartDispositionSchema.safeParse({
+				affectedStableFileIdentities: ['file-a'],
+				kind: 'sameSource',
+				presentationClass: { kind: 'promoted', reason: 'unknown' },
+			}).success,
+		).toBe(false);
 		expect(admission).toMatchObject({
 			kind: 'reviewPublicationInstallAdmission',
 			requestId: 'review-install-admit-1',
@@ -91,10 +122,8 @@ describe('Bridge worker Review publication lifecycle contracts', () => {
 			requestId: 'review-install-admit-initial',
 		});
 		const candidateReady = buildBridgeWorkerReviewCandidateReadyEvent({
-			affectedStableFileIdentities: ['stable-source-app'],
 			epoch: 8,
 			packageId: 'review-package-12',
-			preDeliveryPresentationClass: { kind: 'ordinary' },
 			publicationId: publicationB,
 			reviewGeneration: 12,
 			revision: 4,

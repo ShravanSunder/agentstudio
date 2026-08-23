@@ -657,6 +657,8 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 			case 'health':
 			case 'nativeSurfaceSelectionRequest':
 			case 'reviewCandidateReady':
+			case 'reviewCandidateFailed':
+			case 'reviewCandidateStarted':
 			case 'subscription':
 			case 'reviewComparisonTargetsQuery':
 			case 'reviewPublicationInstallAdmission':

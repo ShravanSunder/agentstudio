@@ -377,6 +377,15 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 		handleMessage: (message): boolean => {
 			if (isDisposed) return false;
 			switch (message.kind) {
+				case 'reviewCandidateStarted': {
+					const identity = mainReviewPublicationIdentity(message);
+					if (!props.store.startReviewCandidate({ disposition: message.disposition, identity })) {
+						return true;
+					}
+					publicationEpochById.set(identity.publicationId, message.epoch);
+					prunePublicationEpochs();
+					return true;
+				}
 				case 'reviewDisplayPatch': {
 					const publicationIdentity = message.reviewPublicationIdentity;
 					if (publicationIdentity === null) props.store.applyReviewDisplayPatchEvent(message);
@@ -404,7 +413,12 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 					return true;
 				}
 				case 'reviewCandidateReady':
+					if (publicationEpochById.get(message.publicationId) !== message.epoch) return true;
 					track(installationGate.handleCandidateReady(message, currentAttention));
+					return true;
+				case 'reviewCandidateFailed':
+					if (publicationEpochById.get(message.publicationId) !== message.epoch) return true;
+					installationGate.handleCandidateFailed(message, currentAttention);
 					return true;
 				case 'reviewPublicationInstallAdmission': {
 					const pending = pendingAdmissionsByRequestId.get(message.requestId);

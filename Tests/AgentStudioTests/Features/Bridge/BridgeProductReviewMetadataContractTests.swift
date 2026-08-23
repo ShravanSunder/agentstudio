@@ -50,6 +50,7 @@ struct BridgeProductReviewMetadataContractTests {
 
         var reset = reviewIdentityObject(eventKind: "review.reset")
         reset["reason"] = "providerRestart"
+        addReviewRefreshImpact(to: &reset)
 
         let eventObjects = [
             reviewIdentityObject(eventKind: "review.sourceAccepted"),
@@ -179,8 +180,8 @@ struct BridgeProductReviewMetadataContractTests {
         #expect(throws: (any Error).self) { try decodeReviewMetadataEvent(window) }
     }
 
-    @Test("carries comparison commit fields only on terminal Review barriers")
-    func enforcesReviewComparisonCommitBarrier() throws {
+    @Test("separates leading candidate impact from terminal comparison commit")
+    func enforcesReviewCandidateStartAndComparisonCommitBarriers() throws {
         var terminalSnapshot = reviewSnapshotObject()
         terminalSnapshot["reviewComparison"] = NSNull()
         guard case .snapshot(let decodedTerminal) = try decodeReviewMetadataEvent(terminalSnapshot) else {
@@ -190,21 +191,22 @@ struct BridgeProductReviewMetadataContractTests {
         #expect(decodedTerminal.presentationRevision == 19)
         #expect(decodedTerminal.reviewComparison == nil)
 
-        var unknownImpact = reviewSnapshotObject()
-        unknownImpact["preDeliveryPresentationClass"] = ["kind": "promoted", "reason": "unknown"]
-        unknownImpact["newlyImportedCommitCount"] = NSNull()
-        unknownImpact["affectedFileCount"] = NSNull()
-        unknownImpact["addedLineCount"] = NSNull()
-        unknownImpact["deletedLineCount"] = NSNull()
-        unknownImpact["affectedStableFileIdentities"] = ["review-item-1"]
-        guard case .snapshot(let decodedUnknownImpact) = try decodeReviewMetadataEvent(unknownImpact) else {
-            Issue.record("Expected terminal Review snapshot with unknown impact")
+        var unknownImpactReset = reviewIdentityObject(eventKind: "review.reset")
+        unknownImpactReset["reason"] = "sourceChanged"
+        unknownImpactReset["preDeliveryPresentationClass"] = ["kind": "promoted", "reason": "unknown"]
+        unknownImpactReset["newlyImportedCommitCount"] = NSNull()
+        unknownImpactReset["affectedFileCount"] = NSNull()
+        unknownImpactReset["addedLineCount"] = NSNull()
+        unknownImpactReset["deletedLineCount"] = NSNull()
+        unknownImpactReset["affectedStableFileIdentities"] = []
+        guard case .reset(let decodedUnknownImpact) = try decodeReviewMetadataEvent(unknownImpactReset) else {
+            Issue.record("Expected leading Review reset with unknown impact")
             return
         }
         #expect(decodedUnknownImpact.refreshImpact?.preDeliveryPresentationClass == .promoted(reason: .unknown))
         #expect(decodedUnknownImpact.refreshImpact?.newlyImportedCommitCount == nil)
 
-        for missingKey in ["presentationRevision", "reviewComparison"] + reviewRefreshImpactWireKeys {
+        for missingKey in ["presentationRevision", "reviewComparison"] {
             var invalidTerminal = reviewSnapshotObject()
             invalidTerminal.removeValue(forKey: missingKey)
             #expect(throws: (any Error).self) {
@@ -219,9 +221,6 @@ struct BridgeProductReviewMetadataContractTests {
         nonterminalSnapshot["itemWindow"] = itemWindow
         nonterminalSnapshot.removeValue(forKey: "presentationRevision")
         nonterminalSnapshot.removeValue(forKey: "reviewComparison")
-        for refreshImpactKey in reviewRefreshImpactWireKeys {
-            nonterminalSnapshot.removeValue(forKey: refreshImpactKey)
-        }
         _ = try decodeReviewMetadataEvent(nonterminalSnapshot)
 
         for commitKey in ["presentationRevision", "reviewComparison"] {
@@ -242,6 +241,12 @@ struct BridgeProductReviewMetadataContractTests {
             #expect(throws: (any Error).self) {
                 try decodeReviewMetadataEvent(invalidDelta)
             }
+        }
+
+        var invalidTerminalImpact = reviewSnapshotObject()
+        addReviewRefreshImpact(to: &invalidTerminalImpact)
+        #expect(throws: (any Error).self) {
+            try decodeReviewMetadataEvent(invalidTerminalImpact)
         }
     }
 
@@ -360,7 +365,6 @@ private func reviewSnapshotObject() -> [String: Any] {
     ]
     snapshot["query"] = reviewQueryObject()
     snapshot["presentationRevision"] = 19
-    addReviewRefreshImpact(to: &snapshot)
     snapshot["reviewComparison"] = reviewComparisonPresentationObject()
     snapshot["summary"] = reviewSummaryObject()
     snapshot["treeRows"] = [reviewTreeRowObject()]

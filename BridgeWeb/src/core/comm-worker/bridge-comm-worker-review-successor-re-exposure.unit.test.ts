@@ -15,19 +15,11 @@ describe('Bridge comm worker Review successor re-exposure', () => {
 		// Arrange
 		const harness = makeApplicatorHarness();
 		harness.applicator.apply(
-			{
-				...reviewSnapshot(activeIdentity, 'item-a', 0, 1, true),
-				affectedStableFileIdentities: ['stable-a'],
-				preDeliveryPresentationClass: { kind: 'ordinary' },
-			},
+			reviewSnapshot(activeIdentity, 'item-a', 0, 1, true),
 			workerDerivationEpoch,
 		);
 		harness.applicator.apply(
-			{
-				...reviewSnapshot(candidateIdentity, 'item-c', 0, 1, true),
-				affectedStableFileIdentities: ['stable-c'],
-				preDeliveryPresentationClass: { kind: 'promoted', reason: 'files' },
-			},
+			reviewSnapshot(candidateIdentity, 'item-c', 0, 1, true),
 			workerDerivationEpoch,
 		);
 		const applicationCount = harness.applications.length;
@@ -58,7 +50,7 @@ describe('Bridge comm worker Review successor re-exposure', () => {
 			}),
 		]);
 		expect(harness.candidateReadyPublications.at(-1)).toMatchObject({
-			affectedStableFileIdentities: ['stable-c'],
+			disposition: { kind: 'replacement' },
 			identity: {
 				generation: candidateIdentity.generation,
 				packageId: candidateIdentity.packageId,
@@ -66,7 +58,6 @@ describe('Bridge comm worker Review successor re-exposure', () => {
 				revision: candidateIdentity.revision,
 				sourceIdentity: candidateIdentity.sourceIdentity,
 			},
-			preDeliveryPresentationClass: { kind: 'promoted', reason: 'files' },
 		});
 	});
 
@@ -127,14 +118,7 @@ function applyReadyPublication(
 	identity: typeof activeIdentity,
 	itemId: string,
 ): void {
-	harness.applicator.apply(
-		{
-			...reviewSnapshot(identity, itemId, 0, 1, true),
-			affectedStableFileIdentities: [`stable-${itemId}`],
-			preDeliveryPresentationClass: { kind: 'ordinary' },
-		},
-		workerDerivationEpoch,
-	);
+	harness.applicator.apply(reviewSnapshot(identity, itemId, 0, 1, true), workerDerivationEpoch);
 }
 
 function applyPublicationApplied(

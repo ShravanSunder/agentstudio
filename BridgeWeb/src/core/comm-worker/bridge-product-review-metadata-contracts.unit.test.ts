@@ -96,7 +96,6 @@ describe('Bridge product Review metadata contracts', () => {
 		// Arrange
 		const snapshot = {
 			...reviewSourceIdentity,
-			...reviewRefreshImpact,
 			baseEndpoint: {
 				createdAtUnixMilliseconds: 1,
 				endpointId: 'review-base-endpoint',
@@ -226,19 +225,9 @@ describe('Bridge product Review metadata contracts', () => {
 			reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
 		});
 		expect(
-			bridgeProductReviewMetadataEventSchema.parse({
-				...snapshot,
-				addedLineCount: null,
-				affectedFileCount: null,
-				deletedLineCount: null,
-				newlyImportedCommitCount: null,
-				preDeliveryPresentationClass: { kind: 'promoted', reason: 'unknown' },
-			}),
-		).toMatchObject({ preDeliveryPresentationClass: { kind: 'promoted', reason: 'unknown' } });
-		expect(
 			bridgeProductReviewMetadataEventSchema.safeParse({
 				...snapshot,
-				addedLineCount: undefined,
+				...reviewRefreshImpact,
 			}).success,
 		).toBe(false);
 		expect(JSON.stringify(parsed)).not.toMatch(/resourceUrl|contentHandle|"contents":/i);
@@ -299,7 +288,6 @@ describe('Bridge product Review metadata contracts', () => {
 		}
 		expect(
 			bridgeProductReviewMetadataEventSchema.parse({
-				...reviewRefreshImpact,
 				contentSources: snapshot.contentSources,
 				eventKind: 'review.window',
 				operationCorrelationId: null,
@@ -370,6 +358,7 @@ describe('Bridge product Review metadata contracts', () => {
 		expect(
 			bridgeProductReviewMetadataEventSchema.parse({
 				...reviewSourceIdentity,
+				...reviewRefreshImpact,
 				comparisonOrigin: snapshot.comparisonOrigin,
 				eventKind: 'review.reset',
 				operationCorrelationId: null,
@@ -378,8 +367,23 @@ describe('Bridge product Review metadata contracts', () => {
 			}),
 		).toMatchObject({
 			comparisonOrigin: snapshot.comparisonOrigin,
+			preDeliveryPresentationClass: { kind: 'ordinary' },
 			reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
 		});
+		expect(
+			bridgeProductReviewMetadataEventSchema.parse({
+				...reviewSourceIdentity,
+				...reviewRefreshImpact,
+				affectedStableFileIdentities: [],
+				addedLineCount: null,
+				affectedFileCount: null,
+				deletedLineCount: null,
+				eventKind: 'review.reset',
+				newlyImportedCommitCount: null,
+				preDeliveryPresentationClass: { kind: 'promoted', reason: 'unknown' },
+				reason: 'sourceChanged',
+			}),
+		).toMatchObject({ preDeliveryPresentationClass: { kind: 'promoted', reason: 'unknown' } });
 		expect(() =>
 			bridgeProductReviewMetadataEventSchema.parse({
 				...snapshot,

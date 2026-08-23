@@ -2,7 +2,11 @@ import {
 	BridgeCommWorkerReviewMetadataApplicator,
 	type BridgeCommWorkerReviewMetadataApplication,
 } from './bridge-comm-worker-review-metadata-applicator.js';
-import type { BridgeCommWorkerReviewCandidateReadyPublication } from './bridge-comm-worker-review-publication-types.js';
+import type {
+	BridgeCommWorkerReviewCandidateReadyPublication,
+	BridgeCommWorkerReviewCandidateFailedPublication,
+	BridgeCommWorkerReviewCandidateStartedPublication,
+} from './bridge-comm-worker-review-publication-types.js';
 import type { BridgeProductReviewMetadataEvent } from './bridge-product-review-metadata-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
@@ -54,6 +58,7 @@ export function makeApplicatorHarness(
 		) => void;
 		readonly beforePublishDisplayPatches?: (publication: {
 			readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+			readonly reviewPublicationIdentity?: unknown;
 			readonly workerDerivationEpoch: number;
 		}) => void;
 	} = {},
@@ -61,15 +66,23 @@ export function makeApplicatorHarness(
 	readonly applications: BridgeCommWorkerReviewMetadataApplication[];
 	readonly applicator: BridgeCommWorkerReviewMetadataApplicator;
 	readonly candidateReadyPublications: BridgeCommWorkerReviewCandidateReadyPublication[];
+	readonly candidateFailedPublications: BridgeCommWorkerReviewCandidateFailedPublication[];
+	readonly candidateStartedPublications: BridgeCommWorkerReviewCandidateStartedPublication[];
+	readonly publicationOrder: Array<'display' | 'failed' | 'ready' | 'started'>;
 	readonly displayPublications: Array<{
 		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+		readonly reviewPublicationIdentity?: unknown;
 		readonly workerDerivationEpoch: number;
 	}>;
 } {
 	const applications: BridgeCommWorkerReviewMetadataApplication[] = [];
 	const candidateReadyPublications: BridgeCommWorkerReviewCandidateReadyPublication[] = [];
+	const candidateFailedPublications: BridgeCommWorkerReviewCandidateFailedPublication[] = [];
+	const candidateStartedPublications: BridgeCommWorkerReviewCandidateStartedPublication[] = [];
+	const publicationOrder: Array<'display' | 'failed' | 'ready' | 'started'> = [];
 	const displayPublications: Array<{
 		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+		readonly reviewPublicationIdentity?: unknown;
 		readonly workerDerivationEpoch: number;
 	}> = [];
 	return {
@@ -82,14 +95,27 @@ export function makeApplicatorHarness(
 			currentWorkerDerivationEpoch: (): number => workerDerivationEpoch,
 			publishCandidateReady: (publication): void => {
 				candidateReadyPublications.push(publication);
+				publicationOrder.push('ready');
+			},
+			publishCandidateFailed: (publication): void => {
+				candidateFailedPublications.push(publication);
+				publicationOrder.push('failed');
+			},
+			publishCandidateStarted: (publication): void => {
+				candidateStartedPublications.push(publication);
+				publicationOrder.push('started');
 			},
 			publishDisplayPatches: (publication): void => {
 				props.beforePublishDisplayPatches?.(publication);
 				displayPublications.push(publication);
+				if (publication.reviewPublicationIdentity !== null) publicationOrder.push('display');
 			},
 		}),
 		candidateReadyPublications,
+		candidateFailedPublications,
+		candidateStartedPublications,
 		displayPublications,
+		publicationOrder,
 	};
 }
 
@@ -108,9 +134,25 @@ export function reviewIdentity(
 	};
 }
 
-export function reviewReset(identity: ReviewMetadataIdentity): BridgeProductReviewMetadataEvent {
+export function reviewReset(
+	identity: ReviewMetadataIdentity,
+	refreshImpact?: {
+		readonly addedLineCount: number | null;
+		readonly affectedFileCount: number | null;
+		readonly affectedStableFileIdentities: readonly string[];
+		readonly deletedLineCount: number | null;
+		readonly newlyImportedCommitCount: number | null;
+		readonly preDeliveryPresentationClass:
+			| { readonly kind: 'ordinary' }
+			| {
+					readonly kind: 'promoted';
+					readonly reason: 'commits' | 'files' | 'lines' | 'unknown';
+			  };
+	},
+): BridgeProductReviewMetadataEvent {
 	return {
 		...identity,
+		...refreshImpact,
 		comparisonOrigin: reviewComparisonOrigin,
 		eventKind: 'review.reset',
 		operationCorrelationId: null,
@@ -164,11 +206,17 @@ export function reviewDelta(
 ): ReviewDeltaEvent {
 	return {
 		...identity,
+		addedLineCount: 0,
+		affectedFileCount: 0,
+		affectedStableFileIdentities: [],
 		contentSources: [],
+		deletedLineCount: 0,
 		eventKind: 'review.delta',
 		operationCorrelationId: null,
 		fromRevision: identity.revision,
 		operations: [],
+		newlyImportedCommitCount: 0,
+		preDeliveryPresentationClass: { kind: 'ordinary' },
 		presentationRevision: toRevision,
 		publicationId: reviewPublicationId(toRevision),
 		revision: toRevision,

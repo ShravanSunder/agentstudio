@@ -22,9 +22,6 @@ const reviewItemMetadata = {
 } satisfies BridgeProductReviewItemMetadata;
 
 export const reviewSnapshotEvent = {
-	addedLineCount: 1,
-	affectedFileCount: 1,
-	affectedStableFileIdentities: ['item-1'],
 	baseEndpoint: {
 		createdAtUnixMilliseconds: 1,
 		endpointId: 'base',
@@ -35,7 +32,6 @@ export const reviewSnapshotEvent = {
 		worktreeId: 'worktree-1',
 	},
 	contentSources: [],
-	deletedLineCount: 1,
 	eventKind: 'review.snapshot',
 	operationCorrelationId: null,
 	extentFacts: [],
@@ -51,9 +47,7 @@ export const reviewSnapshotEvent = {
 	},
 	itemMetadata: [reviewItemMetadata],
 	itemWindow: { finalWindow: true, itemCount: 1, startIndex: 0, totalItemCount: 1 },
-	newlyImportedCommitCount: 1,
 	packageId: 'package-1',
-	preDeliveryPresentationClass: { kind: 'ordinary' },
 	presentationRevision: 11,
 	publicationId: '00000000-0000-7000-8000-000000000011',
 	query: {

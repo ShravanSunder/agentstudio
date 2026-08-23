@@ -387,6 +387,7 @@ export function createBridgeMainRenderSnapshotStore(
 			if (isDisposed) return;
 			publishBridgeMainListeners(workerReplacementListeners);
 			discardReviewCandidate();
+			if (reviewCandidateBankOwner.clearFailure()) publishReviewRefreshPresentation();
 			const fileDisplayState = fileDisplayPatchApplier.prepareForWorkerReplacement();
 			publish({
 				...snapshot,
@@ -494,6 +495,12 @@ export function createBridgeMainRenderSnapshotStore(
 					: null,
 			);
 		},
+		startReviewCandidate: (props): boolean => {
+			if (isDisposed) return false;
+			const started = reviewCandidateBankOwner.start({ activeSnapshot: snapshot, ...props });
+			if (started) publishReviewRefreshPresentation();
+			return started;
+		},
 		stageReviewCandidateDisplayEvent: (props): boolean => {
 			if (isDisposed) return false;
 			const presentationBeforeStage = reviewCandidateBankOwner.currentPresentation;
@@ -528,6 +535,18 @@ export function createBridgeMainRenderSnapshotStore(
 			const marked = reviewCandidateBankOwner.markReady(props);
 			if (marked) publishReviewRefreshPresentation();
 			return marked;
+		},
+		failReviewCandidate: (props): boolean => {
+			if (isDisposed) return false;
+			const failed = reviewCandidateBankOwner.fail(props);
+			if (failed) publishReviewRefreshPresentation();
+			return failed;
+		},
+		clearReviewCandidateFailure: (): boolean => {
+			if (isDisposed) return false;
+			const cleared = reviewCandidateBankOwner.clearFailure();
+			if (cleared) publishReviewRefreshPresentation();
+			return cleared;
 		},
 		promoteReviewCandidate: (identity): boolean =>
 			isDisposed ? false : promoteReviewCandidate(identity),

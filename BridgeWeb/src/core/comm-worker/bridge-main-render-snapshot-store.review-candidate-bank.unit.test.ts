@@ -7,6 +7,7 @@ import {
 } from './bridge-main-render-snapshot-store.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
+	type BridgeWorkerReviewCandidateStartDisposition,
 	type BridgeWorkerReviewDisplayItem,
 	type BridgeWorkerReviewDisplayPatchEvent,
 } from './bridge-worker-contracts.js';
@@ -15,6 +16,8 @@ import { bridgeWorkerReviewSourceContext } from './bridge-worker-review-display.
 const ACTIVE_IDENTITY = reviewIdentity(1, 1, '11');
 const CANDIDATE_IDENTITY = reviewIdentity(2, 1, '12');
 const SUCCESSOR_IDENTITY = reviewIdentity(3, 1, '13');
+const LATEST_IDENTITY = reviewIdentity(4, 1, '14');
+const FINAL_IDENTITY = reviewIdentity(5, 1, '15');
 
 describe('Bridge main render snapshot store Review candidate bank', () => {
 	test('keeps A visible while a complete B and its render copies remain private', () => {
@@ -23,6 +26,7 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		installReview(store, ACTIVE_IDENTITY, reviewDisplayEvent(1, 'item-a', 1));
 		store.setWorkerCodeViewItem({ item: reviewCodeViewItem('item-a', 'A'), itemId: 'item-a' });
 		const activeSnapshot = store.getSnapshot();
+		startCandidate(store, CANDIDATE_IDENTITY, ['stable-b']);
 
 		// Act
 		expect(
@@ -46,7 +50,6 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		).toBe(true);
 		expect(
 			store.markReviewCandidateReady({
-				affectedStableFileIdentities: ['stable-b'],
 				identity: CANDIDATE_IDENTITY,
 				role: 'updateReady',
 			}),
@@ -64,7 +67,9 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 				affectedStableFileIdentities: ['stable-b'],
 				identity: CANDIDATE_IDENTITY,
 				role: 'updateReady',
+				startDisposition: sameSourceDisposition(['stable-b']),
 			},
+			failure: null,
 		});
 	});
 
@@ -74,6 +79,7 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		installReview(store, ACTIVE_IDENTITY, reviewDisplayEvent(1, 'item-a', 1));
 		const presentationListener = vi.fn();
 		store.subscribeReviewRefreshPresentation(presentationListener);
+		startCandidate(store, CANDIDATE_IDENTITY, ['stable-b']);
 
 		// Act
 		store.stageReviewCandidateDisplayEvent({
@@ -85,7 +91,6 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 			identity: CANDIDATE_IDENTITY,
 		});
 		store.markReviewCandidateReady({
-			affectedStableFileIdentities: ['stable-b'],
 			identity: CANDIDATE_IDENTITY,
 			role: 'updateReady',
 		});
@@ -98,6 +103,7 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		// Arrange
 		const store = createBridgeMainRenderSnapshotStore();
 		installReview(store, ACTIVE_IDENTITY, reviewDisplayEvent(1, 'item-a', 1));
+		startCandidate(store, CANDIDATE_IDENTITY);
 		expect(
 			store.stageReviewCandidateDisplayEvent({
 				event: reviewDisplayEvent(2, 'item-b', 1),
@@ -106,6 +112,7 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		).toBe(true);
 
 		// Act
+		startCandidate(store, SUCCESSOR_IDENTITY);
 		expect(
 			store.stageReviewCandidateDisplayEvent({
 				event: reviewDisplayEvent(3, 'item-c', 1),
@@ -116,7 +123,6 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		// Assert
 		expect(
 			store.markReviewCandidateReady({
-				affectedStableFileIdentities: [],
 				identity: CANDIDATE_IDENTITY,
 				role: 'provisional',
 			}),
@@ -140,6 +146,7 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		// Arrange
 		const store = createBridgeMainRenderSnapshotStore();
 		installReview(store, ACTIVE_IDENTITY, reviewDisplayEvent(1, 'item-a', 1));
+		startCandidate(store, CANDIDATE_IDENTITY, ['stable-b']);
 		expect(
 			store.stageReviewCandidateDisplayEvent({
 				event: reviewDisplayEvent(2, 'item-b', 1),
@@ -148,13 +155,18 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		).toBe(true);
 		expect(
 			store.markReviewCandidateReady({
-				affectedStableFileIdentities: ['stable-b'],
 				identity: CANDIDATE_IDENTITY,
 				role: 'installing',
 			}),
 		).toBe(true);
 
 		// Act
+		expect(
+			store.startReviewCandidate({
+				disposition: sameSourceDisposition([]),
+				identity: SUCCESSOR_IDENTITY,
+			}),
+		).toBe(false);
 		const stagedSuccessor = store.stageReviewCandidateDisplayEvent({
 			event: reviewDisplayEvent(3, 'item-c', 1),
 			identity: SUCCESSOR_IDENTITY,
@@ -166,6 +178,7 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 			affectedStableFileIdentities: ['stable-b'],
 			identity: CANDIDATE_IDENTITY,
 			role: 'installing',
+			startDisposition: sameSourceDisposition(['stable-b']),
 		});
 		expect(store.promoteReviewCandidate(CANDIDATE_IDENTITY)).toBe(true);
 	});
@@ -181,6 +194,7 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 			payload: { state: 'ready' },
 			slice: 'contentAvailability',
 		});
+		startCandidate(store, CANDIDATE_IDENTITY, ['stable-b']);
 		store.stageReviewCandidateDisplayEvent({
 			event: reviewDisplayEvent(2, 'item-b', 1),
 			identity: CANDIDATE_IDENTITY,
@@ -221,7 +235,6 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 			}),
 		).toBe(false);
 		store.markReviewCandidateReady({
-			affectedStableFileIdentities: ['stable-b'],
 			identity: CANDIDATE_IDENTITY,
 			role: 'updateReady',
 		});
@@ -243,6 +256,7 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		expect(store.getReviewRefreshPresentation()).toEqual({
 			activeIdentity: CANDIDATE_IDENTITY,
 			candidate: null,
+			failure: null,
 		});
 		expect(store.getReviewItemSnapshot('item-a')).toBeUndefined();
 		expect(store.getReviewItemSnapshot('item-b')).toBeDefined();
@@ -268,6 +282,7 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 		installReview(store, ACTIVE_IDENTITY, reviewDisplayEvent(1, 'item-a', 1));
 		const stage = (): void => {
+			startCandidate(store, CANDIDATE_IDENTITY);
 			expect(
 				store.stageReviewCandidateDisplayEvent({
 					event: reviewDisplayEvent(2, 'item-b', 1),
@@ -285,14 +300,92 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		expect(store.getReviewRefreshPresentation()).toEqual({
 			activeIdentity: ACTIVE_IDENTITY,
 			candidate: null,
+			failure: null,
 		});
 		stage();
 		store.dispose();
 		expect(store.getReviewRefreshPresentation()).toEqual({
 			activeIdentity: null,
 			candidate: null,
+			failure: null,
 		});
 		expect(store.promoteReviewCandidate(CANDIDATE_IDENTITY)).toBe(false);
+	});
+
+	test('retains only exact promoted failure facts and clears them on lifecycle boundaries', () => {
+		const store = createBridgeMainRenderSnapshotStore();
+		installReview(store, ACTIVE_IDENTITY, reviewDisplayEvent(1, 'item-a', 1));
+		startCandidate(store, CANDIDATE_IDENTITY, []);
+		store.stageReviewCandidateDisplayEvent({
+			event: reviewDisplayEvent(2, 'item-b', 1),
+			identity: CANDIDATE_IDENTITY,
+		});
+		startCandidate(store, SUCCESSOR_IDENTITY, []);
+		store.stageReviewCandidateDisplayEvent({
+			event: reviewDisplayEvent(3, 'item-c', 1),
+			identity: SUCCESSOR_IDENTITY,
+		});
+
+		expect(store.failReviewCandidate({ identity: CANDIDATE_IDENTITY, retryable: true })).toBe(
+			false,
+		);
+		expect(store.getReviewRefreshPresentation().candidate?.identity).toEqual(SUCCESSOR_IDENTITY);
+		expect(store.failReviewCandidate({ identity: SUCCESSOR_IDENTITY, retryable: true })).toBe(true);
+		expect(store.getReviewRefreshPresentation().failure).toBeNull();
+
+		expect(
+			store.startReviewCandidate({
+				disposition: {
+					affectedStableFileIdentities: [],
+					kind: 'sameSource',
+					presentationClass: { kind: 'promoted', reason: 'unknown' },
+				},
+				identity: SUCCESSOR_IDENTITY,
+			}),
+		).toBe(true);
+		store.stageReviewCandidateDisplayEvent({
+			event: reviewDisplayEvent(3, 'item-c', 1),
+			identity: SUCCESSOR_IDENTITY,
+		});
+		expect(store.failReviewCandidate({ identity: SUCCESSOR_IDENTITY, retryable: true })).toBe(true);
+		expect(store.getReviewRefreshPresentation()).toMatchObject({
+			activeIdentity: ACTIVE_IDENTITY,
+			candidate: null,
+			failure: {
+				affectedStableFileIdentities: [],
+				identity: SUCCESSOR_IDENTITY,
+				presentationClass: { kind: 'promoted', reason: 'unknown' },
+				retryable: true,
+			},
+		});
+		expect(
+			store.startReviewCandidate({
+				disposition: sameSourceDisposition([]),
+				identity: CANDIDATE_IDENTITY,
+			}),
+		).toBe(false);
+		expect(store.getReviewRefreshPresentation().failure?.identity).toEqual(SUCCESSOR_IDENTITY);
+		startCandidate(store, LATEST_IDENTITY);
+		expect(store.getReviewRefreshPresentation().failure).toBeNull();
+		expect(store.discardReviewCandidate(LATEST_IDENTITY)).toBe(true);
+		expect(
+			store.startReviewCandidate({
+				disposition: {
+					affectedStableFileIdentities: [],
+					kind: 'sameSource',
+					presentationClass: { kind: 'promoted', reason: 'unknown' },
+				},
+				identity: FINAL_IDENTITY,
+			}),
+		).toBe(true);
+		store.stageReviewCandidateDisplayEvent({
+			event: reviewDisplayEvent(5, 'item-e', 1),
+			identity: FINAL_IDENTITY,
+		});
+		expect(store.failReviewCandidate({ identity: FINAL_IDENTITY, retryable: false })).toBe(true);
+
+		store.prepareForWorkerReplacement();
+		expect(store.getReviewRefreshPresentation().failure).toBeNull();
 	});
 });
 
@@ -301,15 +394,38 @@ function installReview(
 	identity: BridgeMainReviewPublicationIdentity,
 	event: BridgeWorkerReviewDisplayPatchEvent,
 ): void {
+	expect(store.startReviewCandidate({ disposition: { kind: 'replacement' }, identity })).toBe(true);
 	expect(store.stageReviewCandidateDisplayEvent({ event, identity })).toBe(true);
 	expect(
 		store.markReviewCandidateReady({
-			affectedStableFileIdentities: [],
 			identity,
 			role: 'provisional',
 		}),
 	).toBe(true);
 	expect(store.promoteReviewCandidate(identity)).toBe(true);
+}
+
+function startCandidate(
+	store: ReturnType<typeof createBridgeMainRenderSnapshotStore>,
+	identity: BridgeMainReviewPublicationIdentity,
+	affectedStableFileIdentities: readonly string[] = [],
+): void {
+	expect(
+		store.startReviewCandidate({
+			disposition: sameSourceDisposition(affectedStableFileIdentities),
+			identity,
+		}),
+	).toBe(true);
+}
+
+function sameSourceDisposition(
+	affectedStableFileIdentities: readonly string[],
+): BridgeWorkerReviewCandidateStartDisposition {
+	return {
+		affectedStableFileIdentities,
+		kind: 'sameSource' as const,
+		presentationClass: { kind: 'ordinary' as const },
+	};
 }
 
 function reviewIdentity(

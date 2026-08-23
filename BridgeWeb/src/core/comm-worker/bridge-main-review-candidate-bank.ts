@@ -15,6 +15,7 @@ import {
 	type MutableBridgeMainRenderSnapshot,
 } from './bridge-main-review-display-state.js';
 import type {
+	BridgeWorkerReviewCandidateStartDisposition,
 	BridgeWorkerReviewDisplayPatchEvent,
 	BridgeWorkerSlicePatch,
 } from './bridge-worker-contracts.js';
@@ -25,10 +26,24 @@ export interface BridgeMainReviewCandidatePresentation {
 	readonly affectedStableFileIdentities: readonly string[];
 	readonly identity: BridgeMainReviewPublicationIdentity;
 	readonly role: BridgeMainReviewCandidateRole;
+	readonly startDisposition: BridgeWorkerReviewCandidateStartDisposition;
+}
+export interface BridgeMainReviewFailurePresentation {
+	readonly affectedStableFileIdentities: readonly string[];
+	readonly identity: BridgeMainReviewPublicationIdentity;
+	readonly presentationClass: Extract<
+		Extract<
+			BridgeWorkerReviewCandidateStartDisposition,
+			{ readonly kind: 'sameSource' }
+		>['presentationClass'],
+		{ readonly kind: 'promoted' }
+	>;
+	readonly retryable: boolean;
 }
 export interface BridgeMainReviewRefreshPresentation {
 	readonly activeIdentity: BridgeMainReviewPublicationIdentity | null;
 	readonly candidate: BridgeMainReviewCandidatePresentation | null;
+	readonly failure: BridgeMainReviewFailurePresentation | null;
 }
 export type BridgeMainReviewCandidateWorkerPatch = Exclude<
 	BridgeWorkerSlicePatch,
@@ -47,6 +62,10 @@ export interface BridgeMainReviewCandidateStore {
 		readonly itemId: string;
 		readonly item: BridgeMainCodeViewItem;
 	}) => boolean;
+	readonly startReviewCandidate: (props: {
+		readonly disposition: BridgeWorkerReviewCandidateStartDisposition;
+		readonly identity: BridgeMainReviewPublicationIdentity;
+	}) => boolean;
 	readonly stageReviewCandidateDisplayEvent: (props: {
 		readonly event: BridgeWorkerReviewDisplayPatchEvent;
 		readonly identity: BridgeMainReviewPublicationIdentity;
@@ -55,26 +74,31 @@ export interface BridgeMainReviewCandidateStore {
 		update: BridgeMainReviewCandidateSnapshotUpdate,
 	) => boolean;
 	readonly markReviewCandidateReady: (props: {
-		readonly affectedStableFileIdentities: readonly string[];
 		readonly identity: BridgeMainReviewPublicationIdentity;
 		readonly role: BridgeMainReviewCandidateRole;
 	}) => boolean;
 	readonly promoteReviewCandidate: (identity: BridgeMainReviewPublicationIdentity) => boolean;
 	readonly discardReviewCandidate: (identity?: BridgeMainReviewPublicationIdentity) => boolean;
+	readonly failReviewCandidate: (props: {
+		readonly identity: BridgeMainReviewPublicationIdentity;
+		readonly retryable: boolean;
+	}) => boolean;
+	readonly clearReviewCandidateFailure: () => boolean;
 }
 export interface MutableBridgeMainReviewCandidateBank {
-	affectedStableFileIdentities: readonly string[];
 	readonly identity: BridgeMainReviewPublicationIdentity;
 	readonly reviewItemIndexById: Map<string, number>;
 	readonly reviewTreeRowById: Map<string, BridgeMainReviewTreeDisplayRow>;
 	role: BridgeMainReviewCandidateRole;
 	snapshot: MutableBridgeMainRenderSnapshot;
+	readonly startDisposition: BridgeWorkerReviewCandidateStartDisposition;
 }
 
 export class BridgeMainReviewCandidateBankOwner {
 	#activeIdentity: BridgeMainReviewPublicationIdentity | null = null;
 	#candidate: MutableBridgeMainReviewCandidateBank | null = null;
-	#presentation: BridgeMainReviewRefreshPresentation = presentation(null, null);
+	#failure: BridgeMainReviewFailurePresentation | null = null;
+	#presentation: BridgeMainReviewRefreshPresentation = presentation(null, null, null);
 
 	get currentPresentation(): BridgeMainReviewRefreshPresentation {
 		return this.#presentation;
@@ -85,19 +109,8 @@ export class BridgeMainReviewCandidateBankOwner {
 		readonly event: BridgeWorkerReviewDisplayPatchEvent;
 		readonly identity: BridgeMainReviewPublicationIdentity;
 	}): boolean {
-		if (this.#activeIdentity !== null && !isNewer(props.identity, this.#activeIdentity))
-			return false;
-		let candidate = this.#candidate;
-		let presentationChanged = false;
-		if (candidate === null) {
-			candidate = cloneCandidate(props.activeSnapshot, props.identity);
-			presentationChanged = true;
-		} else if (!isExact(props.identity, candidate.identity)) {
-			if (!isNewer(props.identity, candidate.identity)) return false;
-			if (candidate.role === 'installing') return false;
-			candidate = cloneCandidate(props.activeSnapshot, props.identity);
-			presentationChanged = true;
-		}
+		const candidate = this.#candidate;
+		if (candidate === null || !isExact(props.identity, candidate.identity)) return false;
 		const replacesWorkerDerivationEpoch =
 			candidate.snapshot.reviewDisplayFreshness !== null &&
 			props.event.epoch > candidate.snapshot.reviewDisplayFreshness.epoch;
@@ -122,7 +135,29 @@ export class BridgeMainReviewCandidateBankOwner {
 			previousItemsById: effect.previousItemsById,
 			snapshot: invalidation.snapshot,
 		}).snapshot;
-		if (presentationChanged) this.#refresh();
+		return true;
+	}
+
+	start(props: {
+		readonly activeSnapshot: MutableBridgeMainRenderSnapshot;
+		readonly disposition: BridgeWorkerReviewCandidateStartDisposition;
+		readonly identity: BridgeMainReviewPublicationIdentity;
+	}): boolean {
+		if (this.#activeIdentity !== null && !isNewer(props.identity, this.#activeIdentity)) {
+			return false;
+		}
+		if (this.#failure !== null && !isNewer(props.identity, this.#failure.identity)) {
+			return false;
+		}
+		const candidate = this.#candidate;
+		if (candidate !== null) {
+			if (!isNewer(props.identity, candidate.identity) || candidate.role === 'installing') {
+				return false;
+			}
+		}
+		this.#candidate = cloneCandidate(props.activeSnapshot, props.identity, props.disposition);
+		this.#failure = null;
+		this.#refresh();
 		return true;
 	}
 
@@ -144,7 +179,6 @@ export class BridgeMainReviewCandidateBankOwner {
 	}
 
 	markReady(props: {
-		readonly affectedStableFileIdentities: readonly string[];
 		readonly identity: BridgeMainReviewPublicationIdentity;
 		readonly role: BridgeMainReviewCandidateRole;
 	}): boolean {
@@ -156,7 +190,6 @@ export class BridgeMainReviewCandidateBankOwner {
 		)
 			return false;
 		this.#candidate.role = props.role;
-		this.#candidate.affectedStableFileIdentities = [...new Set(props.affectedStableFileIdentities)];
 		this.#refresh();
 		return true;
 	}
@@ -188,14 +221,39 @@ export class BridgeMainReviewCandidateBankOwner {
 		return true;
 	}
 
+	fail(props: {
+		readonly identity: BridgeMainReviewPublicationIdentity;
+		readonly retryable: boolean;
+	}): boolean {
+		const candidate = this.#candidate;
+		if (
+			candidate === null ||
+			!isExact(props.identity, candidate.identity) ||
+			candidate.role === 'installing'
+		)
+			return false;
+		this.#candidate = null;
+		this.#failure = promotedFailure(candidate, props.retryable);
+		this.#refresh();
+		return true;
+	}
+
+	clearFailure(): boolean {
+		if (this.#failure === null) return false;
+		this.#failure = null;
+		this.#refresh();
+		return true;
+	}
+
 	dispose(): void {
 		this.#activeIdentity = null;
 		this.#candidate = null;
+		this.#failure = null;
 		this.#refresh();
 	}
 
 	#refresh(): void {
-		this.#presentation = presentation(this.#activeIdentity, this.#candidate);
+		this.#presentation = presentation(this.#activeIdentity, this.#candidate, this.#failure);
 	}
 }
 
@@ -255,13 +313,14 @@ export function mergeBridgeMainReviewCandidateSnapshot(props: {
 function cloneCandidate(
 	snapshot: MutableBridgeMainRenderSnapshot,
 	identity: BridgeMainReviewPublicationIdentity,
+	startDisposition: BridgeWorkerReviewCandidateStartDisposition,
 ): MutableBridgeMainReviewCandidateBank {
 	return {
-		affectedStableFileIdentities: [],
 		identity,
 		reviewItemIndexById: itemIndex(snapshot.reviewItemIdsByIndex),
 		reviewTreeRowById: rowIndex(snapshot.reviewTreeRowsByIndex),
 		role: 'provisional',
+		startDisposition,
 		snapshot: {
 			...snapshot,
 			codeViewItemsById: { ...snapshot.codeViewItemsById },
@@ -289,6 +348,7 @@ function isNewer(
 function presentation(
 	activeIdentity: BridgeMainReviewPublicationIdentity | null,
 	candidate: MutableBridgeMainReviewCandidateBank | null,
+	failure: BridgeMainReviewFailurePresentation | null,
 ): BridgeMainReviewRefreshPresentation {
 	return {
 		activeIdentity,
@@ -296,10 +356,31 @@ function presentation(
 			candidate === null
 				? null
 				: {
-						affectedStableFileIdentities: [...candidate.affectedStableFileIdentities],
+						affectedStableFileIdentities:
+							candidate.startDisposition.kind === 'sameSource'
+								? [...candidate.startDisposition.affectedStableFileIdentities]
+								: [],
 						identity: candidate.identity,
 						role: candidate.role,
+						startDisposition: candidate.startDisposition,
 					},
+		failure,
+	};
+}
+
+function promotedFailure(
+	candidate: MutableBridgeMainReviewCandidateBank,
+	retryable: boolean,
+): BridgeMainReviewFailurePresentation | null {
+	const disposition = candidate.startDisposition;
+	if (disposition.kind !== 'sameSource' || disposition.presentationClass.kind !== 'promoted') {
+		return null;
+	}
+	return {
+		affectedStableFileIdentities: disposition.affectedStableFileIdentities,
+		identity: candidate.identity,
+		presentationClass: disposition.presentationClass,
+		retryable,
 	};
 }
 function mergeRecords<T>(

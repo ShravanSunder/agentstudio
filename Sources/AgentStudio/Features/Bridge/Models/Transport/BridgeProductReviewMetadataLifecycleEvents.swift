@@ -233,25 +233,34 @@ struct BridgeProductReviewResetEvent: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case addedLineCount
+        case affectedFileCount
+        case affectedStableFileIdentities
         case comparisonOrigin
+        case deletedLineCount
         case eventKind
+        case newlyImportedCommitCount
+        case preDeliveryPresentationClass
         case reason
         case reviewedSubjectLabel
     }
 
     let identity: BridgeProductReviewMetadataIdentity
     let comparisonOrigin: BridgeReviewComparisonOrigin?
+    let refreshImpact: BridgeReviewRefreshImpact?
     let reason: Reason
     let reviewedSubjectLabel: String?
 
     init(
         identity: BridgeProductReviewMetadataIdentity,
         comparisonOrigin: BridgeReviewComparisonOrigin? = nil,
+        refreshImpact: BridgeReviewRefreshImpact? = nil,
         reason: Reason,
         reviewedSubjectLabel: String? = nil
     ) {
         self.identity = identity
         self.comparisonOrigin = comparisonOrigin
+        self.refreshImpact = refreshImpact
         self.reason = reason
         self.reviewedSubjectLabel = reviewedSubjectLabel
     }
@@ -274,6 +283,10 @@ struct BridgeProductReviewResetEvent: Codable, Equatable, Sendable {
             BridgeReviewComparisonOrigin.self,
             forKey: .comparisonOrigin
         )
+        self.refreshImpact =
+            try BridgeReviewRefreshImpactWireContract.containsAny(in: decoder)
+            ? BridgeReviewRefreshImpactWireContract.decodeRequired(from: decoder)
+            : nil
         self.reason = try container.decode(Reason.self, forKey: .reason)
         self.reviewedSubjectLabel = try container.decodeIfPresent(String.self, forKey: .reviewedSubjectLabel)
     }
@@ -283,6 +296,9 @@ struct BridgeProductReviewResetEvent: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(comparisonOrigin, forKey: .comparisonOrigin)
         try container.encode("review.reset", forKey: .eventKind)
+        if let refreshImpact {
+            try BridgeReviewRefreshImpactWireContract.encode(refreshImpact, to: encoder)
+        }
         try container.encode(reason, forKey: .reason)
         try container.encodeIfPresent(reviewedSubjectLabel, forKey: .reviewedSubjectLabel)
     }

@@ -355,7 +355,6 @@ export const bridgeProductReviewMetadataSnapshotEventSchema = z
 		...bridgeProductReviewMetadataIdentityShape,
 		...bridgeProductReviewMetadataPayloadShape,
 		...bridgeProductReviewPublicationCommitShape,
-		...bridgeProductReviewRefreshImpactShape,
 		baseEndpoint: bridgeProductReviewSourceEndpointSchema,
 		comparisonOrigin: bridgeProductReviewComparisonOriginSchema.optional(),
 		eventKind: z.literal('review.snapshot'),
@@ -369,7 +368,6 @@ export const bridgeProductReviewMetadataSnapshotEventSchema = z
 	.superRefine((event, context): void => {
 		validateReviewMetadataWindowPayload(event, context);
 		validateReviewPublicationCommit(event, context);
-		validateReviewRefreshImpact(event, context);
 		if (event.itemWindow.startIndex !== 0) {
 			context.addIssue({
 				code: 'custom',
@@ -391,7 +389,6 @@ export const bridgeProductReviewMetadataWindowEventSchema = z
 		...bridgeProductReviewMetadataIdentityShape,
 		...bridgeProductReviewMetadataPayloadShape,
 		...bridgeProductReviewPublicationCommitShape,
-		...bridgeProductReviewRefreshImpactShape,
 		eventKind: z.literal('review.window'),
 		itemWindow: bridgeProductReviewItemWindowSchema,
 		treeWindow: bridgeProductReviewTreeWindowSchema,
@@ -400,7 +397,6 @@ export const bridgeProductReviewMetadataWindowEventSchema = z
 	.superRefine((event, context): void => {
 		validateReviewMetadataWindowPayload(event, context);
 		validateReviewPublicationCommit(event, context);
-		validateReviewRefreshImpact(event, context);
 	});
 
 export const bridgeProductReviewMetadataDeltaEventSchema = z
@@ -437,7 +433,7 @@ export const bridgeProductReviewMetadataDeltaEventSchema = z
 				path: ['reviewComparison'],
 			});
 		}
-		validateReviewRefreshImpact(event, context, true);
+		validateReviewRefreshImpact(event, context, 'required');
 	});
 
 export const bridgeProductReviewMetadataInvalidatedEventSchema = z
@@ -454,12 +450,16 @@ export const bridgeProductReviewMetadataInvalidatedEventSchema = z
 export const bridgeProductReviewMetadataResetEventSchema = z
 	.object({
 		...bridgeProductReviewMetadataIdentityShape,
+		...bridgeProductReviewRefreshImpactShape,
 		comparisonOrigin: bridgeProductReviewComparisonOriginSchema.optional(),
 		eventKind: z.literal('review.reset'),
 		reason: z.enum(['sourceChanged', 'subscriptionReset', 'providerRestart', 'authorityChanged']),
 		reviewedSubjectLabel: bridgeProductSafeMessageSchema.optional(),
 	})
-	.strict();
+	.strict()
+	.superRefine((event, context): void => {
+		validateReviewRefreshImpact(event, context, 'optional');
+	});
 
 export const bridgeProductReviewMetadataEventSchema = z
 	.discriminatedUnion('eventKind', [
@@ -534,11 +534,8 @@ function validateReviewRefreshImpact(
 		readonly treeWindow?: { readonly finalWindow: boolean } | undefined;
 	},
 	context: z.RefinementCtx,
-	isFinalBarrierOverride?: boolean,
+	requirement: 'optional' | 'required',
 ): void {
-	const isFinalBarrier =
-		isFinalBarrierOverride ??
-		(event.itemWindow?.finalWindow === true && event.treeWindow?.finalWindow === true);
 	const fields = [
 		event.preDeliveryPresentationClass,
 		event.newlyImportedCommitCount,
@@ -556,15 +553,15 @@ function validateReviewRefreshImpact(
 		});
 		return;
 	}
-	if (isFinalBarrier !== (presentCount === fields.length)) {
+	if (requirement === 'required' && presentCount !== fields.length) {
 		context.addIssue({
 			code: 'custom',
-			message: 'Review refresh impact must appear exactly on the final display barrier.',
+			message: 'Review refresh impact is required on the leading same-source event.',
 			path: ['preDeliveryPresentationClass'],
 		});
 		return;
 	}
-	if (!isFinalBarrier) return;
+	if (presentCount === 0) return;
 	const counts = [
 		event.newlyImportedCommitCount,
 		event.affectedFileCount,
@@ -589,6 +586,17 @@ function validateReviewRefreshImpact(
 			code: 'custom',
 			message: 'Unknown Review refresh counts require promoted unknown presentation.',
 			path: ['preDeliveryPresentationClass'],
+		});
+	}
+	if (
+		allCountsUnknown &&
+		event.affectedStableFileIdentities !== undefined &&
+		event.affectedStableFileIdentities.length !== 0
+	) {
+		context.addIssue({
+			code: 'custom',
+			message: 'Unknown Review refresh affectedness must be represented symbolically.',
+			path: ['affectedStableFileIdentities'],
 		});
 	}
 }

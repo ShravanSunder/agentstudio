@@ -38,7 +38,11 @@ import {
 	BridgeCommWorkerRenderFulfillmentLifecycleDriver,
 	type BridgeCommWorkerRenderFulfillmentSurface,
 } from './bridge-comm-worker-render-fulfillment-lifecycle-driver.js';
-import { buildBridgeCommWorkerReviewCandidateReadyPublication } from './bridge-comm-worker-review-candidate-ready.js';
+import {
+	buildBridgeCommWorkerReviewCandidateReadyPublication,
+	buildBridgeCommWorkerReviewCandidateFailedPublication,
+	buildBridgeCommWorkerReviewCandidateStartedPublication,
+} from './bridge-comm-worker-review-candidate-ready.js';
 import {
 	bridgeWorkerComparisonTargetsContentOpen,
 	createBridgeWorkerComparisonTargetsQueryRunner,
@@ -564,6 +568,16 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			publishCandidateReady: (publication): void => {
 				port.postMessage(
 					buildBridgeCommWorkerReviewCandidateReadyPublication(publication, createSequence),
+				);
+			},
+			publishCandidateFailed: (publication): void => {
+				port.postMessage(
+					buildBridgeCommWorkerReviewCandidateFailedPublication(publication, createSequence),
+				);
+			},
+			publishCandidateStarted: (publication): void => {
+				port.postMessage(
+					buildBridgeCommWorkerReviewCandidateStartedPublication(publication, createSequence),
 				);
 			},
 			publishDisplayPatches: publishReviewDisplayPatches,

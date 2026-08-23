@@ -8,6 +8,7 @@ import {
 import type {
 	BridgeCommWorkerReviewCandidateReadyFacts,
 	BridgeCommWorkerReviewCandidateReadyPublication,
+	BridgeCommWorkerReviewCandidateStartedPublication,
 	BridgeCommWorkerReviewComparisonCommit,
 } from './bridge-comm-worker-review-publication-types.js';
 import type {
@@ -45,6 +46,9 @@ export function handleBridgeCommWorkerReviewSuccessorReExposureSettlement(props:
 	readonly latestProjectionRevision: number;
 	readonly publishCandidateReady:
 		| ((publication: BridgeCommWorkerReviewCandidateReadyPublication) => void)
+		| undefined;
+	readonly publishCandidateStarted:
+		| ((publication: BridgeCommWorkerReviewCandidateStartedPublication) => void)
 		| undefined;
 	readonly publishDisplayPatches:
 		| ((publication: {
@@ -130,6 +134,9 @@ export function reExposeBridgeCommWorkerReviewSuccessor(props: {
 	readonly publishCandidateReady:
 		| ((publication: BridgeCommWorkerReviewCandidateReadyPublication) => void)
 		| undefined;
+	readonly publishCandidateStarted:
+		| ((publication: BridgeCommWorkerReviewCandidateStartedPublication) => void)
+		| undefined;
 	readonly publishDisplayPatches:
 		| ((publication: {
 				readonly comparisonCommit?: BridgeCommWorkerReviewComparisonCommit | undefined;
@@ -181,6 +188,9 @@ export function publishBridgeCommWorkerActiveReviewProjection(props: {
 	readonly publishCandidateReady:
 		| ((publication: BridgeCommWorkerReviewCandidateReadyPublication) => void)
 		| undefined;
+	readonly publishCandidateStarted:
+		| ((publication: BridgeCommWorkerReviewCandidateStartedPublication) => void)
+		| undefined;
 	readonly publishDisplayPatches:
 		| ((publication: {
 				readonly comparisonCommit?: BridgeCommWorkerReviewComparisonCommit | undefined;
@@ -199,6 +209,11 @@ export function publishBridgeCommWorkerActiveReviewProjection(props: {
 	if (comparisonCommit.status !== 'committed') {
 		throw new Error('Bridge Review successor re-exposure requires a committed comparison.');
 	}
+	props.publishCandidateStarted?.({
+		disposition: props.readyFacts.disposition,
+		identity: props.readyFacts.identity,
+		workerDerivationEpoch: props.workerDerivationEpoch,
+	});
 	props.publishDisplayPatches?.({
 		comparisonCommit: {
 			presentationRevision: comparisonCommit.presentationRevision,

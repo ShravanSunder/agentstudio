@@ -392,18 +392,30 @@ struct BridgePaneProductReviewMetadataSourceTests {
             revision: initialPackage.revision + 1,
             itemsById: [:]
         )
+        let impact = BridgeReviewRefreshImpact.exact(
+            newlyImportedCommitCount: 10,
+            affectedFileCount: 1,
+            addedLineCount: 4,
+            deletedLineCount: 3,
+            affectedStableFileIdentities: ["review-item-00000"]
+        )
         _ = try await deliverReviewPackage(
             replacementPackage,
+            refreshImpact: impact,
             through: source,
             productAdmission: productAdmission.context
         )
         let events = await collector.events
 
         #expect(events.count == 3)
-        guard case .reset = events[0], case .sourceAccepted = events[1], case .snapshot = events[2] else {
+        guard case .reset(let reset) = events[0],
+            case .sourceAccepted = events[1],
+            case .snapshot = events[2]
+        else {
             Issue.record("Expected reset, sourceAccepted, and empty snapshot for an unsafe delta")
             return
         }
+        #expect(reset.refreshImpact == impact)
         #expect(!events.contains { if case .delta = $0 { true } else { false } })
     }
 

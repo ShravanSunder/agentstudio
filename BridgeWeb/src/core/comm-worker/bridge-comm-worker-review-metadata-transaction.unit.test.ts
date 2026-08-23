@@ -59,14 +59,61 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		expect(JSON.stringify(pendingPublications)).not.toContain('source-candidate');
 	});
 
-	test('swaps complete B once with one reset application and one complete display replacement', () => {
+	test('publishes one exact retryable failure only for the current started candidate', () => {
+		const harness = makeApplicatorHarness();
+		harness.applicator.apply(
+			reviewSnapshot(activeIdentity, 'item-a', 0, 1, true),
+			workerDerivationEpoch,
+		);
+		harness.publicationOrder.splice(0);
+		harness.candidateFailedPublications.splice(0);
+		harness.applicator.apply(
+			reviewReset(candidateIdentity, {
+				addedLineCount: 0,
+				affectedFileCount: 1,
+				affectedStableFileIdentities: ['stable-item-b'],
+				deletedLineCount: 0,
+				newlyImportedCommitCount: 10,
+				preDeliveryPresentationClass: { kind: 'promoted', reason: 'commits' },
+			}),
+			workerDerivationEpoch,
+		);
+
+		const disposition = harness.applicator.handleMetadataFailure(workerDerivationEpoch);
+
+		expect(disposition).toBe('retainedActive');
+		expect(harness.publicationOrder).toEqual(['started', 'failed']);
+		expect(harness.candidateFailedPublications).toEqual([
+			expect.objectContaining({
+				identity: expect.objectContaining({ publicationId: candidateIdentity.publicationId }),
+				retryable: true,
+			}),
+		]);
+		expect(harness.applicator.handleMetadataFailure(workerDerivationEpoch)).toBe('retainedActive');
+		expect(harness.candidateFailedPublications).toHaveLength(1);
+	});
+
+	test('publishes one classified start before reset multi-window candidate geometry and readiness', () => {
 		// Arrange
 		const harness = makeApplicatorHarness();
 		harness.applicator.apply(
 			reviewSnapshot(activeIdentity, 'item-a', 0, 1, true),
 			workerDerivationEpoch,
 		);
-		harness.applicator.apply(reviewReset(candidateIdentity), workerDerivationEpoch);
+		harness.publicationOrder.splice(0);
+		harness.candidateStartedPublications.splice(0);
+		harness.applicator.apply(
+			reviewReset(candidateIdentity, {
+				addedLineCount: 1_000,
+				affectedFileCount: 1,
+				affectedStableFileIdentities: ['stable-item-b'],
+				deletedLineCount: 0,
+				newlyImportedCommitCount: 0,
+				preDeliveryPresentationClass: { kind: 'promoted', reason: 'lines' },
+			}),
+			workerDerivationEpoch,
+		);
+		expect(harness.publicationOrder).toEqual(['started']);
 		harness.applicator.apply(reviewSourceAccepted(candidateIdentity), workerDerivationEpoch);
 		harness.applicator.apply(
 			reviewSnapshot(candidateIdentity, 'item-b-1', 0, 2, false),
@@ -94,6 +141,17 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 			JSON.stringify(publication).includes('source-candidate'),
 		);
 		expect(candidatePublications).toHaveLength(1);
+		expect(harness.publicationOrder).toEqual(['started', 'display', 'ready']);
+		expect(harness.candidateStartedPublications).toEqual([
+			expect.objectContaining({
+				disposition: {
+					affectedStableFileIdentities: ['stable-item-b'],
+					kind: 'sameSource',
+					presentationClass: { kind: 'promoted', reason: 'lines' },
+				},
+				identity: expect.objectContaining({ publicationId: candidateIdentity.publicationId }),
+			}),
+		]);
 		expect(candidatePublications[0]?.patches).toEqual([
 			expect.objectContaining({ operation: 'upsert', slice: 'reviewSource' }),
 			expect.objectContaining({ operation: 'replace', slice: 'reviewComparison' }),
@@ -266,6 +324,14 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		expect(harness.applications).toHaveLength(2);
 		expect(harness.applications.map(({ reset }) => reset)).toEqual([true, false]);
 		expect(harness.applications.map(({ sourceEpoch }) => sourceEpoch)).toEqual([1, 1]);
+		expect(harness.candidateStartedPublications.at(-1)?.disposition).toEqual({
+			affectedStableFileIdentities: [],
+			kind: 'sameSource',
+			presentationClass: { kind: 'ordinary' },
+		});
+		expect(harness.candidateReadyPublications.at(-1)?.disposition).toEqual(
+			harness.candidateStartedPublications.at(-1)?.disposition,
+		);
 		expect(harness.applications.at(-1)?.source.contentItems.map(({ itemId }) => itemId)).toEqual([
 			'item-revision-delta-current',
 		]);
@@ -815,6 +881,15 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 			.filter((message) => message.kind === 'reviewDisplayPatch');
 		expect(JSON.stringify(failureDisplayMessages.at(-1))).toContain('source-active');
 		expect(JSON.stringify(failureDisplayMessages)).not.toContain('source-candidate');
+		expect(
+			postedMessages
+				.map(({ message }) => message)
+				.filter(
+					(message) =>
+						message.kind === 'reviewCandidateFailed' &&
+						message.publicationId === candidateIdentity.publicationId,
+				),
+		).toHaveLength(1);
 
 		rejectCandidateDisplay = false;
 		replayEvents.push(reviewSourceAccepted(candidateIdentity));

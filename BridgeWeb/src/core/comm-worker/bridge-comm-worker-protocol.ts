@@ -15,6 +15,8 @@ import {
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewProjectionUpdateCommandSchema,
 	bridgeWorkerReviewCandidateReadyEventSchema,
+	bridgeWorkerReviewCandidateFailedEventSchema,
+	bridgeWorkerReviewCandidateStartedEventSchema,
 	bridgeWorkerReviewPublicationInstallAdmissionEventSchema,
 	bridgeWorkerReviewPublicationInstallAdmitCommandSchema,
 	bridgeWorkerReviewPublicationInstalledCommandSchema,
@@ -38,6 +40,9 @@ import {
 	type BridgeWorkerReviewInvalidateCommand,
 	type BridgeWorkerReviewProjectionUpdateCommand,
 	type BridgeWorkerReviewCandidateReadyEvent,
+	type BridgeWorkerReviewCandidateFailedEvent,
+	type BridgeWorkerReviewCandidateStartedEvent,
+	type BridgeWorkerReviewCandidateStartDisposition,
 	type BridgeWorkerReviewPublicationInstallAdmissionEvent,
 	type BridgeWorkerReviewPublicationInstallAdmitCommand,
 	type BridgeWorkerReviewPublicationInstalledCommand,
@@ -142,15 +147,21 @@ export interface EncodeBridgeWorkerReviewPublicationInstalledCommandProps
 		> {}
 
 export interface BuildBridgeWorkerReviewCandidateReadyEventProps {
-	readonly affectedStableFileIdentities: readonly string[];
 	readonly epoch: number;
 	readonly packageId: string;
-	readonly preDeliveryPresentationClass: BridgeWorkerReviewCandidateReadyEvent['preDeliveryPresentationClass'];
 	readonly publicationId: string;
 	readonly reviewGeneration: number;
 	readonly revision: number;
 	readonly sequence: number;
 	readonly sourceIdentity: string;
+}
+
+export interface BuildBridgeWorkerReviewCandidateStartedEventProps extends BuildBridgeWorkerReviewCandidateReadyEventProps {
+	readonly disposition: BridgeWorkerReviewCandidateStartDisposition;
+}
+
+export interface BuildBridgeWorkerReviewCandidateFailedEventProps extends BuildBridgeWorkerReviewCandidateReadyEventProps {
+	readonly retryable: boolean;
 }
 
 export interface BuildBridgeWorkerReviewPublicationInstallAdmissionEventProps {
@@ -358,8 +369,46 @@ export function buildBridgeWorkerReviewCandidateReadyEvent(
 		sourceIdentity: props.sourceIdentity,
 		reviewGeneration: props.reviewGeneration,
 		revision: props.revision,
-		preDeliveryPresentationClass: props.preDeliveryPresentationClass,
-		affectedStableFileIdentities: props.affectedStableFileIdentities,
+	});
+}
+
+export function buildBridgeWorkerReviewCandidateStartedEvent(
+	props: BuildBridgeWorkerReviewCandidateStartedEventProps,
+): BridgeWorkerReviewCandidateStartedEvent {
+	return bridgeWorkerReviewCandidateStartedEventSchema.parse({
+		direction: 'serverWorkerToMain',
+		disposition: props.disposition,
+		epoch: props.epoch,
+		kind: 'reviewCandidateStarted',
+		packageId: props.packageId,
+		publicationId: props.publicationId,
+		reviewGeneration: props.reviewGeneration,
+		revision: props.revision,
+		sequence: props.sequence,
+		sourceIdentity: props.sourceIdentity,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+	});
+}
+
+export function buildBridgeWorkerReviewCandidateFailedEvent(
+	props: BuildBridgeWorkerReviewCandidateFailedEventProps,
+): BridgeWorkerReviewCandidateFailedEvent {
+	return bridgeWorkerReviewCandidateFailedEventSchema.parse({
+		direction: 'serverWorkerToMain',
+		epoch: props.epoch,
+		kind: 'reviewCandidateFailed',
+		packageId: props.packageId,
+		publicationId: props.publicationId,
+		retryable: props.retryable,
+		reviewGeneration: props.reviewGeneration,
+		revision: props.revision,
+		sequence: props.sequence,
+		sourceIdentity: props.sourceIdentity,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 	});
 }
 

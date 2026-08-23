@@ -33,6 +33,42 @@ export const bridgeWorkerReviewPublicationIdentitySchema = z
 	})
 	.strict();
 
+const bridgeWorkerReviewAffectedStableFileIdentitiesSchema = z
+	.array(bridgeProductIdentifierSchema)
+	.max(BRIDGE_WORKER_REVIEW_AFFECTED_STABLE_FILE_IDENTITY_LIMIT)
+	.readonly()
+	.superRefine((identities, context): void => {
+		if (new Set(identities).size === identities.length) return;
+		context.addIssue({
+			code: 'custom',
+			message: 'Affected stable file identities must be unique.',
+		});
+	});
+
+export const bridgeWorkerReviewCandidateStartDispositionSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('replacement') }).strict(),
+	z
+		.object({
+			affectedStableFileIdentities: bridgeWorkerReviewAffectedStableFileIdentitiesSchema,
+			kind: z.literal('sameSource'),
+			presentationClass: bridgeWorkerReviewPreDeliveryPresentationClassSchema,
+		})
+		.strict()
+		.superRefine((disposition, context): void => {
+			if (
+				disposition.presentationClass.kind === 'promoted' &&
+				disposition.presentationClass.reason === 'unknown' &&
+				disposition.affectedStableFileIdentities.length !== 0
+			) {
+				context.addIssue({
+					code: 'custom',
+					message: 'Unknown Review affectedness must remain symbolic.',
+					path: ['affectedStableFileIdentities'],
+				});
+			}
+		}),
+]);
+
 export const bridgeWorkerReviewPublicationInstallAdmitCommandSchema =
 	bridgeWorkerMainToServerBaseSchema
 		.extend({
@@ -65,24 +101,30 @@ export const bridgeWorkerReviewCandidateReadyEventSchema = bridgeWorkerServerToM
 		sourceIdentity: bridgeProductIdentifierSchema,
 		reviewGeneration: bridgeProductNonnegativeSequenceSchema,
 		revision: bridgeProductNonnegativeSequenceSchema,
-		preDeliveryPresentationClass: bridgeWorkerReviewPreDeliveryPresentationClassSchema,
-		affectedStableFileIdentities: z
-			.array(bridgeProductIdentifierSchema)
-			.max(BRIDGE_WORKER_REVIEW_AFFECTED_STABLE_FILE_IDENTITY_LIMIT)
-			.readonly(),
 	})
-	.strict()
-	.superRefine((event, context): void => {
-		if (
-			new Set(event.affectedStableFileIdentities).size !== event.affectedStableFileIdentities.length
-		) {
-			context.addIssue({
-				code: 'custom',
-				message: 'Affected stable file identities must be unique.',
-				path: ['affectedStableFileIdentities'],
-			});
-		}
-	});
+	.strict();
+
+export const bridgeWorkerReviewCandidateStartedEventSchema = bridgeWorkerServerToMainBaseSchema
+	.extend({
+		...bridgeWorkerReviewPublicationIdentitySchema.shape,
+		disposition: bridgeWorkerReviewCandidateStartDispositionSchema,
+		epoch: bridgeWorkerEpochSchema,
+		kind: z.literal('reviewCandidateStarted'),
+		sequence: bridgeWorkerSequenceSchema,
+		surface: z.literal('review'),
+	})
+	.strict();
+
+export const bridgeWorkerReviewCandidateFailedEventSchema = bridgeWorkerServerToMainBaseSchema
+	.extend({
+		...bridgeWorkerReviewPublicationIdentitySchema.shape,
+		epoch: bridgeWorkerEpochSchema,
+		kind: z.literal('reviewCandidateFailed'),
+		retryable: z.boolean(),
+		sequence: bridgeWorkerSequenceSchema,
+		surface: z.literal('review'),
+	})
+	.strict();
 
 export const bridgeWorkerReviewPublicationInstallAdmissionEventSchema =
 	bridgeWorkerServerToMainBaseSchema
@@ -97,6 +139,9 @@ export const bridgeWorkerReviewPublicationInstallAdmissionEventSchema =
 export type BridgeWorkerReviewPreDeliveryPresentationClass = z.infer<
 	typeof bridgeWorkerReviewPreDeliveryPresentationClassSchema
 >;
+export type BridgeWorkerReviewCandidateStartDisposition = z.infer<
+	typeof bridgeWorkerReviewCandidateStartDispositionSchema
+>;
 export type BridgeWorkerReviewPublicationIdentity = z.infer<
 	typeof bridgeWorkerReviewPublicationIdentitySchema
 >;
@@ -108,6 +153,12 @@ export type BridgeWorkerReviewPublicationInstalledCommand = z.infer<
 >;
 export type BridgeWorkerReviewCandidateReadyEvent = z.infer<
 	typeof bridgeWorkerReviewCandidateReadyEventSchema
+>;
+export type BridgeWorkerReviewCandidateStartedEvent = z.infer<
+	typeof bridgeWorkerReviewCandidateStartedEventSchema
+>;
+export type BridgeWorkerReviewCandidateFailedEvent = z.infer<
+	typeof bridgeWorkerReviewCandidateFailedEventSchema
 >;
 export type BridgeWorkerReviewPublicationInstallAdmissionEvent = z.infer<
 	typeof bridgeWorkerReviewPublicationInstallAdmissionEventSchema
