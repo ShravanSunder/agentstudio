@@ -39,6 +39,7 @@ function hasPngChunk(bytes: Buffer, expectedChunkType: string): boolean {
 async function verifyCaptureAssets(): Promise<void> {
   const manifestUrl = new URL("../src/content/website-capture-manifest.ts", import.meta.url);
   let responsiveAssetCount = 0;
+  let viewerAssetCount = 0;
 
   await Promise.all(
     websiteCaptureSuite.captures.map(async (capture): Promise<void> => {
@@ -105,11 +106,43 @@ async function verifyCaptureAssets(): Promise<void> {
         );
         responsiveAssetCount += 1;
       }
+
+      if ("viewerAssetPath" in capture && "viewerWebsiteAssetSha256" in capture) {
+        const viewerBytes = await readFile(new URL(capture.viewerAssetPath, manifestUrl));
+        const viewerMetadata = await sharp(viewerBytes).metadata();
+        const viewerPixelSize =
+          "viewerPixelSize" in capture ? capture.viewerPixelSize : websiteCaptureSuite.pixelSize;
+        const viewerHasCanonicalSrgbChunk =
+          hasPngChunk(viewerBytes, "sRGB") && !hasPngChunk(viewerBytes, "iCCP");
+        const viewerHasCanonicalSrgbIcc =
+          hasPngChunk(viewerBytes, "iCCP") &&
+          viewerMetadata.icc !== undefined &&
+          sha256(viewerMetadata.icc) === CANONICAL_SRGB_ICC_SHA256;
+
+        assertCapture(
+          viewerBytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE),
+          `${capture.id} viewer: asset is not a PNG`,
+        );
+        assertCapture(
+          viewerBytes.readUInt32BE(16) === viewerPixelSize[0] &&
+            viewerBytes.readUInt32BE(20) === viewerPixelSize[1],
+          `${capture.id} viewer: dimensions must be ${viewerPixelSize[0]}×${viewerPixelSize[1]}`,
+        );
+        assertCapture(
+          viewerHasCanonicalSrgbChunk || viewerHasCanonicalSrgbIcc,
+          `${capture.id} viewer: canonical sRGB profile identity is missing`,
+        );
+        assertCapture(
+          sha256(viewerBytes) === capture.viewerWebsiteAssetSha256,
+          `${capture.id} viewer: SHA-256 does not match the checked-in projection`,
+        );
+        viewerAssetCount += 1;
+      }
     }),
   );
 
   console.log(
-    `Verified ${websiteCaptureSuite.captures.length} website capture masters and ${responsiveAssetCount} responsive crops.`,
+    `Verified ${websiteCaptureSuite.captures.length} website capture masters, ${responsiveAssetCount} responsive crops, and ${viewerAssetCount} expanded-view masters.`,
   );
 }
 

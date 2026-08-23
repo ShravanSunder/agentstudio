@@ -169,8 +169,8 @@ async function auditCapturePixels(): Promise<void> {
   const manifestUrl = new URL("../src/content/website-capture-manifest.ts", import.meta.url);
   const failures = (
     await Promise.all(
-      websiteCaptureSuite.captures.map(async (capture) =>
-        capturePixelFailures({
+      websiteCaptureSuite.captures.map(async (capture) => {
+        const desktopFailures = await capturePixelFailures({
           captureId: capture.id,
           assetUrl: new URL(capture.assetPath, manifestUrl),
           expectedPixelSize:
@@ -179,8 +179,22 @@ async function auditCapturePixels(): Promise<void> {
               : websiteCaptureSuite.pixelSize,
           projectionPolicy:
             "projectionPolicy" in capture ? capture.projectionPolicy : "full-native-window",
-        }),
-      ),
+        });
+        const viewerFailures =
+          "viewerAssetPath" in capture
+            ? await capturePixelFailures({
+                captureId: `${capture.id} viewer`,
+                assetUrl: new URL(capture.viewerAssetPath, manifestUrl),
+                expectedPixelSize:
+                  "viewerPixelSize" in capture
+                    ? capture.viewerPixelSize
+                    : websiteCaptureSuite.pixelSize,
+                projectionPolicy: "full-native-window",
+              })
+            : [];
+
+        return [...desktopFailures, ...viewerFailures];
+      }),
     )
   ).flat();
 
@@ -190,7 +204,7 @@ async function auditCapturePixels(): Promise<void> {
   }
 
   console.log(
-    `Audited ${websiteCaptureSuite.captures.length} capture assets for canonical sRGB and their declared full-window or purpose-crop projection policy.`,
+    `Audited ${websiteCaptureSuite.captures.length} capture records and their expanded-view masters for canonical sRGB and declared projection policy.`,
   );
 }
 

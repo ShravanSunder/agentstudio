@@ -21,6 +21,7 @@ export interface WebsiteCaptureRecord {
   readonly id: WebsiteCaptureId;
   readonly assetPath: string;
   readonly phoneAssetPath?: string;
+  readonly viewerAssetPath?: string;
   readonly alternativeText: string;
   readonly source: {
     readonly productRevision: string;
@@ -36,6 +37,9 @@ export interface WebsiteCaptureRecord {
   readonly projectionPolicy?: "full-native-window" | "purpose-crop";
   readonly phoneWebsiteAssetSha256?: string;
   readonly phonePixelSize?: readonly [width: number, height: number];
+  readonly viewerSourceSha256?: string;
+  readonly viewerWebsiteAssetSha256?: string;
+  readonly viewerPixelSize?: readonly [width: number, height: number];
   readonly phoneFocusRegion?: NormalizedFocusRegion;
   readonly focusRegion: NormalizedFocusRegion | null;
   readonly focusRegions?: readonly NormalizedFocusRegion[];
@@ -83,6 +87,7 @@ export const websiteCaptureSuite = {
       id: "parallel-work",
       assetPath: "../assets/captures/parallel-agents.png",
       phoneAssetPath: "../assets/captures/parallel-work-phone.png",
+      viewerAssetPath: "../assets/captures/parallel-agents.png",
       alternativeText:
         "Agent Studio All Panes showing active Codex and Claude Code sessions with repository, worktree, branch, and activity context.",
       source: {
@@ -96,6 +101,9 @@ export const websiteCaptureSuite = {
       normalizedMasterSha256: "380fcc7c600cae71f4fa112b33e4f7143309f26b2980f61c9ca02eeb5c1f42e0",
       websiteAssetSha256: "380fcc7c600cae71f4fa112b33e4f7143309f26b2980f61c9ca02eeb5c1f42e0",
       phoneWebsiteAssetSha256: "19013a7de2becb288fe308770bfc360f65c483495db04d94671f685aed056cf2",
+      viewerSourceSha256: "c50730423591eb9913f99c68d77c1d385e1b7d8d20054e45266d465f1850e99d",
+      viewerWebsiteAssetSha256: "380fcc7c600cae71f4fa112b33e4f7143309f26b2980f61c9ca02eeb5c1f42e0",
+      viewerPixelSize: [2560, 1600],
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,
@@ -105,6 +113,7 @@ export const websiteCaptureSuite = {
       id: "watch-folder",
       assetPath: "../assets/captures/watch-folder.png",
       phoneAssetPath: "../assets/captures/watch-folder-phone.png",
+      viewerAssetPath: "../assets/captures/watch-folder.png",
       alternativeText:
         "Agent Studio welcome screen explaining Watch Folder discovery beside an example repository and worktree map.",
       source: {
@@ -118,6 +127,9 @@ export const websiteCaptureSuite = {
       normalizedMasterSha256: "41c3451448cb7ea3470b5aa500530d2c0dff814ac6cd863281364be416aa5bc1",
       websiteAssetSha256: "41c3451448cb7ea3470b5aa500530d2c0dff814ac6cd863281364be416aa5bc1",
       phoneWebsiteAssetSha256: "8fab3ffc081d1a1085ef40b69284fac177c09a11408406eb9b63bfea551c678e",
+      viewerSourceSha256: "98e937b791dcf03b81cb1b0b1aaa14c38332b0714f3f0b8a6ff7044c6dcb7d0b",
+      viewerWebsiteAssetSha256: "41c3451448cb7ea3470b5aa500530d2c0dff814ac6cd863281364be416aa5bc1",
+      viewerPixelSize: [2560, 1600],
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,
@@ -127,6 +139,7 @@ export const websiteCaptureSuite = {
       id: "files",
       assetPath: "../assets/captures/files.png",
       phoneAssetPath: "../assets/captures/files-phone.png",
+      viewerAssetPath: "../assets/captures/files.png",
       alternativeText:
         "Agent Studio Files showing a source file beside its repository tree, with Review available as the adjacent tab and the global sidebar hidden.",
       source: {
@@ -140,6 +153,9 @@ export const websiteCaptureSuite = {
       normalizedMasterSha256: "89def9d7bb825767fadbb2a207da6b141c940a6e1457c958a65bb8ac1a678c8b",
       websiteAssetSha256: "89def9d7bb825767fadbb2a207da6b141c940a6e1457c958a65bb8ac1a678c8b",
       phoneWebsiteAssetSha256: "f6406f4d6adf0fba141612a1456508f27b47cf3eed35c6116bb9df7880f6f7fd",
+      viewerSourceSha256: "816a4ee88c399398b5997517d952e14d42a9d2784b7c05ac2cfccbeb0c020626",
+      viewerWebsiteAssetSha256: "89def9d7bb825767fadbb2a207da6b141c940a6e1457c958a65bb8ac1a678c8b",
+      viewerPixelSize: [2560, 1600],
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,
@@ -149,6 +165,7 @@ export const websiteCaptureSuite = {
       id: "quick-find",
       assetPath: "../assets/captures/command-bar.png",
       phoneAssetPath: "../assets/captures/command-bar-phone.png",
+      viewerAssetPath: "../assets/captures/command-bar.png",
       alternativeText:
         "Agent Studio command bar showing recent repositories and command, pane, and repository scopes with the global sidebar hidden.",
       source: {
@@ -162,6 +179,9 @@ export const websiteCaptureSuite = {
       normalizedMasterSha256: "60f6c7613a4f6f21e0ed96fcdf7e65da2ed7ecba3679dfee7120986b0edc96bc",
       websiteAssetSha256: "60f6c7613a4f6f21e0ed96fcdf7e65da2ed7ecba3679dfee7120986b0edc96bc",
       phoneWebsiteAssetSha256: "0ac22968f4024be0483cf6dac29ea4c6044090ad3841f53bce186d15f69a7344",
+      viewerSourceSha256: "9e82a1640b864b092ed762458ab426a2f47718a4620f256b015bb8fa7acd39c1",
+      viewerWebsiteAssetSha256: "60f6c7613a4f6f21e0ed96fcdf7e65da2ed7ecba3679dfee7120986b0edc96bc",
+      viewerPixelSize: [2560, 1600],
       focusRegion: null,
       focusRadiusPixels: 24,
       focusRail: false,
@@ -171,6 +191,7 @@ export const websiteCaptureSuite = {
       id: "review",
       assetPath: "../assets/captures/review.png",
       phoneAssetPath: "../assets/captures/review-phone.png",
+      viewerAssetPath: "../assets/captures/review.png",
       alternativeText:
         "Agent Studio Review showing an AGENTS.md diff and its Changed Files tree, with the global sidebar hidden.",
       source: {
@@ -184,6 +205,9 @@ export const websiteCaptureSuite = {
       normalizedMasterSha256: "f7bc1eac1dfed42332ca1c556592fde6fc492c5cc10dd179c6906e53c03d670c",
       websiteAssetSha256: "f7bc1eac1dfed42332ca1c556592fde6fc492c5cc10dd179c6906e53c03d670c",
       phoneWebsiteAssetSha256: "64394dcaa32e87db5ccdee42c93726f986d7d019025c443fd89d2be9ef129f02",
+      viewerSourceSha256: "d47a107954f01c7caa1934599c1a0484e038835c5b0e6bce1ce36ec022910819",
+      viewerWebsiteAssetSha256: "f7bc1eac1dfed42332ca1c556592fde6fc492c5cc10dd179c6906e53c03d670c",
+      viewerPixelSize: [2560, 1600],
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,
@@ -193,6 +217,7 @@ export const websiteCaptureSuite = {
       id: "sidebar-navigation",
       assetPath: "../assets/captures/sidebar-navigation.png",
       phoneAssetPath: "../assets/captures/sidebar-navigation-phone.png",
+      viewerAssetPath: "../assets/captures/sidebar-navigation-master.png",
       alternativeText:
         "Agent Studio's sidebar filtered to two matching worktrees, with their branch names and dirty-change badges visible.",
       source: {
@@ -209,6 +234,9 @@ export const websiteCaptureSuite = {
       projectionPolicy: "purpose-crop",
       phoneWebsiteAssetSha256: "84b793c98eee2643f7c92a16281d969234d2d0ff599ee926a5619ebf4931a506",
       phonePixelSize: [707, 560],
+      viewerSourceSha256: "fefe7d4737fad5ba61477019619be4881ecbedcc90edf371442dc9b216f30e10",
+      viewerWebsiteAssetSha256: "f6dc9174d93f00ef84f590b0af979e9b16012f2eb1d125af80a754678e0b7a4d",
+      viewerPixelSize: [2560, 1600],
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,
@@ -218,6 +246,7 @@ export const websiteCaptureSuite = {
       id: "task-drawer-tools",
       assetPath: "../assets/captures/task-drawer-tools.png",
       phoneAssetPath: "../assets/captures/task-drawer-tools-phone.png",
+      viewerAssetPath: "../assets/captures/task-drawer-tools-master.png",
       alternativeText:
         "Agent Studio showing a Codex task with a related terminal in its attached drawer.",
       source: {
@@ -234,6 +263,9 @@ export const websiteCaptureSuite = {
       projectionPolicy: "purpose-crop",
       phoneWebsiteAssetSha256: "29516ee6928e4b5433297ec55702aa81c42703a5623a82a757a86fb3dd8b2243",
       phonePixelSize: [2300, 1450],
+      viewerSourceSha256: "99694298ec5fd3bc316c28762f4b5d978608a7e21f0411b536e3e0edf970d448",
+      viewerWebsiteAssetSha256: "4f6fbfdb31bc07654cef660fa69b84f3e68711634c63ea3c07eaa72468d6aad1",
+      viewerPixelSize: [2560, 1600],
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,
@@ -243,6 +275,7 @@ export const websiteCaptureSuite = {
       id: "git-context-files",
       assetPath: "../assets/captures/git-context-files.png",
       phoneAssetPath: "../assets/captures/git-context-files-phone.png",
+      viewerAssetPath: "../assets/captures/git-context-files.png",
       alternativeText:
         "Agent Studio showing a worktree and branch with PR 201 visible in its terminal.",
       source: {
@@ -257,6 +290,9 @@ export const websiteCaptureSuite = {
       websiteAssetSha256: "c938075251690789315fd5bc37949535a5f031aba8fb5584561b823d2aea51fd",
       phoneWebsiteAssetSha256: "29cd68fac9c03c0b8d07164fe0e24dddfac8e3241f45605d8f6f5ab946a2603e",
       phonePixelSize: [810, 570],
+      viewerSourceSha256: "c938075251690789315fd5bc37949535a5f031aba8fb5584561b823d2aea51fd",
+      viewerWebsiteAssetSha256: "c938075251690789315fd5bc37949535a5f031aba8fb5584561b823d2aea51fd",
+      viewerPixelSize: [2560, 1600],
       focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,
