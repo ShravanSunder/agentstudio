@@ -11,9 +11,9 @@ struct RepoExplorerBridgePresentationSnapshotTests {
     func worktreeRowsReadCachedBridgePresentation() throws {
         // Arrange
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let adapterSource = try String(
+        let workerSource = try String(
             contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionAdapter.swift"
+                path: "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerProjectionWorker.swift"
             ),
             encoding: .utf8
         )
@@ -32,12 +32,11 @@ struct RepoExplorerBridgePresentationSnapshotTests {
 
         // Act
         let rendersFromProjectionSnapshot =
-            adapterSource.contains("bridgeCommandResolution: result.bridgeCommandResolutionByWorktreeId[")
+            workerSource.contains("bridgeCommandResolutionByWorktreeId = try")
             && materializationSource.contains("inputs.bridgeCommandResolutionByWorktreeID[worktreeID]")
             && rowSource.contains("bridgeCommandResolution: worktree.bridgeCommandResolution")
         let resolvesThroughDispatcher =
-            adapterSource.contains(".bridgePaneCommandTarget(")
-            || materializationSource.contains(".bridgePaneCommandTarget(")
+            materializationSource.contains(".bridgePaneCommandTarget(")
             || rowSource.contains(".bridgePaneCommandTarget(")
 
         // Assert

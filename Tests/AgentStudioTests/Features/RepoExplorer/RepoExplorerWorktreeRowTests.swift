@@ -521,16 +521,12 @@ struct RepoExplorerWorktreeRowTests {
                 "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerMaterializationSnapshot.swift",
             encoding: .utf8
         )
-        let adapterSource = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionAdapter.swift",
-            encoding: .utf8
-        )
         let appEntityIconSource = try String(
             contentsOfFile: "Sources/AgentStudio/SharedComponents/AppEntityIcon.swift",
             encoding: .utf8
         )
         #expect(materializationSource.contains("leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset"))
-        #expect(adapterSource.contains("branchStatus: result.branchStatusByWorktreeId[worktreeId]"))
+        #expect(materializationSource.contains("branchStatus: inputs.branchStatusByWorktreeID[worktreeID]"))
         #expect(appEntityIconSource.contains("case .tabGroup:"))
         #expect(appEntityIconSource.contains("AppStyles.Shell.Sidebar.tabGroupIconColor"))
     }
