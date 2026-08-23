@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { page, userEvent } from 'vitest/browser';
+import { userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import './bridge-app.css';
@@ -304,6 +304,15 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			);
 			await import('../review-viewer/shell/review-viewer-shell.js');
 			await settleRenderedReviewFrame();
+			await expect
+				.poll(
+					() =>
+						harness.sentCommands.filter(
+							(command) => command.command === 'reviewPublicationInstalled',
+						).length,
+				)
+				.toBe(1);
+			await Promise.resolve();
 		});
 		await expect.element(rendered.getByTestId('review-viewer-shell')).toBeVisible();
 		const header = rendered.getByTestId('bridge-viewer-content-topbar').element();
@@ -353,21 +362,36 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		await expect
 			.element(rendered.getByTestId('bridge-viewer-content-status'))
 			.toHaveTextContent('Update ready');
-		await page.screenshot({ path: '../../../tmp/bridge-review-refresh-update-ready.png' });
 		const applyNow = rendered.getByRole('button', { name: 'Apply now' });
+		const installedReceiptsBeforeApply = harness.sentCommands.filter(
+			(command) => command.command === 'reviewPublicationInstalled',
+		).length;
 		await act(async (): Promise<void> => {
 			applyNow.element().focus();
 			await userEvent.keyboard('{Enter}');
+			await expect
+				.poll(
+					() =>
+						harness.sentCommands.filter(
+							(command) => command.command === 'reviewPublicationInstalled',
+						).length,
+				)
+				.toBe(installedReceiptsBeforeApply + 1);
+			await expect
+				.poll(() => rendered.getByTestId('bridge-viewer-content-status').query())
+				.toBeNull();
+			await settleRenderedReviewFrame();
 			await Promise.resolve();
 		});
-		await expect
-			.poll(() => rendered.getByTestId('bridge-viewer-content-status').query())
-			.toBeNull();
 		expect(header.getBoundingClientRect().height).toBe(headerHeight);
 		expect(document.querySelector('[data-testid="bridge-review-refresh-status-row"]')).toBeNull();
 		expect(
 			harness.sentCommands.some((command) => command.command === 'reviewPublicationInstallAdmit'),
 		).toBe(true);
+		await act(async (): Promise<void> => {
+			await rendered.unmount();
+			await Promise.resolve();
+		});
 	});
 
 	test('keeps active Review interactive while same-source comparison remains loading', async () => {
