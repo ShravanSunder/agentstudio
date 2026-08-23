@@ -71,8 +71,8 @@ struct RepoExplorerProjectionIntentTests {
         #expect(delta.structuralTarget == target)
     }
 
-    @Test("incompatible structural targets promote to latest full intent")
-    func incompatibleDeltaIntentsPromoteToFull() {
+    @Test("pending deltas retain latest structural target without MainActor fleet comparison")
+    func pendingDeltasRetainLatestStructuralTarget() {
         let pendingRequest = makeProjectionIntentRequest(generation: 2)
         let latestRequest = makeProjectionIntentRequest(generation: 3, query: "changed")
         let pending = RepoExplorerProjectionIntent.delta(
@@ -90,8 +90,18 @@ struct RepoExplorerProjectionIntentTests {
             )
         )
 
+        let combined = RepoExplorerProjectionIntent.combinePending(pending, latest)
+        guard case .delta(let delta) = combined else {
+            Issue.record("Expected structural validation to remain worker-owned")
+            return
+        }
+        #expect(delta.targetRequest == latestRequest)
+        #expect(delta.structuralTarget == RepoExplorerProjectionStructuralTarget(request: latestRequest))
         #expect(
-            RepoExplorerProjectionIntent.combinePending(pending, latest) == .full(latestRequest)
+            delta.changes == [
+                .repo(pendingRequest.snapshot.repos[0].id),
+                .repo(latestRequest.snapshot.repos[0].id),
+            ]
         )
     }
 }

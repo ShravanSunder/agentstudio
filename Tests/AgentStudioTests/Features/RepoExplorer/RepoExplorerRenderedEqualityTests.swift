@@ -42,77 +42,35 @@ struct RepoExplorerRenderedEqualityTests {
         }
     }
 
-    @Test("group disclosure presentation participates in rendered equality")
-    func groupDisclosurePresentationParticipatesInRenderedEquality() {
-        let group = RepoPresentationGroup(
-            id: "remote:askluna/disclosure-only",
-            repoTitle: "disclosure-only",
-            organizationName: "askluna",
-            repos: []
+    @Test("worker-native plan publishes group disclosure presentation changes")
+    func groupDisclosurePresentationParticipatesInNativePlan() async throws {
+        let fixture = PaneEqualityFixture()
+        let adapter = RepoExplorerProjectionAdapter()
+        defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
+        let initialRequest = fixture.request(
+            generation: 1,
+            paneFacts: fixture.initialPaneFacts
         )
-        let projection = RepoExplorerSidebarProjection.ready(
-            RepoExplorerSidebarContent(
-                sections: [
-                    RepoExplorerSidebarSection(
-                        kind: .repositories,
-                        resolvedGroups: [group],
-                        loadingRepos: []
-                    )
-                ],
-                resolvedGroups: [group],
-                loadingRepos: [],
-                emptyState: .content
-            )
-        )
-        let snapshot = RepoExplorerSnapshot(
-            repos: [],
-            repoEnrichmentByRepoId: [:],
-            groupingMode: .repo,
-            query: ""
-        )
-        func result(collapsedGroupIDs: Set<String>) -> RepoExplorerProjectionResult {
-            let rowIndex = RepoExplorerRowIndex(
-                projection: projection,
-                collapsedGroupIds: collapsedGroupIDs,
-                isFiltering: false
-            )
-            return RepoExplorerProjectionResult(
-                generation: collapsedGroupIDs.isEmpty ? 1 : 2,
-                snapshot: snapshot,
-                collapsedGroupIds: collapsedGroupIDs,
-                isFiltering: false,
-                trigger: .dataRefresh,
-                projection: projection,
-                rowIndex: rowIndex,
-                materializationSnapshot: RepoExplorerMaterializationSnapshot.build(
-                    rowIndex: rowIndex,
-                    inputs: RepoExplorerMaterializationInputs(
-                        snapshot: snapshot,
-                        projection: projection,
-                        branchStatusByWorktreeID: [:],
-                        branchNameByWorktreeID: [:],
-                        bridgeCommandResolutionByWorktreeID: [:],
-                        paneRowFactsByPaneID: [:]
-                    )
-                ),
-                workerDuration: .zero,
-                projectionDuration: .zero,
-                rowIndexDuration: .zero,
-                branchStatusByWorktreeId: [:],
-                branchNameByWorktreeId: [:],
-                bridgeCommandResolutionByWorktreeId: [:],
-                paneRowFactsByPaneId: [:],
-                tabGroupFactsByTabId: [:],
-                semanticBaselineSequence: nil
-            )
-        }
 
-        #expect(
-            !RepoExplorerProjectionAdapter.hasEqualRenderedContent(
-                result(collapsedGroupIDs: []),
-                result(collapsedGroupIDs: [group.id])
-            )
+        adapter.admit(initialRequest)
+        let initial = try await publishedResult(generation: 1, from: adapter)
+        let groupID = try #require(
+            initial.result.rowIndex.entries.compactMap { entry -> String? in
+                guard case .resolvedGroupHeader(let group) = entry else { return nil }
+                return group.id
+            }.first
         )
+        let collapsedRequest = initialRequest.replacing(collapsedGroupIds: [groupID]).generated(
+            generation: 2,
+            trigger: .dataRefresh
+        )
+
+        adapter.admit(collapsedRequest)
+        let collapsed = try await publishedResult(generation: 2, from: adapter)
+
+        #expect(collapsed.materializedRevision == initial.materializedRevision + 1)
     }
 
     private func publishedResult(

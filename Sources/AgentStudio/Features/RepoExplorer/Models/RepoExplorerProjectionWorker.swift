@@ -230,7 +230,9 @@ actor RepoExplorerProjectionWorker {
         case .full(let fullWork):
             return try project(fullWork.targetRequest)
         case .delta(let delta):
-            guard var result = delta.context.semanticBaselineResult else {
+            guard var result = delta.context.semanticBaselineResult,
+                RepoExplorerProjectionStructuralTarget(result: result) == delta.structuralTarget
+            else {
                 return try project(delta.targetRequest)
             }
             let repositoryChanges = delta.changes.compactMap { change -> UUID? in

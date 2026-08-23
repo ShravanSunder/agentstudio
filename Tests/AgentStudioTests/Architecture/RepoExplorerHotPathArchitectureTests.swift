@@ -81,9 +81,8 @@ struct RepoExplorerHotPathArchitectureTests {
 
         #expect(!brokerSource.contains("SLICE-11-CUTOVER"))
         #expect(!brokerSource.contains("guard materializationHost == nil"))
-        #expect(
-            brokerSource.components(separatedBy: "return .immediateAccepted(result)").count == 2
-        )
+        #expect(!brokerSource.contains("return .immediateAccepted(result)"))
+        #expect(brokerSource.contains("return .equalCurrent(result)"))
         #expect(brokerSource.contains("let acknowledgedMaterializationBaseline,"))
     }
 
@@ -294,6 +293,44 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!source.contains("private var sidebarRowIndex: RepoExplorerRowIndex"))
         #expect(!source.contains("private func resolvedWorktreeContext("))
         #expect(!source.contains(".id(sidebarProjectionFingerprint)"))
+    }
+
+    @Test("Repo Explorer MainActor adapter performs only constant-time candidate currentness checks")
+    func repoExplorerAdapterDoesNotTraverseProjectionFleets() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let featureRoot = projectRoot.appending(
+            path: "Sources/AgentStudio/Features/RepoExplorer"
+        )
+        let adapterSource = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerProjectionAdapter.swift"),
+            encoding: .utf8
+        )
+        let brokerSource = try String(
+            contentsOf: featureRoot.appending(
+                path: "RepoExplorerProjectionAdapter+MaterializationBroker.swift"
+            ),
+            encoding: .utf8
+        )
+        let intentSource = try String(
+            contentsOf: featureRoot.appending(
+                path: "Models/RepoExplorerProjectionIntent.swift"
+            ),
+            encoding: .utf8
+        )
+        let mainActorCurrentnessSources = adapterSource + brokerSource
+
+        for forbidden in [
+            "request.snapshot ==",
+            "result.snapshot ==",
+            "hasEqualRenderedContent",
+            "renderedRows(in:",
+            "RepoExplorerProjectionStructuralTarget(result:",
+        ] {
+            #expect(!mainActorCurrentnessSources.contains(forbidden))
+        }
+        #expect(!intentSource.contains("pendingDelta.structuralTarget == latestDelta.structuralTarget"))
+        #expect(brokerSource.contains("case .equal = nativeUpdatePlan.kind"))
+        #expect(brokerSource.contains("return .equalCurrent(result)"))
     }
 
     @Test("projection adapter owns demand observation capture and deadlines")

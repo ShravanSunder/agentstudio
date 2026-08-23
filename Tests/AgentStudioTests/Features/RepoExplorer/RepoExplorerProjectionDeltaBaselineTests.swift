@@ -39,6 +39,38 @@ private final class RepoExplorerProjectionConditionWaiter {
 }
 
 extension RepoExplorerProjectionWorkerTests {
+    @Test("worker promotes a structural-target mismatch to a complete projection")
+    func structuralTargetMismatchPromotesOffMain() throws {
+        let baselineRequest = makeProjectionIntentRequest(generation: 1)
+        let targetRequest = makeProjectionIntentRequest(
+            generation: 2,
+            repositoryID: baselineRequest.snapshot.repos[0].id,
+            worktreeID: baselineRequest.snapshot.repos[0].worktrees[0].id,
+            query: "changed"
+        )
+        let baselineResult = try RepoExplorerProjectionWorker.project(baselineRequest)
+        let deltaWork = RepoExplorerDeltaProjectionWork(
+            targetRequest: targetRequest,
+            changes: [.repo(targetRequest.snapshot.repos[0].id)],
+            structuralTarget: RepoExplorerProjectionStructuralTarget(request: targetRequest),
+            context: RepoExplorerProjectionWorkContext(
+                demandEpoch: 1,
+                requestGeneration: targetRequest.generation,
+                semanticBaselineSequence: 1,
+                semanticBaselineResult: baselineResult,
+                acknowledgedBaseline: nil
+            )
+        )
+
+        let promoted = try RepoExplorerProjectionWorker.project(.delta(deltaWork))
+        let complete = try RepoExplorerProjectionWorker.project(targetRequest)
+
+        #expect(promoted.snapshot == complete.snapshot)
+        #expect(promoted.projection == complete.projection)
+        #expect(promoted.rowIndex == complete.rowIndex)
+        #expect(promoted.materializationSnapshot == complete.materializationSnapshot)
+    }
+
     @Test("scoped delta after equal suppression matches the latest full reference")
     @MainActor
     func scopedDeltaAfterEqualSuppressionMatchesLatestReference() async throws {

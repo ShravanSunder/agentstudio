@@ -15,6 +15,14 @@ struct RepoExplorerProjectionStructuralTarget: Equatable, Sendable {
         collapsedGroupIDs = request.collapsedGroupIds
         isFiltering = request.isFiltering
     }
+
+    init(result: RepoExplorerProjectionResult) {
+        groupingMode = result.snapshot.groupingMode
+        sortOrder = result.snapshot.sortOrder
+        query = result.snapshot.query
+        collapsedGroupIDs = result.collapsedGroupIds
+        isFiltering = result.isFiltering
+    }
 }
 
 struct RepoExplorerProjectionDeltaIntent: Equatable, Sendable {
@@ -38,8 +46,7 @@ enum RepoExplorerProjectionIntent: Equatable, Sendable {
 
     static func combinePending(_ pending: Self, _ latest: Self) -> Self {
         guard case .delta(let pendingDelta) = pending,
-            case .delta(let latestDelta) = latest,
-            pendingDelta.structuralTarget == latestDelta.structuralTarget
+            case .delta(let latestDelta) = latest
         else {
             return .full(latest.targetRequest)
         }
@@ -69,6 +76,7 @@ struct RepoExplorerFullProjectionWork: Equatable, Sendable {
 struct RepoExplorerDeltaProjectionWork: Equatable, Sendable {
     let targetRequest: RepoExplorerProjectionRequest
     let changes: Set<RepoExplorerScopedProjectionChange>
+    let structuralTarget: RepoExplorerProjectionStructuralTarget
     let context: RepoExplorerProjectionWorkContext
 }
 

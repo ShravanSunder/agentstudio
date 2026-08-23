@@ -24,16 +24,6 @@ struct RepoExplorerAcknowledgedBaselineIdentity: Equatable {
     }
 }
 
-extension RepoExplorerProjectionStructuralTarget {
-    init(result: RepoExplorerProjectionResult) {
-        groupingMode = result.snapshot.groupingMode
-        sortOrder = result.snapshot.sortOrder
-        query = result.snapshot.query
-        collapsedGroupIDs = result.collapsedGroupIds
-        isFiltering = result.isFiltering
-    }
-}
-
 extension RepoExplorerProjectionAdapter {
     func prepareProjectionWork(
         _ intent: RepoExplorerProjectionIntent
@@ -41,9 +31,7 @@ extension RepoExplorerProjectionAdapter {
         let request = intent.targetRequest
         guard !hasStopped,
             request.generation == projectionGeneration,
-            request.snapshot == cachedProjectionRequest?.snapshot,
-            request.collapsedGroupIds == cachedProjectionRequest?.collapsedGroupIds,
-            request.isFiltering == cachedProjectionRequest?.isFiltering
+            request.generation == cachedProjectionRequest?.generation
         else {
             return .rejected
         }
@@ -68,10 +56,7 @@ extension RepoExplorerProjectionAdapter {
                 .full(RepoExplorerFullProjectionWork(targetRequest: request, context: context))
             )
         case .delta(let deltaIntent):
-            guard let semanticBaselineResult,
-                RepoExplorerProjectionStructuralTarget(result: semanticBaselineResult)
-                    == deltaIntent.structuralTarget
-            else {
+            guard semanticBaselineResult != nil else {
                 return .prepared(
                     .full(RepoExplorerFullProjectionWork(targetRequest: request, context: context))
                 )
@@ -81,6 +66,7 @@ extension RepoExplorerProjectionAdapter {
                     RepoExplorerDeltaProjectionWork(
                         targetRequest: request,
                         changes: deltaIntent.changes,
+                        structuralTarget: deltaIntent.structuralTarget,
                         context: context
                     )
                 )
@@ -99,9 +85,7 @@ extension RepoExplorerProjectionAdapter {
             result.semanticBaselineSequence == nil
                 || result.semanticBaselineSequence == context.semanticBaselineSequence,
             result.generation == projectionGeneration,
-            result.snapshot == cachedProjectionRequest?.snapshot,
-            result.collapsedGroupIds == cachedProjectionRequest?.collapsedGroupIds,
-            result.isFiltering == cachedProjectionRequest?.isFiltering
+            result.generation == cachedProjectionRequest?.generation
         else {
             return .rejected
         }
@@ -114,29 +98,23 @@ extension RepoExplorerProjectionAdapter {
             return .rejected
         }
 
-        if let semanticBaselineResult,
-            Self.hasEqualRenderedContent(semanticBaselineResult, result)
-        {
-            return .equalCurrent(result)
-        }
-        if let nativeUpdatePlan = candidate.nativeUpdatePlan,
+        guard let nativeUpdatePlan = candidate.nativeUpdatePlan,
             nativeUpdatePlan.preflightMatches(
                 baseline: acknowledgedMaterializationBaseline,
                 requestGeneration: UInt64(context.requestGeneration)
-            ),
-            case .equal = nativeUpdatePlan.kind
-        {
-            return .immediateAccepted(result)
+            )
+        else {
+            return .rejected
+        }
+
+        if case .equal = nativeUpdatePlan.kind {
+            return .equalCurrent(result)
         }
         if let preparedBaseline = context.acknowledgedBaseline,
-            preparedBaseline == acknowledgedMaterializationBaseline,
+            RepoExplorerAcknowledgedBaselineIdentity(preparedBaseline)
+                == RepoExplorerAcknowledgedBaselineIdentity(acknowledgedMaterializationBaseline),
             preparedBaseline.lifetimeID == materializationHost.lifetimeID,
             preparedBaseline.demandEpoch == materializationDemandEpoch,
-            let nativeUpdatePlan = candidate.nativeUpdatePlan,
-            nativeUpdatePlan.preflightMatches(
-                baseline: preparedBaseline,
-                requestGeneration: UInt64(context.requestGeneration)
-            ),
             case .changed = nativeUpdatePlan.kind
         {
             return .changedAwaitingOwner(result)
@@ -153,7 +131,8 @@ extension RepoExplorerProjectionAdapter {
         guard pendingMaterializationSettlement == nil,
             let host = materializationHost,
             let baseline = acknowledgedMaterializationBaseline,
-            candidate.work.context.acknowledgedBaseline == baseline,
+            candidate.work.context.acknowledgedBaseline.map(RepoExplorerAcknowledgedBaselineIdentity.init)
+                == RepoExplorerAcknowledgedBaselineIdentity(baseline),
             let nativeUpdatePlan = candidate.nativeUpdatePlan,
             nativeUpdatePlan.preflightMatches(
                 baseline: baseline,
@@ -242,13 +221,17 @@ extension RepoExplorerProjectionAdapter {
             }
             switch identity {
             case .initial, .reentry:
-                guard materializationHost.acceptedBaseline == baseline else { return }
+                guard
+                    materializationHost.acceptedBaseline.map(RepoExplorerAcknowledgedBaselineIdentity.init)
+                        == RepoExplorerAcknowledgedBaselineIdentity(baseline)
+                else { return }
                 acknowledgedMaterializationBaseline = baseline
                 lastRecoveryBaselineIdentity = nil
             case .candidate(let candidateID):
                 guard let pending = pendingMaterializationSettlement,
                     pending.candidateID == candidateID,
-                    materializationHost.acceptedBaseline == baseline
+                    materializationHost.acceptedBaseline.map(RepoExplorerAcknowledgedBaselineIdentity.init)
+                        == RepoExplorerAcknowledgedBaselineIdentity(baseline)
                 else {
                     return
                 }
@@ -290,9 +273,7 @@ extension RepoExplorerProjectionAdapter {
                 result.semanticBaselineSequence == nil
                     || result.semanticBaselineSequence == semanticBaselineSequence,
                 result.generation == projectionGeneration,
-                result.snapshot == cachedProjectionRequest?.snapshot,
-                result.collapsedGroupIds == cachedProjectionRequest?.collapsedGroupIds,
-                result.isFiltering == cachedProjectionRequest?.isFiltering
+                result.generation == cachedProjectionRequest?.generation
             else {
                 RepoExplorerPerformanceTelemetry.shared.record(
                     stage: "mainactor_apply",
