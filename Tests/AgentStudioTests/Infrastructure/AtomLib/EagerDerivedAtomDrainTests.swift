@@ -74,9 +74,10 @@ struct EagerDerivedAtomDrainTests {
                 projectionCount: projectionCount
             ))
 
-        async let drain: Void = atom.stopAndDrain()
+        atom.stop()
+        #expect(atom.freshness == .stopped)
         gate.release()
-        await drain
+        await atom.stopAndDrain()
 
         #expect(projectionCount.count == 1)
         #expect(atom.freshness == .stopped)
