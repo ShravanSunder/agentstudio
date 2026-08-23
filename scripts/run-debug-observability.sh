@@ -12,7 +12,7 @@ CURL_BIN="${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}"
 DITTO_BIN="${AGENTSTUDIO_DITTO_BIN:-/usr/bin/ditto}"
 CODESIGN_BIN="${AGENTSTUDIO_CODESIGN_BIN:-/usr/bin/codesign}"
 SECURITY_BIN="${AGENTSTUDIO_SECURITY_BIN:-/usr/bin/security}"
-SIGNAL_BIN="${AGENTSTUDIO_SIGNAL_BIN:-/bin/kill}"
+NORMAL_QUIT_BIN="${AGENTSTUDIO_NORMAL_QUIT_BIN:-/usr/bin/osascript}"
 DEBUG_LAUNCH_ACTIVATE="${AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE:-0}"
 
 if [ "$DEBUG_LAUNCH_ACTIVATE" != "0" ] && [ "$DEBUG_LAUNCH_ACTIVATE" != "1" ]; then
@@ -60,9 +60,9 @@ validate_observability_controls() {
     return
   fi
   if [ -n "${AGENTSTUDIO_OBSERVABILITY_TEST_CANDIDATE_IDENTITY:-}" ] ||
-    [ "$SIGNAL_BIN" != "/bin/kill" ]
+    [ "$NORMAL_QUIT_BIN" != "/usr/bin/osascript" ]
   then
-    echo "candidate identity and signal overrides require AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES=1" >&2
+    echo "candidate identity and normal-quit overrides require AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES=1" >&2
     exit 2
   fi
   if [ "$(canonical_path "$STACK_HELPER")" != "$(canonical_path "$DEFAULT_STACK_HELPER")" ]; then
@@ -356,26 +356,41 @@ retire_debug_candidate() {
     return 0
   fi
 
-  # Revalidate the non-reusable identity immediately before the sole signal.
+  # Revalidate the non-reusable identity immediately before the sole normal
+  # AppKit quit request. A POSIX signal would bypass application termination
+  # drains and make the idle completion receipt impossible to prove.
   if [ -z "${AGENTSTUDIO_OBSERVABILITY_TEST_CANDIDATE_IDENTITY:-}" ] &&
     [ "$(process_start_identity "$state_pid" || true)" != "$state_start_identity" ]
   then
-    echo "candidate identity mismatch: process start changed before signal" >&2
+    echo "candidate identity mismatch: process start changed before graceful quit" >&2
     return 1
   fi
-  "$SIGNAL_BIN" -TERM "$state_pid"
+  if ! request_normal_candidate_quit \
+    "$state_pid" "$state_bundle_identifier" "$state_app" "$state_executable"
+  then
+    echo "graceful quit request failed for exact candidate PID $state_pid" >&2
+    return 1
+  fi
   if [ -n "${AGENTSTUDIO_OBSERVABILITY_TEST_CANDIDATE_IDENTITY:-}" ]; then
-    printf '%s\n' "candidate_retirement=signalled"
+    printf '%s\n' "candidate_retirement=graceful"
     return 0
   fi
-  for _ in $(seq 1 200); do
+  local observed_start_identity
+  for _ in $(seq 1 400); do
     if ! kill -0 "$state_pid" >/dev/null 2>&1; then
-      printf '%s\n' "candidate_retirement=signalled"
+      printf '%s\n' "candidate_retirement=graceful"
       return 0
+    fi
+    observed_start_identity="$(process_start_identity "$state_pid" || true)"
+    if [ -n "$observed_start_identity" ] &&
+      [ "$observed_start_identity" != "$state_start_identity" ]
+    then
+      echo "candidate identity mismatch: process start changed after graceful quit" >&2
+      return 1
     fi
     sleep 0.05
   done
-  echo "candidate retirement signal timed out for exact candidate PID $state_pid" >&2
+  echo "graceful candidate retirement timed out for exact candidate PID $state_pid" >&2
   return 1
 }
 
@@ -394,6 +409,41 @@ bundle_identifier_for_executable() {
   bundle_path="$(bundle_path_for_executable "$executable_path")"
   [ -n "$bundle_path" ] || return 0
   /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$bundle_path/Contents/Info.plist" 2>/dev/null || true
+}
+
+request_normal_candidate_quit() {
+  local candidate_pid="${1:?missing candidate PID}"
+  local expected_bundle_identifier="${2:?missing expected bundle identifier}"
+  local expected_app="${3:?missing expected app path}"
+  local expected_executable="${4:?missing expected executable path}"
+  "$NORMAL_QUIT_BIN" -l JavaScript -e '
+ObjC.import("AppKit");
+function run(arguments) {
+  const processIdentifier = Number(arguments[0]);
+  const expectedBundleIdentifier = arguments[1];
+  const expectedAppPath = arguments[2];
+  const expectedExecutablePath = arguments[3];
+  const candidate = $.NSRunningApplication.runningApplicationWithProcessIdentifier(processIdentifier);
+  if (candidate.isNil()) {
+    throw new Error("candidate is absent before graceful quit");
+  }
+  const bundleIdentifier = candidate.bundleIdentifier.isNil()
+    ? "" : ObjC.unwrap(candidate.bundleIdentifier);
+  const appPath = candidate.bundleURL.isNil()
+    ? "" : ObjC.unwrap(candidate.bundleURL.path);
+  const executablePath = candidate.executableURL.isNil()
+    ? "" : ObjC.unwrap(candidate.executableURL.path);
+  if (Number(candidate.processIdentifier) !== processIdentifier
+      || bundleIdentifier !== expectedBundleIdentifier
+      || appPath !== expectedAppPath
+      || executablePath !== expectedExecutablePath) {
+    throw new Error("candidate AppKit identity mismatch");
+  }
+  if (!candidate.terminate) {
+    throw new Error("candidate rejected graceful quit");
+  }
+  return "graceful_quit_requested";
+}' "$candidate_pid" "$expected_bundle_identifier" "$expected_app" "$expected_executable"
 }
 
 debug_signing_identity() {

@@ -4,13 +4,13 @@ import Testing
 
 @Suite("Observability debug candidate lifecycle scripts")
 struct ObservabilityDebugCandidateLifecycleScriptTests {
-    @Test("candidate retirement signals only the exact current debug launch identity")
-    func candidateRetirementSignalsOnlyExactCurrentDebugIdentity() throws {
+    @Test("candidate retirement gracefully quits only the exact current debug launch identity")
+    func candidateRetirementGracefullyQuitsOnlyExactCurrentDebugIdentity() throws {
         let outcome = try runCandidateRetirementContract(actualIdentityOverrides: [:])
 
         #expect(outcome.result.exitCode == 0, "stdout: \(outcome.result.stdout)\nstderr: \(outcome.result.stderr)")
-        #expect(outcome.signalArguments.contains("4242"))
-        #expect(outcome.result.stdout.contains("candidate_retirement=signalled"))
+        #expect(outcome.quitArguments.contains("4242"))
+        #expect(outcome.result.stdout.contains("candidate_retirement=graceful"))
     }
 
     @Test("candidate retirement treats an absent process as already retired")
@@ -20,7 +20,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         )
 
         #expect(outcome.result.exitCode == 0, "stdout: \(outcome.result.stdout)\nstderr: \(outcome.result.stderr)")
-        #expect(outcome.signalArguments.isEmpty)
+        #expect(outcome.quitArguments.isEmpty)
         #expect(outcome.result.stdout.contains("candidate_retirement=absent"))
     }
 
@@ -39,9 +39,35 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         for mismatch in mismatches {
             let outcome = try runCandidateRetirementContract(actualIdentityOverrides: mismatch)
             #expect(outcome.result.exitCode == 1, "stdout: \(outcome.result.stdout)")
-            #expect(outcome.signalArguments.isEmpty)
+            #expect(outcome.quitArguments.isEmpty)
             #expect(outcome.result.stderr.contains("candidate identity mismatch"))
         }
+    }
+
+    @Test("candidate retirement fails closed when graceful quit is rejected")
+    func candidateRetirementFailsClosedWhenGracefulQuitIsRejected() throws {
+        let outcome = try runCandidateRetirementContract(
+            actualIdentityOverrides: [:],
+            quitExitCode: 73
+        )
+
+        #expect(outcome.result.exitCode == 1)
+        #expect(outcome.quitArguments.contains("4242"))
+        #expect(outcome.result.stderr.contains("graceful quit request failed"))
+        #expect(!outcome.result.stdout.contains("candidate_retirement=graceful"))
+    }
+
+    @Test("candidate retirement has no force or POSIX signal fallback")
+    func candidateRetirementHasNoDestructiveFallback() throws {
+        let source = try String(
+            contentsOfFile: "scripts/run-debug-observability.sh",
+            encoding: .utf8
+        )
+
+        #expect(source.contains("NSRunningApplication.runningApplicationWithProcessIdentifier"))
+        #expect(source.contains("candidate.terminate"))
+        #expect(!source.contains("forceTerminate"))
+        #expect(!source.contains("-TERM"))
     }
 
     @Test("debug zmx helper inventories only one validated exact debug root")
@@ -139,8 +165,9 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
     }
 
     private func runCandidateRetirementContract(
-        actualIdentityOverrides: [String: Any]
-    ) throws -> (result: ScriptRunResult, signalArguments: String) {
+        actualIdentityOverrides: [String: Any],
+        quitExitCode: Int = 0
+    ) throws -> (result: ScriptRunResult, quitArguments: String) {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let debugCode = try fixture.worktreeDebugCode()
@@ -151,7 +178,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         )
         let executable = app.appending(path: "Contents/MacOS/AgentStudio")
         let stateFile = fixture.url("candidate.env")
-        let signalFile = fixture.url("signal-arguments")
+        let quitFile = fixture.url("quit-arguments")
         let marker = "strict-cpu-candidate"
         let startIdentity = "kernel-start-4242"
         try """
@@ -186,11 +213,12 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         }
         let identityData = try JSONSerialization.data(withJSONObject: actualIdentity, options: [.sortedKeys])
         let identityJSON = try #require(String(data: identityData, encoding: .utf8))
-        let signal = try fixture.executable(
-            "signal",
+        let normalQuit = try fixture.executable(
+            "normal-quit",
             """
             #!/bin/bash
-            printf '%s\\n' "$*" >> "\(signalFile.path)"
+            printf '%s\\n' "$*" >> "\(quitFile.path)"
+            exit \(quitExitCode)
             """
         )
 
@@ -200,11 +228,11 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
             environment: [
                 "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
                 "AGENTSTUDIO_OBSERVABILITY_TEST_CANDIDATE_IDENTITY": identityJSON,
-                "AGENTSTUDIO_SIGNAL_BIN": signal.path,
+                "AGENTSTUDIO_NORMAL_QUIT_BIN": normalQuit.path,
             ]
         )
-        let signalArguments =
-            (try? String(contentsOf: signalFile, encoding: .utf8)) ?? ""
-        return (result, signalArguments)
+        let quitArguments =
+            (try? String(contentsOf: quitFile, encoding: .utf8)) ?? ""
+        return (result, quitArguments)
     }
 }
