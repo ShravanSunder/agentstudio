@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 
 import { bridgeViewerActionToolbarSurfaceClassName } from '../app/bridge-viewer-action-toolbar.js';
 import { WorktreeAnnotationMessageBody } from './worktree-annotation-message-body.js';
+import { clearWorktreeAnnotationOutputHandled } from './worktree-annotation-output-handled-clear.js';
 import { WorktreeAnnotationOutputHistoryControl } from './worktree-annotation-output-history-control.js';
 import { annotationOutputFeedback } from './worktree-annotation-output-presentation.js';
 import {
@@ -69,18 +70,11 @@ export function WorktreeAnnotationShareSurface(): ReactElement | null {
 		),
 	});
 	const clearHandled = async (attemptId: string, sessionId: string): Promise<void> => {
-		const currentSession = client
-			.getSnapshot()
-			.sessions.find((candidate) => candidate.sessionId === sessionId);
-		if (currentSession === undefined) {
-			toast.error('The review session is no longer available.');
-			return;
-		}
 		try {
-			const outcome = await client.execute({
+			const outcome = await clearWorktreeAnnotationOutputHandled({
 				attemptId,
-				expectedSessionRevision: currentSession.semanticRevision,
-				kind: 'output.handled.clear',
+				client,
+				sessionId,
 			});
 			if (outcome.status.kind === 'failed') toast.error(outcome.status.code);
 			else toast.success('Comments marked as not handled.');

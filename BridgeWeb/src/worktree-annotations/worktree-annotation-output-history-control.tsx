@@ -9,6 +9,7 @@ import {
 
 import { bridgeViewerActionToolbarSurfaceClassName } from '../app/bridge-viewer-action-toolbar.js';
 import { BridgeViewerButton } from '../app/bridge-viewer-button.js';
+import { clearWorktreeAnnotationOutputHandled } from './worktree-annotation-output-handled-clear.js';
 import {
 	annotationOutputFeedback,
 	annotationOutputHistoryStatus,
@@ -61,15 +62,11 @@ export function WorktreeAnnotationOutputHistoryControl(): ReactElement | null {
 		}
 	};
 	const markNotHandled = async (summary: (typeof history)[number]): Promise<void> => {
-		const session = annotationClient
-			.getSnapshot()
-			.sessions.find(({ sessionId }) => sessionId === summary.sessionId);
-		if (session === undefined) return;
 		try {
-			const outcome = await annotationClient.execute({
+			const outcome = await clearWorktreeAnnotationOutputHandled({
 				attemptId: summary.attemptId,
-				expectedSessionRevision: session.semanticRevision,
-				kind: 'output.handled.clear',
+				client: annotationClient,
+				sessionId: summary.sessionId,
 			});
 			if (outcome.status.kind === 'failed') toast.error(outcome.status.code);
 			else toast.success('Comments marked as not handled.');

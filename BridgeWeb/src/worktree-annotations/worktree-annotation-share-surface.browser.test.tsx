@@ -39,6 +39,7 @@ import {
 } from './worktree-annotation-output-controls.js';
 import type {
 	WorktreeAnnotationMessageEntry,
+	WorktreeAnnotationOutputHistorySummary,
 	WorktreeAnnotationThreadContext,
 } from './worktree-annotation-surface-client.js';
 import { WorktreeAnnotationSurfaceProvider } from './worktree-annotation-surface-provider.js';
@@ -234,6 +235,82 @@ describe('worktree annotation Share comments integrated surface', () => {
 			kind: 'output.handled.clear',
 		});
 	});
+
+	test('retries unhandle once after the output projection advances past a revision conflict', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
+		await publishShareProjection(surface, true);
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Share comments' }).click(),
+		);
+		await performBrowserAction(() => rendered.getByRole('button', { name: 'History (1)' }).click());
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Mark as not handled' }).click(),
+		);
+
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentConflict('output.handled.clear');
+			await settleInteraction();
+		});
+		expect(outputHandledClearOperations(surface)).toEqual([
+			{
+				attemptId: successfulAttemptId,
+				expectedSessionRevision: 3,
+				kind: 'output.handled.clear',
+			},
+		]);
+
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				expectedThreadCount: 0,
+				outputHistory: [successfulHistorySummary()],
+				revision: 5,
+				sessions: [
+					annotationSessionSummary({
+						eligibleMessageCount: 3,
+						eligibleWithoutInlinePlacementCount: 1,
+						revision: 4,
+						sessionId: annotationSessionId,
+					}),
+				],
+			});
+			await settleInteraction();
+		});
+		await expect.poll(() => outputHandledClearOperations(surface).length).toBe(2);
+		expect(outputHandledClearOperations(surface)[1]).toEqual({
+			attemptId: successfulAttemptId,
+			expectedSessionRevision: 4,
+			kind: 'output.handled.clear',
+		});
+	});
+
+	test('stops a conflicted unhandle when its review session disappears', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
+		await publishShareProjection(surface, true);
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Share comments' }).click(),
+		);
+		await performBrowserAction(() => rendered.getByRole('button', { name: 'History (1)' }).click());
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Mark as not handled' }).click(),
+		);
+
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentConflict('output.handled.clear');
+			await settleInteraction();
+			surface.publishProjectionState({
+				expectedThreadCount: 0,
+				outputHistory: [],
+				revision: 5,
+				sessions: [],
+			});
+			await settleInteraction();
+		});
+
+		expect(toastSpies.error).toHaveBeenCalledWith('The review session is no longer available.');
+		expect(outputHandledClearOperations(surface)).toHaveLength(1);
+	});
 });
 
 function ShareSurfaceFixture(props: {
@@ -262,19 +339,7 @@ async function publishShareProjection(
 			expectedThreadCount: 2,
 			...(includeHistory
 				? {
-						outputHistory: [
-							{
-								attemptId: successfulAttemptId,
-								canMarkNotHandled: true,
-								createdAt: Date.UTC(2026, 7, 20, 16),
-								messageCount: 3,
-								outputKind: 'clipboard_markdown' as const,
-								repeatedFromAttemptId: null,
-								sessionId: annotationSessionId,
-								state: 'succeeded' as const,
-								updatedAt: Date.UTC(2026, 7, 20, 16),
-							},
-						],
+						outputHistory: [successfulHistorySummary()],
 					}
 				: {}),
 			revision: 3,
@@ -307,6 +372,20 @@ async function publishShareProjection(
 		});
 		await settleInteraction();
 	});
+}
+
+function successfulHistorySummary(): WorktreeAnnotationOutputHistorySummary {
+	return {
+		attemptId: successfulAttemptId,
+		canMarkNotHandled: true,
+		createdAt: Date.UTC(2026, 7, 20, 16),
+		messageCount: 3,
+		outputKind: 'clipboard_markdown' as const,
+		repeatedFromAttemptId: null,
+		sessionId: annotationSessionId,
+		state: 'succeeded' as const,
+		updatedAt: Date.UTC(2026, 7, 20, 16),
+	};
 }
 
 function savedMessage(props: {
@@ -350,6 +429,22 @@ function findLastOperation(
 	kind: 'output.handled.clear' | 'output.scope.commit',
 ): BridgeProductWorktreeAnnotationOperation | undefined {
 	return surface.sentOperations.findLast((operation): boolean => operation.kind === kind);
+}
+
+function outputHandledClearOperations(
+	surface: RecordingAnnotationBrowserSurface,
+): readonly Extract<
+	BridgeProductWorktreeAnnotationOperation,
+	{ readonly kind: 'output.handled.clear' }
+>[] {
+	return surface.sentOperations.filter(
+		(
+			operation,
+		): operation is Extract<
+			BridgeProductWorktreeAnnotationOperation,
+			{ readonly kind: 'output.handled.clear' }
+		> => operation.kind === 'output.handled.clear',
+	);
 }
 
 function immediateMarkdownWorkerClient(): BridgeMarkdownRenderWorkerClient {

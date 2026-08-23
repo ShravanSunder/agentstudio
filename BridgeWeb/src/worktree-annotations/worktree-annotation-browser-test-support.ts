@@ -302,6 +302,26 @@ export class RecordingAnnotationBrowserSurface {
 		});
 	}
 
+	settleMostRecentConflict(operationKind?: BridgeProductWorktreeAnnotationOperation['kind']): void {
+		const pendingCommand = this.#takeMostRecentPendingAnnotationCommand(operationKind);
+		const productRequestId = `product-${pendingCommand.requestId}`;
+		this.#publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationCommandAccepted',
+			outcome: {
+				requestId: productRequestId,
+				sessionId: annotationSessionId,
+				status: { code: 'conflict', kind: 'failed' },
+				surface: this.client.surface === 'fileView' ? 'file' : 'review',
+			},
+			productRequestId,
+			requestId: pendingCommand.requestId,
+			surface: this.client.surface,
+			transferDescriptors: [],
+			wireVersion: 1,
+		});
+	}
+
 	#messageReceiptForOperation(
 		operation: BridgeProductWorktreeAnnotationOperation,
 	): WorktreeAnnotationCommandOutcome['receipt'] {
