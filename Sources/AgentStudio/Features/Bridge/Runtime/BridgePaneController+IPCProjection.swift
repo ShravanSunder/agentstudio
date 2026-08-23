@@ -454,14 +454,11 @@ extension BridgePaneController {
           const comparisonTrigger = document.querySelector(
             '[data-testid="bridge-review-comparison-trigger"]'
           );
-          const comparisonContent = document.querySelector(
-            '[data-testid="bridge-review-comparison-content"]'
+          const comparisonCurrentState = document.querySelector(
+            '[data-testid="bridge-review-comparison-current-state"]'
           );
-          const comparisonTargetRevisionElement = document.querySelector(
-            '[data-testid="bridge-review-comparison-target-revision"]'
-          );
-          const comparisonSharedStartRevisionElement = document.querySelector(
-            '[data-testid="bridge-review-comparison-shared-start-revision"]'
+          const comparisonEffectiveRevision = document.querySelector(
+            '[data-testid="bridge-review-comparison-effective-revision"]'
           );
           const fileShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
           const fileTree = document.querySelector('[data-testid="bridge-file-viewer-pierre-file-tree"]');
@@ -693,10 +690,9 @@ extension BridgePaneController {
             comparisonDescription?.textContent,
             1024
           );
-          const comparisonTriggerState = enumStringOrNull(
-            comparisonTrigger?.getAttribute('data-state'),
-            ['open', 'closed']
-          );
+          const comparisonTriggerState = comparisonTrigger === null
+            ? null
+            : comparisonTrigger.hasAttribute('data-popup-open') ? 'open' : 'closed';
           const fileCodeText = `${fileCodeCanvas?.textContent || ''} ${codeViewShadowText}`;
           const pageErrorKinds = Array.from(new Set(errorProbe.slice(-8).map((entry) => {
             return clip(entry.kind, 80);
@@ -740,11 +736,11 @@ extension BridgePaneController {
             comparisonTriggerDescription,
             comparisonTriggerState,
             comparisonTargetRevision: clippedNonemptyStringOrNull(
-              comparisonTargetRevisionElement?.getAttribute('title'),
+              comparisonCurrentState?.getAttribute('data-resolved-target-oid'),
               128
             ),
             comparisonSharedStartRevision: clippedNonemptyStringOrNull(
-              comparisonSharedStartRevisionElement?.getAttribute('title'),
+              comparisonEffectiveRevision?.getAttribute('title'),
               128
             ),
             contentTopbarFrame: rectOrNull(contentTopbar),

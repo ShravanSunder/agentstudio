@@ -274,19 +274,18 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
                       <button
                         aria-describedby="comparison-description"
                         aria-label="Compare to: stack-base"
-                        data-state="open"
+                        data-popup-open
                         data-testid="bridge-review-comparison-trigger"
                       >Compare to: stack-base</button>
                     </div>
                   </header>
                   <span id="comparison-description">Changes only on stack-base are excluded.</span>
-                  <section data-testid="bridge-review-comparison-content">
+                  <section
+                    data-resolved-target-oid="1111111111111111111111111111111111111111"
+                    data-testid="bridge-review-comparison-current-state"
+                  >
                     <span
-                      data-testid="bridge-review-comparison-target-revision"
-                      title="1111111111111111111111111111111111111111"
-                    ></span>
-                    <span
-                      data-testid="bridge-review-comparison-shared-start-revision"
+                      data-testid="bridge-review-comparison-effective-revision"
                       title="2222222222222222222222222222222222222222"
                     ></span>
                   </section>
