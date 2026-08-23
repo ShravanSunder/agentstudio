@@ -86,7 +86,7 @@ Bridge native Review refresh
     owns: nativeCurrent, acknowledgedDisplayed, optional admitted-publication
           lease, retained publication material, and publication ordering
     rule: classification settles before candidate display delivery and rides
-          the first candidate display patch
+          the leading same-source metadata event
 
 existing product transport and comm worker
   owns: strict carriage, latest-generation application, projection
@@ -101,8 +101,8 @@ BridgeMainRenderSnapshotStore
   owns: visible Review bank, optional candidate bank, optional bounded promoted
         failure presentation, atomic bank promotion
   candidate role: provisional | updateReady | installing
-  consumes: candidate class and affected file identities on the first display
-            patch, later display patches, candidate-ready event,
+  consumes: candidate-start event, later candidate display patches,
+            candidate-ready event,
             feature-local installation admission
 
 BridgeReviewPresentationInstallationGate
@@ -173,9 +173,10 @@ promoted(reason: commits | files | lines | unknown)
 
 Native classification begins ordinary only as an internal provisional state.
 It may promote monotonically from numeric or unknown impact. No candidate
-display event is delivered until that native classification is known. The first
-candidate display patch carries one strict candidate-start disposition atomically
-with the candidate identity:
+display event is delivered until that native classification is known. The comm
+worker converts the leading classified metadata event into one strict internal
+candidate-start event carrying this disposition atomically with the candidate
+identity:
 
 ```text
 sameSource(class, affectedStableFileIdentities)
@@ -183,8 +184,8 @@ replacement
 ```
 
 Initial load and explicit target replacement use `replacement`; same-source
-updates carry their class and affected stable file identities. Later patches do
-not repeat the disposition. The main
+updates carry their class and affected stable file identities. Display patches
+do not repeat the disposition. The main
 installation gate owns the final effective class and may make one monotonic
 ordinary-to-promoted escalation with reason `activeAnchor` when the candidate
 cannot preserve a locally active editor anchor. This orders presentation without
@@ -204,16 +205,21 @@ replacement omit the group because they retain their existing presentation
 contracts. The TypeScript product contract admits the group only on those two
 same-source leading events and rejects it on later windows.
 
-The comm worker binds the leading event's facts to the first current-fenced
-candidate `reviewDisplayPatch`. That strict internal patch carries
-`sameSource(class, affectedStableFileIdentities)` when the leading event has the
-classification group and `replacement` otherwise. Later patches for the same
-identity omit the candidate-start disposition and are rejected if they attempt
-to start or reclassify the candidate again. Main creates the candidate bank and
-stores its immutable start disposition before
-applying any geometry from that first patch. It uses the exact
+The comm worker emits `reviewCandidateStarted` immediately after admitting and
+applying the leading current-fenced `review.delta`, `review.reset`, or initial
+`review.sourceAccepted` event, before it accumulates later windows or publishes
+candidate geometry. The event carries
+`sameSource(class, affectedStableFileIdentities)` when the leading metadata event
+has the classification group and `replacement` otherwise. Duplicate start for
+the same identity is idempotent only when the disposition is exact; an older,
+ambiguous, or changed disposition is rejected.
+
+Main creates the one candidate bank by cloning active A and stores the immutable
+start disposition before any candidate geometry exists. Later exact-identity
+`reviewDisplayPatch` events may only fill that already-started bank and are
+rejected if no matching start exists. The bank uses the exact
 package identity, generation, revision, pre-delivery presentation class, and
-affected stable file identities before any candidate geometry is applied. A
+affected stable file identities. A
 promoted candidate can therefore render `Updating…` while the remainder of its
 worker/main presentation is constructed, without guessing from a generic
 provisional role.
@@ -221,9 +227,9 @@ provisional role.
 The comm worker still observes the final Review metadata barrier. After it
 applies the final current-fenced transaction, it emits one strict internal
 candidate-ready event containing the matching package identity, generation, and
-revision. Readiness does not repeat or replace the candidate-start classification
-facts. Both messages use the existing worker RPC connection and add no physical
-route.
+revision. Readiness does not repeat or replace the candidate-start facts. Start,
+display, readiness, and failure messages all use the existing worker RPC
+connection and add no physical route.
 
 The worker no longer sends or awaits `review.publication.applied` merely because
 it committed metadata. It continues consuming newer metadata, while the main
@@ -243,11 +249,11 @@ applyNow()
 readRefreshPresentation()
 ```
 
-The first worker display event for a publication creates the one candidate bank
-and installs its immutable start disposition. A `replacement` candidate follows
+The candidate-start event for a publication creates the one candidate bank and
+installs its immutable start disposition. A `replacement` candidate follows
 the existing initial/target installation presentation and never renders the
-promoted global bar. Every later display event for that publication targets the
-same bank.
+promoted global bar. Every later exact display event for that publication targets
+the same bank.
 Without an active editor, an ordinary candidate proceeds immediately through
 install admission with no global bar. With an active editor, the
 bank remains provisional until the candidate-ready event proves exact
@@ -268,7 +274,7 @@ is represented symbolically by the promoted reason with an empty enumerated
 affected-file list; it never materializes an unbounded wildcard list and is not
 replaced by later exact facts for the same candidate.
 
-If a promoted candidate fails after its classified first patch but before
+If a promoted candidate fails after its classified start but before
 installation, the store discards the candidate bank and retains one bounded
 failure presentation containing only the failed candidate identity, affected
 file identities or symbolic unknown, and retryability. It retains no candidate
@@ -441,10 +447,11 @@ refresh generation
 complete publication + classification
   -> existing metadata stream                               unchanged route
   -> leading same-source delta/reset classification group   changed event contract
-  -> comm-worker projection                                 unchanged authority
-  -> first candidate display patch + classification facts   changed internal event
-  -> BridgeMainRenderSnapshotStore candidate bank           added state write
-  -> remaining candidate display patches                    unchanged local route
+  -> comm-worker leading-event admission                    unchanged authority
+  -> reviewCandidateStarted(identity, disposition)          added internal event
+  -> BridgeMainRenderSnapshotStore empty candidate bank      added state write
+  -> comm-worker projection + candidate display patches      unchanged authority/route
+  -> exact candidate-bank geometry writes                   changed main guard
   -> candidate-ready event                                  narrowed to readiness
 
 classified candidate failure
@@ -494,7 +501,7 @@ active(A)
     B anchor-unsafe ------------------------------> candidate(B, updateReady)
 
 active(A)
-  promoted B first classified patch --------------> receiving(A, B)+Updating
+  promoted B classified start --------------------> receiving(A, B)+Updating
   B ready + no affected attention ----------------> installing(A, B)
   B ready + affected attention -------------------> candidate(B, updateReady)
   updateReady + affected attention leaves --------> installing(A, B)
@@ -531,8 +538,8 @@ close --------------------------------------------> disposed
 Illegal transitions fail closed:
 
 - a candidate-ready event without matching candidate identity is rejected;
-- a first candidate patch without one complete start disposition is rejected;
-- later patches that attempt to change the candidate start disposition are rejected;
+- a candidate display patch without an exact started candidate is rejected;
+- duplicate start with a changed disposition is rejected;
 - a candidate-failed event without an exact current non-installing candidate is ignored;
 - stale or duplicate candidate-ready events do not install twice;
 - an older generation cannot replace a newer candidate;
@@ -704,7 +711,7 @@ not a third presentation class or a second bank.
   exact install admission, conservative divergence fallback, one production
   path, and no ordinary chrome.
 - R-RRC-003/R-RRC-004: main active/candidate banks and installation gate; prove
-  classified first-patch ordering, state transitions, and real browser geometry.
+  classified start-before-geometry ordering, state transitions, and real browser geometry.
 - R-RRC-005/R-RRC-006/R-RRC-007: Pierre-owned leading-edge attention signal,
   edit continuity registry, displayed-publication resolver, and existing
   immutable origin/source evaluator; prove real draft persistence, Apply now,
