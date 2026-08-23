@@ -418,13 +418,7 @@ function reviewProductSnapshotFromRuntimeSource(
 			startIndex: 0,
 			totalItemCount: itemMetadata.length,
 		},
-		addedLineCount: 0,
-		affectedFileCount: itemMetadata.length,
-		affectedStableFileIdentities: itemMetadata.map((item) => item.itemId),
-		deletedLineCount: 0,
-		newlyImportedCommitCount: 0,
 		packageId,
-		preDeliveryPresentationClass: { kind: 'ordinary' },
 		presentationRevision: revision,
 		publicationId,
 		query: {

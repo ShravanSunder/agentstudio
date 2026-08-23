@@ -1,4 +1,4 @@
-import type { CodeViewItem, CodeViewOptions, CodeViewScrollBehavior } from '@pierre/diffs';
+import type { CodeViewItem, CodeViewScrollBehavior } from '@pierre/diffs';
 import type { CodeViewHandle } from '@pierre/diffs/react';
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -52,17 +52,13 @@ import {
 	type BridgeCodeViewPanelProps,
 	type BridgeCodeViewSelectionScrollDiagnostic,
 } from './bridge-code-view-panel-types.js';
-import { createBridgeCodeViewPostRenderVisibleInterestPublisher } from './bridge-code-view-post-render-visible-interest.js';
 import {
 	cancelBridgeCodeViewPendingProgrammaticReveal,
 	createBridgeCodeViewProgrammaticRevealGate,
 } from './bridge-code-view-programmatic-reveal-gate.js';
 import { prepareBridgeCodeViewPublicationPresentationItem } from './bridge-code-view-publication-presentation.js';
 import { shouldPreserveBridgeCodeViewReadableItemDuringLoading } from './bridge-code-view-readable-loading-preservation.js';
-import {
-	observeBridgeCodeViewRenderFulfillment,
-	reconcileBridgeCodeViewRenderFulfillment,
-} from './bridge-code-view-render-fulfillment.js';
+import { reconcileBridgeCodeViewRenderFulfillment } from './bridge-code-view-render-fulfillment.js';
 import {
 	selectedBridgeCodeViewPanelContext,
 	selectedMaterializationDiagnosticForPanel,
@@ -76,6 +72,8 @@ import {
 import { useBridgeCodeViewCollapseController } from './use-bridge-code-view-collapse-controller.js';
 import { useBridgeCodeViewHeaderRenderers } from './use-bridge-code-view-header-renderers.js';
 import { useBridgeCodeViewInitialSelection } from './use-bridge-code-view-initial-selection.js';
+import { useBridgeCodeViewPanelLifecycle } from './use-bridge-code-view-panel-lifecycle.js';
+import { useBridgeCodeViewPostRender } from './use-bridge-code-view-post-render.js';
 import { useBridgeCodeViewProgrammaticScroll } from './use-bridge-code-view-programmatic-scroll.js';
 import { useBridgeCodeViewSelectionScroll } from './use-bridge-code-view-selection-scroll.js';
 import { useBridgeCodeViewWorktreeAnnotationEffects } from './use-bridge-code-view-worktree-annotation-effects.js';
@@ -117,20 +115,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		reviewPackage: props.reviewPackage,
 		selectedItemId: props.selectedItemId,
 	});
-	const annotationAttentionItemIds = annotationPresentation.attentionItemIds;
-	const onAnnotationAttentionItemIdsChange = props.onAnnotationAttentionItemIdsChange;
-	useEffect((): void => {
-		onAnnotationAttentionItemIdsChange?.(annotationAttentionItemIds);
-	}, [annotationAttentionItemIds, onAnnotationAttentionItemIdsChange]);
-	useEffect((): (() => void) | undefined => {
-		if (onAnnotationAttentionItemIdsChange === undefined) return undefined;
-		return (): void => onAnnotationAttentionItemIdsChange([]);
-	}, [onAnnotationAttentionItemIdsChange]);
 	const onReadingPositionItemIdChange = props.onReadingPositionItemIdChange;
-	useEffect((): (() => void) | undefined => {
-		if (onReadingPositionItemIdChange === undefined) return undefined;
-		return (): void => onReadingPositionItemIdChange(null);
-	}, [onReadingPositionItemIdChange]);
 	const annotateReviewItem = annotationPresentation.annotateItem;
 	const controllerEntryRef = useRef<BridgeCodeViewControllerEntry | null>(null);
 	const completedSelectionScrollKeyRef = useRef<string | null>(null);
@@ -247,41 +232,11 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		}
 		publishVisibleItemIds(instance);
 	}, [publishVisibleItemIds]);
-	const postRenderVisibleInterestPublisher = useMemo(
-		() =>
-			createBridgeCodeViewPostRenderVisibleInterestPublisher({
-				publishSettledWindow: publishVisibleItemIdsFromCurrentHandle,
-				queueMicrotask: (callback): void => {
-					globalThis.queueMicrotask(callback);
-				},
-			}),
-		[publishVisibleItemIdsFromCurrentHandle],
-	);
-	const handleCodeViewPostRender = useCallback<
-		NonNullable<CodeViewOptions<undefined>['onPostRender']>
-	>(
-		(node, _instance, phase, context): void => {
-			const exactPresentationItem = isBridgeCodeViewItem(context.item) ? context.item : null;
-			observeBridgeCodeViewRenderFulfillment({
-				contextItem: context.item,
-				getCodeViewHandle: (): CodeViewHandle<undefined> | null => codeViewHandleRef.current,
-				itemId: context.item.id,
-				phase,
-				renderedElement: node,
-				renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
-				selectedCodeViewItem: exactPresentationItem,
-				visibleCodeViewItems: undefined,
-			});
-			postRenderVisibleInterestPublisher.schedule();
-		},
-		[postRenderVisibleInterestPublisher, props.renderFulfillmentCoordinator],
-	);
-	useEffect(
-		(): (() => void) => (): void => {
-			postRenderVisibleInterestPublisher.cancel();
-		},
-		[postRenderVisibleInterestPublisher],
-	);
+	const handleCodeViewPostRender = useBridgeCodeViewPostRender({
+		codeViewHandleRef,
+		publishVisibleItemIdsFromCurrentHandle,
+		renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
+	});
 	const scheduleCodeViewRecoveryRender = useCallback((): void => {
 		if (pendingRecoveryRenderFrameRef.current !== null) {
 			cancelAnimationFrame(pendingRecoveryRenderFrameRef.current);
@@ -773,42 +728,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		sourceKey,
 	]);
 
-	useEffect(
-		(): (() => void) => (): void => {
-			materializationTaskGenerationRef.current += 1;
-			if (pendingRecoveryRenderFrameRef.current !== null) {
-				cancelAnimationFrame(pendingRecoveryRenderFrameRef.current);
-				pendingRecoveryRenderFrameRef.current = null;
-			}
-			if (pendingMaterializationFrameRef.current !== null) {
-				clearTimeout(pendingMaterializationFrameRef.current);
-				pendingMaterializationFrameRef.current = null;
-			}
-			if (pendingSelectionScrollFrameRef.current !== null) {
-				cancelAnimationFrame(pendingSelectionScrollFrameRef.current);
-				pendingSelectionScrollFrameRef.current = null;
-			}
-			pendingPreHydrationSelectionScrollKeyRef.current = null;
-			pendingSelectionRevealBehaviorRef.current = null;
-			pendingSmoothSelectionScrollKeyRef.current = null;
-			recentInstantSelectionRevealRef.current = null;
-			if (pendingVisibleHeaderPublishFrameRef.current !== null) {
-				cancelAnimationFrame(pendingVisibleHeaderPublishFrameRef.current);
-				pendingVisibleHeaderPublishFrameRef.current = null;
-			}
-			if (scrollIdleTimeoutRef.current !== null) {
-				clearTimeout(scrollIdleTimeoutRef.current);
-				scrollIdleTimeoutRef.current = null;
-			}
-			if (scrollActivityActiveRef.current) {
-				scrollActivityActiveRef.current = false;
-				onScrollActivityChangeRef.current?.(false);
-			}
-			pendingRenderedItemsSourceRef.current = null;
-		},
-		[],
-	);
-
 	useBridgeCodeViewSelectionScroll({
 		codeViewHandleRef,
 		codeViewMountVersion,
@@ -828,23 +747,28 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		sourceKey,
 	});
 
-	useEffect((): (() => void) | undefined => {
-		if (props.onVisibleItemIdsChange === undefined) {
-			return undefined;
-		}
-		publishVisibleItemIdsFromCurrentHandle();
-		const animationFrameId = requestAnimationFrame((): void => {
-			publishVisibleItemIdsFromCurrentHandle();
-		});
-		return (): void => {
-			cancelAnimationFrame(animationFrameId);
-		};
-	}, [
+	useBridgeCodeViewPanelLifecycle({
+		annotationAttentionItemIds: annotationPresentation.attentionItemIds,
 		codeViewMountVersion,
-		props.onVisibleItemIdsChange,
+		materializationTaskGenerationRef,
+		onAnnotationAttentionItemIdsChange: props.onAnnotationAttentionItemIdsChange,
+		onReadingPositionItemIdChange,
+		onScrollActivityChangeRef,
+		onVisibleItemIdsChange: props.onVisibleItemIdsChange,
+		pendingMaterializationFrameRef,
+		pendingPreHydrationSelectionScrollKeyRef,
+		pendingRecoveryRenderFrameRef,
+		pendingRenderedItemsSourceRef,
+		pendingSelectionRevealBehaviorRef,
+		pendingSelectionScrollFrameRef,
+		pendingSmoothSelectionScrollKeyRef,
+		pendingVisibleHeaderPublishFrameRef,
 		publishVisibleItemIdsFromCurrentHandle,
+		recentInstantSelectionRevealRef,
+		scrollActivityActiveRef,
+		scrollIdleTimeoutRef,
 		sourceKey,
-	]);
+	});
 
 	useEffect((): void => {
 		const taskGeneration = materializationTaskGenerationRef.current + 1;

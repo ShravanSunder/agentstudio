@@ -645,7 +645,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		});
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 104,
+			publicationSequence: 105,
 			workerDerivationEpoch: 1,
 			patches: [
 				{
@@ -725,6 +725,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
+			'reviewCandidateStarted',
 			'reviewDisplayPatch',
 			'reviewCandidateReady',
 		]);
@@ -739,17 +740,18 @@ describe('Bridge comm worker runtime protocol', () => {
 
 		expect(firstDrainResult.completedIds).toEqual(['review-source-reset:1']);
 		expect(secondDrainResult.completedIds).toEqual([
-			'review-content-ready:item-1:review-ledger:item-1:205',
+			'review-content-ready:item-1:review-ledger:item-1:206',
 		]);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
+			'reviewCandidateStarted',
 			'reviewDisplayPatch',
 			'reviewCandidateReady',
 			'reviewPierreRenderJob',
 			'reviewRenderPatch',
 		]);
-		expect(postedMessages[4]?.message).toMatchObject({
+		expect(postedMessages[5]?.message).toMatchObject({
 			kind: 'reviewPierreRenderJob',
 			job: {
 				itemId: 'item-1',
@@ -757,9 +759,9 @@ describe('Bridge comm worker runtime protocol', () => {
 				budgetClass: 'visible',
 			},
 		});
-		expect(postedMessages[5]?.message).toMatchObject({
+		expect(postedMessages[6]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 205,
+			publicationSequence: 206,
 			workerDerivationEpoch: 1,
 			patches: [
 				{

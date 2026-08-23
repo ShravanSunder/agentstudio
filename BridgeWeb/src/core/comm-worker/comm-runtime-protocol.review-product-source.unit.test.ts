@@ -347,9 +347,7 @@ describe('Bridge comm worker Review product source projection', () => {
 		expect(
 			postedMessages.find(({ message }) => message.kind === 'reviewCandidateReady')?.message,
 		).toMatchObject({
-			affectedStableFileIdentities: ['item-1'],
 			kind: 'reviewCandidateReady',
-			preDeliveryPresentationClass: { kind: 'ordinary' },
 			publicationId: '00000000-0000-7000-8000-000000000011',
 		});
 		expect(JSON.stringify(reviewDisplayEvents)).not.toMatch(

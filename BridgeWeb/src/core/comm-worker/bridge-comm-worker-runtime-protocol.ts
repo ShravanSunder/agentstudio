@@ -1,5 +1,4 @@
 import { recordWorktreeAnnotationLifecycleTelemetry } from '../../worktree-annotations/worktree-annotation-lifecycle-telemetry.js';
-import { runBridgeCommWorkerAnnotationOutputInspection } from './bridge-comm-worker-annotation-output-inspection.js';
 import { bridgeCommWorkerAnnotationProjectionConvergenceEvent } from './bridge-comm-worker-annotation-runtime-events.js';
 import {
 	createBridgeCommWorkerCommandHandler,
@@ -28,10 +27,6 @@ import {
 } from './bridge-comm-worker-operation-lifecycle.js';
 import { BridgeCommWorkerPanePresentationAuthority } from './bridge-comm-worker-pane-presentation.js';
 import { drainBridgeCommWorkerPreparations } from './bridge-comm-worker-preparation-drain.js';
-import {
-	completeBridgeCommWorkerProductControlSuccess,
-	notifyBridgeCommWorkerProductControlFailure,
-} from './bridge-comm-worker-product-control-completion.js';
 import { callCurrentFileSourceWithTelemetry } from './bridge-comm-worker-product-control-runtime.js';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import {
@@ -56,26 +51,20 @@ import {
 } from './bridge-comm-worker-review-operation-lifecycle.js';
 import { BridgeCommWorkerReviewQueryProjection } from './bridge-comm-worker-review-query-projection.js';
 import { createBridgeCommWorkerReviewRenderPublicationAuthority } from './bridge-comm-worker-review-render-publication-authority.js';
+import { bridgeCommWorkerTelemetryLaneForMessage } from './bridge-comm-worker-runtime-command-routing.js';
 import {
-	bridgeCommWorkerTelemetryLaneForMessage,
-	bridgeWorkerRuntimeProductControlCommandForMessage,
-} from './bridge-comm-worker-runtime-command-routing.js';
-import {
-	bridgeCommWorkerProductControlFailureMessage,
 	publishBridgeCommWorkerPostCommitFailureBestEffort,
 	rejectUninstalledBridgeFileContentOpen,
 	rejectUninstalledBridgeProductControl,
-	rejectUninstalledReviewMetadataInterestUpdate,
 	scheduleDefaultBridgeRenderFulfillmentWake,
 } from './bridge-comm-worker-runtime-defaults.js';
 import {
 	bridgeWorkerRuntimeMessagesContainReadyRequest,
-	bridgeWorkerRuntimeMessageIsReadyRequest,
 	buildBridgeWorkerFileMetadataFailureHealthEvent,
 	buildBridgeWorkerFileMetadataInterestFailureHealthEvent,
-	buildBridgeWorkerRuntimeCommandFailedHealthEvent,
 	buildBridgeWorkerRuntimeDegradedHealthEvent,
 } from './bridge-comm-worker-runtime-health.js';
+import { dispatchBridgeCommWorkerRuntimeProductControl } from './bridge-comm-worker-runtime-product-control-dispatch.js';
 import type {
 	BridgeCommWorkerPreparationDrain,
 	RegisterBridgeCommWorkerRuntimePortProtocolProps,
@@ -85,7 +74,6 @@ import {
 	createBridgeWorkerRuntimeSequenceCounter,
 	readBridgeCommWorkerRuntimeNowMilliseconds,
 	scheduleDefaultBridgeCommWorkerPreparationDrain,
-	sendBridgeCommWorkerActionWithTimeout,
 } from './bridge-comm-worker-runtime-support.js';
 import {
 	BridgeCommWorkerSelectedFileContentOperationController,
@@ -863,145 +851,23 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			taskKind: 'message_handler',
 			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		});
-		const productControlCommand = bridgeWorkerRuntimeProductControlCommandForMessage(
-			parsedMessage.data,
-		);
-		const metadataInterestUpdateCommand =
-			parsedMessage.data.command === 'metadataInterestUpdate' ? parsedMessage.data : null;
-		const deferredRequestId =
-			metadataInterestUpdateCommand?.requestId ?? productControlCommand?.requestId ?? null;
-		const shouldSendProductControl =
-			productControlCommand !== null &&
-			bridgeWorkerRuntimeMessagesContainReadyRequest({
-				messages,
-				requestId: productControlCommand.requestId,
-			});
-		const shouldUpdateReviewMetadataInterests =
-			metadataInterestUpdateCommand !== null &&
-			bridgeWorkerRuntimeMessagesContainReadyRequest({
-				messages,
-				requestId: metadataInterestUpdateCommand.requestId,
-			});
-		const shouldDeferReadyMessage = shouldSendProductControl || shouldUpdateReviewMetadataInterests;
-		const immediateMessages =
-			shouldDeferReadyMessage && deferredRequestId !== null
-				? messages.filter(
-						(message): boolean =>
-							!bridgeWorkerRuntimeMessageIsReadyRequest({
-								message,
-								requestId: deferredRequestId,
-							}),
-					)
-				: messages;
-		for (const message of immediateMessages) {
-			port.postMessage(message);
-		}
-		if (
-			productControlCommand?.command.method === 'review.comparisonTargets.query' &&
-			!shouldSendProductControl
-		) {
-			comparisonTargetsQueryRunner.fail(productControlCommand.requestId);
-		}
-		if (parsedMessage.data.command === 'annotationOutputInspect' && messages.length === 0) {
-			runBridgeCommWorkerAnnotationOutputInspection({
-				command: parsedMessage.data,
-				publishFailure: (failure): void => port.postMessage(failure),
-				publishInspection: (inspection): void => {
-					port.postMessage(inspection.message, [...inspection.transferList]);
-				},
-				productTransport,
-				signal: panePresentationAuthority.workSignal,
-				timeoutMilliseconds: productControlTimeoutMilliseconds,
-			});
-		}
-		if (productControlCommand !== null && shouldSendProductControl) {
-			const productControlReviewWorkerDerivationEpoch = activeReviewWorkerDerivationEpoch;
-			if (productControlCommand.command.method === 'review.comparisonTargets.query') {
-				comparisonTargetsQueryRunner.abort();
-				activeComparisonTargetsProductControlRequestId = productControlCommand.requestId;
-			}
-			void sendBridgeCommWorkerActionWithTimeout({
-				send: (): Promise<unknown> => sendProductControl(productControlCommand.command),
-				timeoutMilliseconds: productControlTimeoutMilliseconds,
-			})
-				.then((actionResult: unknown): void => {
-					if (
-						productControlCommand.command.method === 'review.comparisonTargets.query' &&
-						activeComparisonTargetsProductControlRequestId === productControlCommand.requestId
-					) {
-						void comparisonTargetsQueryRunner.run(productControlCommand.requestId, actionResult);
-					}
-					completeBridgeCommWorkerProductControlSuccess({
-						actionResult,
-						command: productControlCommand.command,
-						mainCommand: parsedMessage.data,
-						messages,
-						publish: (message): void => port.postMessage(message),
-						requestId: productControlCommand.requestId,
-						reviewSuccessorSettlementOwner: reviewMetadataApplicator,
-						reviewWorkerDerivationEpoch: productControlReviewWorkerDerivationEpoch,
-					});
-				})
-				.catch((_error: unknown): void => {
-					if (
-						productControlCommand.command.method === 'review.comparisonTargets.query' &&
-						activeComparisonTargetsProductControlRequestId === productControlCommand.requestId
-					) {
-						comparisonTargetsQueryRunner.abort();
-						comparisonTargetsQueryRunner.fail(productControlCommand.requestId);
-						activeComparisonTargetsProductControlRequestId = null;
-					}
-					port.postMessage(
-						buildBridgeWorkerRuntimeCommandFailedHealthEvent({
-							requestId: productControlCommand.requestId,
-							message: bridgeCommWorkerProductControlFailureMessage({
-								command: productControlCommand.command,
-							}),
-							...(productControlCommand.command.method === 'bridge.activeViewerMode.update'
-								? { deliveryStatus: 'unknownAfterDispatch' }
-								: {}),
-						}),
-					);
-					notifyBridgeCommWorkerProductControlFailure({
-						command: productControlCommand.command,
-						reviewSuccessorSettlementOwner: reviewMetadataApplicator,
-						reviewWorkerDerivationEpoch: productControlReviewWorkerDerivationEpoch,
-					});
-				});
-		}
-		if (metadataInterestUpdateCommand !== null && shouldUpdateReviewMetadataInterests) {
-			const activeProductController = productController;
-			void sendBridgeCommWorkerActionWithTimeout({
-				send:
-					activeProductController === null
-						? rejectUninstalledReviewMetadataInterestUpdate
-						: (): Promise<void> =>
-								activeProductController.updateReviewMetadataInterests(
-									metadataInterestUpdateCommand.request,
-								),
-				timeoutMilliseconds: productControlTimeoutMilliseconds,
-			})
-				.then((): void => {
-					for (const message of messages) {
-						if (
-							bridgeWorkerRuntimeMessageIsReadyRequest({
-								message,
-								requestId: metadataInterestUpdateCommand.requestId,
-							})
-						) {
-							port.postMessage(message);
-						}
-					}
-				})
-				.catch((): void => {
-					port.postMessage(
-						buildBridgeWorkerRuntimeCommandFailedHealthEvent({
-							requestId: metadataInterestUpdateCommand.requestId,
-							message: 'Bridge comm worker failed to update Review metadata interests.',
-						}),
-					);
-				});
-		}
+		dispatchBridgeCommWorkerRuntimeProductControl({
+			activeReviewWorkerDerivationEpoch,
+			comparisonTargetsQueryRunner,
+			getActiveComparisonTargetsRequestId: () => activeComparisonTargetsProductControlRequestId,
+			mainCommand: parsedMessage.data,
+			messages,
+			paneWorkSignal: panePresentationAuthority.workSignal,
+			publish: (message, transfer = []): void => port.postMessage(message, [...transfer]),
+			productControlTimeoutMilliseconds,
+			productController,
+			productTransport,
+			reviewMetadataApplicator,
+			sendProductControl,
+			setActiveComparisonTargetsRequestId: (requestId): void => {
+				activeComparisonTargetsProductControlRequestId = requestId;
+			},
+		});
 		if (shouldRequestDrainAfterMessage) {
 			requestPreparationDrain();
 		}
