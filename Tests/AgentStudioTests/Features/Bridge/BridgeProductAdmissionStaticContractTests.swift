@@ -121,6 +121,7 @@ struct BridgeProductAdmissionStaticContractTests {
         #expect(
             acquisitionCountBySource == [
                 "Features/Bridge/Runtime/Development/BridgeDevelopmentProductHost+ProductComposition.swift": 1,
+                "Features/Bridge/Runtime/Development/BridgeDevelopmentProductHost.swift": 1,
                 "Features/Bridge/Runtime/BridgePaneController.swift": 1,
                 "Features/Bridge/Runtime/BridgePaneController+Bootstrap.swift": 1,
                 "Features/Bridge/Runtime/BridgePaneController+DiffCommands.swift": 1,
