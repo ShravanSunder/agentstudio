@@ -5,7 +5,12 @@ import {
 } from '../../foundation/diagnostics/bridge-review-selection-diagnostic.js';
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import { encodeBridgeWorkerRenderDispositionCommand } from './bridge-comm-worker-protocol.js';
+import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
 import type { BridgeMainFileDisplayPatchApplierProps } from './bridge-main-file-display-patch-applier.js';
+import {
+	createBridgeMainRenderDispositionAdmission,
+	type BridgeMainRenderDispositionAdmission,
+} from './bridge-main-render-disposition-admission.js';
 import {
 	createBridgeMainRenderFulfillmentCoordinator,
 	type BridgeMainRenderFulfillmentCoordinator,
@@ -46,7 +51,9 @@ export interface BridgePaneSessionPort {
 	readonly installTelemetryProducer?: (
 		install: BridgePaneCommWorkerTelemetryProducerInstall,
 	) => void;
+	readonly requestWorkerReplacement?: () => void;
 	readonly setNativeBootstrapRequester?: (requester: (reason: 'workerReplacement') => void) => void;
+	readonly setWorkerReplacementPreparer?: (prepare: () => void) => void;
 }
 
 export interface BridgePaneSurfaceLifecycleView {
@@ -82,6 +89,7 @@ export interface BridgePaneRuntime {
 	readonly installTelemetryProducer: (
 		install: BridgePaneCommWorkerTelemetryProducerInstall,
 	) => void;
+	readonly installMainTelemetryRecorder: (recorder: BridgeCommWorkerTelemetryRecorder) => void;
 	readonly setNativeBootstrapRequester: (requester: (reason: 'workerReplacement') => void) => void;
 	readonly surfaceClient: (surface: BridgePaneSurface) => BridgePaneSurfaceClient;
 }
@@ -108,6 +116,7 @@ export function createBridgePaneRuntime(
 	const rpcClients = new Map<BridgePaneSurface | 'pane', BridgeWorkerRpcClient>();
 	const surfaceClients = new Map<BridgePaneSurface, BridgePaneSurfaceClient>();
 	const renderFulfillmentCoordinators = new Set<BridgeMainRenderFulfillmentCoordinator>();
+	const renderDispositionAdmissions = new Set<BridgeMainRenderDispositionAdmission>();
 	const renderStores = new Set<BridgeMainRenderSnapshotStore>();
 	let isDisposed = false;
 	let nativeBootstrapInstalled = false;
@@ -118,6 +127,10 @@ export function createBridgePaneRuntime(
 	let nextRequestSequence = 0;
 	let fileRpcClient: BridgeWorkerRpcClient | null = null;
 	let latestFileDisplayEpoch = 0;
+	let mainTelemetryRecorder: BridgeCommWorkerTelemetryRecorder | undefined;
+	const admissionTelemetryRecorder: BridgeCommWorkerTelemetryRecorder = {
+		record: (sample): void => mainTelemetryRecorder?.record(sample),
+	};
 	const currentReplacementReplayEntryByKey = new Map<string, BridgePaneReplacementReplayEntry>();
 	let pendingReplacementReplayEntryByKey: Map<string, BridgePaneReplacementReplayEntry> | null =
 		null;
@@ -158,6 +171,21 @@ export function createBridgePaneRuntime(
 			});
 		}
 	};
+	const prepareRuntimeForWorkerReplacement = (): void => {
+		if (isDisposed || nativeBootstrapReplacementRequested) return;
+		nativeBootstrapReplacementRequested = true;
+		for (const admission of renderDispositionAdmissions) {
+			admission.prepareForWorkerReplacement();
+		}
+		failPendingRequestsForWorkerReplacement();
+		pendingReplacementReplayEntryByKey = new Map(currentReplacementReplayEntryByKey);
+		latestFileDisplayEpoch = 0;
+		for (const renderStore of renderStores) renderStore.prepareForWorkerReplacement();
+		for (const coordinator of renderFulfillmentCoordinators) {
+			coordinator.retireWorkerInstance();
+		}
+	};
+	session.setWorkerReplacementPreparer?.(prepareRuntimeForWorkerReplacement);
 
 	const publishDiagnosticSnapshot = (): void => {
 		try {
@@ -222,17 +250,31 @@ export function createBridgePaneRuntime(
 			});
 		}
 		rpcClients.set(surface, rpcClient);
-		const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
-			sendDisposition: (receipt): void => {
+		const renderDispositionAdmission = createBridgeMainRenderDispositionAdmission({
+			dispatchBatch: (receipts): string =>
 				rpcClient.send(
 					encodeBridgeWorkerRenderDispositionCommand({
-						epoch: receipt.workerDerivationEpoch,
-						receipt,
+						epoch: receipts[0]?.workerDerivationEpoch ?? 0,
+						receipts,
 						requestId: 'bridge-main-render-fulfillment',
 					}),
-				);
+				),
+			lifecycleStore,
+			requestWorkerReplacement: (): void => {
+				if (isDisposed) return;
+				if (session.requestWorkerReplacement === undefined) {
+					throw new Error('Bridge pane runtime session cannot replace an overloaded worker.');
+				}
+				prepareRuntimeForWorkerReplacement();
+				session.requestWorkerReplacement();
 			},
+			surface,
+			telemetryClient: admissionTelemetryRecorder,
 		});
+		const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
+			sendDisposition: (receipt): void => renderDispositionAdmission.enqueue(receipt),
+		});
+		renderDispositionAdmissions.add(renderDispositionAdmission);
 		renderFulfillmentCoordinators.add(renderFulfillmentCoordinator);
 		const sendSurfaceCommand = (command: BridgeWorkerRpcCommandInput): string => {
 			recordReplacementReplayEntry(command, rpcClient.send);
@@ -273,11 +315,13 @@ export function createBridgePaneRuntime(
 			if (isDisposed) return;
 			isDisposed = true;
 			for (const coordinator of renderFulfillmentCoordinators) coordinator.dispose();
+			for (const admission of renderDispositionAdmissions) admission.dispose();
 			for (const client of rpcClients.values()) client.dispose();
 			for (const renderStore of renderStores) renderStore.dispose();
 			lifecycleStore.dispose();
 			rpcClients.clear();
 			renderFulfillmentCoordinators.clear();
+			renderDispositionAdmissions.clear();
 			surfaceClients.clear();
 			renderStores.clear();
 			dispatcher.dispose();
@@ -285,6 +329,7 @@ export function createBridgePaneRuntime(
 		},
 		installNativeBootstrap: (bootstrap): void => {
 			nativeBootstrapInstallAttemptCount += 1;
+			const installsReplacement = nativeBootstrapReplacementRequested;
 			try {
 				if (isDisposed) throw new Error('Bridge pane runtime is disposed.');
 				if (nativeBootstrapInstalled && !nativeBootstrapReplacementRequested) {
@@ -294,6 +339,11 @@ export function createBridgePaneRuntime(
 				nativeBootstrapInstalled = true;
 				nativeBootstrapReplacementRequested = false;
 				nativeBootstrapInstallAcceptedCount += 1;
+				if (installsReplacement) {
+					for (const admission of renderDispositionAdmissions) {
+						admission.resumeAfterWorkerReplacement();
+					}
+				}
 			} catch (error: unknown) {
 				nativeBootstrapInstallRejectedCount += 1;
 				publishDiagnosticSnapshot();
@@ -312,6 +362,10 @@ export function createBridgePaneRuntime(
 			}
 			session.installTelemetryProducer(install);
 		},
+		installMainTelemetryRecorder: (recorder): void => {
+			if (isDisposed) return;
+			mainTelemetryRecorder = recorder;
+		},
 		setNativeBootstrapRequester: (requester): void => {
 			if (isDisposed) return;
 			if (session.setNativeBootstrapRequester === undefined) {
@@ -319,14 +373,7 @@ export function createBridgePaneRuntime(
 			}
 			session.setNativeBootstrapRequester((reason): void => {
 				if (isDisposed) return;
-				nativeBootstrapReplacementRequested = true;
-				failPendingRequestsForWorkerReplacement();
-				pendingReplacementReplayEntryByKey = new Map(currentReplacementReplayEntryByKey);
-				latestFileDisplayEpoch = 0;
-				for (const renderStore of renderStores) renderStore.prepareForWorkerReplacement();
-				for (const coordinator of renderFulfillmentCoordinators) {
-					coordinator.retireWorkerInstance();
-				}
+				prepareRuntimeForWorkerReplacement();
 				requester(reason);
 			});
 		},
@@ -414,8 +461,10 @@ function createDefaultBridgePaneSessionPort(
 		dispose: (): void => session.dispose(),
 		installNativeBootstrap: (bootstrap): void => session.installNativeBootstrap(bootstrap),
 		installTelemetryProducer: (install): void => session.installTelemetryProducer(install),
+		requestWorkerReplacement: (): void => session.requestWorkerReplacement(),
 		setNativeBootstrapRequester: (requester): void =>
 			session.setNativeBootstrapRequester(requester),
+		setWorkerReplacementPreparer: (prepare): void => session.setWorkerReplacementPreparer(prepare),
 	};
 }
 

@@ -66,6 +66,7 @@ export class BridgePaneCommWorkerSession {
 		snapshot: BridgePaneCommWorkerSessionDiagnosticSnapshot,
 	) => void;
 	#requestNativeBootstrap: (reason: 'workerReplacement') => void;
+	#prepareForWorkerReplacement: () => void = (): void => {};
 	readonly #workerFactory: () => Promise<Worker> | Worker;
 	#bootstrapClient: BridgePaneCommWorkerClient | null = null;
 	#bootstrapTimeout: ReturnType<typeof globalThis.setTimeout> | null = null;
@@ -119,6 +120,18 @@ export class BridgePaneCommWorkerSession {
 			return;
 		}
 		this.#requestNativeBootstrap = requestNativeBootstrap;
+	}
+
+	setWorkerReplacementPreparer(prepareForWorkerReplacement: () => void): void {
+		if (this.#isDisposed) return;
+		this.#prepareForWorkerReplacement = prepareForWorkerReplacement;
+	}
+
+	requestWorkerReplacement(): void {
+		if (this.#isDisposed || this.#isRestartRequested) return;
+		this.#prepareForWorkerReplacement();
+		this.#retireCurrentWorker();
+		this.#requestWorkerReplacementBootstrap();
 	}
 
 	installTelemetryProducer(install: BridgePaneCommWorkerTelemetryProducerInstall): void {
@@ -256,6 +269,7 @@ export class BridgePaneCommWorkerSession {
 					candidateWorker.terminate();
 				}
 				if (this.#workerPromise === workerPromise) {
+					this.#prepareForWorkerReplacement();
 					this.#retireCurrentWorker();
 					this.#requestWorkerReplacementBootstrap();
 				}
@@ -314,8 +328,7 @@ export class BridgePaneCommWorkerSession {
 		if (this.#isDisposed || this.#worker !== worker) {
 			return;
 		}
-		this.#retireCurrentWorker();
-		this.#requestWorkerReplacementBootstrap();
+		this.requestWorkerReplacement();
 	}
 
 	#requestWorkerReplacementBootstrap(): void {

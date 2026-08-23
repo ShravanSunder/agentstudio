@@ -470,22 +470,24 @@ describe('BridgeWorkerContracts', () => {
 			requestId: 'request-render-disposition',
 			epoch: 4,
 			transferDescriptors: [],
-			receipt: {
-				kind: 'render.disposition',
-				disposition: 'painted',
-				receivedAtMilliseconds: 125,
-				attemptId: 'render-attempt-review-4-11',
-				itemId: 'item-11',
-				operationCorrelationId: null,
-				paneSessionId: 'pane-session-1',
-				publicationId: 'render-publication-review-4-11',
-				publicationSequence: 11,
-				submissionId: 'render-submission-review-4-11',
-				surface: 'review',
-				windowKey: 'review-cache-key-11',
-				workerDerivationEpoch: 4,
-				workerInstanceId: 'worker-instance-1',
-			},
+			receipts: [
+				{
+					kind: 'render.disposition',
+					disposition: 'painted',
+					receivedAtMilliseconds: 125,
+					attemptId: 'render-attempt-review-4-11',
+					itemId: 'item-11',
+					operationCorrelationId: null,
+					paneSessionId: 'pane-session-1',
+					publicationId: 'render-publication-review-4-11',
+					publicationSequence: 11,
+					submissionId: 'render-submission-review-4-11',
+					surface: 'review',
+					windowKey: 'review-cache-key-11',
+					workerDerivationEpoch: 4,
+					workerInstanceId: 'worker-instance-1',
+				},
+			],
 		};
 
 		// Act
@@ -506,12 +508,12 @@ describe('BridgeWorkerContracts', () => {
 			'workerDerivationEpoch',
 			'workerInstanceId',
 		] as const) {
-			const receiptWithoutIdentityField = { ...renderDispositionCommand.receipt };
+			const receiptWithoutIdentityField = { ...renderDispositionCommand.receipts[0] };
 			Reflect.deleteProperty(receiptWithoutIdentityField, requiredIdentityField);
 			expect(
 				bridgeWorkerMainToServerMessageSchema.safeParse({
 					...renderDispositionCommand,
-					receipt: receiptWithoutIdentityField,
+					receipts: [receiptWithoutIdentityField],
 				}).success,
 				`expected ${requiredIdentityField} to be required`,
 			).toBe(false);
@@ -519,7 +521,20 @@ describe('BridgeWorkerContracts', () => {
 		expect(
 			bridgeWorkerMainToServerMessageSchema.safeParse({
 				...renderDispositionCommand,
-				receipt: { ...renderDispositionCommand.receipt, undeclaredIdentity: true },
+				receipts: [{ ...renderDispositionCommand.receipts[0], undeclaredIdentity: true }],
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerMainToServerMessageSchema.safeParse({
+				...renderDispositionCommand,
+				receipts: [],
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerMainToServerMessageSchema.safeParse({
+				...renderDispositionCommand,
+				receipt: renderDispositionCommand.receipts[0],
+				receipts: undefined,
 			}).success,
 		).toBe(false);
 	});

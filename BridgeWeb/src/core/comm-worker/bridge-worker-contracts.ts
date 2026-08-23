@@ -63,10 +63,8 @@ import {
 	bridgeWorkerPierreRenderBudgetSchema,
 	bridgeWorkerPierreRenderJobSchema,
 } from './bridge-worker-pierre-render-job.js';
-import {
-	bridgeWorkerRenderDispositionReceiptSchema,
-	bridgeWorkerRenderReceiptIdentitySchema,
-} from './bridge-worker-render-fulfillment.js';
+import { bridgeWorkerRenderDispositionCommandSchema } from './bridge-worker-render-disposition-command-contract.js';
+import { bridgeWorkerRenderReceiptIdentitySchema } from './bridge-worker-render-fulfillment.js';
 import {
 	bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema,
 	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
@@ -301,13 +299,6 @@ export const bridgeWorkerReviewInvalidateCommandSchema = bridgeWorkerMainToServe
 		itemIds: z.array(z.string().min(1)).readonly(),
 		pathHints: z.array(z.string().min(1)).readonly(),
 		reason: z.enum(['sourceChanged', 'watchEvent', 'lineageReplaced', 'unknown']),
-	})
-	.strict();
-
-export const bridgeWorkerRenderDispositionCommandSchema = bridgeWorkerMainToServerBaseSchema
-	.extend({
-		command: z.literal('renderDisposition'),
-		receipt: bridgeWorkerRenderDispositionReceiptSchema,
 	})
 	.strict();
 

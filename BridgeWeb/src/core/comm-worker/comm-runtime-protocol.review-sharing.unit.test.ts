@@ -95,12 +95,14 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 		dispatch.message(
 			encodeBridgeWorkerRenderDispositionCommand({
 				epoch: 5,
-				receipt: bridgeWorkerRenderDispositionReceiptSchema.parse({
-					...firstRenderPublication.renderReceiptIdentity,
-					disposition: 'painted',
-					kind: 'render.disposition',
-					receivedAtMilliseconds: 0,
-				}),
+				receipts: [
+					bridgeWorkerRenderDispositionReceiptSchema.parse({
+						...firstRenderPublication.renderReceiptIdentity,
+						disposition: 'painted',
+						kind: 'render.disposition',
+						receivedAtMilliseconds: 0,
+					}),
+				],
 				requestId: 'request-acknowledge-resident-body-render',
 			}),
 		);

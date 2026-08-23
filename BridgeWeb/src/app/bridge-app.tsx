@@ -203,7 +203,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			bridgeReadyCallbacksRef.current.delete(callback);
 		};
 	}, []);
-	useBridgeCommWorkerSessionTelemetry(telemetryRecorder);
+	useBridgeCommWorkerSessionTelemetry(telemetryRecorder, paneRuntimeHost.runtime);
 	const activateViewerMode = useCallback(
 		(
 			viewerMode: BridgeViewerMode,

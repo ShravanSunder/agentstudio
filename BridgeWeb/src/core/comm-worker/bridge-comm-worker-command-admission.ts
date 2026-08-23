@@ -42,7 +42,7 @@ export function bridgeCommWorkerIntentEpochDomain(
 		case 'reviewPublicationInstalled':
 			return 'review';
 		case 'renderDisposition':
-			return message.receipt.surface === 'file' ? 'fileView' : 'review';
+			return message.receipts[0]?.surface === 'file' ? 'fileView' : 'review';
 		case 'activeViewerModeUpdate':
 		case 'mode':
 			return 'pane';

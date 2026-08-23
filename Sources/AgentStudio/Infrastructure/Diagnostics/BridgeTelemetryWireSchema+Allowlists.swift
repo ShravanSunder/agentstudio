@@ -22,7 +22,7 @@ extension BridgeTelemetryWireSchema {
         "agentstudio.bridge.transport",
     ]
 
-    static let allowedEventNames: Set<String> = [
+    static let allowedEventNames: Set<String> = Set([
         "performance.bridge.swift.active_viewer_mode_signal_accepted",
         "performance.bridge.swift.active_viewer_mode_signal_rejected",
         "performance.bridge.swift.annotation_lifecycle",
@@ -81,7 +81,7 @@ extension BridgeTelemetryWireSchema {
         "performance.bridge.pierre.virtualized_range",
         "performance.bridge.shiki.highlight",
         "performance.bridge.worker.task",
-    ]
+    ]).union(BridgeRenderDispositionTelemetryContract.eventNames)
 
     static let allowedStringValuesByAttributeKey: [String: Set<String>] = [
         "agentstudio.bridge.activation.cause": [
@@ -304,7 +304,7 @@ extension BridgeTelemetryWireSchema {
             "file",
             "review",
         ],
-        "agentstudio.bridge.phase": [
+        "agentstudio.bridge.phase": Set([
             "accepted",
             "active_viewer_mode_suppression_catch_up",
             "active_viewer_mode_signal_accepted",
@@ -450,7 +450,7 @@ extension BridgeTelemetryWireSchema {
             "worktree_file_frame_apply",
             "worktree_file_projection",
             "worker_task",
-        ],
+        ]).union(BridgeRenderDispositionTelemetryContract.phaseValues),
         "agentstudio.bridge.plane": Set(
             BridgeTelemetryPlane.allCases.map(\.rawValue)
         ),
@@ -548,6 +548,7 @@ extension BridgeTelemetryWireSchema {
             "unsupported_content",
             "updated",
         ],
+        "agentstudio.bridge.render_disposition.outcome": ["acked", "cleared", "degraded", "timed_out"],
         "agentstudio.bridge.result_reason": [
             "admission_failed",
             "admission_rejected",
@@ -768,6 +769,12 @@ extension BridgeTelemetryWireSchema {
             "speculative",
             "visible",
         ],
+        "agentstudio.bridge.worker.semantic_class": [
+            "demand",
+            "lifecycle_control",
+            "settlement",
+            "urgent_action",
+        ],
         "agentstudio.bridge.worker.file_mode_dispatch": [
             "dropped_detached",
             "none",
@@ -817,6 +824,9 @@ extension BridgeTelemetryWireSchema {
         ],
         "agentstudio.bridge.worker.command": [
             "activeViewerModeUpdate",
+            "annotationCommand",
+            "annotationOutputInspect",
+            "annotationProjectionRetry",
             "fileDisplayResync",
             "fileQueryUpdate",
             "fileSourceDiscovery",
@@ -825,9 +835,14 @@ extension BridgeTelemetryWireSchema {
             "metadataInterestUpdate",
             "mode",
             "renderDisposition",
+            "reviewComparisonTargetsQuery",
+            "reviewComparisonTargetsQueryCancel",
+            "reviewComparisonUpdate",
             "reviewIntakeReady",
             "reviewInvalidate",
             "reviewProjectionUpdate",
+            "reviewPublicationInstallAdmit",
+            "reviewPublicationInstalled",
             "select",
             "viewport",
         ],
@@ -961,6 +976,7 @@ extension BridgeTelemetryWireSchema {
         "agentstudio.startup_diagnostic.bridge.file_view.metadata_tree_row.count",
         "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_sequence",
     ]).union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
+        .union(BridgeRenderDispositionTelemetryContract.numericAttributeKeys)
 
     static let allowedBooleanAttributeKeys: Set<String> = Set([
         "agentstudio.bridge.activation.source_available",

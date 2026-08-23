@@ -758,31 +758,30 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		}
 		if (
 			parsedMessage.data.command === 'renderDisposition' &&
-			parsedMessage.data.receipt.surface === 'file' &&
+			parsedMessage.data.receipts.some((receipt): boolean => receipt.surface === 'file') &&
 			bridgeWorkerRuntimeMessagesContainReadyRequest({
 				messages,
 				requestId: parsedMessage.data.requestId,
 			})
 		) {
-			const currentOperation = selectedFileContentOperationController.current;
-			if (
-				currentOperation !== null &&
-				parsedMessage.data.receipt.operationCorrelationId ===
-					currentOperation.operationCorrelationId
-			) {
-				selectedFileLifecycleTelemetry.disposition(
-					currentOperation,
-					parsedMessage.data.receipt.disposition,
-				);
+			for (const receipt of parsedMessage.data.receipts) {
+				if (receipt.surface !== 'file') continue;
+				const currentOperation = selectedFileContentOperationController.current;
+				if (
+					currentOperation !== null &&
+					receipt.operationCorrelationId === currentOperation.operationCorrelationId
+				) {
+					selectedFileLifecycleTelemetry.disposition(currentOperation, receipt.disposition);
+				}
+				const settlement = settleAcceptedSelectedFileRenderDisposition({
+					controller: selectedFileContentOperationController,
+					createSequence,
+					receipt,
+					store: selectedFileContentOperationStore,
+				});
+				if (settlement.terminalPatch !== null) port.postMessage(settlement.terminalPatch);
+				if (settlement.settled) selectedFileContentOperationStore = null;
 			}
-			const settlement = settleAcceptedSelectedFileRenderDisposition({
-				controller: selectedFileContentOperationController,
-				createSequence,
-				receipt: parsedMessage.data.receipt,
-				store: selectedFileContentOperationStore,
-			});
-			if (settlement.terminalPatch !== null) port.postMessage(settlement.terminalPatch);
-			if (settlement.settled) selectedFileContentOperationStore = null;
 		}
 		if (
 			parsedMessage.data.command === 'select' &&
@@ -837,7 +836,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			}
 		}
 		if (parsedMessage.data.command === 'renderDisposition') {
-			advanceRenderFulfillmentLifecycle(parsedMessage.data.receipt.surface);
+			for (const surface of new Set(
+				parsedMessage.data.receipts.map((receipt) => receipt.surface),
+			)) {
+				advanceRenderFulfillmentLifecycle(surface);
+			}
 		}
 		const handlerDurationMilliseconds =
 			readBridgeCommWorkerRuntimeNowMilliseconds(props.now) - handlerStartedAtMilliseconds;

@@ -457,12 +457,14 @@ describe('Bridge comm worker File product runtime', () => {
 		dispatch.message(
 			encodeBridgeWorkerRenderDispositionCommand({
 				epoch: fileRenderPublication.workerDerivationEpoch,
-				receipt: bridgeWorkerRenderDispositionReceiptSchema.parse({
-					...fileRenderPublication.renderReceiptIdentity,
-					disposition: 'queued',
-					kind: 'render.disposition',
-					receivedAtMilliseconds: 0,
-				}),
+				receipts: [
+					bridgeWorkerRenderDispositionReceiptSchema.parse({
+						...fileRenderPublication.renderReceiptIdentity,
+						disposition: 'queued',
+						kind: 'render.disposition',
+						receivedAtMilliseconds: 0,
+					}),
+				],
 				requestId: 'request-production-stamped-file-queued',
 			}),
 		);
@@ -470,12 +472,14 @@ describe('Bridge comm worker File product runtime', () => {
 			dispatch.message(
 				encodeBridgeWorkerRenderDispositionCommand({
 					epoch: fileRenderPublication.workerDerivationEpoch,
-					receipt: bridgeWorkerRenderDispositionReceiptSchema.parse({
-						...fileRenderPublication.renderReceiptIdentity,
-						disposition,
-						kind: 'render.disposition',
-						receivedAtMilliseconds: 0,
-					}),
+					receipts: [
+						bridgeWorkerRenderDispositionReceiptSchema.parse({
+							...fileRenderPublication.renderReceiptIdentity,
+							disposition,
+							kind: 'render.disposition',
+							receivedAtMilliseconds: 0,
+						}),
+					],
 					requestId: `request-production-stamped-file-${disposition}`,
 				}),
 			);

@@ -14,6 +14,7 @@ const bridgeWorkerRenderTimestampSchema = z
 	.nonnegative()
 	.max(Number.MAX_SAFE_INTEGER);
 const bridgeWorkerRenderWindowKeySchema = z.string().min(1).max(4096);
+export const bridgeWorkerRenderDispositionBatchMaximumReceiptCount = 64;
 
 const bridgeWorkerRenderReceiptIdentityShape = {
 	attemptId: bridgeProductIdentifierSchema,

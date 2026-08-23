@@ -165,7 +165,9 @@ function bridgeWorkerCommandMatchesSurface(
 		case 'reviewPublicationInstalled':
 			return surface === 'review';
 		case 'renderDisposition':
-			return command.receipt.surface === 'file' ? surface === 'fileView' : surface === 'review';
+			return command.receipts[0]?.surface === 'file'
+				? surface === 'fileView'
+				: surface === 'review';
 		case 'hover':
 		case 'select':
 		case 'viewport':
@@ -182,7 +184,15 @@ function assertBridgeWorkerCommandMatchesSurface(
 	surface: BridgeWorkerRpcClientSurface,
 ): void {
 	if (command.command === 'renderDisposition') {
-		const receiptSurface = command.receipt.surface === 'file' ? 'fileView' : 'review';
+		const receiptSurface = command.receipts[0]?.surface === 'file' ? 'fileView' : 'review';
+		if (
+			command.receipts.some(
+				(receipt): boolean =>
+					(receipt.surface === 'file' ? 'fileView' : 'review') !== receiptSurface,
+			)
+		) {
+			throw new Error('Bridge worker renderDisposition command cannot mix surfaces.');
+		}
 		if (receiptSurface !== surface) {
 			throw new Error(
 				`Bridge worker renderDisposition command targets ${receiptSurface}, not ${surface}.`,

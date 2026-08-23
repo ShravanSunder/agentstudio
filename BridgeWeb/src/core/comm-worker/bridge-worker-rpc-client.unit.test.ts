@@ -211,7 +211,7 @@ describe('Bridge worker RPC client', () => {
 		expect(dispatch).toHaveBeenCalledOnce();
 		expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
 			command: 'renderDisposition',
-			receipt: { surface: 'review' },
+			receipts: [{ surface: 'review' }],
 		});
 		fileClient.dispose();
 		reviewClient.dispose();
@@ -456,22 +456,24 @@ function makeReviewRenderDispositionCommandInput(): BridgeWorkerRpcCommandInput 
 	return {
 		command: 'renderDisposition',
 		epoch: 5,
-		receipt: {
-			attemptId: 'attempt-review-8',
-			disposition: 'queued',
-			itemId: 'item-1',
-			kind: 'render.disposition',
-			operationCorrelationId: null,
-			paneSessionId: 'pane-session-1',
-			publicationId: 'publication-review-8',
-			publicationSequence: 8,
-			receivedAtMilliseconds: 42,
-			submissionId: 'submission-review-8',
-			surface: 'review',
-			windowKey: 'window-review-8',
-			workerDerivationEpoch: 5,
-			workerInstanceId: 'worker-instance-1',
-		},
+		receipts: [
+			{
+				attemptId: 'attempt-review-8',
+				disposition: 'queued',
+				itemId: 'item-1',
+				kind: 'render.disposition',
+				operationCorrelationId: null,
+				paneSessionId: 'pane-session-1',
+				publicationId: 'publication-review-8',
+				publicationSequence: 8,
+				receivedAtMilliseconds: 42,
+				submissionId: 'submission-review-8',
+				surface: 'review',
+				windowKey: 'window-review-8',
+				workerDerivationEpoch: 5,
+				workerInstanceId: 'worker-instance-1',
+			},
+		],
 	};
 }
 

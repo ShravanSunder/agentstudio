@@ -69,6 +69,33 @@ describe('Bridge comm worker runtime render fulfillment', () => {
 		).toMatchObject({ status: 'ready' });
 	});
 
+	test('applies an ordered queued applied painted batch with one worker acknowledgement', async () => {
+		const harness = await createReviewRenderPublicationHarness();
+		const identity = harness.publication.renderReceiptIdentity;
+
+		harness.dispatch.message(
+			encodeBridgeWorkerRenderDispositionCommand({
+				epoch: identity.workerDerivationEpoch,
+				receipts: (['queued', 'applied', 'painted'] as const).map((disposition) =>
+					makeDispositionReceipt({ disposition, identity }),
+				),
+				requestId: 'request-ordered-render-disposition-batch',
+			}),
+		);
+
+		expectHealthForRequest(
+			harness.postedMessages,
+			'request-ordered-render-disposition-batch',
+		).toMatchObject({ status: 'ready' });
+		expect(
+			harness.postedMessages.filter(
+				({ message }) =>
+					message.kind === 'health' &&
+					message.requestId === 'request-ordered-render-disposition-batch',
+			),
+		).toHaveLength(1);
+	});
+
 	test('keeps Review ready, published, queued, and applied intermediate until matching painted residency', async () => {
 		// Arrange
 		const harness = await createReviewRenderPublicationHarness();
@@ -235,14 +262,16 @@ describe('Bridge comm worker runtime render fulfillment', () => {
 		harness.dispatch.message(
 			encodeBridgeWorkerRenderDispositionCommand({
 				epoch: reviewIntentEpoch,
-				receipt: bridgeWorkerRenderDispositionReceiptSchema.parse({
-					...firstPublication.renderReceiptIdentity,
-					disposition: 'rejected',
-					kind: 'render.disposition',
-					reason: 'stale_attempt',
-					receivedAtMilliseconds: 0,
-					retryAtMilliseconds: 0,
-				}),
+				receipts: [
+					bridgeWorkerRenderDispositionReceiptSchema.parse({
+						...firstPublication.renderReceiptIdentity,
+						disposition: 'rejected',
+						kind: 'render.disposition',
+						reason: 'stale_attempt',
+						receivedAtMilliseconds: 0,
+						retryAtMilliseconds: 0,
+					}),
+				],
 				requestId: 'request-reject-visible-publication',
 			}),
 		);
@@ -591,7 +620,7 @@ function dispatchDisposition(
 	harness.dispatch.message(
 		encodeBridgeWorkerRenderDispositionCommand({
 			epoch: props.epoch ?? reviewIntentEpoch,
-			receipt: makeDispositionReceipt(props),
+			receipts: [makeDispositionReceipt(props)],
 			requestId: props.requestId,
 		}),
 	);

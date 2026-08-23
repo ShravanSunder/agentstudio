@@ -49,6 +49,8 @@ import {
 	createBridgeCommWorkerStore,
 	type BridgeCommWorkerStore,
 } from './bridge-comm-worker-store.js';
+import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
+import { recordBridgeWorkerRenderDispositionBatchTelemetry } from './bridge-render-disposition-telemetry.js';
 import {
 	type BridgeWorkerFileDisplayResyncCommand,
 	type BridgeWorkerFileQueryUpdateCommand,
@@ -399,6 +401,7 @@ export function createBridgeCommWorkerCommandHandler(
 				...(props.retryAnnotationProjection === undefined
 					? {}
 					: { retryAnnotationProjection: props.retryAnnotationProjection }),
+				...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 			});
 		},
 	};
@@ -431,6 +434,7 @@ interface HandleBridgeWorkerCommandProps {
 		command: BridgeWorkerFileDisplayResyncCommand,
 	) => readonly BridgeWorkerServerToMainMessage[];
 	readonly retryAnnotationProjection?: (surface: 'file' | 'review') => void;
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 	readonly applyRenderDisposition?: (props: {
 		readonly command: BridgeWorkerRenderDispositionCommand;
 		readonly store: BridgeCommWorkerStore;
@@ -554,12 +558,29 @@ function appendBridgeWorkerReadyAcknowledgement(props: {
 		: [...props.messages, buildBridgeWorkerReadyHealthEvent(props.requestId)];
 }
 
-function applyBridgeWorkerRenderDispositionCommand(props: {
+export function applyBridgeWorkerRenderDispositionCommand(props: {
 	readonly command: BridgeWorkerRenderDispositionCommand;
-	readonly store: BridgeCommWorkerStore;
+	readonly store: {
+		readonly renderFulfillmentRegistry: Pick<
+			BridgeWorkerRenderFulfillmentRegistry,
+			'applyDisposition'
+		>;
+	};
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }): readonly BridgeWorkerServerToMainMessage[] {
-	const result = props.store.renderFulfillmentRegistry.applyDisposition(props.command.receipt);
-	return result.status === 'rejected'
+	const resultCounts = { accepted: 0, duplicate: 0, rejected: 0 };
+	for (const receipt of props.command.receipts) {
+		resultCounts[props.store.renderFulfillmentRegistry.applyDisposition(receipt).status] += 1;
+	}
+	recordBridgeWorkerRenderDispositionBatchTelemetry({
+		acceptedCount: resultCounts.accepted,
+		duplicateCount: resultCounts.duplicate,
+		receiptCount: props.command.receipts.length,
+		rejectedCount: resultCounts.rejected,
+		surface: props.command.receipts[0]?.surface ?? 'review',
+		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
+	});
+	return resultCounts.rejected > 0
 		? [
 				buildBridgeWorkerDegradedHealthEvent({
 					message: 'Bridge render disposition did not match a current worker publication.',

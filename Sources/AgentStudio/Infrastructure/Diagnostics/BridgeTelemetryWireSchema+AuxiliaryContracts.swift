@@ -29,10 +29,14 @@ extension BridgeTelemetryWireSchema {
             virtualizedRangeContractMatches(contract)
         case "performance.bridge.web.pane_presentation":
             panePresentationContractMatches(contract)
+        case "performance.bridge.web.render_disposition_admission":
+            renderDispositionAdmissionContractMatches(contract)
         case "performance.bridge.shiki.highlight":
             shikiHighlightContractMatches(contract)
         case "performance.bridge.worker.task":
             workerTaskContractMatches(contract)
+        case "performance.bridge.worker.render_disposition_batch":
+            workerRenderDispositionBatchContractMatches(contract)
         default:
             nil
         }
@@ -646,6 +650,7 @@ extension BridgeTelemetryWireSchema {
             "agentstudio.bridge.result",
             "agentstudio.bridge.worker.command",
             "agentstudio.bridge.worker.lane",
+            "agentstudio.bridge.worker.semantic_class",
             "agentstudio.bridge.worker.task_kind",
         ]
         let numericKeys: Set<String> = [
@@ -669,6 +674,102 @@ extension BridgeTelemetryWireSchema {
                     ]
                 )
             )
+    }
+
+    private static func renderDispositionAdmissionContractMatches(
+        _ contract: EventContract
+    ) -> Bool {
+        let commonNumericKeys: Set<String> = [
+            "agentstudio.bridge.render_disposition.duplicate_count",
+            "agentstudio.bridge.render_disposition.oldest_pending_age_ms",
+            "agentstudio.bridge.render_disposition.pending_count",
+            "agentstudio.bridge.render_disposition.pending_high_water_mark",
+            "agentstudio.bridge.render_disposition.produced_count",
+        ]
+        let commonStringKeys: Set<String> = [
+            "agentstudio.bridge.result",
+            "agentstudio.bridge.viewer",
+        ]
+        func exactExpectation(
+            _ phase: String,
+            _ stringKeys: Set<String>,
+            _ numericKeys: Set<String>
+        ) -> EventExpectation {
+            EventExpectation(
+                phase: phase,
+                plane: .control,
+                priority: .warm,
+                slice: .commandAcks,
+                transport: "worker",
+                attributeKeys: .init(
+                    additionalStringKeys: stringKeys,
+                    numericKeys: numericKeys
+                )
+            )
+        }
+        return contract.matches(
+            exactExpectation(
+                "render_disposition_batch_dispatched",
+                commonStringKeys,
+                commonNumericKeys.union([
+                    "agentstudio.bridge.render_disposition.batch_receipt_count"
+                ])
+            )
+        )
+            || contract.matches(
+                exactExpectation(
+                    "render_disposition_batch_terminal",
+                    commonStringKeys.union([
+                        "agentstudio.bridge.render_disposition.outcome"
+                    ]),
+                    commonNumericKeys.union([
+                        "agentstudio.bridge.render_disposition.batch_receipt_count"
+                    ])
+                )
+            )
+            || contract.matches(
+                exactExpectation(
+                    "render_disposition_admission_overloaded",
+                    commonStringKeys,
+                    commonNumericKeys
+                )
+            )
+            || contract.matches(
+                exactExpectation(
+                    "render_disposition_admission_cleared",
+                    commonStringKeys.union([
+                        "agentstudio.bridge.render_disposition.outcome"
+                    ]),
+                    commonNumericKeys
+                )
+            )
+    }
+
+    private static func workerRenderDispositionBatchContractMatches(
+        _ contract: EventContract
+    ) -> Bool {
+        contract.matches(
+            .init(
+                phase: "render_disposition_batch_applied",
+                plane: .data,
+                priority: .warm,
+                slice: .commandAcks,
+                transport: "worker",
+                attributeKeys: .init(
+                    additionalStringKeys: [
+                        "agentstudio.bridge.render_disposition.outcome",
+                        "agentstudio.bridge.result",
+                        "agentstudio.bridge.viewer",
+                    ],
+                    numericKeys: [
+                        "agentstudio.bridge.render_disposition.accepted_count",
+                        "agentstudio.bridge.render_disposition.batch_receipt_count",
+                        "agentstudio.bridge.render_disposition.duplicate_count",
+                        "agentstudio.bridge.render_disposition.rejected_count",
+                    ]
+                )
+            )
+        )
     }
 
     private static func commWorkerContentPreparationContractMatches(

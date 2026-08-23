@@ -7,7 +7,6 @@ import {
 	bridgeWorkerMarkFileViewedCommandSchema,
 	bridgeWorkerMetadataInterestUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
-	bridgeWorkerRenderDispositionCommandSchema,
 	bridgeWorkerReviewIntakeReadyCommandSchema,
 	bridgeWorkerReviewComparisonUpdateCommandSchema,
 	bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema,
@@ -49,6 +48,7 @@ import {
 	type BridgeWorkerSelectCommand,
 	type BridgeWorkerViewportCommand,
 } from './bridge-worker-contracts.js';
+import { bridgeWorkerRenderDispositionCommandSchema } from './bridge-worker-render-disposition-command-contract.js';
 
 export type BridgeWorkerCommandName = BridgeWorkerMainToServerCommand['command'];
 
@@ -130,7 +130,7 @@ export interface EncodeBridgeWorkerReviewProjectionUpdateCommandProps extends En
 }
 
 export interface EncodeBridgeWorkerRenderDispositionCommandProps extends EncodeBridgeWorkerCommandBaseProps {
-	readonly receipt: BridgeWorkerRenderDispositionCommand['receipt'];
+	readonly receipts: BridgeWorkerRenderDispositionCommand['receipts'];
 }
 
 export interface EncodeBridgeWorkerReviewPublicationInstallAdmitCommandProps extends EncodeBridgeWorkerCommandBaseProps {
@@ -326,7 +326,7 @@ export function encodeBridgeWorkerRenderDispositionCommand(
 ): BridgeWorkerRenderDispositionCommand {
 	return bridgeWorkerRenderDispositionCommandSchema.parse({
 		...bridgeWorkerCommandEnvelope(props, 'renderDisposition'),
-		receipt: props.receipt,
+		receipts: props.receipts,
 	});
 }
 
