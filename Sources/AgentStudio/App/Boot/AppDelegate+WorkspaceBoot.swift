@@ -323,8 +323,13 @@ extension AppDelegate {
                 )
             )
         seedSlotsForInstalledPanes()
+        let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
+        let gitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(
+            physicalGate: gitStatusPhysicalGate
+        )
         let pipeline = FilesystemGitPipeline(
             bus: paneRuntimeBus,
+            gitWorkingTreeProvider: gitWorkingTreeStatusProvider,
             fseventStreamClient: DarwinFSEventStreamClient(),
             performanceTraceRecorder: performanceTraceRecorder
         )
@@ -343,6 +348,8 @@ extension AppDelegate {
             closeTransitionCoordinator: closeTransitionCoordinator,
             bridgeGitReadScheduler: bridgeGitReadScheduler,
             worktreeProductConstructionCoordinator: bridgeWorktreeProductConstructionCoordinator,
+            gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
+            gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,

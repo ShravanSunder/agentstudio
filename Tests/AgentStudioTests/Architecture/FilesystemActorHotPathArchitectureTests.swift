@@ -44,6 +44,12 @@ struct FilesystemActorHotPathArchitectureTests {
             ),
             encoding: .utf8
         )
+        let workspaceBootSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"
+            ),
+            encoding: .utf8
+        )
 
         #expect(pathFilterSource.contains("@concurrent nonisolated package static func loadOffExecutor"))
         #expect(filesystemActorSource.contains("await FilesystemPathFilter.loadOffExecutor(forRootPath:"))
@@ -51,7 +57,7 @@ struct FilesystemActorHotPathArchitectureTests {
         #expect(!gitProviderSource.contains("ShellGitWorkingTreeStatusProvider"))
         #expect(!gitProviderSource.contains("command: \"git\""))
         #expect(sdkGitProviderSource.contains("import AgentStudioGit"))
-        #expect(sdkGitProviderSource.contains("@concurrent\n    nonisolated private static func computeStatus"))
+        #expect(sdkGitProviderSource.contains("@concurrent\n    nonisolated private static func computeStatusResult"))
         assertNoProductionGitShellSignature(in: sdkGitProviderSource)
         assertNoProductionGitShellSignature(in: repoScannerSource)
         #expect(
@@ -62,7 +68,13 @@ struct FilesystemActorHotPathArchitectureTests {
         #expect(repoScannerSource.contains("case .validationRequired(let request):"))
         #expect(repoScannerSource.contains("await discoveryProvider.discoveryOutcome("))
         #expect(repoScannerSource.contains("session.consumeValidationCompletion("))
-        #expect(filesystemGitPipelineSource.contains("AgentStudioGitWorkingTreeStatusProvider()"))
+        #expect(!filesystemGitPipelineSource.contains("AgentStudioGitWorkingTreeStatusProvider()"))
+        #expect(workspaceBootSource.contains("let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()"))
+        #expect(
+            workspaceBootSource.contains(
+                "AgentStudioGitWorkingTreeStatusProvider(\n            physicalGate: gitStatusPhysicalGate"
+            )
+        )
         try assertNoUnexpectedProductionGitShellSignatures(projectRoot: projectRoot)
     }
 

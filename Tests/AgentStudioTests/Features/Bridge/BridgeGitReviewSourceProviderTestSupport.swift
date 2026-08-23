@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AgentStudioGit
 import CryptoKit
 import Foundation
@@ -35,6 +36,10 @@ struct GitContentLocator: Hashable, Sendable {
     let path: String
 }
 
+func makeBridgeStatusPhysicalGate() -> AgentStudioGitStatusPhysicalGate {
+    AgentStudioGitStatusPhysicalGate()
+}
+
 actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private let reviewComparisonTargetCapture: GitReviewComparisonTargetCapture?
     private var contributionDiffSnapshot: GitContributionDiffSnapshot?
@@ -46,9 +51,9 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private let contentFailureByLocator: [GitContentLocator: GitDataPlaneError]
     private let treeSnapshotByRequest: [GitTreeReadRequest: GitTreeSnapshot]
     private let treeFailure: GitDataPlaneError?
-    private let statusSnapshot: GitStatusSnapshot?
+    private let statusSnapshot: GitStatusFactsSnapshot?
     private let statusFailure: GitDataPlaneError?
-    private let statusSnapshotByOptions: [GitStatusOptions: GitStatusSnapshot]
+    private let statusSnapshotByOptions: [GitStatusOptions: GitStatusFactsSnapshot]
     private let statusFailureByOptions: [GitStatusOptions: GitDataPlaneError]
     private let contentReadGateByLocator: [GitContentLocator: BridgeGitContentReadGate]
     private let revisionResolutionGate: BridgeGitContentReadGate?
@@ -72,9 +77,9 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         contentFailureByLocator: [GitContentLocator: GitDataPlaneError] = [:],
         treeSnapshotByRequest: [GitTreeReadRequest: GitTreeSnapshot] = [:],
         treeFailure: GitDataPlaneError? = nil,
-        statusSnapshot: GitStatusSnapshot? = nil,
+        statusSnapshot: GitStatusFactsSnapshot? = nil,
         statusFailure: GitDataPlaneError? = nil,
-        statusSnapshotByOptions: [GitStatusOptions: GitStatusSnapshot] = [:],
+        statusSnapshotByOptions: [GitStatusOptions: GitStatusFactsSnapshot] = [:],
         statusFailureByOptions: [GitStatusOptions: GitDataPlaneError] = [:],
         resolvedRevisionByTarget: [GitRevisionTarget: GitResolvedRevision] = [:],
         contentReadGateByLocator: [GitContentLocator: BridgeGitContentReadGate] = [:],
@@ -144,8 +149,8 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         throw GitDataPlaneError.unsupported(message: "not used")
     }
 
-    func status(for worktreePath: URL, options: GitStatusOptions) async throws(GitDataPlaneError)
-        -> GitStatusSnapshot
+    func statusFacts(for worktreePath: URL, options: GitStatusOptions) async throws(GitDataPlaneError)
+        -> GitStatusFactsSnapshot
     {
         statusRequests.append((worktreePath, options))
         if let optionFailure = statusFailureByOptions[options] {
@@ -161,6 +166,27 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
             throw GitDataPlaneError.unsupported(message: "not used")
         }
         return statusSnapshot
+    }
+
+    func exactLineCountDetail(for worktreePath: URL) async throws(GitDataPlaneError)
+        -> GitStatusLineCountDetail
+    {
+        GitStatusLineCountDetail(
+            repositoryRoot: worktreePath,
+            worktreePath: worktreePath,
+            generatedAtUnixMilliseconds: 10,
+            linesAdded: 0,
+            linesDeleted: 0
+        )
+    }
+
+    func completeStatus(for worktreePath: URL, options: GitStatusOptions) async throws(GitDataPlaneError)
+        -> GitCompleteStatusSnapshot
+    {
+        GitCompleteStatusSnapshot(
+            facts: try await statusFacts(for: worktreePath, options: options),
+            lineCountDetail: try await exactLineCountDetail(for: worktreePath)
+        )
     }
 
     func branches(for repositoryPath: URL) async throws(GitDataPlaneError) -> [GitBranchSnapshot] {

@@ -4,6 +4,7 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 /// End-to-end proof for the `GitWorktreeRegistrationValidator` accept/reject boundary through
 /// `FilesystemGitPipeline`: registration must accept every outcome except certain
@@ -31,6 +32,7 @@ struct FilesystemGitPipelineRegistrationTests {
         let pipeline = FilesystemGitPipeline(
             bus: bus,
             registrationDiscoveryProvider: FixedOutcomeRegistrationDiscoveryProvider(outcome: outcome),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero
@@ -82,6 +84,7 @@ struct FilesystemGitPipelineRegistrationTests {
             registrationDiscoveryProvider: FixedOutcomeRegistrationDiscoveryProvider(
                 outcome: .authoritativeNegative(reason)
             ),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero
@@ -121,6 +124,7 @@ struct FilesystemGitPipelineRegistrationTests {
         let pipeline = FilesystemGitPipeline(
             bus: bus,
             registrationDiscoveryProvider: FixedOutcomeRegistrationDiscoveryProvider(outcome: .timeout),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero

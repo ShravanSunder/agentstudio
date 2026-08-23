@@ -38,7 +38,8 @@ extension BridgeGitReviewSourceProviderTests {
             client: AgentStudioGitBridgeReviewDataClient(
                 repositoryPath: repositoryPath,
                 client: gitClient,
-                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+                statusPhysicalGate: makeBridgeStatusPhysicalGate()
             )
         )
 
@@ -315,7 +316,8 @@ private func makeContributionAdapterFixture() -> ContributionAdapterFixture {
         client: AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
     )
     return ContributionAdapterFixture(

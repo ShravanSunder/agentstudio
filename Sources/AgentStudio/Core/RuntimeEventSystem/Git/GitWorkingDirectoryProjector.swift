@@ -101,7 +101,7 @@ package actor GitWorkingDirectoryProjector {
 
     package init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
-        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
+        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider,
         envelopeClock: ContinuousClock = ContinuousClock(),
         coalescingWindow: Duration,
         periodicRefreshInterval: Duration? = nil,

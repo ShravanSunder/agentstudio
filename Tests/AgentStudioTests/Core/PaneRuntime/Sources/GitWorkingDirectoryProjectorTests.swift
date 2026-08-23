@@ -100,12 +100,14 @@ struct GitWorkingDirectoryProjectorTests {
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
         let gitLocalClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient()
+        let statusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: AgentStudioGitWorkingTreeStatusProvider(
-                timeoutScheduler: PassiveAgentStudioGitStatusTimeoutScheduler(),
+                slowObservationScheduler: PassiveGitStatusSlowObservationScheduler(),
+                physicalGate: statusPhysicalGate,
                 statusReader: { worktreePath, options in
-                    try await gitLocalClient.status(for: worktreePath, options: options)
+                    try await gitLocalClient.completeStatus(for: worktreePath, options: options)
                 }
             ),
             coalescingWindow: .zero
@@ -3677,12 +3679,12 @@ struct GitWorkingDirectoryProjectorTests {
     }
 }
 
-private struct PassiveAgentStudioGitStatusTimeoutScheduler: AgentStudioGitStatusTimeoutScheduler {
-    func scheduleTimeout(
+private struct PassiveGitStatusSlowObservationScheduler: AgentStudioGitStatusSlowObservationScheduler {
+    func scheduleObservation(
         after _: Duration,
         _: @escaping @Sendable () -> Void
-    ) -> AgentStudioGitScheduledTimeout {
-        AgentStudioGitScheduledTimeout {}
+    ) -> AgentStudioGitScheduledSlowObservation {
+        AgentStudioGitScheduledSlowObservation {}
     }
 }
 

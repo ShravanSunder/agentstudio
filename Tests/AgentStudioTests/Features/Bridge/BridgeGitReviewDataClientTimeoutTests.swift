@@ -24,6 +24,7 @@ struct BridgeGitReviewDataClientTimeoutTests {
                 scheduler: scheduler,
                 worktreeKey: BridgeGitReadWorktreeKey(token: "adapter-timeout-worktree")
             ),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate(),
             gitDataPlaneReadTimeout: .seconds(999)
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
@@ -95,6 +96,7 @@ struct BridgeGitReviewDataClientTimeoutTests {
                 scheduler: scheduler,
                 worktreeKey: BridgeGitReadWorktreeKey(token: "adapter-class-isolation-worktree")
             ),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate(),
             gitDataPlaneReadTimeout: .seconds(999)
         )
         let metadataRequest = GitContentRequest(
@@ -177,6 +179,7 @@ struct BridgeGitReviewDataClientTimeoutTests {
                 scheduler: scheduler,
                 worktreeKey: BridgeGitReadWorktreeKey(token: "adapter-freshness-worktree")
             ),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate(),
             gitDataPlaneReadTimeout: .seconds(999)
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
@@ -310,8 +313,20 @@ private actor NonCooperativeDiffAgentStudioGitClient: AgentStudioGitLocalClient 
         throw GitDataPlaneError.unsupported(message: "not used")
     }
 
-    func status(for worktreePath: URL, options: GitStatusOptions) async throws(GitDataPlaneError)
-        -> GitStatusSnapshot
+    func statusFacts(for worktreePath: URL, options: GitStatusOptions) async throws(GitDataPlaneError)
+        -> GitStatusFactsSnapshot
+    {
+        throw GitDataPlaneError.unsupported(message: "not used")
+    }
+
+    func exactLineCountDetail(for worktreePath: URL) async throws(GitDataPlaneError)
+        -> GitStatusLineCountDetail
+    {
+        throw GitDataPlaneError.unsupported(message: "not used")
+    }
+
+    func completeStatus(for worktreePath: URL, options: GitStatusOptions) async throws(GitDataPlaneError)
+        -> GitCompleteStatusSnapshot
     {
         throw GitDataPlaneError.unsupported(message: "not used")
     }

@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AgentStudioGit
 import CryptoKit
 import Foundation
@@ -174,20 +175,27 @@ extension AgentStudioGitBridgeReviewDataClient {
     func loadGitStatus(
         _ options: GitStatusOptions,
         freshnessKey: BridgeGitReadFreshnessKey
-    ) async throws -> GitStatusSnapshot {
+    ) async throws -> GitStatusFactsSnapshot {
         let client = self.client
+        let statusPhysicalGate = self.statusPhysicalGate
         do {
             return try await scheduledGitRead(
                 operationClass: .reviewMetadata,
                 coalescingKey: try gitReadCoalescingKey(domain: "status", request: options),
                 freshnessKey: freshnessKey
             ) {
-                try await client.status(for: self.repositoryPath, options: options)
+                try await statusPhysicalGate.withPhysicalRead(for: self.repositoryPath) {
+                    try await client.statusFacts(for: self.repositoryPath, options: options)
+                }
             }
         } catch BridgeGitReadSchedulerError.timedOut {
             throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
         } catch BridgeGitReadSchedulerError.capacityReached {
             throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch AgentStudioGitStatusPhysicalGateError.capacityExceeded,
+            AgentStudioGitStatusPhysicalGateError.sameRootAlreadyInFlight
+        {
+            throw BridgeProviderFailure.sourceCapacityDeferred
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as GitDataPlaneError {
@@ -357,6 +365,8 @@ extension AgentStudioGitBridgeReviewDataClient {
             return .providerFailed(message: "gitDataPlane:processCancelled")
         case .processOutputTooLarge:
             return .providerFailed(message: "gitDataPlane:processOutputTooLarge")
+        case .remoteRefTransactionIndeterminate:
+            return .providerFailed(message: "gitDataPlane:remoteRefTransactionIndeterminate")
         }
     }
 

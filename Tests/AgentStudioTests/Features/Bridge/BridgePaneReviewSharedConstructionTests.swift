@@ -776,12 +776,14 @@ struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
             repositoryPath: repositoryPath,
             client: gitClient,
             gitReadContext: firstContext,
+            statusPhysicalGate: makeBridgeStatusPhysicalGate(),
             sharedContentRootURL: backingRoot
         )
         let secondClient = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
             gitReadContext: secondContext,
+            statusPhysicalGate: makeBridgeStatusPhysicalGate(),
             sharedContentRootURL: backingRoot
         )
         let firstProvider = BridgeGitReviewSourceProvider(client: firstClient)

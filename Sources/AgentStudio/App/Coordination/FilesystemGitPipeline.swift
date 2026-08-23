@@ -26,7 +26,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         registrationDiscoveryProvider: any RepoScanner.GitRepositoryDiscoveryProvider =
             RepoScannerGitDiscoveryClient(),
-        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
+        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider,
         forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
         filesystemDebounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,

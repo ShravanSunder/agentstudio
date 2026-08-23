@@ -27,12 +27,12 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
                         stagedFileCount: 2,
                         unstagedFileCount: 3,
                         untrackedFileCount: 1,
-                        linesAdded: 8,
-                        linesDeleted: 4,
                         aheadCount: 1,
                         behindCount: 2,
                         hasUpstream: true
-                    )
+                    ),
+                    linesAdded: 8,
+                    linesDeleted: 4
                 )
             }
         )
@@ -58,11 +58,11 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
                 makeSnapshot(
                     summary: makeSummary(
                         unstagedFileCount: 1,
-                        linesAdded: 12,
-                        linesDeleted: 5,
                         aheadCount: 2,
                         hasUpstream: true
                     ),
+                    linesAdded: 12,
+                    linesDeleted: 5,
                     entries: [
                         makeStatusEntry(path: "Sources/App.swift", worktreeState: .modified)
                     ]
@@ -237,372 +237,217 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(unavailable.reason == .sdkError)
     }
 
-    @Test("SDK status timeout returns nil")
-    func sdkStatusTimeoutReturnsNil() async {
-        let gate = StatusReadGate()
-        let timeoutScheduler = ManualStatusTimeoutScheduler()
-        let provider = AgentStudioGitWorkingTreeStatusProvider(
-            timeout: .seconds(999),
-            timeoutScheduler: timeoutScheduler
-        ) { _, _ in
-            await gate.waitUntilReleased()
-            return makeSnapshot()
-        }
-
-        let statusTask = Task {
-            await provider.status(for: URL(fileURLWithPath: "/tmp/slow-repo"))
-        }
-        await gate.waitUntilStarted()
-        await timeoutScheduler.waitUntilScheduled()
-        timeoutScheduler.fireScheduledTimeout()
-        let status = await statusTask.value
-        await gate.release()
-
-        #expect(status == nil)
-    }
-
-    @Test("SDK status timeout reports reason")
-    func sdkStatusTimeoutReportsReason() async throws {
-        let gate = StatusReadGate()
-        let timeoutScheduler = ManualStatusTimeoutScheduler()
-        let provider = AgentStudioGitWorkingTreeStatusProvider(
-            timeout: .seconds(999),
-            timeoutScheduler: timeoutScheduler
-        ) { _, _ in
-            await gate.waitUntilReleased()
-            return makeSnapshot()
-        }
-
-        let resultTask = Task {
-            await provider.statusResult(for: URL(fileURLWithPath: "/tmp/slow-repo"))
-        }
-        await gate.waitUntilStarted()
-        await timeoutScheduler.waitUntilScheduled()
-        timeoutScheduler.fireScheduledTimeout()
-        let result = await resultTask.value
-        await gate.release()
-
-        guard case .unavailable(let unavailable) = result else {
-            Issue.record("expected unavailable result, got \(result)")
-            return
-        }
-        #expect(unavailable.reason == .timeout)
-    }
-
-    @Test("SDK status cancellation reports cancellation reason")
-    func sdkStatusCancellationReportsCancellationReason() async throws {
-        let gate = StatusReadGate()
+    @Test("slow threshold observes without completing or releasing the physical read")
+    func slowThresholdObservesWithoutReleasingPhysicalRead() async throws {
+        let blockedRootPath = URL(fileURLWithPath: "/tmp/slow-observation-root")
+        let distinctRootPath = URL(fileURLWithPath: "/tmp/slow-observation-distinct")
+        let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
+        let readGate = StatusReadGate()
         let tracker = StatusReadTracker()
-        let timeoutScheduler = ManualStatusTimeoutScheduler()
-        let provider = AgentStudioGitWorkingTreeStatusProvider(
-            timeout: .seconds(999),
-            timeoutScheduler: timeoutScheduler
-        ) { _, _ in
-            await tracker.recordStarted()
-            await gate.waitUntilReleased()
-            await tracker.recordFinished()
-            return makeSnapshot()
-        }
-
-        let resultTask = Task {
-            await provider.statusResult(for: URL(fileURLWithPath: "/tmp/cancelled-repo"))
-        }
-        await gate.waitUntilStarted()
-        resultTask.cancel()
-        let result = await resultTask.value
-        await gate.release()
-        await tracker.waitForFinishedCount(1)
-
-        guard case .unavailable(let unavailable) = result else {
-            Issue.record("expected unavailable result, got \(result)")
-            return
-        }
-        #expect(unavailable.reason == .cancelled)
-    }
-
-    @Test("SDK status timeout wins when SDK read ignores cancellation")
-    func sdkStatusTimeoutWinsWhenSDKReadIgnoresCancellation() async throws {
-        let gate = StatusReadGate()
-        let timeoutScheduler = ManualStatusTimeoutScheduler()
-        let provider = AgentStudioGitWorkingTreeStatusProvider(
-            timeout: .seconds(999),
-            timeoutScheduler: timeoutScheduler
-        ) { _, _ in
-            await gate.waitUntilReleased()
-            return makeSnapshot()
-        }
-
-        let resultTask = Task {
-            await provider.statusResult(for: URL(fileURLWithPath: "/tmp/noncooperative-slow-repo"))
-        }
-        await gate.waitUntilStarted()
-        await timeoutScheduler.waitUntilScheduled()
-        timeoutScheduler.fireScheduledTimeout()
-        let result = await resultTask.value
-        await gate.release()
-
-        guard case .unavailable(let unavailable) = result else {
-            Issue.record("expected unavailable result, got \(result)")
-            return
-        }
-        #expect(unavailable.reason == .timeout)
-    }
-
-    @Test("timed out SDK read keeps same root gated until detached read exits")
-    func timedOutSDKReadKeepsSameRootGatedUntilDetachedReadExits() async throws {
-        let rootPath = URL(fileURLWithPath: "/tmp/noncooperative-slow-repo")
-        let gate = StatusReadGate()
-        let tracker = StatusReadTracker()
-        let timeoutScheduler = ManualStatusTimeoutScheduler()
-        let activeReadRegistry = AgentStudioGitActiveStatusReadRegistry()
-        let provider = AgentStudioGitWorkingTreeStatusProvider(
-            timeout: .seconds(999),
-            timeoutScheduler: timeoutScheduler,
-            activeReadRegistry: activeReadRegistry
-        ) { _, _ in
-            await tracker.recordStarted()
-            await gate.waitUntilReleased()
-            await tracker.recordFinished()
-            return makeSnapshot()
-        }
-
-        let timedOutRead = Task {
-            await provider.statusResult(for: rootPath)
-        }
-        await gate.waitUntilStarted()
-        await timeoutScheduler.waitUntilScheduled()
-        timeoutScheduler.fireScheduledTimeout()
-        let timedOutResult = await timedOutRead.value
-
-        let overlappingResult = await provider.statusResult(for: rootPath)
-        let startCountWhileGated = await tracker.startedCount()
-
-        await gate.release()
-        await activeReadRegistry.waitUntilInactive(AgentStudioGitActiveStatusReadKey(rootPath))
-        let recoveredResult = await provider.statusResult(for: rootPath)
-
-        guard case .unavailable(let timedOutUnavailable) = timedOutResult else {
-            Issue.record("expected first result to time out, got \(timedOutResult)")
-            return
-        }
-        guard case .unavailable(let overlappingUnavailable) = overlappingResult else {
-            Issue.record("expected overlapping result to be unavailable, got \(overlappingResult)")
-            return
-        }
-        guard case .available = recoveredResult else {
-            Issue.record("expected provider to recover after detached read exits, got \(recoveredResult)")
-            return
-        }
-        #expect(timedOutUnavailable.reason == .timeout)
-        #expect(overlappingUnavailable.reason == .readAlreadyInFlight)
-        #expect(startCountWhileGated == 1)
-        #expect(await tracker.startedCount() == 2)
-    }
-
-    @Test("pre-install timeout keeps same root gated until detached read exits")
-    func preInstallTimeoutKeepsSameRootGatedUntilDetachedReadExits() async throws {
-        let rootPath = URL(fileURLWithPath: "/tmp/pre-install-timeout-repo")
-        let gate = StatusReadGate()
-        let tracker = StatusReadTracker()
-        let activeReadRegistry = AgentStudioGitActiveStatusReadRegistry()
-        let timingOutProvider = AgentStudioGitWorkingTreeStatusProvider(
-            timeout: .seconds(999),
-            timeoutScheduler: ImmediateStatusTimeoutScheduler(),
-            activeReadRegistry: activeReadRegistry
-        ) { _, _ in
-            await tracker.recordStarted()
-            await gate.waitUntilReleased()
-            await tracker.recordFinished()
-            return makeSnapshot()
-        }
-
-        let timedOutResult = await timingOutProvider.statusResult(for: rootPath)
-        let overlappingResult = await timingOutProvider.statusResult(for: rootPath)
-
-        await gate.release()
-        await activeReadRegistry.waitUntilInactive(AgentStudioGitActiveStatusReadKey(rootPath))
-
-        let recoveredProvider = AgentStudioGitWorkingTreeStatusProvider(
-            activeReadRegistry: activeReadRegistry
-        ) { _, _ in
-            makeSnapshot()
-        }
-        let recoveredResult = await recoveredProvider.statusResult(for: rootPath)
-
-        guard case .unavailable(let timedOutUnavailable) = timedOutResult else {
-            Issue.record("expected first result to time out, got \(timedOutResult)")
-            return
-        }
-        guard case .unavailable(let overlappingUnavailable) = overlappingResult else {
-            Issue.record("expected overlapping result to be unavailable, got \(overlappingResult)")
-            return
-        }
-        guard case .available = recoveredResult else {
-            Issue.record("expected provider to recover after detached read exits, got \(recoveredResult)")
-            return
-        }
-        #expect(timedOutUnavailable.reason == .timeout)
-        #expect(overlappingUnavailable.reason == .readAlreadyInFlight)
-        #expect(await tracker.startedCount() == 1)
-    }
-
-    @Test("timed out reads hold physical capacity until native reads finish")
-    func timedOutReadsHoldPhysicalCapacityUntilNativeReadsFinish() async throws {
-        let firstRootPath = URL(fileURLWithPath: "/tmp/noncooperative-slow-repo-1")
-        let secondRootPath = URL(fileURLWithPath: "/tmp/noncooperative-slow-repo-2")
-        let distinctRootPath = URL(fileURLWithPath: "/tmp/recovered-distinct-repo")
-        let gate = StatusReadGate()
-        let tracker = StatusReadTracker()
-        let timeoutScheduler = ManualStatusTimeoutScheduler()
-        let activeReadRegistry = AgentStudioGitActiveStatusReadRegistry(maxActiveReadCount: 2)
+        let observationScheduler = ManualStatusSlowObservationScheduler()
         let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
-            timeout: .seconds(999),
-            timeoutScheduler: timeoutScheduler,
-            activeReadRegistry: activeReadRegistry
-        ) { rootPath, _ in
-            await tracker.recordStarted()
-            if rootPath != distinctRootPath {
-                await gate.waitUntilReleased()
-            }
-            await tracker.recordFinished()
-            return makeSnapshot()
-        }
-
-        let firstRead = Task {
-            await blockingProvider.statusResult(for: firstRootPath)
-        }
-        let secondRead = Task {
-            await blockingProvider.statusResult(for: secondRootPath)
-        }
-        await tracker.waitForStartedCount(2)
-        await timeoutScheduler.waitUntilScheduledCount(2)
-        timeoutScheduler.fireScheduledTimeout()
-        timeoutScheduler.fireScheduledTimeout()
-        let firstResult = await firstRead.value
-        let secondResult = await secondRead.value
-
-        let distinctResultWhileNativeReadsAreRunning = await blockingProvider.statusResult(for: distinctRootPath)
-        let sameRootResult = await blockingProvider.statusResult(for: firstRootPath)
-        let startCountWhileDetachedReadsAreGated = await tracker.startedCount()
-
-        await gate.release()
-        await tracker.waitForFinishedCount(2)
-        await activeReadRegistry.waitUntilInactive(AgentStudioGitActiveStatusReadKey(firstRootPath))
-        await activeReadRegistry.waitUntilInactive(AgentStudioGitActiveStatusReadKey(secondRootPath))
-        let recoveredResult = await blockingProvider.statusResult(for: distinctRootPath)
-
-        guard case .unavailable(let firstUnavailable) = firstResult else {
-            Issue.record("expected first result to time out, got \(firstResult)")
-            return
-        }
-        guard case .unavailable(let secondUnavailable) = secondResult else {
-            Issue.record("expected second result to time out, got \(secondResult)")
-            return
-        }
-        guard case .unavailable(let distinctUnavailable) = distinctResultWhileNativeReadsAreRunning else {
-            Issue.record(
-                "expected distinct root to remain capacity-gated while native reads run, got \(distinctResultWhileNativeReadsAreRunning)"
-            )
-            return
-        }
-        guard case .available = recoveredResult else {
-            Issue.record("expected distinct root to recover after native reads finish, got \(recoveredResult)")
-            return
-        }
-        guard case .unavailable(let sameRootUnavailable) = sameRootResult else {
-            Issue.record("expected same-root retry to be unavailable, got \(sameRootResult)")
-            return
-        }
-        #expect(firstUnavailable.reason == .timeout)
-        #expect(secondUnavailable.reason == .timeout)
-        #expect(distinctUnavailable.reason == .readCapacityExceeded)
-        #expect(sameRootUnavailable.reason == .readAlreadyInFlight)
-        #expect(startCountWhileDetachedReadsAreGated == 2)
-        #expect(await tracker.startedCount() == 3)
-    }
-
-    @Test("cancelled read holds physical capacity until native read finishes")
-    func cancelledReadHoldsPhysicalCapacityUntilNativeReadFinishes() async throws {
-        let blockedRootPath = URL(fileURLWithPath: "/tmp/cancelled-physical-cap-root")
-        let distinctRootPath = URL(fileURLWithPath: "/tmp/cancelled-physical-cap-distinct")
-        let gate = StatusReadGate()
-        let tracker = StatusReadTracker()
-        let activeReadRegistry = AgentStudioGitActiveStatusReadRegistry(maxActiveReadCount: 1)
-        let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
-            activeReadRegistry: activeReadRegistry
+            slowThreshold: .seconds(999),
+            slowObservationScheduler: observationScheduler,
+            physicalGate: physicalGate
         ) { _, _ in
             await tracker.recordStarted()
-            await gate.waitUntilReleased()
+            await readGate.waitUntilReleased()
             await tracker.recordFinished()
             return makeSnapshot()
         }
         let distinctProvider = AgentStudioGitWorkingTreeStatusProvider(
-            activeReadRegistry: activeReadRegistry
+            slowObservationScheduler: PassiveStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
         ) { _, _ in
             makeSnapshot()
         }
 
-        let cancelledRead = Task {
+        let slowRead = Task {
             await blockingProvider.statusResult(for: blockedRootPath)
         }
-        await gate.waitUntilStarted()
-        cancelledRead.cancel()
-        let cancelledResult = await cancelledRead.value
+        await tracker.waitForStartedCount(1)
+        await observationScheduler.waitUntilScheduledCount(1)
+        observationScheduler.fireNextObservation()
 
-        let distinctResultWhileNativeReadIsRunning = await distinctProvider.statusResult(for: distinctRootPath)
+        let capacityResult = await distinctProvider.statusResult(for: distinctRootPath)
+        #expect(observationScheduler.firedObservationCount() == 1)
+        #expect(observationScheduler.scheduledThresholds() == [.seconds(999)])
+        #expect(await tracker.finishedCount() == 0)
+        #expect(unavailableReason(capacityResult) == .readCapacityExceeded)
 
-        await gate.release()
-        await tracker.waitForFinishedCount(1)
-        await activeReadRegistry.waitUntilInactive(AgentStudioGitActiveStatusReadKey(blockedRootPath))
-        let recoveredResult = await distinctProvider.statusResult(for: distinctRootPath)
-
-        guard case .unavailable(let cancelledUnavailable) = cancelledResult else {
-            Issue.record("expected cancelled result, got \(cancelledResult)")
+        await readGate.release()
+        guard case .available = await slowRead.value else {
+            Issue.record("expected slow read to complete after physical release")
             return
         }
-        guard case .unavailable(let distinctUnavailable) = distinctResultWhileNativeReadIsRunning else {
-            Issue.record(
-                "expected distinct root to remain capacity-gated while native read runs, got \(distinctResultWhileNativeReadIsRunning)"
-            )
+        guard case .available = await distinctProvider.statusResult(for: distinctRootPath) else {
+            Issue.record("expected physical capacity to recover after completion")
             return
         }
-        guard case .available = recoveredResult else {
-            Issue.record("expected distinct root to recover after native read finishes, got \(recoveredResult)")
-            return
-        }
-        #expect(cancelledUnavailable.reason == .cancelled)
-        #expect(distinctUnavailable.reason == .readCapacityExceeded)
-        #expect(await tracker.startedCount() == 1)
     }
 
-    @Test("registry releases physical capacity exactly once on true completion")
-    func registryReleasesPhysicalCapacityExactlyOnceOnTrueCompletion() {
-        let registry = AgentStudioGitActiveStatusReadRegistry(maxActiveReadCount: 2)
-        let first = AgentStudioGitActiveStatusReadKey(URL(fileURLWithPath: "/tmp/registry-first"))
-        let second = AgentStudioGitActiveStatusReadKey(URL(fileURLWithPath: "/tmp/registry-second"))
-        let distinct = AgentStudioGitActiveStatusReadKey(URL(fileURLWithPath: "/tmp/registry-distinct"))
-        let extra = AgentStudioGitActiveStatusReadKey(URL(fileURLWithPath: "/tmp/registry-extra"))
+    @Test("independently composed providers exclude overlapping reads for the same root")
+    func independentlyComposedProvidersExcludeSameRoot() async throws {
+        let rootPath = URL(fileURLWithPath: "/tmp/shared-same-root")
+        let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 2)
+        let readGate = StatusReadGate()
+        let tracker = StatusReadTracker()
+        let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
+        ) { _, _ in
+            await tracker.recordStarted()
+            await readGate.waitUntilReleased()
+            await tracker.recordFinished()
+            return makeSnapshot()
+        }
+        let overlappingProvider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
+        ) { _, _ in
+            await tracker.recordStarted()
+            return makeSnapshot()
+        }
 
-        #expect(registry.start(first) == .started)
-        #expect(registry.start(second) == .started)
-        #expect(registry.start(distinct) == .capacityExceeded)
+        let firstRead = Task {
+            await blockingProvider.statusResult(for: rootPath)
+        }
+        await tracker.waitForStartedCount(1)
 
-        registry.finish(first)
-        #expect(registry.start(distinct) == .started)
+        let overlappingResult = await overlappingProvider.statusResult(for: rootPath)
+        #expect(unavailableReason(overlappingResult) == .readAlreadyInFlight)
+        #expect(await tracker.startedCount() == 1)
 
-        registry.finish(first)
-        #expect(registry.start(extra) == .capacityExceeded)
+        await readGate.release()
+        guard case .available = await firstRead.value else {
+            Issue.record("expected first same-root read to complete")
+            return
+        }
+        guard case .available = await overlappingProvider.statusResult(for: rootPath) else {
+            Issue.record("expected root to become available after physical completion")
+            return
+        }
+    }
 
-        registry.finish(distinct)
-        #expect(registry.start(first) == .started)
+    @Test("independently composed providers share the global physical capacity")
+    func independentlyComposedProvidersShareGlobalPhysicalCapacity() async throws {
+        let firstRootPath = URL(fileURLWithPath: "/tmp/shared-capacity-first")
+        let secondRootPath = URL(fileURLWithPath: "/tmp/shared-capacity-second")
+        let thirdRootPath = URL(fileURLWithPath: "/tmp/shared-capacity-third")
+        let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 2)
+        let readGate = StatusReadGate()
+        let tracker = StatusReadTracker()
+        let firstProvider = makeBlockingProvider(physicalGate: physicalGate, readGate: readGate, tracker: tracker)
+        let secondProvider = makeBlockingProvider(physicalGate: physicalGate, readGate: readGate, tracker: tracker)
+        let thirdProvider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
+        ) { _, _ in
+            await tracker.recordStarted()
+            return makeSnapshot()
+        }
+
+        let firstRead = Task { await firstProvider.statusResult(for: firstRootPath) }
+        let secondRead = Task { await secondProvider.statusResult(for: secondRootPath) }
+        await tracker.waitForStartedCount(2)
+
+        let thirdResultWhileFull = await thirdProvider.statusResult(for: thirdRootPath)
+        #expect(unavailableReason(thirdResultWhileFull) == .readCapacityExceeded)
+        #expect(await tracker.startedCount() == 2)
+
+        await readGate.release()
+        guard case .available = await firstRead.value else {
+            Issue.record("expected first shared-capacity read to complete")
+            return
+        }
+        guard case .available = await secondRead.value else {
+            Issue.record("expected second shared-capacity read to complete")
+            return
+        }
+        guard case .available = await thirdProvider.statusResult(for: thirdRootPath) else {
+            Issue.record("expected shared capacity to recover after physical completion")
+            return
+        }
+    }
+
+    @Test("caller cancellation does not release same-root or global physical capacity")
+    func callerCancellationDoesNotReleasePhysicalCapacity() async throws {
+        let cancelledRootPath = URL(fileURLWithPath: "/tmp/cancelled-physical-root")
+        let distinctRootPath = URL(fileURLWithPath: "/tmp/cancelled-physical-distinct")
+        let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
+        let readGate = StatusReadGate()
+        let tracker = StatusReadTracker()
+        let provider = makeBlockingProvider(physicalGate: physicalGate, readGate: readGate, tracker: tracker)
+        let independentProvider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
+        ) { _, _ in makeSnapshot() }
+
+        let cancelledRead = Task {
+            await provider.statusResult(for: cancelledRootPath)
+        }
+        await tracker.waitForStartedCount(1)
+        cancelledRead.cancel()
+
+        let sameRootResult = await independentProvider.statusResult(for: cancelledRootPath)
+        let distinctResult = await independentProvider.statusResult(for: distinctRootPath)
+        #expect(unavailableReason(sameRootResult) == .readAlreadyInFlight)
+        #expect(unavailableReason(distinctResult) == .readCapacityExceeded)
+        #expect(await tracker.finishedCount() == 0)
+
+        await readGate.release()
+        #expect(unavailableReason(await cancelledRead.value) == .cancelled)
+        await physicalGate.waitUntilInactive(cancelledRootPath)
+        guard case .available = await independentProvider.statusResult(for: distinctRootPath) else {
+            Issue.record("expected capacity to release only after cancelled operation physically completed")
+            return
+        }
+    }
+
+    @Test("physical capacity rejection remains distinct from SDK failure")
+    func physicalCapacityRejectionRemainsDistinctFromSDKFailure() async throws {
+        let blockedRootPath = URL(fileURLWithPath: "/tmp/capacity-versus-sdk-blocked")
+        let failingRootPath = URL(fileURLWithPath: "/tmp/capacity-versus-sdk-failing")
+        let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
+        let readGate = StatusReadGate()
+        let tracker = StatusReadTracker()
+        let blockingProvider = makeBlockingProvider(
+            physicalGate: physicalGate,
+            readGate: readGate,
+            tracker: tracker
+        )
+        let failingProvider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
+        ) { _, _ in
+            throw AgentStudioGit.GitDataPlaneError.unsupported(message: "expected SDK failure")
+        }
+
+        let blockingRead = Task {
+            await blockingProvider.statusResult(for: blockedRootPath)
+        }
+        await tracker.waitForStartedCount(1)
+
+        #expect(
+            unavailableReason(await failingProvider.statusResult(for: failingRootPath))
+                == .readCapacityExceeded
+        )
+
+        await readGate.release()
+        guard case .available = await blockingRead.value else {
+            Issue.record("expected blocking read to complete")
+            return
+        }
+        #expect(unavailableReason(await failingProvider.statusResult(for: failingRootPath)) == .sdkError)
     }
 
     @Test("successful SDK read leaves root immediately available for another read")
     func successfulSDKReadLeavesRootImmediatelyAvailableForAnotherRead() async throws {
         let rootPath = URL(fileURLWithPath: "/tmp/successful-read-recovery-repo")
-        let activeReadRegistry = AgentStudioGitActiveStatusReadRegistry()
+        let physicalGate = AgentStudioGitStatusPhysicalGate()
         let provider = AgentStudioGitWorkingTreeStatusProvider(
-            activeReadRegistry: activeReadRegistry
+            slowObservationScheduler: PassiveStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
         ) { _, _ in
             makeSnapshot()
         }
@@ -622,55 +467,53 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
 
 }
 
-private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutScheduler, @unchecked Sendable {
-    private struct ScheduledTimeout {
+private final class ManualStatusSlowObservationScheduler: AgentStudioGitStatusSlowObservationScheduler,
+    @unchecked Sendable
+{
+    private struct ScheduledObservation {
         let id: Int
+        let threshold: Duration
         let handler: @Sendable () -> Void
     }
 
     private let lock = NSLock()
     private var nextId = 0
-    private var scheduledTimeouts: [ScheduledTimeout] = []
+    private var scheduledObservations: [ScheduledObservation] = []
+    private var thresholds: [Duration] = []
+    private var firedCount = 0
     private var scheduleWaiters: [(minimumCount: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
-    func scheduleTimeout(
-        after _: Duration,
+    func scheduleObservation(
+        after threshold: Duration,
         _ handler: @escaping @Sendable () -> Void
-    ) -> AgentStudioGitScheduledTimeout {
+    ) -> AgentStudioGitScheduledSlowObservation {
         let id: Int
         let waiters: [CheckedContinuation<Void, Never>]
         lock.lock()
         id = nextId
         nextId += 1
-        scheduledTimeouts.append(ScheduledTimeout(id: id, handler: handler))
+        scheduledObservations.append(
+            ScheduledObservation(id: id, threshold: threshold, handler: handler)
+        )
+        thresholds.append(threshold)
         waiters =
             scheduleWaiters
-            .filter { $0.minimumCount <= scheduledTimeouts.count }
+            .filter { $0.minimumCount <= scheduledObservations.count }
             .map(\.continuation)
-        scheduleWaiters.removeAll { $0.minimumCount <= scheduledTimeouts.count }
+        scheduleWaiters.removeAll { $0.minimumCount <= scheduledObservations.count }
         lock.unlock()
 
         for waiter in waiters {
             waiter.resume()
         }
 
-        return AgentStudioGitScheduledTimeout { [weak self] in
-            self?.cancelScheduledTimeout(id: id)
-        }
-    }
-
-    func waitUntilScheduled() async {
-        guard !hasScheduledTimeouts() else { return }
-
-        await withCheckedContinuation { continuation in
-            if !appendScheduleWaiterIfNeeded(continuation) {
-                continuation.resume()
-            }
+        return AgentStudioGitScheduledSlowObservation { [weak self] in
+            self?.cancelScheduledObservation(id: id)
         }
     }
 
     func waitUntilScheduledCount(_ count: Int) async {
-        guard scheduledTimeoutCount() < count else { return }
+        guard scheduledObservationCount() < count else { return }
 
         await withCheckedContinuation { continuation in
             if !appendScheduleWaiterIfNeeded(continuation, minimumCount: count) {
@@ -679,30 +522,43 @@ private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutSch
         }
     }
 
-    func fireScheduledTimeout() {
-        let scheduledTimeout: ScheduledTimeout?
+    func fireNextObservation() {
+        let scheduledObservation: ScheduledObservation?
         lock.lock()
-        scheduledTimeout = scheduledTimeouts.isEmpty ? nil : scheduledTimeouts.removeFirst()
+        scheduledObservation = scheduledObservations.isEmpty ? nil : scheduledObservations.removeFirst()
+        if scheduledObservation != nil {
+            firedCount += 1
+        }
         lock.unlock()
 
-        scheduledTimeout?.handler()
+        scheduledObservation?.handler()
     }
 
-    private func cancelScheduledTimeout(id: Int) {
+    func firedObservationCount() -> Int {
         lock.lock()
-        scheduledTimeouts.removeAll { $0.id == id }
+        let count = firedCount
         lock.unlock()
+        return count
     }
 
-    private func hasScheduledTimeouts() -> Bool {
-        scheduledTimeoutCount() > 0
-    }
-
-    private func scheduledTimeoutCount() -> Int {
+    func scheduledThresholds() -> [Duration] {
         lock.lock()
-        let result = scheduledTimeouts.count
+        let result = thresholds
         lock.unlock()
         return result
+    }
+
+    private func cancelScheduledObservation(id: Int) {
+        lock.lock()
+        scheduledObservations.removeAll { $0.id == id }
+        lock.unlock()
+    }
+
+    private func scheduledObservationCount() -> Int {
+        lock.lock()
+        let count = scheduledObservations.count
+        lock.unlock()
+        return count
     }
 
     private func appendScheduleWaiterIfNeeded(
@@ -710,7 +566,7 @@ private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutSch
         minimumCount: Int = 1
     ) -> Bool {
         lock.lock()
-        guard scheduledTimeouts.count < minimumCount else {
+        guard scheduledObservations.count < minimumCount else {
             lock.unlock()
             return false
         }
@@ -720,13 +576,12 @@ private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutSch
     }
 }
 
-private struct ImmediateStatusTimeoutScheduler: AgentStudioGitStatusTimeoutScheduler {
-    func scheduleTimeout(
+private struct PassiveStatusSlowObservationScheduler: AgentStudioGitStatusSlowObservationScheduler {
+    func scheduleObservation(
         after _: Duration,
-        _ handler: @escaping @Sendable () -> Void
-    ) -> AgentStudioGitScheduledTimeout {
-        handler()
-        return AgentStudioGitScheduledTimeout {}
+        _: @escaping @Sendable () -> Void
+    ) -> AgentStudioGitScheduledSlowObservation {
+        AgentStudioGitScheduledSlowObservation {}
     }
 }
 
@@ -800,6 +655,10 @@ private actor StatusReadTracker {
         startCount
     }
 
+    func finishedCount() -> Int {
+        finishCount
+    }
+
     func waitForStartedCount(_ count: Int) async {
         guard startCount < count else { return }
         await withCheckedContinuation { continuation in
@@ -815,6 +674,29 @@ private actor StatusReadTracker {
     }
 }
 
+private func makeBlockingProvider(
+    physicalGate: AgentStudioGitStatusPhysicalGate,
+    readGate: StatusReadGate,
+    tracker: StatusReadTracker
+) -> AgentStudioGitWorkingTreeStatusProvider {
+    AgentStudioGitWorkingTreeStatusProvider(
+        slowObservationScheduler: PassiveStatusSlowObservationScheduler(),
+        physicalGate: physicalGate
+    ) { _, _ in
+        await tracker.recordStarted()
+        await readGate.waitUntilReleased()
+        await tracker.recordFinished()
+        return makeSnapshot()
+    }
+}
+
+private func unavailableReason(
+    _ result: GitWorkingTreeStatusResult
+) -> GitWorkingTreeStatusUnavailableReason? {
+    guard case .unavailable(let unavailable) = result else { return nil }
+    return unavailable.reason
+}
+
 private func makeSnapshot(
     head: AgentStudioGit.GitHeadSnapshot = AgentStudioGit.GitHeadSnapshot(
         kind: .branch,
@@ -822,17 +704,30 @@ private func makeSnapshot(
         shortName: "main"
     ),
     originResolution: AgentStudioGit.GitOriginResolution = .confirmedAbsent,
-    summary: AgentStudioGit.GitStatusSummary = makeSummary(),
+    summary: AgentStudioGit.GitStatusFactSummary = makeSummary(),
+    linesAdded: Int = 0,
+    linesDeleted: Int = 0,
     entries: [AgentStudioGit.GitStatusEntry] = []
-) -> AgentStudioGit.GitStatusSnapshot {
-    AgentStudioGit.GitStatusSnapshot(
-        repositoryRoot: URL(fileURLWithPath: "/tmp/repo"),
-        worktreePath: URL(fileURLWithPath: "/tmp/repo"),
-        generatedAtUnixMilliseconds: 1,
-        head: head,
-        originResolution: originResolution,
-        summary: summary,
-        entries: entries
+) -> AgentStudioGit.GitCompleteStatusSnapshot {
+    let repositoryRoot = URL(fileURLWithPath: "/tmp/repo")
+    let worktreePath = URL(fileURLWithPath: "/tmp/repo")
+    return AgentStudioGit.GitCompleteStatusSnapshot(
+        facts: AgentStudioGit.GitStatusFactsSnapshot(
+            repositoryRoot: repositoryRoot,
+            worktreePath: worktreePath,
+            generatedAtUnixMilliseconds: 1,
+            head: head,
+            originResolution: originResolution,
+            summary: summary,
+            entries: entries
+        ),
+        lineCountDetail: AgentStudioGit.GitStatusLineCountDetail(
+            repositoryRoot: repositoryRoot,
+            worktreePath: worktreePath,
+            generatedAtUnixMilliseconds: 1,
+            linesAdded: linesAdded,
+            linesDeleted: linesDeleted
+        )
     )
 }
 
@@ -859,20 +754,16 @@ private func makeSummary(
     unstagedFileCount: Int = 0,
     untrackedFileCount: Int = 0,
     ignoredFileCount: Int = 0,
-    linesAdded: Int = 0,
-    linesDeleted: Int = 0,
     aheadCount: Int = 0,
     behindCount: Int = 0,
     hasUpstream: Bool = false
-) -> AgentStudioGit.GitStatusSummary {
-    AgentStudioGit.GitStatusSummary(
+) -> AgentStudioGit.GitStatusFactSummary {
+    AgentStudioGit.GitStatusFactSummary(
         changedFileCount: changedFileCount,
         stagedFileCount: stagedFileCount,
         unstagedFileCount: unstagedFileCount,
         untrackedFileCount: untrackedFileCount,
         ignoredFileCount: ignoredFileCount,
-        linesAdded: linesAdded,
-        linesDeleted: linesDeleted,
         aheadCount: aheadCount,
         behindCount: behindCount,
         hasUpstream: hasUpstream

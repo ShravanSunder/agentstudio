@@ -18,7 +18,8 @@ struct BridgeGitReviewBoundaryTests {
                     message: "revspec 'HEAD' not found"
                 )
             ),
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
 
         do {
@@ -60,7 +61,8 @@ struct BridgeGitReviewBoundaryTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
         let query = makeBridgeReviewQuery(
@@ -125,7 +127,8 @@ struct BridgeGitReviewBoundaryTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
         let query = makeBridgeReviewQuery(
@@ -171,7 +174,8 @@ struct BridgeGitReviewBoundaryTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: AgentStudioGitLocalClientFake(),
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
 
         let failure = await adapter.bridgeFailure(

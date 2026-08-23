@@ -54,6 +54,8 @@ final class WorkspaceSurfaceCoordinator {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let bridgeGitReadScheduler: BridgeGitReadScheduler
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator
+    let gitWorkingTreeStatusProvider: any GitWorkingTreeStatusProvider
+    let gitStatusPhysicalGate: AgentStudioGitStatusPhysicalGate
     let filesystemSource: any WorkspaceFilesystemSourceManaging
     let filesystemProjectionIndex: any WorkspaceFilesystemProjectionIndexing
     let windowLifecycleStore: WindowLifecycleAtom
@@ -162,6 +164,8 @@ final class WorkspaceSurfaceCoordinator {
         bridgeGitReadScheduler: BridgeGitReadScheduler = BridgeGitReadScheduler(topology: .recoveryBaseline),
         worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator =
             BridgeWorktreeProductConstructionCoordinator(),
+        gitWorkingTreeStatusProvider: (any GitWorkingTreeStatusProvider)? = nil,
+        gitStatusPhysicalGate: AgentStudioGitStatusPhysicalGate? = nil,
         filesystemSource: (any WorkspaceFilesystemSourceManaging)? = nil,
         filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
         windowLifecycleStore: WindowLifecycleAtom,
@@ -171,10 +175,18 @@ final class WorkspaceSurfaceCoordinator {
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil
     ) {
+        if filesystemSource != nil {
+            precondition(gitWorkingTreeStatusProvider != nil && gitStatusPhysicalGate != nil)
+        }
+        let resolvedGitStatusPhysicalGate = gitStatusPhysicalGate ?? AgentStudioGitStatusPhysicalGate()
+        let resolvedGitWorkingTreeStatusProvider =
+            gitWorkingTreeStatusProvider
+            ?? AgentStudioGitWorkingTreeStatusProvider(physicalGate: resolvedGitStatusPhysicalGate)
         let resolvedFilesystemSource =
             filesystemSource
             ?? FilesystemGitPipeline(
                 bus: paneEventBus,
+                gitWorkingTreeProvider: resolvedGitWorkingTreeStatusProvider,
                 performanceTraceRecorder: performanceTraceRecorder
             )
         let visibilityTierResolver = StoreVisibilityTierResolver(store: store)
@@ -192,6 +204,8 @@ final class WorkspaceSurfaceCoordinator {
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.bridgeGitReadScheduler = bridgeGitReadScheduler
         self.worktreeProductConstructionCoordinator = worktreeProductConstructionCoordinator
+        self.gitWorkingTreeStatusProvider = resolvedGitWorkingTreeStatusProvider
+        self.gitStatusPhysicalGate = resolvedGitStatusPhysicalGate
         self.filesystemSource = resolvedFilesystemSource
         self.filesystemProjectionIndex = filesystemProjectionIndex ?? FilesystemProjectionIndex()
         self.windowLifecycleStore = windowLifecycleStore
