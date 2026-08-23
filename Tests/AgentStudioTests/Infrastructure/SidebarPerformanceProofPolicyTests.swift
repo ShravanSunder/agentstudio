@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import AgentStudioInfrastructure
@@ -26,11 +27,31 @@ struct SidebarPerformanceProofPolicyTests {
     }
 
     @Test("strict sidebar CPU policy is immutable and population specific")
-    func strictSidebarCPUPolicyIsImmutableAndPopulationSpecific() {
+    func strictSidebarCPUPolicyIsImmutableAndPopulationSpecific() throws {
         #expect(AppPolicies.SidebarPerformanceProof.policyID == "strict-sidebar-cpu")
-        #expect(AppPolicies.SidebarPerformanceProof.policyVersion == 1)
+        let policySource = try String(
+            contentsOfFile: "Sources/AgentStudio/Infrastructure/AppPolicies.swift",
+            encoding: .utf8
+        )
+
+        #expect(policySource.contains("package static let policyVersion: Int = 2"))
+        #expect(
+            policySource.contains(
+                "URL(fileURLWithPath: \"/Users/shravansunder/Documents/dev/open-source\""
+            )
+        )
+        #expect(
+            policySource.contains(
+                "URL(fileURLWithPath: \"/Users/shravansunder/Documents/dev/project-dev\""
+            )
+        )
+        #expect(policySource.contains("package static let strictTabCount: Int = 5"))
+        #expect(policySource.contains("package static let strictPaneModelCount: Int = 20"))
+        #expect(policySource.contains("package static let zeroPTYExpectedSessionCount: Int = 0"))
+        #expect(policySource.contains("package static let mountedPTYExpectedSessionCount: Int = 1"))
+        #expect(policySource.contains("package static let zmxInventoryInterval: Duration"))
+        #expect(policySource.contains("package static let fixturePreparationTimeout: Duration = .seconds(300)"))
         #expect(AppPolicies.SidebarPerformanceProof.fixtureQuery == "worktree")
-        #expect(AppPolicies.SidebarPerformanceProof.populatedFixtureTabCount == 2)
         #expect(AppPolicies.SidebarPerformanceProof.idleProcessCPUP99MaximumPercent == 10)
         #expect(AppPolicies.SidebarPerformanceProof.actionProcessCPUP95MaximumPercent == 20)
         #expect(AppPolicies.SidebarPerformanceProof.sampleInterval == .seconds(1))

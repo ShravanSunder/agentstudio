@@ -41,7 +41,7 @@ package enum AppPolicies {
 
     package enum SidebarPerformanceProof {
         package static let policyID = "strict-sidebar-cpu"
-        package static let policyVersion: Int = 1
+        package static let policyVersion: Int = 2
         package static let nativeTablePilotPolicyID = "sidebar-native-table-pilot"
         package static let nativeTablePilotPolicyVersion: Int = 1
         package static let repositoryCount: Int = 150
@@ -50,6 +50,16 @@ package enum AppPolicies {
         package static let tabCount: Int = 12
         package static let paneCount: Int = 36
         package static let activePTYCount: Int = 1
+        package static let strictWatchedRootURLs: [URL] = [
+            URL(fileURLWithPath: "/Users/shravansunder/Documents/dev/open-source", isDirectory: true),
+            URL(fileURLWithPath: "/Users/shravansunder/Documents/dev/project-dev", isDirectory: true),
+        ]
+        package static let strictTabCount: Int = 5
+        package static let strictPaneModelCount: Int = 20
+        package static let zeroPTYExpectedSessionCount: Int = 0
+        package static let mountedPTYExpectedSessionCount: Int = 1
+        package static let zmxInventoryInterval: Duration = .seconds(5)
+        package static let fixturePreparationTimeout: Duration = .seconds(300)
         package static let representedRowCount: Int = 24
         package static let warmupTransactionCountPerScale: Int = 20
         package static let measuredTransactionCountPerScale: Int = 200
