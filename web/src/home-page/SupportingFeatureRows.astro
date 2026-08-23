@@ -74,7 +74,12 @@ const mediaByFeatureId = {
               </div>
             </div>
 
-            <div class="scroll-material-pane feature-detail__pane feature-detail__media min-w-0 overflow-clip rounded-material-pane border border-line p-1 max-lg:order-2">
+            <div
+              class:list={[
+                "scroll-material-pane feature-detail__pane feature-detail__media min-w-0 overflow-clip rounded-material-pane border border-line p-1 max-lg:order-2",
+                { "flex items-center": item.id === "persistence" },
+              ]}
+            >
               {item.id === "persistence" ? (
                 <ScrollAutoplayVideo
                   accessibilityLabel="Agent Studio persistent session restore demonstration"
