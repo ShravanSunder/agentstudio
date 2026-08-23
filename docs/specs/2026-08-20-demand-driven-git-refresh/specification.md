@@ -58,9 +58,9 @@ Ahead/behind MUST be immediately computed from accepted local remote-tracking re
 
 PR, check, review, mergeability, and merge-state facts MUST remain keyed by exact repository, non-empty branch, and current origin. Automatic demand MUST be the union of visible sidebar worktrees and visible panes in the active tab. A demanded repository with no accepted result MUST refresh immediately; after success it MUST NOT automatically refresh again before three minutes. Losing demand MUST stop future automatic work without deleting current-origin facts.
 
-### S13 — Efficient and bounded GitHub query
+### S13 — Efficient, bounded, and atomic GitHub query
 
-One admitted Forge refresh MUST issue one bounded GraphQL request plan for the current repository and complete demanded-branch set. Where the provider supports branch filtering, the request MUST use demanded `headRefName` scopes, batching multiple branches with bounded aliases rather than retrieving unrelated repository-wide PR pages. The plan MUST respect GitHub connection/node/result bounds, and a truncated or incomplete result MUST NOT confirm an unmatched branch empty.
+One admitted Forge refresh MUST issue one bounded GraphQL request plan for the current repository and complete demanded-branch set. Where the provider supports branch filtering, the request MUST use demanded `headRefName` scopes, batching multiple branches with bounded aliases rather than retrieving unrelated repository-wide PR pages. Every aliased connection MUST be completely paginated within the plan's declared connection, node, and result bounds. The repository-scoped result MUST publish atomically only when every demanded branch connection is complete and current; if any batch or connection fails, truncates, rate-limits, or remains incomplete, no branch from that plan may update and prior or unknown facts MUST remain unchanged.
 
 ### S14 — Forge concurrency and recovery
 
@@ -95,6 +95,7 @@ Acceptance MUST combine deterministic cache/admission/currentness tests, local a
 - Cache freshness expiry preserves current-identity accepted facts while demanded refresh proceeds.
 - Local fact success followed by detail failure publishes nothing partial.
 - Remote fetch or Forge failure preserves current-origin accepted facts and enters only its bounded recovery class.
+- A partially successful multi-batch Forge plan publishes no branch facts; recovery retries the complete latest repository plan.
 - Capacity deferral changes neither cache truth nor source health.
 - Demand or identity changes may cancel interest; late physical completion still requires lifecycle accounting and cannot publish obsolete facts.
 - A disallowed host-pressure state invalidates the performance population; unrelated processes are not stopped to manufacture acceptance.

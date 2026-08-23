@@ -17,7 +17,7 @@ RepositoryFactDemandCoordinator (App)
   ├─ visible sidebar worktrees
   ├─ visible active-tab pane worktrees
   ├─ open worktrees
-  └─ demanded repository+branch keys
+  └─ demanded repository identities
               │
               ├──────── local worktree demand ────────┐
               │                                       ▼
@@ -29,10 +29,10 @@ RepositoryFactDemandCoordinator (App)
               │                         RemoteReferenceRefreshActor
               │                           noninteractive git fetch
               │
-              └──────── demanded repo+branches ──────┐
+              └──────── demanded worktree IDs ──────┐
                                                       ▼
                                                 ForgeActor
-                                          branch-scoped gh GraphQL
+                                  actor-resolved branch-scoped gh GraphQL
 
 all validated changed results
               │
@@ -62,7 +62,7 @@ The structural crux is where “good enough” becomes a decision. Putting that 
 | Independent source actors consume one App demand snapshot | Singular demand semantics with source-owned freshness/recovery | Adds one demand model and one remote-ref actor | Select |
 | Process-isolated local status helper | Hard kill boundary | IPC, worker lifecycle, cost relocation, wider proof | Defer unless in-process design fails its falsifiers |
 
-The design reuses `RepoCacheAtom`, `AtomFamily`, `WorkspaceCacheCoordinator`, `GitWorkingDirectoryProjector`, `ForgeActor`, `PullRequestDemandProjection` semantics, `SystemGitRemoteClient.fetch`, `EagerDerivedAtomFamily`, the EventBus, and the exact-debug proof path. New durable machinery is limited to the holistic demand snapshot, `RemoteReferenceRefreshActor`, process-wide source capacity owners, local status fact/detail contracts, and the deadline/governor state required to replace fixed polling.
+The design reuses `RepoCacheAtom`, `AtomFamily`, `WorkspaceCacheCoordinator`, `GitWorkingDirectoryProjector`, `ForgeActor`, `PullRequestDemandProjection` semantics, the `agentstudio-git` remote process runner and parsing foundation, `EagerDerivedAtomFamily`, the EventBus, and the exact-debug proof path. New durable machinery is limited to the holistic demand snapshot, `RemoteReferenceRefreshActor`, process-wide source capacity owners, local status fact/detail and staged-fetch contracts, and the deadline/governor state required to replace fixed polling.
 
 Revisit process isolation only if one admitted local operation still violates the action CPU target after duplicated detail work and fleet admission are absent, or a native read demonstrably cannot finish within the accepted process lifecycle. Any future helper CPU must be included in user-capacity proof.
 
@@ -78,14 +78,14 @@ The snapshot contains:
 - visible-sidebar worktree identities;
 - visible-pane worktrees in the active tab, honoring management, drawer, zoom, occlusion, minimization, and window visibility semantics already defined by PR-fact demand;
 - open worktrees;
-- exact demanded `RepoBranchKey` values derived from current membership;
+- demanded worktree identities with their attention class for Forge;
 - demanded repository identities for remote-reference refresh.
 
 The coordinator owns no freshness, provider, cache, or retry state. It does not read `ViewRegistry`; render bookkeeping never creates source demand. Empty demand is delivered on hiding, minimization, occlusion, topology removal, and shutdown.
 
 The current separate `setActivePaneWorktree`, `setActivity`, `setSidebarVisibleWorktrees`, and PR-demand observations become one content-equal capture followed by narrow projections to each owner. This prevents the local and remote definitions of “visible” from drifting without making those owners share scheduling state.
 
-The capture is ID-only and uses existing keyed membership/location indices. It observes active tab/window state, visible worktree IDs, open-pane membership revisions, and the exact worktree-to-repository/branch keys needed for those IDs. It does not read enrichment facts, filesystem paths, cache dictionaries, row presentation, or every pane's display state. Membership/topology changes may rebuild the compact identity projection; ordinary focus, search, row rendering, and unrelated pane activity update only their affected keyed inputs. Content equality runs before any source-owner call.
+The capture is ID-only and uses existing keyed membership/location indices. It observes active tab/window state, visible worktree IDs, open-pane membership revisions, and worktree-to-repository membership needed for those IDs. It does not read branch or enrichment facts, filesystem paths, cache dictionaries, row presentation, or every pane's display state. `ForgeActor` retains its existing actor-owned worktree membership and resolves current non-empty branches after receiving demanded worktree IDs; branch changes therefore alter Forge scope without creating a second MainActor branch owner. Membership/topology changes may rebuild the compact identity projection; ordinary focus, search, row rendering, and unrelated pane activity update only their affected keyed inputs. Content equality runs before any source-owner call.
 
 ### RepoEnrichmentCacheAtom and RepoCacheAtom
 
@@ -152,14 +152,16 @@ Per repository it owns:
 
 - last successful fetch time and freshness deadline;
 - origin/topology generation;
+- the accepted remote-reference origin/generation token required by local ahead/behind composition;
+- cleanup custody for the reserved generation-scoped ref namespace;
 - one active fetch and one latest complete pending intent;
 - process-wide fetch-capacity admission;
 - failure/rate/timeout backoff;
 - completion-triggered targeted local recomputation.
 
-It calls the existing typed `agentstudio-git` remote client with noninteractive prompt policy. Default automatic freshness is three minutes for active/visible demand, aligned with the confirmed product promise and PR freshness floor. Hidden demand stops future fetches without deleting local remote-tracking refs or accepted ahead/behind facts. Explicit refresh bypasses freshness but not capacity, active single-flight, or failure/rate policy.
+It calls a typed `agentstudio-git` staged-fetch contract with noninteractive prompt policy. Registration first captures the current remote configuration and canonical ref tips as one immutable local snapshot, establishing the immediate last-fetched acceptance token without claiming server freshness. Admission captures that exact origin URL, remote name, repository identity, and topology generation. The child fetches captured remote refs into a reserved generation-scoped private namespace without updating `FETCH_HEAD` or canonical `refs/remotes/*`. After child exit, the actor revalidates origin and generation; only a current completion may promote the complete staged update/delete set to canonical remote-tracking refs in one ref transaction and create a new `RemoteReferenceAcceptance` token for that exact origin/generation. Stale, cancelled, removed, or shutdown completions clean their staging namespace and cannot promote. Startup and shutdown also sweep abandoned refs under only that reserved namespace; cleanup failure remains observable and retryable, while staged refs stay invisible to canonical readers. Default automatic freshness is three minutes for active/visible demand, aligned with the confirmed product promise and PR freshness floor. Hidden demand stops future fetches without deleting current-origin accepted remote refs or ahead/behind facts. Explicit refresh bypasses freshness but not capacity, active single-flight, or failure/rate policy.
 
-One successful repository fetch refreshes shared remote refs once, then requests targeted local status recomputation for all currently represented worktrees in that repository. It does not emit ahead/behind directly or duplicate local Git materialization authority.
+One successfully promoted repository fetch refreshes shared remote refs once, then requests targeted local status recomputation for all currently represented worktrees in that repository. The recomputation carries the accepted remote-reference token; local ahead/behind composition publishes counts only while that token still matches the repository's current origin/topology generation. Origin change invalidates the prior token and ahead/behind publication authority before any new local self-heal can read old refs. The actor does not emit ahead/behind directly or duplicate local Git materialization authority.
 
 The selected initial physical policy is one automatic fetch process at a time, a 120-second child-process timeout inherited from the current `agentstudio-git` remote contract, and the three-minute automatic retry floor. These are `AppPolicies` values at composition; provider defaults are not hidden product policy.
 
@@ -171,13 +173,16 @@ The successful automatic freshness floor remains three minutes. Manual refresh b
 
 Forge adds one process-wide GitHub CLI capacity of two child processes. Capacity-deferred repositories retain their latest intent and are woken by child completion or the single earliest deadline. Capacity is not failure.
 
+An equivalent automatic trigger received during an active request may schedule one eligibility recheck after the existing one-second contraction delay, but success freshness still gates physical work until `lastSuccessfulRefreshAt + 180 seconds`. A changed complete demanded-branch set containing an unconfirmed branch and explicit manual intent use their separately defined freshness bypass while still obeying single-flight, CLI capacity, and rate/failure policy.
+
 The provider changes from repository-wide `pullRequests(first: 100)` pagination to a demanded-branch query plan. GitHub officially supports `Repository.pullRequests(headRefName:)`; one GraphQL request may use bounded aliases for multiple demanded branches. The provider:
 
 - normalizes and stably orders demanded branch names;
 - groups them into bounded alias batches under GitHub node and response limits;
 - requests only open PRs for each aliased `headRefName`;
 - returns a typed per-branch completeness map;
-- never confirms empty from a truncated/incomplete branch result;
+- treats the complete multi-batch query as one repository-scoped transaction: every demanded alias connection must completely paginate and validate before any branch publishes;
+- rejects the entire plan on any truncated, incomplete, failed, or rate-limited batch, retaining all prior or unknown branch facts;
 - records branch count, alias batch count, node bound, and result completeness under scrubbed telemetry.
 
 The current page size 100 and repository-wide 200-result cap cease to be the ordinary demanded path. A bounded repository-wide fallback is permitted only when branch filtering cannot express the requested complete scope, and its use is an observable outcome rather than a silent widening.
@@ -253,10 +258,12 @@ RepositoryFactDemandSnapshot changed
   -> [added] RemoteReferenceRefreshActor cache/freshness admission
   -> fresh local refs: no work
   -> stale demanded repo: process-capacity admission
-  -> agentstudio-git noninteractive fetch
+  -> agentstudio-git noninteractive fetch into generation-scoped refs
   <- success / timeout / failure / cancellation
   -> generation/origin validation
-  -> success requests targeted local recomputation
+  -> current success atomically promotes refs and accepts origin/generation token
+  -> stale success cleans staged refs without mutating canonical refs
+  -> promoted success requests token-carrying targeted local recomputation
   <- changed ahead/behind atom publication or equality suppression
 ```
 
@@ -276,7 +283,8 @@ same triggers
   -> [unchanged] one Forge admission owner and three-minute freshness
   -> [added] global gh capacity two
   -> [changed] demanded-branch alias query plan
-  <- typed per-branch complete/truncated/rate/failure outcome
+  <- typed atomic repository-plan complete/truncated/rate/failure outcome
+  -> [changed] equivalent one-second follow-up rechecks eligibility but cannot bypass success freshness
   -> [changed] automatic retry floor always at least three minutes
   -> [unchanged] current origin/generation/demand validation
   <- [unchanged] keyed changed-only PR/check/review publication
@@ -299,15 +307,15 @@ Each source owner uses the same semantic states but owns separate instances and 
 
 Local status additionally composes fact and detail phases inside one materialization attempt. Fact completion may release its physical slot before detail starts, but the projector retains same-worktree single-flight and does not admit the follow-up between phases. Automatic duty accounting sums both native phases.
 
-Remote fetch and Forge use killable child processes. Cancellation requests termination through their existing process owner, retains capacity until exact child exit, and rejects any completion after demand/origin/topology generation changed.
+Remote fetch and Forge use killable child processes. Cancellation requests termination through their existing process owner and retains capacity until exact child exit. Remote fetch writes only generation-scoped staging refs before currentness validation; stale completion cleanup cannot promote them. Forge rejects an incomplete repository plan as a unit. Both owners reject any completion after demand/origin/topology generation changed.
 
-Illegal transitions fail closed: publication from obsolete identity/generation/scope, second same-key physical work, capacity release before true completion/exit, capacity counted as failure, partial local publication, automatic remote work without demand, and rendering-triggered source work.
+Illegal transitions fail closed: publication from obsolete identity/generation/scope, second same-key physical work, capacity release before true completion/exit, capacity counted as failure, partial local publication, canonical-ref promotion before currentness validation, automatic remote work without demand, and rendering-triggered source work.
 
 ## Deadline and admission model
 
 Each source actor owns exactly one reschedulable next-deadline task. A state change cancels the prior wait, recomputes the earliest useful instant, and installs one successor through the injected clock seam. A stale wake recomputes and has no authority.
 
-Local deadline candidates include status freshness, line-detail freshness, background stable-hash phase, automatic governor, capacity fallback, and genuine failure. Remote-ref and Forge candidates include demanded freshness, capacity fallback, provider backoff, and authoritative retry-after.
+Local deadline candidates include status freshness, line-detail freshness, background stable-hash phase, automatic governor, capacity fallback, and genuine failure. Remote-ref and Forge candidates include demanded freshness, capacity fallback, provider backoff, and authoritative retry-after. Forge's one-second equivalent-follow-up candidate is an eligibility recheck only; it never advances a same-scope automatic physical start ahead of the three-minute successful-result floor.
 
 Local automatic pacing uses completed physical duty:
 
@@ -328,7 +336,7 @@ The selected policy set remains centralized in `AppPolicies`:
 - local physical status capacity four process-wide, with per-class reservations preserved and automatic governor proof-tuned;
 - remote-ref and Forge automatic freshness floor 180s;
 - remote fetch capacity one and child timeout 120s;
-- Forge CLI capacity two, child timeout 8s, pending equivalent follow-up delay 1s, and failure honesty threshold three;
+- Forge CLI capacity two, child timeout 8s, pending equivalent eligibility recheck delay 1s, and failure honesty threshold three;
 - source capacity recheck remains short and bounded; automatic source failure never retries faster than its source freshness floor.
 
 ## Failure, recovery, and consistency
@@ -345,15 +353,15 @@ Fact success followed by detail failure publishes nothing partial. The prior com
 
 ### Remote fetch failure
 
-Fetch failure, timeout, or noninteractive credential failure preserves last-fetched remote refs and accepted ahead/behind. The actor records a genuine failure deadline and presentable remote freshness remains last-fetched, never fabricated as server-current. Rate/auth failure does not trigger interactive prompts. Successful later fetch closes failure state and requests local recomputation.
+Fetch failure, timeout, or noninteractive credential failure preserves current-origin accepted remote refs and ahead/behind. The actor records a genuine failure deadline and presentable remote freshness remains last-fetched, never fabricated as server-current. Rate/auth failure does not trigger interactive prompts. Stale or cancelled completion cleans only its generation-scoped staging refs. A crash may leave private staged refs, but startup cleanup owns them and canonical readers never observe them. Successful current-generation fetch atomically promotes its complete staged update/delete set, accepts one origin/generation token, closes failure state, and requests token-carrying local recomputation.
 
 ### Forge failure, truncation, and rate limiting
 
-Incomplete branch responses preserve unknown/prior facts for those branches. Ordinary failure, truncation, and rate limiting retain current-origin stable presentation. Automatic next eligibility is never before last attempt plus three minutes and respects longer `Retry-After`. Manual refresh cannot bypass active child, capacity, or authoritative rate limit.
+Incomplete branch responses preserve the entire prior repository presentation: no completed sibling batch publishes early. Ordinary failure, truncation, and rate limiting reject the repository plan atomically and retain current-origin stable presentation. Automatic next eligibility is never before last attempt plus three minutes and respects longer `Retry-After`. An equivalent automatic follow-up after success cannot bypass successful-result freshness; manual refresh and a changed demanded set containing an unconfirmed branch cannot bypass active child, capacity, or authoritative rate limit.
 
 ### Identity and ordering changes
 
-Local work captures worktree/root generation. Fetch captures repository/origin/topology generation. Forge captures repository/origin generation and complete demanded branch set. Origin change, origin loss, repository removal, worktree replacement, branch change, and shutdown advance or invalidate the appropriate generation before cancellation. Late results cannot publish or update freshness/equality baselines.
+Local work captures worktree/root generation. Fetch captures repository/origin/topology generation and cannot mutate canonical remote-tracking refs before validation. Forge captures repository/origin generation and complete demanded branch set. Origin change, origin loss, repository removal, worktree replacement, branch change, and shutdown advance or invalidate the appropriate generation before cancellation. Origin change also invalidates the accepted remote-reference token before local recomputation. Late results cannot promote refs, publish, or update freshness/equality baselines.
 
 ### Shutdown
 
@@ -371,7 +379,7 @@ Required outcome families:
 - contraction: coalesced, replaced, retained-scope count, max-flush admission;
 - admission: fresh-suppressed, no-demand, automatic-paced, capacity-deferred, same-key-deferred, admitted by class;
 - physical: started, slow, caller-cancelled, settled, truly completed/exited, failed, active-at-shutdown;
-- query: path/full, fact/detail, fetch, demanded-branch alias count, fallback-wide, returned node/result count;
+- query: path/full, fact/detail, fetch-staged/promoted/abandoned/cleaned, demanded-branch alias count, fallback-wide, returned node/result count, atomic-plan completeness;
 - validation: current, stale-generation, stale-root/origin/branch/demand, removed, shutdown;
 - publication: published, content-equal, partial-rejected;
 - recovery: capacity-rearmed, failure-opened/closed, rate-limited, unavailable/available;
@@ -388,7 +396,7 @@ PACKAGE PROOF
 agentstudio-git real disposable repositories/remotes
   -> status-fact versus detail cost/contract
   -> path/full compatibility
-  -> noninteractive demanded fetch and cancellation/timeout
+  -> staged noninteractive fetch, current promotion, stale cleanup, and cancellation/timeout
   -> complete package check before revision consumption
 
 RUNTIME PROOF
@@ -401,13 +409,13 @@ strict verifier
   -> graceful exact-candidate retirement and zero required loss
 ```
 
-Final runtime proof may use controlled disposable remotes for remote-fetch mutation while the topology scale comes from the complete real watched roots. It must not mutate user repositories or global Git configuration. No fake substitutes for production watched-folder discovery, production provider wiring, native UI materialization, exporter delivery, or exact process identity.
+Final runtime proof may use controlled disposable remotes for staged-fetch mutation while the topology scale comes from the complete real watched roots. It must not mutate user repositories or global Git configuration. The idle population must include at least one complete maximum local self-heal interval and its resulting physical completion. With the selected 240-second background base and 4x adaptation, retain at least 1,000 usable one-second samples; if policy tuning lengthens the maximum, the proof horizon lengthens with it. Settlement requires no overdue deadline, physical work within source gates, preparation debt classified by reason, and oldest debt plus next deadline within policy. Inventory and include every debug-owned descendant/helper process so cost cannot pass by relocation. No fake substitutes for production watched-folder discovery, production provider wiring, native UI materialization, exporter delivery, or exact process identity.
 
 ## Requirement, realization, and proof trace
 
 | Requirement | Structural realization | Proof seam |
 | --- | --- | --- |
-| U-GIT-IDLE-CPU-1 | cache-first reads, local governor, hidden-remote stop, bounded physical gates | real-root five-minute zero-PTY exact-PID population plus source metrics |
+| U-GIT-IDLE-CPU-1 | cache-first reads, local governor, hidden-remote stop, bounded physical gates | real-root policy-derived full-self-heal-cycle zero-PTY exact-PID population plus source metrics |
 | U-GIT-ACTION-CPU-1 | content-equal demand, fresh-cache suppression, keyed projections | native action/read-back populations with exact-PID samples |
 | U-GIT-CACHE-FIRST-1 | RepoCacheAtom families, source-owner freshness, keyed eager reads | cache hit/no-source and keyed revision proof |
 | U-GIT-SOURCE-SUFFICIENCY-1 | three source owners consuming one demand snapshot | source-selection behavior and end-to-end fact provenance |
@@ -431,13 +439,13 @@ This is one holistic internal cutover:
 - local caller timeout becomes slow observation;
 - `agentstudio-git` status facts no longer hide line-count detail;
 - all production local status consumers share one process-scoped physical gate;
-- demanded remote refs acquire a source owner without changing local-status truth ownership;
+- demanded remote refs acquire staged-fetch/promotion ownership without changing local-status truth ownership;
 - Forge gains global CLI capacity, branch-scoped GraphQL planning, and consistent three-minute automatic recovery;
 - the verifier replaces zero-debt settlement with reasoned preparation debt plus bounded automatic/physical activity.
 
 There is no persisted migration and no dual runtime scheduler. Deadline, demand, capacity, and physical state rebuild from current topology and accepted runtime facts at launch. Existing Git/Forge EventBus facts and UI fact shapes remain stable except for deliberate source-detail contract changes internal to the package/app boundary.
 
-The package cutover lands in dependency order: the Git-only contract/readers become one reviewed `agentstudio-git` revision; Agent Studio then updates its exact revision and cuts every consumer to the explicit contract. The old package API and new app materializer do not coexist in a released build. Rollback restores the prior app materializer and prior exact package revision together.
+The package cutover lands in dependency order from Agent Studio's current exact pin `474bf34210dd8e176f9b3585b061161a8e8b50d4` or a verified descendant of that revision. The Git-only contract/readers become one reviewed `agentstudio-git` revision while preserving the blocking-read executor and every non-status discovery/review public contract; Agent Studio then verifies ancestry and API/content preservation, updates its exact revision, and cuts every consumer to the explicit status and staged-fetch contracts. The old package API and new app materializer do not coexist in a released build. Rollback restores the prior app materializer and prior exact package revision together.
 
 Architecture enforcement prevents:
 
@@ -447,7 +455,10 @@ Architecture enforcement prevents:
 - hidden line-detail work inside status-fact reads;
 - independent production status providers bypassing the shared physical gate;
 - automatic remote work without demand;
+- direct demanded fetch mutation of canonical remote-tracking refs before origin/generation validation;
+- ahead/behind publication without the current accepted remote-reference token;
 - repository-wide GitHub fallback without bounded observable justification;
+- partial publication from an incomplete multi-batch Forge repository plan;
 - capacity reasons entering failure backoff;
 - capacity release before native completion or child exit;
 - partial or obsolete publication;
