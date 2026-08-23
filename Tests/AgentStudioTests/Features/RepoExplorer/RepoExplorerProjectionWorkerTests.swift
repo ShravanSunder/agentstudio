@@ -604,14 +604,14 @@ struct RepoExplorerProjectionWorkerTests {
 
         adapter.admit(request(repos: [], generation: 1))
         let initialResult = try await publishedResult(generation: 1, from: adapter)
-        let initialRevision = try #require(adapter.materializedProjection).revision
+        let initialRevision = try #require(host.acceptedBaseline).revision
 
         adapter.admit(request(repos: [], generation: 2, query: "missing"))
         let changedResult = try await publishedResult(generation: 2, from: adapter)
 
         #expect(initialResult.projection.emptyState == .noRepositories)
         #expect(changedResult.projection.emptyState == .searchNoResults)
-        #expect(adapter.materializedProjection?.revision == initialRevision + 1)
+        #expect(host.acceptedBaseline?.revision == initialRevision + 1)
     }
 
     @Test("changed visible pane destinations republish to the view adapter")

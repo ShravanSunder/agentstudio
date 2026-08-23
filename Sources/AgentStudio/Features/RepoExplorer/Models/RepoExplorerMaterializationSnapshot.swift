@@ -28,6 +28,29 @@ struct RepoExplorerMaterializedWorktreePresentation: Equatable, Sendable {
     let branchName: String
     let bridgeCommandResolution: BridgePaneCommandResolution
     let paneDestinations: [RepoExplorerPaneDestination]
+
+    /// Equality covers only values consumed by the materialized row. The full
+    /// source models are retained for rendering actions, but dormant metadata
+    /// must not turn into a native table update.
+    static func == (
+        lhs: Self,
+        rhs: Self
+    ) -> Bool {
+        lhs.rowID == rhs.rowID
+            && lhs.groupID == rhs.groupID
+            && lhs.repo.id == rhs.repo.id
+            && lhs.worktree.id == rhs.worktree.id
+            && lhs.worktree.path == rhs.worktree.path
+            && lhs.worktree.isMainWorktree == rhs.worktree.isMainWorktree
+            && lhs.checkoutTitle == rhs.checkoutTitle
+            && lhs.isMainCheckout == rhs.isMainCheckout
+            && lhs.checkoutColorHex == rhs.checkoutColorHex
+            && lhs.placementText == rhs.placementText
+            && lhs.branchStatus == rhs.branchStatus
+            && lhs.branchName == rhs.branchName
+            && lhs.bridgeCommandResolution == rhs.bridgeCommandResolution
+            && lhs.paneDestinations == rhs.paneDestinations
+    }
 }
 
 struct RepoExplorerUnassociatedPanePresentation: Equatable, Sendable {

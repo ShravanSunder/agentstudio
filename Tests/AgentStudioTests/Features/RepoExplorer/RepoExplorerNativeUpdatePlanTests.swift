@@ -91,6 +91,10 @@ struct RepoExplorerNativeUpdatePlanTests {
         let oldSnapshot = nativePlanSnapshot(["A", "B"])
         let newSnapshot = nativePlanSnapshot(["A", "B"], changedTitles: ["B"], changedLayouts: ["A"])
         let baseline = nativePlanBaseline(snapshot: oldSnapshot, revision: 2)
+        #expect(
+            RepoExplorerMaterializationFingerprint.make(snapshot: oldSnapshot)
+                == RepoExplorerMaterializationFingerprint.make(snapshot: newSnapshot)
+        )
         let plan = try RepoExplorerNativeUpdatePlan.validating(
             baseline: baseline,
             candidate: nativePlanContent(newSnapshot),

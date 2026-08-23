@@ -436,13 +436,15 @@ struct RepoExplorerProjectionDemandTests {
         #expect(delta.changes == [.repo(repositoryID), .worktreeFact(worktreeID)])
     }
 
-    @Test("incompatible structural targets promote latest intent to full")
-    func incompatibleStructuralTargetsPromoteToFull() {
+    @Test("incompatible structural targets retain scope for off-main full promotion")
+    func incompatibleStructuralTargetsRetainScopeForOffMainPromotion() {
+        let pendingRepositoryID = UUIDv7.generate()
+        let latestWorktreeID = UUIDv7.generate()
         let pendingRequest = emptyRequest(generation: 2)
         let pending = RepoExplorerProjectionIntent.delta(
             RepoExplorerProjectionDeltaIntent(
                 targetRequest: pendingRequest,
-                changes: [.repo(UUIDv7.generate())],
+                changes: [.repo(pendingRepositoryID)],
                 structuralTarget: RepoExplorerProjectionStructuralTarget(request: pendingRequest)
             )
         )
@@ -457,12 +459,18 @@ struct RepoExplorerProjectionDemandTests {
         let latest = RepoExplorerProjectionIntent.delta(
             RepoExplorerProjectionDeltaIntent(
                 targetRequest: latestRequest,
-                changes: [.worktreeFact(UUIDv7.generate())],
+                changes: [.worktreeFact(latestWorktreeID)],
                 structuralTarget: RepoExplorerProjectionStructuralTarget(request: latestRequest)
             )
         )
 
-        #expect(RepoExplorerProjectionIntent.combinePending(pending, latest) == .full(latestRequest))
+        guard case .delta(let combined) = RepoExplorerProjectionIntent.combinePending(pending, latest) else {
+            Issue.record("Expected the off-main worker to own structural promotion")
+            return
+        }
+        #expect(combined.targetRequest == latestRequest)
+        #expect(combined.structuralTarget == RepoExplorerProjectionStructuralTarget(request: latestRequest))
+        #expect(combined.changes == [.repo(pendingRepositoryID), .worktreeFact(latestWorktreeID)])
     }
 
     @Test("hidden demand registers no hot facts and keeps no recency deadline")

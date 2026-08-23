@@ -12,15 +12,14 @@ struct RepoExplorerMaterializationCandidateID: Hashable, Sendable {
 struct RepoExplorerMaterializationFingerprint: Equatable, Sendable {
     let rawValue: UInt64
 
+    /// Fingerprints ordered membership only. Row content and layout changes are
+    /// compared through `RepoExplorerRowContentRevision` and the row layout,
+    /// which lets the native plan reload exact rows without serializing the fleet.
     static func make(snapshot: RepoExplorerMaterializationSnapshot) -> Self {
         var hasher = Hasher()
         hasher.combine(snapshot.rows.count)
         for row in snapshot.rows {
             hasher.combine(row.id)
-            hasher.combine(String(reflecting: row.contentRevision))
-            hasher.combine(String(reflecting: row.layout))
-            hasher.combine(row.representedRepoID)
-            hasher.combine(row.representedWorktreeID)
         }
         return Self(rawValue: UInt64(bitPattern: Int64(hasher.finalize())))
     }

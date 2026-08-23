@@ -291,6 +291,10 @@ extension RepoExplorerProjectionAdapter {
                 publishedRevision += 1
                 publishedResult = result
                 scheduleRecencyDeadline(for: result)
+            } else if publishedResult == nil {
+                publishedRevision += 1
+                publishedResult = result
+                scheduleRecencyDeadline(for: result)
             } else {
                 onProjectionSuppressed(result)
             }
