@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import AppKit
@@ -5,7 +6,9 @@ import SwiftUI
 
 struct RepoExplorerMaterializedRowView: View {
     let row: RepoExplorerMaterializedRow
+    let commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
     let octiconLoader: OcticonLoader
+    let onCommandRequest: (RepoExplorerCommandPresentationRequest) -> Void
 
     var body: some View {
         content
@@ -45,21 +48,64 @@ struct RepoExplorerMaterializedRowView: View {
             )
             .allowsHitTesting(false)
         case .worktree(let worktree):
-            SidebarRowShell(isHovering: false) {
-                RepoExplorerWorktreeRowContent(
-                    octiconLoader: octiconLoader,
-                    checkoutTitle: worktree.checkoutTitle,
-                    branchName: worktree.branchName,
-                    placementText: worktree.placementText,
-                    checkoutIconKind: worktree.isMainCheckout ? .mainCheckout : .gitWorktree,
-                    iconColor: Color(
-                        nsColor: NSColor(hex: worktree.checkoutColorHex)
-                            ?? AppStyles.General.Accent.primaryNSColor
-                    ),
-                    branchStatus: worktree.branchStatus,
-                    showsFavoriteControl: false
-                )
-            }
+            let isFavorite =
+                commandPresentationSnapshot.favoriteStateByRepositoryID[
+                    worktree.repo.id
+                ] ?? false
+            let commandPresentation = RepoExplorerWorktreeCommandPresentation.resolve(
+                worktreeId: worktree.worktree.id,
+                repoId: worktree.repo.id,
+                isFavorite: isFavorite,
+                showsFavoriteControl: worktree.isMainCheckout,
+                snapshot: commandPresentationSnapshot
+            )
+            RepoExplorerWorktreeRow(
+                octiconLoader: octiconLoader,
+                worktree: worktree.worktree,
+                checkoutTitle: worktree.checkoutTitle,
+                branchName: worktree.branchName,
+                placementText: worktree.placementText,
+                checkoutIconKind: worktree.isMainCheckout ? .mainCheckout : .gitWorktree,
+                iconColor: Color(
+                    nsColor: NSColor(hex: worktree.checkoutColorHex)
+                        ?? AppStyles.General.Accent.primaryNSColor
+                ),
+                branchStatus: worktree.branchStatus,
+                bridgeCommandResolution: worktree.bridgeCommandResolution,
+                isFavorite: isFavorite,
+                commandPresentation: commandPresentation,
+                panePresentations: worktree.paneDestinations.map {
+                    RepoExplorerPanePresentation(destination: $0, label: $0.label)
+                },
+                onToggleFavorite: {
+                    dispatch(
+                        isFavorite ? .removeRepoFavorite : .addRepoFavorite,
+                        surface: .inlineControl,
+                        from: commandPresentation
+                    )
+                },
+                onOpen: {
+                    dispatch(.openWorktree, surface: .inlineControl, from: commandPresentation)
+                },
+                onOpenNew: {
+                    dispatch(.openNewTerminalInTab, surface: .contextMenu, from: commandPresentation)
+                },
+                onReview: {
+                    dispatch(.showBridgeReview, surface: .contextMenu, from: commandPresentation)
+                },
+                onOpenFiles: {
+                    dispatch(.showBridgeFiles, surface: .contextMenu, from: commandPresentation)
+                },
+                onOpenReviewInNewTab: {
+                    dispatch(.openBridgeReviewInNewTab, surface: .contextMenu, from: commandPresentation)
+                },
+                onOpenFilesInNewTab: {
+                    dispatch(.openBridgeFilesInNewTab, surface: .contextMenu, from: commandPresentation)
+                },
+                onOpenInPane: {
+                    dispatch(.openWorktreeInPane, surface: .contextMenu, from: commandPresentation)
+                }
+            )
         case .associatedPane(let pane):
             SidebarRowShell(isHovering: false) {
                 RepoExplorerPaneRowContent(
@@ -95,6 +141,19 @@ struct RepoExplorerMaterializedRowView: View {
                 .font(.system(size: AppStyles.General.Typography.textSm))
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func dispatch(
+        _ command: AppCommand,
+        surface: AppCommandSurface,
+        from presentation: RepoExplorerWorktreeCommandPresentation
+    ) {
+        let presentedCommand =
+            surface == .inlineControl
+            ? presentation.inlineCommand(command)
+            : presentation.contextMenuCommand(command)
+        guard let request = presentedCommand?.request else { return }
+        onCommandRequest(request)
     }
 
     static func accessibilityLabel(for row: RepoExplorerMaterializedRow) -> String {

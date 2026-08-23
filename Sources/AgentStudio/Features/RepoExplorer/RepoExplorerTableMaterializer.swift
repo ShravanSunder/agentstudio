@@ -52,29 +52,54 @@ final class RepoExplorerTableMaterializer: NSObject,
 
     private let tableView = NSTableView()
     private let scrollView: NSScrollView
+    private let materializationHostLifetimeID: RepoExplorerMaterializationHostLifetimeID
     private let octiconLoader: OcticonLoader
+    private let interactions: RepoExplorerTableInteractions
     private let measureVisibleRowHeight: VisibleRowHeightMeasurer
-    private let onVisibleWorktreeIDsChange: @MainActor (Set<UUID>) -> Void
+    private let onVisibleWorktreeSnapshotChange: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
+    private let observeCurrentVisibleTarget: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
     private var snapshot: RepoExplorerMaterializationSnapshot?
     private var visibleGeneration: UInt64?
     private var viewportTask: Task<Void, Never>?
     private var viewportSequence: UInt64 = 0
-    private var lastPublishedVisibleWorktreeIDs: Set<UUID> = []
+    private var visibleRevision: UInt64 = 0
+    private var currentVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot
+    private var lastPublishedVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
+    private var acceptedCommandPresentationSnapshot = RepoExplorerCommandPresentationSnapshot.empty
+    private var acceptedCommandGeneration: UInt64 = 0
     private var heightByRowID: [RepoExplorerRowID: HeightCacheEntry] = [:]
     private var widthRevision = 0
     private var pendingReloadRows = IndexSet()
     private var pendingHeightRows = IndexSet()
     private var boundsObserver: NSObjectProtocol?
     private var isDetached = false
+    private var isDemandActive = true
 
     init(
+        materializationHostLifetimeID: RepoExplorerMaterializationHostLifetimeID =
+            RepoExplorerMaterializationHostLifetimeID(
+                rawValue: UUIDv7.generate()
+            ),
         octiconLoader: OcticonLoader,
-        onVisibleWorktreeIDsChange: @escaping @MainActor (Set<UUID>) -> Void,
+        interactions: RepoExplorerTableInteractions = .inert,
+        onVisibleWorktreeSnapshotChange: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void,
+        observeCurrentVisibleTarget: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void = { _ in },
         measureVisibleRowHeight: @escaping VisibleRowHeightMeasurer = { _, _ in nil }
     ) {
+        self.materializationHostLifetimeID = materializationHostLifetimeID
         self.octiconLoader = octiconLoader
-        self.onVisibleWorktreeIDsChange = onVisibleWorktreeIDsChange
+        self.interactions = interactions
+        self.onVisibleWorktreeSnapshotChange = onVisibleWorktreeSnapshotChange
+        self.observeCurrentVisibleTarget = observeCurrentVisibleTarget
         self.measureVisibleRowHeight = measureVisibleRowHeight
+        currentVisibleSnapshot = RepoExplorerVisibleWorktreeSnapshot(
+            target: RepoExplorerCommandPresentationTarget(
+                materializationHostLifetimeID: materializationHostLifetimeID,
+                materializationGeneration: 0,
+                visibleRevision: 0
+            ),
+            worktreeIDs: []
+        )
         scrollView = NSScrollView(frame: .zero)
         view = scrollView
         super.init()
@@ -129,10 +154,17 @@ final class RepoExplorerTableMaterializer: NSObject,
         ) as? RepoExplorerTableRowCell {
             cell = reused
         } else {
-            cell = RepoExplorerTableRowCell(octiconLoader: octiconLoader)
+            cell = RepoExplorerTableRowCell(
+                octiconLoader: octiconLoader,
+                interactions: interactions
+            )
             hostedCellCreationCount += 1
         }
-        cell.bind(row: row, visibleGeneration: visibleGeneration)
+        cell.bind(
+            row: row,
+            visibleGeneration: visibleGeneration,
+            commandPresentationSnapshot: acceptedCommandPresentationSnapshot
+        )
         return cell
     }
 
@@ -186,9 +218,21 @@ final class RepoExplorerTableMaterializer: NSObject,
             return
         }
         let priorSnapshot = snapshot
+        let priorVisibleGeneration = visibleGeneration
+        let priorVisibleSnapshot = currentVisibleSnapshot
+        let priorCommandSnapshot = acceptedCommandPresentationSnapshot
+        let priorCommandGeneration = acceptedCommandGeneration
         let anchor = currentTopVisibleAnchor
         snapshot = candidate.snapshot
         visibleGeneration = candidate.visibleGeneration
+        if priorVisibleGeneration != candidate.visibleGeneration {
+            advanceVisibleTarget(
+                materializationGeneration: candidate.visibleGeneration,
+                worktreeIDs: priorVisibleSnapshot.worktreeIDs
+            )
+            acceptedCommandPresentationSnapshot = .empty
+            acceptedCommandGeneration = 0
+        }
         heightByRowID = heightByRowID.filter { candidate.snapshot.rowIndexByID[$0.key] != nil }
         updateWidthRevisionIfNeeded()
         updateTableFrame()
@@ -200,6 +244,10 @@ final class RepoExplorerTableMaterializer: NSObject,
         )
         guard didApply, tableView.numberOfRows == candidate.snapshot.rows.count else {
             snapshot = priorSnapshot
+            visibleGeneration = priorVisibleGeneration
+            currentVisibleSnapshot = priorVisibleSnapshot
+            acceptedCommandPresentationSnapshot = priorCommandSnapshot
+            acceptedCommandGeneration = priorCommandGeneration
             updateTableFrame()
             completion(.rejected)
             return
@@ -218,20 +266,36 @@ final class RepoExplorerTableMaterializer: NSObject,
         completion: @escaping (RepoExplorerMaterializationChildDisposition) -> Void
     ) {
         invalidateScheduledViewportPublication()
+        self.visibleGeneration = visibleGeneration
+        advanceVisibleTarget(
+            materializationGeneration: visibleGeneration,
+            worktreeIDs: []
+        )
+        acceptedCommandPresentationSnapshot = .empty
+        acceptedCommandGeneration = 0
+        lastPublishedVisibleSnapshot = currentVisibleSnapshot
+        onVisibleWorktreeSnapshotChange(currentVisibleSnapshot)
         clearRepresentedCellsForReuse()
-        clearViewportDemand()
         completion(.accepted)
     }
 
     func suspendDemand() {
-        guard !isDetached else { return }
+        guard !isDetached, isDemandActive else { return }
+        isDemandActive = false
         invalidateScheduledViewportPublication()
         clearRepresentedCellsForReuse()
-        clearViewportDemand()
+        publishClearedViewportDemand()
     }
 
     func resumeDemand(visibleGeneration: UInt64) {
-        guard !isDetached, self.visibleGeneration == visibleGeneration else { return }
+        guard !isDetached, !isDemandActive, self.visibleGeneration == visibleGeneration else { return }
+        isDemandActive = true
+        advanceVisibleTarget(
+            materializationGeneration: visibleGeneration,
+            worktreeIDs: currentVisibleSnapshot.worktreeIDs
+        )
+        acceptedCommandPresentationSnapshot = .empty
+        acceptedCommandGeneration = 0
         rebindRepresentedCells()
         scheduleViewportPublication()
     }
@@ -261,6 +325,50 @@ final class RepoExplorerTableMaterializer: NSObject,
 
     func drainViewportPublication() async {
         await viewportTask?.value
+    }
+
+    func applyCommandPresentationDelta(
+        _ delta: RepoExplorerCommandPresentationDelta
+    ) -> RepoExplorerCommandPresentationDeltaDisposition {
+        guard !isDetached, delta.target == currentVisibleSnapshot.target else {
+            observeCurrentVisibleTarget(currentVisibleSnapshot)
+            return .stale(currentVisibleSnapshot: currentVisibleSnapshot)
+        }
+        guard delta.commandGeneration > acceptedCommandGeneration else {
+            return .duplicateOrOlderCommandGeneration
+        }
+
+        acceptedCommandPresentationSnapshot = delta.snapshot
+        acceptedCommandGeneration = delta.commandGeneration
+        var affectedRowIDs: Set<RepoExplorerRowID> = []
+        if let snapshot {
+            for worktreeID in delta.affectedWorktreeIDs {
+                affectedRowIDs.formUnion(snapshot.rowIDsByWorktreeID[worktreeID] ?? [])
+            }
+            for repositoryID in delta.affectedRepositoryIDs {
+                affectedRowIDs.formUnion(snapshot.rowIDsByRepoID[repositoryID] ?? [])
+            }
+        }
+        let represented = representedRowIndexes()
+        var reboundRowCount = 0
+        for rowID in affectedRowIDs {
+            guard let rowIndex = snapshot?.rowIndexByID[rowID], represented.contains(rowIndex),
+                let cell = tableView.view(
+                    atColumn: 0,
+                    row: rowIndex,
+                    makeIfNecessary: false
+                ) as? RepoExplorerTableRowCell,
+                let row = snapshot?.rows[safe: rowIndex],
+                let visibleGeneration
+            else { continue }
+            cell.bind(
+                row: row,
+                visibleGeneration: visibleGeneration,
+                commandPresentationSnapshot: acceptedCommandPresentationSnapshot
+            )
+            reboundRowCount += 1
+        }
+        return .accepted(reboundRowCount: reboundRowCount)
     }
 
     func beginUpdates() {
@@ -399,15 +507,44 @@ final class RepoExplorerTableMaterializer: NSObject,
                 snapshot.rows[safe: rowIndex]?.representedWorktreeID
             }
         )
-        guard worktreeIDs != lastPublishedVisibleWorktreeIDs else { return }
-        lastPublishedVisibleWorktreeIDs = worktreeIDs
-        onVisibleWorktreeIDsChange(worktreeIDs)
+        if worktreeIDs != currentVisibleSnapshot.worktreeIDs {
+            advanceVisibleTarget(
+                materializationGeneration: visibleGeneration ?? 0,
+                worktreeIDs: worktreeIDs
+            )
+        }
+        guard lastPublishedVisibleSnapshot != currentVisibleSnapshot else { return }
+        lastPublishedVisibleSnapshot = currentVisibleSnapshot
+        onVisibleWorktreeSnapshotChange(currentVisibleSnapshot)
     }
 
     private func clearViewportDemand() {
-        guard !lastPublishedVisibleWorktreeIDs.isEmpty else { return }
-        lastPublishedVisibleWorktreeIDs = []
-        onVisibleWorktreeIDsChange([])
+        guard !currentVisibleSnapshot.worktreeIDs.isEmpty else { return }
+        publishClearedViewportDemand()
+    }
+
+    private func publishClearedViewportDemand() {
+        advanceVisibleTarget(
+            materializationGeneration: visibleGeneration ?? 0,
+            worktreeIDs: []
+        )
+        lastPublishedVisibleSnapshot = currentVisibleSnapshot
+        onVisibleWorktreeSnapshotChange(currentVisibleSnapshot)
+    }
+
+    private func advanceVisibleTarget(
+        materializationGeneration: UInt64,
+        worktreeIDs: Set<UUID>
+    ) {
+        visibleRevision &+= 1
+        currentVisibleSnapshot = RepoExplorerVisibleWorktreeSnapshot(
+            target: RepoExplorerCommandPresentationTarget(
+                materializationHostLifetimeID: materializationHostLifetimeID,
+                materializationGeneration: materializationGeneration,
+                visibleRevision: visibleRevision
+            ),
+            worktreeIDs: worktreeIDs
+        )
     }
 
     private func representedRowIndexes() -> IndexSet {
@@ -430,7 +567,11 @@ final class RepoExplorerTableMaterializer: NSObject,
             else {
                 continue
             }
-            cell.bind(row: snapshot.rows[rowIndex], visibleGeneration: visibleGeneration)
+            cell.bind(
+                row: snapshot.rows[rowIndex],
+                visibleGeneration: visibleGeneration,
+                commandPresentationSnapshot: acceptedCommandPresentationSnapshot
+            )
         }
     }
 

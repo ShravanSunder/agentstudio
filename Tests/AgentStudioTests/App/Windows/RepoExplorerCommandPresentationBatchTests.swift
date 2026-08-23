@@ -10,6 +10,98 @@ import Testing
 @MainActor
 @Suite("Repo Explorer command presentation batch", .serialized)
 struct RepoExplorerCommandPresentationBatchTests {
+    @Test("equal command results retarget to a newer native materialization target")
+    func equalCommandResultsRetargetToNewerNativeTarget() async throws {
+        await withAsyncTestCoreAtoms { _ in
+            let store = WorkspaceStore()
+            let repo = store.addRepo(
+                at: FileManager.default.temporaryDirectory.appending(
+                    path: "repo-command-retarget-\(UUIDv7.generate().uuidString)"
+                )
+            )
+            let worktree = try! #require(repo.worktrees.first)
+            let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
+            visibleWorktrees.setVisibleWorktreeIds([worktree.id])
+            let batch = RepoExplorerCommandPresentationBatch(
+                store: store,
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                visibleWorktrees: visibleWorktrees,
+                dispatcher: .shared
+            )
+            batch.start()
+            defer { batch.stop() }
+            await eventually("initial command delta") {
+                batch.latestDelta != nil
+            }
+            let initialDelta = try! #require(batch.latestDelta)
+            let target = RepoExplorerCommandPresentationTarget.legacyList(visibleRevision: 4)
+
+            batch.acceptVisibleWorktreeSnapshot(
+                RepoExplorerVisibleWorktreeSnapshot(
+                    target: target,
+                    worktreeIDs: [worktree.id]
+                )
+            )
+
+            await eventually("retargeted equal command delta") {
+                batch.latestDelta?.target == target
+            }
+            let retargetedDelta = try! #require(batch.latestDelta)
+            #expect(retargetedDelta.commandGeneration > initialDelta.commandGeneration)
+            #expect(retargetedDelta.snapshot.results == initialDelta.snapshot.results)
+            #expect(retargetedDelta.affectedWorktreeIDs == [worktree.id])
+        }
+    }
+
+    @Test("favorite transition includes both old and new request identities")
+    func favoriteTransitionIncludesOldAndNewRequestIdentities() async throws {
+        await withAsyncTestCoreAtoms { _ in
+            let store = WorkspaceStore()
+            let repo = store.addRepo(
+                at: FileManager.default.temporaryDirectory.appending(
+                    path: "repo-command-favorite-union-\(UUIDv7.generate().uuidString)"
+                )
+            )
+            let worktree = try! #require(repo.worktrees.first)
+            let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
+            visibleWorktrees.setVisibleWorktreeIds([worktree.id])
+            let batch = RepoExplorerCommandPresentationBatch(
+                store: store,
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                visibleWorktrees: visibleWorktrees,
+                dispatcher: .shared
+            )
+            batch.start()
+            defer { batch.stop() }
+            await eventually("initial favorite command delta") {
+                batch.latestDelta != nil
+            }
+
+            store.mutationCoordinator.setRepoFavorite(repo.id, isFavorite: true)
+
+            await eventually("favorite command identity transition") {
+                batch.latestDelta?.affectedRequestIdentities.contains { request in
+                    request.command == .removeRepoFavorite
+                } == true
+            }
+            let delta = try! #require(batch.latestDelta)
+            #expect(
+                delta.affectedRequestIdentities.contains { request in
+                    request.command == .addRepoFavorite
+                        && request.target == repo.id
+                }
+            )
+            #expect(
+                delta.affectedRequestIdentities.contains { request in
+                    request.command == .removeRepoFavorite
+                        && request.target == repo.id
+                }
+            )
+            #expect(delta.affectedRepositoryIDs == [repo.id])
+            #expect(delta.affectedWorktreeIDs == [worktree.id])
+        }
+    }
+
     @Test("toolbar capability requests keep both sort destinations mounted")
     func toolbarCapabilityRequestsKeepBothSortDestinationsMounted() {
         let requestsBeforeToggle = RepoExplorerToolbarCommandPresentation.requests(

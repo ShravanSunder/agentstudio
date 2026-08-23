@@ -64,6 +64,42 @@ struct RepoExplorerTableRowCellTests {
         #expect(!cell.performIfCurrent(binding) {})
     }
 
+    @Test("same row command update preserves reuse identity and rejects the prior command generation")
+    func sameRowCommandUpdatePreservesIdentityAndRejectsPriorGeneration() {
+        let cell = RepoExplorerTableRowCell(
+            octiconLoader: makeRepoExplorerTestOcticonLoader()
+        )
+        let row = hostedCellRow(id: "A", title: "A")
+        let firstSnapshot = RepoExplorerCommandPresentationSnapshot(generation: 3, results: [:])
+        let nextSnapshot = RepoExplorerCommandPresentationSnapshot(generation: 4, results: [:])
+        let binding = cell.bind(
+            row: row,
+            visibleGeneration: 7,
+            commandPresentationSnapshot: firstSnapshot
+        )
+        var executionCount = 0
+
+        let rebound = cell.bind(
+            row: row,
+            visibleGeneration: 7,
+            commandPresentationSnapshot: nextSnapshot
+        )
+
+        #expect(rebound == binding)
+        #expect(cell.currentCommandGeneration == 4)
+        #expect(
+            !cell.performCommandIfCurrent(binding, commandGeneration: 3) {
+                executionCount += 1
+            }
+        )
+        #expect(
+            cell.performCommandIfCurrent(binding, commandGeneration: 4) {
+                executionCount += 1
+            }
+        )
+        #expect(executionCount == 1)
+    }
+
     @Test("materialized section group and worktree rows expose current native labels")
     func materializedRowsExposeCurrentNativeLabels() throws {
         let result = try RepoExplorerProjectionWorker.project(

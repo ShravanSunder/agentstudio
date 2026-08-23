@@ -18,7 +18,7 @@ struct RepoExplorerTableMaterializerTests {
         let recorder = VisibleWorktreeSetRecorder()
         let materializer = RepoExplorerTableMaterializer(
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
-            onVisibleWorktreeIDsChange: recorder.record
+            onVisibleWorktreeSnapshotChange: recorder.record
         )
         let window = makeMaterializerWindow(materializer)
         defer {
@@ -57,7 +57,7 @@ struct RepoExplorerTableMaterializerTests {
         let recorder = VisibleWorktreeSetRecorder()
         let materializer = RepoExplorerTableMaterializer(
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
-            onVisibleWorktreeIDsChange: recorder.record
+            onVisibleWorktreeSnapshotChange: recorder.record
         )
         let window = makeMaterializerWindow(materializer)
         defer {
@@ -75,11 +75,14 @@ struct RepoExplorerTableMaterializerTests {
 
         materializer.suspendDemand()
         await materializer.drainViewportPublication()
-        #expect(recorder.values.isEmpty)
+        let suspendedSnapshot = try #require(recorder.snapshots.last)
+        #expect(suspendedSnapshot.worktreeIDs.isEmpty)
 
         materializer.resumeDemand(visibleGeneration: 1)
         await materializer.drainViewportPublication()
+        let resumedSnapshot = try #require(recorder.snapshots.last)
         #expect(recorder.values.last == [worktreeID])
+        #expect(resumedSnapshot.target != suspendedSnapshot.target)
 
         materializer.suspendDemand()
         let publicationCountAfterClear = recorder.values.count
@@ -101,7 +104,7 @@ struct RepoExplorerTableMaterializerTests {
         let measurementRecorder = VisibleHeightMeasurementRecorder()
         let materializer = RepoExplorerTableMaterializer(
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
-            onVisibleWorktreeIDsChange: { _ in },
+            onVisibleWorktreeSnapshotChange: { _ in },
             measureVisibleRowHeight: measurementRecorder.measure
         )
         let window = makeMaterializerWindow(materializer)
@@ -136,7 +139,7 @@ struct RepoExplorerTableMaterializerTests {
         let doubledSnapshot = nativePlanSnapshot((0..<360).map { "row-\($0)" })
         let materializer = RepoExplorerTableMaterializer(
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
-            onVisibleWorktreeIDsChange: { _ in }
+            onVisibleWorktreeSnapshotChange: { _ in }
         )
         let window = makeMaterializerWindow(materializer)
         defer {
@@ -175,13 +178,100 @@ struct RepoExplorerTableMaterializerTests {
         #expect(materializer.hostedCellCreationCount <= baselineHostCount + 2)
     }
 
+    @Test("command deltas reject stale lifetime and rebind represented occurrences only")
+    func commandDeltaRejectsStaleLifetimeAndRebindsRepresentedOnly() async throws {
+        let hostLifetimeID = RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate())
+        let staleLifetimeID = RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate())
+        let worktreeID = UUIDv7.generate()
+        let source = nativePlanSnapshot((0..<8).map { "row-\($0)" })
+        let snapshot = RepoExplorerMaterializationSnapshot(
+            rows: source.rows.map { row in
+                RepoExplorerMaterializedRow(
+                    id: row.id,
+                    contentRevision: row.contentRevision,
+                    layout: row.layout,
+                    representedRepoID: nil,
+                    representedWorktreeID: worktreeID
+                )
+            }
+        )
+        let recorder = VisibleWorktreeSnapshotRecorder()
+        let materializer = RepoExplorerTableMaterializer(
+            materializationHostLifetimeID: hostLifetimeID,
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: recorder.record,
+            observeCurrentVisibleTarget: recorder.recordStale
+        )
+        let window = makeMaterializerWindow(materializer)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+                snapshot: snapshot,
+                requestGeneration: 1
+            )
+        ) { _ in }
+        await materializer.drainViewportPublication()
+        let currentVisibleSnapshot = try #require(recorder.snapshots.last)
+        let scrollView = try #require(materializer.view as? NSScrollView)
+        let tableView = try #require(scrollView.documentView as? NSTableView)
+        materializeVisibleCells(in: tableView, visibleRect: scrollView.contentView.documentVisibleRect)
+        let hostedCellCount = materializer.hostedCellCreationCount
+        let commandSnapshot = RepoExplorerCommandPresentationSnapshot(generation: 5, results: [:])
+        let staleTarget = RepoExplorerCommandPresentationTarget(
+            materializationHostLifetimeID: staleLifetimeID,
+            materializationGeneration: 1,
+            visibleRevision: currentVisibleSnapshot.target.visibleRevision
+        )
+        let staleDelta = RepoExplorerCommandPresentationDelta(
+            commandGeneration: 5,
+            target: staleTarget,
+            snapshot: commandSnapshot,
+            affectedWorktreeIDs: [worktreeID],
+            affectedRepositoryIDs: [],
+            affectedRequestIdentities: [],
+            toolbarChanged: false
+        )
+
+        #expect(
+            materializer.applyCommandPresentationDelta(staleDelta)
+                == .stale(currentVisibleSnapshot: currentVisibleSnapshot)
+        )
+        #expect(recorder.staleSnapshots == [currentVisibleSnapshot])
+        let currentDelta = RepoExplorerCommandPresentationDelta(
+            commandGeneration: 5,
+            target: currentVisibleSnapshot.target,
+            snapshot: commandSnapshot,
+            affectedWorktreeIDs: [worktreeID],
+            affectedRepositoryIDs: [],
+            affectedRequestIdentities: [],
+            toolbarChanged: false
+        )
+        let disposition = materializer.applyCommandPresentationDelta(currentDelta)
+
+        guard case .accepted(let reboundRowCount) = disposition else {
+            Issue.record("expected current command delta acceptance")
+            return
+        }
+        #expect(reboundRowCount > 0)
+        #expect(reboundRowCount < snapshot.rows.count)
+        #expect(materializer.hostedCellCreationCount == hostedCellCount)
+        #expect(
+            materializer.applyCommandPresentationDelta(currentDelta)
+                == .duplicateOrOlderCommandGeneration
+        )
+    }
+
     @Test("membership apply uses the sole applier and preserves a surviving row anchor")
     func membershipApplyPreservesSurvivingAnchor() throws {
         let initialSnapshot = nativePlanSnapshot(["A", "B", "C", "D", "E", "F"])
         let nextSnapshot = nativePlanSnapshot(["F", "A", "B", "C", "D", "E"])
         let materializer = RepoExplorerTableMaterializer(
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
-            onVisibleWorktreeIDsChange: { _ in }
+            onVisibleWorktreeSnapshotChange: { _ in }
         )
         let window = makeMaterializerWindow(materializer)
         defer {
@@ -224,7 +314,7 @@ struct RepoExplorerTableMaterializerTests {
         let nextSnapshot = nativePlanSnapshot(["A", "B", "E", "F"])
         let materializer = RepoExplorerTableMaterializer(
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
-            onVisibleWorktreeIDsChange: { _ in }
+            onVisibleWorktreeSnapshotChange: { _ in }
         )
         let window = makeMaterializerWindow(materializer)
         defer {
@@ -344,9 +434,25 @@ private func materializeVisibleCells(in tableView: NSTableView, visibleRect: NSR
 @MainActor
 private final class VisibleWorktreeSetRecorder {
     private(set) var values: [Set<UUID>] = []
+    private(set) var snapshots: [RepoExplorerVisibleWorktreeSnapshot] = []
 
-    func record(_ value: Set<UUID>) {
-        values.append(value)
+    func record(_ snapshot: RepoExplorerVisibleWorktreeSnapshot) {
+        snapshots.append(snapshot)
+        values.append(snapshot.worktreeIDs)
+    }
+}
+
+@MainActor
+private final class VisibleWorktreeSnapshotRecorder {
+    private(set) var snapshots: [RepoExplorerVisibleWorktreeSnapshot] = []
+    private(set) var staleSnapshots: [RepoExplorerVisibleWorktreeSnapshot] = []
+
+    func record(_ snapshot: RepoExplorerVisibleWorktreeSnapshot) {
+        snapshots.append(snapshot)
+    }
+
+    func recordStale(_ snapshot: RepoExplorerVisibleWorktreeSnapshot) {
+        staleSnapshots.append(snapshot)
     }
 }
 

@@ -16,12 +16,18 @@ struct RepoExplorerTableRowBindingIdentity: Equatable {
 struct RepoExplorerTableRowBinding: Equatable {
     let identity: RepoExplorerTableRowBindingIdentity
     let row: RepoExplorerMaterializedRow
+    let commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
 }
 
 @MainActor
 @Observable
 final class RepoExplorerTableRowSlot {
     private(set) var binding: RepoExplorerTableRowBinding?
+    private let interactions: RepoExplorerTableInteractions
+
+    init(interactions: RepoExplorerTableInteractions) {
+        self.interactions = interactions
+    }
 
     func install(_ binding: RepoExplorerTableRowBinding) {
         self.binding = binding
@@ -29,6 +35,17 @@ final class RepoExplorerTableRowSlot {
 
     func clear() {
         binding = nil
+    }
+
+    func performCommand(
+        _ request: RepoExplorerCommandPresentationRequest,
+        identity: RepoExplorerTableRowBindingIdentity,
+        commandGeneration: UInt64
+    ) {
+        guard binding?.identity == identity,
+            binding?.commandPresentationSnapshot.generation == commandGeneration
+        else { return }
+        interactions.onCommandRequest(request)
     }
 }
 
@@ -41,7 +58,15 @@ struct RepoExplorerTableRowHostingRoot: View {
             if let binding = slot.binding {
                 RepoExplorerMaterializedRowView(
                     row: binding.row,
-                    octiconLoader: octiconLoader
+                    commandPresentationSnapshot: binding.commandPresentationSnapshot,
+                    octiconLoader: octiconLoader,
+                    onCommandRequest: { request in
+                        slot.performCommand(
+                            request,
+                            identity: binding.identity,
+                            commandGeneration: binding.commandPresentationSnapshot.generation
+                        )
+                    }
                 )
                 .id(binding.identity.rowID)
             }
@@ -54,17 +79,26 @@ final class RepoExplorerTableRowCell: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("repo-explorer-hosted-row")
 
     let hostingView: NSHostingView<RepoExplorerTableRowHostingRoot>
-    private let slot = RepoExplorerTableRowSlot()
+    private let slot: RepoExplorerTableRowSlot
     private var reuseSequence: UInt64 = 0
 
     var currentBindingIdentity: RepoExplorerTableRowBindingIdentity? {
         slot.binding?.identity
     }
 
-    init(octiconLoader: OcticonLoader) {
+    var currentCommandGeneration: UInt64? {
+        slot.binding?.commandPresentationSnapshot.generation
+    }
+
+    init(
+        octiconLoader: OcticonLoader,
+        interactions: RepoExplorerTableInteractions = .inert
+    ) {
+        let stableSlot = RepoExplorerTableRowSlot(interactions: interactions)
+        slot = stableSlot
         hostingView = NSHostingView(
             rootView: RepoExplorerTableRowHostingRoot(
-                slot: slot,
+                slot: stableSlot,
                 octiconLoader: octiconLoader
             )
         )
@@ -90,12 +124,27 @@ final class RepoExplorerTableRowCell: NSTableCellView {
     @discardableResult
     func bind(
         row: RepoExplorerMaterializedRow,
-        visibleGeneration: UInt64
+        visibleGeneration: UInt64,
+        commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot = .empty
     ) -> RepoExplorerTableRowBindingIdentity {
+        if let currentBinding = slot.binding,
+            currentBinding.identity.visibleGeneration == visibleGeneration,
+            currentBinding.row == row,
+            currentBinding.commandPresentationSnapshot == commandPresentationSnapshot
+        {
+            return currentBinding.identity
+        }
         if let currentBinding = slot.binding,
             currentBinding.identity.visibleGeneration == visibleGeneration,
             currentBinding.row == row
         {
+            slot.install(
+                RepoExplorerTableRowBinding(
+                    identity: currentBinding.identity,
+                    row: row,
+                    commandPresentationSnapshot: commandPresentationSnapshot
+                )
+            )
             return currentBinding.identity
         }
         clearBindingForReuse()
@@ -105,7 +154,13 @@ final class RepoExplorerTableRowCell: NSTableCellView {
             rowID: row.id,
             reuseToken: RepoExplorerTableRowReuseToken(rawValue: reuseSequence)
         )
-        slot.install(RepoExplorerTableRowBinding(identity: identity, row: row))
+        slot.install(
+            RepoExplorerTableRowBinding(
+                identity: identity,
+                row: row,
+                commandPresentationSnapshot: commandPresentationSnapshot
+            )
+        )
         setAccessibilityLabel(RepoExplorerMaterializedRowView.accessibilityLabel(for: row))
         return identity
     }
@@ -121,6 +176,19 @@ final class RepoExplorerTableRowCell: NSTableCellView {
         operation: () -> Void
     ) -> Bool {
         guard currentBindingIdentity == identity else { return false }
+        operation()
+        return true
+    }
+
+    @discardableResult
+    func performCommandIfCurrent(
+        _ identity: RepoExplorerTableRowBindingIdentity,
+        commandGeneration: UInt64,
+        operation: () -> Void
+    ) -> Bool {
+        guard currentBindingIdentity == identity,
+            slot.binding?.commandPresentationSnapshot.generation == commandGeneration
+        else { return false }
         operation()
         return true
     }

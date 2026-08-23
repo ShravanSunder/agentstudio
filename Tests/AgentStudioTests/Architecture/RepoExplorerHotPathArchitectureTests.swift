@@ -203,8 +203,8 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(repoExplorerView.contains("RepoExplorerVisibleRowsBridge("))
     }
 
-    @Test("hosted row cells keep one root and fence reuse without command or ambient state")
-    func hostedRowCellsArePersistentBoundedAndCommandNeutral() throws {
+    @Test("hosted row cells keep one root and accept only injected command presentation")
+    func hostedRowCellsArePersistentBoundedAndCommandInjected() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let featureRoot = projectRoot.appending(
             path: "Sources/AgentStudio/Features/RepoExplorer"
@@ -230,19 +230,24 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(cell.components(separatedBy: "NSHostingView(").count == 2)
         #expect(cell.contains(".id(binding.identity.rowID)"))
         #expect(cell.contains("guard currentBindingIdentity == identity"))
+        #expect(cell.contains("commandPresentationSnapshot.generation == commandGeneration"))
         #expect(!cell.contains("rootView ="))
         #expect(table.contains("tableView.makeView("))
         #expect(table.contains("rebindRepresentedCells()"))
+        #expect(table.contains("delta.target == currentVisibleSnapshot.target"))
+        #expect(table.contains("makeIfNecessary: false"))
+        #expect(table.contains("snapshot.rowIDsByWorktreeID"))
+        #expect(table.contains("snapshot.rowIDsByRepoID"))
         #expect(!table.contains("snapshot.rows.map"))
+        #expect(!renderer.contains("worktree.repo.isFavorite"))
         #expect(!repoExplorerView.contains("RepoExplorerPresentationHostView("))
         for forbidden in [
             "atom(",
             "RepoCache",
             "RepoExplorerProjectionAdapter",
             "RepoExplorerView",
-            "AppCommand",
             "AppCommandDispatcher",
-            "commandPresentation",
+            "repoExplorerCommandPresentationSnapshot(",
         ] {
             #expect(!hostedSources.contains(forbidden))
         }

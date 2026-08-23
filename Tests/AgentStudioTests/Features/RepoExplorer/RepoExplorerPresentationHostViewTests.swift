@@ -10,12 +10,13 @@ struct RepoExplorerPresentationHostViewTests {
     @Test("isolated production mount registers one host and drives the real table acknowledgment")
     func productionMountDrivesRealTableAcknowledgment() async throws {
         let adapter = RepoExplorerProjectionAdapter()
+        let visibleSnapshotRecorder = PresentationHostVisibleSnapshotRecorder()
         let hostingView = NSHostingView(
             rootView: AnyView(
                 RepoExplorerPresentationHostView(
                     projectionAdapter: adapter,
                     octiconLoader: makeRepoExplorerTestOcticonLoader(),
-                    onVisibleWorktreeIDsChange: { _ in }
+                    onVisibleWorktreeSnapshotChange: visibleSnapshotRecorder.record
                 )
                 .frame(width: 320, height: 180)
             )
@@ -47,6 +48,43 @@ struct RepoExplorerPresentationHostViewTests {
         #expect(tableView.numberOfRows == contentBaseline.rowCount)
         #expect(adapter.acknowledgedMaterializationBaseline == contentBaseline)
 
+        for _ in 0..<10_000 where visibleSnapshotRecorder.latest == nil {
+            await Task.yield()
+        }
+        let visibleSnapshot = try #require(visibleSnapshotRecorder.latest)
+        let materializationSnapshot = try #require(contentBaseline.presentation.contentSnapshot)
+        let repositoryID = try #require(materializationSnapshot.rowIDsByRepoID.keys.first)
+        let repositoryRowID = try #require(materializationSnapshot.rowIDsByRepoID[repositoryID]?.first)
+        let repositoryRowIndex = try #require(materializationSnapshot.rowIndexByID[repositoryRowID])
+        let commandSnapshot = RepoExplorerCommandPresentationSnapshot(generation: 1, results: [:])
+        hostingView.rootView = AnyView(
+            RepoExplorerPresentationHostView(
+                projectionAdapter: adapter,
+                octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                commandPresentationDelta: RepoExplorerCommandPresentationDelta(
+                    commandGeneration: 1,
+                    target: visibleSnapshot.target,
+                    snapshot: commandSnapshot,
+                    affectedWorktreeIDs: [],
+                    affectedRepositoryIDs: [repositoryID],
+                    affectedRequestIdentities: [],
+                    toolbarChanged: false
+                ),
+                onVisibleWorktreeSnapshotChange: visibleSnapshotRecorder.record
+            )
+            .frame(width: 320, height: 180)
+        )
+        hostingView.layoutSubtreeIfNeeded()
+        for _ in 0..<20 { await Task.yield() }
+        let commandBoundCell = try #require(
+            tableView.view(
+                atColumn: 0,
+                row: repositoryRowIndex,
+                makeIfNecessary: true
+            ) as? RepoExplorerTableRowCell
+        )
+        #expect(commandBoundCell.currentCommandGeneration == 1)
+
         adapter.updateDemand(isVisible: false, query: "")
         let retainedRevision = host.acceptedBaseline?.revision
         #expect(!host.isPresentationReady)
@@ -68,7 +106,7 @@ struct RepoExplorerPresentationHostViewTests {
                 RepoExplorerPresentationHostView(
                     projectionAdapter: adapter,
                     octiconLoader: makeRepoExplorerTestOcticonLoader(),
-                    onVisibleWorktreeIDsChange: { _ in }
+                    onVisibleWorktreeSnapshotChange: { _ in }
                 )
                 .frame(width: 320, height: 180)
             )
@@ -91,6 +129,22 @@ struct RepoExplorerPresentationHostViewTests {
         #expect(adapter.acknowledgedMaterializationBaseline == nil)
         adapter.unregisterMaterializationHost(lifetimeID: lifetimeID)
         #expect(adapter.materializationHost == nil)
+    }
+}
+
+@MainActor
+private final class PresentationHostVisibleSnapshotRecorder {
+    private(set) var latest: RepoExplorerVisibleWorktreeSnapshot?
+
+    func record(_ snapshot: RepoExplorerVisibleWorktreeSnapshot) {
+        latest = snapshot
+    }
+}
+
+extension RepoExplorerMaterializationPresentation {
+    fileprivate var contentSnapshot: RepoExplorerMaterializationSnapshot? {
+        guard case .content(let snapshot, _) = self else { return nil }
+        return snapshot
     }
 }
 

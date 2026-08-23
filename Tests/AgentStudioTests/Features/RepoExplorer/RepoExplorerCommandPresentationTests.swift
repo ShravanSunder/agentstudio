@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -86,5 +87,69 @@ struct RepoExplorerCommandPresentationTests {
         #expect(presentation.inlineCommand(.openWorktree)?.isEnabled == true)
         #expect(presentation.inlineCommand(.addRepoFavorite)?.isEnabled == false)
         #expect(presentation.contextMenuCommand(.openWorktree)?.isEnabled == nil)
+    }
+
+    @Test("visible worktree snapshot identity includes materialization generation and visible revision")
+    func visibleWorktreeSnapshotIdentityIncludesTarget() {
+        let worktreeID = UUIDv7.generate()
+        let firstLifetimeID = RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate())
+        let replacementLifetimeID = RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate())
+        let first = RepoExplorerVisibleWorktreeSnapshot(
+            target: RepoExplorerCommandPresentationTarget(
+                materializationHostLifetimeID: firstLifetimeID,
+                materializationGeneration: 4,
+                visibleRevision: 7
+            ),
+            worktreeIDs: [worktreeID]
+        )
+        let retargeted = RepoExplorerVisibleWorktreeSnapshot(
+            target: RepoExplorerCommandPresentationTarget(
+                materializationHostLifetimeID: replacementLifetimeID,
+                materializationGeneration: 4,
+                visibleRevision: 7
+            ),
+            worktreeIDs: [worktreeID]
+        )
+
+        #expect(first != retargeted)
+        #expect(first.worktreeIDs == retargeted.worktreeIDs)
+    }
+
+    @Test("command delta carries one complete snapshot and explicit target")
+    func commandDeltaCarriesCompleteSnapshotAndTarget() {
+        let worktreeID = UUIDv7.generate()
+        let repoID = UUIDv7.generate()
+        let target = RepoExplorerCommandPresentationTarget(
+            materializationHostLifetimeID: RepoExplorerMaterializationHostLifetimeID(
+                rawValue: UUIDv7.generate()
+            ),
+            materializationGeneration: 5,
+            visibleRevision: 3
+        )
+        let request = RepoExplorerWorktreeCommandPresentation.requests(
+            worktreeId: worktreeID,
+            repoId: repoID,
+            isFavorite: false,
+            showsFavoriteControl: true
+        ).first!
+        let snapshot = RepoExplorerCommandPresentationSnapshot(
+            generation: 9,
+            results: [request: true],
+            favoriteStateByRepositoryID: [repoID: true]
+        )
+        let delta = RepoExplorerCommandPresentationDelta(
+            commandGeneration: 9,
+            target: target,
+            snapshot: snapshot,
+            affectedWorktreeIDs: [worktreeID],
+            affectedRepositoryIDs: [repoID],
+            affectedRequestIdentities: [request],
+            toolbarChanged: false
+        )
+
+        #expect(delta.commandGeneration == delta.snapshot.generation)
+        #expect(delta.target == target)
+        #expect(delta.snapshot.results[request] == true)
+        #expect(delta.snapshot.favoriteStateByRepositoryID[repoID] == true)
     }
 }
