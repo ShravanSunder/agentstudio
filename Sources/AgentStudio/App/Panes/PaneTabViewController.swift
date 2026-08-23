@@ -1473,6 +1473,46 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return tabContentHosts[activeTabId]
     }
 
+    func sidebarPerformanceProofTabReadback(
+        window: NSWindow?
+    ) -> SidebarPerformanceProofTabReadback {
+        let orderedTabIDs = store.tabShellAtom.orderedTabIds
+        let activeTabID = store.tabLayoutAtom.activeTabId
+        let activePaneID = activeTabID.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
+        let activePaneIDByTabID = Dictionary(
+            uniqueKeysWithValues: orderedTabIDs.compactMap { tabID in
+                store.tabLayoutAtom.tab(tabID)?.activePaneId.map { (tabID, $0) }
+            }
+        )
+        let activeHost = activeTabID.flatMap { tabContentHosts[$0] }
+        let activePaneView = activePaneID.flatMap { viewRegistry.view(for: $0) }
+        let responderView = window?.firstResponder as? NSView
+
+        return SidebarPerformanceProofTabReadback(
+            orderedTabIDs: orderedTabIDs,
+            activeTabID: activeTabID,
+            activePaneID: activePaneID,
+            activePaneIDByTabID: activePaneIDByTabID,
+            nativeActiveTabIsVisible: activeHost.map(Self.isEffectivelyVisible) ?? false,
+            nativeActivePaneIsVisible: activePaneView.map(Self.isEffectivelyVisible) ?? false,
+            nativeActivePaneHasFocus: activePaneView.map { paneView in
+                responderView.map { responder in
+                    responder === paneView || responder.isDescendant(of: paneView)
+                } ?? false
+            } ?? false
+        )
+    }
+
+    private static func isEffectivelyVisible(_ view: NSView) -> Bool {
+        guard view.window != nil, !view.frame.isEmpty else { return false }
+        var currentView: NSView? = view
+        while let candidate = currentView {
+            if candidate.isHidden { return false }
+            currentView = candidate.superview
+        }
+        return true
+    }
+
     private func handleTerminalContainerBoundsChanged(reason: StaticString) {
         let terminalContainerBounds = terminalContainer?.bounds ?? .zero
         RestoreTrace.log(

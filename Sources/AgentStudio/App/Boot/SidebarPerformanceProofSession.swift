@@ -3,15 +3,46 @@ import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import AppKit
 import Foundation
+import Observation
+
+struct SidebarPerformanceProofTabReadback: Equatable, Sendable {
+    let orderedTabIDs: [UUID]
+    let activeTabID: UUID?
+    let activePaneID: UUID?
+    let activePaneIDByTabID: [UUID: UUID]
+    let nativeActiveTabIsVisible: Bool
+    let nativeActivePaneIsVisible: Bool
+    let nativeActivePaneHasFocus: Bool
+}
+
+struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
+    let semanticSidebarIsCollapsed: Bool
+    let nativeSidebarIsCollapsed: Bool
+    let nativeSidebarGeometryIsVisible: Bool
+    let nativeFilterValue: String?
+    let nativeSelectedGroupingMode: RepoExplorerGroupingMode?
+    let nativeSidebarAccessibilityIsReady: Bool
+    let nativePresentedRowCount: Int?
+    let tab: SidebarPerformanceProofTabReadback
+}
 
 #if DEBUG
+    struct SidebarPerformanceProofReadback: Equatable, Sendable {
+        let repoExplorer: RepoExplorerPerformanceProofReadback
+        let shell: SidebarPerformanceProofShellReadback
+    }
+
+    enum SidebarPerformanceProofExpectedOutcome: Equatable, Sendable {
+        case search(query: String)
+        case grouping(RepoExplorerGroupingMode)
+        case sidebarCollapsed(Bool)
+        case tabSelection(tabID: UUID, paneID: UUID)
+    }
+
     struct SidebarPerformanceProofOutstandingAction: Sendable {
         let sequence: Int
-        let baselineSemanticGeneration: Int
-        let baselineAcknowledgedRevision: UInt64
-        let baselineVisibleGeneration: UInt64
-        let expectedGrouping: RepoExplorerGroupingMode?
-        let expectsFilterFocus: Bool
+        let baseline: SidebarPerformanceProofReadback
+        let expectedOutcome: SidebarPerformanceProofExpectedOutcome
     }
 
     @MainActor
@@ -20,18 +51,29 @@ import Foundation
 
         mutating func begin(
             sequence: Int,
-            baseline: RepoExplorerPerformanceProofReadback,
-            expectedGrouping: RepoExplorerGroupingMode?,
-            expectsFilterFocus: Bool
+            baseline: SidebarPerformanceProofReadback,
+            expectedOutcome: SidebarPerformanceProofExpectedOutcome
         ) -> SidebarPerformanceProofOutstandingAction? {
             guard outstandingAction == nil else { return nil }
             let action = SidebarPerformanceProofOutstandingAction(
                 sequence: sequence,
-                baselineSemanticGeneration: baseline.semanticGeneration,
-                baselineAcknowledgedRevision: baseline.acknowledgedRevision,
-                baselineVisibleGeneration: baseline.visibleGeneration,
-                expectedGrouping: expectedGrouping,
-                expectsFilterFocus: expectsFilterFocus
+                baseline: baseline,
+                expectedOutcome: expectedOutcome
+            )
+            outstandingAction = action
+            return action
+        }
+
+        mutating func advance(
+            sequence: Int,
+            baseline: SidebarPerformanceProofReadback,
+            expectedOutcome: SidebarPerformanceProofExpectedOutcome
+        ) -> SidebarPerformanceProofOutstandingAction? {
+            guard outstandingAction?.sequence == sequence else { return nil }
+            let action = SidebarPerformanceProofOutstandingAction(
+                sequence: sequence,
+                baseline: baseline,
+                expectedOutcome: expectedOutcome
             )
             outstandingAction = action
             return action
@@ -44,17 +86,64 @@ import Foundation
         }
 
         nonisolated static func matches(
-            _ readback: RepoExplorerPerformanceProofReadback,
+            _ readback: SidebarPerformanceProofReadback,
             action: SidebarPerformanceProofOutstandingAction
         ) -> Bool {
-            readback.semanticGeneration > action.baselineSemanticGeneration
-                && readback.acknowledgedRevision > action.baselineAcknowledgedRevision
-                && readback.visibleGeneration > action.baselineVisibleGeneration
-                && readback.presentationIsReady && readback.isDemanded
-                && readback.accessibilityDisposition == .ready
-                && (action.expectedGrouping == nil || readback.groupingMode == action.expectedGrouping)
-                && (!action.expectsFilterFocus || readback.focusDisposition == .filterFocused)
-                && (!action.expectsFilterFocus || readback.queryIsEmpty)
+            let repoExplorer = readback.repoExplorer
+            let shell = readback.shell
+            switch action.expectedOutcome {
+            case .search(let query):
+                return projectionAdvanced(from: action.baseline.repoExplorer, to: repoExplorer)
+                    && repoExplorer.query == query
+                    && shell.nativeFilterValue == query
+                    && repoExplorer.focusDisposition == .filterFocused
+                    && visibleSidebarIsSettled(readback)
+            case .grouping(let groupingMode):
+                return projectionAdvanced(from: action.baseline.repoExplorer, to: repoExplorer)
+                    && repoExplorer.groupingMode == groupingMode
+                    && shell.nativeSelectedGroupingMode == groupingMode
+                    && visibleSidebarIsSettled(readback)
+            case .sidebarCollapsed(let isCollapsed):
+                return shell.semanticSidebarIsCollapsed == isCollapsed
+                    && shell.nativeSidebarIsCollapsed == isCollapsed
+                    && shell.nativeSidebarGeometryIsVisible == !isCollapsed
+                    && repoExplorer.isDemanded == !isCollapsed
+                    && repoExplorer.presentationIsReady == !isCollapsed
+                    && shell.nativeSidebarAccessibilityIsReady == !isCollapsed
+                    && (isCollapsed || shell.nativePresentedRowCount == repoExplorer.representedRowCount)
+                    && shell.tab.nativeActivePaneHasFocus
+            case .tabSelection(let tabID, let paneID):
+                return shell.tab.activeTabID == tabID
+                    && shell.tab.activePaneID == paneID
+                    && shell.tab.nativeActiveTabIsVisible
+                    && shell.tab.nativeActivePaneIsVisible
+                    && shell.tab.nativeActivePaneHasFocus
+                    && visibleSidebarIsSettled(readback)
+            }
+        }
+
+        private nonisolated static func projectionAdvanced(
+            from baseline: RepoExplorerPerformanceProofReadback,
+            to candidate: RepoExplorerPerformanceProofReadback
+        ) -> Bool {
+            candidate.semanticGeneration > baseline.semanticGeneration
+                && candidate.acknowledgedRevision > baseline.acknowledgedRevision
+                && candidate.visibleGeneration > baseline.visibleGeneration
+        }
+
+        private nonisolated static func visibleSidebarIsSettled(
+            _ readback: SidebarPerformanceProofReadback
+        ) -> Bool {
+            let repoExplorer = readback.repoExplorer
+            let shell = readback.shell
+            return repoExplorer.presentationIsReady
+                && repoExplorer.isDemanded
+                && repoExplorer.accessibilityDisposition == .ready
+                && !shell.semanticSidebarIsCollapsed
+                && !shell.nativeSidebarIsCollapsed
+                && shell.nativeSidebarGeometryIsVisible
+                && shell.nativeSidebarAccessibilityIsReady
+                && shell.nativePresentedRowCount == repoExplorer.representedRowCount
         }
     }
 
@@ -87,41 +176,50 @@ import Foundation
         private let window: NSWindow
         private let recorder: AgentStudioStartupTraceRecorder
         private let delay: AsyncDelay
-        private let readbackStream: AsyncStream<RepoExplorerPerformanceProofReadback>
-        private let readbackContinuation: AsyncStream<RepoExplorerPerformanceProofReadback>.Continuation
-        private var latestReadback: RepoExplorerPerformanceProofReadback?
+        private let readShell: @MainActor () -> SidebarPerformanceProofShellReadback?
+        private let readbackStream: AsyncStream<SidebarPerformanceProofReadback>
+        private let readbackContinuation: AsyncStream<SidebarPerformanceProofReadback>.Continuation
+        private var latestRepoExplorerReadback: RepoExplorerPerformanceProofReadback?
+        private var latestReadback: SidebarPerformanceProofReadback?
         private var actionTracker = SidebarPerformanceProofActionTracker()
+        private var observesShellState = false
 
         init(
             population: SidebarPerformanceProofPopulation,
             window: NSWindow,
             recorder: AgentStudioStartupTraceRecorder,
-            delay: AsyncDelay = .taskSleep
+            delay: AsyncDelay = .taskSleep,
+            readShell: @escaping @MainActor () -> SidebarPerformanceProofShellReadback?
         ) {
             self.population = population
             self.window = window
             self.recorder = recorder
             self.delay = delay
+            self.readShell = readShell
             (readbackStream, readbackContinuation) = AsyncStream.makeStream(
-                of: RepoExplorerPerformanceProofReadback.self,
+                of: SidebarPerformanceProofReadback.self,
                 bufferingPolicy: .bufferingNewest(1)
             )
         }
 
         func receive(_ readback: RepoExplorerPerformanceProofReadback) {
-            latestReadback = readback
-            readbackContinuation.yield(readback)
+            latestRepoExplorerReadback = readback
+            publishCurrentReadback()
         }
 
         func run() async -> Bool {
+            observesShellState = true
+            observeShellState()
+            defer {
+                observesShellState = false
+                readbackContinuation.finish()
+            }
             guard await waitForInitialReadback() else {
                 record("performance.sidebar.proof_action.failed", sequence: 0, outcome: "missing_initial_readback")
                 return false
             }
             record("performance.sidebar.proof_population.ready", sequence: 0, outcome: "settled")
-            if population.isIdle {
-                return true
-            }
+            if population.isIdle { return true }
             do {
                 try await delay.wait(AppPolicies.SidebarPerformanceProof.quiescenceInterval)
             } catch {
@@ -139,30 +237,37 @@ import Foundation
         }
 
         private func runAction(sequence: Int) async -> Bool {
-            guard let baseline = latestReadback else {
-                record("performance.sidebar.proof_action.failed", sequence: sequence, outcome: "overlap")
+            guard let baseline = latestReadback,
+                let expectedOutcome = expectedOutcome(sequence: sequence, baseline: baseline)
+            else {
+                record("performance.sidebar.proof_action.failed", sequence: sequence, outcome: "invalid_baseline")
                 return false
             }
             await waitForSamplerBoundary()
-            let expectedGrouping = groupingExpectation(sequence: sequence)
             guard
                 let outstandingAction = actionTracker.begin(
                     sequence: sequence,
                     baseline: baseline,
-                    expectedGrouping: expectedGrouping,
-                    expectsFilterFocus: population == .searchClear
+                    expectedOutcome: expectedOutcome
                 )
             else {
                 record("performance.sidebar.proof_action.failed", sequence: sequence, outcome: "overlap")
                 return false
             }
             record("performance.sidebar.proof_action.started", sequence: sequence, outcome: "started")
-            guard await dispatchAction(sequence: sequence, expectedGrouping: expectedGrouping) else {
-                _ = actionTracker.complete(sequence: sequence)
-                record("performance.sidebar.proof_action.failed", sequence: sequence, outcome: "dispatch_failed")
-                return false
+
+            let settled: Bool
+            if population == .searchClear {
+                settled = await runSearchAndClear(sequence: sequence, filteredAction: outstandingAction)
+            } else {
+                guard dispatchAction(expectedOutcome: expectedOutcome) else {
+                    _ = actionTracker.complete(sequence: sequence)
+                    record("performance.sidebar.proof_action.failed", sequence: sequence, outcome: "dispatch_failed")
+                    return false
+                }
+                settled = await waitForSettlement(of: outstandingAction)
             }
-            let settled = await waitForSettlement(of: outstandingAction)
+
             guard actionTracker.complete(sequence: sequence) else {
                 record("performance.sidebar.proof_action.failed", sequence: sequence, outcome: "token_mismatch")
                 return false
@@ -175,49 +280,88 @@ import Foundation
             return settled
         }
 
-        private func dispatchAction(
+        private func runSearchAndClear(
             sequence: Int,
-            expectedGrouping: RepoExplorerGroupingMode?
+            filteredAction: SidebarPerformanceProofOutstandingAction
         ) async -> Bool {
+            guard case .search(let fixtureQuery) = filteredAction.expectedOutcome else { return false }
+            AppCommandDispatcher.shared.dispatch(.filterSidebar)
+            await Task.yield()
+            await Task.yield()
+            let inputDriver = SidebarPerformanceProofNativeInputDriver(delay: delay)
+            guard await inputDriver.typeFixtureQuery(in: window),
+                await waitForSettlement(of: filteredAction),
+                let filteredReadback = latestReadback,
+                let clearAction = actionTracker.advance(
+                    sequence: sequence,
+                    baseline: filteredReadback,
+                    expectedOutcome: .search(query: "")
+                ),
+                inputDriver.clearFixtureQuery(in: window)
+            else { return false }
+            _ = fixtureQuery
+            return await waitForSettlement(of: clearAction)
+        }
+
+        private func expectedOutcome(
+            sequence: Int,
+            baseline: SidebarPerformanceProofReadback
+        ) -> SidebarPerformanceProofExpectedOutcome? {
             switch population {
             case .searchClear:
-                AppCommandDispatcher.shared.dispatch(.filterSidebar)
-                await Task.yield()
-                await Task.yield()
-                return await SidebarPerformanceProofNativeInputDriver(delay: delay)
-                    .typeAndClearFixtureQuery(in: window)
+                return .search(query: AppPolicies.SidebarPerformanceProof.fixtureQuery)
             case .grouping:
-                guard let expectedGrouping else { return false }
+                return .grouping([.repo, .pane, .tab][sequence % 3])
+            case .hideShow:
+                return .sidebarCollapsed(!baseline.shell.nativeSidebarIsCollapsed)
+            case .tabSwitch:
+                let targetIndex = sequence.isMultiple(of: 2) ? 0 : 1
+                guard baseline.shell.tab.orderedTabIDs.indices.contains(targetIndex) else { return nil }
+                let tabID = baseline.shell.tab.orderedTabIDs[targetIndex]
+                guard let paneID = baseline.shell.tab.activePaneIDByTabID[tabID] else { return nil }
+                return .tabSelection(tabID: tabID, paneID: paneID)
+            case .zeroPTYIdle, .quiescentPTYIdle:
+                return nil
+            }
+        }
+
+        private func dispatchAction(
+            expectedOutcome: SidebarPerformanceProofExpectedOutcome
+        ) -> Bool {
+            switch expectedOutcome {
+            case .search:
+                return false
+            case .grouping(let groupingMode):
                 let command: AppCommand =
-                    switch expectedGrouping {
+                    switch groupingMode {
                     case .repo: .setRepoSidebarGroupingRepo
                     case .pane: .setRepoSidebarGroupingPane
                     case .tab: .setRepoSidebarGroupingTab
                     }
                 AppCommandDispatcher.shared.dispatch(command)
                 return true
-            case .hideShow:
-                AppCommandDispatcher.shared.dispatch(.toggleSidebar)
-                await Task.yield()
+            case .sidebarCollapsed:
                 AppCommandDispatcher.shared.dispatch(.toggleSidebar)
                 return true
-            case .tabSwitch:
-                AppCommandDispatcher.shared.dispatch(sequence.isMultiple(of: 2) ? .selectTab1 : .selectTab2)
+            case .tabSelection(let tabID, _):
+                guard let tabIndex = latestReadback?.shell.tab.orderedTabIDs.firstIndex(of: tabID) else {
+                    return false
+                }
+                let command: AppCommand = tabIndex == 0 ? .selectTab1 : .selectTab2
+                AppCommandDispatcher.shared.dispatch(command)
                 return true
-            case .zeroPTYIdle, .quiescentPTYIdle:
-                return false
             }
-        }
-
-        private func groupingExpectation(sequence: Int) -> RepoExplorerGroupingMode? {
-            guard population == .grouping else { return nil }
-            return [.repo, .pane, .tab][sequence % 3]
         }
 
         private func waitForSettlement(
             of outstandingAction: SidebarPerformanceProofOutstandingAction
         ) async -> Bool {
-            await withTaskGroup(of: Bool.self) { group in
+            if let latestReadback,
+                SidebarPerformanceProofActionTracker.matches(latestReadback, action: outstandingAction)
+            {
+                return true
+            }
+            return await withTaskGroup(of: Bool.self) { group in
                 group.addTask { [readbackStream] in
                     for await readback in readbackStream {
                         if SidebarPerformanceProofActionTracker.matches(
@@ -258,6 +402,30 @@ import Foundation
                 group.cancelAll()
                 return result
             }
+        }
+
+        private func observeShellState() {
+            guard observesShellState else { return }
+            withObservationTracking {
+                publishCurrentReadback()
+            } onChange: {
+                Task { @MainActor [weak self] in
+                    await Task.yield()
+                    await Task.yield()
+                    await Task.yield()
+                    self?.observeShellState()
+                }
+            }
+        }
+
+        private func publishCurrentReadback() {
+            guard let latestRepoExplorerReadback, let shell = readShell() else { return }
+            let readback = SidebarPerformanceProofReadback(
+                repoExplorer: latestRepoExplorerReadback,
+                shell: shell
+            )
+            latestReadback = readback
+            readbackContinuation.yield(readback)
         }
 
         private func waitForSamplerBoundary() async {

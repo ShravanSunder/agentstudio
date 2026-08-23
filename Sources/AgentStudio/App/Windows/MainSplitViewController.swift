@@ -411,6 +411,43 @@ class MainSplitViewController: NSSplitViewController {
         splitViewItems.first?.isCollapsed ?? false
     }
 
+    func sidebarPerformanceProofShellReadback(
+        window: NSWindow?
+    ) -> SidebarPerformanceProofShellReadback? {
+        guard let sidebarItem = splitViewItems.first,
+            let sidebarView = sidebarItem.viewController.viewIfLoaded,
+            let paneTabViewController
+        else { return nil }
+
+        let nativeSidebarGeometryIsVisible =
+            !sidebarItem.isCollapsed
+            && SidebarPerformanceProofAccessibility.isEffectivelyVisible(sidebarView)
+            && sidebarView.frame.width > 0
+            && sidebarView.frame.height > 0
+        let tableView = SidebarPerformanceProofAccessibility.firstDescendant(
+            of: NSTableView.self,
+            in: sidebarView
+        )
+        let nativeSelectedGroupingMode = SidebarPerformanceProofAccessibility.selectedRepoGroupingMode(
+            in: sidebarView
+        )
+        let nativeSidebarAccessibilityIsReady =
+            nativeSidebarGeometryIsVisible
+            && nativeSelectedGroupingMode != nil
+            && tableView?.accessibilityRole() == .table
+
+        return SidebarPerformanceProofShellReadback(
+            semanticSidebarIsCollapsed: uiState.sidebarCollapsed,
+            nativeSidebarIsCollapsed: sidebarItem.isCollapsed,
+            nativeSidebarGeometryIsVisible: nativeSidebarGeometryIsVisible,
+            nativeFilterValue: (window?.firstResponder as? NSTextView)?.string,
+            nativeSelectedGroupingMode: nativeSelectedGroupingMode,
+            nativeSidebarAccessibilityIsReady: nativeSidebarAccessibilityIsReady,
+            nativePresentedRowCount: tableView?.numberOfRows,
+            tab: paneTabViewController.sidebarPerformanceProofTabReadback(window: window)
+        )
+    }
+
     func expandSidebar() {
         guard isViewLoaded else {
             shouldExpandSidebarOnLoad = true

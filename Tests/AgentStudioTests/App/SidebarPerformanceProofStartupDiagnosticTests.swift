@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AppKit
 import Foundation
 import Testing
 
@@ -7,28 +9,27 @@ import Testing
 @MainActor
 @Suite("Sidebar performance proof startup diagnostics", .serialized)
 struct SidebarPerformanceProofStartupDiagnosticTests {
-    @Test("action tracker rejects overlap and mismatched or stale readback")
+    @Test("action tracker rejects overlap and mismatched or stale grouping readback")
     func actionTrackerRejectsOverlapAndMismatchedOrStaleReadback() throws {
         let baseline = makeReadback(
             semanticGeneration: 7,
             acknowledgedRevision: 11,
             visibleGeneration: 13,
-            groupingMode: .repo
+            groupingMode: .repo,
+            nativeGroupingMode: .repo
         )
         var tracker = SidebarPerformanceProofActionTracker()
         let startedAction = tracker.begin(
             sequence: 1,
             baseline: baseline,
-            expectedGrouping: .pane,
-            expectsFilterFocus: true
+            expectedOutcome: .grouping(.pane)
         )
         let action = try #require(startedAction)
 
         let overlappingAction = tracker.begin(
             sequence: 2,
             baseline: baseline,
-            expectedGrouping: .tab,
-            expectsFilterFocus: false
+            expectedOutcome: .grouping(.tab)
         )
         #expect(overlappingAction == nil)
         #expect(
@@ -38,8 +39,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                     acknowledgedRevision: 11,
                     visibleGeneration: 14,
                     groupingMode: .pane,
-                    queryIsEmpty: true,
-                    focusDisposition: .filterFocused
+                    nativeGroupingMode: .pane
                 ),
                 action: action
             )
@@ -51,8 +51,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                     acknowledgedRevision: 12,
                     visibleGeneration: 14,
                     groupingMode: .tab,
-                    queryIsEmpty: true,
-                    focusDisposition: .filterFocused
+                    nativeGroupingMode: .tab
                 ),
                 action: action
             )
@@ -64,8 +63,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                     acknowledgedRevision: 12,
                     visibleGeneration: 14,
                     groupingMode: .pane,
-                    queryIsEmpty: false,
-                    focusDisposition: .filterFocused
+                    nativeGroupingMode: .repo
                 ),
                 action: action
             )
@@ -77,8 +75,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                     acknowledgedRevision: 12,
                     visibleGeneration: 14,
                     groupingMode: .pane,
-                    queryIsEmpty: true,
-                    focusDisposition: .filterFocused
+                    nativeGroupingMode: .pane
                 ),
                 action: action
             )
@@ -91,15 +88,181 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(tracker.outstandingAction == nil)
     }
 
-    @Test("strict CPU populations use fixed debug selectors and one correlated action")
+    @Test("visibility settlement does not require an unrelated Repo Explorer revision")
+    func visibilitySettlementAllowsAnEqualProjectionBaseline() throws {
+        let baseline = makeReadback(
+            semanticGeneration: 7,
+            acknowledgedRevision: 11,
+            visibleGeneration: 13,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo
+        )
+        var tracker = SidebarPerformanceProofActionTracker()
+        let startedAction = tracker.begin(
+            sequence: 1,
+            baseline: baseline,
+            expectedOutcome: .sidebarCollapsed(true)
+        )
+        let action = try #require(startedAction)
+        let hidden = makeReadback(
+            semanticGeneration: 7,
+            acknowledgedRevision: 11,
+            visibleGeneration: 13,
+            groupingMode: .repo,
+            nativeGroupingMode: nil,
+            isDemanded: false,
+            presentationIsReady: false,
+            accessibilityDisposition: .unavailable,
+            sidebarIsCollapsed: true,
+            nativeSidebarGeometryIsVisible: false,
+            nativeSidebarAccessibilityIsReady: false,
+            nativePresentedRowCount: nil
+        )
+
+        #expect(SidebarPerformanceProofActionTracker.matches(hidden, action: action))
+    }
+
+    @Test("search must settle filtered presentation before clearing")
+    func searchRequiresFilteredSettlementBeforeClear() throws {
+        let fixtureQuery = "worktree"
+        let baseline = makeReadback(
+            semanticGeneration: 7,
+            acknowledgedRevision: 11,
+            visibleGeneration: 13,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo,
+            focusDisposition: .filterFocused,
+            nativeFilterValue: ""
+        )
+        var tracker = SidebarPerformanceProofActionTracker()
+        let startedAction = tracker.begin(
+            sequence: 1,
+            baseline: baseline,
+            expectedOutcome: .search(query: fixtureQuery)
+        )
+        let filteredAction = try #require(startedAction)
+        let prematurelyCleared = makeReadback(
+            semanticGeneration: 8,
+            acknowledgedRevision: 12,
+            visibleGeneration: 14,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo,
+            focusDisposition: .filterFocused,
+            nativeFilterValue: ""
+        )
+        #expect(!SidebarPerformanceProofActionTracker.matches(prematurelyCleared, action: filteredAction))
+
+        let filtered = makeReadback(
+            semanticGeneration: 8,
+            acknowledgedRevision: 12,
+            visibleGeneration: 14,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo,
+            query: fixtureQuery,
+            focusDisposition: .filterFocused,
+            nativeFilterValue: fixtureQuery
+        )
+        #expect(SidebarPerformanceProofActionTracker.matches(filtered, action: filteredAction))
+        let advancedAction = tracker.advance(
+            sequence: 1,
+            baseline: filtered,
+            expectedOutcome: .search(query: "")
+        )
+        let clearAction = try #require(advancedAction)
+        let cleared = makeReadback(
+            semanticGeneration: 9,
+            acknowledgedRevision: 13,
+            visibleGeneration: 15,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo,
+            focusDisposition: .filterFocused,
+            nativeFilterValue: ""
+        )
+        #expect(SidebarPerformanceProofActionTracker.matches(cleared, action: clearAction))
+    }
+
+    @Test("tab settlement requires semantic identity native content and focus")
+    func tabSettlementRequiresTheOwningNativeState() throws {
+        let firstTabID = UUIDv7.generate()
+        let secondTabID = UUIDv7.generate()
+        let firstPaneID = UUIDv7.generate()
+        let secondPaneID = UUIDv7.generate()
+        let baseline = makeReadback(
+            semanticGeneration: 7,
+            acknowledgedRevision: 11,
+            visibleGeneration: 13,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo,
+            orderedTabIDs: [firstTabID, secondTabID],
+            activeTabID: firstTabID,
+            activePaneID: firstPaneID,
+            activePaneIDByTabID: [firstTabID: firstPaneID, secondTabID: secondPaneID]
+        )
+        var tracker = SidebarPerformanceProofActionTracker()
+        let startedAction = tracker.begin(
+            sequence: 1,
+            baseline: baseline,
+            expectedOutcome: .tabSelection(tabID: secondTabID, paneID: secondPaneID)
+        )
+        let action = try #require(startedAction)
+        let switchedWithoutFocus = makeReadback(
+            semanticGeneration: 7,
+            acknowledgedRevision: 11,
+            visibleGeneration: 13,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo,
+            orderedTabIDs: [firstTabID, secondTabID],
+            activeTabID: secondTabID,
+            activePaneID: secondPaneID,
+            activePaneIDByTabID: [firstTabID: firstPaneID, secondTabID: secondPaneID],
+            nativeActivePaneHasFocus: false
+        )
+        #expect(!SidebarPerformanceProofActionTracker.matches(switchedWithoutFocus, action: action))
+
+        let settled = makeReadback(
+            semanticGeneration: 7,
+            acknowledgedRevision: 11,
+            visibleGeneration: 13,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo,
+            orderedTabIDs: [firstTabID, secondTabID],
+            activeTabID: secondTabID,
+            activePaneID: secondPaneID,
+            activePaneIDByTabID: [firstTabID: firstPaneID, secondTabID: secondPaneID]
+        )
+        #expect(SidebarPerformanceProofActionTracker.matches(settled, action: action))
+    }
+
+    @Test("shell accessibility readback uses the selected native grouping segment")
+    func shellAccessibilityReadbackUsesNativeSelection() {
+        let rootView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
+        let selectedSegment = SelectedSidebarGroupingAccessibilityButton(
+            identifier: "repoSidebarGroupingSegment.pane"
+        )
+        selectedSegment.frame = NSRect(x: 0, y: 0, width: 80, height: 24)
+        rootView.addSubview(selectedSegment)
+        let tableView = NSTableView(frame: NSRect(x: 0, y: 30, width: 300, height: 270))
+        rootView.addSubview(tableView)
+
+        #expect(
+            SidebarPerformanceProofAccessibility.selectedRepoGroupingMode(in: rootView) == .pane
+        )
+        #expect(
+            SidebarPerformanceProofAccessibility.firstDescendant(
+                of: NSTableView.self,
+                in: rootView
+            ) === tableView
+        )
+    }
+
+    @Test("strict CPU populations use fixed debug selectors and population-specific readback")
     func strictCPUPopulationsUseFixedDebugSelectorsAndOneCorrelatedAction() throws {
         let actionSource = try String(
             contentsOfFile: "Sources/AgentStudio/App/Boot/AgentStudioStartupDiagnosticAction.swift",
             encoding: .utf8
         )
         let sessionSource = try String(
-            contentsOfFile:
-                "Sources/AgentStudio/App/Boot/SidebarPerformanceProofSession.swift",
+            contentsOfFile: "Sources/AgentStudio/App/Boot/SidebarPerformanceProofSession.swift",
             encoding: .utf8
         )
 
@@ -112,7 +275,11 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         }
         #expect(sessionSource.contains("private var actionTracker"))
         #expect(sessionSource.contains("guard outstandingAction == nil"))
-        #expect(sessionSource.contains("RepoExplorerPerformanceProofReadback"))
+        #expect(sessionSource.contains("SidebarPerformanceProofExpectedOutcome"))
+        #expect(sessionSource.contains("nativeSelectedGroupingMode"))
+        #expect(sessionSource.contains("nativeSidebarGeometryIsVisible"))
+        #expect(sessionSource.contains("nativeActivePaneHasFocus"))
+        #expect(sessionSource.contains("actionTracker.advance("))
         #expect(sessionSource.contains("AppCommandDispatcher.shared.dispatch"))
         #expect(sessionSource.contains("SidebarPerformanceProofNativeInputDriver"))
         #expect(sessionSource.contains("performance.sidebar.proof_action.started"))
@@ -125,7 +292,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(!sessionSource.contains("AppCommandIPC"))
     }
 
-    @Test("sidebar performance search driver uses native key events and policy cadence")
+    @Test("sidebar performance search driver separates native typing from native clear")
     func sidebarPerformanceSearchDriverUsesNativeKeyEventsAndPolicyCadence() throws {
         let source = try String(
             contentsOfFile:
@@ -133,11 +300,11 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
             encoding: .utf8
         )
 
-        #expect(source.contains("window.firstResponder is NSTextView"))
+        #expect(source.contains("func typeFixtureQuery(in window: NSWindow) async -> Bool"))
+        #expect(source.contains("func clearFixtureQuery(in window: NSWindow) -> Bool"))
         #expect(source.contains("NSEvent.keyEvent("))
         #expect(source.contains("window.sendEvent(event)"))
         #expect(source.contains("searchCharacterInterval"))
-        #expect(source.contains("modifierFlags: modifiers"))
         #expect(source.contains("modifiers: [.command]"))
         #expect(source.contains("keyCode: 51"))
         #expect(!source.contains("setFilterText"))
@@ -151,20 +318,77 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         acknowledgedRevision: UInt64,
         visibleGeneration: UInt64,
         groupingMode: RepoExplorerGroupingMode,
-        queryIsEmpty: Bool = true,
-        focusDisposition: RepoExplorerPerformanceProofReadback.FocusDisposition = .notFocused
-    ) -> RepoExplorerPerformanceProofReadback {
-        RepoExplorerPerformanceProofReadback(
-            semanticGeneration: semanticGeneration,
-            acknowledgedRevision: acknowledgedRevision,
-            visibleGeneration: visibleGeneration,
-            representedRowCount: 24,
-            groupingMode: groupingMode,
-            queryIsEmpty: queryIsEmpty,
-            isDemanded: true,
-            presentationIsReady: true,
-            focusDisposition: focusDisposition,
-            accessibilityDisposition: .ready
+        nativeGroupingMode: RepoExplorerGroupingMode?,
+        query: String = "",
+        isDemanded: Bool = true,
+        presentationIsReady: Bool = true,
+        accessibilityDisposition: RepoExplorerPerformanceProofReadback.AccessibilityDisposition = .ready,
+        focusDisposition: RepoExplorerPerformanceProofReadback.FocusDisposition = .notFocused,
+        sidebarIsCollapsed: Bool = false,
+        nativeSidebarGeometryIsVisible: Bool = true,
+        nativeFilterValue: String? = nil,
+        nativeSidebarAccessibilityIsReady: Bool = true,
+        nativePresentedRowCount: Int? = 24,
+        orderedTabIDs: [UUID] = [],
+        activeTabID: UUID? = nil,
+        activePaneID: UUID? = nil,
+        activePaneIDByTabID: [UUID: UUID] = [:],
+        nativeActivePaneHasFocus: Bool = true
+    ) -> SidebarPerformanceProofReadback {
+        SidebarPerformanceProofReadback(
+            repoExplorer: RepoExplorerPerformanceProofReadback(
+                semanticGeneration: semanticGeneration,
+                acknowledgedRevision: acknowledgedRevision,
+                visibleGeneration: visibleGeneration,
+                representedRowCount: 24,
+                groupingMode: groupingMode,
+                query: query,
+                isDemanded: isDemanded,
+                presentationIsReady: presentationIsReady,
+                focusDisposition: focusDisposition,
+                accessibilityDisposition: accessibilityDisposition
+            ),
+            shell: SidebarPerformanceProofShellReadback(
+                semanticSidebarIsCollapsed: sidebarIsCollapsed,
+                nativeSidebarIsCollapsed: sidebarIsCollapsed,
+                nativeSidebarGeometryIsVisible: nativeSidebarGeometryIsVisible,
+                nativeFilterValue: nativeFilterValue,
+                nativeSelectedGroupingMode: nativeGroupingMode,
+                nativeSidebarAccessibilityIsReady: nativeSidebarAccessibilityIsReady,
+                nativePresentedRowCount: nativePresentedRowCount,
+                tab: SidebarPerformanceProofTabReadback(
+                    orderedTabIDs: orderedTabIDs,
+                    activeTabID: activeTabID,
+                    activePaneID: activePaneID,
+                    activePaneIDByTabID: activePaneIDByTabID,
+                    nativeActiveTabIsVisible: true,
+                    nativeActivePaneIsVisible: true,
+                    nativeActivePaneHasFocus: nativeActivePaneHasFocus
+                )
+            )
         )
+    }
+}
+
+@MainActor
+private final class SelectedSidebarGroupingAccessibilityButton: NSButton {
+    private let fixedAccessibilityIdentifier: String
+
+    init(identifier: String) {
+        fixedAccessibilityIdentifier = identifier
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func accessibilityIdentifier() -> String {
+        fixedAccessibilityIdentifier
+    }
+
+    override func isAccessibilitySelected() -> Bool {
+        true
     }
 }

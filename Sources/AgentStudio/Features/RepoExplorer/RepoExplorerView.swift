@@ -215,6 +215,7 @@ package struct RepoExplorerView: View {
                 isVisible: isDemanded,
                 query: debouncedQuery
             )
+            recordPerformanceProofReadback()
         }
         .onChange(of: focusedField) { _, newValue in
             RepoExplorerFocusPublisher.publish(focusedField: newValue, into: uiState)

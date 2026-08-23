@@ -51,7 +51,8 @@ import AppKit
             action: AgentStudioStartupDiagnosticAction
         ) async {
             guard let population = SidebarPerformanceProofPopulation(kind: action.kind),
-                let window = mainWindowController?.window
+                let mainWindowController,
+                let window = mainWindowController.window
             else {
                 recordStrictSidebarPopulationResult(action: action, outcome: "failed")
                 return
@@ -59,7 +60,10 @@ import AppKit
             let session = SidebarPerformanceProofSession(
                 population: population,
                 window: window,
-                recorder: startupTraceRecorder
+                recorder: startupTraceRecorder,
+                readShell: { [weak mainWindowController] in
+                    mainWindowController?.sidebarPerformanceProofShellReadback()
+                }
             )
             sidebarPerformanceProofSession = session
             defer { sidebarPerformanceProofSession = nil }
@@ -67,7 +71,7 @@ import AppKit
             let prepared: Bool
             if population == .zeroPTYIdle {
                 atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)
-                mainWindowController?.expandSidebar()
+                mainWindowController.expandSidebar()
                 SidebarPerformanceProofFixture.populateRealSizeTopology(
                     store: store,
                     repositoryRoot: FileManager.default.homeDirectoryForCurrentUser
@@ -121,7 +125,7 @@ import AppKit
             self.delay = delay
         }
 
-        func typeAndClearFixtureQuery(in window: NSWindow) async -> Bool {
+        func typeFixtureQuery(in window: NSWindow) async -> Bool {
             let query = AppPolicies.SidebarPerformanceProof.fixtureQuery
             guard query.count == AppPolicies.SidebarPerformanceProof.searchCharacterCount,
                 window.firstResponder is NSTextView
@@ -143,10 +147,14 @@ import AppKit
                 }
             }
 
+            return (window.firstResponder as? NSTextView)?.string == query
+        }
+
+        func clearFixtureQuery(in window: NSWindow) -> Bool {
             guard sendKey(character: "a", keyCode: 0, modifiers: [.command], to: window),
                 sendKey(character: "", keyCode: 51, modifiers: [], to: window)
             else { return false }
-            return window.firstResponder is NSTextView
+            return (window.firstResponder as? NSTextView)?.string.isEmpty == true
         }
 
         private func sendKey(

@@ -104,22 +104,20 @@ final class RepoExplorerProjectionAdapter {
     func performanceProofReadback(
         focusDisposition: RepoExplorerPerformanceProofReadback.FocusDisposition
     ) -> RepoExplorerPerformanceProofReadback? {
-        guard let semanticBaselineResult, let acknowledgedMaterializationBaseline,
-            let materializationHost,
-            materializationHost.acceptedBaseline.map(RepoExplorerAcknowledgedBaselineIdentity.init)
-                == RepoExplorerAcknowledgedBaselineIdentity(acknowledgedMaterializationBaseline)
+        guard let semanticBaselineResult, let materializationHost,
+            let visibleBaseline = acknowledgedMaterializationBaseline ?? materializationHost.acceptedBaseline
         else { return nil }
         return RepoExplorerPerformanceProofReadback(
             semanticGeneration: semanticBaselineResult.generation,
-            acknowledgedRevision: acknowledgedMaterializationBaseline.revision,
-            visibleGeneration: acknowledgedMaterializationBaseline.visibleGeneration,
-            representedRowCount: acknowledgedMaterializationBaseline.rowCount,
+            acknowledgedRevision: visibleBaseline.revision,
+            visibleGeneration: visibleBaseline.visibleGeneration,
+            representedRowCount: visibleBaseline.rowCount,
             groupingMode: semanticBaselineResult.snapshot.groupingMode,
-            queryIsEmpty: semanticBaselineResult.snapshot.query.isEmpty,
+            query: semanticBaselineResult.snapshot.query,
             isDemanded: isDemanded,
             presentationIsReady: materializationHost.isPresentationReady,
             focusDisposition: focusDisposition,
-            accessibilityDisposition: materializationHost.isPresentationReady
+            accessibilityDisposition: materializationHost.isPresentationReady && materializationHost.window != nil
                 ? .ready
                 : .unavailable
         )

@@ -262,6 +262,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         splitViewController?.expandSidebar()
     }
 
+    func sidebarPerformanceProofShellReadback() -> SidebarPerformanceProofShellReadback? {
+        splitViewController?.sidebarPerformanceProofShellReadback(window: window)
+    }
+
     func refocusActivePane() {
         splitViewController?.refocusActivePane()
     }

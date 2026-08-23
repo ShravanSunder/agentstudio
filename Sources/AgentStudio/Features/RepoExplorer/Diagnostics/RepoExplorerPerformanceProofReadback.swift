@@ -16,9 +16,11 @@ package struct RepoExplorerPerformanceProofReadback: Equatable, Sendable {
     package let visibleGeneration: UInt64
     package let representedRowCount: Int
     package let groupingMode: RepoExplorerGroupingMode
-    package let queryIsEmpty: Bool
+    package let query: String
     package let isDemanded: Bool
     package let presentationIsReady: Bool
     package let focusDisposition: FocusDisposition
     package let accessibilityDisposition: AccessibilityDisposition
+
+    package var queryIsEmpty: Bool { query.isEmpty }
 }
