@@ -98,7 +98,7 @@ function renderStaticContract(contract: ProductPlateDomContract): void {
     selector.removeAttribute("role");
     selector.removeAttribute("aria-controls");
     selector.removeAttribute("aria-selected");
-    panel.hidden = storyId !== "parallel-work";
+    panel.hidden = storyId !== "watch-folder";
     panel.removeAttribute("role");
     panel.removeAttribute("aria-labelledby");
   }

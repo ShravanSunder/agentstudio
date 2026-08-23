@@ -1,6 +1,6 @@
 export const productPlateStoryIds = [
-  "parallel-work",
   "watch-folder",
+  "parallel-work",
   "quick-find",
   "files",
   "review",

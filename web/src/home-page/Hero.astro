@@ -18,11 +18,19 @@ import InstallCommand from "./InstallCommand.astro";
       aria-label={marketingCopy.hero.headline}
     >
       <span class="block">{marketingCopy.hero.headlineLead}</span>
-      <span class="block">{marketingCopy.hero.headlineTail}</span>
+      <span class="block">
+        {marketingCopy.hero.headlineMiddleBeforeAccent}<span class="text-primary"
+          >{marketingCopy.hero.headlineMiddleAccent}</span
+        >
+      </span>
+      <span class="block">
+        {marketingCopy.hero.headlineTailBeforeAccent}<span class="text-primary"
+          >{marketingCopy.hero.headlineTailAccent}</span
+        >{marketingCopy.hero.headlineTailAfterAccent}
+      </span>
     </h1>
     <p class="m-0 max-w-[720px] text-[clamp(18px,1.7vw,24px)] leading-normal text-ink-muted">
-      <span class="text-primary">{marketingCopy.productName}</span>{marketingCopy.hero
-        .descriptionAfterProductName}
+      {marketingCopy.hero.description}
     </p>
     <div
       class="hero__actions mt-action flex w-full flex-wrap items-center justify-center gap-3 max-phone:flex-col max-phone:items-stretch"

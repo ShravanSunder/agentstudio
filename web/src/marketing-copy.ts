@@ -2,13 +2,15 @@ export const marketingCopy = {
   productName: "Agent Studio",
   hero: {
     eyebrow: "Native macOS. Repository-aware. Terminal-first.",
-    headline: "Run a dozen agents. Know where each one is working.",
-    headlineLead: "Run a dozen agents.",
-    headlineTail: "Know where each one is working.",
+    headline: "Run dozens of agents in one workspace. Stay oriented. Miss nothing.",
+    headlineLead: "Run dozens of agents",
+    headlineMiddleBeforeAccent: "in one ",
+    headlineMiddleAccent: "workspace.",
+    headlineTailBeforeAccent: "Stay ",
+    headlineTailAccent: "oriented",
+    headlineTailAfterAccent: ". Miss nothing.",
     description:
-      "Agent Studio is an opinionated native macOS terminal workspace for coding agents. It watches your code folders, discovers their repositories and worktrees, and keeps each agent's repo, branch, and directory visible. Your agents run in Ghostty terminals, with Files, Review, and annotations right beside them.",
-    descriptionAfterProductName:
-      " is an opinionated native macOS terminal workspace for coding agents. It watches your code folders, discovers their repositories and worktrees, and keeps each agent's repo, branch, and directory visible. Your agents run in Ghostty terminals, with Files, Review, and annotations right beside them.",
+      "Agent Studio is a native macOS terminal workspace for coding agents, with your repositories and worktrees always within reach. Your agents run in Ghostty terminals, with Files, Review, and annotations right beside them.",
   },
   switcher: {
     eyebrow: "Organized parallelism",
@@ -27,9 +29,9 @@ export const marketingCopy = {
     },
     watchFolders: {
       label: "Watch folders",
-      description:
-        "Choose your folders once. Agent Studio finds and keeps their repos and worktrees current.",
-      phoneDescription: "Watch your folders. Agent Studio keeps their repos and worktrees current.",
+      description: "Agent Studio watches your repos. Stay oriented across every repo and worktree.",
+      phoneDescription:
+        "Agent Studio watches your repos. Stay oriented across every repo and worktree.",
       imageDescription:
         "Agent Studio welcome screen explaining Watch Folder discovery beside an example repository and worktree map.",
     },

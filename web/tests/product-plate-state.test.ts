@@ -37,7 +37,7 @@ describe("product plate state", () => {
     });
     expect(reduceProductPlateState(previousState, { kind: "move", direction: "next" })).toEqual({
       kind: "active",
-      selectedStoryId: "parallel-work",
+      selectedStoryId: "watch-folder",
     });
   });
 
@@ -49,7 +49,7 @@ describe("product plate state", () => {
 
     expect(
       reduceProductPlateState(selectedReviewState, { kind: "move", direction: "first" }),
-    ).toEqual({ kind: "active", selectedStoryId: "parallel-work" });
+    ).toEqual({ kind: "active", selectedStoryId: "watch-folder" });
     expect(
       reduceProductPlateState(selectedReviewState, { kind: "move", direction: "last" }),
     ).toEqual({ kind: "active", selectedStoryId: "review" });

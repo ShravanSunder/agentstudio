@@ -30,16 +30,6 @@ export type ProductPlateStory = SingleImageStory;
 export const productPlateStories = [
   {
     kind: "single-image",
-    id: "parallel-work",
-    label: marketingCopy.stories.parallelWork.label,
-    description: marketingCopy.stories.parallelWork.description,
-    phoneDescription: marketingCopy.stories.parallelWork.phoneDescription,
-    image: parallelAgentsImage,
-    phoneImage: parallelWorkPhoneImage,
-    alternativeText: marketingCopy.stories.parallelWork.imageDescription,
-  },
-  {
-    kind: "single-image",
     id: "watch-folder",
     label: marketingCopy.stories.watchFolders.label,
     description: marketingCopy.stories.watchFolders.description,
@@ -47,6 +37,16 @@ export const productPlateStories = [
     image: watchFolderImage,
     phoneImage: watchFolderPhoneImage,
     alternativeText: marketingCopy.stories.watchFolders.imageDescription,
+  },
+  {
+    kind: "single-image",
+    id: "parallel-work",
+    label: marketingCopy.stories.parallelWork.label,
+    description: marketingCopy.stories.parallelWork.description,
+    phoneDescription: marketingCopy.stories.parallelWork.phoneDescription,
+    image: parallelAgentsImage,
+    phoneImage: parallelWorkPhoneImage,
+    alternativeText: marketingCopy.stories.parallelWork.imageDescription,
   },
   {
     kind: "single-image",

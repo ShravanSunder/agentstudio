@@ -218,21 +218,21 @@ describe("interactive website controllers", () => {
     const root = createProductPlateFixture();
     const controller = initializeProductPlate(root);
     const selectorGroup = requiredHtmlElement(root, "[data-product-plate-selectors]");
-    const parallelSelector = requiredButton(root, '[data-product-plate-selector="parallel-work"]');
     const watchSelector = requiredButton(root, '[data-product-plate-selector="watch-folder"]');
+    const parallelSelector = requiredButton(root, '[data-product-plate-selector="parallel-work"]');
     const reviewSelector = requiredButton(root, '[data-product-plate-selector="review"]');
 
     expect(root.dataset["enhanced"]).toBe("true");
     expect(selectorGroup.getAttribute("role")).toBe("tablist");
-    expect(parallelSelector.getAttribute("aria-selected")).toBe("true");
+    expect(watchSelector.getAttribute("aria-selected")).toBe("true");
 
     requiredButton(root, "[data-product-plate-next]").click();
 
-    expect(watchSelector.getAttribute("aria-selected")).toBe("true");
-    expect(requiredHtmlElement(root, '[data-product-plate-panel="watch-folder"]').hidden).toBe(
+    expect(parallelSelector.getAttribute("aria-selected")).toBe("true");
+    expect(requiredHtmlElement(root, '[data-product-plate-panel="parallel-work"]').hidden).toBe(
       false,
     );
-    expect(requiredHtmlElement(root, '[data-product-plate-panel="parallel-work"]').hidden).toBe(
+    expect(requiredHtmlElement(root, '[data-product-plate-panel="watch-folder"]').hidden).toBe(
       true,
     );
 

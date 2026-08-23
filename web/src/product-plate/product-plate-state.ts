@@ -5,7 +5,7 @@ import {
 } from "./product-plate-contract";
 
 export type ProductPlateState =
-  | { readonly kind: "static"; readonly selectedStoryId: "parallel-work" }
+  | { readonly kind: "static"; readonly selectedStoryId: "watch-folder" }
   | { readonly kind: "active"; readonly selectedStoryId: ProductPlateStoryId };
 
 export type ProductPlateEvent =
@@ -16,7 +16,7 @@ export type ProductPlateEvent =
 
 export const initialProductPlateState: ProductPlateState = {
   kind: "static",
-  selectedStoryId: "parallel-work",
+  selectedStoryId: "watch-folder",
 };
 
 function unexpectedProductPlateEvent(event: never): never {
@@ -57,7 +57,7 @@ export function reduceProductPlateState(
       }
 
       if (event.direction === "first") {
-        return { kind: "active", selectedStoryId: "parallel-work" };
+        return { kind: "active", selectedStoryId: "watch-folder" };
       }
       if (event.direction === "last") {
         return { kind: "active", selectedStoryId: "review" };
