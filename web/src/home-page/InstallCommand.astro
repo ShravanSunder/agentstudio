@@ -1,15 +1,14 @@
 ---
-import ScrollMaterialSurface from "@/home-page/ScrollMaterialSurface.astro";
 import { installCommandText, marketingCopy } from "@/marketing-copy";
 ---
 
-<ScrollMaterialSurface
-  class="install-command relative grid min-w-[min(100%,470px)] grid-cols-[minmax(0,1fr)_auto] items-stretch gap-1 overflow-visible border p-1 max-phone:min-w-full max-phone:grid-cols-[minmax(0,1fr)]"
+<div
+  class="install-command relative grid min-w-[min(100%,470px)] grid-cols-[minmax(0,1fr)_auto] items-stretch gap-1 max-phone:min-w-full max-phone:grid-cols-[minmax(0,1fr)]"
   data-install-command-root
   data-install-command={installCommandText}
 >
   <code
-    class="scroll-material-pane grid gap-1 overflow-x-auto rounded-xl border border-line px-4.25 py-3.75 font-mono-product text-[14px] leading-normal text-ink whitespace-nowrap max-phone:overflow-x-visible max-phone:text-[12px]"
+    class="grid gap-1 overflow-x-auto rounded-xl border border-line bg-active-surface px-4.25 py-3.75 font-mono-product text-[14px] leading-normal text-ink whitespace-nowrap max-phone:overflow-x-visible max-phone:text-[12px]"
   >
     {
       marketingCopy.installation.commands.map((command) => (
@@ -19,7 +18,7 @@ import { installCommandText, marketingCopy } from "@/marketing-copy";
   </code>
   <button
     type="button"
-    class="inline-grid min-h-12 cursor-pointer place-items-center rounded-xl border border-[rgb(14_26_42/35%)] bg-primary px-4.5 [font-weight:750] text-[#0e1a2a] transition-[filter] duration-150 ease-out hover:brightness-105 active:brightness-90 motion-reduce:duration-0 max-phone:min-h-11"
+    class="inline-grid min-h-12 cursor-pointer place-items-center rounded-xl border border-[rgb(14_26_42/35%)] bg-primary px-4.5 text-sm font-bold text-[#0e1a2a] transition-[filter] duration-150 ease-out hover:brightness-105 active:brightness-90 motion-reduce:duration-0 max-phone:min-h-11"
     data-install-copy
     aria-label={marketingCopy.installation.copyButton}
   >
@@ -30,7 +29,7 @@ import { installCommandText, marketingCopy } from "@/marketing-copy";
     data-install-status
     aria-live="polite"
   ></span>
-</ScrollMaterialSurface>
+</div>
 
 <script>
   import { initializeInstallCommand } from "@/install-command/install-command-controller";
