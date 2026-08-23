@@ -1,6 +1,6 @@
 import { createScrollAutoplayVideoController } from "./scroll-autoplay-video-controller";
 
-const viewportEdgeInsetRatio = 0.1;
+const viewportEdgeInsetRatio = 0.2;
 const phoneMediaQuery = "(max-width: 620px)";
 
 let disposeActiveController: (() => void) | undefined;

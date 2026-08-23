@@ -1,16 +1,22 @@
 ---
 import type { HTMLAttributes } from "astro/types";
 
-interface Props extends HTMLAttributes<"div"> {}
+interface Props extends HTMLAttributes<"div"> {
+  readonly staticMaterial?: boolean;
+}
 
-const { class: className, ...attributes } = Astro.props;
+const { class: className, staticMaterial = false, ...attributes } = Astro.props;
 ---
 
 <div
   {...attributes}
-  class:list={["scroll-material-surface", className]}
-  data-scroll-material-surface
-  data-visual-state="resting"
+  class:list={[
+    "scroll-material-surface",
+    { "scroll-material-surface--static": staticMaterial },
+    className,
+  ]}
+  data-scroll-material-surface={staticMaterial ? undefined : ""}
+  data-visual-state={staticMaterial ? "floating" : "resting"}
 >
   <slot />
 </div>
@@ -64,6 +70,23 @@ const { class: className, ...attributes } = Astro.props;
     -webkit-backdrop-filter: blur(var(--scroll-material-blur))
       saturate(var(--scroll-material-saturation));
     will-change: transform;
+  }
+
+  .scroll-material-surface--static {
+    --scroll-material-progress: 1;
+    --scroll-material-lift: 0px;
+    --scroll-material-border-color: rgb(137 180 250 / 38%);
+    --scroll-material-primary-alpha: 0.11;
+    --scroll-material-cyan-alpha: 0.06;
+    --scroll-material-ground-alpha: 0.88;
+    --scroll-material-shadow-alpha: 0.28;
+    --scroll-material-secondary-shadow-alpha: 0.18;
+    --scroll-material-highlight-alpha: 0.1;
+    --scroll-material-blur: 20px;
+    --scroll-material-saturation: 120%;
+    --scroll-material-radius: 20px;
+    transform: none;
+    will-change: auto;
   }
 
   :global(.scroll-material-pane) {
@@ -128,6 +151,12 @@ const { class: className, ...attributes } = Astro.props;
 
     :global(.scroll-material-selection-control)::after {
       display: none;
+    }
+  }
+
+  @media (width <= 620px) {
+    .scroll-material-surface--static {
+      --scroll-material-radius: 18px;
     }
   }
 

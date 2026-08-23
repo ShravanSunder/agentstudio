@@ -35,13 +35,25 @@ import { productPlateStories } from "./product-plate-fixture";
     >
       <button
         type="button"
-        class="scroll-material-pane product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-transparent text-2xl text-ink-muted transition-[background-color,color,transform] duration-150 ease-out hover:text-ink active:scale-95 motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-lg:rounded-xl max-lg:border max-lg:border-line max-phone:text-xl"
+        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-r border-line bg-primary text-[#0e1a2a] transition-[filter,transform] duration-150 ease-out hover:brightness-105 active:scale-95 active:brightness-90 motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-lg:rounded-xl max-lg:border max-lg:border-[rgb(14_26_42/35%)]"
         data-product-plate-previous
         aria-label="Previous workspace view"
         aria-controls="product-plate-story-selector"
         disabled
       >
-        <span aria-hidden="true">←</span>
+        <svg
+          class="size-6 max-phone:size-5.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.75"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 12H3" />
+          <path d="m9 18-6-6 6-6" />
+        </svg>
       </button>
 
       <div
@@ -58,13 +70,27 @@ import { productPlateStories } from "./product-plate-fixture";
               disabled
               tabindex="-1"
               class:list={[
-                "scroll-material-pane scroll-material-selection-control product-plate__selector relative isolate grid min-h-0 w-full flex-1 grid-cols-1 content-start items-start overflow-clip rounded-xl border border-line px-5 py-2.5 text-left text-ink-muted transition-colors duration-150 ease-out hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-lg:flex max-lg:min-h-16 max-lg:shrink-0 max-lg:grow-0 max-lg:snap-start max-lg:basis-full max-lg:items-center max-lg:justify-center max-lg:px-[clamp(24px,4vw,48px)] max-lg:py-3 max-phone:min-h-14 max-phone:px-4.5 max-phone:py-2.5 max-phone:text-center",
+                "scroll-material-pane scroll-material-selection-control product-plate__selector relative isolate grid min-h-0 w-full flex-1 grid-cols-1 content-start items-start overflow-clip rounded-xl border border-line px-5 py-2.5 text-left text-ink-muted transition-colors duration-150 ease-out hover:text-ink active:bg-active-surface motion-reduce:duration-0 disabled:pointer-events-none max-lg:flex max-lg:min-h-16 max-lg:shrink-0 max-lg:grow-0 max-lg:snap-start max-lg:basis-full max-lg:flex-col max-lg:items-center max-lg:justify-center max-lg:px-[clamp(24px,4vw,48px)] max-lg:py-3 max-phone:min-h-14 max-phone:px-4.5 max-phone:py-2.5 max-phone:text-center",
                 { "is-default": index === 0 },
               ]}
             >
               <strong class="relative z-[1] text-lg font-bold text-inherit">
                 {story.label}
               </strong>
+              <span
+                class="product-plate__carousel-indicator relative z-[1] mt-2 hidden items-center justify-center gap-2 max-lg:flex"
+                data-product-plate-carousel-indicator
+                aria-hidden="true"
+              >
+                {
+                  productPlateStories.map((_, indicatorIndex) => (
+                    <span
+                      class="product-plate__carousel-dot size-1.5 rounded-full bg-ink-faint/40"
+                      data-current={String(indicatorIndex === index)}
+                    />
+                  ))
+                }
+              </span>
               <span
                 class="relative z-[1] mt-2 max-w-[760px] text-sm text-ink-muted max-lg:hidden"
                 data-product-plate-description
@@ -78,13 +104,25 @@ import { productPlateStories } from "./product-plate-fixture";
 
       <button
         type="button"
-        class="scroll-material-pane product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-transparent text-2xl text-ink-muted transition-[background-color,color,transform] duration-150 ease-out hover:text-ink active:scale-95 motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-lg:rounded-xl max-lg:border max-lg:border-line max-phone:text-xl"
+        class="product-plate__carousel-action hidden cursor-pointer place-items-center border-0 border-l border-line bg-primary text-[#0e1a2a] transition-[filter,transform] duration-150 ease-out hover:brightness-105 active:scale-95 active:brightness-90 motion-reduce:duration-0 disabled:pointer-events-none disabled:cursor-default disabled:text-ink-faint max-lg:grid max-lg:rounded-xl max-lg:border max-lg:border-[rgb(14_26_42/35%)]"
         data-product-plate-next
         aria-label="Next workspace view"
         aria-controls="product-plate-story-selector"
         disabled
       >
-        <span aria-hidden="true">→</span>
+        <svg
+          class="size-6 max-phone:size-5.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.75"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M3 12h18" />
+          <path d="m15 6 6 6-6 6" />
+        </svg>
       </button>
     </div>
 
@@ -212,8 +250,15 @@ import { productPlateStories } from "./product-plate-fixture";
       opacity: 0;
     }
 
-    .product-plate__carousel-action:active {
-      background: var(--color-active-surface);
+    .product-plate__carousel-dot[data-current="true"] {
+      width: 8px;
+      height: 8px;
+      background: var(--color-primary);
+      animation: product-plate-current-dot-pulse 2.6s ease-in-out infinite;
+    }
+
+    .product-plate__carousel-action:disabled {
+      @apply bg-primary text-[#0e1a2a] opacity-50;
     }
 
     .product-plate__selector[aria-selected="true"],
@@ -239,12 +284,30 @@ import { productPlateStories } from "./product-plate-fixture";
     }
   }
 
+  @keyframes product-plate-current-dot-pulse {
+    0%,
+    100% {
+      filter: brightness(1) drop-shadow(0 0 0 var(--color-primary));
+      transform: scale(1);
+    }
+
+    45%,
+    62% {
+      filter: brightness(1.02) drop-shadow(0 0 2px var(--color-primary));
+      transform: scale(1.1);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .product-plate__selectors {
       scroll-behavior: auto;
     }
 
     .product-plate__panel {
+      animation: none;
+    }
+
+    .product-plate__carousel-dot[data-current="true"] {
       animation: none;
     }
   }
