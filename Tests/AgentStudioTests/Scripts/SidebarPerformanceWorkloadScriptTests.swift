@@ -19,6 +19,9 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("hide_show"))
         #expect(source.contains("tab_switch"))
         #expect(source.contains("positive_quiescence"))
+        #expect(source.contains("agentstudio_performance_trace_queue_pending_request_count"))
+        #expect(source.contains("stage=\\\"materialize\\\",outcome=\\\"materialized\\\""))
+        #expect(source.contains("--data-urlencode \"time=$evaluation_time\""))
         #expect(source.contains("semantic_generation"))
         #expect(source.contains("acknowledged_revision"))
         #expect(source.contains("visible_generation"))
@@ -91,8 +94,179 @@ struct SidebarPerformanceWorkloadScriptTests {
         let samplerArm = try #require(populationSource.range(of: "start_strict_action_sampler"))
         let quiescence = try #require(populationSource.range(of: "wait_for_positive_quiescence"))
         let hostValidation = try #require(populationSource.range(of: "validate_strict_host_envelope"))
+        let hostMonitorStart = try #require(
+            populationSource.range(of: "start_strict_host_envelope_monitor")
+        )
+        #expect(hostValidation.lowerBound < hostMonitorStart.lowerBound)
+        #expect(hostMonitorStart.lowerBound < samplerArm.lowerBound)
         #expect(samplerArm.lowerBound < quiescence.lowerBound)
-        #expect(quiescence.lowerBound < hostValidation.lowerBound)
+        #expect(source.contains("start_strict_host_envelope_monitor"))
+        #expect(source.contains("stop_strict_host_envelope_monitor"))
+        #expect(source.contains("HOST_ENVELOPE_MONITOR_PID"))
+        #expect(source.contains("population_invalidated=host_envelope"))
+    }
+
+    @Test("strict quiescence rejects missing and empty stage vectors")
+    func strictQuiescenceRejectsMissingAndEmptyStageVectors() async throws {
+        let missingObservations = (0...5).map { timestamp in
+            """
+            {"capture":1,"execution":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
+            """
+        }
+        let missing = try await runQuiescenceContract(
+            sequence: "[" + missingObservations.joined(separator: ",") + "]"
+        )
+        #expect(missing.exitCode == 1)
+        #expect(missing.stderr.contains("quiescence vector missing publication"))
+
+        let emptyObservations = (0...5).map { timestamp in
+            """
+            {"capture":1,"execution":"","publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
+            """
+        }
+        let empty = try await runQuiescenceContract(
+            sequence: "[" + emptyObservations.joined(separator: ",") + "]"
+        )
+        #expect(empty.exitCode == 1)
+        #expect(empty.stderr.contains("quiescence vector empty execution"))
+    }
+
+    @Test("strict metric observation parser binds values to one requested timestamp")
+    func strictMetricObservationParserBindsValuesToRequestedTimestamp() async throws {
+        let accepted = try await runMetricObservationContract(
+            response: #"{"status":"success","data":{"result":[{"value":[123.5,"7"]}]}}"#,
+            observationTime: "123.5"
+        )
+        #expect(accepted.exitCode == 0, Comment(rawValue: accepted.stderr))
+        #expect(accepted.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "7")
+
+        let stale = try await runMetricObservationContract(
+            response: #"{"status":"success","data":{"result":[{"value":[122.5,"7"]}]}}"#,
+            observationTime: "123.5"
+        )
+        #expect(stale.exitCode == 1)
+        #expect(stale.stderr.contains("not bound to the requested observation time"))
+
+        let empty = try await runMetricObservationContract(
+            response: #"{"status":"success","data":{"result":[]}}"#,
+            observationTime: "123.5"
+        )
+        #expect(empty.exitCode == 1)
+        #expect(empty.stderr.contains("expected one result, got 0"))
+    }
+
+    @Test("strict quiescence rejects a stale export backlog sample")
+    func strictQuiescenceRejectsStaleExportBacklogSample() async throws {
+        let observations = (0...5).map { timestamp in
+            """
+            {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":0}
+            """
+        }
+        let result = try await runQuiescenceContract(
+            sequence: "[" + observations.joined(separator: ",") + "]"
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("export backlog sample is stale"))
+    }
+
+    @Test("strict quiescence rejects changing stages and export backlog")
+    func strictQuiescenceRejectsChangingStagesAndExportBacklog() async throws {
+        let changingStage = try await runQuiescenceContract(
+            sequence: """
+                [
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":0,"export_sample_time":0},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":1,"export_sample_time":1},
+                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":2,"export_sample_time":2},
+                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":3,"export_sample_time":3},
+                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":4,"export_sample_time":4},
+                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":5,"export_sample_time":5},
+                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":6,"export_sample_time":6}
+                ]
+                """
+        )
+        #expect(changingStage.exitCode == 1)
+        #expect(changingStage.stderr.contains("quiescence vector changed during required interval"))
+
+        let changingBacklog = try await runQuiescenceContract(
+            sequence: """
+                [
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":0,"export_sample_time":0},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":1,"export_sample_time":1},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":1,"observation_time":2,"export_sample_time":2},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":3,"export_sample_time":3},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":4,"export_sample_time":4},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":5,"export_sample_time":5}
+                ]
+                """
+        )
+        #expect(changingBacklog.exitCode == 1)
+        #expect(changingBacklog.stderr.contains("quiescence export backlog must remain zero"))
+    }
+
+    @Test("strict quiescence accepts a complete unchanged five-second span")
+    func strictQuiescenceAcceptsCompleteUnchangedFiveSecondSpan() async throws {
+        let observations = (0...5).map { timestamp in
+            """
+            {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
+            """
+        }
+        let result = try await runQuiescenceContract(
+            sequence: "[" + observations.joined(separator: ",") + "]"
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("positive_quiescence=test_contract_passed"))
+    }
+
+    @Test("strict quiescence restarts the full interval after a changed stage")
+    func strictQuiescenceRestartsFullIntervalAfterChangedStage() async throws {
+        let observations = (0...6).map { timestamp in
+            let capture = timestamp == 0 ? 1 : 2
+            return """
+                {"capture":\(capture),"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
+                """
+        }
+        let result = try await runQuiescenceContract(
+            sequence: "[" + observations.joined(separator: ",") + "]"
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("positive_quiescence=test_contract_passed"))
+    }
+
+    @Test("strict population rejects a retained mid-population host breach")
+    func strictPopulationRejectsRetainedMidPopulationHostBreach() async throws {
+        let result = try await runHostReceiptContract(
+            receipts: """
+                [
+                  {"observation":"initial","observed_at":1,"valid":true},
+                  {"observation":"during-1","observed_at":2,"valid":false},
+                  {"observation":"during-2","observed_at":3,"valid":true},
+                  {"observation":"final","observed_at":4,"valid":true}
+                ]
+                """
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("host envelope breached at observation 2"))
+    }
+
+    @Test("strict population accepts complete valid host receipts")
+    func strictPopulationAcceptsCompleteValidHostReceipts() async throws {
+        let result = try await runHostReceiptContract(
+            receipts: """
+                [
+                  {"observation":"initial","observed_at":1,"valid":true},
+                  {"observation":"during-1","observed_at":2,"valid":true},
+                  {"observation":"during-2","observed_at":3,"valid":true},
+                  {"observation":"final","observed_at":4,"valid":true}
+                ]
+                """
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("host_envelope_receipt_count=4"))
     }
 
     @Test("native table pilot verifier consumes projected policy without overrides")
@@ -477,6 +651,43 @@ struct SidebarPerformanceWorkloadScriptTests {
     }
 
     private let scriptPath = "scripts/verify-sidebar-performance-workload.sh"
+
+    private func runQuiescenceContract(sequence: String) async throws -> ProcessResult {
+        try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_QUIESCENCE_SEQUENCE": sequence,
+                "STRICT_POLICY_QUIESCENCE_MS": "5000",
+                "STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS": "1250",
+                "STRICT_POLICY_SAMPLE_INTERVAL_MS": "1000",
+            ]
+        )
+    }
+
+    private func runHostReceiptContract(receipts: String) async throws -> ProcessResult {
+        try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_HOST_RECEIPTS": receipts,
+            ]
+        )
+    }
+
+    private func runMetricObservationContract(
+        response: String,
+        observationTime: String
+    ) async throws -> ProcessResult {
+        try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_METRICS_RESPONSE": response,
+                "AGENTSTUDIO_SIDEBAR_TEST_METRIC_OBSERVATION_TIME": observationTime,
+            ]
+        )
+    }
 }
 
 private func runSidebarScript(

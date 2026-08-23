@@ -739,6 +739,36 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func traceQueueBacklogGaugeRecordsNonzeroThenZero() throws {
+        let factory = RecordingMetricsFactory()
+        let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)
+        let dimensions = [("event", "performance.trace_queue.completeness")]
+
+        metrics.record(
+            Self.projectedPerformanceRecord(
+                body: "performance.trace_queue.completeness",
+                attributes: [
+                    "agentstudio.performance.trace_queue.pending_request.count": .int(3)
+                ]
+            ))
+        metrics.record(
+            Self.projectedPerformanceRecord(
+                body: "performance.trace_queue.completeness",
+                attributes: [
+                    "agentstudio.performance.trace_queue.pending_request.count": .int(0)
+                ]
+            ))
+
+        let gauge = try #require(
+            factory.recorder(
+                label: "agentstudio_performance_trace_queue_pending_request_count",
+                dimensions: dimensions
+            )
+        )
+        #expect(gauge.values == [3, 0])
+    }
+
+    @Test
     func recorderEmitsCumulativeElapsedMaximumGaugeByReason() throws {
         let factory = RecordingMetricsFactory()
         let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)

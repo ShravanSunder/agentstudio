@@ -238,6 +238,10 @@ extension RepoExplorerProjectionAdapter {
                 pendingMaterializationSettlement = nil
                 acknowledgedMaterializationBaseline = baseline
                 lastRecoveryBaselineIdentity = nil
+                RepoExplorerPerformanceTelemetry.shared.record(
+                    stage: "materialize",
+                    outcome: "materialized"
+                )
                 _ = materializedProjection?.settle(
                     pending.token,
                     .accepted(pending.proposedValue)

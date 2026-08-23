@@ -482,6 +482,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.tabbar.tab.count",
         "agentstudio.performance.trace_queue.dropped_record.count",
         "agentstudio.performance.trace_queue.high_watermark",
+        "agentstudio.performance.trace_queue.pending_request.count",
         "agentstudio.performance.terminal.accumulator.equal_suppressed.count",
         "agentstudio.performance.terminal.accumulator.follow_up_drain.count",
         "agentstudio.performance.terminal.accumulator.mainactor_task.count",

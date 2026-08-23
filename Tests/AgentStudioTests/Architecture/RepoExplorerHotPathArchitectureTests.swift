@@ -331,6 +331,8 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!intentSource.contains("pendingDelta.structuralTarget == latestDelta.structuralTarget"))
         #expect(brokerSource.contains("case .equal = nativeUpdatePlan.kind"))
         #expect(brokerSource.contains("return .equalCurrent(result)"))
+        #expect(brokerSource.contains("stage: \"materialize\""))
+        #expect(brokerSource.contains("outcome: \"materialized\""))
     }
 
     @Test("projection adapter owns demand observation capture and deadlines")

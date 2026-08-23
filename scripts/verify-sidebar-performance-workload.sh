@@ -238,6 +238,7 @@ reset_disposable_debug_root() {
 
 cleanup() {
   stop_pid "${CPU_SAMPLER_PID:-}"
+  stop_pid "${HOST_ENVELOPE_MONITOR_PID:-}"
   local cleanup_pid="$APP_PID"
   if [ -z "$cleanup_pid" ] && [ -f "$STATE_FILE" ] \
     && [ "$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_MARKER)" = "$TRACE_MARKER" ]
@@ -345,6 +346,7 @@ PY
 
 query_victoria_metrics() {
   local query="$1"
+  local evaluation_time="${2:-}"
   if [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ]; then
     if [ "$mode" != "prepare-only" ]; then
       echo "canned sidebar metrics responses are allowed only with --prepare-only" >&2
@@ -353,9 +355,16 @@ query_victoria_metrics() {
     printf '%s\n' "${AGENTSTUDIO_SIDEBAR_TEST_METRICS_RESPONSE:-}"
     return 0
   fi
-  /usr/bin/curl --fail --silent --show-error --max-time 10 --get \
-    --data-urlencode "query=$query" \
-    "$METRICS_QUERY_URL"
+  if [ -n "$evaluation_time" ]; then
+    /usr/bin/curl --fail --silent --show-error --max-time 10 --get \
+      --data-urlencode "query=$query" \
+      --data-urlencode "time=$evaluation_time" \
+      "$METRICS_QUERY_URL"
+  else
+    /usr/bin/curl --fail --silent --show-error --max-time 10 --get \
+      --data-urlencode "query=$query" \
+      "$METRICS_QUERY_URL"
+  fi
 }
 
 strict_sidebar_policy_query() {
@@ -441,6 +450,9 @@ PY
 
 validate_strict_host_envelope() {
   local artifact="${1:?missing population artifact}"
+  local observation="${2:-initial}"
+  local envelope_artifact="$artifact/host-envelope/$observation"
+  mkdir -p "$(dirname "$envelope_artifact")"
   {
     /usr/bin/pmset -g batt
     /usr/bin/pmset -g custom
@@ -448,14 +460,14 @@ validate_strict_host_envelope() {
     /usr/bin/memory_pressure -Q
     /usr/sbin/sysctl kern.memorystatus_vm_pressure_level vm.swapusage
     /usr/bin/vm_stat
-  } >"$artifact/host-envelope.txt"
-  /bin/ps -axo pid=,ppid=,%cpu=,command= >"$artifact/processes.txt"
-  grep -q "AC Power" "$artifact/host-envelope.txt" || return 1
-  ! grep -Eq 'Low Power Mode[^0-9]*1' "$artifact/host-envelope.txt" || return 1
-  grep -q 'No thermal warning level has been recorded' "$artifact/host-envelope.txt" || return 1
-  grep -Eq 'kern.memorystatus_vm_pressure_level:[[:space:]]*1$' "$artifact/host-envelope.txt" || return 1
-  /usr/bin/python3 - "$artifact/processes.txt" "$APP_PID" "$STRICT_POLICY_HOST_CPU_MAX" \
-    "$artifact/unrelated-host-cpu.txt" "$artifact/forbidden-processes.txt" <<'PY'
+  } >"$envelope_artifact.txt"
+  /bin/ps -axo pid=,ppid=,%cpu=,command= >"$envelope_artifact.processes.txt"
+  grep -q "AC Power" "$envelope_artifact.txt" || return 1
+  ! grep -Eq 'Low Power Mode[^0-9]*1' "$envelope_artifact.txt" || return 1
+  grep -q 'No thermal warning level has been recorded' "$envelope_artifact.txt" || return 1
+  grep -Eq 'kern.memorystatus_vm_pressure_level:[[:space:]]*1$' "$envelope_artifact.txt" || return 1
+  /usr/bin/python3 - "$envelope_artifact.processes.txt" "$APP_PID" "$STRICT_POLICY_HOST_CPU_MAX" \
+    "$envelope_artifact.unrelated-cpu.txt" "$envelope_artifact.forbidden-processes.txt" <<'PY'
 import pathlib, re, subprocess, sys
 
 process_path, app_pid, maximum_cpu, cpu_path, forbidden_path = sys.argv[1:]
@@ -491,6 +503,105 @@ if unrelated_cpu > maximum_cpu:
 if forbidden:
     raise SystemExit(f"forbidden concurrent processes: {len(forbidden)}")
 PY
+}
+
+record_strict_host_envelope_receipt() {
+  local population_artifact="${1:?missing population artifact}"
+  local observation="${2:?missing host observation}"
+  local valid="${3:?missing host validity}"
+  local observed_at
+  observed_at="$(/usr/bin/python3 -c 'import time; print(f"{time.monotonic():.6f}")')"
+  printf '{"observation":"%s","observed_at":%s,"valid":%s}\n' \
+    "$observation" "$observed_at" "$valid" \
+    >>"$population_artifact/host-envelope-receipts.jsonl"
+}
+
+validate_strict_host_envelope_receipts() {
+  local receipts="${1:?missing host receipts}"
+  /usr/bin/python3 - "$receipts" <<'PY'
+import json
+import math
+import pathlib
+import sys
+
+records = []
+for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
+    if not line.strip():
+        continue
+    try:
+        records.append(json.loads(line))
+    except json.JSONDecodeError as error:
+        raise SystemExit(f"invalid host envelope receipt: {error}")
+if not records:
+    raise SystemExit("missing host envelope receipts")
+observations = [record.get("observation", "") for record in records]
+if observations[0] != "initial" or observations[-1] != "final":
+    raise SystemExit("host envelope receipts do not span the population")
+if not any(observation.startswith("during-") for observation in observations):
+    raise SystemExit("host envelope receipts have no during-population observation")
+prior_time = None
+for index, record in enumerate(records, start=1):
+    observed_at = record.get("observed_at")
+    if not isinstance(observed_at, (int, float)) or not math.isfinite(observed_at):
+        raise SystemExit(f"host envelope receipt {index} has invalid time")
+    if prior_time is not None and observed_at <= prior_time:
+        raise SystemExit("host envelope receipt times are not monotonic")
+    prior_time = observed_at
+    if record.get("valid") is not True:
+        raise SystemExit(f"host envelope breached at observation {index}")
+print(f"host_envelope_receipt_count={len(records)}")
+PY
+}
+
+start_strict_host_envelope_monitor() {
+  local population="${1:?missing population}"
+  local population_artifact="$ARTIFACT/populations/$population"
+  local stop_file="$population_artifact/stop-host-envelope-monitor"
+  local invalid_file="$population_artifact/invalid.env"
+  local interval_seconds
+  interval_seconds="$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
+    "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
+  /bin/rm -f -- "$stop_file" "$invalid_file"
+  (
+    local observation=0
+    while [ ! -f "$stop_file" ]; do
+      observation=$((observation + 1))
+      if ! validate_strict_host_envelope "$population_artifact" "during-$observation"; then
+        record_strict_host_envelope_receipt \
+          "$population_artifact" "during-$observation" false
+        echo "population_invalidated=host_envelope" >"$invalid_file"
+        exit 1
+      fi
+      record_strict_host_envelope_receipt \
+        "$population_artifact" "during-$observation" true
+      /bin/sleep "$interval_seconds"
+    done
+  ) &
+  HOST_ENVELOPE_MONITOR_PID=$!
+}
+
+stop_strict_host_envelope_monitor() {
+  local population="${1:?missing population}"
+  local population_artifact="$ARTIFACT/populations/$population"
+  local stop_file="$population_artifact/stop-host-envelope-monitor"
+  local invalid_file="$population_artifact/invalid.env"
+  local monitor_failed=0
+  : >"$stop_file"
+  if [ -n "${HOST_ENVELOPE_MONITOR_PID:-}" ]; then
+    wait "$HOST_ENVELOPE_MONITOR_PID" || monitor_failed=1
+    HOST_ENVELOPE_MONITOR_PID=""
+  fi
+  if ! validate_strict_host_envelope "$population_artifact" final; then
+    record_strict_host_envelope_receipt "$population_artifact" final false
+    echo "population_invalidated=host_envelope" >"$invalid_file"
+    monitor_failed=1
+  else
+    record_strict_host_envelope_receipt "$population_artifact" final true
+  fi
+  validate_strict_host_envelope_receipts \
+    "$population_artifact/host-envelope-receipts.jsonl" || monitor_failed=1
+  [ ! -s "$invalid_file" ] || monitor_failed=1
+  [ "$monitor_failed" = "0" ]
 }
 
 record_strict_cpu_sample() {
@@ -559,15 +670,243 @@ capture_strict_population_loss() {
   } >"$summary"
 }
 
+strict_quiescence_signature_from_json() {
+  local vector_json="${1:?missing quiescence vector}"
+  /usr/bin/python3 - "$vector_json" <<'PY'
+import json
+import math
+import sys
+
+required = ("capture", "execution", "publication", "binding", "visible_update", "export_backlog")
+try:
+    vector = json.loads(sys.argv[1])
+except json.JSONDecodeError as error:
+    raise SystemExit(f"invalid quiescence vector JSON: {error}")
+if not isinstance(vector, dict):
+    raise SystemExit("quiescence vector must be an object")
+normalized = []
+for name in required:
+    if name not in vector:
+        raise SystemExit(f"quiescence vector missing {name}")
+    raw_value = vector[name]
+    if raw_value is None or raw_value == "":
+        raise SystemExit(f"quiescence vector empty {name}")
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        raise SystemExit(f"quiescence vector invalid {name}: {raw_value}") from None
+    if not math.isfinite(value) or value < 0:
+        raise SystemExit(f"quiescence vector invalid {name}: {raw_value}")
+    if name != "export_backlog" and value < 1:
+        raise SystemExit(f"quiescence vector nonpositive {name}: {raw_value}")
+    if name == "export_backlog" and value != 0:
+        raise SystemExit("quiescence export backlog must remain zero")
+    normalized.append(f"{name}={value:g}")
+print(";".join(normalized))
+PY
+}
+
+validate_strict_test_quiescence_sequence() {
+  local sequence_json="${1:?missing quiescence sequence}"
+  local vectors
+  vectors="$(/usr/bin/python3 - "$sequence_json" <<'PY'
+import json
+import sys
+
+try:
+    sequence = json.loads(sys.argv[1])
+except json.JSONDecodeError as error:
+    raise SystemExit(f"invalid quiescence sequence JSON: {error}")
+if not isinstance(sequence, list) or not sequence:
+    raise SystemExit("quiescence test sequence must be a nonempty array")
+for vector in sequence:
+    print(json.dumps(vector, separators=(",", ":")))
+PY
+  )"
+  local prior="" unchanged=0 baseline_time="" last_time="" elapsed_ms=0
+  local state
+  while IFS= read -r vector_json; do
+    [ -n "$vector_json" ] || continue
+    if ! state="$(strict_quiescence_transition \
+      "$prior" "$unchanged" "$baseline_time" "$last_time" "$vector_json")"
+    then
+      return 1
+    fi
+    IFS='|' read -r prior unchanged baseline_time last_time elapsed_ms <<<"$state"
+  done <<<"$vectors"
+  strict_quiescence_state_is_complete "$unchanged" "$elapsed_ms" || {
+    echo "quiescence vector changed during required interval" >&2
+    return 1
+  }
+  echo "positive_quiescence=test_contract_passed"
+}
+
+strict_quiescence_transition() {
+  local prior_signature="$1"
+  local prior_unchanged="$2"
+  local baseline_time="$3"
+  local last_time="$4"
+  local vector_json="${5:?missing quiescence vector}"
+  local signature
+  if ! signature="$(strict_quiescence_signature_from_json "$vector_json")"; then
+    return 1
+  fi
+  /usr/bin/python3 - "$prior_signature" "$prior_unchanged" "$baseline_time" "$last_time" \
+    "$signature" "$vector_json" "$STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS" <<'PY'
+import json
+import math
+import sys
+
+prior_signature, raw_unchanged, raw_baseline, raw_last, signature, vector_json, raw_maximum_age = (
+    sys.argv[1:]
+)
+vector = json.loads(vector_json)
+try:
+    observation_time = float(vector["observation_time"])
+    export_sample_time = float(vector["export_sample_time"])
+except (KeyError, TypeError, ValueError):
+    raise SystemExit("quiescence vector has missing or invalid observation time") from None
+if not math.isfinite(observation_time) or not math.isfinite(export_sample_time):
+    raise SystemExit("quiescence vector has nonfinite observation time")
+maximum_export_age = float(raw_maximum_age) / 1000
+export_age = observation_time - export_sample_time
+if export_age < -0.001 or export_age > maximum_export_age:
+    raise SystemExit("quiescence export backlog sample is stale")
+if raw_last and observation_time <= float(raw_last):
+    raise SystemExit("quiescence observation time is not monotonic")
+if prior_signature == signature and raw_baseline:
+    unchanged = int(raw_unchanged) + 1
+    baseline = float(raw_baseline)
+else:
+    unchanged = 0
+    baseline = observation_time
+elapsed_ms = max(0, int((observation_time - baseline) * 1000))
+print(f"{signature}|{unchanged}|{baseline:.6f}|{observation_time:.6f}|{elapsed_ms}")
+PY
+}
+
+strict_quiescence_state_is_complete() {
+  local unchanged="${1:?missing unchanged count}"
+  local elapsed_ms="${2:?missing elapsed milliseconds}"
+  local required_unchanged=$((STRICT_POLICY_QUIESCENCE_MS / STRICT_POLICY_SAMPLE_INTERVAL_MS))
+  [ "$unchanged" -ge "$required_unchanged" ] \
+    && [ "$elapsed_ms" -ge "$STRICT_POLICY_QUIESCENCE_MS" ]
+}
+
+metric_value_at_observation() {
+  local query="${1:?missing metric query}"
+  local observation_time="${2:?missing observation time}"
+  local response
+  response="$(query_victoria_metrics "$query" "$observation_time")" || return 1
+  /usr/bin/python3 - "$response" "$observation_time" <<'PY'
+import json
+import math
+import sys
+
+try:
+    payload = json.loads(sys.argv[1])
+except json.JSONDecodeError as error:
+    raise SystemExit(f"invalid Victoria metric response: {error}")
+if payload.get("status") != "success":
+    raise SystemExit("Victoria metric response was not successful")
+results = payload.get("data", {}).get("result", [])
+if len(results) != 1:
+    raise SystemExit(f"Victoria metric response expected one result, got {len(results)}")
+sample = results[0].get("value")
+if not isinstance(sample, list) or len(sample) != 2:
+    raise SystemExit("Victoria metric response has no instant sample")
+try:
+    response_time = float(sample[0])
+    expected_time = float(sys.argv[2])
+    value = float(sample[1])
+except (TypeError, ValueError):
+    raise SystemExit("Victoria metric response contains a nonnumeric sample") from None
+if not math.isfinite(response_time) or abs(response_time - expected_time) > 0.001:
+    raise SystemExit("Victoria metric response is not bound to the requested observation time")
+if not math.isfinite(value):
+    raise SystemExit("Victoria metric response contains a nonfinite value")
+print(f"{value:g}")
+PY
+}
+
+strict_sidebar_quiescence_vector_json() {
+  local marker="${1:?missing marker}"
+  local observation_time="${2:?missing observation time}"
+  local marker_selector capture execution publication binding visible_update export_backlog
+  local export_sample_time export_metric_selector
+  marker_selector="$(metric_label_selector "$marker")"
+  capture="$(metric_value_at_observation \
+    "sum(agentstudio_performance_events_total{agent.proof.marker=\"$marker_selector\",event=\"performance.sidebar.projection\",surface=\"repo\",phase=\"request_build_mainactor\"})" \
+    "$observation_time")"
+  execution="$(metric_value_at_observation \
+    "sum(agentstudio_performance_events_total{agent.proof.marker=\"$marker_selector\",event=\"performance.repo_explorer.stage_snapshot\",stage=\"projection_worker\"})" \
+    "$observation_time")"
+  publication="$(metric_value_at_observation \
+    "sum(agentstudio_performance_events_total{agent.proof.marker=\"$marker_selector\",event=\"performance.repo_explorer.stage_snapshot\",stage=\"projection_worker\",outcome=\"published\"})" \
+    "$observation_time")"
+  binding="$(metric_value_at_observation \
+    "sum(agentstudio_performance_events_total{agent.proof.marker=\"$marker_selector\",event=\"performance.repo_explorer.stage_snapshot\",stage=\"mainactor_apply\",outcome=\"published\"})" \
+    "$observation_time")"
+  visible_update="$(metric_value_at_observation \
+    "sum(agentstudio_performance_events_total{agent.proof.marker=\"$marker_selector\",event=\"performance.repo_explorer.stage_snapshot\",stage=\"materialize\",outcome=\"materialized\"})" \
+    "$observation_time")"
+  export_metric_selector='agentstudio_performance_trace_queue_pending_request_count{agent.proof.marker="'"$marker_selector"'",event="performance.runtime_delivery.snapshot"}'
+  export_backlog="$(metric_value_at_observation \
+    "max($export_metric_selector)" \
+    "$observation_time")"
+  export_sample_time="$(metric_value_at_observation \
+    "max(timestamp($export_metric_selector))" \
+    "$observation_time")"
+  /usr/bin/python3 - "$capture" "$execution" "$publication" "$binding" "$visible_update" \
+    "$export_backlog" "$observation_time" "$export_sample_time" <<'PY'
+import json
+import sys
+
+names = (
+    "capture", "execution", "publication", "binding", "visible_update", "export_backlog",
+    "observation_time", "export_sample_time",
+)
+print(json.dumps(dict(zip(names, sys.argv[1:]))))
+PY
+}
+
 wait_for_positive_quiescence() {
   local marker="${1:?missing marker}"
-  local required_unchanged=$((STRICT_POLICY_QUIESCENCE_MS / STRICT_POLICY_SAMPLE_INTERVAL_MS))
-  local prior="" unchanged=0 signature
-  while [ "$unchanged" -lt "$required_unchanged" ]; do
-    signature="$(query_victoria_metrics "sum(agentstudio_performance_events_total{agent.proof.marker=\"$(metric_label_selector "$marker")\",event=~\"performance.repo_explorer.keyed_wake|performance.sidebar.projection\"})")"
-    if [ "$signature" = "$prior" ]; then unchanged=$((unchanged + 1)); else unchanged=0; prior="$signature"; fi
-    /bin/sleep "$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
+  local maximum_attempts=$(((STRICT_POLICY_QUIESCENCE_MS + STRICT_POLICY_READBACK_TIMEOUT_MS) \
+    / STRICT_POLICY_SAMPLE_INTERVAL_MS + 2))
+  local prior="" unchanged=0 attempts=0 vector_json observation_time
+  local baseline_time="" last_time="" elapsed_ms=0 state
+  while [ "$elapsed_ms" -lt "$STRICT_POLICY_QUIESCENCE_MS" ] \
+    && [ "$attempts" -lt "$maximum_attempts" ]; do
+    attempts=$((attempts + 1))
+    observation_time="$(/usr/bin/python3 -c 'import time; print(f"{time.time():.6f}")')"
+    vector_json="$(strict_sidebar_quiescence_vector_json \
+      "$marker" "$observation_time" 2>/dev/null || true)"
+    if [ -n "$vector_json" ]; then
+      state="$(strict_quiescence_transition \
+        "$prior" "$unchanged" "$baseline_time" "$last_time" "$vector_json" \
+        2>/dev/null || true)"
+    else
+      state=""
+    fi
+    if [ -n "$state" ]; then
+      IFS='|' read -r prior unchanged baseline_time last_time elapsed_ms <<<"$state"
+    else
+      prior=""
+      unchanged=0
+      baseline_time=""
+      last_time=""
+      elapsed_ms=0
+    fi
+    if [ "$elapsed_ms" -lt "$STRICT_POLICY_QUIESCENCE_MS" ]; then
+      /bin/sleep "$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
+        "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
+    fi
   done
+  strict_quiescence_state_is_complete "$unchanged" "$elapsed_ms" || {
+    echo "positive quiescence did not observe a complete unchanged stage/export vector" >&2
+    return 1
+  }
 }
 
 begin_strict_population() {
@@ -591,16 +930,20 @@ begin_strict_population() {
   load_strict_sidebar_policy "$population_artifact/projected-policy.jsonl"
   echo "$TRACE_MARKER" >"$population_artifact/marker.txt"
   echo "$APP_PID" >"$population_artifact/pid.txt"
+  : >"$population_artifact/host-envelope-receipts.jsonl"
+  validate_strict_host_envelope "$population_artifact" initial || {
+    record_strict_host_envelope_receipt "$population_artifact" initial false
+    echo "population_invalidated=host_envelope" >"$population_artifact/invalid.env"
+    return 1
+  }
+  record_strict_host_envelope_receipt "$population_artifact" initial true
+  start_strict_host_envelope_monitor "$population"
   if printf '%s\n' "$STRICT_POLICY_ACTION_POPULATIONS" | grep -qw "$population" \
     || [ "$population" = "grouping_diagnostic" ]
   then
     start_strict_action_sampler "$population"
   fi
   wait_for_positive_quiescence "$TRACE_MARKER"
-  validate_strict_host_envelope "$population_artifact" || {
-    echo "population_invalidated=host_envelope" >"$population_artifact/invalid.env"
-    return 1
-  }
 }
 
 sample_strict_idle_population() {
@@ -611,6 +954,7 @@ sample_strict_idle_population() {
     record_strict_cpu_sample "$samples"
   done
   validate_strict_sampler_gaps "$samples"
+  stop_strict_host_envelope_monitor "$population"
 }
 
 drive_strict_action_population() {
@@ -631,6 +975,7 @@ drive_strict_action_population() {
   : >"$population_artifact/stop-sampler"
   wait "$CPU_SAMPLER_PID"
   CPU_SAMPLER_PID=""
+  stop_strict_host_envelope_monitor "$population"
   query_strict_action_records "$marker" "$records"
   classify_strict_action_samples "$raw_samples" "$records" "$samples"
   validate_strict_sampler_gaps "$raw_samples"
@@ -1559,6 +1904,44 @@ validate_compare_baseline_fixture
 sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="repo",phase=~"startup_diagnostic|request_build_mainactor|mainactor_apply|projection_worker|row_index"}'
 
 if [ "$mode" = "prepare-only" ]; then
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_METRIC_OBSERVATION_TIME:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "metric observation test requires canned test-response authorization" >&2
+      exit 2
+    }
+    metric_value_at_observation \
+      "sum(agentstudio_performance_events_total)" \
+      "$AGENTSTUDIO_SIDEBAR_TEST_METRIC_OBSERVATION_TIME"
+    exit 0
+  fi
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_HOST_RECEIPTS:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "host receipt test requires canned test-response authorization" >&2
+      exit 2
+    }
+    host_receipt_test_file="$ARTIFACT/test-host-envelope-receipts.jsonl"
+    /usr/bin/python3 - "$AGENTSTUDIO_SIDEBAR_TEST_HOST_RECEIPTS" \
+      "$host_receipt_test_file" <<'PY'
+import json
+import pathlib
+import sys
+
+records = json.loads(sys.argv[1])
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(record, separators=(",", ":")) + "\n" for record in records)
+)
+PY
+    validate_strict_host_envelope_receipts "$host_receipt_test_file"
+    exit 0
+  fi
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_QUIESCENCE_SEQUENCE:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "quiescence test sequence requires canned test-response authorization" >&2
+      exit 2
+    }
+    validate_strict_test_quiescence_sequence "$AGENTSTUDIO_SIDEBAR_TEST_QUIESCENCE_SEQUENCE"
+    exit 0
+  fi
   metrics_response="$(query_victoria_metrics "$sidebar_metric_query")"
   metrics_count="$(metric_result_count "$metrics_response")"
   {
@@ -1579,6 +1962,7 @@ fi
 
 APP_PID=""
 CPU_SAMPLER_PID=""
+HOST_ENVELOPE_MONITOR_PID=""
 RESET_IDENTITY=""
 RESET_DEBUG_CODE=""
 RESET_DATA_DIR=""
