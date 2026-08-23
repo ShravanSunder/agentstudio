@@ -55,8 +55,8 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
 
     private struct ChangesetEmissionRequest: Sendable {
         let changedPaths: Set<String>
-        let containsGitInternalChanges: Bool
         let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+        let gitStatusResult: GitWorkingTreeStatusResult?
         let productAdmission: BridgeProductAdmissionContext
         let productSource: BridgeProductFileSourceIdentity
         let refreshed: BridgeWorktreeRefreshedTreeRows
@@ -67,6 +67,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     let authority: BridgePaneProductFileSourceAuthority
     let descriptorMaterializer: BridgePaneProductFileDescriptorMaterializer
     let sharedConstructionBinder: BridgePaneProductFileSharedConstructionBinder
+    let statusProvider: any GitWorkingTreeStatusProvider
     var sourceAcceptedObserver: BridgePaneProductFileSourceAcceptedObserver
     let treeRowRefresher: BridgePaneProductFileTreeRowRefresher
     var contextBySubscriptionId: [String: SubscriptionContext] = [:]
@@ -88,6 +89,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     ) {
         self.authority = authority
         self.descriptorMaterializer = descriptorMaterializer
+        self.statusProvider = statusProvider
         let resolvedPreparationLoader: BridgePaneProductFileSnapshotPreparationLoader =
             if let snapshotPreparationLoader {
                 snapshotPreparationLoader
@@ -588,6 +590,17 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         else {
             return []
         }
+        let gitStatusResult: GitWorkingTreeStatusResult? =
+            if changeset.containsGitInternalChanges
+                || changeset.suppressedGitInternalPathCount > 0
+            {
+                await statusProvider.statusResult(for: authority.worktree.path)
+            } else {
+                nil
+            }
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
+            (productAdmission.withValidAdmission { true }) == true
+        else { return [] }
         var emissions: [BridgePaneProductFileMetadataEmission] = []
         for subscriptionId in contextBySubscriptionId.keys.sorted() {
             guard let context = contextBySubscriptionId[subscriptionId],
@@ -632,8 +645,8 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                 let subscriptionEmissions = try makeChangesetEmissions(
                     .init(
                         changedPaths: changedPaths,
-                        containsGitInternalChanges: changeset.containsGitInternalChanges,
                         foregroundWorkAdmission: foregroundWorkAdmission,
+                        gitStatusResult: gitStatusResult,
                         productAdmission: productAdmission,
                         productSource: productSource,
                         refreshed: refreshed,
@@ -704,12 +717,22 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             }
         guard (request.productAdmission.withValidAdmission { true }) == true else { return nil }
         emissions.append(contentsOf: invalidationEmissions)
-        if request.containsGitInternalChanges {
+        if let gitStatusResult = request.gitStatusResult {
+            let statusEvent: BridgeProductFileMetadataEvent
+            switch gitStatusResult {
+            case .available(let status):
+                statusEvent = BridgePaneProductFileMetadataEncoding.statusEvent(
+                    status,
+                    source: request.productSource
+                )
+            case .unavailable:
+                statusEvent = .statusPatch(
+                    .init(patch: .invalidated, source: request.productSource)
+                )
+            }
             emissions.append(
                 .init(
-                    event: .statusPatch(
-                        .init(patch: .invalidated, source: request.productSource)
-                    ),
+                    event: statusEvent,
                     subscriptionId: request.subscriptionId
                 )
             )
