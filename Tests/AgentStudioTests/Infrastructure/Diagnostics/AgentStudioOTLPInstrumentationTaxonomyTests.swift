@@ -6,6 +6,57 @@ import Testing
 @Suite
 struct AgentStudioOTLPInstrumentationTaxonomyTests {
     @Test
+    func strictSidebarPolicyProjectsItsClosedStructuredValues() {
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 5,
+                severityText: .info,
+                body: "app.startup_diagnostic_action.command_exercised",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags": .string(
+                        "performance,app.startup,terminal.startup"
+                    ),
+                    "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags": .string(
+                        "performance,atoms,app.startup,terminal.startup"
+                    ),
+                    "agentstudio.startup_diagnostic.sidebar_proof.idle_populations": .string(
+                        "zero_pty_idle,quiescent_pty_idle"
+                    ),
+                    "agentstudio.startup_diagnostic.sidebar_proof.action_populations": .string(
+                        "search_clear,grouping,hide_show,tab_switch"
+                    ),
+                ]
+            )
+        )
+
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags"
+            ] == .string("performance,app.startup,terminal.startup")
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags"
+            ] == .string("performance,atoms,app.startup,terminal.startup")
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.idle_populations"
+            ] == .string("zero_pty_idle,quiescent_pty_idle")
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.action_populations"
+            ] == .string("search_clear,grouping,hide_show,tab_switch")
+        )
+    }
+
+    @Test
     func nativeTablePilotProjectsOnlyBoundedPolicyAndAggregateValues() {
         let projection = AgentStudioOTLPTraceProjection.project(
             AgentStudioTraceRecord(

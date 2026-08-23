@@ -125,6 +125,13 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.forge.outcome",
     ]
 
+    static let structuredStringAttributeKeys: Set<String> = [
+        "agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags",
+        "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags",
+        "agentstudio.startup_diagnostic.sidebar_proof.idle_populations",
+        "agentstudio.startup_diagnostic.sidebar_proof.action_populations",
+    ]
+
     static func isAllowedValue(key: String, value: String) -> Bool? {
         if let result = isAllowedSidebarProofValue(key: key, value: value) {
             return result

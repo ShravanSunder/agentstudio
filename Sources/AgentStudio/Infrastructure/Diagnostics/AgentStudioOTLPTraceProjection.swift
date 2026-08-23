@@ -852,7 +852,7 @@ extension AgentStudioOTLPTraceProjection {
             guard
                 !isPayloadKey(key) || allowedPayloadNamedStringAttributeKeys.contains(key),
                 allowedStringAttributeKeys.contains(key),
-                isSafeControlledString(stringValue),
+                isSafeControlledString(key: key, value: stringValue),
                 isAllowedControlledStringValue(key: key, value: stringValue)
             else { return nil }
             return .string(stringValue)
@@ -924,8 +924,11 @@ extension AgentStudioOTLPTraceProjection {
                 || scalar == ":"
         }
     }
-    private static func isSafeControlledString(_ value: String) -> Bool {
-        isSafeEventName(value)
+    private static func isSafeControlledString(key: String, value: String) -> Bool {
+        if AgentStudioOTLPRepoExplorerTaxonomy.structuredStringAttributeKeys.contains(key) {
+            return AgentStudioOTLPRepoExplorerTaxonomy.isAllowedValue(key: key, value: value) == true
+        }
+        return isSafeEventName(value)
     }
     private static func isSafeResourceValue(_ value: String) -> Bool {
         guard !value.isEmpty, value.count <= 160 else {
