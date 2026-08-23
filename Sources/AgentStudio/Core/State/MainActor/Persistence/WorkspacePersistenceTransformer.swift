@@ -124,15 +124,22 @@ enum WorkspacePersistenceTransformer {
         )
     }
 
-    nonisolated static func topologyRestoreReasons(
+    @concurrent nonisolated static func topologyRestoreReasonsOffMain(
+        _ snapshot: RepositoryTopologySQLiteSnapshot
+    ) async -> Set<PaneTopologyPersistenceReason> {
+        topologyRestoreReasons(snapshot)
+    }
+
+    private nonisolated static func topologyRestoreReasons(
         _ snapshot: RepositoryTopologySQLiteSnapshot
     ) -> Set<PaneTopologyPersistenceReason> {
         let worktreesByRepositoryID = Dictionary(grouping: snapshot.worktrees, by: \.repoId)
         var reasons = Set<PaneTopologyPersistenceReason>()
         for repository in snapshot.repos {
             let repositoryWorktrees = worktreesByRepositoryID[repository.id] ?? []
+            let canonicalRepositoryPath = canonicalRecoveryPath(repository.repoPath)
             let rootWorktrees = repositoryWorktrees.filter {
-                $0.stableKey == repository.stableKey
+                canonicalRecoveryPath($0.path) == canonicalRepositoryPath
             }
             guard rootWorktrees.count == 1, let rootWorktree = rootWorktrees.first else {
                 reasons.insert(.topologyRestoreMissingMainDegraded)
@@ -150,6 +157,10 @@ enum WorkspacePersistenceTransformer {
             }
         }
         return reasons
+    }
+
+    private nonisolated static func canonicalRecoveryPath(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     static func applyPreparedRepositoryTopology(

@@ -132,7 +132,7 @@ struct WorkspacePersistenceTransformerTests {
         )
 
         let preparation = await WorkspacePersistenceTransformer.prepareRepositoryTopologyOffMain(snapshot)
-        let reasons = WorkspacePersistenceTransformer.topologyRestoreReasons(snapshot)
+        let reasons = await WorkspacePersistenceTransformer.topologyRestoreReasonsOffMain(snapshot)
 
         guard case .prepared(let replacement) = preparation else {
             Issue.record("Expected stored topology normalization to be accepted")
@@ -170,7 +170,7 @@ struct WorkspacePersistenceTransformerTests {
         )
 
         let preparation = await WorkspacePersistenceTransformer.prepareRepositoryTopologyOffMain(snapshot)
-        let reasons = WorkspacePersistenceTransformer.topologyRestoreReasons(snapshot)
+        let reasons = await WorkspacePersistenceTransformer.topologyRestoreReasonsOffMain(snapshot)
 
         guard case .prepared(let replacement) = preparation else {
             Issue.record("Expected degraded stored topology to remain loadable")
@@ -193,7 +193,8 @@ struct WorkspacePersistenceTransformerTests {
                 CanonicalRepo(
                     id: repositoryID,
                     name: repositoryPath.lastPathComponent,
-                    repoPath: repositoryPath
+                    repoPath: repositoryPath,
+                    stableKey: "persisted-repository-identity"
                 )
             ],
             worktrees: [
@@ -202,6 +203,7 @@ struct WorkspacePersistenceTransformerTests {
                     repoId: repositoryID,
                     name: "root-one",
                     path: repositoryPath,
+                    stableKey: "persisted-root-one-identity",
                     isMainWorktree: true
                 ),
                 CanonicalWorktree(
@@ -209,6 +211,7 @@ struct WorkspacePersistenceTransformerTests {
                     repoId: repositoryID,
                     name: "root-two",
                     path: repositoryPath,
+                    stableKey: "persisted-root-two-identity",
                     isMainWorktree: false
                 ),
                 CanonicalWorktree(
@@ -216,6 +219,7 @@ struct WorkspacePersistenceTransformerTests {
                     repoId: repositoryID,
                     name: "linked",
                     path: linkedWorktreePath,
+                    stableKey: "persisted-linked-identity",
                     isMainWorktree: false,
                     note: "linked note survives"
                 ),
@@ -224,7 +228,7 @@ struct WorkspacePersistenceTransformerTests {
         )
 
         let preparation = await WorkspacePersistenceTransformer.prepareRepositoryTopologyOffMain(snapshot)
-        let reasons = WorkspacePersistenceTransformer.topologyRestoreReasons(snapshot)
+        let reasons = await WorkspacePersistenceTransformer.topologyRestoreReasonsOffMain(snapshot)
 
         guard case .prepared(let replacement) = preparation else {
             Issue.record("expected duplicate roots to degrade without rejecting startup")
