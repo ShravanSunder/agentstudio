@@ -402,6 +402,59 @@ struct RepoCacheAtomFamilyTests {
         #expect(cacheAtom.pullRequestFacts(for: retainedKey)?.openCount == 2)
     }
 
+    @Test("repository fact index stays coherent across every keyed lifecycle")
+    func repositoryFactIndexStaysCoherentAcrossKeyedLifecycle() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let repositoryAId = UUIDv7.generate()
+        let repositoryBId = UUIDv7.generate()
+        let repositoryAMainKey = RepoBranchKey(repoId: repositoryAId, branch: "main")!
+        let repositoryAFeatureKey = RepoBranchKey(repoId: repositoryAId, branch: "feature/a")!
+        let repositoryBMainKey = RepoBranchKey(repoId: repositoryBId, branch: "main")!
+
+        cacheAtom.applyPullRequestFacts([
+            repositoryAMainKey: PullRequestFacts(openCount: 1, exactOpenURL: nil),
+            repositoryAFeatureKey: PullRequestFacts(openCount: 2, exactOpenURL: nil),
+            repositoryBMainKey: PullRequestFacts(openCount: 3, exactOpenURL: nil),
+        ])
+
+        cacheAtom.applyPullRequestRepositoryProjection(
+            .stable(
+                .ready(
+                    confirmedFactsByBranch: [
+                        repositoryAFeatureKey.branch: PullRequestFacts(
+                            openCount: 4,
+                            exactOpenURL: nil
+                        )
+                    ]
+                )
+            ),
+            forRepository: repositoryAId
+        )
+
+        #expect(cacheAtom.pullRequestFacts(for: repositoryAMainKey) == nil)
+        #expect(cacheAtom.pullRequestFacts(for: repositoryAFeatureKey)?.openCount == 4)
+        #expect(cacheAtom.pullRequestFacts(for: repositoryBMainKey)?.openCount == 3)
+
+        cacheAtom.removePullRequestFacts(keys: [repositoryAFeatureKey])
+        cacheAtom.applyPullRequestFacts([
+            repositoryAMainKey: PullRequestFacts(openCount: 5, exactOpenURL: nil)
+        ])
+        cacheAtom.markPullRequestsUnavailable(forRepository: repositoryAId)
+
+        #expect(cacheAtom.pullRequestFacts(for: repositoryAMainKey) == nil)
+        #expect(cacheAtom.pullRequestFacts(for: repositoryBMainKey)?.openCount == 3)
+
+        cacheAtom.clear()
+        cacheAtom.applyPullRequestFacts([
+            repositoryAFeatureKey: PullRequestFacts(openCount: 6, exactOpenURL: nil),
+            repositoryBMainKey: PullRequestFacts(openCount: 7, exactOpenURL: nil),
+        ])
+        cacheAtom.removePullRequestFacts(forRepository: repositoryAId)
+
+        #expect(cacheAtom.pullRequestFacts(for: repositoryAFeatureKey) == nil)
+        #expect(cacheAtom.pullRequestFacts(for: repositoryBMainKey)?.openCount == 7)
+    }
+
     @Test
     func timestampOnlyWorktreeUpdateSkipsKeyInvalidationAndAggregateRevision() {
         let cacheAtom = RepoEnrichmentCacheAtom()

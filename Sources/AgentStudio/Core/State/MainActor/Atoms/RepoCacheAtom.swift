@@ -24,6 +24,7 @@ package final class RepoEnrichmentCacheAtom {
         telemetryLabel: "pull_request_facts",
         isContentEqual: ==
     )
+    @ObservationIgnored private var pullRequestFactKeysByRepoId: [UUID: Set<RepoBranchKey>] = [:]
     @ObservationIgnored private let pullRequestLoadingMap = AtomFamily<UUID, Bool>(
         telemetryLabel: "pull_request_loading",
         isContentEqual: ==
@@ -159,6 +160,7 @@ package final class RepoEnrichmentCacheAtom {
                     didChangeContent = true
                 }
                 pullRequestFactsMap.setValue(facts, for: key, mutation: mutation)
+                pullRequestFactKeysByRepoId[key.repoId, default: []].insert(key)
             }
             if didChangeContent {
                 pullRequestFactsRevisionAtom.bump()
@@ -176,9 +178,7 @@ package final class RepoEnrichmentCacheAtom {
         forRepository repoId: UUID
     ) {
         let materialized = Self.materializedPullRequestProjection(projection, repoId: repoId)
-        let existingFactKeys = Set(
-            pullRequestFactsMap.snapshot().keys.filter { $0.repoId == repoId }
-        )
+        let existingFactKeys = pullRequestFactKeysByRepoId[repoId] ?? []
         let desiredFactKeys = Set(materialized.factsByKey.keys)
         let factKeysToRemove = existingFactKeys.subtracting(desiredFactKeys)
         let factsDidChange =
@@ -198,6 +198,11 @@ package final class RepoEnrichmentCacheAtom {
             }
             for (key, facts) in materialized.factsByKey {
                 pullRequestFactsMap.setValue(facts, for: key, mutation: mutation)
+            }
+            if desiredFactKeys.isEmpty {
+                pullRequestFactKeysByRepoId.removeValue(forKey: repoId)
+            } else {
+                pullRequestFactKeysByRepoId[repoId] = desiredFactKeys
             }
             if materialized.isLoading {
                 pullRequestLoadingMap.setValue(true, for: repoId, mutation: mutation)
@@ -236,7 +241,7 @@ package final class RepoEnrichmentCacheAtom {
     }
 
     package func removePullRequestFacts(forRepository repoId: UUID) {
-        let keys = pullRequestFactsMap.snapshot().keys.filter { $0.repoId == repoId }
+        let keys = pullRequestFactKeysByRepoId[repoId] ?? []
         removePullRequestFactKeys(keys)
         clearPullRequestsUnavailable(forRepository: repoId)
         setPullRequestLoading(false, forRepository: repoId)
@@ -250,10 +255,11 @@ package final class RepoEnrichmentCacheAtom {
     package func markPullRequestsUnavailable(forRepository repoId: UUID) {
         setPullRequestLoading(false, forRepository: repoId)
         mutate { mutation in
-            let staleFactKeys = pullRequestFactsMap.snapshot().keys.filter { $0.repoId == repoId }
+            let staleFactKeys = pullRequestFactKeysByRepoId[repoId] ?? []
             for key in staleFactKeys {
                 pullRequestFactsMap.removeValue(for: key, mutation: mutation)
             }
+            pullRequestFactKeysByRepoId.removeValue(forKey: repoId)
             let didInsert = pullRequestUnavailableRepoIds.insert(repoId).inserted
             pullRequestUnavailableMap.setValue(true, for: repoId, mutation: mutation)
             if didInsert || !staleFactKeys.isEmpty {
@@ -350,12 +356,13 @@ package final class RepoEnrichmentCacheAtom {
         mutate { mutation in
             let hadRepoEnrichment = !repoEnrichmentMap.snapshot().isEmpty
             let hadWorktreeEnrichment = !worktreeEnrichmentMap.snapshot().isEmpty
-            let hadPullRequestFacts = !pullRequestFactsMap.snapshot().isEmpty
+            let hadPullRequestFacts = !pullRequestFactKeysByRepoId.isEmpty
             let hadPullRequestLoading = !pullRequestLoadingMap.snapshot().isEmpty
             let hadUnavailablePullRequestRepoIds = !pullRequestUnavailableRepoIds.isEmpty
             repoEnrichmentMap.removeAll(mutation: mutation)
             worktreeEnrichmentMap.removeAll(mutation: mutation)
             pullRequestFactsMap.removeAll(mutation: mutation)
+            pullRequestFactKeysByRepoId.removeAll(keepingCapacity: false)
             pullRequestLoadingMap.removeAll(mutation: mutation)
             pullRequestUnavailableMap.removeAll(mutation: mutation)
             pullRequestUnavailableRepoIds.removeAll(keepingCapacity: false)
@@ -397,8 +404,19 @@ package final class RepoEnrichmentCacheAtom {
         mutate { mutation in
             for key in existingKeys {
                 pullRequestFactsMap.removeValue(for: key, mutation: mutation)
+                removePullRequestFactKeyFromIndex(key)
             }
             pullRequestFactsRevisionAtom.bump()
+        }
+    }
+
+    private func removePullRequestFactKeyFromIndex(_ key: RepoBranchKey) {
+        guard var repositoryFactKeys = pullRequestFactKeysByRepoId[key.repoId] else { return }
+        repositoryFactKeys.remove(key)
+        if repositoryFactKeys.isEmpty {
+            pullRequestFactKeysByRepoId.removeValue(forKey: key.repoId)
+        } else {
+            pullRequestFactKeysByRepoId[key.repoId] = repositoryFactKeys
         }
     }
 
