@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { authoredTopologyRoutes } from "../src/topology-lab/full-page-topology-contract";
 import {
   assignTopologyRowOwners,
   assignWorktreeLanes,
@@ -7,6 +8,32 @@ import {
   measureFullPageTopologyGrid,
   resolveTopologyGlassBand,
 } from "../src/topology-lab/full-page-topology-model";
+
+const routeIdsByVariant = (variant: "compact" | "expanded" | "standard"): string[] =>
+  authoredTopologyRoutes
+    .filter((route) => route.variants.includes(variant))
+    .map((route) => route.id);
+
+describe("responsive topology composition", () => {
+  it("preserves the full worktree story at standard width and a continuous compact story", () => {
+    expect(routeIdsByVariant("compact")).toEqual([
+      "worktree-a",
+      "worktree-c",
+      "worktree-d",
+      "worktree-e",
+    ]);
+    expect(routeIdsByVariant("standard")).toEqual([
+      "worktree-a",
+      "worktree-b",
+      "worktree-c",
+      "worktree-d",
+      "worktree-e",
+      "worktree-f",
+      "worktree-g",
+    ]);
+    expect(routeIdsByVariant("expanded")).toEqual(routeIdsByVariant("standard"));
+  });
+});
 
 describe("topology row ownership", () => {
   it("distributes unreserved row dots across active worktrees and main", () => {

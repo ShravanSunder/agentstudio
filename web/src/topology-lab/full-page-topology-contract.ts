@@ -66,7 +66,7 @@ export const authoredTopologyRoutes: readonly TopologyRouteContract[] = [
     forkGlassIndex: 0,
     id: "worktree-c",
     placement: "cross-glass-left",
-    variants: ["standard", "expanded"],
+    variants: ["compact", "standard", "expanded"],
   },
   {
     accent: "cyan",
@@ -75,7 +75,7 @@ export const authoredTopologyRoutes: readonly TopologyRouteContract[] = [
     forkGlassIndex: 1,
     id: "worktree-d",
     placement: "cross-glass-left",
-    variants: ["expanded"],
+    variants: ["compact", "standard", "expanded"],
   },
   {
     accent: "peach",
@@ -84,7 +84,7 @@ export const authoredTopologyRoutes: readonly TopologyRouteContract[] = [
     forkPageRow: 17,
     id: "worktree-e",
     placement: "local-right",
-    variants: ["expanded"],
+    variants: ["compact", "standard", "expanded"],
   },
   {
     accent: "cyan",
@@ -93,7 +93,7 @@ export const authoredTopologyRoutes: readonly TopologyRouteContract[] = [
     forkPageRow: 18,
     id: "worktree-f",
     placement: "local-right",
-    variants: ["expanded"],
+    variants: ["standard", "expanded"],
   },
   {
     accent: "peach",
@@ -102,7 +102,7 @@ export const authoredTopologyRoutes: readonly TopologyRouteContract[] = [
     forkGlassIndex: 2,
     id: "worktree-g",
     placement: "cross-glass-left",
-    variants: ["expanded"],
+    variants: ["standard", "expanded"],
   },
 ] as const;
 
