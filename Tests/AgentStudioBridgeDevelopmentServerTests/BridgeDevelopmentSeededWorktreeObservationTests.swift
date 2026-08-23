@@ -237,8 +237,8 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
         #expect(await bus.subscriberCount == 0)
     }
 
-    @Test("real Darwin observation refreshes the development Review publication")
-    func realDarwinObservationRefreshesDevelopmentReviewPublication() async throws {
+    @Test("real Darwin observation refreshes Review after edit and deletion")
+    func realDarwinObservationRefreshesReviewAfterEditAndDeletion() async throws {
         // Arrange
         let root = try FilesystemTestGitRepo.create(
             named: "bridge-development-live-review"
@@ -281,10 +281,28 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
                 )
             )
 
-            // Assert
-            let publication = try #require(await host.diagnosticCommittedReviewPublication())
-            #expect(publication.package.reviewGeneration >= 2)
-            #expect(publication.package.itemsById.values.contains { $0.headPath == "tracked.txt" })
+            // Assert edit
+            let editedPublication = try #require(await host.diagnosticCommittedReviewPublication())
+            #expect(editedPublication.package.reviewGeneration >= 2)
+            #expect(editedPublication.package.itemsById.values.contains { $0.headPath == "tracked.txt" })
+
+            // Act deletion
+            try FileManager.default.removeItem(at: trackedFile)
+            #expect(
+                await waitForCommittedReviewGeneration(
+                    editedPublication.package.reviewGeneration.rawValue + 1,
+                    host: host,
+                    timeout: .seconds(5)
+                )
+            )
+
+            // Assert deletion
+            let deletedPublication = try #require(await host.diagnosticCommittedReviewPublication())
+            #expect(
+                deletedPublication.package.itemsById.values.contains {
+                    $0.basePath == "tracked.txt" && $0.headPath == nil
+                }
+            )
             await observation.stopFactAdmissionAndDrainRouting()
             await host.shutdown()
             await observation.shutdownSources()
