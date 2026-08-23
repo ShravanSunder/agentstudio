@@ -54,6 +54,8 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("overlaps or is non-monotonic"))
         #expect(source.contains("strict_required_record_loss"))
         #expect(source.contains("kern.memorystatus_vm_pressure_level"))
+        #expect(source.contains("/usr/bin/vm_stat"))
+        #expect(!source.contains("vm.compressor_mode"))
         #expect(source.contains("forbidden concurrent processes"))
         #expect(source.contains("population_invalidated"))
         #expect(source.contains("no sample replacement or trimming"))
@@ -76,6 +78,21 @@ struct SidebarPerformanceWorkloadScriptTests {
         ]
         #expect(!strictLossCapture.contains("collector_loss_count=0"))
         #expect(!strictLossCapture.contains("trace_loss:-0"))
+        let populationStart = try #require(source.range(of: "begin_strict_population() {"))
+        let populationEnd = try #require(
+            source.range(
+                of: "sample_strict_idle_population() {",
+                range: populationStart.upperBound..<source.endIndex
+            )
+        )
+        let populationSource = source[
+            populationStart.lowerBound..<populationEnd.lowerBound
+        ]
+        let samplerArm = try #require(populationSource.range(of: "start_strict_action_sampler"))
+        let quiescence = try #require(populationSource.range(of: "wait_for_positive_quiescence"))
+        let hostValidation = try #require(populationSource.range(of: "validate_strict_host_envelope"))
+        #expect(samplerArm.lowerBound < quiescence.lowerBound)
+        #expect(quiescence.lowerBound < hostValidation.lowerBound)
     }
 
     @Test("native table pilot verifier consumes projected policy without overrides")

@@ -446,7 +446,8 @@ validate_strict_host_envelope() {
     /usr/bin/pmset -g custom
     /usr/bin/pmset -g therm
     /usr/bin/memory_pressure -Q
-    /usr/sbin/sysctl kern.memorystatus_vm_pressure_level vm.swapusage vm.compressor_mode
+    /usr/sbin/sysctl kern.memorystatus_vm_pressure_level vm.swapusage
+    /usr/bin/vm_stat
   } >"$artifact/host-envelope.txt"
   /bin/ps -axo pid=,ppid=,%cpu=,command= >"$artifact/processes.txt"
   grep -q "AC Power" "$artifact/host-envelope.txt" || return 1
@@ -455,7 +456,7 @@ validate_strict_host_envelope() {
   grep -Eq 'kern.memorystatus_vm_pressure_level:[[:space:]]*1$' "$artifact/host-envelope.txt" || return 1
   /usr/bin/python3 - "$artifact/processes.txt" "$APP_PID" "$STRICT_POLICY_HOST_CPU_MAX" \
     "$artifact/unrelated-host-cpu.txt" "$artifact/forbidden-processes.txt" <<'PY'
-import pathlib, re, sys
+import pathlib, re, subprocess, sys
 
 process_path, app_pid, maximum_cpu, cpu_path, forbidden_path = sys.argv[1:]
 maximum_cpu = float(maximum_cpu)
@@ -479,6 +480,10 @@ for line in pathlib.Path(process_path).read_text().splitlines():
         raise SystemExit(f"invalid host CPU value for pid {pid}: {raw_cpu}")
     if forbidden_pattern.search(command):
         forbidden.append(f"{pid} {command}")
+logical_cpu_count = int(subprocess.check_output(
+    ["/usr/sbin/sysctl", "-n", "hw.logicalcpu"], text=True
+).strip())
+unrelated_cpu /= logical_cpu_count
 pathlib.Path(cpu_path).write_text(f"{unrelated_cpu}\n")
 pathlib.Path(forbidden_path).write_text("\n".join(forbidden) + ("\n" if forbidden else ""))
 if unrelated_cpu > maximum_cpu:
@@ -586,16 +591,16 @@ begin_strict_population() {
   load_strict_sidebar_policy "$population_artifact/projected-policy.jsonl"
   echo "$TRACE_MARKER" >"$population_artifact/marker.txt"
   echo "$APP_PID" >"$population_artifact/pid.txt"
-  validate_strict_host_envelope "$population_artifact" || {
-    echo "population_invalidated=host_envelope" >"$population_artifact/invalid.env"
-    return 1
-  }
   if printf '%s\n' "$STRICT_POLICY_ACTION_POPULATIONS" | grep -qw "$population" \
     || [ "$population" = "grouping_diagnostic" ]
   then
     start_strict_action_sampler "$population"
   fi
   wait_for_positive_quiescence "$TRACE_MARKER"
+  validate_strict_host_envelope "$population_artifact" || {
+    echo "population_invalidated=host_envelope" >"$population_artifact/invalid.env"
+    return 1
+  }
 }
 
 sample_strict_idle_population() {
