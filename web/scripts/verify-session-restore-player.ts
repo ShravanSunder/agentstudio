@@ -19,16 +19,16 @@ const requiredAttributes = [
   "playsinline",
   'preload="metadata"',
   'aria-label="Agent Studio persistent session restore demonstration"',
+  "data-scroll-autoplay-video",
+  'data-scroll-autoplay-start-progress="0.95"',
+  'data-scroll-autoplay-stop-progress="0.9"',
+  'data-scroll-autoplay-replay-delay-ms="3000"',
 ] as const;
 
 for (const requiredAttribute of requiredAttributes) {
   if (!sessionVideoTag.includes(requiredAttribute)) {
     throw new Error(`Rendered session-restore video is missing ${requiredAttribute}.`);
   }
-}
-
-if (sessionVideoTag.includes("data-scroll-autoplay-video")) {
-  throw new Error("Rendered session-restore video must remain visitor-controlled.");
 }
 
 if (/\sautoplay(?:\s|=|>)/u.test(sessionVideoTag)) {
