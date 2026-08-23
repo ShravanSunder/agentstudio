@@ -366,7 +366,7 @@ The table replaces SwiftUI `List`/`ForEach` and backing-table discovery only for
 
 It does not own projection, row meaning, grouping, search, collapse policy, commands, favorite state, focus decisions, or domain facts. Those values arrive in the immutable materialized row or stable injected interaction callbacks.
 
-The materializer receives one stable `RepoExplorerTableInteractions` value when the host is created. It routes typed row identity plus typed action to the existing command/focus/favorite/collapse owners. Cells create action closures only for represented visible rows; no fleet of closures is constructed or retained in the snapshot. Every callback carries the accepted table generation, row ID, and cell reuse token and is ignored unless all three remain current, so reuse cannot turn the table into a second command or selection owner.
+The materializer receives one stable `RepoExplorerTableInteractions` value when the host is created. It routes typed row identity plus typed action to the existing command/focus/favorite/collapse owners. Cells create action closures only for represented visible rows; no fleet of closures is constructed or retained in the snapshot. Every callback carries the accepted table generation, row ID, and cell reuse token and is ignored unless all three remain current. Command/favorite callbacks also carry the accepted command generation. Reuse or a same-row command-only rebind therefore cannot turn the table into a second command or selection owner.
 
 Behavioral interface:
 
@@ -379,9 +379,11 @@ apply(contentCandidate)
   accepted/rejected: return exactly one synchronous disposition
   forbidden: rediff, replacement plan, plan side channel, second native applier
 
-visibleWorktreeIDs
-  exact set represented by the table's current visible row range
-  equality-published at most once per coalesced viewport turn
+visibleWorktreeSnapshot
+  opaque target(host lifetime + materialization generation + visible revision)
+  + exact worktree set represented by the table's current visible row range
+  equality-published by complete target + set at most once per coalesced viewport turn
+  target change publishes even when the represented worktree set is equal
   cleared when the host leaves the window or sidebar demand is absent
 ```
 
@@ -410,20 +412,24 @@ The table remains view-based and native:
 
 ### App-owned command presentation — generation-validated row route
 
-`RepoExplorerCommandPresentationBatch` remains App-owned composition truth. The Feature does not observe App atoms or resolve capabilities. The native viewport publishes a typed `RepoExplorerVisibleWorktreeSnapshot(materializationGeneration, visibleRevision, worktreeIDs)`. The App batch observes that value plus its existing favorite, active-tab, management, pane-structure, zoom, drawer, and command-capability inputs and emits one immutable `RepoExplorerCommandPresentationDelta` containing:
+`RepoExplorerCommandPresentationBatch` remains App-owned composition truth. The Feature does not observe App atoms or resolve capabilities. The native viewport publishes a typed `RepoExplorerVisibleWorktreeSnapshot(target, worktreeIDs)`, where `target` is one opaque `RepoExplorerCommandPresentationTarget(materializationHostLifetimeID, materializationGeneration, visibleRevision)`. Host lifetime is load-bearing anti-ABA identity: numeric materialization generations and visible revisions may repeat after host replacement, but the target cannot. The App batch observes that value plus its existing favorite, active-tab, management, pane-structure, zoom, drawer, and command-capability inputs and emits one immutable `RepoExplorerCommandPresentationDelta` containing:
 
 ```text
 commandGeneration
-targetMaterializationGeneration + targetVisibleRevision
-complete current RepoExplorerCommandPresentationSnapshot
+target(materializationHostLifetimeID + materializationGeneration + visibleRevision)
+complete current RepoExplorerCommandPresentationSnapshot(
+  command results + favoriteStateByRepositoryID
+)
 affected worktree IDs + affected repository IDs
 union of old/new favorite and capability request identities
 toolbarChanged
 ```
 
-The batch advances generation only after it has resolved the complete current request set. A visible-set-only generation change may reuse equal results but still retargets them to the new materialization generation. App injects the delta into `RepoExplorerView`; no App type or state moves into the Feature.
+The batch advances generation only after it has resolved the complete current request set and current repository favorite state. A target-only change may reuse equal results but still publishes a newer command generation retargeted to the complete new host-lifetime/generation/revision target. App injects the delta into `RepoExplorerView`; no App type or state moves into the Feature. The target value is package-visible only as an opaque equality/transport identity; App cannot mint or inspect Feature host authority through it.
 
-The table accepts a command delta only when its target materialization generation and visible revision match the accepted table/viewport and its command generation is newer than the last accepted command generation. Using the worker's `rowIDsByWorktreeID`, `rowIDsByRepoID`, and per-row request identities, it intersects the affected IDs with represented visible slots and rebinds only those occurrences. Favorite changes include both the former and current add/remove-favorite request identities; capability changes include the current worktree request set. Toolbar changes update the toolbar from the same complete snapshot independently of table visibility. A stale delta is rejected and causes the App batch to observe the current visible snapshot; it never rebinds old capabilities. Hidden/offscreen rows perform no update and resolve the latest accepted complete snapshot when reused. Presentation is advisory only: every enabled row or toolbar action re-enters `AppCommandDispatcher`, which performs current targeting and authority validation.
+The table accepts a command delta only when its complete target—including host lifetime—matches the accepted table/viewport and its command generation is newer than the last accepted command generation. Using the worker's `rowIDsByWorktreeID`, `rowIDsByRepoID`, and per-row request identities, it intersects the affected IDs with represented visible slots and rebinds only those occurrences. Favorite changes include both the former and current add/remove-favorite request identities; capability changes include the current worktree request set. Toolbar changes update the toolbar from the same complete snapshot independently of table visibility. A stale delta is rejected and causes the App batch to observe the exact current visible snapshot; it never rebinds old capabilities or favorite state. Hidden/offscreen rows perform no update and resolve the latest accepted complete snapshot when reused.
+
+Command-only same-row rebind retains the cell reuse token and row subtree identity. Every command/favorite callback therefore captures and validates `commandGeneration` in addition to materialization generation, row ID, and reuse token. A callback captured before a newer accepted command delta is stale even when the same row remains in the same cell. Presentation is advisory only: every current enabled row or toolbar action re-enters `AppCommandDispatcher`, which performs current targeting and authority validation.
 
 ### Materialization acknowledgment and viewport demand
 
@@ -433,9 +439,9 @@ For every invoked changed `apply`, the host delivers exactly one accepted or rej
 
 ### RepoExplorerViewportDemand — bounded visible-set projection
 
-Viewport demand is part of the table materializer rather than a separate view that searches for SwiftUI's private backing table. It observes the owned scroll view's clip bounds, asks the owned table for its visible row range, maps only those bounded rows through the precomputed optional worktree IDs, and equality-publishes the resulting set.
+Viewport demand is part of the table materializer rather than a separate view that searches for SwiftUI's private backing table. It observes the owned scroll view's clip bounds, asks the owned table for its visible row range, maps only those bounded rows through the precomputed optional worktree IDs, and publishes one typed snapshot containing the current opaque host-lifetime/generation/revision target plus the resulting set. Equality suppression compares the complete snapshot, so host replacement or numeric retargeting publishes even when the represented worktree IDs are equal.
 
-Scroll callbacks are a burst of samples. One latest pending viewport calculation is retained per MainActor turn; intermediate bounds callbacks coalesce. Work is bounded by visible rows, not fleet size. The owner publishes no change when the worktree set is equal and clears demand on teardown, sidebar hide/collapse, or generation replacement before stale callbacks can bind.
+Scroll callbacks are a burst of samples. One latest pending viewport calculation is retained per MainActor turn; intermediate bounds callbacks coalesce. Each pending calculation captures host lifetime and numeric target; any mismatch at publication is discarded. Work is bounded by visible rows, not fleet size. The owner publishes no change when the complete target-plus-worktree-set snapshot is equal and clears demand on teardown, sidebar hide/collapse, or generation replacement before stale callbacks can bind.
 
 ### PaneActivityStatusAtom — keyed latest-state publication
 
@@ -574,7 +580,10 @@ No two executions for one key overlap. Different keys may execute concurrently u
 | accepted revision R | valid content plan R→R+1 | expose candidate; reload final-space represented rows/heights; acknowledge after completion | R+1 accepted; unaffected rows/cells retain identity |
 | accepted revision R | valid membership plan R→R+1 | capture anchors; exact batch transaction; restore; acknowledge after completion | R+1 accepted; viewport recomputed once |
 | accepted revision R | equal plan R→R | no host state change or acknowledgment | no table/layout/focus invalidation |
-| lifetime/epoch/generation/revision mismatch | stale plan or command delta | reject candidate; keep R | accepted cells, anchors, and viewport unchanged |
+| lifetime/epoch/generation/revision mismatch | stale plan or command delta | reject candidate; keep R | accepted cells, anchors, viewport, and command presentation unchanged |
+| current table target T | command delta for a different host lifetime or numeric target | reject delta; report exact current visible snapshot T | no command/favorite state or cell mutation |
+| current table target T at command generation C | matching delta with generation ≤ C | reject duplicate/out-of-order delta | represented and offscreen presentation unchanged |
+| current table target T at command generation C | matching delta with generation C+N | accept complete snapshot; rebind affected represented occurrences only | offscreen rows resolve the accepted snapshot on representation; old callbacks fail command-generation validation |
 | any | bounds burst | replace one pending viewport calculation | one latest visible-worktree set per coalesced turn |
 | represented wrapping row + new width revision | measure that cell; height-reload its current index; restore scroll anchor | no offscreen/fleet measurement |
 | any | cell reuse | `prepareForReuse`; clear identity state; install fresh keyed subtree | no stale state, action, focus, or accessibility value |
@@ -648,7 +657,8 @@ source keyed fact change
   -> [added] adapter caches R+1 and releases Eager settlement barrier
   -> [changed] only now may pending intent be re-enveloped and start from R+1
   -> [added] reusable native cells host row-ID-reset SwiftUI content
-  -> [changed] viewport publishes materialization generation + visible revision + worktrees
+  -> [changed] viewport publishes host lifetime + materialization generation +
+               visible revision + worktrees as one anti-ABA target
   -> [added] App command batch returns generation-validated affected presentation delta
   -> [added] current represented slots/toolbar rebind; actions re-enter dispatcher
   <- current visible rows / focus / accessibility / commands, or stale-generation rejection
@@ -722,9 +732,9 @@ Unchanged and preserved: demand projection, active/follow-up bound, provider bat
 - **Host empty/content transition failure:** preflight rejection retains prior accepted child/baseline. A malformed current transition is an invariant failure. Empty presentation never bypasses the host, and content→empty clears viewport only as part of the acknowledged transition.
 - **Host teardown/replacement:** detach retires its lifetime and baseline. A replacement host synchronously installs/acknowledges empty R0. Numeric generations/revisions may repeat, but old work cannot pass lifetime validation.
 - **Drain or pilot failure:** stop revokes immediately but resources remain retained until every detached attempt and MainActor terminal callback drains; late work can only cancel. Family removal awaits the same receipt. At the 30-second deadline the pilot latches failure, cancels/stops, awaits safety drain outside the accepted distribution, finishes events, then detaches. Non-cooperative drain never releases resources or returns; the outer verifier terminates the failed process. No retry, scoped-delta workaround, timeout/threshold change, `reloadData`, SwiftUI `List`, or alternate algorithm is allowed.
-- **Cell reuse race:** `prepareForReuse` clears the prior slot and identity-keyed subtree before installing the next row. Delayed hover, accessibility, measurement, or command callbacks validate generation, row ID, and reuse token and otherwise do nothing.
+- **Cell reuse race:** `prepareForReuse` clears the prior slot and identity-keyed subtree before installing the next row. Delayed hover, accessibility, or measurement callbacks validate materialization generation, row ID, and reuse token. Command/favorite callbacks additionally validate the latest accepted command generation, so a same-row command-only rebind revokes older actions without resetting row identity.
 - **Width/height race:** a measurement carries row ID, content revision, and width revision. Mismatch is discarded; a current changed height invalidates only the represented current row and restores the row-ID scroll anchor.
-- **Command-presentation race:** a delta with stale materialization generation, visible revision, or command generation is rejected. Current visible demand re-arms the App batch. Offscreen rows bind the latest accepted complete presentation on reuse, and dispatcher execution remains authoritative.
+- **Command-presentation race:** a delta with a stale host lifetime, materialization generation, visible revision, or command generation is rejected. Numeric target reuse after host replacement cannot pass the lifetime check. Rejection reports the exact current typed visible snapshot so App retargets from current authority and mutates no accepted command/favorite state or represented cell. Offscreen rows bind the latest accepted complete presentation on reuse, same-row callbacks validate command generation, and dispatcher execution remains authoritative.
 - **Viewport callback after replacement/teardown:** pending work carries host lifetime, epoch, accepted revision, and generation; mismatch cancels publication and teardown clears demand.
 - **Accessibility or focus regression:** candidate materialization fails native proof and does not ship. Recovery is implementation correction inside the selected native host, not restoration of the measured generic-list path.
 - **Telemetry sink loss:** application remains fail-open. Strict proof fails when stage evidence or zero-drop condition is absent.
@@ -820,9 +830,9 @@ The native table cutover is accepted only through the packaged debug app bound t
 | --- | --- |
 | content and grouping | By Repository, By Pane, and By Tab show the same ordered rows, counts, sections, loading/empty states, and collapse results as the bound projection |
 | search and switching | fixed native type/clear, grouping, sidebar hide/show, and tab switching use the specified production drivers and reach generation-matched semantic/table readiness within policy |
-| row interaction | worktree/pane activation, favorite and disclosure controls, context menus, hover controls, and command dispatch target the current generation/row/reuse token; recycled identity state is absent |
+| row interaction | worktree/pane activation, favorite and disclosure controls, context menus, hover controls, and command dispatch target the current host lifetime/generation/row/reuse token; command/favorite actions also target current command generation; recycled identity state is absent |
 | focus and keyboard | filter focus, down-arrow exit, escape/refocus, key-loop order, row activation, and active-pane focus match the existing sidebar behavior without fleet focus-loop rebuilding |
-| scrolling | wheel/trackpad scrolling, row-ID/offset anchoring across content/membership/visible-height updates, and generation-stamped visible-worktree demand remain current without jumps or stale demand |
+| scrolling | wheel/trackpad scrolling, row-ID/offset anchoring across content/membership/visible-height updates, and host-lifetime/generation-stamped visible-worktree demand remain current without jumps or stale demand |
 | accessibility | table/row roles, order, labels, header traits, actions, enabled state, and VoiceOver navigation match the existing semantic tree |
 | appearance | source-list background, row geometry/insets, section spacing, icons, chips, text, recency color, selection neutrality, and loading/fault presentation match the existing surface |
 
