@@ -1,13 +1,14 @@
 export const marketingCopy = {
   productName: "Agent Studio",
   hero: {
-    eyebrow: "Agent-agnostic. Repo-aware. Keyboard-first.",
-    headline: "Stay oriented without losing context.",
-    headlineLead: "Stay oriented",
-    headlineTail: "without losing",
-    headlineAccent: "context.",
+    eyebrow: "Native macOS. Repository-aware. Terminal-first.",
+    headline: "Run a dozen agents. Know where each one is working.",
+    headlineLead: "Run a dozen agents.",
+    headlineTail: "Know where each one is working.",
     description:
-      "An opinionated native macOS workspace for running dozens of coding agents across repositories and worktrees.",
+      "Agent Studio is an opinionated native macOS terminal workspace for coding agents. It watches your code folders, discovers their repositories and worktrees, and keeps each agent's repo, branch, and directory visible. Your agents run in Ghostty terminals, with Files, Review, and annotations right beside them.",
+    descriptionAfterProductName:
+      " is an opinionated native macOS terminal workspace for coding agents. It watches your code folders, discovers their repositories and worktrees, and keeps each agent's repo, branch, and directory visible. Your agents run in Ghostty terminals, with Files, Review, and annotations right beside them.",
   },
   switcher: {
     eyebrow: "Organized parallelism",
@@ -91,7 +92,7 @@ export const marketingCopy = {
           kind: "accented",
           beforeAccent: "Close the app without stopping your ",
           accent: "persistent sessions",
-          afterAccent: ".",
+          afterAccent: "",
         },
         summary: "Persistent terminal sessions keep running after Agent Studio closes.",
         detail:
@@ -103,7 +104,7 @@ export const marketingCopy = {
           kind: "accented",
           beforeAccent: "Find ",
           accent: "your way",
-          afterAccent: " around.",
+          afterAccent: " around",
         },
         summary: "Filter the sidebar to find matching repositories and worktrees.",
         detail: "Keep each result's branch and dirty-change state in view.",
@@ -116,7 +117,7 @@ export const marketingCopy = {
           kind: "accented",
           beforeAccent: "Give ",
           accent: "your tools",
-          afterAccent: " a home.",
+          afterAccent: " a home",
         },
         summary:
           "Keep each task in a main pane, with related terminals and tools organized in its drawer.",
@@ -130,7 +131,7 @@ export const marketingCopy = {
           kind: "accented",
           beforeAccent: "Keep ",
           accent: "your Git",
-          afterAccent: " close.",
+          afterAccent: " close",
         },
         summary: "Keep the worktree, branch, and PR reference in view.",
         detail: "The terminal keeps that Git context beside the task that produced it.",
@@ -143,7 +144,7 @@ export const marketingCopy = {
           kind: "accented",
           beforeAccent: "Go big on ",
           accent: "one pane",
-          afterAccent: ".",
+          afterAccent: "",
         },
         summary: "Keep a named layout for the wider workspace.",
         detail: "When one task needs your full attention, Pane Zoom gives it the workspace.",
