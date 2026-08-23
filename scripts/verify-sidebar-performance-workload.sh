@@ -567,9 +567,12 @@ if len(records) != 1:
     raise SystemExit(f"strict fixture requires exactly one record, got {len(records)}")
 record = records[0]
 prefix = "agentstudio.startup_diagnostic.sidebar_proof."
-if record.get(prefix + "open_source_root_present") is not True:
+def exact_true(name):
+    raw = record.get(prefix + name)
+    return raw is True or raw == "true"
+if not exact_true("open_source_root_present"):
     raise SystemExit("strict fixture missing open-source root")
-if record.get(prefix + "project_dev_root_present") is not True:
+if not exact_true("project_dev_root_present"):
     raise SystemExit("strict fixture missing project-dev root")
 def exact_int(name):
     raw = record.get(prefix + name)
@@ -2298,6 +2301,20 @@ validate_compare_baseline_fixture
 sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="repo",phase=~"startup_diagnostic|request_build_mainactor|mainactor_apply|projection_worker|row_index"}'
 
 if [ "$mode" = "prepare-only" ]; then
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_FIXTURE_RECORD:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "fixture record test requires canned test-response authorization" >&2
+      exit 2
+    }
+    fixture_record_test_file="$ARTIFACT/test-fixture-record.jsonl"
+    fixture_record_environment="$ARTIFACT/test-fixture-record.env"
+    printf '%s\n' "$AGENTSTUDIO_SIDEBAR_TEST_FIXTURE_RECORD" >"$fixture_record_test_file"
+    validate_and_bind_strict_sidebar_fixture \
+      "$fixture_record_test_file" "${AGENTSTUDIO_SIDEBAR_TEST_FIXTURE_POPULATION:-zero_pty_idle}" \
+      "$fixture_record_environment"
+    cat "$fixture_record_environment"
+    exit 0
+  fi
   if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_HOST_PROCESS_RECORDS:-}" ]; then
     [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
       echo "host process test requires canned test-response authorization" >&2
