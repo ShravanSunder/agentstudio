@@ -444,8 +444,8 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
-    @Test("same worktree emits the latest snapshot after overlapping in-flight compute")
-    func sameWorktreeEmitsLatestSnapshotAfterInFlightCompute() async throws {
+    @Test("same worktree rejects stale completion and emits the latest snapshot")
+    func sameWorktreeRejectsStaleCompletionAndEmitsLatestSnapshot() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let gate = AsyncGate()
         let calls = CallCounter()
@@ -477,6 +477,11 @@ struct GitWorkingDirectoryProjectorTests {
 
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
         await bus.post(makeFilesChangedEnvelope(seq: 3, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 3))
+        #expect(
+            await waitUntil {
+                await actor.pendingByWorktreeId[worktreeId]?.batchSeq == 3
+            }
+        )
 
         await gate.open()
 
@@ -485,7 +490,7 @@ struct GitWorkingDirectoryProjectorTests {
         }
         #expect(reachedLatestSnapshot)
         #expect(await calls.value() >= 2)
-        #expect(await observed.snapshotCount(for: worktreeId) >= 2)
+        #expect(await observed.snapshotCount(for: worktreeId) == 1)
         #expect(await observed.latestSnapshot(for: worktreeId)?.branch == "main-2")
 
         await actor.shutdown()
@@ -577,6 +582,281 @@ struct GitWorkingDirectoryProjectorTests {
             await Task.yield()
         }
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("equal automatic facts reuse fresh line detail without another detail read")
+    func equalAutomaticFactsReuseFreshLineDetail() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let factCalls = CallCounter()
+        let detailCalls = CallCounter()
+        let legacyCalls = CallCounter()
+        let facts = Self.a2Facts(changed: 1, branch: "main", paths: ["tracked.txt"])
+        let provider = A2FactDetailStatusProvider(
+            legacyCallCounter: legacyCalls,
+            factsHandler: { _, _ in
+                _ = await factCalls.increment()
+                return .available(facts)
+            },
+            detailHandler: { _ in
+                _ = await detailCalls.increment()
+                return .available(GitWorkingTreeLineDetail(linesAdded: 7, linesDeleted: 2))
+            }
+        )
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy(
+                lineDetailFreshnessInterval: .seconds(960)
+            )
+        )
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/a2-equal-facts-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await observed.snapshotCount(for: worktreeId) == 1 })
+
+        await actor.setActivePaneWorktree(worktreeId: worktreeId)
+        #expect(await waitUntil { await factCalls.value() == 2 })
+        #expect(await waitUntil { await actor.worktreeTasks[worktreeId] == nil })
+
+        #expect(await detailCalls.value() == 1)
+        #expect(await legacyCalls.value() == 0)
+        #expect(await observed.snapshotCount(for: worktreeId) == 1)
+        #expect(await observed.latestSnapshot(for: worktreeId)?.summary.linesAdded == 7)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("fact success plus line detail failure retains the prior complete candidate")
+    func detailFailureRetainsPriorCompleteCandidate() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let factCalls = CallCounter()
+        let detailCalls = CallCounter()
+        let legacyCalls = CallCounter()
+        let initialFacts = Self.a2Facts(changed: 1, branch: "initial", paths: ["initial.txt"])
+        let changedFacts = Self.a2Facts(changed: 2, branch: "changed", paths: ["initial.txt", "changed.txt"])
+        let provider = A2FactDetailStatusProvider(
+            legacyCallCounter: legacyCalls,
+            factsHandler: { _, _ in
+                let call = await factCalls.increment()
+                return .available(call == 1 ? initialFacts : changedFacts)
+            },
+            detailHandler: { _ in
+                let call = await detailCalls.increment()
+                if call == 1 {
+                    return .available(GitWorkingTreeLineDetail(linesAdded: 5, linesDeleted: 1))
+                }
+                return .unavailable(GitWorkingTreeStatusUnavailable(reason: .sdkError))
+            }
+        )
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero
+        )
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/a2-detail-failure-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.branch == "initial" })
+
+        await actor.setActivePaneWorktree(worktreeId: worktreeId)
+        #expect(await waitUntil { await detailCalls.value() == 2 })
+        #expect(await waitUntil { await actor.worktreeTasks[worktreeId] == nil })
+
+        #expect(await legacyCalls.value() == 0)
+        #expect(await observed.snapshotCount(for: worktreeId) == 1)
+        #expect(await observed.latestSnapshot(for: worktreeId)?.branch == "initial")
+        #expect(await observed.latestSnapshot(for: worktreeId)?.summary.linesAdded == 5)
+        #expect(await actor.lastAcceptedStatusFactsByWorktreeId[worktreeId] == initialFacts)
+        #expect(
+            await actor.lastAcceptedLineDetailByWorktreeId[worktreeId]
+                == GitWorkingTreeLineDetail(linesAdded: 5, linesDeleted: 1)
+        )
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("changed facts publish only after matching line detail completes")
+    func changedFactsPublishOnlyAfterMatchingDetailCompletes() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let factCalls = CallCounter()
+        let detailCalls = CallCounter()
+        let detailStarted = AsyncReceipt()
+        let detailGate = AsyncGate()
+        let initialFacts = Self.a2Facts(changed: 1, branch: "initial", paths: ["initial.txt"])
+        let changedFacts = Self.a2Facts(changed: 2, branch: "changed", paths: ["initial.txt", "changed.txt"])
+        let provider = A2FactDetailStatusProvider(
+            factsHandler: { _, _ in
+                let call = await factCalls.increment()
+                return .available(call == 1 ? initialFacts : changedFacts)
+            },
+            detailHandler: { _ in
+                let call = await detailCalls.increment()
+                if call == 1 {
+                    return .available(GitWorkingTreeLineDetail(linesAdded: 3, linesDeleted: 1))
+                }
+                await detailStarted.signal()
+                await detailGate.waitUntilOpen()
+                return .available(GitWorkingTreeLineDetail(linesAdded: 13, linesDeleted: 8))
+            }
+        )
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero
+        )
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/a2-complete-candidate-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.branch == "initial" })
+
+        await actor.setActivePaneWorktree(worktreeId: worktreeId)
+        await detailStarted.wait()
+
+        #expect(await observed.snapshotCount(for: worktreeId) == 1)
+        #expect(await observed.latestSnapshot(for: worktreeId)?.branch == "initial")
+
+        await detailGate.open()
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.branch == "changed" })
+        #expect(await detailCalls.value() == 2)
+        #expect(await observed.snapshotCount(for: worktreeId) == 2)
+        #expect(await observed.latestSnapshot(for: worktreeId)?.summary.linesAdded == 13)
+        #expect(await observed.latestSnapshot(for: worktreeId)?.summary.linesDeleted == 8)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("newer invalidation supersedes stale detail completion and preserves pending scope")
+    func newerInvalidationSupersedesStaleDetailAndPreservesPendingScope() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let initialFacts = Self.a2Facts(changed: 1, branch: "initial", paths: ["initial.txt"])
+        let staleFacts = Self.a2Facts(changed: 1, branch: "stale", paths: ["older.txt"])
+        let currentFacts = Self.a2Facts(
+            changed: 2,
+            branch: "current",
+            paths: ["newer-one.txt", "newer-two.txt"]
+        )
+        let providerFixture = A2StaleDetailProviderFixture(
+            initialFacts: initialFacts,
+            staleFacts: staleFacts,
+            currentFacts: currentFacts
+        )
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: providerFixture.provider,
+            coalescingWindow: .zero
+        )
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/a2-stale-detail-\(UUID().uuidString)")
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.branch == "initial" })
+        let initialDetailAcceptedAt = try #require(
+            await actor.lastAcceptedLineDetailAtByWorktreeId[worktreeId]
+        )
+
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 2,
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                batchSeq: 1,
+                paths: ["older.txt"]
+            )
+        )
+        await providerFixture.staleDetailStarted.wait()
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 3,
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                batchSeq: 2,
+                paths: ["newer-one.txt"]
+            )
+        )
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 4,
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                batchSeq: 3,
+                paths: ["newer-two.txt"]
+            )
+        )
+        #expect(
+            await waitUntil {
+                await actor.pendingByWorktreeId[worktreeId].map { Set($0.paths) }
+                    == ["newer-one.txt", "newer-two.txt"]
+            }
+        )
+
+        await providerFixture.staleDetailGate.open()
+        await providerFixture.currentDetailStarted.wait()
+
+        #expect(await observed.snapshotCount(for: worktreeId) == 1)
+        #expect(await observed.latestSnapshot(for: worktreeId)?.branch == "initial")
+        #expect(
+            Set(await providerFixture.pathspecRecorder.lastPathspecs ?? [])
+                == ["newer-one.txt", "newer-two.txt"]
+        )
+        #expect(await actor.lastAcceptedStatusFactsByWorktreeId[worktreeId] == initialFacts)
+        #expect(
+            await actor.lastAcceptedLineDetailByWorktreeId[worktreeId]
+                == GitWorkingTreeLineDetail(linesAdded: 1, linesDeleted: 0)
+        )
+        #expect(await actor.lastAcceptedLineDetailAtByWorktreeId[worktreeId] == initialDetailAcceptedAt)
+
+        await providerFixture.currentDetailGate.open()
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.branch == "current" })
+        #expect(await observed.snapshotCount(for: worktreeId) == 2)
+        #expect(await observed.latestSnapshot(for: worktreeId)?.summary.linesAdded == 30)
+        #expect(await observed.latestSnapshot(for: worktreeId)?.summary.linesDeleted == 15)
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -3505,6 +3785,27 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
+    private static func a2Facts(
+        changed: Int,
+        branch: String,
+        paths: [String]
+    ) -> GitWorkingTreeStatusFacts {
+        GitWorkingTreeStatusFacts(
+            status: GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(
+                    changed: changed,
+                    staged: 0,
+                    untracked: 0,
+                    linesAdded: 0,
+                    linesDeleted: 0
+                ),
+                branch: branch,
+                originResolution: .confirmedAbsent,
+                entries: paths.map(Self.modifiedEntry)
+            )
+        )
+    }
+
     private func startCollection(
         on bus: EventBus<RuntimeEnvelope>,
         observed: ObservedGitEvents
@@ -3685,6 +3986,93 @@ private struct PassiveGitStatusSlowObservationScheduler: AgentStudioGitStatusSlo
         _: @escaping @Sendable () -> Void
     ) -> AgentStudioGitScheduledSlowObservation {
         AgentStudioGitScheduledSlowObservation {}
+    }
+}
+
+private struct A2FactDetailStatusProvider: GitWorkingTreeStatusProvider {
+    let legacyCallCounter: CallCounter
+    let factsHandler: @Sendable (URL, [String]?) async -> GitWorkingTreeStatusFactsResult
+    let detailHandler: @Sendable (URL) async -> GitWorkingTreeLineDetailResult
+
+    init(
+        legacyCallCounter: CallCounter = CallCounter(),
+        factsHandler: @escaping @Sendable (URL, [String]?) async -> GitWorkingTreeStatusFactsResult,
+        detailHandler: @escaping @Sendable (URL) async -> GitWorkingTreeLineDetailResult
+    ) {
+        self.legacyCallCounter = legacyCallCounter
+        self.factsHandler = factsHandler
+        self.detailHandler = detailHandler
+    }
+
+    func statusResult(
+        for _: URL,
+        pathspecs _: [String]?
+    ) async -> GitWorkingTreeStatusResult {
+        _ = await legacyCallCounter.increment()
+        return .unavailable(GitWorkingTreeStatusUnavailable(reason: .sdkError))
+    }
+
+    func statusFactsResult(
+        for rootPath: URL,
+        pathspecs: [String]?
+    ) async -> GitWorkingTreeStatusFactsResult {
+        await factsHandler(rootPath, pathspecs)
+    }
+
+    func lineDetailResult(for rootPath: URL) async -> GitWorkingTreeLineDetailResult {
+        await detailHandler(rootPath)
+    }
+}
+
+private struct A2StaleDetailProviderFixture {
+    let pathspecRecorder: PathspecRecorder
+    let staleDetailStarted: AsyncReceipt
+    let staleDetailGate: AsyncGate
+    let currentDetailStarted: AsyncReceipt
+    let currentDetailGate: AsyncGate
+    let provider: A2FactDetailStatusProvider
+
+    init(
+        initialFacts: GitWorkingTreeStatusFacts,
+        staleFacts: GitWorkingTreeStatusFacts,
+        currentFacts: GitWorkingTreeStatusFacts
+    ) {
+        let factCalls = CallCounter()
+        let detailCalls = CallCounter()
+        let pathspecRecorder = PathspecRecorder()
+        let staleDetailStarted = AsyncReceipt()
+        let staleDetailGate = AsyncGate()
+        let currentDetailStarted = AsyncReceipt()
+        let currentDetailGate = AsyncGate()
+        self.pathspecRecorder = pathspecRecorder
+        self.staleDetailStarted = staleDetailStarted
+        self.staleDetailGate = staleDetailGate
+        self.currentDetailStarted = currentDetailStarted
+        self.currentDetailGate = currentDetailGate
+        provider = A2FactDetailStatusProvider(
+            factsHandler: { _, pathspecs in
+                await pathspecRecorder.record(pathspecs)
+                switch await factCalls.increment() {
+                case 1: return .available(initialFacts)
+                case 2: return .available(staleFacts)
+                default: return .available(currentFacts)
+                }
+            },
+            detailHandler: { _ in
+                switch await detailCalls.increment() {
+                case 1:
+                    return .available(GitWorkingTreeLineDetail(linesAdded: 1, linesDeleted: 0))
+                case 2:
+                    await staleDetailStarted.signal()
+                    await staleDetailGate.waitUntilOpen()
+                    return .available(GitWorkingTreeLineDetail(linesAdded: 20, linesDeleted: 10))
+                default:
+                    await currentDetailStarted.signal()
+                    await currentDetailGate.waitUntilOpen()
+                    return .available(GitWorkingTreeLineDetail(linesAdded: 30, linesDeleted: 15))
+                }
+            }
+        )
     }
 }
 

@@ -4,6 +4,7 @@ import Foundation
 extension GitWorkingDirectoryProjector {
     func handleAvailableStatusResult(
         _ statusSnapshot: GitWorkingTreeStatus,
+        materialized: MaterializedGitStatus,
         changeset: FileChangeset,
         computeStart: ContinuousClock.Instant,
         scope: GitStatusScope,
@@ -42,12 +43,19 @@ extension GitWorkingDirectoryProjector {
         )
         guard !Task.isCancelled, !isShuttingDown else { return }
         guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
-        guard isCurrent(changeset) else { return }
+        guard isCurrentForPublication(changeset) else { return }
         admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
         nilStatusRetryCountByWorktreeId.removeValue(forKey: changeset.worktreeId)
         clearCapacityRetryState(worktreeId: changeset.worktreeId)
         resetStatusBackoff(worktreeId: changeset.worktreeId)
         lastStatusEntriesByWorktreeId[changeset.worktreeId] = statusSnapshot.entries
+        lastAcceptedStatusFactsByWorktreeId[changeset.worktreeId] = materialized.facts
+        if let detail = materialized.detail {
+            lastAcceptedLineDetailByWorktreeId[changeset.worktreeId] = detail
+            if materialized.refreshedDetail {
+                lastAcceptedLineDetailAtByWorktreeId[changeset.worktreeId] = statusCompletion
+            }
+        }
 
         let nextSnapshot = GitWorkingTreeSnapshot(
             worktreeId: changeset.worktreeId,

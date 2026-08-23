@@ -155,6 +155,65 @@ package struct GitWorkingTreeStatus: Sendable, Equatable {
     }
 }
 
+package struct GitWorkingTreeStatusFacts: Sendable, Equatable {
+    package let changed: Int
+    package let staged: Int
+    package let untracked: Int
+    package let aheadCount: Int?
+    package let behindCount: Int?
+    package let hasUpstream: Bool?
+    package let branch: String?
+    package let originResolution: GitOriginResolution
+    package let entries: [GitWorkingTreeStatusEntry]
+    package let containsPathIdentityAmbiguity: Bool
+
+    package init(status: GitWorkingTreeStatus) {
+        changed = status.summary.changed
+        staged = status.summary.staged
+        untracked = status.summary.untracked
+        aheadCount = status.summary.aheadCount
+        behindCount = status.summary.behindCount
+        hasUpstream = status.summary.hasUpstream
+        branch = status.branch
+        originResolution = status.originResolution
+        entries = status.entries
+        containsPathIdentityAmbiguity = status.containsPathIdentityAmbiguity
+    }
+
+    package func composing(_ detail: GitWorkingTreeLineDetail) -> GitWorkingTreeStatus {
+        GitWorkingTreeStatus(
+            summary: GitWorkingTreeSummary(
+                changed: changed,
+                staged: staged,
+                untracked: untracked,
+                linesAdded: detail.linesAdded,
+                linesDeleted: detail.linesDeleted,
+                aheadCount: aheadCount,
+                behindCount: behindCount,
+                hasUpstream: hasUpstream
+            ),
+            branch: branch,
+            originResolution: originResolution,
+            entries: entries,
+            containsPathIdentityAmbiguity: containsPathIdentityAmbiguity
+        )
+    }
+}
+
+package struct GitWorkingTreeLineDetail: Sendable, Equatable {
+    package let linesAdded: Int
+    package let linesDeleted: Int
+
+    package init(linesAdded: Int, linesDeleted: Int) {
+        self.linesAdded = linesAdded
+        self.linesDeleted = linesDeleted
+    }
+
+    package init(status: GitWorkingTreeStatus) {
+        self.init(linesAdded: status.summary.linesAdded, linesDeleted: status.summary.linesDeleted)
+    }
+}
+
 package enum GitWorkingTreeStatusUnavailableReason: String, Sendable, Equatable {
     case providerReturnedNil = "provider_returned_nil"
     case timeout
@@ -177,14 +236,54 @@ package enum GitWorkingTreeStatusResult: Sendable, Equatable {
     case unavailable(GitWorkingTreeStatusUnavailable)
 }
 
+package enum GitWorkingTreeStatusFactsResult: Sendable, Equatable {
+    case available(GitWorkingTreeStatusFacts)
+    case unavailable(GitWorkingTreeStatusUnavailable)
+}
+
+extension GitWorkingTreeStatusFactsResult {
+    package var statusResult: GitWorkingTreeStatusResult {
+        switch self {
+        case .available:
+            preconditionFailure("Available facts require line detail before status composition")
+        case .unavailable(let unavailable):
+            .unavailable(unavailable)
+        }
+    }
+}
+
+package enum GitWorkingTreeLineDetailResult: Sendable, Equatable {
+    case available(GitWorkingTreeLineDetail)
+    case unavailable(GitWorkingTreeStatusUnavailable)
+}
+
 package protocol GitWorkingTreeStatusProvider: Sendable {
     /// Reads working-tree status. A non-`nil` `pathspecs` scopes the entry walk to
     /// just those repo-relative paths (see `GitStatusOptions.pathspecs`); line,
     /// branch, and sync facts remain full-worktree. `nil` is a full status.
     func statusResult(for rootPath: URL, pathspecs: [String]?) async -> GitWorkingTreeStatusResult
+    func statusFactsResult(for rootPath: URL, pathspecs: [String]?) async -> GitWorkingTreeStatusFactsResult
+    func lineDetailResult(for rootPath: URL) async -> GitWorkingTreeLineDetailResult
 }
 
 extension GitWorkingTreeStatusProvider {
+    package func statusFactsResult(
+        for rootPath: URL,
+        pathspecs: [String]?
+    ) async -> GitWorkingTreeStatusFactsResult {
+        switch await statusResult(for: rootPath, pathspecs: pathspecs) {
+        case .available(let status): .available(GitWorkingTreeStatusFacts(status: status))
+        case .unavailable(let unavailable): .unavailable(unavailable)
+        }
+    }
+
+    package func lineDetailResult(for rootPath: URL) async -> GitWorkingTreeLineDetailResult {
+        switch await statusResult(for: rootPath, pathspecs: nil) {
+        case .available(let status): .available(GitWorkingTreeLineDetail(status: status))
+        case .unavailable(let unavailable): .unavailable(unavailable)
+        }
+    }
+
     package func statusResult(for rootPath: URL) async -> GitWorkingTreeStatusResult {
         await statusResult(for: rootPath, pathspecs: nil)
     }

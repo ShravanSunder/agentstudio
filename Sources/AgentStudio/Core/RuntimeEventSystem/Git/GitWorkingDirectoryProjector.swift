@@ -68,6 +68,9 @@ package actor GitWorkingDirectoryProjector {
     /// `GitWorkingDirectoryProjector+PathspecStatus`). Not `private` so that
     /// extension can read it.
     var lastStatusEntriesByWorktreeId: [UUID: [GitWorkingTreeStatusEntry]] = [:]
+    var lastAcceptedStatusFactsByWorktreeId: [UUID: GitWorkingTreeStatusFacts] = [:]
+    var lastAcceptedLineDetailByWorktreeId: [UUID: GitWorkingTreeLineDetail] = [:]
+    var lastAcceptedLineDetailAtByWorktreeId: [UUID: ContinuousClock.Instant] = [:]
     var nilStatusRetryCountByWorktreeId: [UUID: Int] = [:]
     var nextPeriodicBatchSeqByWorktreeId: [UUID: UInt64] = [:]
     var statusBackoffFailureCountByWorktreeId: [UUID: Int] = [:]
@@ -239,6 +242,9 @@ package actor GitWorkingDirectoryProjector {
         originResolutionByRepoId.removeAll(keepingCapacity: false)
         lastEmittedSnapshotByWorktreeId.removeAll(keepingCapacity: false)
         lastStatusEntriesByWorktreeId.removeAll(keepingCapacity: false)
+        lastAcceptedStatusFactsByWorktreeId.removeAll(keepingCapacity: false)
+        lastAcceptedLineDetailByWorktreeId.removeAll(keepingCapacity: false)
+        lastAcceptedLineDetailAtByWorktreeId.removeAll(keepingCapacity: false)
         nilStatusRetryCountByWorktreeId.removeAll(keepingCapacity: false)
         consecutiveStatusFailureCountByWorktreeId.removeAll(keepingCapacity: false)
         nextPeriodicBatchSeqByWorktreeId.removeAll(keepingCapacity: false)
@@ -452,6 +458,9 @@ package actor GitWorkingDirectoryProjector {
         if previousContext != nil, previousContext != context {
             lastEmittedSnapshotByWorktreeId.removeValue(forKey: worktreeId)
             lastStatusEntriesByWorktreeId.removeValue(forKey: worktreeId)
+            lastAcceptedStatusFactsByWorktreeId.removeValue(forKey: worktreeId)
+            lastAcceptedLineDetailByWorktreeId.removeValue(forKey: worktreeId)
+            lastAcceptedLineDetailAtByWorktreeId.removeValue(forKey: worktreeId)
             nilStatusRetryCountByWorktreeId.removeValue(forKey: worktreeId)
             consecutiveStatusFailureCountByWorktreeId.removeValue(forKey: worktreeId)
             cancelNilStatusRetry(worktreeId: worktreeId)
@@ -502,6 +511,9 @@ package actor GitWorkingDirectoryProjector {
         rootPathByWorktreeId.removeValue(forKey: worktreeId)
         lastEmittedSnapshotByWorktreeId.removeValue(forKey: worktreeId)
         lastStatusEntriesByWorktreeId.removeValue(forKey: worktreeId)
+        lastAcceptedStatusFactsByWorktreeId.removeValue(forKey: worktreeId)
+        lastAcceptedLineDetailByWorktreeId.removeValue(forKey: worktreeId)
+        lastAcceptedLineDetailAtByWorktreeId.removeValue(forKey: worktreeId)
         nilStatusRetryCountByWorktreeId.removeValue(forKey: worktreeId)
         consecutiveStatusFailureCountByWorktreeId.removeValue(forKey: worktreeId)
         cancelNilStatusRetry(worktreeId: worktreeId)
@@ -600,11 +612,22 @@ package actor GitWorkingDirectoryProjector {
         let resolved = await resolveStatusResult(for: changeset)
         guard !Task.isCancelled else { return }
         guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
-        guard isCurrent(changeset) else { return }
-        let statusResult = resolved.result
-        guard case .available(let statusSnapshot) = statusResult else {
+        guard isCurrentForPublication(changeset) else { return }
+        guard case .available(let statusFacts) = resolved.result else {
             await handleUnavailableStatusResult(
-                statusResult,
+                resolved.result.statusResult,
+                changeset: changeset,
+                computeStart: computeStart,
+                scope: resolved.scope,
+                pathspecCount: resolved.pathspecCount
+            )
+            return
+        }
+        let materialized = await materializeCompleteStatus(facts: statusFacts, changeset: changeset)
+        guard !Task.isCancelled, !isShuttingDown, isCurrentForPublication(changeset) else { return }
+        guard case .available(let statusSnapshot) = materialized.result else {
+            await handleUnavailableStatusResult(
+                materialized.result,
                 changeset: changeset,
                 computeStart: computeStart,
                 scope: resolved.scope,
@@ -614,6 +637,7 @@ package actor GitWorkingDirectoryProjector {
         }
         await handleAvailableStatusResult(
             statusSnapshot,
+            materialized: materialized,
             changeset: changeset,
             computeStart: computeStart,
             scope: resolved.scope,
@@ -669,7 +693,7 @@ package actor GitWorkingDirectoryProjector {
         scope: GitStatusScope,
         pathspecCount: Int
     ) async {
-        guard isCurrent(changeset) else { return }
+        guard isCurrentForPublication(changeset) else { return }
         guard case .unavailable(let unavailable) = statusResult else { return }
 
         let statusCompletion = envelopeClock.now
@@ -712,7 +736,7 @@ package actor GitWorkingDirectoryProjector {
         )
         guard !Task.isCancelled, !isShuttingDown else { return }
         guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
-        guard isCurrent(changeset) else { return }
+        guard isCurrentForPublication(changeset) else { return }
         admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
         openOrAdvanceStatusBackoff(for: changeset, reason: unavailable.reason)
     }
@@ -773,6 +797,12 @@ package actor GitWorkingDirectoryProjector {
             return latestTopologyAssertion.contextsByWorktreeId[changeset.worktreeId] == changesetContext
         }
         return registeredContext == changesetContext
+    }
+
+    func isCurrentForPublication(_ changeset: FileChangeset) -> Bool {
+        guard isCurrent(changeset) else { return false }
+        guard let pending = pendingByWorktreeId[changeset.worktreeId] else { return true }
+        return pending.batchSeq <= changeset.batchSeq
     }
 
     func shouldCheckOrigin(for changeset: FileChangeset) -> Bool {

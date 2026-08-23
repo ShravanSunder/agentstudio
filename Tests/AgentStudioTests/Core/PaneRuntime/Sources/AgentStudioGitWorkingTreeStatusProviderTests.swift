@@ -237,6 +237,42 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(unavailable.reason == .sdkError)
     }
 
+    @Test("fact-only status uses the fact reader without complete status or line detail")
+    func factOnlyStatusUsesOnlyFactReader() async throws {
+        let invocationTracker = StatusReaderInvocationTracker()
+        let snapshot = makeSnapshot(linesAdded: 8, linesDeleted: 4)
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveStatusSlowObservationScheduler(),
+            physicalGate: AgentStudioGitStatusPhysicalGate(),
+            statusFactsReader: { _, _ in
+                await invocationTracker.recordFactsRead()
+                return snapshot.facts
+            },
+            lineDetailReader: { _ in
+                await invocationTracker.recordLineDetailRead()
+                return snapshot.lineCountDetail
+            },
+            statusReader: { _, _ in
+                await invocationTracker.recordCompleteStatusRead()
+                return snapshot
+            }
+        )
+
+        let result = await provider.statusFactsResult(
+            for: URL(fileURLWithPath: "/tmp/repo"),
+            pathspecs: nil
+        )
+
+        guard case .available(let facts) = result else {
+            Issue.record("expected fact-only status to be available")
+            return
+        }
+        #expect(facts.changed == snapshot.facts.summary.unstagedFileCount)
+        #expect(await invocationTracker.factsReadCount == 1)
+        #expect(await invocationTracker.lineDetailReadCount == 0)
+        #expect(await invocationTracker.completeStatusReadCount == 0)
+    }
+
     @Test("slow threshold observes without completing or releasing the physical read")
     func slowThresholdObservesWithoutReleasingPhysicalRead() async throws {
         let blockedRootPath = URL(fileURLWithPath: "/tmp/slow-observation-root")
@@ -465,6 +501,24 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         }
     }
 
+}
+
+private actor StatusReaderInvocationTracker {
+    private(set) var factsReadCount = 0
+    private(set) var lineDetailReadCount = 0
+    private(set) var completeStatusReadCount = 0
+
+    func recordFactsRead() {
+        factsReadCount += 1
+    }
+
+    func recordLineDetailRead() {
+        lineDetailReadCount += 1
+    }
+
+    func recordCompleteStatusRead() {
+        completeStatusReadCount += 1
+    }
 }
 
 private final class ManualStatusSlowObservationScheduler: AgentStudioGitStatusSlowObservationScheduler,

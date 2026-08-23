@@ -254,6 +254,10 @@ package enum AppPolicies {
             /// projector falls back to a full-worktree status, since a very large
             /// pathspec set approaches full-tree walk cost anyway.
             package let maxScopedStatusPathspecCount: Int
+            /// Maximum age of a reusable exact line-count detail when status facts
+            /// remain equal. A due detail is refreshed without discarding the last
+            /// complete accepted candidate.
+            package let lineDetailFreshnessInterval: Duration
             /// Periodic cadence multipliers indexed by consecutive unchanged
             /// results. The default reaches 4x after two equal outcomes, reducing
             /// admissions by 75% while retaining a bounded refresh backstop.
@@ -280,6 +284,7 @@ package enum AppPolicies {
                 capacityRetryBaseDelay: Duration = .milliseconds(500),
                 capacityRetryJitterMaxDelay: Duration = .milliseconds(100),
                 maxScopedStatusPathspecCount: Int = 128,
+                lineDetailFreshnessInterval: Duration = .seconds(960),
                 unchangedStatusCadenceMultipliers: [Int] = [1, 2, 4]
             ) {
                 precondition(activePaneCadence > .zero)
@@ -301,6 +306,7 @@ package enum AppPolicies {
                 precondition(capacityRetryBaseDelay > .zero)
                 precondition(capacityRetryJitterMaxDelay >= .zero)
                 precondition(maxScopedStatusPathspecCount > 0)
+                precondition(lineDetailFreshnessInterval > .zero)
                 precondition(unchangedStatusCadenceMultipliers.first == 1)
                 precondition(
                     unchangedStatusCadenceMultipliers.elementsEqual(
@@ -328,6 +334,7 @@ package enum AppPolicies {
                 self.capacityRetryBaseDelay = capacityRetryBaseDelay
                 self.capacityRetryJitterMaxDelay = capacityRetryJitterMaxDelay
                 self.maxScopedStatusPathspecCount = maxScopedStatusPathspecCount
+                self.lineDetailFreshnessInterval = lineDetailFreshnessInterval
                 self.unchangedStatusCadenceMultipliers = unchangedStatusCadenceMultipliers
             }
 

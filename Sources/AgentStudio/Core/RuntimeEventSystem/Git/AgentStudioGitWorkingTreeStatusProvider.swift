@@ -9,11 +9,17 @@ typealias AgentStudioGitCompleteStatusReader =
         URL,
         AgentStudioGit.GitStatusOptions
     ) async throws -> AgentStudioGit.GitCompleteStatusSnapshot
+typealias AgentStudioGitStatusFactsReader =
+    @Sendable (URL, AgentStudioGit.GitStatusOptions) async throws -> AgentStudioGit.GitStatusFactsSnapshot
+typealias AgentStudioGitLineDetailReader =
+    @Sendable (URL) async throws -> AgentStudioGit.GitStatusLineCountDetail
 
 package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "AgentStudioGitWorkingTree")
 
     private let statusReader: AgentStudioGitCompleteStatusReader
+    private let statusFactsReader: AgentStudioGitStatusFactsReader
+    private let lineDetailReader: AgentStudioGitLineDetailReader
     private let slowThreshold: Duration
     private let slowObservationScheduler: any AgentStudioGitStatusSlowObservationScheduler
     private let physicalGate: AgentStudioGitStatusPhysicalGate
@@ -27,6 +33,12 @@ package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProv
             slowThreshold: slowThreshold,
             slowObservationScheduler: DispatchGitStatusSlowObservationScheduler(),
             physicalGate: physicalGate,
+            statusFactsReader: { worktreePath, options in
+                try await client.statusFacts(for: worktreePath, options: options)
+            },
+            lineDetailReader: { worktreePath in
+                try await client.exactLineCountDetail(for: worktreePath)
+            },
             statusReader: { worktreePath, options in
                 try await client.completeStatus(for: worktreePath, options: options)
             }
@@ -38,9 +50,19 @@ package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProv
         slowObservationScheduler: any AgentStudioGitStatusSlowObservationScheduler =
             DispatchGitStatusSlowObservationScheduler(),
         physicalGate: AgentStudioGitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate(),
+        statusFactsReader: AgentStudioGitStatusFactsReader? = nil,
+        lineDetailReader: AgentStudioGitLineDetailReader? = nil,
         statusReader: @escaping AgentStudioGitCompleteStatusReader
     ) {
         self.statusReader = statusReader
+        self.statusFactsReader =
+            statusFactsReader ?? { rootPath, options in
+                try await statusReader(rootPath, options).facts
+            }
+        self.lineDetailReader =
+            lineDetailReader ?? { rootPath in
+                try await statusReader(rootPath, AgentStudioGit.GitStatusOptions()).lineCountDetail
+            }
         self.slowThreshold = slowThreshold
         self.slowObservationScheduler = slowObservationScheduler
         self.physicalGate = physicalGate
@@ -55,6 +77,60 @@ package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProv
             physicalGate: physicalGate,
             statusReader: statusReader
         )
+    }
+
+    package func statusFactsResult(
+        for rootPath: URL,
+        pathspecs: [String]?
+    ) async -> GitWorkingTreeStatusFactsResult {
+        do {
+            let snapshot = try await readPhysical(rootPath: rootPath) {
+                try await statusFactsReader(
+                    rootPath,
+                    AgentStudioGit.GitStatusOptions(
+                        includeIgnored: false,
+                        includeUntracked: true,
+                        pathspecs: pathspecs
+                    )
+                )
+            }
+            guard !Task.isCancelled else {
+                return .unavailable(GitWorkingTreeStatusUnavailable(reason: .cancelled))
+            }
+            return .available(Self.mapFacts(snapshot, isPathspecScoped: pathspecs != nil))
+        } catch {
+            return .unavailable(Self.mapUnavailable(error))
+        }
+    }
+
+    package func lineDetailResult(for rootPath: URL) async -> GitWorkingTreeLineDetailResult {
+        do {
+            let detail = try await readPhysical(rootPath: rootPath) {
+                try await lineDetailReader(rootPath)
+            }
+            guard !Task.isCancelled else {
+                return .unavailable(GitWorkingTreeStatusUnavailable(reason: .cancelled))
+            }
+            return .available(
+                GitWorkingTreeLineDetail(
+                    linesAdded: detail.linesAdded,
+                    linesDeleted: detail.linesDeleted
+                )
+            )
+        } catch {
+            return .unavailable(Self.mapUnavailable(error))
+        }
+    }
+
+    private func readPhysical<ReadValue: Sendable>(
+        rootPath: URL,
+        operation: @Sendable () async throws -> ReadValue
+    ) async throws -> ReadValue {
+        let slowObservation = slowObservationScheduler.scheduleObservation(after: slowThreshold) {
+            Self.logger.warning("AgentStudioGit status remained active past the slow threshold")
+        }
+        defer { slowObservation.cancel() }
+        return try await physicalGate.withPhysicalRead(for: rootPath, operation: operation)
     }
 
     @concurrent
@@ -139,6 +215,44 @@ package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProv
             containsPathIdentityAmbiguity: isPathspecScoped
                 && facts.entries.contains(where: hasStandalonePathIdentityChange)
         )
+    }
+
+    nonisolated private static func mapFacts(
+        _ facts: AgentStudioGit.GitStatusFactsSnapshot,
+        isPathspecScoped: Bool
+    ) -> GitWorkingTreeStatusFacts {
+        let detail = AgentStudioGit.GitStatusLineCountDetail(
+            repositoryRoot: facts.repositoryRoot,
+            worktreePath: facts.worktreePath,
+            generatedAtUnixMilliseconds: facts.generatedAtUnixMilliseconds,
+            linesAdded: 0,
+            linesDeleted: 0
+        )
+        return GitWorkingTreeStatusFacts(
+            status: GitWorkingTreeStatus(
+                summary: mapSummary(facts.summary, lineCountDetail: detail, headKind: facts.head.kind),
+                branch: mapBranch(facts.head),
+                originResolution: mapOrigin(facts.originResolution),
+                entries: facts.entries.map(mapEntry),
+                containsPathIdentityAmbiguity: isPathspecScoped
+                    && facts.entries.contains(where: hasStandalonePathIdentityChange)
+            )
+        )
+    }
+
+    nonisolated private static func mapUnavailable(_ error: Error) -> GitWorkingTreeStatusUnavailable {
+        let reason: GitWorkingTreeStatusUnavailableReason
+        switch error {
+        case AgentStudioGitStatusPhysicalGateError.sameRootAlreadyInFlight:
+            reason = .readAlreadyInFlight
+        case AgentStudioGitStatusPhysicalGateError.capacityExceeded:
+            reason = .readCapacityExceeded
+        case is CancellationError:
+            reason = .cancelled
+        default:
+            reason = .sdkError
+        }
+        return GitWorkingTreeStatusUnavailable(reason: reason)
     }
 
     nonisolated private static func hasStandalonePathIdentityChange(
