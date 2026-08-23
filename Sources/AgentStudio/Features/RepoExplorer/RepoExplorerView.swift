@@ -214,6 +214,7 @@ package struct RepoExplorerView: View {
         }
         .onChange(of: focusedField) { _, newValue in
             RepoExplorerFocusPublisher.publish(focusedField: newValue, into: uiState)
+            recordPerformanceProofReadback()
         }
     }
 
@@ -315,6 +316,7 @@ package struct RepoExplorerView: View {
             stage: "mainactor_apply",
             outcome: "published"
         )
+        recordPerformanceProofReadback()
         performanceTraceRecorder?.recordDuration(
             .sidebarProjection,
             duration: result.projectionDuration,
@@ -352,6 +354,49 @@ package struct RepoExplorerView: View {
         else { return }
         hasReportedInitialProjection = true
         onInitialProjectionApplied(initialProjectionSequence)
+    }
+
+    private func recordPerformanceProofReadback() {
+        guard
+            let readback = projectionAdapter.performanceProofReadback(
+                focusDisposition: focusedField == .filter ? .filterFocused : .notFocused
+            )
+        else { return }
+        performanceTraceRecorder?.record(
+            .sidebarProjection,
+            attributes: [
+                "agentstudio.performance.sidebar.readback.semantic_generation": .int(
+                    readback.semanticGeneration
+                ),
+                "agentstudio.performance.sidebar.readback.acknowledged_revision": .int(
+                    Int(readback.acknowledgedRevision)
+                ),
+                "agentstudio.performance.sidebar.readback.visible_generation": .int(
+                    Int(readback.visibleGeneration)
+                ),
+                "agentstudio.performance.sidebar.readback.represented_row_count": .int(
+                    readback.representedRowCount
+                ),
+                "agentstudio.performance.sidebar.readback.grouping_mode": .string(
+                    readback.groupingMode.rawValue
+                ),
+                "agentstudio.performance.sidebar.readback.query_state": .string(
+                    readback.queryIsEmpty ? "empty" : "non_empty"
+                ),
+                "agentstudio.performance.sidebar.readback.demand_state": .string(
+                    readback.isDemanded ? "demanded" : "hidden"
+                ),
+                "agentstudio.performance.sidebar.readback.presentation_state": .string(
+                    readback.presentationIsReady ? "ready" : "unavailable"
+                ),
+                "agentstudio.performance.sidebar.readback.focus_disposition": .string(
+                    readback.focusDisposition.rawValue
+                ),
+                "agentstudio.performance.sidebar.readback.accessibility_disposition": .string(
+                    readback.accessibilityDisposition.rawValue
+                ),
+            ]
+        )
     }
 
     private func projectionRequest(

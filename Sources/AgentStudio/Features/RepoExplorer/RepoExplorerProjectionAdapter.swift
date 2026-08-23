@@ -101,6 +101,29 @@ final class RepoExplorerProjectionAdapter {
     @ObservationIgnored var invalidationTask: Task<Void, Never>?
     @ObservationIgnored var observationRegistration = RepoExplorerObservationRegistration.hidden
 
+    func performanceProofReadback(
+        focusDisposition: RepoExplorerPerformanceProofReadback.FocusDisposition
+    ) -> RepoExplorerPerformanceProofReadback? {
+        guard let semanticBaselineResult, let acknowledgedMaterializationBaseline,
+            let materializationHost,
+            materializationHost.acceptedBaseline == acknowledgedMaterializationBaseline
+        else { return nil }
+        return RepoExplorerPerformanceProofReadback(
+            semanticGeneration: semanticBaselineResult.generation,
+            acknowledgedRevision: acknowledgedMaterializationBaseline.revision,
+            visibleGeneration: acknowledgedMaterializationBaseline.visibleGeneration,
+            representedRowCount: acknowledgedMaterializationBaseline.rowCount,
+            groupingMode: semanticBaselineResult.snapshot.groupingMode,
+            queryIsEmpty: semanticBaselineResult.snapshot.query.isEmpty,
+            isDemanded: isDemanded,
+            presentationIsReady: materializationHost.isPresentationReady,
+            focusDisposition: focusDisposition,
+            accessibilityDisposition: materializationHost.isPresentationReady
+                ? .ready
+                : .unavailable
+        )
+    }
+
     init(
         inputCapture: RepoExplorerProjectionInputCapture? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,

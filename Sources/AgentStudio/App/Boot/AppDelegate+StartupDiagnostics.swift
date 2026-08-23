@@ -384,7 +384,7 @@ extension AppDelegate {
             )
             let projectionTrigger = AppPolicies.SidebarProjection.Trigger.startupDiagnostic
             let attributes = startupDiagnosticTraceAttributes(for: action).merging(
-                [
+                sidebarPerformanceProofPolicyAttributes().merging([
                     "agentstudio.startup_diagnostic.native_table_pilot.policy_id": .string(
                         result.policyID
                     ),
@@ -447,7 +447,7 @@ extension AppDelegate {
                         AppPolicies.SidebarPerformanceProof.repositoryCount
                             + AppPolicies.SidebarPerformanceProof.worktreeCount
                     ),
-                ]
+                ]) { _, newValue in newValue }
             ) { _, newValue in newValue }
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.command_exercised",

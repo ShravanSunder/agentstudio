@@ -40,6 +40,8 @@ package enum AppPolicies {
     }
 
     package enum SidebarPerformanceProof {
+        package static let policyID = "strict-sidebar-cpu"
+        package static let policyVersion: Int = 1
         package static let nativeTablePilotPolicyID = "sidebar-native-table-pilot"
         package static let nativeTablePilotPolicyVersion: Int = 1
         package static let repositoryCount: Int = 150
@@ -56,7 +58,25 @@ package enum AppPolicies {
         package static let nativeTablePilotCompletionTimeout: Duration = .seconds(30)
         package static let scaleWorktreeCounts = [worktreeCount, doubledWorktreeCount]
         package static let invalidatesWholePopulationOnFailure = true
-        package static let maximumProcessCPUPercent: Double = 30
+        package static let fixtureQuery = "worktree"
+        package static let populatedFixtureTabCount: Int = 2
+        package static let idleProcessCPUP99MaximumPercent: Double = 10
+        package static let actionProcessCPUP95MaximumPercent: Double = 20
+        package static let sampleInterval: Duration = .seconds(1)
+        package static let requiredIdleUsableSampleCount: Int = 1000
+        package static let requiredSuccessfulActionCount: Int = 100
+        package static let requiredActionBearingSampleCount: Int = 200
+        package static let searchCharacterCount: Int = 8
+        package static let searchCharacterInterval: Duration = .milliseconds(100)
+        package static let quiescenceInterval: Duration = .seconds(5)
+        package static let actionReadbackTimeout: Duration = .seconds(5)
+        package static let maximumSamplerGap: Duration = .milliseconds(1250)
+        package static let maximumUnrelatedHostCPUPercent: Double = 20
+        package static let maximumDiagnosticCPUP95DeltaPercentagePoints: Double = 5
+        package static let maximumDiagnosticInteractionP95GrowthPercent: Double = 10
+        package static let standardTraceTags = ["performance", "app.startup", "terminal.startup"]
+        package static let idlePopulationNames = ["zero_pty_idle", "quiescent_pty_idle"]
+        package static let actionPopulationNames = ["search_clear", "grouping", "hide_show", "tab_switch"]
     }
 
     package enum Diagnostics {

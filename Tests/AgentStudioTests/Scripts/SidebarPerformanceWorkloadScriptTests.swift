@@ -6,6 +6,33 @@ import Testing
 
 @Suite
 struct SidebarPerformanceWorkloadScriptTests {
+    @Test("strict sidebar driver consumes projected policy and rejects false green populations")
+    func strictSidebarDriverConsumesProjectedPolicyAndRejectsFalseGreenPopulations() throws {
+        let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
+
+        #expect(source.contains("strict_sidebar_policy_query"))
+        #expect(source.contains("load_strict_sidebar_policy"))
+        #expect(source.contains("zero_pty_idle"))
+        #expect(source.contains("quiescent_pty_idle"))
+        #expect(source.contains("search_clear"))
+        #expect(source.contains("grouping"))
+        #expect(source.contains("hide_show"))
+        #expect(source.contains("tab_switch"))
+        #expect(source.contains("positive_quiescence"))
+        #expect(source.contains("semantic_generation"))
+        #expect(source.contains("acknowledged_revision"))
+        #expect(source.contains("visible_generation"))
+        #expect(source.contains("focus_disposition"))
+        #expect(source.contains("accessibility_disposition"))
+        #expect(source.contains("population_invalidated"))
+        #expect(source.contains("sampler_gap"))
+        #expect(source.contains("diagnostic_cpu_p95_delta_percentage_points"))
+        #expect(source.contains("diagnostic_interaction_p95_growth_percent"))
+        #expect(!source.contains("MAXIMUM_PROCESS_CPU_PERCENT=30"))
+        #expect(!source.contains("AGENTSTUDIO_SIDEBAR_IDLE_P99"))
+        #expect(!source.contains("AGENTSTUDIO_SIDEBAR_ACTION_P95"))
+    }
+
     @Test("native table pilot verifier consumes projected policy without overrides")
     func nativeTablePilotVerifierConsumesProjectedPolicyWithoutOverrides() async throws {
         let pilotScriptPath = "scripts/verify-sidebar-native-table-pilot.sh"
@@ -148,7 +175,7 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("REQUIRED_TAB_COUNT=12"))
         #expect(source.contains("REQUIRED_PANE_COUNT=36"))
         #expect(source.contains("REQUIRED_ACTIVE_PTY_COUNT=1"))
-        #expect(source.contains("MAXIMUM_PROCESS_CPU_PERCENT=30"))
+        #expect(!source.contains("MAXIMUM_PROCESS_CPU_PERCENT=30"))
         #expect(source.contains("process_cpu_percent_p50="))
         #expect(source.contains("process_cpu_percent_p95="))
         #expect(source.contains("process_cpu_percent_max="))

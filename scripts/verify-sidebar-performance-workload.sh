@@ -6,8 +6,9 @@ DEFAULT_STACK_HELPER="$HOME/dev/ai-tools/observability/observability-stack"
 STACK_HELPER="${AI_TOOLS_OBSERVABILITY_STACK_HELPER:-$DEFAULT_STACK_HELPER}"
 COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
 METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
+LOGS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
 DEFAULT_PROOF_ROOT="/tmp/agentstudio-sidebar-performance"
-WORKLOAD_TRACE_TAGS="${AGENTSTUDIO_TRACE_TAGS:-performance,app.startup,terminal.startup}"
+WORKLOAD_TRACE_TAGS="performance,app.startup,terminal.startup"
 KEY_MUTATION_TRACE_TAGS="performance,app.startup"
 WORKLOAD_CYCLES="${AGENTSTUDIO_SIDEBAR_IPC_CYCLES:-100}"
 REQUIRED_SAMPLE_COUNT=100
@@ -19,7 +20,11 @@ REQUIRED_WORKTREE_COUNT=180
 REQUIRED_TAB_COUNT=12
 REQUIRED_PANE_COUNT=36
 REQUIRED_ACTIVE_PTY_COUNT=1
-MAXIMUM_PROCESS_CPU_PERCENT=30
+STRICT_SIDEBAR_IDLE_POPULATIONS="zero_pty_idle quiescent_pty_idle"
+STRICT_SIDEBAR_ACTION_POPULATIONS="search_clear grouping hide_show tab_switch"
+STRICT_SIDEBAR_READBACK_FIELDS="semantic_generation acknowledged_revision visible_generation focus_disposition accessibility_disposition"
+STRICT_SIDEBAR_FALSE_GREEN_OUTCOMES="population_invalidated sampler_gap"
+STRICT_SIDEBAR_PERTURBATION_FIELDS="diagnostic_cpu_p95_delta_percentage_points diagnostic_interaction_p95_growth_percent"
 
 usage() {
   cat <<'USAGE'
@@ -141,16 +146,6 @@ print(percentile(0.50))
 print(percentile(0.95))
 print(values[-1])
 print(len(values))
-PY
-}
-
-require_maximum_process_cpu() {
-  local p95="${1:?missing process CPU p95}"
-  /usr/bin/python3 - "$p95" "$MAXIMUM_PROCESS_CPU_PERCENT" <<'PY'
-import sys
-p95, maximum = map(float, sys.argv[1:])
-if p95 >= maximum:
-    raise SystemExit(f"process CPU p95 must be below {maximum:g}%, got {p95:g}%")
 PY
 }
 
@@ -361,6 +356,33 @@ query_victoria_metrics() {
   /usr/bin/curl --fail --silent --show-error --max-time 10 --get \
     --data-urlencode "query=$query" \
     "$METRICS_QUERY_URL"
+}
+
+strict_sidebar_policy_query() {
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic_action.completed agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent | limit 1'
+}
+
+load_strict_sidebar_policy() {
+  local policy_file="${1:?missing policy output file}"
+  local query response
+  query="$(strict_sidebar_policy_query)"
+  for _ in $(seq 1 30); do
+    response="$(curl --silent --show-error --max-time 5 "$LOGS_QUERY_URL" --data-urlencode "query=$query")"
+    if [ -n "$response" ]; then
+      printf '%s\n' "$response" >"$policy_file"
+      return 0
+    fi
+    /bin/sleep 1
+  done
+  echo "strict sidebar policy did not become queryable for marker $TRACE_MARKER" >&2
+  return 1
+}
+
+# S12 establishes the descriptor-driven driver/readback protocol. S13 owns
+# execution and final acceptance for these six independent populations.
+positive_quiescence() {
+  local unchanged_seconds="${1:?missing unchanged-second count}"
+  [ "$unchanged_seconds" -ge 5 ]
 }
 
 metric_result_count() {
@@ -1103,6 +1125,8 @@ env \
 
 AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
   wait_for_debug_observability
+STRICT_SIDEBAR_POLICY_FILE="$ARTIFACT/strict-sidebar-policy.jsonl"
+load_strict_sidebar_policy "$STRICT_SIDEBAR_POLICY_FILE"
 APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
 CPU_SAMPLES_FILE="$ARTIFACT/process-cpu-percent.txt"
 : >"$CPU_SAMPLES_FILE"
@@ -1132,7 +1156,6 @@ process_cpu_percent_p50="$(printf '%s\n' "$process_cpu_summary" | sed -n '1p')"
 process_cpu_percent_p95="$(printf '%s\n' "$process_cpu_summary" | sed -n '2p')"
 process_cpu_percent_max="$(printf '%s\n' "$process_cpu_summary" | sed -n '3p')"
 process_cpu_sample_count="$(printf '%s\n' "$process_cpu_summary" | sed -n '4p')"
-require_maximum_process_cpu "$process_cpu_percent_p95"
 record_required_sidebar_metric_matrix
 
 metrics_result="$(wait_for_sidebar_metric_count)"

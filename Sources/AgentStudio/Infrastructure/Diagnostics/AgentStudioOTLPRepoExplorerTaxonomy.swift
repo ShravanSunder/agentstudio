@@ -4,9 +4,29 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
     static let controlledIdentifierAttributeKeys: Set<String> = [
         "agentstudio.performance.repo_explorer.native_table_pilot.policy_id",
         "agentstudio.startup_diagnostic.native_table_pilot.policy_id",
+        "agentstudio.startup_diagnostic.sidebar_proof.policy_id",
     ]
 
     static let numericAttributeKeys: Set<String> = [
+        "agentstudio.startup_diagnostic.sidebar_proof.policy_version",
+        "agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent",
+        "agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent",
+        "agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms",
+        "agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor",
+        "agentstudio.startup_diagnostic.sidebar_proof.action_count_floor",
+        "agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor",
+        "agentstudio.startup_diagnostic.sidebar_proof.search_character_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms",
+        "agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms",
+        "agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms",
+        "agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms",
+        "agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent",
+        "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points",
+        "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent",
+        "agentstudio.performance.sidebar.readback.semantic_generation",
+        "agentstudio.performance.sidebar.readback.acknowledged_revision",
+        "agentstudio.performance.sidebar.readback.visible_generation",
+        "agentstudio.performance.sidebar.readback.represented_row_count",
         "agentstudio.performance.repo_explorer.native_table_pilot.baseline_measurement.count",
         "agentstudio.performance.repo_explorer.native_table_pilot.baseline_p95_ms",
         "agentstudio.performance.repo_explorer.native_table_pilot.completed",
@@ -68,6 +88,13 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
     ]
 
     static let stringAttributeKeys: Set<String> = [
+        "agentstudio.startup_diagnostic.sidebar_proof.policy_id",
+        "agentstudio.performance.sidebar.readback.grouping_mode",
+        "agentstudio.performance.sidebar.readback.query_state",
+        "agentstudio.performance.sidebar.readback.demand_state",
+        "agentstudio.performance.sidebar.readback.presentation_state",
+        "agentstudio.performance.sidebar.readback.focus_disposition",
+        "agentstudio.performance.sidebar.readback.accessibility_disposition",
         "agentstudio.performance.repo_explorer.native_table_pilot.failure_reason",
         "agentstudio.performance.repo_explorer.native_table_pilot.outcome",
         "agentstudio.performance.repo_explorer.native_table_pilot.policy_id",
@@ -92,7 +119,10 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
     ]
 
     static func isAllowedValue(key: String, value: String) -> Bool? {
-        switch key {
+        if let result = isAllowedSidebarProofValue(key: key, value: value) {
+            return result
+        }
+        return switch key {
         case "agentstudio.startup_diagnostic.native_table_pilot.failure_reason":
             [
                 "none", "completion_timeout", "fixture_invalid", "transaction_invalid",
@@ -159,6 +189,26 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
             ["follow_up", "facts_publication"].contains(value)
         case "agentstudio.performance.forge.outcome":
             ["admitted", "deferred", "equal"].contains(value)
+        default:
+            nil
+        }
+    }
+
+    private static func isAllowedSidebarProofValue(key: String, value: String) -> Bool? {
+        switch key {
+        case "agentstudio.startup_diagnostic.sidebar_proof.policy_id":
+            value == "strict-sidebar-cpu"
+        case "agentstudio.performance.sidebar.readback.grouping_mode":
+            ["repo", "pane", "tab"].contains(value)
+        case "agentstudio.performance.sidebar.readback.query_state":
+            ["empty", "non_empty"].contains(value)
+        case "agentstudio.performance.sidebar.readback.demand_state":
+            ["demanded", "hidden"].contains(value)
+        case "agentstudio.performance.sidebar.readback.presentation_state",
+            "agentstudio.performance.sidebar.readback.accessibility_disposition":
+            ["ready", "unavailable"].contains(value)
+        case "agentstudio.performance.sidebar.readback.focus_disposition":
+            ["filter_focused", "not_focused"].contains(value)
         default:
             nil
         }
