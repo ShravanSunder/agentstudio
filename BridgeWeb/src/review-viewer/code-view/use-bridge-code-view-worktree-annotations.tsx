@@ -315,6 +315,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 							origin: pendingComposer.origin,
 						})}
 						editToken={metadata.editToken}
+						editSurfaceRegistrationOwner="parent"
 						onCancel={() => admitSelectedRange(null, null)}
 						onCommitted={() =>
 							setPendingComposer((currentComposer) =>

@@ -22,11 +22,36 @@ describe('worktree annotation Pierre adapter', () => {
 			threads: [
 				threadProjection({ endLine: 8, placement: 'exact', startLine: 4 }),
 				threadProjection({ endLine: 20, placement: 'relocated', startLine: 19 }),
+				threadProjection({
+					endLine: 24,
+					placement: 'exact',
+					sourceRole: 'review_head',
+					startLine: 22,
+				}),
+				threadProjection({
+					endLine: 28,
+					placement: 'relocated',
+					sourceRole: 'review_head',
+					startLine: 27,
+				}),
+				threadProjection({
+					endLine: 29,
+					placement: 'exact',
+					sourceRole: 'review_base',
+					startLine: 29,
+				}),
 				threadProjection({ endLine: 30, placement: 'outdated', startLine: 30 }),
+				threadProjection({
+					endLine: 31,
+					path: 'Sources/Other.swift',
+					placement: 'exact',
+					sourceRole: 'review_head',
+					startLine: 31,
+				}),
 			],
 		});
 
-		expect(annotations.map(({ lineNumber }) => lineNumber)).toEqual([8, 20]);
+		expect(annotations.map(({ lineNumber }) => lineNumber)).toEqual([8, 20, 24, 28]);
 	});
 
 	test('maps Review sides to role-specific handles and rejects cross-side selection', () => {

@@ -84,7 +84,7 @@ export function filePierreAnnotationsForThreads(props: {
 			const context = thread.context;
 			if (
 				!threadCanUsePierreSlot(thread) ||
-				context.sourceRole !== 'file' ||
+				!fileSurfaceCanRenderSourceRole(context.sourceRole) ||
 				context.path !== props.path ||
 				context.startLine === null ||
 				context.endLine === null
@@ -376,6 +376,12 @@ function threadCanUsePierreSlot(thread: WorktreeAnnotationThreadProjection): boo
 		thread.context.scope === 'located' &&
 		(thread.context.placement === 'exact' || thread.context.placement === 'relocated')
 	);
+}
+
+function fileSurfaceCanRenderSourceRole(
+	sourceRole: WorktreeAnnotationThreadProjection['context']['sourceRole'],
+): boolean {
+	return sourceRole === 'file' || sourceRole === 'review_head';
 }
 
 function reviewDiffSideForSourceRole(

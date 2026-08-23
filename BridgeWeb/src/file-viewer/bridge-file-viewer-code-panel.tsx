@@ -416,6 +416,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 											origin: pendingAnnotationComposer.origin,
 										})}
 										editToken={metadata.editToken}
+										editSurfaceRegistrationOwner="parent"
 										onCancel={() => admitSelectedRange(null, '')}
 										onCommitted={() =>
 											setPendingAnnotationComposer((currentComposer) =>

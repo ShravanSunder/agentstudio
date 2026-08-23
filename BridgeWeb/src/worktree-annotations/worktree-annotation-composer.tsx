@@ -18,7 +18,6 @@ import {
 	browserWorktreeAnnotationDraftClock,
 	WorktreeAnnotationDraftScheduler,
 } from './worktree-annotation-draft-scheduler.js';
-import { WorktreeAnnotationEditOwnershipController } from './worktree-annotation-edit-ownership.js';
 import { createWorktreeAnnotationEditToken } from './worktree-annotation-edit-token.js';
 import {
 	WorktreeAnnotationCommandButton,
@@ -52,6 +51,7 @@ export interface WorktreeAnnotationNewMessageComposerProps {
 	) => BridgeProductWorktreeAnnotationOperation;
 	readonly continueTimeline?: boolean | undefined;
 	readonly editToken?: string | undefined;
+	readonly editSurfaceRegistrationOwner?: 'composer' | 'parent' | undefined;
 	readonly onCancel: () => void;
 	readonly onCommitted?: (() => void) | undefined;
 	readonly onSaved: () => void;
@@ -104,7 +104,11 @@ export function WorktreeAnnotationNewMessageComposer(
 			? null
 			: messageCommandCursorFromProjection(initialDurableMessage),
 	);
-	useWorktreeAnnotationEditSurfaceToken(committedCursor === null ? editTokenRef.current : null);
+	useWorktreeAnnotationEditSurfaceToken(
+		committedCursor === null && props.editSurfaceRegistrationOwner !== 'parent'
+			? editTokenRef.current
+			: null,
+	);
 	useWorktreeAnnotationSessionDemand(demandedSessionId);
 	const releaseWhenEditInactive = useWorktreeAnnotationDeferredEditRelease();
 	const createOperationRef = useRef(props.createOperation);
@@ -204,12 +208,30 @@ export function WorktreeAnnotationNewMessageComposer(
 					await releaseWhenEditInactive(editTokenRef.current, async (): Promise<void> => {
 						const messageId = targetMessageIdRef.current;
 						if (messageId === null) return;
-						const editOwnership = new WorktreeAnnotationEditOwnershipController({
-							annotationClient,
+						const projectedMessage = currentMessageById(annotationClient.getSnapshot(), messageId);
+						if (
+							projectedMessage !== null &&
+							projectedMessage.draft !== null &&
+							projectedMessage.draft.activeEditToken !== editTokenRef.current
+						) {
+							return;
+						}
+						const cursor = newestMessageCommandCursor(
+							targetMessageCursorRef.current,
+							projectedMessage === null
+								? null
+								: messageCommandCursorFromProjection(projectedMessage),
+						);
+						if (cursor === null || cursor.draftRevision === null) return;
+						const outcome = await annotationClient.execute({
 							editToken: editTokenRef.current,
-							messageId,
+							expectedDraftRevision: cursor.draftRevision,
+							expectedMessageRevision: cursor.messageRevision,
+							kind: 'draft.edit.release',
+							messageId: cursor.messageId,
+							sessionId: cursor.sessionId,
 						});
-						await editOwnership.release();
+						assertCommittedAnnotationOutcome(outcome);
 					});
 				})
 				.catch((): void => {});

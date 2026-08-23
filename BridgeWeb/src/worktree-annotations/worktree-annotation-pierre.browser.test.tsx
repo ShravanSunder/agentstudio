@@ -7,6 +7,7 @@ import {
 import { act, type ReactElement } from 'react';
 import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
+import { userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
@@ -298,6 +299,110 @@ describe('worktree annotation Pierre integration', () => {
 		}
 	});
 
+	test('releases a committed Review root draft before projection convergence', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const mountedCodeViews: CodeView[] = [];
+		const appliedOptions: CodeViewOptions<undefined>[] = [];
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetup = CodeView.prototype.setup;
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetOptions = CodeView.prototype.setOptions;
+		CodeView.prototype.setup = function captureMountedCodeView(root: HTMLElement): void {
+			mountedCodeViews.push(this);
+			originalSetup.call(this, root);
+		};
+		CodeView.prototype.setOptions = function captureOptions(
+			options: CodeViewOptions<undefined> | undefined,
+		): void {
+			if (options !== undefined) appliedOptions.push(options);
+			originalSetOptions.call(this, options);
+		};
+
+		const reviewPackage = makeBridgeReviewPackage();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const coordinator = createBridgeMainRenderFulfillmentCoordinator({
+			sendDisposition: (): void => {},
+		});
+		const reviewCodeViewItem = makeReviewCodeViewItem();
+		try {
+			const rendered = await render(
+				<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+					<BridgeCodeViewPanel
+						presentationPositionKey="annotation-browser-review-release"
+						projection={projection}
+						renderFulfillmentCoordinator={coordinator}
+						reviewPackage={reviewPackage}
+						selectedCodeViewItem={reviewCodeViewItem}
+						selectedItemId="item-source"
+						visibleCodeViewItems={[reviewCodeViewItem]}
+						workerPoolEnabled={false}
+					/>
+				</WorktreeAnnotationSurfaceProvider>,
+			);
+			await settleBrowserCondition(
+				(): boolean => mountedCodeViews[0]?.getItem('item-source') !== undefined,
+				'Expected one mounted Review Pierre item.',
+			);
+			await act(async (): Promise<void> => {
+				surface.publishProjection(1, 0);
+				await Promise.resolve();
+			});
+			const codeView = requireCodeView(mountedCodeViews[0]);
+			const currentItem = requireCodeViewItem(codeView.getItem('item-source'));
+			await act(async (): Promise<void> => {
+				invokeGutterAdmission(
+					requireCodeViewOptions(appliedOptions.at(-1)),
+					{ end: 2, side: 'additions', start: 2 },
+					currentItem,
+				);
+				await Promise.resolve();
+			});
+			const composer = rendered.getByRole('textbox', {
+				name: 'Write an annotation in Markdown',
+			});
+			await act(async (): Promise<void> => {
+				await composer.fill('Committed Review draft awaiting projection.');
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean => surface.sentOperations.some((operation) => operation.kind === 'root.create'),
+				'Expected the Review root draft command.',
+			);
+			await act(async (): Promise<void> => {
+				surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'root.create');
+				await Promise.resolve();
+			});
+			await expect.element(rendered.getByText('Draft', { exact: true })).toBeVisible();
+			await act(async (): Promise<void> => {
+				await userEvent.keyboard('{Escape}');
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean =>
+					surface.sentOperations.some((operation) => operation.kind === 'draft.edit.release'),
+				'Expected collapsed Review root draft to release its edit token.',
+			);
+			expect(
+				surface.sentOperations.filter((operation) => operation.kind === 'draft.edit.release'),
+			).toHaveLength(1);
+			expect(
+				surface.sentOperations.find((operation) => operation.kind === 'draft.edit.release'),
+			).toMatchObject({
+				expectedDraftRevision: 0,
+				expectedMessageRevision: 0,
+				messageId: '00000000-0000-7000-8000-000000000031',
+				sessionId: annotationSessionId,
+			});
+		} finally {
+			CodeView.prototype.setup = originalSetup;
+			CodeView.prototype.setOptions = originalSetOptions;
+			coordinator.dispose();
+		}
+	});
+
 	test('opens the File root composer from Pierre selection with path and line origin', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const appliedOptions: CodeViewOptions<undefined>[] = [];
@@ -425,6 +530,18 @@ describe('worktree annotation Pierre integration', () => {
 					startLine: 4,
 				},
 			});
+			await act(async (): Promise<void> => {
+				await userEvent.keyboard('{Escape}');
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean =>
+					surface.sentOperations.some((operation) => operation.kind === 'draft.edit.release'),
+				'Expected collapsed File root draft to release its edit token.',
+			);
+			expect(
+				surface.sentOperations.filter((operation) => operation.kind === 'draft.edit.release'),
+			).toHaveLength(1);
 		} finally {
 			CodeView.prototype.setOptions = originalSetOptions;
 		}
