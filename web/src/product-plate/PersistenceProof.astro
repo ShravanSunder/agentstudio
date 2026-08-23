@@ -101,4 +101,14 @@ const {
   .persistence-proof__control {
     --scroll-material-selection-dot-top: calc(50% - 4px);
   }
+
+  @media (width < 64rem) {
+    .persistence-proof__control[aria-pressed="true"]::before {
+      opacity: 0;
+    }
+
+    .persistence-proof__control[aria-pressed="true"] {
+      background: var(--scroll-material-pane-background);
+    }
+  }
 </style>
