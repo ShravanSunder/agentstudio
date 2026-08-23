@@ -85,20 +85,24 @@ Bridge native Review refresh
   BridgeReviewPublicationCoordinator
     owns: nativeCurrent, acknowledgedDisplayed, optional admitted-publication
           lease, retained publication material, and publication ordering
-    rule: classification settles before candidate display delivery
+    rule: classification settles before candidate display delivery and rides
+          the first candidate display patch
 
 existing product transport and comm worker
   owns: strict carriage, latest-generation application, projection
   carries: install admission and existing review.publication.applied receipt
-  caches: newest complete active projection and its exact candidate-ready facts
+  caches: newest complete active projection and its exact candidate-start and
+          candidate-ready facts; emits an exact-identity candidate-failed event
+          only after classified candidate work has started
   rule: no presentation-hold or final-class policy; after native acknowledges an
         installed predecessor, re-expose one newer worker-current projection
 
 BridgeMainRenderSnapshotStore
-  owns: visible Review bank, optional candidate bank, atomic bank promotion
+  owns: visible Review bank, optional candidate bank, optional bounded promoted
+        failure presentation, atomic bank promotion
   candidate role: provisional | updateReady | installing
-  consumes: candidate class, affected file identities, display patches,
-            candidate-ready event,
+  consumes: candidate class and affected file identities on the first display
+            patch, later display patches, candidate-ready event,
             feature-local installation admission
 
 BridgeReviewPresentationInstallationGate
@@ -118,7 +122,8 @@ WorktreeAnnotationEditSurfaceRegistry
   does not replace: SQLite durable draft/message authority
 
 Bridge Review toolbar
-  owns: pure rendering of promoted state and actions
+  owns: pure rendering of promoted state and actions, including the existing
+        comparison-retry action for a retryable promoted failure
 ```
 
 Forbidden edges:
@@ -168,7 +173,18 @@ promoted(reason: commits | files | lines | unknown)
 
 Native classification begins ordinary only as an internal provisional state.
 It may promote monotonically from numeric or unknown impact. No candidate
-display event is delivered until that native classification is known. The main
+display event is delivered until that native classification is known. The first
+candidate display patch carries one strict candidate-start disposition atomically
+with the candidate identity:
+
+```text
+sameSource(class, affectedStableFileIdentities)
+replacement
+```
+
+Initial load and explicit target replacement use `replacement`; same-source
+updates carry their class and affected stable file identities. Later patches do
+not repeat the disposition. The main
 installation gate owns the final effective class and may make one monotonic
 ordinary-to-promoted escalation with reason `activeAnchor` when the candidate
 cannot preserve a locally active editor anchor. This orders presentation without
@@ -177,13 +193,37 @@ delaying Review computation or sending editor state to native.
 Initial load and explicit target commands bypass same-source classification and
 retain their current presentation contracts.
 
-### Candidate-ready event
+### Candidate start and candidate-ready event
 
-The comm worker already observes the final Review metadata barrier. After it
+Native settles classification before publishing the candidate metadata stream.
+For a same-source delta, the single `review.delta` event carries the complete
+classification group. For a same-source replacement that requires reset/window
+delivery, the leading `review.reset` event carries the group before
+`review.sourceAccepted` and window events. Initial load and explicit target
+replacement omit the group because they retain their existing presentation
+contracts. The TypeScript product contract admits the group only on those two
+same-source leading events and rejects it on later windows.
+
+The comm worker binds the leading event's facts to the first current-fenced
+candidate `reviewDisplayPatch`. That strict internal patch carries
+`sameSource(class, affectedStableFileIdentities)` when the leading event has the
+classification group and `replacement` otherwise. Later patches for the same
+identity omit the candidate-start disposition and are rejected if they attempt
+to start or reclassify the candidate again. Main creates the candidate bank and
+stores its immutable start disposition before
+applying any geometry from that first patch. It uses the exact
+package identity, generation, revision, pre-delivery presentation class, and
+affected stable file identities before any candidate geometry is applied. A
+promoted candidate can therefore render `Updating…` while the remainder of its
+worker/main presentation is constructed, without guessing from a generic
+provisional role.
+
+The comm worker still observes the final Review metadata barrier. After it
 applies the final current-fenced transaction, it emits one strict internal
-candidate-ready event containing the package identity, generation, revision,
-pre-delivery presentation class, and affected stable file identities. This uses
-the existing worker RPC connection and adds no physical route.
+candidate-ready event containing the matching package identity, generation, and
+revision. Readiness does not repeat or replace the candidate-start classification
+facts. Both messages use the existing worker RPC connection and add no physical
+route.
 
 The worker no longer sends or awaits `review.publication.applied` merely because
 it committed metadata. It continues consuming newer metadata, while the main
@@ -203,7 +243,11 @@ applyNow()
 readRefreshPresentation()
 ```
 
-Every complete worker display event first targets the one candidate bank.
+The first worker display event for a publication creates the one candidate bank
+and installs its immutable start disposition. A `replacement` candidate follows
+the existing initial/target installation presentation and never renders the
+promoted global bar. Every later display event for that publication targets the
+same bank.
 Without an active editor, an ordinary candidate proceeds immediately through
 install admission with no global bar. With an active editor, the
 bank remains provisional until the candidate-ready event proves exact
@@ -219,8 +263,31 @@ Selected items, threads, editors, ranges, reading position, and related commands
 map to their owning stable file identity. The gate holds only when that file set
 intersects the current semantic-attention file set.
 
-An `unknown` promotion treats every current Review context as affected until a
-later exact affected-file set replaces that conservative result.
+An `unknown` promotion treats every current Review context as affected. Unknown
+is represented symbolically by the promoted reason with an empty enumerated
+affected-file list; it never materializes an unbounded wildcard list and is not
+replaced by later exact facts for the same candidate.
+
+If a promoted candidate fails after its classified first patch but before
+installation, the store discards the candidate bank and retains one bounded
+failure presentation containing only the failed candidate identity, affected
+file identities or symbolic unknown, and retryability. It retains no candidate
+geometry. The toolbar renders that failure only while affected semantic
+attention remains and routes Retry through the existing comparison-retry owner
+using the canonical active target. A new candidate start, attention leaving,
+worker replacement, or close clears the failure presentation.
+
+The comm worker reports that terminal through one strict internal
+`reviewCandidateFailed` event on the existing worker connection. The event
+carries the exact candidate publication identity and retryability; it does not
+repeat classification or affectedness. Main accepts it only when that identity
+exactly matches the current non-installing candidate bank, atomically discards
+that candidate geometry, and, only for a promoted same-source disposition,
+copies the bank's immutable facts into the failure presentation. Ordinary and
+replacement candidates remain on their existing non-global failure paths. A
+stale B failure arriving after C has replaced B is ignored
+and cannot clear C or present B chrome. A failure before a classified candidate
+bank exists remains on the existing non-global failure path.
 
 ### Two lineage registers and install admission
 
@@ -373,9 +440,19 @@ refresh generation
 
 complete publication + classification
   -> existing metadata stream                               unchanged route
+  -> leading same-source delta/reset classification group   changed event contract
   -> comm-worker projection                                 unchanged authority
-  -> candidate-ready event                                  added internal event
+  -> first candidate display patch + classification facts   changed internal event
   -> BridgeMainRenderSnapshotStore candidate bank           added state write
+  -> remaining candidate display patches                    unchanged local route
+  -> candidate-ready event                                  narrowed to readiness
+
+classified candidate failure
+  -> worker terminal classification                         unchanged failure owner
+  -> reviewCandidateFailed(identity, retryable)             added internal event
+  -> exact current-candidate identity guard                 added main guard
+  -> discard candidate geometry + bounded failure facts     added atomic state write
+  <- stale identity ignored                                 added failure result
 
 candidate installation
   -> install admission CAS                                  added existing-route call
@@ -417,13 +494,20 @@ active(A)
     B anchor-unsafe ------------------------------> candidate(B, updateReady)
 
 active(A)
-  promoted B starts ------------------------------> receiving(A, B)
+  promoted B first classified patch --------------> receiving(A, B)+Updating
   B ready + no affected attention ----------------> installing(A, B)
   B ready + affected attention -------------------> candidate(B, updateReady)
   updateReady + affected attention leaves --------> installing(A, B)
   updateReady + Apply now ------------------------> installing(A, B)
   updateReady(A, B) + ordinary C ready -----------> installing(A, C)
   candidate/receiving + newer C ------------------> receiving(A, C)
+  promoted B fails + affected attention ----------> active(A)+updateUnavailable(B)
+  promoted B fails + no affected attention -------> active(A)
+
+active(A)+updateUnavailable(B)
+  Retry ------------------------------------------> existing comparison retry
+  newer C starts ---------------------------------> receiving(A, C)
+  affected attention leaves ----------------------> active(A)
 
 installing(A, B)
   admission request pins B as installing
@@ -447,6 +531,9 @@ close --------------------------------------------> disposed
 Illegal transitions fail closed:
 
 - a candidate-ready event without matching candidate identity is rejected;
+- a first candidate patch without one complete start disposition is rejected;
+- later patches that attempt to change the candidate start disposition are rejected;
+- a candidate-failed event without an exact current non-installing candidate is ignored;
 - stale or duplicate candidate-ready events do not install twice;
 - an older generation cannot replace a newer candidate;
 - provisional, update-ready, and installing roles cannot coexist;
@@ -549,12 +636,16 @@ not a third presentation class or a second bank.
 ## Failure and recovery
 
 - Impact timeout, unavailable facts, or divergent current/displayed registers:
-  promote conservatively and treat every Review context as affected until an
-  exact affected-file set arrives; computation continues.
+  promote conservatively and treat every Review context as affected for that
+  candidate until supersession, installation, failure, worker replacement, or
+  close; computation continues.
 - Candidate build or validation failure: discard candidate; active bank remains;
   use existing retry classification. Render `Update unavailable` only while the
-  failed promoted candidate affects the current attention context; otherwise
-  keep the global bar absent and use the existing non-global refresh outcome.
+  classified failed promoted candidate affects the current attention context;
+  retain only its bounded failure presentation and route Retry through the
+  existing canonical comparison-retry owner. A failure before candidate-start
+  classification keeps the global bar absent and uses the existing non-global
+  refresh outcome.
 - Worker reset: the pane runtime that already observes replacement calls the
   main store's worker-replacement preparation, discards the candidate bank and
   promoted chrome immediately, then resends the publication-applied receipt for
@@ -613,7 +704,7 @@ not a third presentation class or a second bank.
   exact install admission, conservative divergence fallback, one production
   path, and no ordinary chrome.
 - R-RRC-003/R-RRC-004: main active/candidate banks and installation gate; prove
-  state transitions and real browser geometry.
+  classified first-patch ordering, state transitions, and real browser geometry.
 - R-RRC-005/R-RRC-006/R-RRC-007: Pierre-owned leading-edge attention signal,
   edit continuity registry, displayed-publication resolver, and existing
   immutable origin/source evaluator; prove real draft persistence, Apply now,
