@@ -5,6 +5,37 @@ import Testing
 
 @Suite("InboxRetirementArchitectureTests")
 struct InboxRetirementArchitectureTests {
+    @Test("dormant Inbox owners carry the canonical retirement contract")
+    func dormantInboxOwnersCarryCanonicalRetirementContract() throws {
+        let retirementContract = """
+            /// Inbox presentation and ingestion are intentionally retired.
+            /// Source and persisted rows remain only for a later data-safe removal.
+            /// Do not reconnect these owners to App, command, toolbar, shortcut, IPC, or runtime-bus composition without a new product decision.
+            """
+        let dormantOwnerDeclarations = [
+            (
+                "Sources/AgentStudio/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift",
+                "package final class InboxNotificationStore"
+            ),
+            (
+                "Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationSidebarView.swift",
+                "package struct InboxNotificationSidebarView"
+            ),
+            (
+                "Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift",
+                "package final class InboxNotificationRouter"
+            ),
+        ]
+
+        for (path, declaration) in dormantOwnerDeclarations {
+            let source = try sourceFile(path)
+            #expect(
+                source.contains("\(retirementContract)\n@MainActor\n\(declaration)"),
+                "Missing canonical retirement contract at \(path)'s owner entrypoint"
+            )
+        }
+    }
+
     @Test("application sidebar composition is Repo Explorer only")
     func applicationSidebarCompositionIsRepoExplorerOnly() throws {
         let source = try sourceFile("Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift")
