@@ -725,7 +725,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		expect(firstDrainResult.completedIds).toEqual([]);
 		expect(firstDrainResult.yielded).toBe(true);
 		expect(continuationDrainResult.completedIds).toEqual([
-			'review-content-ready:item-1:review-ledger:item-1:44',
+			'review-content-ready:item-1:review-ledger:item-1:45',
 		]);
 		expect(continuationDrainResult.yielded).toBe(false);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
@@ -759,7 +759,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		]);
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 44,
+			publicationSequence: 45,
 			workerDerivationEpoch: 1,
 			patches: [
 				{
@@ -824,13 +824,14 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		);
 
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'reviewCandidateStarted',
 			'reviewDisplayPatch',
 			'reviewCandidateReady',
 			'health',
 			'slicePatch',
 			'health',
 		]);
-		expect(postedMessages[3]?.message).toMatchObject({
+		expect(postedMessages[4]?.message).toMatchObject({
 			kind: 'slicePatch',
 			epoch: 2,
 			sequence: 11,

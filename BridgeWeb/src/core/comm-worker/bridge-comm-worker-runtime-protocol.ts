@@ -858,7 +858,10 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			mainCommand: parsedMessage.data,
 			messages,
 			paneWorkSignal: panePresentationAuthority.workSignal,
-			publish: (message, transfer = []): void => port.postMessage(message, [...transfer]),
+			publish: (message, transfer): void => {
+				if (transfer === undefined) port.postMessage(message);
+				else port.postMessage(message, [...transfer]);
+			},
 			productControlTimeoutMilliseconds,
 			productController,
 			productTransport,
