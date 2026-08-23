@@ -22,6 +22,12 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
             case bridgeProductPaintCorrelation = "bridge-product-paint-correlation"
             case bridgeProductStreamWebKitFeasibility = "bridge-product-stream-webkit-feasibility"
             case sidebarPerformanceProof = "sidebar-performance-proof"
+            case sidebarCPUZeroPTYIdle = "sidebar-cpu-zero-pty-idle"
+            case sidebarCPUQuiescentPTYIdle = "sidebar-cpu-quiescent-pty-idle"
+            case sidebarCPUSearchClear = "sidebar-cpu-search-clear"
+            case sidebarCPUGrouping = "sidebar-cpu-grouping"
+            case sidebarCPUHideShow = "sidebar-cpu-hide-show"
+            case sidebarCPUTabSwitch = "sidebar-cpu-tab-switch"
             case repoExplorerKeyMutationProof = "repo-explorer-key-mutation-proof"
             case repoExplorerInteractionProof = "repo-explorer-interaction-proof"
         #endif
@@ -39,6 +45,9 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 || kind == .bridgeReviewToFileViewObservabilitySmoke
                 || kind == .bridgeProductPaintCorrelation
                 || kind == .bridgeProductStreamWebKitFeasibility
+                || kind == .sidebarCPUZeroPTYIdle || kind == .sidebarCPUQuiescentPTYIdle
+                || kind == .sidebarCPUSearchClear || kind == .sidebarCPUGrouping
+                || kind == .sidebarCPUHideShow || kind == .sidebarCPUTabSwitch
         #else
             false
         #endif
@@ -75,6 +84,18 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 "bridgeProductStreamWebKitFeasibility"
             case .sidebarPerformanceProof:
                 "sidebarPerformanceProof"
+            case .sidebarCPUZeroPTYIdle:
+                "sidebarCPUZeroPTYIdle"
+            case .sidebarCPUQuiescentPTYIdle:
+                "sidebarCPUQuiescentPTYIdle"
+            case .sidebarCPUSearchClear:
+                "sidebarCPUSearchClear"
+            case .sidebarCPUGrouping:
+                "sidebarCPUGrouping"
+            case .sidebarCPUHideShow:
+                "sidebarCPUHideShow"
+            case .sidebarCPUTabSwitch:
+                "sidebarCPUTabSwitch"
             case .repoExplorerKeyMutationProof:
                 "repoExplorerKeyMutationProof"
             case .repoExplorerInteractionProof:

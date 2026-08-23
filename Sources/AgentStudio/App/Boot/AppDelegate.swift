@@ -26,6 +26,9 @@ enum WorkspacePreparedContentMountBootState {
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var mainWindowController: MainWindowController?
+    #if DEBUG
+        var sidebarPerformanceProofSession: SidebarPerformanceProofSession?
+    #endif
     let octiconLoader: OcticonLoader
     // MARK: - Shared Services (created once at launch)
     // Module-internal to support focused same-type AppDelegate extensions.

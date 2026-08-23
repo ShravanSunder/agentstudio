@@ -51,6 +51,7 @@ struct SidebarSurfaceHost: View {
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
+    let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
     @State private var repoCommandPresentationBatch: RepoExplorerCommandPresentationBatch?
 
     static var surfaceChromePolicy: SidebarSurfaceChromePolicy {
@@ -82,6 +83,7 @@ struct SidebarSurfaceHost: View {
                 onVisibleWorktreeSnapshotChanged: { snapshot in
                     repoCommandPresentationBatch?.acceptVisibleWorktreeSnapshot(snapshot)
                 },
+                onPerformanceProofReadback: onPerformanceProofReadback,
                 latestPaneMessageSnapshot: { paneId in
                     paneActivityStatusAtom.status(for: paneId)?.lastOutputLine
                 },

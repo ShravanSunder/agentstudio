@@ -33,6 +33,51 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(!source.contains("AGENTSTUDIO_SIDEBAR_ACTION_P95"))
     }
 
+    @Test("strict sidebar populations are isolated and descriptor driven")
+    func strictSidebarPopulationsAreIsolatedAndDescriptorDriven() throws {
+        let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        for owner in [
+            "parse_strict_sidebar_policy", "run_strict_sidebar_cpu_populations",
+            "begin_strict_population", "validate_strict_host_envelope",
+            "wait_for_positive_quiescence", "sample_strict_idle_population",
+            "drive_strict_action_population", "validate_strict_population",
+            "validate_strict_perturbation_pair", "validate_strict_zero_loss",
+            "nearest_rank_percentile",
+        ] { #expect(source.contains(owner)) }
+        #expect(source.contains("STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS"))
+        #expect(source.contains("validate_strict_sampler_gaps"))
+        #expect(source.contains("record_strict_cpu_sample"))
+        #expect(source.contains("cpu.raw.samples"))
+        #expect(source.contains("classify_strict_action_samples"))
+        #expect(source.contains("query_strict_action_records"))
+        #expect(source.contains("duplicate action record"))
+        #expect(source.contains("overlaps or is non-monotonic"))
+        #expect(source.contains("strict_required_record_loss"))
+        #expect(source.contains("kern.memorystatus_vm_pressure_level"))
+        #expect(source.contains("forbidden concurrent processes"))
+        #expect(source.contains("population_invalidated"))
+        #expect(source.contains("no sample replacement or trimming"))
+        #expect(source.contains("action population terminal did not satisfy both floors"))
+        #expect(!source.contains("STRICT_IDLE_P99=10"))
+        #expect(!source.contains("STRICT_ACTION_P95=20"))
+        #expect(!source.contains("STRICT_IDLE_SAMPLE_COUNT=1000"))
+        #expect(!source.contains("STRICT_ACTION_SAMPLE_COUNT=200"))
+        let strictLossCaptureStart = try #require(
+            source.range(of: "capture_strict_population_loss() {")
+        )
+        let strictLossCaptureEnd = try #require(
+            source.range(
+                of: "wait_for_positive_quiescence() {",
+                range: strictLossCaptureStart.upperBound..<source.endIndex
+            )
+        )
+        let strictLossCapture = source[
+            strictLossCaptureStart.lowerBound..<strictLossCaptureEnd.lowerBound
+        ]
+        #expect(!strictLossCapture.contains("collector_loss_count=0"))
+        #expect(!strictLossCapture.contains("trace_loss:-0"))
+    }
+
     @Test("native table pilot verifier consumes projected policy without overrides")
     func nativeTablePilotVerifierConsumesProjectedPolicyWithoutOverrides() async throws {
         let pilotScriptPath = "scripts/verify-sidebar-native-table-pilot.sh"
@@ -201,7 +246,9 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("seq 1 \"$REQUIRED_METRIC_READBACK_ATTEMPTS\""))
         #expect(source.contains("AGENTSTUDIO_SIDEBAR_IPC_CYCLES:-100"))
         #expect(source.contains("performance,app.startup,terminal.startup"))
-        #expect(!source.contains("performance,atoms,app.startup,terminal.startup"))
+        #expect(source.contains("STRICT_POLICY_DIAGNOSTIC_TRACE_TAGS"))
+        #expect(source.contains("sidebar_proof.diagnostic_trace_tags"))
+        #expect(!source.contains("WORKLOAD_TRACE_TAGS=\"performance,atoms,app.startup,terminal.startup\""))
         #expect(source.contains("must be >= {minimum}"))
         #expect(source.contains("def wait_for_readback"))
         #expect(source.contains("time.monotonic() + timeout"))

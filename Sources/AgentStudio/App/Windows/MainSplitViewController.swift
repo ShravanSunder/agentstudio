@@ -16,6 +16,7 @@ struct SidebarRootViewDependencies {
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
+    let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
 }
 
 final class ShellSplitView: NSSplitView {
@@ -45,7 +46,8 @@ class MainSplitViewController: NSSplitViewController {
                 bridgeAttendanceSnapshot: dependencies.bridgeAttendanceSnapshot,
                 performanceTraceRecorder: dependencies.performanceTraceRecorder,
                 onRefocusActivePane: dependencies.onRefocusActivePane,
-                onSidebarVisibleWorktreesChanged: dependencies.onSidebarVisibleWorktreesChanged
+                onSidebarVisibleWorktreesChanged: dependencies.onSidebarVisibleWorktreesChanged,
+                onPerformanceProofReadback: dependencies.onPerformanceProofReadback
             )
         )
     }
@@ -80,6 +82,7 @@ class MainSplitViewController: NSSplitViewController {
     private let editorChooser: EditorChooserState
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
+    private let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let paneTabRegistersAsCommandHandler: Bool
@@ -116,6 +119,8 @@ class MainSplitViewController: NSSplitViewController {
         editorChooser: EditorChooserState,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void = {},
+        onPerformanceProofReadback:
+            @escaping @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void = { _ in },
         sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController
             .defaultSidebarRootViewBuilder,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
@@ -138,6 +143,7 @@ class MainSplitViewController: NSSplitViewController {
         self.editorChooser = editorChooser
         self.performanceTraceRecorder = performanceTraceRecorder
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
+        self.onPerformanceProofReadback = onPerformanceProofReadback
         self.sidebarRootViewBuilder = sidebarRootViewBuilder
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.paneTabRegistersAsCommandHandler = paneTabRegistersAsCommandHandler
@@ -212,7 +218,8 @@ class MainSplitViewController: NSSplitViewController {
                 onRefocusActivePane: { [weak paneTabVC] in
                     paneTabVC?.refocusActivePane()
                 },
-                onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged
+                onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
+                onPerformanceProofReadback: onPerformanceProofReadback
             )
         )
         let sidebarHosting = NSHostingController(

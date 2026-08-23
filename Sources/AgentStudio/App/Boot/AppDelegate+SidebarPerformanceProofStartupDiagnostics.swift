@@ -8,6 +8,14 @@ import AppKit
             return [
                 "agentstudio.startup_diagnostic.sidebar_proof.policy_id": .string(policy.policyID),
                 "agentstudio.startup_diagnostic.sidebar_proof.policy_version": .int(policy.policyVersion),
+                "agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags": .string(
+                    policy.standardTraceTags.joined(separator: ",")),
+                "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags": .string(
+                    policy.diagnosticTraceTags.joined(separator: ",")),
+                "agentstudio.startup_diagnostic.sidebar_proof.idle_populations": .string(
+                    policy.idlePopulationNames.joined(separator: ",")),
+                "agentstudio.startup_diagnostic.sidebar_proof.action_populations": .string(
+                    policy.actionPopulationNames.joined(separator: ",")),
                 "agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent": .double(
                     policy.idleProcessCPUP99MaximumPercent),
                 "agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent": .double(
@@ -37,6 +45,71 @@ import AppKit
                 "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent": .double(
                     policy.maximumDiagnosticInteractionP95GrowthPercent),
             ]
+        }
+
+        func runStrictSidebarCPUPopulationDiagnostic(
+            action: AgentStudioStartupDiagnosticAction
+        ) async {
+            guard let population = SidebarPerformanceProofPopulation(kind: action.kind),
+                let window = mainWindowController?.window
+            else {
+                recordStrictSidebarPopulationResult(action: action, outcome: "failed")
+                return
+            }
+            let session = SidebarPerformanceProofSession(
+                population: population,
+                window: window,
+                recorder: startupTraceRecorder
+            )
+            sidebarPerformanceProofSession = session
+            defer { sidebarPerformanceProofSession = nil }
+
+            let prepared: Bool
+            if population == .zeroPTYIdle {
+                atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)
+                mainWindowController?.expandSidebar()
+                SidebarPerformanceProofFixture.populateRealSizeTopology(
+                    store: store,
+                    repositoryRoot: FileManager.default.homeDirectoryForCurrentUser
+                )
+                SidebarPerformanceProofFixture.populateRealSizePaneFleet(store: store)
+                prepared = true
+            } else {
+                prepared = await prepareSidebarPerformanceProofFixture(action: action) != nil
+            }
+            guard prepared else {
+                recordStrictSidebarPopulationResult(action: action, outcome: "failed")
+                return
+            }
+            AppCommandDispatcher.shared.dispatch(.showWorktreeSidebar)
+            AppCommandDispatcher.shared.dispatch(.setRepoSidebarGroupingRepo)
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.command_exercised",
+                phase: "startup_diagnostic_action",
+                outcome: "ready",
+                attributes: startupDiagnosticTraceAttributes(for: action).merging(
+                    sidebarPerformanceProofPolicyAttributes()
+                ) { _, newValue in newValue }
+            )
+            let succeeded = await session.run()
+            recordStrictSidebarPopulationResult(
+                action: action,
+                outcome: succeeded ? "succeeded" : "failed"
+            )
+        }
+
+        private func recordStrictSidebarPopulationResult(
+            action: AgentStudioStartupDiagnosticAction,
+            outcome: String
+        ) {
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.completed",
+                phase: "startup_diagnostic_action",
+                outcome: outcome,
+                attributes: startupDiagnosticTraceAttributes(for: action).merging(
+                    sidebarPerformanceProofPolicyAttributes()
+                ) { _, newValue in newValue }
+            )
         }
     }
 

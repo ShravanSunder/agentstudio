@@ -127,6 +127,9 @@ extension AppDelegate {
                     await self.runBridgeProductStreamWebKitFeasibilityDiagnostic(action: action)
                 case .sidebarPerformanceProof:
                     await self.runSidebarPerformanceProofDiagnostic(action: action)
+                case .sidebarCPUZeroPTYIdle, .sidebarCPUQuiescentPTYIdle, .sidebarCPUSearchClear,
+                    .sidebarCPUGrouping, .sidebarCPUHideShow, .sidebarCPUTabSwitch:
+                    await self.runStrictSidebarCPUPopulationDiagnostic(action: action)
                 case .repoExplorerKeyMutationProof:
                     await self.runRepoExplorerKeyMutationProofDiagnostic(action: action)
                 case .repoExplorerInteractionProof:
@@ -467,7 +470,7 @@ extension AppDelegate {
             )
         }
 
-        private func prepareSidebarPerformanceProofFixture(
+        func prepareSidebarPerformanceProofFixture(
             action: AgentStudioStartupDiagnosticAction
         ) async -> SidebarPerformanceProofFixture? {
             NSApp.activate(ignoringOtherApps: true)

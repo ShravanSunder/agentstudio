@@ -75,6 +75,9 @@ package enum AppPolicies {
         package static let maximumDiagnosticCPUP95DeltaPercentagePoints: Double = 5
         package static let maximumDiagnosticInteractionP95GrowthPercent: Double = 10
         package static let standardTraceTags = ["performance", "app.startup", "terminal.startup"]
+        package static let diagnosticTraceTags = [
+            "performance", "atoms", "app.startup", "terminal.startup",
+        ]
         package static let idlePopulationNames = ["zero_pty_idle", "quiescent_pty_idle"]
         package static let actionPopulationNames = ["search_clear", "grouping", "hide_show", "tab_switch"]
     }

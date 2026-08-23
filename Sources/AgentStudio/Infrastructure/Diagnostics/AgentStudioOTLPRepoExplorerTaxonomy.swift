@@ -27,6 +27,8 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.sidebar.readback.acknowledged_revision",
         "agentstudio.performance.sidebar.readback.visible_generation",
         "agentstudio.performance.sidebar.readback.represented_row_count",
+        "agentstudio.performance.sidebar.proof.action.sequence",
+        "agentstudio.performance.sidebar.proof.monotonic_ns",
         "agentstudio.performance.repo_explorer.native_table_pilot.baseline_measurement.count",
         "agentstudio.performance.repo_explorer.native_table_pilot.baseline_p95_ms",
         "agentstudio.performance.repo_explorer.native_table_pilot.completed",
@@ -95,6 +97,11 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.sidebar.readback.presentation_state",
         "agentstudio.performance.sidebar.readback.focus_disposition",
         "agentstudio.performance.sidebar.readback.accessibility_disposition",
+        "agentstudio.performance.sidebar.proof.population",
+        "agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags",
+        "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags",
+        "agentstudio.startup_diagnostic.sidebar_proof.idle_populations",
+        "agentstudio.startup_diagnostic.sidebar_proof.action_populations",
         "agentstudio.performance.repo_explorer.native_table_pilot.failure_reason",
         "agentstudio.performance.repo_explorer.native_table_pilot.outcome",
         "agentstudio.performance.repo_explorer.native_table_pilot.policy_id",
@@ -198,6 +205,17 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         switch key {
         case "agentstudio.startup_diagnostic.sidebar_proof.policy_id":
             value == "strict-sidebar-cpu"
+        case "agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags":
+            value == "performance,app.startup,terminal.startup"
+        case "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags":
+            value == "performance,atoms,app.startup,terminal.startup"
+        case "agentstudio.startup_diagnostic.sidebar_proof.idle_populations":
+            value == "zero_pty_idle,quiescent_pty_idle"
+        case "agentstudio.startup_diagnostic.sidebar_proof.action_populations":
+            value == "search_clear,grouping,hide_show,tab_switch"
+        case "agentstudio.performance.sidebar.proof.population":
+            ["zero_pty_idle", "quiescent_pty_idle", "search_clear", "grouping", "hide_show", "tab_switch"]
+                .contains(value)
         case "agentstudio.performance.sidebar.readback.grouping_mode":
             ["repo", "pane", "tab"].contains(value)
         case "agentstudio.performance.sidebar.readback.query_state":

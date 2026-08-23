@@ -38,6 +38,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void = {},
+        onPerformanceProofReadback:
+            @escaping @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void = { _ in },
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
         let window = NSWindow(
@@ -103,6 +105,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             editorChooser: editorChooser,
             performanceTraceRecorder: performanceTraceRecorder,
             onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
+            onPerformanceProofReadback: onPerformanceProofReadback,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         self.splitViewController = splitVC

@@ -32,6 +32,7 @@ package struct RepoExplorerView: View {
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onVisibleWorktreeSnapshotChanged: @MainActor @Sendable (RepoExplorerVisibleWorktreeSnapshot) -> Void
+    let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let initialProjectionSequence: Int
     let onInitialProjectionApplied: @MainActor (Int) -> Void
@@ -54,6 +55,8 @@ package struct RepoExplorerView: View {
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
         onVisibleWorktreeSnapshotChanged:
             @escaping @MainActor @Sendable (RepoExplorerVisibleWorktreeSnapshot) -> Void = { _ in },
+        onPerformanceProofReadback:
+            @escaping @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void = { _ in },
         latestPaneMessageSnapshot: @escaping LatestPaneMessageSnapshot = { _ in nil },
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         recencyNow: @escaping @MainActor @Sendable () -> Date = Date.init,
@@ -75,6 +78,7 @@ package struct RepoExplorerView: View {
         self.onRefocusActivePane = onRefocusActivePane
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
         self.onVisibleWorktreeSnapshotChanged = onVisibleWorktreeSnapshotChanged
+        self.onPerformanceProofReadback = onPerformanceProofReadback
         self.latestPaneMessageSnapshot = latestPaneMessageSnapshot
         self.performanceTraceRecorder = performanceTraceRecorder
         _projectionAdapter = State(
@@ -362,6 +366,7 @@ package struct RepoExplorerView: View {
                 focusDisposition: focusedField == .filter ? .filterFocused : .notFocused
             )
         else { return }
+        onPerformanceProofReadback(readback)
         performanceTraceRecorder?.record(
             .sidebarProjection,
             attributes: [

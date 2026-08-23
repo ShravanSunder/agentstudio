@@ -114,6 +114,9 @@ extension AppDelegate {
             onSidebarVisibleWorktreesChanged: { [weak workspaceSurfaceCoordinator] in
                 workspaceSurfaceCoordinator?.scheduleSidebarVisibleWorktreesUpdate()
             },
+            onPerformanceProofReadback: { [weak self] readback in
+                self?.receiveSidebarPerformanceProofReadback(readback)
+            },
             closeTransitionCoordinator: dependencies.closeTransitionCoordinator
         )
         workspaceSurfaceCoordinator.bindBridgePaneActivities(
@@ -123,5 +126,15 @@ extension AppDelegate {
             toOwningWindowId: workspaceWindowId
         )
         return mainWindowController
+    }
+
+    private func receiveSidebarPerformanceProofReadback(
+        _ readback: RepoExplorerPerformanceProofReadback
+    ) {
+        #if DEBUG
+            sidebarPerformanceProofSession?.receive(readback)
+        #else
+            _ = readback
+        #endif
     }
 }

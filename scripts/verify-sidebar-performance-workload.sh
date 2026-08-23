@@ -359,7 +359,7 @@ query_victoria_metrics() {
 }
 
 strict_sidebar_policy_query() {
-  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic_action.completed agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent | limit 1'
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic_action.command_exercised agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent | limit 1'
 }
 
 load_strict_sidebar_policy() {
@@ -383,6 +383,474 @@ load_strict_sidebar_policy() {
 positive_quiescence() {
   local unchanged_seconds="${1:?missing unchanged-second count}"
   [ "$unchanged_seconds" -ge 5 ]
+}
+
+parse_strict_sidebar_policy() {
+  local policy_file="${1:?missing policy file}"
+  local environment_file="${2:?missing policy environment file}"
+  /usr/bin/python3 - "$policy_file" "$environment_file" <<'PY'
+import json, pathlib, shlex, sys
+records = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
+if len(records) != 1:
+    raise SystemExit(f"strict policy requires exactly one record, got {len(records)}")
+record = records[0]
+prefix = "agentstudio.startup_diagnostic.sidebar_proof."
+mapping = {
+    "STRICT_POLICY_ID": "policy_id",
+    "STRICT_POLICY_VERSION": "policy_version",
+    "STRICT_POLICY_IDLE_P99": "idle_p99_max_percent",
+    "STRICT_POLICY_ACTION_P95": "action_p95_max_percent",
+    "STRICT_POLICY_SAMPLE_INTERVAL_MS": "sample_interval_ms",
+    "STRICT_POLICY_IDLE_SAMPLE_FLOOR": "idle_sample_floor",
+    "STRICT_POLICY_ACTION_COUNT_FLOOR": "action_count_floor",
+    "STRICT_POLICY_ACTION_SAMPLE_FLOOR": "action_sample_floor",
+    "STRICT_POLICY_QUIESCENCE_MS": "quiescence_interval_ms",
+    "STRICT_POLICY_READBACK_TIMEOUT_MS": "readback_timeout_ms",
+    "STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS": "sampler_gap_max_ms",
+    "STRICT_POLICY_HOST_CPU_MAX": "unrelated_host_cpu_max_percent",
+    "STRICT_POLICY_DIAGNOSTIC_CPU_DELTA_MAX": "diagnostic_cpu_delta_max_points",
+    "STRICT_POLICY_DIAGNOSTIC_INTERACTION_GROWTH_MAX": "diagnostic_interaction_growth_max_percent",
+    "STRICT_POLICY_STANDARD_TRACE_TAGS": "standard_trace_tags",
+    "STRICT_POLICY_DIAGNOSTIC_TRACE_TAGS": "diagnostic_trace_tags",
+    "STRICT_POLICY_IDLE_POPULATIONS": "idle_populations",
+    "STRICT_POLICY_ACTION_POPULATIONS": "action_populations",
+}
+values = {}
+for variable, suffix in mapping.items():
+    value = record.get(prefix + suffix)
+    if value is None:
+        raise SystemExit(f"strict policy missing {suffix}")
+    values[variable] = str(value)
+values["STRICT_POLICY_IDLE_POPULATIONS"] = values["STRICT_POLICY_IDLE_POPULATIONS"].replace(",", " ")
+values["STRICT_POLICY_ACTION_POPULATIONS"] = values["STRICT_POLICY_ACTION_POPULATIONS"].replace(",", " ")
+pathlib.Path(sys.argv[2]).write_text("".join(f"{key}={shlex.quote(value)}\n" for key, value in values.items()))
+PY
+}
+
+nearest_rank_percentile() {
+  local samples_file="${1:?missing samples file}"
+  local percentile="${2:?missing percentile}"
+  /usr/bin/python3 - "$samples_file" "$percentile" <<'PY'
+import math, pathlib, sys
+values = sorted(float(line.split()[-1]) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip())
+if not values: raise SystemExit("population has no usable samples")
+rank = max(1, math.ceil(len(values) * float(sys.argv[2])))
+print(values[rank - 1])
+PY
+}
+
+validate_strict_host_envelope() {
+  local artifact="${1:?missing population artifact}"
+  {
+    /usr/bin/pmset -g batt
+    /usr/bin/pmset -g custom
+    /usr/bin/pmset -g therm
+    /usr/bin/memory_pressure -Q
+    /usr/sbin/sysctl kern.memorystatus_vm_pressure_level vm.swapusage vm.compressor_mode
+  } >"$artifact/host-envelope.txt"
+  /bin/ps -axo pid=,ppid=,%cpu=,command= >"$artifact/processes.txt"
+  grep -q "AC Power" "$artifact/host-envelope.txt" || return 1
+  ! grep -Eq 'Low Power Mode[^0-9]*1' "$artifact/host-envelope.txt" || return 1
+  grep -q 'No thermal warning level has been recorded' "$artifact/host-envelope.txt" || return 1
+  grep -Eq 'kern.memorystatus_vm_pressure_level:[[:space:]]*1$' "$artifact/host-envelope.txt" || return 1
+  /usr/bin/python3 - "$artifact/processes.txt" "$APP_PID" "$STRICT_POLICY_HOST_CPU_MAX" \
+    "$artifact/unrelated-host-cpu.txt" "$artifact/forbidden-processes.txt" <<'PY'
+import pathlib, re, sys
+
+process_path, app_pid, maximum_cpu, cpu_path, forbidden_path = sys.argv[1:]
+maximum_cpu = float(maximum_cpu)
+forbidden_pattern = re.compile(
+    r"(?:^|[ /])(codex|claude|gemini)(?:[ /]|$)|swift-frontend|swiftc|xcodebuild|"
+    r"Instruments|spindump|(?:^|[ /])sample(?:[ /]|$)|mise run (?:test|build)",
+    re.IGNORECASE,
+)
+unrelated_cpu = 0.0
+forbidden = []
+for line in pathlib.Path(process_path).read_text().splitlines():
+    fields = line.strip().split(maxsplit=3)
+    if len(fields) != 4 or not fields[0].isdigit():
+        continue
+    pid, _, raw_cpu, command = fields
+    if pid == app_pid:
+        continue
+    try:
+        unrelated_cpu += float(raw_cpu)
+    except ValueError:
+        raise SystemExit(f"invalid host CPU value for pid {pid}: {raw_cpu}")
+    if forbidden_pattern.search(command):
+        forbidden.append(f"{pid} {command}")
+pathlib.Path(cpu_path).write_text(f"{unrelated_cpu}\n")
+pathlib.Path(forbidden_path).write_text("\n".join(forbidden) + ("\n" if forbidden else ""))
+if unrelated_cpu > maximum_cpu:
+    raise SystemExit(f"unrelated host CPU {unrelated_cpu} exceeds {maximum_cpu}")
+if forbidden:
+    raise SystemExit(f"forbidden concurrent processes: {len(forbidden)}")
+PY
+}
+
+record_strict_cpu_sample() {
+  local samples="${1:?missing samples file}"
+  local sample_interval_seconds cpu_value started_ns ended_ns
+  sample_interval_seconds="$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
+    "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
+  started_ns="$(/usr/bin/python3 -c 'import time; print(time.monotonic_ns())')"
+  cpu_value="$(/usr/bin/top -l 2 -s "$sample_interval_seconds" -pid "$APP_PID" -stats pid,cpu \
+    | awk -v pid="$APP_PID" '$1 == pid { value=$2 } END { if (value != "") print value }')"
+  [ -n "$cpu_value" ] || return 1
+  ended_ns="$(/usr/bin/python3 -c 'import time; print(time.monotonic_ns())')"
+  printf '%s %s %s\n' "$started_ns" "$ended_ns" "$cpu_value" >>"$samples"
+}
+
+validate_strict_sampler_gaps() {
+  local samples="${1:?missing samples file}"
+  /usr/bin/python3 - "$samples" "$STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS" <<'PY'
+import pathlib, sys
+
+timestamps = [int(line.split()[0]) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
+maximum_gap_ns = float(sys.argv[2]) * 1_000_000
+for prior, current in zip(timestamps, timestamps[1:]):
+    if current <= prior or current - prior > maximum_gap_ns:
+        raise SystemExit(f"sampler_gap={current - prior}")
+PY
+}
+
+start_strict_action_sampler() {
+  local population="${1:?missing population}"
+  local population_artifact="$ARTIFACT/populations/$population"
+  local raw_samples="$population_artifact/cpu.raw.samples"
+  local stop_file="$population_artifact/stop-sampler"
+  : >"$raw_samples"
+  /bin/rm -f -- "$stop_file"
+  (
+    while [ ! -f "$stop_file" ]; do
+      record_strict_cpu_sample "$raw_samples"
+    done
+  ) &
+  CPU_SAMPLER_PID=$!
+}
+
+validate_strict_zero_loss() {
+  local summary="${1:?missing population summary}"
+  grep -q '^trace_queue_dropped_record_count=0$' "$summary"
+  grep -q '^runtime_delivery_dropped_count=0$' "$summary"
+  grep -q '^collector_loss_count=0$' "$summary"
+}
+
+capture_strict_population_loss() {
+  local summary="${1:?missing population summary}"
+  local population="${2:?missing population}"
+  local marker_selector
+  marker_selector="$(metric_label_selector "$TRACE_MARKER")"
+  local trace_loss runtime_loss required_record_loss
+  trace_loss="$(metric_value_or_empty "max(agentstudio_performance_trace_queue_dropped_record_count{agent.proof.marker=\"$marker_selector\"})")"
+  runtime_loss="$(metric_value_or_empty "max(agentstudio_performance_runtime_delivery_runtime_channel_outbound_dropped_count{agent.proof.marker=\"$marker_selector\"}) + max(agentstudio_performance_runtime_delivery_eventbus_live_dropped_count{agent.proof.marker=\"$marker_selector\"}) + max(agentstudio_performance_runtime_delivery_eventbus_replay_dropped_count{agent.proof.marker=\"$marker_selector\"})")"
+  [ -n "$trace_loss" ] || return 1
+  runtime_loss="${runtime_loss:-0}"
+  required_record_loss="$(strict_required_record_loss "$population")"
+  {
+    echo "trace_queue_dropped_record_count=$trace_loss"
+    echo "runtime_delivery_dropped_count=$runtime_loss"
+    echo "collector_loss_count=$required_record_loss"
+  } >"$summary"
+}
+
+wait_for_positive_quiescence() {
+  local marker="${1:?missing marker}"
+  local required_unchanged=$((STRICT_POLICY_QUIESCENCE_MS / STRICT_POLICY_SAMPLE_INTERVAL_MS))
+  local prior="" unchanged=0 signature
+  while [ "$unchanged" -lt "$required_unchanged" ]; do
+    signature="$(query_victoria_metrics "sum(agentstudio_performance_events_total{agent.proof.marker=\"$(metric_label_selector "$marker")\",event=~\"performance.repo_explorer.keyed_wake|performance.sidebar.projection\"})")"
+    if [ "$signature" = "$prior" ]; then unchanged=$((unchanged + 1)); else unchanged=0; prior="$signature"; fi
+    /bin/sleep "$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
+  done
+}
+
+begin_strict_population() {
+  local population="${1:?missing population}"
+  local selector="${2:?missing diagnostic selector}"
+  local trace_tags="${3:-$STRICT_POLICY_STANDARD_TRACE_TAGS}"
+  local population_artifact="$ARTIFACT/populations/$population"
+  mkdir -p "$population_artifact"
+  reset_disposable_debug_root
+  TRACE_MARKER="$(opaque_trace_marker "${TRACE_NAME}-${population}" "$(/usr/bin/uuidgen)")"
+  STATE_FILE="$population_artifact/debug-observability.env"
+  env AGENTSTUDIO_TRACE_FLUSH=immediate \
+    AGENTSTUDIO_TRACE_TAGS="$trace_tags" \
+    AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
+    AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION="$selector" \
+    AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
+    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
+  for _ in $(seq 1 60); do [ -s "$STATE_FILE" ] && break; /bin/sleep 1; done
+  [ -s "$STATE_FILE" ] || return 1
+  APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
+  load_strict_sidebar_policy "$population_artifact/projected-policy.jsonl"
+  echo "$TRACE_MARKER" >"$population_artifact/marker.txt"
+  echo "$APP_PID" >"$population_artifact/pid.txt"
+  validate_strict_host_envelope "$population_artifact" || {
+    echo "population_invalidated=host_envelope" >"$population_artifact/invalid.env"
+    return 1
+  }
+  if printf '%s\n' "$STRICT_POLICY_ACTION_POPULATIONS" | grep -qw "$population" \
+    || [ "$population" = "grouping_diagnostic" ]
+  then
+    start_strict_action_sampler "$population"
+  fi
+  wait_for_positive_quiescence "$TRACE_MARKER"
+}
+
+sample_strict_idle_population() {
+  local population="${1:?missing population}"
+  local samples="$ARTIFACT/populations/$population/cpu.samples"
+  : >"$samples"
+  while [ "$(wc -l <"$samples")" -lt "$STRICT_POLICY_IDLE_SAMPLE_FLOOR" ]; do
+    record_strict_cpu_sample "$samples"
+  done
+  validate_strict_sampler_gaps "$samples"
+}
+
+drive_strict_action_population() {
+  local population="${1:?missing population}"
+  local marker="$TRACE_MARKER"
+  local population_artifact="$ARTIFACT/populations/$population"
+  local raw_samples="$population_artifact/cpu.raw.samples"
+  local samples="$population_artifact/cpu.samples"
+  local records="$population_artifact/action-records.jsonl"
+  local terminal_query='{service.name="AgentStudio",dev.runtime.flavor="debug"} agent.proof.marker:"'"$marker"'" _msg:performance.sidebar.proof_population.completed | fields _msg,agentstudio.performance.sidebar.proof.action.sequence | limit 1'
+  local response=""
+  while [ -z "$response" ]; do
+    kill -0 "$APP_PID" || return 1
+    response="$(curl --silent --show-error --max-time 5 "$LOGS_QUERY_URL" --data-urlencode "query=$terminal_query")"
+    [ -n "$response" ] || /bin/sleep 1
+  done
+  printf '%s\n' "$response" >"$population_artifact/action-terminal.jsonl"
+  : >"$population_artifact/stop-sampler"
+  wait "$CPU_SAMPLER_PID"
+  CPU_SAMPLER_PID=""
+  query_strict_action_records "$marker" "$records"
+  classify_strict_action_samples "$raw_samples" "$records" "$samples"
+  validate_strict_sampler_gaps "$raw_samples"
+}
+
+query_strict_action_records() {
+  local marker="${1:?missing marker}"
+  local output="${2:?missing output file}"
+  local query='{service.name="AgentStudio",dev.runtime.flavor="debug"} agent.proof.marker:"'"$marker"'" (_msg:performance.sidebar.proof_action.started OR _msg:performance.sidebar.proof_action.settled OR _msg:performance.sidebar.proof_action.failed OR _msg:performance.sidebar.proof_population.completed) | fields _msg,agentstudio.performance.sidebar.proof.action.sequence,agentstudio.performance.sidebar.proof.monotonic_ns | limit 1000'
+  curl --fail --silent --show-error --max-time 10 "$LOGS_QUERY_URL" \
+    --data-urlencode "query=$query" >"$output"
+  /usr/bin/python3 - "$output" "$STRICT_POLICY_ACTION_COUNT_FLOOR" \
+    "$STRICT_POLICY_ACTION_SAMPLE_FLOOR" <<'PY'
+import json, pathlib, sys
+
+path = pathlib.Path(sys.argv[1])
+required = max(int(float(sys.argv[2])), int(float(sys.argv[3])))
+records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+by_sequence = {}
+completed = []
+for record in records:
+    message = record.get("_msg")
+    sequence = int(float(record.get("agentstudio.performance.sidebar.proof.action.sequence", 0)))
+    if message == "performance.sidebar.proof_population.completed":
+        completed.append(sequence)
+        continue
+    if message == "performance.sidebar.proof_action.failed":
+        raise SystemExit(f"action population contains failed sequence {sequence}")
+    if message not in {
+        "performance.sidebar.proof_action.started",
+        "performance.sidebar.proof_action.settled",
+    }:
+        continue
+    timestamp = int(float(record.get("agentstudio.performance.sidebar.proof.monotonic_ns", 0)))
+    events = by_sequence.setdefault(sequence, {})
+    if message in events:
+        raise SystemExit(f"duplicate action record {sequence} {message}")
+    events[message] = timestamp
+if completed != [required]:
+    raise SystemExit(f"action population terminal did not satisfy both floors: {completed}")
+if sorted(by_sequence) != list(range(1, required + 1)):
+    raise SystemExit("action sequence is incomplete or out of order")
+prior_settlement = 0
+for sequence in range(1, required + 1):
+    events = by_sequence[sequence]
+    if set(events) != {
+        "performance.sidebar.proof_action.started",
+        "performance.sidebar.proof_action.settled",
+    }:
+        raise SystemExit(f"action sequence {sequence} lacks a complete pair")
+    started = events["performance.sidebar.proof_action.started"]
+    settled = events["performance.sidebar.proof_action.settled"]
+    if started <= prior_settlement or settled <= started:
+        raise SystemExit(f"action sequence {sequence} overlaps or is non-monotonic")
+    prior_settlement = settled
+PY
+}
+
+classify_strict_action_samples() {
+  local raw_samples="${1:?missing raw samples}"
+  local records="${2:?missing action records}"
+  local samples="${3:?missing classified samples}"
+  /usr/bin/python3 - "$raw_samples" "$records" "$samples" \
+    "$STRICT_POLICY_ACTION_SAMPLE_FLOOR" <<'PY'
+import json, pathlib, sys
+
+raw_path, records_path, output_path, minimum = sys.argv[1:]
+minimum = int(float(minimum))
+actions = {}
+for line in pathlib.Path(records_path).read_text().splitlines():
+    if not line.strip():
+        continue
+    record = json.loads(line)
+    message = record.get("_msg")
+    if message not in {
+        "performance.sidebar.proof_action.started",
+        "performance.sidebar.proof_action.settled",
+    }:
+        continue
+    sequence = int(float(record["agentstudio.performance.sidebar.proof.action.sequence"]))
+    actions.setdefault(sequence, {})[message] = int(
+        float(record["agentstudio.performance.sidebar.proof.monotonic_ns"])
+    )
+intervals = [
+    (events["performance.sidebar.proof_action.started"], events["performance.sidebar.proof_action.settled"])
+    for _, events in sorted(actions.items())
+]
+retained = []
+covered_actions = set()
+for line in pathlib.Path(raw_path).read_text().splitlines():
+    if not line.strip():
+        continue
+    fields = line.split()
+    if len(fields) != 3:
+        raise SystemExit(f"malformed CPU sample: {line}")
+    sample_start, sample_end = map(int, fields[:2])
+    if sample_end <= sample_start:
+        raise SystemExit(f"partial CPU sample: {line}")
+    overlaps = {
+        index for index, (action_start, action_end) in enumerate(intervals)
+        if sample_start < action_end and sample_end > action_start
+    }
+    if overlaps:
+        retained.append(line)
+        covered_actions.update(overlaps)
+if len(covered_actions) != len(intervals):
+    raise SystemExit("one or more actions had no action-bearing CPU interval")
+if len(retained) < minimum:
+    raise SystemExit("action population terminal did not satisfy both floors")
+pathlib.Path(output_path).write_text("\n".join(retained) + "\n")
+PY
+}
+
+strict_required_record_loss() {
+  local population="${1:?missing population}"
+  local marker="${TRACE_MARKER:?missing marker}"
+  if printf '%s\n' "$STRICT_POLICY_ACTION_POPULATIONS" | grep -qw "$population" \
+    || [ "$population" = "grouping_diagnostic" ]
+  then
+    local records="$ARTIFACT/populations/$population/action-records.jsonl"
+    [ -s "$records" ] || return 1
+    # Exact started/settled/terminal validation proves the required records
+    # traversed the app exporter and collector into VictoriaLogs.
+    printf '0\n'
+    return
+  fi
+  local ready_query='{service.name="AgentStudio",dev.runtime.flavor="debug"} agent.proof.marker:"'"$marker"'" _msg:performance.sidebar.proof_population.ready | fields _msg | limit 2'
+  local ready_count
+  ready_count="$(curl --fail --silent --show-error --max-time 10 "$LOGS_QUERY_URL" \
+    --data-urlencode "query=$ready_query" | /usr/bin/python3 -c 'import sys; print(sum(1 for line in sys.stdin if line.strip()))')"
+  [ "$ready_count" = "1" ] || return 1
+  printf '0\n'
+}
+
+validate_strict_population() {
+  local population="${1:?missing population}"
+  local samples="$ARTIFACT/populations/$population/cpu.samples"
+  local percentile limit
+  if printf '%s\n' "$STRICT_POLICY_IDLE_POPULATIONS" | grep -qw "$population"; then
+    percentile="$(nearest_rank_percentile "$samples" 0.99)"; limit="$STRICT_POLICY_IDLE_P99"
+  else
+    percentile="$(nearest_rank_percentile "$samples" 0.95)"; limit="$STRICT_POLICY_ACTION_P95"
+  fi
+  /usr/bin/python3 - "$percentile" "$limit" <<'PY'
+import sys
+value, limit = map(float, sys.argv[1:])
+if value >= limit: raise SystemExit(f"population CPU percentile {value} must be below {limit}")
+PY
+  validate_strict_sampler_gaps "$samples"
+  # no sample replacement or trimming: every retained sample belongs to this marker and PID.
+}
+
+validate_strict_perturbation_pair() {
+  local standard_cpu="${1:?missing standard cpu p95}" diagnostic_cpu="${2:?missing diagnostic cpu p95}"
+  local standard_interaction="${3:?missing standard interaction p95}" diagnostic_interaction="${4:?missing diagnostic interaction p95}"
+  /usr/bin/python3 - "$standard_cpu" "$diagnostic_cpu" "$standard_interaction" "$diagnostic_interaction" \
+    "$STRICT_POLICY_DIAGNOSTIC_CPU_DELTA_MAX" "$STRICT_POLICY_DIAGNOSTIC_INTERACTION_GROWTH_MAX" <<'PY'
+import sys
+s_cpu, d_cpu, s_time, d_time, cpu_limit, time_limit = map(float, sys.argv[1:])
+if d_cpu - s_cpu > cpu_limit: raise SystemExit("diagnostic CPU perturbation exceeded")
+if s_time <= 0 or ((d_time - s_time) / s_time * 100) > time_limit: raise SystemExit("diagnostic interaction perturbation exceeded")
+PY
+}
+
+strict_interaction_p95_ms() {
+  local marker="${1:?missing marker}"
+  local output="${2:?missing interaction output}"
+  local query='{service.name="AgentStudio",dev.runtime.flavor="debug"} agent.proof.marker:"'"$marker"'" (_msg:performance.sidebar.proof_action.started OR _msg:performance.sidebar.proof_action.settled) | fields _msg,agentstudio.performance.sidebar.proof.action.sequence,agentstudio.performance.sidebar.proof.monotonic_ns | limit 1000'
+  curl --silent --show-error --max-time 10 "$LOGS_QUERY_URL" --data-urlencode "query=$query" >"$output"
+  /usr/bin/python3 - "$output" <<'PY'
+import json, math, pathlib, sys
+times = {}
+for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
+    if not line.strip(): continue
+    record = json.loads(line); sequence = record.get("agentstudio.performance.sidebar.proof.action.sequence")
+    timestamp = record.get("agentstudio.performance.sidebar.proof.monotonic_ns")
+    if sequence is None or timestamp is None: continue
+    times.setdefault(int(sequence), {})[record.get("_msg")] = int(timestamp)
+durations = sorted((pair["performance.sidebar.proof_action.settled"] - pair["performance.sidebar.proof_action.started"]) / 1_000_000 for pair in times.values() if len(pair) == 2)
+if not durations: raise SystemExit("missing complete interaction pairs")
+print(durations[math.ceil(len(durations) * .95) - 1])
+PY
+}
+
+run_strict_sidebar_cpu_populations() {
+  local policy_environment="$ARTIFACT/strict-sidebar-policy.env"
+  parse_strict_sidebar_policy "$STRICT_SIDEBAR_POLICY_FILE" "$policy_environment"
+  # shellcheck disable=SC1090
+  source "$policy_environment"
+  local specifications=(
+    "zero_pty_idle:sidebar-cpu-zero-pty-idle" "quiescent_pty_idle:sidebar-cpu-quiescent-pty-idle"
+    "search_clear:sidebar-cpu-search-clear" "grouping:sidebar-cpu-grouping"
+    "hide_show:sidebar-cpu-hide-show" "tab_switch:sidebar-cpu-tab-switch"
+  )
+  local specification population selector
+  for specification in "${specifications[@]}"; do
+    population="${specification%%:*}"; selector="${specification#*:}"
+    begin_strict_population "$population" "$selector"
+    if printf '%s\n' "$STRICT_POLICY_IDLE_POPULATIONS" | grep -qw "$population"; then
+      sample_strict_idle_population "$population"
+    else
+      drive_strict_action_population "$population"
+    fi
+    validate_strict_population "$population"
+    capture_strict_population_loss "$ARTIFACT/populations/$population/loss.env" "$population"
+    validate_strict_zero_loss "$ARTIFACT/populations/$population/loss.env"
+    stop_pid "$APP_PID"; APP_PID=""
+  done
+  local standard_cpu standard_interaction diagnostic_cpu diagnostic_interaction
+  standard_cpu="$(nearest_rank_percentile "$ARTIFACT/populations/grouping/cpu.samples" 0.95)"
+  standard_interaction="$(strict_interaction_p95_ms \
+    "$(cat "$ARTIFACT/populations/grouping/marker.txt")" \
+    "$ARTIFACT/populations/grouping/interaction-records.jsonl")"
+  begin_strict_population "grouping_diagnostic" "sidebar-cpu-grouping" \
+    "$STRICT_POLICY_DIAGNOSTIC_TRACE_TAGS"
+  drive_strict_action_population "grouping_diagnostic"
+  diagnostic_cpu="$(nearest_rank_percentile "$ARTIFACT/populations/grouping_diagnostic/cpu.samples" 0.95)"
+  diagnostic_interaction="$(strict_interaction_p95_ms "$TRACE_MARKER" \
+    "$ARTIFACT/populations/grouping_diagnostic/interaction-records.jsonl")"
+  validate_strict_perturbation_pair "$standard_cpu" "$diagnostic_cpu" \
+    "$standard_interaction" "$diagnostic_interaction"
+  capture_strict_population_loss "$ARTIFACT/populations/grouping_diagnostic/loss.env" \
+    "grouping_diagnostic"
+  validate_strict_zero_loss "$ARTIFACT/populations/grouping_diagnostic/loss.env"
+  stop_pid "$APP_PID"; APP_PID=""
 }
 
 metric_result_count() {
@@ -1128,6 +1596,13 @@ AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
 STRICT_SIDEBAR_POLICY_FILE="$ARTIFACT/strict-sidebar-policy.jsonl"
 load_strict_sidebar_policy "$STRICT_SIDEBAR_POLICY_FILE"
 APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
+if [ "$mode" = "sidebar-proof" ]; then
+  stop_pid "$APP_PID"
+  APP_PID=""
+  run_strict_sidebar_cpu_populations
+  echo "strict sidebar CPU populations passed: $ARTIFACT"
+  exit 0
+fi
 CPU_SAMPLES_FILE="$ARTIFACT/process-cpu-percent.txt"
 : >"$CPU_SAMPLES_FILE"
 sample_process_cpu "$APP_PID" "$CPU_SAMPLES_FILE" &
