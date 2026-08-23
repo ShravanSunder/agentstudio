@@ -6,6 +6,7 @@ import {
 	reviewTreeReachablePathScrollTopMap,
 	waitForVisibleReviewTreeFilePath,
 } from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
+import { verifyAnnotationOutputCaptures } from './bridge-viewer-vite-annotation-output-capture.ts';
 import type {
 	BridgeViewerOwnedViteProductServer,
 	BridgeViewerViteProductFixtureOracle,
@@ -46,6 +47,12 @@ export interface AnnotationSaveJourneyObservations {
 	readonly committedBodyCountWhileProjectionGated: number;
 }
 
+interface ReleasedDraftReloadJourneyObservations {
+	readonly reloadedCollapsedDraftCount: number;
+	readonly reloadedDraftLabelCount: number;
+	readonly removedDraftCount: number;
+}
+
 export function registerBridgeViewerViteAnnotationSaveJourneyTests(props: {
 	readonly oracle: () => BridgeViewerViteProductFixtureOracle;
 	readonly server: () => BridgeViewerOwnedViteProductServer;
@@ -69,6 +76,86 @@ export function registerBridgeViewerViteAnnotationSaveJourneyTests(props: {
 			expect(observations.reloadedSavedMessageCount).toBe(1);
 		},
 	);
+
+	test('restores a released Review root draft after a full document reload', async () => {
+		const observations = await runReleasedDraftReloadJourney({
+			oracle: props.oracle(),
+			server: props.server(),
+		});
+
+		expect(observations.reloadedCollapsedDraftCount).toBe(1);
+		expect(observations.reloadedDraftLabelCount).toBeGreaterThan(0);
+		expect(observations.removedDraftCount).toBe(0);
+	});
+}
+
+async function runReleasedDraftReloadJourney(props: {
+	readonly oracle: BridgeViewerViteProductFixtureOracle;
+	readonly server: BridgeViewerOwnedViteProductServer;
+}): Promise<ReleasedDraftReloadJourneyObservations> {
+	const browser = await chromium.launch({ channel: 'chrome', headless: true });
+	let page: Page | null = null;
+	try {
+		page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+		const reviewFile = props.oracle.reviewFiles[0];
+		if (reviewFile === undefined) {
+			throw new Error('Review released-draft journey requires a changed review file.');
+		}
+		await page.goto(bridgeViewerViteProductReviewUrl(props.server.origin), {
+			timeout: annotationSaveJourneyTimeoutMilliseconds,
+			waitUntil: 'domcontentloaded',
+		});
+		await selectReviewFile({ page, path: reviewFile.path });
+		await waitForSelectedReviewReady({ itemId: reviewFile.itemId, page });
+		await selectRangeForAnnotation({ endLine: 5, page, startLine: 2, surface: 'review' });
+
+		const rootCreateCommitted = waitForCommittedAnnotationCommand(page, 'root.create', 'review');
+		const draftBody = 'Released Review draft survives document reload.';
+		const composer = page.getByRole('textbox', { name: 'Write an annotation in Markdown' });
+		await composer.fill(draftBody);
+		await rootCreateCommitted;
+		await page
+			.locator('[data-testid="worktree-annotation-message"][data-annotation-draft="present"]')
+			.waitFor({ state: 'visible', timeout: annotationProjectionResponseTimeoutMilliseconds });
+
+		const releaseCommitted = waitForCommittedAnnotationCommand(
+			page,
+			'draft.edit.release',
+			'review',
+			annotationProjectionResponseTimeoutMilliseconds,
+		);
+		await composer.press('Escape');
+		await releaseCommitted;
+
+		await page.reload({
+			timeout: annotationSaveJourneyTimeoutMilliseconds,
+			waitUntil: 'domcontentloaded',
+		});
+		await waitForSelectedReviewReady({ itemId: reviewFile.itemId, page });
+		const reloadedDraft = page.getByText(draftBody, { exact: true });
+		await reloadedDraft.waitFor({
+			state: 'visible',
+			timeout: annotationProjectionResponseTimeoutMilliseconds,
+		});
+		const reloadedCollapsedDraftCount = await reloadedDraft.count();
+		const reloadedDraftLabelCount = await page.getByText('Draft', { exact: true }).count();
+
+		await reloadedDraft.click();
+		await page.getByRole('button', { name: 'Revert draft' }).click();
+		await reloadedDraft.waitFor({
+			state: 'hidden',
+			timeout: annotationProjectionResponseTimeoutMilliseconds,
+		});
+
+		return {
+			reloadedCollapsedDraftCount,
+			reloadedDraftLabelCount,
+			removedDraftCount: await reloadedDraft.count(),
+		};
+	} finally {
+		await page?.close();
+		await browser.close();
+	}
 }
 
 export async function runAnnotationSaveJourney(props: {
@@ -111,7 +198,7 @@ export async function runAnnotationSaveJourney(props: {
 			'root.create',
 			props.surface,
 		);
-		const savedBody = 'Save must settle from its exact command receipt.';
+		const savedBody = `${props.surface === 'file' ? 'File' : 'Review'} Save must settle from its exact command receipt.`;
 		await page.getByRole('textbox', { name: 'Write an annotation in Markdown' }).fill(savedBody);
 		await rootCreateCommitted;
 		await page
@@ -201,7 +288,13 @@ export async function runAnnotationSaveJourney(props: {
 			state: 'visible',
 			timeout: annotationProjectionResponseTimeoutMilliseconds,
 		});
-		await verifyDurableHistoryAndUnhandle(page);
+		await verifyAnnotationOutputCaptures({
+			dataRootPath: props.oracle.dataRootPath,
+			page,
+			savedBody,
+			timeoutMilliseconds: annotationProjectionResponseTimeoutMilliseconds,
+			worktreeRoot: props.oracle.worktreeRoot,
+		});
 
 		return {
 			committedBodyCountWhileProjectionGated,
@@ -294,44 +387,6 @@ async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<
 		throw new Error('Annotation lifecycle telemetry completed without a stage count');
 	}
 	return completedStageCount;
-}
-
-async function verifyDurableHistoryAndUnhandle(page: Page): Promise<void> {
-	await page.getByRole('button', { name: 'Share comments' }).press('Enter');
-	const newScope = page.locator('[aria-label^="New comments, "]');
-	await newScope.waitFor({
-		state: 'visible',
-		timeout: annotationProjectionResponseTimeoutMilliseconds,
-	});
-	await page.getByRole('button', { name: 'Copy Markdown' }).press('Enter');
-	await page
-		.getByRole('region', { name: 'Share comments' })
-		.waitFor({ state: 'hidden', timeout: annotationProjectionResponseTimeoutMilliseconds });
-
-	await page.getByRole('button', { name: 'Share comments' }).press('Enter');
-	const history = page.getByRole('button', { name: /^History \([1-9][0-9]*\)$/ });
-	await history.waitFor({
-		state: 'visible',
-		timeout: annotationProjectionResponseTimeoutMilliseconds,
-	});
-	await history.press('Enter');
-	await page
-		.getByRole('region', { name: 'Output history' })
-		.getByRole('button', { name: 'Mark as not handled' })
-		.first()
-		.press('Enter');
-	await page.waitForFunction(
-		(): boolean => {
-			const label = document
-				.querySelector('[aria-label^="New comments, "]')
-				?.getAttribute('aria-label');
-			if (label === undefined || label === null) return false;
-			const count = Number(label.slice('New comments, '.length));
-			return Number.isInteger(count) && count > 0;
-		},
-		undefined,
-		{ timeout: annotationProjectionResponseTimeoutMilliseconds },
-	);
 }
 
 async function annotationProjectionUiDiagnostic(page: Page): Promise<{
@@ -524,7 +579,7 @@ function isUnknownRecord(value: unknown): value is Readonly<Record<string, unkno
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-async function waitForSelectedReviewReady(props: {
+export async function waitForSelectedReviewReady(props: {
 	readonly itemId: string;
 	readonly page: Page;
 }): Promise<void> {
@@ -555,7 +610,7 @@ async function waitForSelectedReviewReady(props: {
 	);
 }
 
-async function selectReviewFile(props: {
+export async function selectReviewFile(props: {
 	readonly page: Page;
 	readonly path: string;
 }): Promise<void> {
@@ -691,12 +746,13 @@ async function settleBrowserFrames(page: Page, frameCount: number): Promise<void
 
 async function waitForCommittedAnnotationCommand(
 	page: Page,
-	operationKind: 'draft.save' | 'root.create',
+	operationKind: 'draft.edit.release' | 'draft.save' | 'root.create',
 	surface: 'file' | 'review',
+	timeoutMilliseconds = annotationSaveJourneyTimeoutMilliseconds,
 ): Promise<void> {
 	const response = await page.waitForResponse(
 		(candidate): boolean => isAnnotationCommandResponse(candidate, operationKind, surface),
-		{ timeout: annotationSaveJourneyTimeoutMilliseconds },
+		{ timeout: timeoutMilliseconds },
 	);
 	const body: unknown = await response.json();
 	if (
@@ -738,7 +794,7 @@ async function waitForAnnotationProjectionContentResponse(page: Page): Promise<v
 
 function isAnnotationCommandResponse(
 	response: Response,
-	operationKind: 'draft.save' | 'root.create',
+	operationKind: 'draft.edit.release' | 'draft.save' | 'root.create',
 	surface: 'file' | 'review',
 ): boolean {
 	const request = response.request();
@@ -760,7 +816,7 @@ function isAnnotationCommandResponse(
 	);
 }
 
-async function waitForSelectedFileReady(props: {
+export async function waitForSelectedFileReady(props: {
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
 	readonly page: Page;
 }): Promise<void> {

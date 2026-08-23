@@ -8,6 +8,7 @@ import {
 	reviewTreeReachablePathScrollTopMap,
 	waitForVisibleReviewTreeFilePath,
 } from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
+import { registerBridgeViewerViteAnnotationSystemJourneyTests } from './bridge-viewer-vite-annotation-restart-journey.ts';
 import { registerBridgeViewerViteAnnotationSaveJourneyTests } from './bridge-viewer-vite-annotation-save-journey.ts';
 import {
 	decodePaintedSourceCorrelations,
@@ -127,6 +128,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 		oracle: requireFixtureOracle,
 		server: requireOwnedServer,
 	});
+	registerBridgeViewerViteAnnotationSystemJourneyTests();
 	test('observes Review base/head body truth, request leases, painted publication correlation, and directory disclosure interaction', async () => {
 		const oracle = requireFixtureOracle();
 		const server = requireOwnedServer();
