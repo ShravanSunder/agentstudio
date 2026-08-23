@@ -7,20 +7,20 @@ struct BridgeReviewPublicationCandidate: Equatable, Sendable {
     let delta: BridgeReviewDelta?
     let contentHandles: [BridgeContentHandle]
     let artifactPin: BridgeReviewPublicationArtifactPin?
-    let refreshImpact: BridgeReviewRefreshImpact?
+    let classifiedRefreshImpact: BridgeReviewRefreshImpact?
 
     init(
         package: BridgeReviewPackage,
         delta: BridgeReviewDelta?,
         contentHandles: [BridgeContentHandle],
         artifactPin: BridgeReviewPublicationArtifactPin? = nil,
-        refreshImpact: BridgeReviewRefreshImpact? = nil
+        classifiedRefreshImpact: BridgeReviewRefreshImpact? = nil
     ) {
         self.package = package
         self.delta = delta
         self.contentHandles = contentHandles
         self.artifactPin = artifactPin
-        self.refreshImpact = refreshImpact
+        self.classifiedRefreshImpact = classifiedRefreshImpact
     }
 }
 
@@ -31,7 +31,7 @@ struct BridgeReviewPreparedPublication: Equatable, Sendable {
     let delta: BridgeReviewDelta?
     let contentHandles: [BridgeContentHandle]
     let artifactPin: BridgeReviewPublicationArtifactPin?
-    let refreshImpact: BridgeReviewRefreshImpact?
+    let classifiedRefreshImpact: BridgeReviewRefreshImpact?
 
     private let contentHandleById: [String: BridgeContentHandle]
 
@@ -94,7 +94,7 @@ struct BridgeReviewPreparedPublication: Equatable, Sendable {
         self.delta = delta
         self.contentHandles = contentHandles
         artifactPin = candidate.artifactPin
-        refreshImpact = candidate.refreshImpact
+        classifiedRefreshImpact = candidate.classifiedRefreshImpact
         contentHandleById = suppliedHandleById
     }
 
@@ -104,7 +104,7 @@ struct BridgeReviewPreparedPublication: Equatable, Sendable {
             delta: delta,
             contentHandles: contentHandles,
             artifactPin: artifactPin,
-            refreshImpact: refreshImpact,
+            classifiedRefreshImpact: refreshImpact,
             contentHandleById: contentHandleById
         )
     }
@@ -114,14 +114,14 @@ struct BridgeReviewPreparedPublication: Equatable, Sendable {
         delta: BridgeReviewDelta?,
         contentHandles: [BridgeContentHandle],
         artifactPin: BridgeReviewPublicationArtifactPin?,
-        refreshImpact: BridgeReviewRefreshImpact?,
+        classifiedRefreshImpact: BridgeReviewRefreshImpact?,
         contentHandleById: [String: BridgeContentHandle]
     ) {
         self.package = package
         self.delta = delta
         self.contentHandles = contentHandles
         self.artifactPin = artifactPin
-        self.refreshImpact = refreshImpact
+        self.classifiedRefreshImpact = classifiedRefreshImpact
         self.contentHandleById = contentHandleById
     }
 
@@ -151,7 +151,7 @@ struct BridgeReviewCommittedPublication: Equatable, Sendable {
     let comparisonPresentationRevision: Int
     let reviewComparison: BridgePaneReviewComparisonPresentation?
     let operationCorrelationID: String?
-    let refreshImpact: BridgeReviewRefreshImpact
+    let classifiedRefreshImpact: BridgeReviewRefreshImpact?
 
     init(
         publicationId: UUID,
@@ -161,7 +161,7 @@ struct BridgeReviewCommittedPublication: Equatable, Sendable {
         comparisonPresentationRevision: Int,
         reviewComparison: BridgePaneReviewComparisonPresentation?,
         operationCorrelationID: String? = nil,
-        refreshImpact: BridgeReviewRefreshImpact = .initial
+        classifiedRefreshImpact: BridgeReviewRefreshImpact? = nil
     ) {
         self.publicationId = publicationId
         self.package = package
@@ -170,7 +170,7 @@ struct BridgeReviewCommittedPublication: Equatable, Sendable {
         self.comparisonPresentationRevision = comparisonPresentationRevision
         self.reviewComparison = reviewComparison
         self.operationCorrelationID = operationCorrelationID
-        self.refreshImpact = refreshImpact
+        self.classifiedRefreshImpact = classifiedRefreshImpact
     }
 
     var retainedReplay: Self {
@@ -182,7 +182,7 @@ struct BridgeReviewCommittedPublication: Equatable, Sendable {
             comparisonPresentationRevision: comparisonPresentationRevision,
             reviewComparison: reviewComparison,
             operationCorrelationID: nil,
-            refreshImpact: refreshImpact
+            classifiedRefreshImpact: classifiedRefreshImpact
         )
     }
 }
@@ -965,7 +965,7 @@ final class BridgeReviewPublicationCoordinator {
             comparisonPresentationRevision: presentation.presentationRevision,
             reviewComparison: presentation.reviewComparison,
             operationCorrelationID: publication.operationCorrelationID,
-            refreshImpact: publication.preparedPublication.refreshImpact ?? .initial
+            classifiedRefreshImpact: publication.preparedPublication.classifiedRefreshImpact
         )
     }
 

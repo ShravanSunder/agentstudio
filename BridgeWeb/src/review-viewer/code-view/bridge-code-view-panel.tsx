@@ -23,6 +23,7 @@ import {
 	bridgeCodeViewItemsWithMetadataItem,
 	bridgeCodeViewLoadingMaterializationItemIdsForPanel,
 	bridgeCodeViewLoadingPlaceholderMatchesDescriptor,
+	bridgeCodeViewReadingPositionItemId,
 	codeViewHandleHasInstance,
 	controllerForHandle,
 	emptyMaterializationDiagnostic,
@@ -116,6 +117,20 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		reviewPackage: props.reviewPackage,
 		selectedItemId: props.selectedItemId,
 	});
+	const annotationAttentionItemIds = annotationPresentation.attentionItemIds;
+	const onAnnotationAttentionItemIdsChange = props.onAnnotationAttentionItemIdsChange;
+	useEffect((): void => {
+		onAnnotationAttentionItemIdsChange?.(annotationAttentionItemIds);
+	}, [annotationAttentionItemIds, onAnnotationAttentionItemIdsChange]);
+	useEffect((): (() => void) | undefined => {
+		if (onAnnotationAttentionItemIdsChange === undefined) return undefined;
+		return (): void => onAnnotationAttentionItemIdsChange([]);
+	}, [onAnnotationAttentionItemIdsChange]);
+	const onReadingPositionItemIdChange = props.onReadingPositionItemIdChange;
+	useEffect((): (() => void) | undefined => {
+		if (onReadingPositionItemIdChange === undefined) return undefined;
+		return (): void => onReadingPositionItemIdChange(null);
+	}, [onReadingPositionItemIdChange]);
 	const annotateReviewItem = annotationPresentation.annotateItem;
 	const controllerEntryRef = useRef<BridgeCodeViewControllerEntry | null>(null);
 	const completedSelectionScrollKeyRef = useRef<string | null>(null);
@@ -213,8 +228,17 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		(source: BridgeCodeViewRenderedItemsSource): void => {
 			captureVisibleItemIds(source);
 			publishVisibleHydrationItemIds();
+			const scrollOwner = codeViewHandleRef.current?.getInstance()?.getContainerElement();
+			onReadingPositionItemIdChange?.(
+				scrollOwner === undefined
+					? null
+					: bridgeCodeViewReadingPositionItemId({
+							renderedItems: source.getRenderedItems(),
+							scrollOwner,
+						}),
+			);
 		},
-		[captureVisibleItemIds, publishVisibleHydrationItemIds],
+		[captureVisibleItemIds, onReadingPositionItemIdChange, publishVisibleHydrationItemIds],
 	);
 	const publishVisibleItemIdsFromCurrentHandle = useCallback((): void => {
 		const instance = codeViewHandleRef.current?.getInstance();

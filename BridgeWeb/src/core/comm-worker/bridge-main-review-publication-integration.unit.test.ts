@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
+import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
 	buildBridgeWorkerReviewCandidateReadyEvent,
 	buildBridgeWorkerReviewCandidateFailedEvent,
@@ -379,6 +380,30 @@ describe('Bridge main Review publication integration', () => {
 		harness.dispose();
 	});
 
+	test('records lifecycle events through the current telemetry recorder after bootstrap', async () => {
+		// Arrange
+		const harness = createHarness();
+		await installPublication(harness, ACTIVE, 'item-a');
+		const postBootstrapSamples: BridgeTelemetrySample[] = [];
+		harness.telemetryRecorderRef.current = recordingTelemetryRecorder(postBootstrapSamples);
+		harness.integration.setSemanticAttention({ stableFileIdentities: ['file-b'] });
+
+		// Act
+		harness.startCandidate(CANDIDATE, 'promoted', ['file-b']);
+		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
+		harness.receive(candidateReady(CANDIDATE, 'promoted', ['file-b']));
+
+		// Assert
+		expect(postBootstrapSamples).toContainEqual(
+			expect.objectContaining({
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.phase': 'review_refresh_candidate_held',
+				}),
+			}),
+		);
+		harness.dispose();
+	});
+
 	test('ignores stale B failure, retains affected C failure, and clears it when attention leaves', async () => {
 		const harness = createHarness();
 		await installPublication(harness, ACTIVE, 'item-a');
@@ -457,6 +482,7 @@ interface Harness {
 	readonly rejectedItemIds: string[];
 	readonly store: ReturnType<typeof createBridgeMainRenderSnapshotStore>;
 	readonly telemetrySamples: readonly BridgeTelemetrySample[];
+	readonly telemetryRecorderRef: { current: BridgeTelemetryRecorder };
 	readonly ack: (command: BridgeWorkerMainToServerMessage) => void;
 	readonly admit: (
 		command: BridgeWorkerMainToServerMessage,
@@ -522,6 +548,7 @@ function createHarness(
 	const courierJobs: Array<BridgeWorkerReviewPierreRenderJobEvent['job']> = [];
 	const rejectedItemIds: string[] = [];
 	const telemetrySamples: BridgeTelemetrySample[] = [];
+	const telemetryRecorderRef = { current: recordingTelemetryRecorder(telemetrySamples) };
 	const integration = createBridgeMainReviewPublicationIntegration({
 		client: {
 			lifecycle: {
@@ -548,15 +575,7 @@ function createHarness(
 			},
 		},
 		store,
-		telemetryRecorder: {
-			flush: (): boolean => true,
-			isEnabled: (): boolean => true,
-			measure: <TResult>(props: { readonly operation: () => TResult }): TResult =>
-				props.operation(),
-			record: (sample): void => {
-				telemetrySamples.push(sample);
-			},
-		},
+		telemetryRecorderRef,
 	});
 	integration.start();
 	const unsubscribe = rpcClient.subscribe((message): void => {
@@ -639,6 +658,18 @@ function createHarness(
 		rejectedItemIds,
 		store,
 		telemetrySamples,
+		telemetryRecorderRef,
+	};
+}
+
+function recordingTelemetryRecorder(samples: BridgeTelemetrySample[]): BridgeTelemetryRecorder {
+	return {
+		flush: (): boolean => true,
+		isEnabled: (): boolean => true,
+		measure: <TResult>(props: { readonly operation: () => TResult }): TResult => props.operation(),
+		record: (sample): void => {
+			samples.push(sample);
+		},
 	};
 }
 

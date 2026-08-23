@@ -162,6 +162,13 @@ lineages are ignored.
 The result also carries the affected stable file identities needed to decide
 whether promoted computation concerns the current Review attention context.
 
+Same-source measurement compares stable semantic scope: repository, worktree,
+query kind and comparison semantics, path/file/filter/grouping/provenance scope,
+and symbolic target. Query, endpoint, package, generation, and revision IDs are
+lineage/transport fences rather than product scope and may change across one
+same-source successor; they do not force `unknown`. Any change to the stable
+semantic scope does.
+
 ### Presentation classification
 
 The native coordinator owns the pre-delivery class:
@@ -191,6 +198,21 @@ ordinary-to-promoted escalation with reason `activeAnchor` when the candidate
 cannot preserve a locally active editor anchor. This orders presentation without
 delaying Review computation or sending editor state to native.
 
+The prepared and committed native publication retains classification presence
+separately from the impact value. Only the same-source refresh classifier sets
+that optional classified-impact field. Initial load and explicit target
+replacement leave it absent. Metadata transport uses that explicit authority to
+choose `sameSource` versus `replacement`; it MUST NOT infer presentation class
+from package, generation, revision, query, endpoint, or origin equality.
+
+Both the app `BridgePaneController` and `BridgeDevelopmentProductHost` route
+observed same-source refreshes through the same `BridgeReviewRefreshImpactSourceProvider`
+before publication. The development host distinguishes its explicit observed-
+refresh entrypoint from initial load and target-command entrypoints; it does not
+infer that distinction from an operation-correlation identifier or command
+provenance. Missing displayed authority or impact capability maps to the same
+symbolic promoted-unknown result.
+
 Initial load and explicit target commands bypass same-source classification and
 retain their current presentation contracts.
 
@@ -202,8 +224,9 @@ classification group. For a same-source replacement that requires reset/window
 delivery, the leading `review.reset` event carries the group before
 `review.sourceAccepted` and window events. Initial load and explicit target
 replacement omit the group because they retain their existing presentation
-contracts. The TypeScript product contract admits the group only on those two
-same-source leading events and rejects it on later windows.
+contracts, even if their transport identities happen to match a predecessor.
+The TypeScript product contract admits the group only on those two same-source
+leading events and rejects it on later windows.
 
 The comm worker emits `reviewCandidateStarted` immediately after admitting and
 applying the leading current-fenced `review.delta`, `review.reset`, or initial

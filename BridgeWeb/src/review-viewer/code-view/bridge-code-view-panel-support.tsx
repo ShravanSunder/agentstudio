@@ -81,11 +81,37 @@ export interface RecordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryForPa
 }
 
 interface BridgeCodeViewRenderedItemSnapshot {
+	readonly element: HTMLElement;
 	readonly id: string;
 }
 
 export interface BridgeCodeViewRenderedItemsSource {
 	readonly getRenderedItems: () => readonly BridgeCodeViewRenderedItemSnapshot[];
+}
+
+export function bridgeCodeViewReadingPositionItemId(props: {
+	readonly renderedItems: readonly BridgeCodeViewRenderedItemSnapshot[];
+	readonly scrollOwner: HTMLElement;
+}): string | null {
+	const viewportBounds = props.scrollOwner.getBoundingClientRect();
+	const visibleItems = props.renderedItems
+		.map((item) => ({ bounds: item.element.getBoundingClientRect(), id: item.id }))
+		.filter(
+			(item): boolean =>
+				item.bounds.bottom > viewportBounds.top && item.bounds.top < viewportBounds.bottom,
+		);
+	const crossingItem = visibleItems
+		.filter(
+			(item): boolean =>
+				item.bounds.top <= viewportBounds.top && item.bounds.bottom > viewportBounds.top,
+		)
+		.toSorted((left, right): number => right.bounds.top - left.bounds.top)[0];
+	if (crossingItem !== undefined) return crossingItem.id;
+	return (
+		visibleItems
+			.filter((item): boolean => item.bounds.top >= viewportBounds.top)
+			.toSorted((left, right): number => left.bounds.top - right.bounds.top)[0]?.id ?? null
+	);
 }
 
 export interface BridgeCodeViewRenderedHeaderOffset {

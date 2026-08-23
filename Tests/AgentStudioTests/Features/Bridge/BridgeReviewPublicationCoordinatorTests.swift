@@ -7,6 +7,32 @@ import Testing
 @MainActor
 @Suite("Bridge Review publication coordinator")
 struct BridgeReviewPublicationCoordinatorTests {
+    @Test("committed publication preserves explicit classified refresh authority")
+    func committedPublicationPreservesClassifiedRefreshAuthority() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let coordinator = BridgeReviewPublicationCoordinator()
+        let impact = BridgeReviewRefreshImpact.exact(
+            newlyImportedCommitCount: 10,
+            affectedFileCount: 1,
+            addedLineCount: 4,
+            deletedLineCount: 3,
+            affectedStableFileIdentities: ["stable-file"]
+        )
+        let prepared = try await makeReviewPreparedPublication(
+            suffix: "classified-impact",
+            reviewGeneration: 2
+        ).classified(with: impact)
+
+        let committed = try commitObserved(
+            prepared,
+            in: coordinator,
+            productAdmission: productAdmission.context
+        )
+
+        #expect(committed.classifiedRefreshImpact == impact)
+        #expect(committed.retainedReplay.classifiedRefreshImpact == impact)
+    }
+
     @Test("invalid candidates are rejected during off-main preparation")
     func invalidCandidatesAreRejectedDuringOffMainPreparation() async {
         // Arrange

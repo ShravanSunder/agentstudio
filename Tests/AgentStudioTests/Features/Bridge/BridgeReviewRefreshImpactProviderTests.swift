@@ -6,6 +6,75 @@ import Testing
 
 @Suite("Bridge Review refresh impact provider")
 struct BridgeReviewRefreshImpactProviderTests {
+    @Test("ephemeral query and endpoint identities do not change semantic refresh scope")
+    func ephemeralPublicationIdentitiesStillMeasureExactImpact() async throws {
+        let displayed = makeImpactPackage(
+            reviewGeneration: 1,
+            revision: 1,
+            reviewedHeadOID: "displayed-head",
+            items: [],
+            ephemeralIdentitySuffix: "displayed"
+        )
+        let candidate = makeImpactPackage(
+            reviewGeneration: 2,
+            revision: 2,
+            reviewedHeadOID: "candidate-head",
+            items: [],
+            ephemeralIdentitySuffix: "candidate"
+        )
+        let dataClient = BridgeReviewRefreshImpactDataClientFake(
+            commitRangeCount: .atLeastLimit(10),
+            diff: GitDiffSnapshot(files: [])
+        )
+        let provider = BridgeReviewRefreshImpactProvider(dataClient: dataClient)
+
+        let impact = try await provider.measure(
+            displayedPackage: displayed,
+            candidatePackage: candidate,
+            candidateGeneration: candidate.reviewGeneration
+        )
+
+        #expect(impact.newlyImportedCommitCount == 10)
+        #expect(impact.preDeliveryPresentationClass == .promoted(reason: .commits))
+        #expect(await dataClient.requests().commitRange != nil)
+    }
+
+    @Test(
+        "meaningful semantic source-scope changes promote unknown",
+        arguments: ImpactSemanticScopeVariant.allCases
+    )
+    func meaningfulSemanticScopeChangesPromoteUnknown(
+        variant: ImpactSemanticScopeVariant
+    ) async throws {
+        let displayed = makeImpactPackage(
+            reviewGeneration: 1,
+            revision: 1,
+            reviewedHeadOID: "displayed-head",
+            items: []
+        )
+        let candidate = makeImpactPackage(
+            reviewGeneration: 2,
+            revision: 2,
+            reviewedHeadOID: "candidate-head",
+            items: [],
+            semanticScopeVariant: variant
+        )
+        let dataClient = BridgeReviewRefreshImpactDataClientFake(
+            commitRangeCount: .atLeastLimit(10),
+            diff: GitDiffSnapshot(files: [])
+        )
+        let provider = BridgeReviewRefreshImpactProvider(dataClient: dataClient)
+
+        let impact = try await provider.measure(
+            displayedPackage: displayed,
+            candidatePackage: candidate,
+            candidateGeneration: candidate.reviewGeneration
+        )
+
+        #expect(impact.preDeliveryPresentationClass == .promoted(reason: .unknown))
+        #expect(await dataClient.requests().commitRange == nil)
+    }
+
     @Test(
         "classifies exact threshold boundaries",
         arguments: [
@@ -369,12 +438,34 @@ private func makeImpactPackage(
     reviewGeneration: BridgeReviewGeneration,
     revision: Int,
     reviewedHeadOID: String,
-    items: [BridgeReviewItemDescriptor]
+    items: [BridgeReviewItemDescriptor],
+    ephemeralIdentitySuffix: String = "stable",
+    semanticScopeVariant: ImpactSemanticScopeVariant? = nil
 ) -> BridgeReviewPackage {
-    let repoId = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
-    let worktreeId = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
+    let defaultRepoId = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
+    let defaultWorktreeId = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
+    let repoId =
+        semanticScopeVariant == .repoId
+        ? UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
+        : defaultRepoId
+    let worktreeId =
+        semanticScopeVariant == .worktreeId
+        ? UUID(uuidString: "20000000-0000-4000-8000-000000000002")!
+        : defaultWorktreeId
+    let viewFilter =
+        semanticScopeVariant == .viewFilter
+        ? BridgeViewFilter(showHiddenFiles: true)
+        : BridgeViewFilter()
+    let grouping =
+        semanticScopeVariant == .grouping
+        ? BridgeChangeGrouping(kind: .flat)
+        : BridgeChangeGrouping(kind: .folder)
+    let provenanceFilter =
+        semanticScopeVariant == .provenanceFilter
+        ? BridgeProvenanceFilter(sourceKinds: [.filesystemWatch])
+        : BridgeProvenanceFilter()
     let baseEndpoint = BridgeSourceEndpoint(
-        endpointId: "impact-base",
+        endpointId: "impact-base-\(ephemeralIdentitySuffix)",
         kind: .gitRef,
         repoId: repoId,
         worktreeId: worktreeId,
@@ -384,7 +475,7 @@ private func makeImpactPackage(
         providerIdentity: "base-oid"
     )
     let headEndpoint = BridgeSourceEndpoint(
-        endpointId: "impact-head",
+        endpointId: "impact-head-\(ephemeralIdentitySuffix)",
         kind: .workingTree,
         repoId: repoId,
         worktreeId: worktreeId,
@@ -399,18 +490,20 @@ private func makeImpactPackage(
         reviewGeneration: reviewGeneration,
         revision: revision,
         query: BridgeReviewQuery(
-            queryId: "impact-query",
-            queryKind: .compare,
+            queryId: "impact-query-\(ephemeralIdentitySuffix)",
+            queryKind: semanticScopeVariant == .queryKind ? .openFile : .compare,
             repoId: repoId,
             worktreeId: worktreeId,
             baseEndpointId: baseEndpoint.endpointId,
             headEndpointId: headEndpoint.endpointId,
-            comparisonSemantics: .workingTreeDelta,
-            pathScope: [],
-            fileTarget: nil,
-            viewFilter: BridgeViewFilter(),
-            grouping: BridgeChangeGrouping(kind: .folder),
-            provenanceFilter: BridgeProvenanceFilter()
+            comparisonSemantics: semanticScopeVariant == .comparisonSemantics
+                ? .threeDot
+                : .workingTreeDelta,
+            pathScope: semanticScopeVariant == .pathScope ? ["Sources"] : [],
+            fileTarget: semanticScopeVariant == .fileTarget ? "Sources/App.swift" : nil,
+            viewFilter: viewFilter,
+            grouping: grouping,
+            provenanceFilter: provenanceFilter
         ),
         baseEndpoint: baseEndpoint,
         headEndpoint: headEndpoint,
@@ -424,11 +517,13 @@ private func makeImpactPackage(
             visibleFileCount: items.count,
             hiddenFileCount: 0
         ),
-        filterState: BridgeViewFilter(),
+        filterState: viewFilter,
         generatedAtUnixMilliseconds: 1,
         comparisonOrigin: .contribution(
             BridgeReviewContributionOrigin(
-                symbolicTarget: .branch(name: "main"),
+                symbolicTarget: semanticScopeVariant == .symbolicTarget
+                    ? .branch(name: "release")
+                    : .branch(name: "main"),
                 resolvedTargetOID: "target-oid",
                 reviewedHeadOID: reviewedHeadOID,
                 baseRole: .commonCommit,
@@ -436,6 +531,19 @@ private func makeImpactPackage(
             )
         )
     )
+}
+
+enum ImpactSemanticScopeVariant: CaseIterable, Sendable {
+    case repoId
+    case worktreeId
+    case queryKind
+    case comparisonSemantics
+    case pathScope
+    case fileTarget
+    case viewFilter
+    case grouping
+    case provenanceFilter
+    case symbolicTarget
 }
 
 private func impactItem(

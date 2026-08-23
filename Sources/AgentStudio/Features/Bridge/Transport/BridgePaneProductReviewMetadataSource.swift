@@ -103,7 +103,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         let comparisonPresentationRevision: Int
         let package: BridgeReviewPackage
         let publicationId: UUID
-        let refreshImpact: BridgeReviewRefreshImpact
+        let classifiedRefreshImpact: BridgeReviewRefreshImpact?
         let reviewComparison: BridgePaneReviewComparisonPresentation?
         let operationCorrelationID: String?
     }
@@ -183,7 +183,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                 comparisonPresentationRevision: 1,
                 package: package,
                 publicationId: publicationId,
-                refreshImpact: .initial,
+                classifiedRefreshImpact: nil,
                 reviewComparison: nil,
                 operationCorrelationID: nil
             )
@@ -231,7 +231,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                     comparisonPresentationRevision: publication.comparisonPresentationRevision,
                     package: package,
                     publicationId: reservation.publicationId,
-                    refreshImpact: publication.refreshImpact,
+                    classifiedRefreshImpact: publication.classifiedRefreshImpact,
                     reviewComparison: publication.reviewComparison,
                     operationCorrelationID: publication.operationCorrelationID
                 ),
@@ -335,26 +335,23 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         else { return [] }
         let currentPackage = currentPublication.package
         let nextPackage = nextPublication.package
-        if hasSameSourceIdentity(currentPackage, nextPackage),
+        if let classifiedRefreshImpact = nextPublication.classifiedRefreshImpact,
             canApplyDelta(from: currentPackage, to: nextPackage),
             let delta = try deltaEvent(
                 from: currentPublication,
-                to: nextPublication
+                to: nextPublication,
+                refreshImpact: classifiedRefreshImpact
             )
         {
             return [.delta(delta)]
         }
         let identity = try identity(for: nextPublication)
-        let resetRefreshImpact =
-            hasSameSourceIdentity(currentPackage, nextPackage)
-            ? nextPublication.refreshImpact
-            : nil
         return [
             .reset(
                 .init(
                     identity: identity,
                     comparisonOrigin: nextPackage.comparisonOrigin,
-                    refreshImpact: resetRefreshImpact,
+                    refreshImpact: nextPublication.classifiedRefreshImpact,
                     reason: .sourceChanged,
                     reviewedSubjectLabel: nextPackage.reviewedSubjectLabel
                 )
@@ -420,7 +417,8 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
 
     private static func deltaEvent(
         from currentPublication: DeliveredPublication,
-        to nextPublication: DeliveredPublication
+        to nextPublication: DeliveredPublication,
+        refreshImpact: BridgeReviewRefreshImpact
     ) throws -> BridgeProductReviewDeltaEvent? {
         let currentPackage = currentPublication.package
         let nextPackage = nextPublication.package
@@ -466,21 +464,12 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         let contentSources = try changedItems.flatMap { try productContentSources(for: $0, package: nextPackage) }
         guard isContractBoundedDelta(operations: operations, contentSources: contentSources) else { return nil }
         let event = try BridgeProductReviewDeltaEvent(
-            identity: identity(
-                for: DeliveredPublication(
-                    comparisonPresentationRevision: nextPublication.comparisonPresentationRevision,
-                    package: nextPackage,
-                    publicationId: nextPublication.publicationId,
-                    refreshImpact: nextPublication.refreshImpact,
-                    reviewComparison: nextPublication.reviewComparison,
-                    operationCorrelationID: nextPublication.operationCorrelationID
-                )
-            ),
+            identity: identity(for: nextPublication),
             contentSources: contentSources,
             fromRevision: currentPackage.revision,
             operations: operations,
             presentationRevision: nextPublication.comparisonPresentationRevision,
-            refreshImpact: nextPublication.refreshImpact,
+            refreshImpact: refreshImpact,
             reviewComparison: nextPublication.reviewComparison,
             summary: try productSummary(nextPackage.summary),
             toRevision: nextPackage.revision
@@ -509,15 +498,6 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                 descriptorIds.count <= maximumCount
             }
         }
-    }
-
-    private static func hasSameSourceIdentity(
-        _ currentPackage: BridgeReviewPackage,
-        _ nextPackage: BridgeReviewPackage
-    ) -> Bool {
-        currentPackage.packageId == nextPackage.packageId
-            && currentPackage.reviewGeneration == nextPackage.reviewGeneration
-            && currentPackage.query.queryId == nextPackage.query.queryId
     }
 
     private static func canApplyDelta(
@@ -577,7 +557,6 @@ private struct ReviewPackageProjection {
     let items: [ReviewProjectedItem]
     let presentationRevision: Int
     let query: BridgeProductReviewQueryValue
-    let refreshImpact: BridgeReviewRefreshImpact
     let reviewComparison: BridgePaneReviewComparisonPresentation?
     let reviewedSubjectLabel: String?
     let summary: BridgeProductReviewPackageSummaryValue
@@ -594,7 +573,6 @@ private struct ReviewPackageProjection {
         self.items = try reviewItems.map { try ReviewProjectedItem(item: $0, package: package) }
         self.presentationRevision = publication.comparisonPresentationRevision
         self.query = try productQuery(package.query)
-        self.refreshImpact = publication.refreshImpact
         self.reviewComparison = publication.reviewComparison
         self.reviewedSubjectLabel = package.reviewedSubjectLabel
         self.summary = try productSummary(package.summary)

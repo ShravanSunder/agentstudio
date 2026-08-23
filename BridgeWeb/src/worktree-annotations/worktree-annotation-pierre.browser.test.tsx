@@ -40,6 +40,7 @@ describe('worktree annotation Pierre integration', () => {
 		const surface = new RecordingAnnotationBrowserSurface('review');
 		const mountedCodeViews: CodeView[] = [];
 		const appliedOptions: CodeViewOptions<undefined>[] = [];
+		const annotationAttentionSnapshots: string[][] = [];
 		const updatedItems: CodeViewItem[] = [];
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
 		const originalSetup = CodeView.prototype.setup;
@@ -75,6 +76,9 @@ describe('worktree annotation Pierre integration', () => {
 			const rendered = await render(
 				<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
 					<BridgeCodeViewPanel
+						onAnnotationAttentionItemIdsChange={(itemIds): void => {
+							annotationAttentionSnapshots.push([...itemIds]);
+						}}
 						presentationPositionKey="annotation-browser-review"
 						projection={projection}
 						renderFulfillmentCoordinator={coordinator}
@@ -245,6 +249,7 @@ describe('worktree annotation Pierre integration', () => {
 				name: 'Write an annotation in Markdown',
 			});
 			await expect.element(headComposer).toBeVisible();
+			expect(annotationAttentionSnapshots.at(-1)).toEqual(['item-source']);
 			await act(async (): Promise<void> => {
 				await headComposer.fill('Head-side comment');
 				await Promise.resolve();
@@ -269,6 +274,7 @@ describe('worktree annotation Pierre integration', () => {
 					document.querySelector('[aria-label="Write an annotation in Markdown"]') === null,
 				'Expected clearing Pierre selection to close the root composer.',
 			);
+			expect(annotationAttentionSnapshots.at(-1)).toEqual([]);
 			await act(async (): Promise<void> => {
 				invokeGutterAdmission(latestOptions, { start: 2, end: 2, side: 'deletions' }, currentItem);
 				await Promise.resolve();

@@ -238,6 +238,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
         )
         _ = try await deliverReviewPackage(
             changedPackage,
+            classifiedRefreshImpact: .initial,
             through: source,
             productAdmission: productAdmission.context
         )
@@ -295,6 +296,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
         _ = try await deliverReviewPackage(
             publicationB,
             publicationId: publicationBId,
+            classifiedRefreshImpact: .initial,
             through: source,
             productAdmission: productAdmission.context
         )
@@ -310,6 +312,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
         _ = try await deliverReviewPackage(
             publicationB,
             publicationId: publicationBId,
+            classifiedRefreshImpact: .initial,
             through: source,
             productAdmission: productAdmission.context
         )
@@ -387,9 +390,15 @@ struct BridgePaneProductReviewMetadataSourceTests {
         )
         await collector.removeAll()
 
-        let replacementPackage = replacingReviewPackage(
+        let generationAdvancedPackage = replacingReviewSource(
             initialPackage,
-            revision: initialPackage.revision + 1,
+            packageId: initialPackage.packageId,
+            queryId: initialPackage.query.queryId,
+            generation: initialPackage.reviewGeneration.rawValue + 1
+        )
+        let replacementPackage = replacingReviewPackage(
+            generationAdvancedPackage,
+            revision: generationAdvancedPackage.revision + 1,
             itemsById: [:]
         )
         let impact = BridgeReviewRefreshImpact.exact(
@@ -401,7 +410,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
         )
         _ = try await deliverReviewPackage(
             replacementPackage,
-            refreshImpact: impact,
+            classifiedRefreshImpact: impact,
             through: source,
             productAdmission: productAdmission.context
         )
@@ -971,21 +980,4 @@ private func reviewSubscription(interestRevision: Int = 0) throws -> BridgeProdu
         interestState: interestState,
         hasStagedUpdate: false
     )
-}
-
-private func replacingReviewItem(
-    in package: BridgeReviewPackage,
-    itemId: String,
-    fileClass: BridgeFileClass,
-    revision: Int
-) -> BridgeReviewPackage {
-    var itemsById = package.itemsById
-    let previous = itemsById[itemId]!
-    itemsById[itemId] = makeBridgeReviewItemDescriptor(
-        itemId: itemId,
-        path: previous.headPath ?? previous.basePath ?? itemId,
-        fileClass: fileClass,
-        contentRoles: previous.contentRoles
-    )
-    return replacingReviewPackage(package, revision: revision, itemsById: itemsById)
 }

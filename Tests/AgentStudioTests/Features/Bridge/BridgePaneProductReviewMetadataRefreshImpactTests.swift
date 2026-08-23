@@ -5,6 +5,47 @@ import Testing
 @MainActor
 @Suite("Bridge pane product Review metadata refresh impact")
 struct BridgePaneProductReviewMetadataRefreshImpactTests {
+    @Test("same-looking unclassified successor remains a replacement")
+    func sameLookingUnclassifiedSuccessorRemainsReplacement() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let initialPackage = makeReviewPackage(itemCount: 2)
+        let changedItemId = try #require(initialPackage.orderedItemIds.first)
+        let unclassifiedSuccessor = replacingReviewItem(
+            in: initialPackage,
+            itemId: changedItemId,
+            fileClass: .config,
+            revision: initialPackage.revision + 1
+        )
+        let source = BridgePaneProductReviewMetadataSource()
+        let collector = RefreshImpactReviewMetadataEventCollector()
+        try await source.open(
+            subscription: try refreshImpactReviewSubscription(),
+            productAdmission: productAdmission.context
+        ) { event, _ in
+            try await collector.append(event)
+        }
+        _ = try await deliverReviewPackage(
+            initialPackage,
+            through: source,
+            productAdmission: productAdmission.context
+        )
+        await collector.removeAll()
+
+        _ = try await deliverReviewPackage(
+            unclassifiedSuccessor,
+            through: source,
+            productAdmission: productAdmission.context
+        )
+
+        let events = await collector.events
+        guard case .reset(let reset) = events.first else {
+            Issue.record("Expected unclassified same-looking successor to reset")
+            return
+        }
+        #expect(reset.refreshImpact == nil)
+        #expect(!events.contains { if case .delta = $0 { true } else { false } })
+    }
+
     @Test("initial Review windows omit same-source refresh classification")
     func initialReviewWindowsOmitSameSourceRefreshClassification() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
@@ -27,7 +68,7 @@ struct BridgePaneProductReviewMetadataRefreshImpactTests {
 
         _ = try await deliverReviewPackage(
             package,
-            refreshImpact: impact,
+            classifiedRefreshImpact: impact,
             through: source,
             productAdmission: productAdmission.context
         )
@@ -61,7 +102,7 @@ struct BridgePaneProductReviewMetadataRefreshImpactTests {
         // Act
         _ = try await deliverReviewPackage(
             package,
-            refreshImpact: impact,
+            classifiedRefreshImpact: impact,
             through: source,
             productAdmission: productAdmission.context
         )
@@ -79,6 +120,10 @@ private actor RefreshImpactReviewMetadataEventCollector {
         nextSequence += 1
         events.append(event)
         return try reviewMetadataEnqueueResult(event, sequence: nextSequence)
+    }
+
+    func removeAll() {
+        events.removeAll()
     }
 }
 

@@ -244,7 +244,7 @@ export function useBridgeReviewRenderSnapshotController(
 			pierreCourier,
 			renderFulfillmentCoordinator: props.reviewClient.renderFulfillmentCoordinator,
 			store: displayStore,
-			telemetryRecorder: props.telemetryRecorderRef?.current,
+			telemetryRecorderRef: props.telemetryRecorderRef,
 		});
 		reviewPublicationIntegrationRef.current = reviewPublicationIntegration;
 		reviewPublicationIntegration.start();

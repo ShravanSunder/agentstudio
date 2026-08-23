@@ -147,9 +147,34 @@ protocol BridgeReviewRefreshImpactSourceProvider: Sendable {
 }
 
 struct BridgeReviewRefreshImpactProvider: Sendable {
-    private struct ContributionSource: Equatable, Sendable {
-        let query: BridgeReviewQuery
+    private struct SemanticSourceScope: Equatable, Sendable {
+        let repoId: UUID
+        let worktreeId: UUID
+        let queryKind: BridgeReviewQuery.Kind
+        let comparisonSemantics: BridgeReviewQuery.ComparisonSemantics
+        let pathScope: [String]
+        let fileTarget: String?
+        let viewFilter: BridgeViewFilter
+        let grouping: BridgeChangeGrouping
+        let provenanceFilter: BridgeProvenanceFilter
         let symbolicTarget: WorkspaceReviewContributionTarget
+
+        init(query: BridgeReviewQuery, symbolicTarget: WorkspaceReviewContributionTarget) {
+            repoId = query.repoId
+            worktreeId = query.worktreeId
+            queryKind = query.queryKind
+            comparisonSemantics = query.comparisonSemantics
+            pathScope = query.pathScope
+            fileTarget = query.fileTarget
+            viewFilter = query.viewFilter
+            grouping = query.grouping
+            provenanceFilter = query.provenanceFilter
+            self.symbolicTarget = symbolicTarget
+        }
+    }
+
+    private struct ContributionSource: Equatable, Sendable {
+        let semanticScope: SemanticSourceScope
         let reviewedHeadOID: String
     }
 
@@ -166,8 +191,7 @@ struct BridgeReviewRefreshImpactProvider: Sendable {
     ) async throws -> BridgeReviewRefreshImpact {
         guard let displayedSource = Self.contributionSource(from: displayedPackage),
             let candidateSource = Self.contributionSource(from: candidatePackage),
-            displayedSource.query == candidateSource.query,
-            displayedSource.symbolicTarget == candidateSource.symbolicTarget
+            displayedSource.semanticScope == candidateSource.semanticScope
         else {
             return .unknown(displayedPackage: displayedPackage, candidatePackage: candidatePackage)
         }
@@ -236,8 +260,10 @@ struct BridgeReviewRefreshImpactProvider: Sendable {
     private static func contributionSource(from package: BridgeReviewPackage) -> ContributionSource? {
         guard case .contribution(let origin) = package.comparisonOrigin else { return nil }
         return ContributionSource(
-            query: package.query,
-            symbolicTarget: origin.symbolicTarget,
+            semanticScope: SemanticSourceScope(
+                query: package.query,
+                symbolicTarget: origin.symbolicTarget
+            ),
             reviewedHeadOID: origin.reviewedHeadOID
         )
     }

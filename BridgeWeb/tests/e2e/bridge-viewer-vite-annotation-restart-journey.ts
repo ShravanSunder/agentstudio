@@ -1,4 +1,4 @@
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser, type Page, type Response } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
@@ -145,6 +145,7 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			const firstAdvance = await fixture.advanceReviewedHeadByCommitCount(10);
 			expect(firstAdvance.importedCommitCount).toBe(10);
 			const promotedOutcome = await waitForPromotedReadyOrUnexpectedInstall({
+				expectedTargetOID: firstAdvance.finalHeadOID,
 				initialPackageId: initialPackage.packageId,
 				page,
 			});
@@ -152,12 +153,12 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			await page
 				.getByText('Update ready', { exact: true })
 				.waitFor({ state: 'visible', timeout: annotationComposedConvergenceTimeoutMilliseconds });
-			const firstHeldCandidate = await waitForHeldCommitPromotionTelemetry({
-				minimumGenerationExclusive: initialPackage.reviewGeneration,
-				page,
-			});
 			expect(await requireReviewPackageIdentity(page)).toEqual(initialPackage);
+			const appliedReceiptResponse = page.waitForResponse(isReviewPublicationAppliedResponse, {
+				timeout: annotationRestartJourneyTimeoutMilliseconds,
+			});
 			await page.getByRole('button', { name: 'Apply now' }).press('Enter');
+			await requireCompletedReviewPublicationAppliedResponse(await appliedReceiptResponse);
 			const appliedComparison = await waitForSettledReviewComparison({
 				expectedTargetLabel: 'HEAD',
 				expectedTargetOID: firstAdvance.finalHeadOID,
@@ -165,7 +166,11 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				timeoutMilliseconds: annotationRestartJourneyTimeoutMilliseconds,
 			});
 			expect(appliedComparison.packageId).not.toBe(initialPackage.packageId);
-			expect(appliedComparison.reviewGeneration).toBe(firstHeldCandidate.reviewGeneration);
+			await waitForHeldCommitPromotionTelemetry({
+				page,
+				reviewGeneration: appliedComparison.reviewGeneration,
+			});
+			await waitForSelectedReviewPathReady({ page, path: affectedFile.path });
 			await page.keyboard.press('Escape');
 			await page
 				.getByText('Update ready', { exact: true })
@@ -177,6 +182,7 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				previousHeadOID: firstAdvance.finalHeadOID,
 			});
 			const secondPromotedOutcome = await waitForPromotedReadyOrUnexpectedInstall({
+				expectedTargetOID: secondAdvance.finalHeadOID,
 				initialPackageId: appliedComparison.packageId,
 				page,
 			});
@@ -184,13 +190,6 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			await page
 				.getByText('Update ready', { exact: true })
 				.waitFor({ state: 'visible', timeout: annotationComposedConvergenceTimeoutMilliseconds });
-			const secondHeldCandidate = await waitForHeldCommitPromotionTelemetry({
-				minimumGenerationExclusive: appliedComparison.reviewGeneration,
-				page,
-			});
-			expect((await requireReviewPackageIdentity(page)).packageId).toBe(
-				appliedComparison.packageId,
-			);
 			await selectReviewFile({ page, path: unaffectedFile.path });
 			await waitForSelectedReviewReady({ itemId: unaffectedFile.itemId, page });
 			const automaticallyInstalledComparison = await waitForSettledReviewComparison({
@@ -199,9 +198,10 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				page,
 				timeoutMilliseconds: annotationRestartJourneyTimeoutMilliseconds,
 			});
-			expect(automaticallyInstalledComparison.reviewGeneration).toBe(
-				secondHeldCandidate.reviewGeneration,
-			);
+			await waitForHeldCommitPromotionTelemetry({
+				page,
+				reviewGeneration: automaticallyInstalledComparison.reviewGeneration,
+			});
 			expect(await page.getByText('Update ready', { exact: true }).count()).toBe(0);
 		} catch (error: unknown) {
 			primaryFailure = { error };
@@ -242,11 +242,18 @@ async function stopOwnedProductServer(server: BridgeViewerOwnedViteProductServer
 }
 
 async function waitForPromotedReadyOrUnexpectedInstall(props: {
+	readonly expectedTargetOID: string;
 	readonly initialPackageId: string;
 	readonly page: Page;
 }): Promise<'installedWithoutHold' | 'updateReady'> {
 	const handle = await props.page.waitForFunction(
-		(initialPackageId: string): 'installedWithoutHold' | 'updateReady' | false => {
+		({
+			expectedTargetOID,
+			initialPackageId,
+		}: {
+			readonly expectedTargetOID: string;
+			readonly initialPackageId: string;
+		}): 'installedWithoutHold' | 'updateReady' | false => {
 			const updateReady = [...document.querySelectorAll('*')].some(
 				(element): boolean => element.textContent?.trim() === 'Update ready',
 			);
@@ -254,16 +261,58 @@ async function waitForPromotedReadyOrUnexpectedInstall(props: {
 			const packageId = document
 				.querySelector('[data-testid="review-viewer-shell"]')
 				?.getAttribute('data-review-metadata-id');
-			return packageId !== null && packageId !== undefined && packageId !== initialPackageId
+			const targetOID = document
+				.querySelector('[data-testid="bridge-review-comparison-current-state"]')
+				?.getAttribute('data-resolved-target-oid');
+			return packageId !== null &&
+				packageId !== undefined &&
+				packageId !== initialPackageId &&
+				targetOID === expectedTargetOID
 				? 'installedWithoutHold'
 				: false;
 		},
-		props.initialPackageId,
+		{ expectedTargetOID: props.expectedTargetOID, initialPackageId: props.initialPackageId },
 		{ timeout: annotationComposedConvergenceTimeoutMilliseconds },
 	);
 	const outcome = await handle.jsonValue();
 	if (outcome === false) throw new Error('Promoted Review produced neither a hold nor an install.');
 	return outcome;
+}
+
+function isReviewPublicationAppliedResponse(response: Response): boolean {
+	const request = response.request();
+	if (
+		request.method() !== 'POST' ||
+		new URL(request.url()).pathname !== '/__bridge-product/command'
+	) {
+		return false;
+	}
+	const body: unknown = request.postDataJSON();
+	if (typeof body !== 'object' || body === null || Reflect.get(body, 'kind') !== 'product.call') {
+		return false;
+	}
+	const call = Reflect.get(body, 'call');
+	return (
+		typeof call === 'object' &&
+		call !== null &&
+		Reflect.get(call, 'method') === 'review.publication.applied'
+	);
+}
+
+async function requireCompletedReviewPublicationAppliedResponse(response: Response): Promise<void> {
+	const body: unknown = await response.json();
+	const call = typeof body === 'object' && body !== null ? Reflect.get(body, 'call') : null;
+	if (
+		!response.ok() ||
+		typeof body !== 'object' ||
+		body === null ||
+		Reflect.get(body, 'kind') !== 'call.completed' ||
+		typeof call !== 'object' ||
+		call === null ||
+		Reflect.get(call, 'method') !== 'review.publication.applied'
+	) {
+		throw new Error(`Review publication applied receipt did not complete: ${JSON.stringify(body)}`);
+	}
 }
 
 async function waitForFilePathReady(props: {
@@ -277,6 +326,23 @@ async function waitForFilePathReady(props: {
 				canvas?.getAttribute('data-worktree-open-file-state') === 'ready' &&
 				canvas.getAttribute('data-worktree-open-file-path') === path &&
 				canvas.getAttribute('data-worktree-rendered-file-path') === path
+			);
+		},
+		props.path,
+		{ timeout: annotationRestartJourneyTimeoutMilliseconds },
+	);
+}
+
+async function waitForSelectedReviewPathReady(props: {
+	readonly page: Page;
+	readonly path: string;
+}): Promise<void> {
+	await props.page.waitForFunction(
+		(path: string): boolean => {
+			const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+			return (
+				shell?.getAttribute('data-selected-content-state') === 'ready' &&
+				shell.getAttribute('data-selected-display-path') === path
 			);
 		},
 		props.path,
@@ -305,55 +371,59 @@ async function requireReviewPackageIdentity(page: Page): Promise<{
 }
 
 async function waitForHeldCommitPromotionTelemetry(props: {
-	readonly minimumGenerationExclusive: number;
 	readonly page: Page;
+	readonly reviewGeneration: number;
 }): Promise<{ readonly reviewGeneration: number }> {
 	const statusUrl = new URL('/__bridge-dev-telemetry/status', props.page.url()).toString();
-	const handle = await props.page.waitForFunction(
-		async ({ minimumGenerationExclusive, url }): Promise<{ reviewGeneration: number } | false> => {
-			const response = await fetch(url, { cache: 'no-store' });
-			if (!response.ok) return false;
-			const body: unknown = await response.json();
-			if (typeof body !== 'object' || body === null || !('recentSamples' in body)) return false;
-			const recentSamples = body.recentSamples;
-			if (!Array.isArray(recentSamples)) return false;
-			for (const sample of recentSamples.toReversed()) {
-				if (typeof sample !== 'object' || sample === null) continue;
-				const stringAttributes = Reflect.get(sample, 'stringAttributes');
-				const numericAttributes = Reflect.get(sample, 'numericAttributes');
-				if (
-					typeof stringAttributes !== 'object' ||
-					stringAttributes === null ||
-					typeof numericAttributes !== 'object' ||
-					numericAttributes === null ||
-					Reflect.get(stringAttributes, 'agentstudio.bridge.phase') !==
-						'review_refresh_candidate_held' ||
-					Reflect.get(stringAttributes, 'agentstudio.bridge.review.refresh.presentation_class') !==
-						'promoted' ||
-					Reflect.get(stringAttributes, 'agentstudio.bridge.review.refresh.promotion_reason') !==
-						'commits'
-				) {
-					continue;
+	let observation: { readonly reviewGeneration: number } | null = null;
+	await expect
+		.poll(
+			async (): Promise<boolean> => {
+				const response = await fetch(statusUrl, { cache: 'no-store' });
+				if (!response.ok) return false;
+				const body: unknown = await response.json();
+				if (typeof body !== 'object' || body === null || !('recentSamples' in body)) return false;
+				const recentSamples = body.recentSamples;
+				if (!Array.isArray(recentSamples)) return false;
+				for (const sample of recentSamples.toReversed()) {
+					if (typeof sample !== 'object' || sample === null) continue;
+					const stringAttributes = Reflect.get(sample, 'stringAttributes');
+					const numericAttributes = Reflect.get(sample, 'numericAttributes');
+					if (
+						typeof stringAttributes !== 'object' ||
+						stringAttributes === null ||
+						typeof numericAttributes !== 'object' ||
+						numericAttributes === null ||
+						Reflect.get(stringAttributes, 'agentstudio.bridge.phase') !==
+							'review_refresh_candidate_held' ||
+						Reflect.get(
+							stringAttributes,
+							'agentstudio.bridge.review.refresh.presentation_class',
+						) !== 'promoted' ||
+						Reflect.get(stringAttributes, 'agentstudio.bridge.review.refresh.promotion_reason') !==
+							'commits'
+					) {
+						continue;
+					}
+					const reviewGeneration = Reflect.get(
+						numericAttributes,
+						'agentstudio.bridge.review.generation',
+					);
+					if (
+						typeof reviewGeneration === 'number' &&
+						Number.isSafeInteger(reviewGeneration) &&
+						reviewGeneration === props.reviewGeneration
+					) {
+						observation = { reviewGeneration };
+						return true;
+					}
 				}
-				const reviewGeneration = Reflect.get(
-					numericAttributes,
-					'agentstudio.bridge.review.generation',
-				);
-				if (
-					typeof reviewGeneration === 'number' &&
-					Number.isSafeInteger(reviewGeneration) &&
-					reviewGeneration > minimumGenerationExclusive
-				) {
-					return { reviewGeneration };
-				}
-			}
-			return false;
-		},
-		{ minimumGenerationExclusive: props.minimumGenerationExclusive, url: statusUrl },
-		{ timeout: annotationComposedConvergenceTimeoutMilliseconds },
-	);
-	const observation = await handle.jsonValue();
-	if (observation === false) {
+				return false;
+			},
+			{ timeout: annotationComposedConvergenceTimeoutMilliseconds },
+		)
+		.toBe(true);
+	if (observation === null) {
 		throw new Error('Review candidate did not emit held commit-promotion telemetry.');
 	}
 	return observation;

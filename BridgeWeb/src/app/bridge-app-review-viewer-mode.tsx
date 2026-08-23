@@ -49,6 +49,10 @@ import {
 	bridgeReviewComparisonPaneState,
 } from './bridge-review-comparison-pane-state.js';
 import {
+	BridgeReviewRefreshHeaderAction,
+	bridgeReviewRefreshHeaderPresentation,
+} from './bridge-review-refresh-header-chrome.js';
+import {
 	createBridgeViewerSearchState,
 	transitionBridgeViewerSearchState,
 	type BridgeViewerSearchAction,
@@ -125,17 +129,34 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const emitSelectedReviewItemIntent = controller.emitSelectedReviewItemIntent;
 	const markFileViewed = controller.markFileViewed;
 	const panelChromeSlice = controller.panelChromeSlice;
+	const reviewRefreshPresentation = controller.reviewRefreshPresentation;
 	const reviewSourceSlice = controller.reviewSourceSlice;
 	const selectedCodeViewItem = controller.selectedCodeViewItem;
 	const selectedContentAvailability = controller.selectedContentAvailability;
 	const selectedItemId = controller.selectedItemId;
 	const selectedReviewItem = controller.selectedReviewItem;
 	const setReviewCodeViewVisibleItemIds = controller.setReviewCodeViewVisibleItemIds;
+	const setReviewRefreshSemanticAttention = controller.setReviewRefreshSemanticAttention;
 	const setReviewTreeVisibleItemIds = controller.setReviewTreeVisibleItemIds;
 	const updateReviewDisplayProjection = controller.updateReviewDisplayProjection;
 	const queryReviewComparisonTargets = controller.queryReviewComparisonTargets;
 	const cancelReviewComparisonTargetsQuery = controller.cancelReviewComparisonTargetsQuery;
 	const visibleCodeViewItems = controller.visibleCodeViewItems;
+	const [readingPositionItemId, setReadingPositionItemId] = useState<string | null>(null);
+	const [annotationAttentionItemIds, setAnnotationAttentionItemIds] = useState<readonly string[]>(
+		[],
+	);
+	const semanticAttentionItemIds = useMemo((): readonly string[] => {
+		if (!isActive) return [];
+		const itemIds = new Set<string>();
+		if (selectedItemId !== null) itemIds.add(selectedItemId);
+		if (readingPositionItemId !== null) itemIds.add(readingPositionItemId);
+		for (const itemId of annotationAttentionItemIds) itemIds.add(itemId);
+		return [...itemIds].toSorted();
+	}, [annotationAttentionItemIds, isActive, readingPositionItemId, selectedItemId]);
+	useEffect((): void => {
+		setReviewRefreshSemanticAttention(semanticAttentionItemIds);
+	}, [semanticAttentionItemIds, setReviewRefreshSemanticAttention]);
 	const [treeSearchState, setTreeSearchState] = useState(createBridgeViewerSearchState);
 	const [treeSearchRejectionMessage, setTreeSearchRejectionMessage] = useState<string | null>(null);
 	const treeSearchStateRef = useRef(treeSearchState);
@@ -337,8 +358,22 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		telemetryRecorderRef,
 	]);
 	const comparisonIsLoading = bridgeReviewComparisonPaneIsLoading(comparisonPaneState);
+	const refreshRetryTarget = panelChromeSlice.reviewComparison?.activeTarget ?? null;
+	const refreshHeaderPresentation = bridgeReviewRefreshHeaderPresentation({
+		attentionItemIds: semanticAttentionItemIds,
+		canRetry: refreshRetryTarget !== null,
+		refreshPresentation: reviewRefreshPresentation,
+	});
 	const contentHeaderControls = (
 		<>
+			<BridgeReviewRefreshHeaderAction
+				action={refreshHeaderPresentation.action}
+				onApplyNow={(): void => void controller.applyReviewRefreshNow()}
+				onRetry={(): void => {
+					if (refreshRetryTarget !== null)
+						controller.updateReviewComparisonTarget(refreshRetryTarget);
+				}}
+			/>
 			<WorktreeAnnotationShareHeaderControl />
 			<BridgeReviewComparisonControl
 				comparisonPresentation={panelChromeSlice.reviewComparison}
@@ -445,6 +480,8 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		panelChromeSlice,
 		comparisonPaneState,
 		onRetryComparison: controller.updateReviewComparisonTarget,
+		onAnnotationAttentionItemIdsChange: setAnnotationAttentionItemIds,
+		onReadingPositionItemIdChange: setReadingPositionItemId,
 		projectionMode,
 		codeViewControlHandleRef,
 		facetMenuOpen,
@@ -456,6 +493,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		presentationSnapshot,
 		renderFulfillmentCoordinator: reviewClient.renderFulfillmentCoordinator,
 		reviewSourceSlice,
+		reviewRefreshStatusText: refreshHeaderPresentation.statusText,
 		selectedCodeViewItem,
 		selectedContentAvailability,
 		selectedItemId,
@@ -537,6 +575,8 @@ function assertNeverBridgeReviewComparisonPaneTelemetryState(state: never): neve
 function reviewPresentationState(props: {
 	readonly comparisonPaneState: ReturnType<typeof bridgeReviewComparisonPaneState>;
 	readonly onRetryComparison: BridgeReviewRenderSnapshotController['updateReviewComparisonTarget'];
+	readonly onAnnotationAttentionItemIdsChange: (itemIds: readonly string[]) => void;
+	readonly onReadingPositionItemIdChange: (itemId: string | null) => void;
 	readonly codeViewOptions: ReturnType<typeof deriveBridgeReviewCodeViewOptions>;
 	readonly codeViewWorkerFactory: (() => Worker) | undefined;
 	readonly codeViewWorkerPoolEnabled: boolean | undefined;
@@ -552,6 +592,7 @@ function reviewPresentationState(props: {
 	readonly presentationSnapshot: ReturnType<typeof bridgeReviewPresentationSnapshotForDisplay>;
 	readonly renderFulfillmentCoordinator: BridgePaneSurfaceClient['renderFulfillmentCoordinator'];
 	readonly reviewSourceSlice: BridgeReviewRenderSnapshotController['reviewSourceSlice'];
+	readonly reviewRefreshStatusText: string | null;
 	readonly selectedCodeViewItem: BridgeReviewRenderSnapshotController['selectedCodeViewItem'];
 	readonly selectedContentAvailability: BridgeReviewRenderSnapshotController['selectedContentAvailability'];
 	readonly selectedItemId: string | null;
@@ -608,6 +649,8 @@ function reviewPresentationState(props: {
 			onHoveredItemIdChange: props.onHoveredItemIdChange,
 			...(props.onOpenFile === undefined ? {} : { onOpenFile: props.onOpenFile }),
 			onRetryComparison: props.onRetryComparison,
+			onAnnotationAttentionItemIdsChange: props.onAnnotationAttentionItemIdsChange,
+			onReadingPositionItemIdChange: props.onReadingPositionItemIdChange,
 			panelChromeSlice: props.panelChromeSlice,
 			projectionMode: props.projectionMode,
 			presentationPositionKey: props.presentationPositionKey,
@@ -625,6 +668,7 @@ function reviewPresentationState(props: {
 			onTreeVisibleItemIdsChange: props.setReviewViewportItemIds,
 			projection: props.presentationSnapshot.projection,
 			reviewPackage: props.presentationSnapshot.reviewPackage,
+			reviewRefreshStatusText: props.reviewRefreshStatusText,
 			reviewTreeRows: props.presentationSnapshot.reviewTreeRows,
 			selectedCanvasLoadingReason: selectedContentIsLoading ? 'content' : null,
 			selectedCodeViewItem: props.selectedCodeViewItem,

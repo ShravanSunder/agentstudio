@@ -944,3 +944,188 @@ that can make the SwiftPM helper window occlusion-visible, or provide the repo's
 canonical GUI-capable runner if one exists. Do not change product rendering,
 timeouts, native admission, or UI behavior to compensate.
 Notes: no security, protocol, polling, compatibility, second-bank, or PR2 change.
+
+### 2026-08-23 08:55 EDT — Real-worktree Chrome inventory finds refresh presentation unwired
+
+State: backend and comm-worker refresh state exist at `af7ffaf955`, but the
+promoted-refresh user workflow is not reachable from the production Review UI
+at this HEAD
+Evidence: `useBridgeAppReviewRenderSnapshotController` exposes
+`reviewRefreshPresentation`, `applyReviewRefreshNow`, and
+`setReviewRefreshSemanticAttention`; a production-source search finds no
+consumer outside that controller/store and no production literal for
+`Updating…`, `Update ready`, `Apply now`, or `Update unavailable`. Only unit
+tests inject semantic attention or call Apply now.
+Needs from UI lane: wire the existing controller outputs into the agreed stable
+Review chrome and existing Review attention/first-visible-item owners. Preserve
+one pipeline, the controller/store ownership, and the no-blocking interaction
+contract. Do not add another refresh engine, route, bank, polling loop, or
+global interaction manager.
+Backend proof context: an isolated Swift backend and Vite are healthy against
+the disposable linked worktree under `/tmp`; ordinary refresh, annotations,
+comparison, and exact output-capture workflows remain available for Chrome
+proof. Copy/Export in the development host intentionally writes exact bytes to
+the isolated data root rather than claiming clipboard/save-panel authority.
+Next: UI owner lands the bounded consumer; backend lane reruns the promoted hold,
+Apply now, focus-leave auto-install, comment-continuity, and newest-candidate
+real-worktree journeys without changing UI source.
+
+### 2026-08-23 09:12 EDT — Share treats unavailable retained projection as confirmed zero
+
+State: real Chrome + Vite + Swift backend exposed one backend wire defect and
+one separate UI-owned availability projection defect
+Head: `af7ffaf955` plus an uncommitted scoped Swift encoder correction in the
+backend lane
+Primary cause: Swift omitted required-nullable `activeEditToken` when a durable
+draft had released its edit token. The comm worker correctly rejected that
+strict wire record. Backend lane has a deterministic red test and the bounded
+custom encoder correction; UI source was not changed.
+UI finding: after the demanded projection becomes unavailable, the projection
+store retains its last complete header-only snapshot and sets `readStatus` to
+unavailable. `WorktreeAnnotationShareHeaderControl` and
+`WorktreeAnnotationShareSurface` use only `projection.revision === null` to
+decide membership unknown/ready. They ignore unavailable/refreshing read status,
+derive the retained empty thread array, and visibly report `New (0)` / `All (0)`
+as current. This contradicts R-P1-010 and the confirmed no-fabricated-zero
+contract.
+Needs from UI lane: make Share membership truth incorporate the existing
+projection read status and last-known/current distinction. Reuse the current
+projection store and Share row; do not add state, retry, polling, a new route,
+or another projection owner.
+Next: after both scoped owners land, rerun full-document reload with a released
+draft token and verify the draft returns, the lifecycle reaches ready, and Share
+never reports a failed/unknown membership as current zero.
+
+## 2026-08-23 09:51 EDT — Backend lane: permanent Chrome RED for root-draft release
+
+The new exact Chrome → Vite → production comm-worker → Swift development-server journey now
+reproduces a UI-owned edit-token release failure. After `root.create` commits and the draft is
+visible, both clicking outside and pressing Escape collapse/flush the root composer but no
+`draft.edit.release` command reaches `/__bridge-product/command`; the exact response wait times out
+after 120 seconds. Three isolated runs reproduced it. The Swift strict-wire test and real HTTP
+restart test remain green, so this is separate from the fixed required-nullable
+`activeEditToken: null` encoder defect.
+
+The likely seam is duplicate registration of the same new-message edit token in
+`useBridgeCodeViewWorktreeAnnotations` and `WorktreeAnnotationNewMessageComposer`. Composer teardown
+queues deferred release, but the registry can still report the parent registration active and skip
+release. Please validate and correct that UI lifecycle without changing native contracts. The
+permanent RED is `restores a released Review root draft after a full document reload` in
+`BridgeWeb/tests/e2e/bridge-viewer-vite-annotation-save-journey.ts`.
+
+## 2026-08-23 10:03 EDT — Backend lane: Review-head to File placement is GREEN
+
+The native source evaluator now admits only this cross-view compatibility: on the File surface,
+immutable `reviewHead` origins may be evaluated against current working-tree `.file` material.
+`reviewBase` remains rejected, Review-surface matching remains exact-role only, and
+repository/worktree lineage fencing is unchanged. Located and whole-file RED assertions failed as
+`outdated` before the correction and now pass; the real `agentstudio-git` working-tree material
+integration also passes.
+
+UI lane still needs the thin File Pierre correction: an exact/relocated context with immutable
+`sourceRole === 'review_head'` must be eligible on File when its current path/lines already came from
+the native File projection. Do not rewrite the origin role and do not admit `review_base`. After that
+lands, the backend lane will extend the real Chrome Review → Files journey and require the same
+canonical messages to render visibly on the selected current file.
+
+## 2026-08-23 10:16 EDT — Correction to 10:03 entry
+
+Before checkpointing, the backend lane removed the dormant whole-file compatibility change. The
+committed native correction at `9ef5053f9` covers only shipped located threads. Whole-file behavior
+remains unchanged. The located `reviewHead` RED/green, `reviewBase` guard, real `agentstudio-git`
+material integration, and projection-source suites are green (16 tests total).
+
+## 2026-08-23 10:29 EDT — Backend lane: composed output and multi-message Chrome proof GREEN
+
+The permanent real Chrome/Vite/comm-worker/Swift save journey now uses distinct File and Review
+message bodies and runs both against one real fixture. The combined run passed 2/2 and proves both
+messages coexist without command conflict. For each output it requires one newly created isolated
+capture; Markdown is checked for the authored body, one generated H1, and no absolute worktree
+path. JSON is checked for schema/version, contiguous batch ordinals, unique message IDs, and the
+current authored body. The second surface truthfully exported both canonical messages. History
+contained both attempts and New membership was restored before reload.
+
+Current UI-owned REDs remain unchanged: root-draft collapse does not release its edit token;
+File Pierre still needs exact/relocated `review_head` eligibility; promoted refresh presentation is
+not production-wired. The backend lane has not changed UI source to compensate.
+
+## 2026-08-23 10:33 EDT — Backend lane: real annotation restart journey GREEN
+
+A permanent E2E now authors distinct File and Review messages through Chrome, stops the exact owned
+Swift backend, starts a new backend over the same isolated Core/local SQLite root, opens a fresh
+Chrome document, and verifies the File message in File plus the Review message in Review. The new
+backend PID must differ and both process cleanups remain ownership-safe. Exact focused result: 1/1
+passed, 7 skipped, 17.02 seconds. This closes the canonical annotation process-restart gap without
+mocking persistence or treating a page reload as a backend restart.
+
+## 2026-08-23 10:38 EDT — Backend lane: permanent Review-origin to File Chrome RED
+
+The restart journey now continues from proven native/SQLite recovery into File View for the exact
+Review-origin path. File content reaches ready for the requested path, but the recovered Review
+message never becomes visible and the exact locator times out. This is the full composed RED for the
+thin File Pierre predicate already requested above: native placement is green and immutable
+`review_head` reaches the File projection; File rendering still drops it. No backend or protocol
+change is needed. After the UI predicate lands, this same permanent journey must turn green.
+
+## 2026-08-23 10:47 EDT — Backend lane: permanent promoted-hold Chrome RED
+
+The permanent promoted journey now creates exactly ten sequential commits in the disposable real
+worktree while the changed Review file remains selected. The package changes before any
+`Update ready` presentation: observed outcome is `installedWithoutHold`, expected `updateReady`.
+This proves the missing production semantic-attention wiring materially changes behavior, not just
+chrome. The test then owns the future Apply-now and unaffected-file automatic-install assertions.
+Exact RED fails in 7.52 seconds, so the UI owner has a bounded feedback loop and does not need the
+earlier 120-second timeout.
+
+## 2026-08-23 10:49 EDT — Backend lane: root-draft RED feedback bounded
+
+The permanent released-draft journey still fails at the exact missing `draft.edit.release` response,
+but that wait is now capped at 30 seconds while ordinary Save retains its existing ceiling. The
+focused real Chrome run reproduced the same missing release in 46.29 seconds end-to-end. Typecheck,
+format, and scoped type-aware lint pass; only the pre-existing ordered browser-loop warnings remain.
+
+## 2026-08-23 11:15 EDT — Backend lane: released draft and cross-view composed proof GREEN
+
+Checkpoint `43d776ac3` fixes the two previously bounded annotation UI seams. Root-composer teardown
+now releases from its exact committed command cursor even before projection convergence, while a
+newer trustworthy projection cursor may supersede it; File Pierre admits only exact/relocated
+`review_head` alongside native File origins and continues rejecting `review_base`.
+
+Parent verification passed the full Pierre Chrome file 7/7, the real Chrome/Vite/comm-worker/Swift
+released-Review-draft reload journey 1/1, and the cold-restart Review-origin-to-File convergence
+journey. The promoted-refresh path remains the active RED. Its program-design correction is under
+independent review; no heuristic chrome or second refresh pipeline has been added.
+
+## 2026-08-23 12:21 EDT — Backend lane: classified candidate lifecycle GREEN
+
+Checkpoints `1c54c2a52` and `d2260b77a` record the reviewed source-corrected Program Design;
+`1ec20cd99` records the truthful real-worktree E2E harness; `9c0f8f7f6` records S1/S2 production
+carriage and the bounded main state machine.
+
+The production sequence is now exact `reviewCandidateStarted → reviewDisplayPatch →
+reviewCandidateReady`. Same-source classification is known before worker presentation construction;
+main clones one candidate bank from displayed A, rejects geometry without an exact start, keeps
+unknown affectedness symbolic, and fences ready/failure by both publication identity and worker
+epoch. Exact current failure retains only bounded promoted facts; ordinary/replacement failure stays
+non-global; stale B cannot affect newer C; worker replacement/attention leave/close clean state.
+
+Parent proof passed Swift 27/27, focused TypeScript 80/80, typecheck, and installed-Chrome controller
+consumers 17/17. The pinned `agentstudio-git` bounded-diff suite passed 7/7, including oversized
+fuzzy/exact rename cases. UI lane may now consume `reviewRefreshPresentation`, semantic-attention,
+and Apply-now contracts; do not reintroduce final-barrier classification or infer promoted state from
+generic provisional geometry.
+
+## 2026-08-23 13:44 EDT — Backend lane: composed promoted refresh GREEN
+
+The permanent Chrome/Vite/production-comm-worker/Swift-dev-server/real-Git-worktree journey now
+passes both promoted cycles. Ten imported commits hold the selected affected Review at `Update ready`;
+Enter on Apply now installs the exact target OID. The harness requires the real
+`review.publication.applied` completion before advancing again, ignores unrelated same-OID ordinary
+catch-up generations, then proves a second ten-commit candidate remains held until selection moves to
+an unaffected file and installs automatically. Held telemetry is bound to each installed generation
+with promotion reason `commits`.
+
+The missing telemetry was a stale-recorder bug: Review integration captured the startup no-op recorder
+before async telemetry bootstrap replaced the ref. It now resolves the existing recorder ref at event
+time; no new path, timer, observer, or state owner was added. Focused proof is Swift 38/38, TypeScript
+unit/harness 16/16, installed Chrome 28/28, composed real E2E 1/1, and BridgeWeb typecheck green.

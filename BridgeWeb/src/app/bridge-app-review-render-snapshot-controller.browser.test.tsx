@@ -2,9 +2,14 @@ import { parseDiffFromFile } from '@pierre/diffs';
 import { act } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
+import { page, userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import './bridge-app.css';
+import {
+	buildBridgeWorkerReviewCandidateFailedEvent,
+	buildBridgeWorkerReviewCandidateReadyEvent,
+} from '../core/comm-worker/bridge-comm-worker-protocol.js';
 import { createBridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
@@ -281,6 +286,243 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			'Changes only on master are excluded',
 		);
 		expect(document.querySelector('[data-testid="bridge-review-comparison-content"]')).toBeNull();
+	});
+
+	test('holds an affected promoted Review update in stable header chrome and applies it by keyboard', async () => {
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				codeViewWorkerPoolEnabled={false}
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerContextSwitcher={<div />}
+			/>,
+		);
+
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 1,
+					sequence: 1,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+			);
+			await import('../review-viewer/shell/review-viewer-shell.js');
+			await settleRenderedReviewFrame();
+		});
+		await expect.element(rendered.getByTestId('review-viewer-shell')).toBeVisible();
+		const header = rendered.getByTestId('bridge-viewer-content-topbar').element();
+		const headerHeight = header.getBoundingClientRect().height;
+
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 2,
+					publicationRevision: 2,
+					sequence: 2,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+				{
+					candidateDisposition: {
+						affectedStableFileIdentities: ['item-1'],
+						kind: 'sameSource',
+						presentationClass: { kind: 'promoted', reason: 'commits' },
+					},
+					completesReviewPublication: false,
+				},
+			);
+			await Promise.resolve();
+		});
+		await expect
+			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.toHaveTextContent('Updating…');
+		expect(header.getBoundingClientRect().height).toBe(headerHeight);
+
+		await act(async (): Promise<void> => {
+			harness.publish(
+				buildBridgeWorkerReviewCandidateReadyEvent({
+					epoch: 1,
+					packageId: 'review-browser-harness-package',
+					publicationId: '00000000-0000-7000-8000-000000000002',
+					reviewGeneration: 1,
+					revision: 2,
+					sequence: 8,
+					sourceIdentity: 'review-browser-harness-source',
+				}),
+			);
+			await Promise.resolve();
+		});
+		await expect
+			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.toHaveTextContent('Update ready');
+		await page.screenshot({ path: '../../../tmp/bridge-review-refresh-update-ready.png' });
+		const applyNow = rendered.getByRole('button', { name: 'Apply now' });
+		await act(async (): Promise<void> => {
+			applyNow.element().focus();
+			await userEvent.keyboard('{Enter}');
+			await Promise.resolve();
+		});
+		await expect
+			.poll(() => rendered.getByTestId('bridge-viewer-content-status').query())
+			.toBeNull();
+		expect(header.getBoundingClientRect().height).toBe(headerHeight);
+		expect(document.querySelector('[data-testid="bridge-review-refresh-status-row"]')).toBeNull();
+		expect(
+			harness.sentCommands.some((command) => command.command === 'reviewPublicationInstallAdmit'),
+		).toBe(true);
+	});
+
+	test('automatically applies a held promoted Review update when Review attention leaves', async () => {
+		const harness = makeReviewSurfaceHarness();
+		const modeProps = {
+			codeViewWorkerPoolEnabled: false,
+			isNavigationCommandStillEligible: bridgeReviewNavigationCommandIsAlwaysEligible,
+			onActiveSourceChange: vi.fn(),
+			onNavigationSourceChange: vi.fn(),
+			reviewClient: harness.reviewClient,
+			telemetryRecorderRef: { current: createBridgeTelemetryRecorder(null) },
+			viewerContextSwitcher: <div />,
+		} as const;
+		const rendered = await render(<BridgeReviewViewerMode {...modeProps} isActive />);
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 1,
+					sequence: 1,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+			);
+			await import('../review-viewer/shell/review-viewer-shell.js');
+			await settleRenderedReviewFrame();
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 2,
+					publicationRevision: 2,
+					sequence: 2,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+				{
+					candidateDisposition: {
+						affectedStableFileIdentities: ['item-1'],
+						kind: 'sameSource',
+						presentationClass: { kind: 'promoted', reason: 'lines' },
+					},
+				},
+			);
+			await Promise.resolve();
+		});
+		await expect
+			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.toHaveTextContent('Update ready');
+		const admissionsBeforeLeaving = harness.sentCommands.filter(
+			(command) => command.command === 'reviewPublicationInstallAdmit',
+		).length;
+
+		await act(async (): Promise<void> => {
+			await rendered.rerender(<BridgeReviewViewerMode {...modeProps} isActive={false} />);
+			await Promise.resolve();
+		});
+		await expect
+			.poll(
+				() =>
+					harness.sentCommands.filter(
+						(command) => command.command === 'reviewPublicationInstallAdmit',
+					).length,
+			)
+			.toBe(admissionsBeforeLeaving + 1);
+		expect(rendered.getByTestId('bridge-viewer-content-status').query()).toBeNull();
+	});
+
+	test('routes retryable promoted failure through the canonical active comparison target', async () => {
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				codeViewWorkerPoolEnabled={false}
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerContextSwitcher={<div />}
+			/>,
+		);
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 1,
+					sequence: 1,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+			);
+			await import('../review-viewer/shell/review-viewer-shell.js');
+			await settleRenderedReviewFrame();
+			harness.publish(reviewComparisonPanelChromeEventForHarness());
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 2,
+					publicationRevision: 2,
+					sequence: 2,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+				{
+					candidateDisposition: {
+						affectedStableFileIdentities: ['item-1'],
+						kind: 'sameSource',
+						presentationClass: { kind: 'promoted', reason: 'commits' },
+					},
+					completesReviewPublication: false,
+				},
+			);
+			harness.publish(
+				buildBridgeWorkerReviewCandidateFailedEvent({
+					epoch: 1,
+					packageId: 'review-browser-harness-package',
+					publicationId: '00000000-0000-7000-8000-000000000002',
+					retryable: true,
+					reviewGeneration: 1,
+					revision: 2,
+					sequence: 8,
+					sourceIdentity: 'review-browser-harness-source',
+				}),
+			);
+			await Promise.resolve();
+		});
+		await expect
+			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.toHaveTextContent('Update unavailable');
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Retry' }).click();
+			await Promise.resolve();
+		});
+		expect(
+			harness.sentCommands.findLast((command) => command.command === 'reviewComparisonUpdate'),
+		).toMatchObject({
+			command: 'reviewComparisonUpdate',
+			target: { branchName: 'master', kind: 'localDefaultBranch' },
+		});
 	});
 
 	test('applies an exact commit through the Review product command', async () => {
@@ -804,6 +1046,21 @@ function reviewComparisonPanelChromeEvent(): Extract<
 		transferDescriptors: [],
 		wireVersion: 1,
 		workerDerivationEpoch: 1,
+	};
+}
+
+function reviewComparisonPanelChromeEventForHarness(): ReturnType<
+	typeof reviewComparisonPanelChromeEvent
+> {
+	return {
+		...reviewComparisonPanelChromeEvent(),
+		reviewPublicationIdentity: {
+			packageId: 'review-browser-harness-package',
+			publicationId: '00000000-0000-7000-8000-000000000001',
+			reviewGeneration: 1,
+			revision: 1,
+			sourceIdentity: 'review-browser-harness-source',
+		},
 	};
 }
 

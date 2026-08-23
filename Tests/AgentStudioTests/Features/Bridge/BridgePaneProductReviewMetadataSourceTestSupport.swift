@@ -65,7 +65,7 @@ func deliverReviewPackage(
     _ package: BridgeReviewPackage,
     publicationId: UUID = reviewMetadataTestPublicationId,
     operationCorrelationID: String? = nil,
-    refreshImpact: BridgeReviewRefreshImpact = .initial,
+    classifiedRefreshImpact: BridgeReviewRefreshImpact? = nil,
     through source: BridgePaneProductReviewMetadataSource,
     productAdmission: BridgeProductAdmissionContext
 ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -79,7 +79,7 @@ func deliverReviewPackage(
             package,
             publicationId: publicationId,
             operationCorrelationID: operationCorrelationID,
-            refreshImpact: refreshImpact
+            classifiedRefreshImpact: classifiedRefreshImpact
         ),
         reservation: reservation,
         productAdmission: productAdmission
@@ -90,7 +90,7 @@ func reviewMetadataCommittedPublication(
     _ package: BridgeReviewPackage,
     publicationId: UUID = reviewMetadataTestPublicationId,
     operationCorrelationID: String? = nil,
-    refreshImpact: BridgeReviewRefreshImpact = .initial
+    classifiedRefreshImpact: BridgeReviewRefreshImpact? = nil
 ) -> BridgeReviewCommittedPublication {
     BridgeReviewCommittedPublication(
         publicationId: publicationId,
@@ -100,7 +100,7 @@ func reviewMetadataCommittedPublication(
         comparisonPresentationRevision: 1,
         reviewComparison: nil,
         operationCorrelationID: operationCorrelationID,
-        refreshImpact: refreshImpact
+        classifiedRefreshImpact: classifiedRefreshImpact
     )
 }
 
@@ -203,6 +203,23 @@ func makeReviewPackage(
         comparisonOrigin: comparisonOrigin,
         reviewedSubjectLabel: reviewedSubjectLabel
     )
+}
+
+func replacingReviewItem(
+    in package: BridgeReviewPackage,
+    itemId: String,
+    fileClass: BridgeFileClass,
+    revision: Int
+) -> BridgeReviewPackage {
+    var itemsById = package.itemsById
+    let previous = itemsById[itemId]!
+    itemsById[itemId] = makeBridgeReviewItemDescriptor(
+        itemId: itemId,
+        path: previous.headPath ?? previous.basePath ?? itemId,
+        fileClass: fileClass,
+        contentRoles: previous.contentRoles
+    )
+    return replacingReviewPackage(package, revision: revision, itemsById: itemsById)
 }
 
 private func reviewMetadataTestEndpoint(

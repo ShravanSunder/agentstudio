@@ -34,7 +34,9 @@ export interface BridgeCodeViewPanelProps {
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 	readonly onControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
+	readonly onAnnotationAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onOpenFile?: (path: string) => void;
+	readonly onReadingPositionItemIdChange?: (itemId: string | null) => void;
 	readonly onScrollActivityChange?: (isActive: boolean) => void;
 	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 }

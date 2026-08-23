@@ -48,6 +48,7 @@ import {
 
 export interface BridgeCodeViewWorktreeAnnotations {
 	readonly activeThreads: readonly WorktreeAnnotationThreadProjection[];
+	readonly attentionItemIds: readonly string[];
 	readonly annotateItem: (item: BridgeCodeViewItem) => BridgeCodeViewItem;
 	readonly codeViewOptions: Readonly<CodeViewOptions<undefined>>;
 	readonly projectionRevision: number | null;
@@ -107,6 +108,32 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 	const selectedItemIdRef = useRef<string | null>(null);
 	const rangePresentation = interaction.pierreRangePresentation;
 	const selectedRange = rangePresentation.kind === 'none' ? null : rangePresentation.range;
+	const attentionItemIds = useMemo((): readonly string[] => {
+		const itemIds = new Set<string>();
+		if (pendingComposer !== null) itemIds.add(pendingComposer.itemId);
+		if (rangePresentation.kind !== 'none') itemIds.add(rangePresentation.itemId);
+		const threadExpansion = interaction.threadExpansion;
+		if (threadExpansion.kind === 'open' && threadExpansion.editor !== null) {
+			const thread = projection.threads.find(
+				(candidate): boolean => candidate.context.threadId === threadExpansion.threadId,
+			);
+			const itemId =
+				thread === undefined
+					? null
+					: reviewItemIdForAnnotationThread({
+							context: thread.context,
+							reviewPackage: props.reviewPackage,
+						});
+			if (itemId !== null) itemIds.add(itemId);
+		}
+		return props.reviewPackage.orderedItemIds.filter((itemId): boolean => itemIds.has(itemId));
+	}, [
+		interaction.threadExpansion,
+		pendingComposer,
+		projection.threads,
+		props.reviewPackage,
+		rangePresentation,
+	]);
 
 	const annotateItem = useCallback(
 		(item: BridgeCodeViewItem): BridgeCodeViewItem => {
@@ -349,6 +376,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 
 	return {
 		activeThreads,
+		attentionItemIds,
 		annotateItem,
 		codeViewOptions,
 		onSelectedLinesChange,
@@ -362,6 +390,19 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 		selectedLines,
 		selectedRange,
 	};
+}
+
+export function reviewItemIdForAnnotationThread(props: {
+	readonly context: WorktreeAnnotationThreadProjection['context'];
+	readonly reviewPackage: BridgeReviewPackage;
+}): string | null {
+	for (const itemId of props.reviewPackage.orderedItemIds) {
+		const item = props.reviewPackage.itemsById[itemId];
+		if (item === undefined) continue;
+		const expectedPath = props.context.sourceRole === 'review_base' ? item.basePath : item.headPath;
+		if (expectedPath === props.context.path) return itemId;
+	}
+	return null;
 }
 
 function isAnnotationCodeViewItem(item: CodeViewItem | undefined): item is BridgeCodeViewItem {

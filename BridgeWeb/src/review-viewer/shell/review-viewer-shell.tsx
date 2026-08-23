@@ -109,12 +109,15 @@ export interface ReviewViewerShellProps {
 	readonly onCodeViewControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
 	readonly onOpenFile?: (path: string) => void;
 	readonly onCodeViewVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly onAnnotationAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly onReadingPositionItemIdChange?: (itemId: string | null) => void;
 	readonly onTreeVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 	readonly visibleCodeViewItems?: readonly BridgeMainCodeViewItem[];
 	readonly viewerContextSwitcher?: ReactNode;
 	readonly viewerHeaderControls?: ReactNode;
+	readonly reviewRefreshStatusText?: string | null;
 }
 
 export type BridgeReviewCanvasLoadingReason = 'content';
@@ -146,12 +149,13 @@ export function renderReviewViewerShellPresentation(presentation: {
 	const projectionMode = props.projectionMode ?? { kind: 'normalReview' };
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
 	const categoryFilter = props.categoryFilter ?? 'all';
-	const statusText =
+	const comparisonStatusText =
 		props.comparisonPaneState.kind === 'settled' &&
 		props.isActive === true &&
 		props.panelChromeSlice.isLoading === true
 			? (props.panelChromeSlice.message ?? null)
 			: null;
+	const statusText = props.reviewRefreshStatusText ?? comparisonStatusText;
 	const comparisonIsLoading = bridgeReviewComparisonPaneIsLoading(props.comparisonPaneState);
 	const treeSearchText = props.treeSearchText ?? '';
 	const treeSearchMode = props.treeSearchMode ?? { kind: 'text' };
@@ -389,6 +393,17 @@ export function renderReviewViewerShellPresentation(presentation: {
 									{...(props.onCodeViewVisibleItemIdsChange === undefined
 										? {}
 										: { onVisibleItemIdsChange: props.onCodeViewVisibleItemIdsChange })}
+									{...(props.onAnnotationAttentionItemIdsChange === undefined
+										? {}
+										: {
+												onAnnotationAttentionItemIdsChange:
+													props.onAnnotationAttentionItemIdsChange,
+											})}
+									{...(props.onReadingPositionItemIdChange === undefined
+										? {}
+										: {
+												onReadingPositionItemIdChange: props.onReadingPositionItemIdChange,
+											})}
 									{...(props.onCodeViewControlHandleChange === undefined
 										? {}
 										: {

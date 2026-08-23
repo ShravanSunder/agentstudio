@@ -75,7 +75,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 		'acceptPublication' | 'bindPublicationItem' | 'markPublicationQueued' | 'rejectPublication'
 	>;
 	readonly store: BridgeMainRenderSnapshotStore;
-	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
+	readonly telemetryRecorderRef?: { readonly current: BridgeTelemetryRecorder } | undefined;
 }): BridgeMainReviewPublicationIntegration {
 	let currentAttention: BridgeMainReviewSemanticAttention = { stableFileIdentities: [] };
 	let deferredCandidateIdentity: BridgeMainReviewPublicationIdentity | null = null;
@@ -264,7 +264,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 		onLifecycleEvent: (event): void => {
 			recordBridgeReviewRefreshLifecycleTelemetry({
 				event,
-				recorder: props.telemetryRecorder,
+				recorder: props.telemetryRecorderRef?.current,
 			});
 		},
 		store: props.store,
