@@ -43,7 +43,12 @@ describe("supporting feature campaign", () => {
       expect(capture).toHaveProperty("phoneWebsiteAssetSha256");
     }
 
-    expect(captureById.get("sidebar-navigation")).toHaveProperty("phonePixelSize", [610, 800]);
+    expect(captureById.get("sidebar-navigation")).toMatchObject({
+      desktopPixelSize: [1740, 1088],
+      phonePixelSize: [707, 560],
+      projectionPolicy: "purpose-crop",
+      focusRegion: null,
+    });
     expect(captureById.get("task-drawer-tools")).toHaveProperty("phonePixelSize", [1300, 1520]);
     expect(captureById.get("git-context-files")).toHaveProperty("phonePixelSize", [810, 570]);
     expect(captureById.get("layout-saved")).toHaveProperty("phonePixelSize", [640, 400]);

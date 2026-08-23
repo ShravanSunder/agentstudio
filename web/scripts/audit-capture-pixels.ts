@@ -58,6 +58,8 @@ function pixelAt(
 async function capturePixelFailures(props: {
   readonly captureId: string;
   readonly assetUrl: URL;
+  readonly expectedPixelSize: readonly [width: number, height: number];
+  readonly projectionPolicy: "full-native-window" | "purpose-crop";
 }): Promise<readonly CapturePixelFailure[]> {
   const bytes = await readFile(props.assetUrl);
   const chunkTypes = pngChunkTypes(bytes);
@@ -68,10 +70,10 @@ async function capturePixelFailures(props: {
     .toBuffer({ resolveWithObject: true });
   const failures: CapturePixelFailure[] = [];
 
-  if (info.width !== websiteCaptureSuite.pixelSize[0]) {
+  if (info.width !== props.expectedPixelSize[0]) {
     failures.push({ captureId: props.captureId, message: `width is ${info.width}` });
   }
-  if (info.height !== websiteCaptureSuite.pixelSize[1]) {
+  if (info.height !== props.expectedPixelSize[1]) {
     failures.push({ captureId: props.captureId, message: `height is ${info.height}` });
   }
   const hasCanonicalSrgbChunk = chunkTypes.has("sRGB") && !chunkTypes.has("iCCP");
@@ -94,6 +96,9 @@ async function capturePixelFailures(props: {
   ] as const;
 
   for (const [cornerIndex, corner] of corners.entries()) {
+    if (props.projectionPolicy === "purpose-crop") {
+      break;
+    }
     if (corner.alpha !== 0) {
       failures.push({
         captureId: props.captureId,
@@ -113,6 +118,9 @@ async function capturePixelFailures(props: {
   ] as const;
 
   for (const [cornerIndex, origin] of cornerSampleOrigins.entries()) {
+    if (props.projectionPolicy === "purpose-crop") {
+      break;
+    }
     let transparentPixelCount = 0;
     let brightAntialiasingPixelCount = 0;
 
@@ -165,6 +173,12 @@ async function auditCapturePixels(): Promise<void> {
         capturePixelFailures({
           captureId: capture.id,
           assetUrl: new URL(capture.assetPath, manifestUrl),
+          expectedPixelSize:
+            "desktopPixelSize" in capture
+              ? capture.desktopPixelSize
+              : websiteCaptureSuite.pixelSize,
+          projectionPolicy:
+            "projectionPolicy" in capture ? capture.projectionPolicy : "full-native-window",
         }),
       ),
     )
@@ -176,7 +190,7 @@ async function auditCapturePixels(): Promise<void> {
   }
 
   console.log(
-    `Audited ${websiteCaptureSuite.captures.length} capture assets for canonical sRGB, transparent native-window corners, and bright alpha fringes.`,
+    `Audited ${websiteCaptureSuite.captures.length} capture assets for canonical sRGB and their declared full-window or purpose-crop projection policy.`,
   );
 }
 

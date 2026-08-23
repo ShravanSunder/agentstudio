@@ -45,6 +45,8 @@ async function verifyCaptureAssets(): Promise<void> {
       const assetUrl = new URL(capture.assetPath, manifestUrl);
       const bytes = await readFile(assetUrl);
       const metadata = await sharp(bytes).metadata();
+      const desktopPixelSize =
+        "desktopPixelSize" in capture ? capture.desktopPixelSize : websiteCaptureSuite.pixelSize;
       const hasCanonicalSrgbChunk = hasPngChunk(bytes, "sRGB") && !hasPngChunk(bytes, "iCCP");
       const hasCanonicalSrgbIcc =
         hasPngChunk(bytes, "iCCP") &&
@@ -56,11 +58,11 @@ async function verifyCaptureAssets(): Promise<void> {
         `${capture.id}: asset is not a PNG`,
       );
       assertCapture(
-        bytes.readUInt32BE(16) === websiteCaptureSuite.pixelSize[0],
+        bytes.readUInt32BE(16) === desktopPixelSize[0],
         `${capture.id}: width does not match the capture suite`,
       );
       assertCapture(
-        bytes.readUInt32BE(20) === websiteCaptureSuite.pixelSize[1],
+        bytes.readUInt32BE(20) === desktopPixelSize[1],
         `${capture.id}: height does not match the capture suite`,
       );
       assertCapture(

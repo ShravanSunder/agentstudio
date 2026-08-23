@@ -32,6 +32,8 @@ export interface WebsiteCaptureRecord {
   readonly sourceSha256: string;
   readonly normalizedMasterSha256: string;
   readonly websiteAssetSha256: string;
+  readonly desktopPixelSize?: readonly [width: number, height: number];
+  readonly projectionPolicy?: "full-native-window" | "purpose-crop";
   readonly phoneWebsiteAssetSha256?: string;
   readonly phonePixelSize?: readonly [width: number, height: number];
   readonly phoneFocusRegion?: NormalizedFocusRegion;
@@ -200,12 +202,14 @@ export const websiteCaptureSuite = {
         executableSha256: "2cd31b67f67ac7f8f4d17788de35c1220d205611cdc63c0da3ff535903b90a7b",
       },
       processGeneration: "B",
-      sourceSha256: "6bb39d744847bd578a07808e75576e97f1bbdb810502abb88d32e8b2ac5f6894",
-      normalizedMasterSha256: "6bb39d744847bd578a07808e75576e97f1bbdb810502abb88d32e8b2ac5f6894",
-      websiteAssetSha256: "49004c457b52601dd395e0bf8edf04867d94fcfc3fcb9772d203d7b97bc9381b",
-      phoneWebsiteAssetSha256: "1f05f9412a6a48c3c7e22d6db99fb7c57da0e07013cdc19bbdd8e3784e81c7e6",
-      phonePixelSize: [610, 800],
-      focusRegion: { left: 0, top: 0, right: 0.24609375, bottom: 1 },
+      sourceSha256: "1ea9c5625dbced00cd8412dc2df739931ef96d59dd7dcccf138eff0096f9437a",
+      normalizedMasterSha256: "21d430ee065191b2b3124c654a6f1ce80dc3153572ee8a095a5c7254044b89d2",
+      websiteAssetSha256: "367af61894e6f78dd2caa49c166542fe507d0e5a2c103685f52a5c76baaaa893",
+      desktopPixelSize: [1740, 1088],
+      projectionPolicy: "purpose-crop",
+      phoneWebsiteAssetSha256: "84b793c98eee2643f7c92a16281d969234d2d0ff599ee926a5619ebf4931a506",
+      phonePixelSize: [707, 560],
+      focusRegion: null,
       focusRadiusPixels: null,
       focusRail: false,
       settledAtSeconds: 6.72,
