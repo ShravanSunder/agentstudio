@@ -55,6 +55,9 @@ extension RepoExplorerProjectionAdapter {
         }
 
         resumeRegisteredMaterializationHostIfNeeded()
+        guard materializationHost != nil, acknowledgedMaterializationBaseline != nil else {
+            return
+        }
 
         if visibilityChanged || cachedProjectionRequest == nil {
             recencyReferenceDate = recencyNow()
@@ -64,6 +67,12 @@ extension RepoExplorerProjectionAdapter {
         } else if observationTokens.isEmpty {
             installObservationTokens()
         }
+    }
+
+    func materializationHostDidRegister() {
+        guard !hasStopped, isDemanded else { return }
+        recencyReferenceDate = recencyNow()
+        captureFullProjection(force: true)
     }
 
     func suspendDemand() {

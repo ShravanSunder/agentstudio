@@ -47,6 +47,22 @@ final class RepoExplorerTableRowSlot {
         else { return }
         interactions.onCommandRequest(request)
     }
+
+    func toggleGroup(
+        _ groupID: String,
+        identity: RepoExplorerTableRowBindingIdentity
+    ) {
+        guard binding?.identity == identity else { return }
+        interactions.onToggleGroup(groupID)
+    }
+
+    func focusPane(
+        _ paneID: UUID,
+        identity: RepoExplorerTableRowBindingIdentity
+    ) {
+        guard binding?.identity == identity else { return }
+        interactions.onFocusPane(paneID)
+    }
 }
 
 struct RepoExplorerTableRowHostingRoot: View {
@@ -66,6 +82,12 @@ struct RepoExplorerTableRowHostingRoot: View {
                             identity: binding.identity,
                             commandGeneration: binding.commandPresentationSnapshot.generation
                         )
+                    },
+                    onToggleGroup: { groupID in
+                        slot.toggleGroup(groupID, identity: binding.identity)
+                    },
+                    onFocusPane: { paneID in
+                        slot.focusPane(paneID, identity: binding.identity)
                     }
                 )
                 .id(binding.identity.rowID)

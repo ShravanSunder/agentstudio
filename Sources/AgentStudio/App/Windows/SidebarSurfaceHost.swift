@@ -68,7 +68,7 @@ struct SidebarSurfaceHost: View {
                 isProjectionDemanded: !sidebarState.sidebarCollapsed,
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 commandDispatcher: AppCommandDispatcher.shared,
-                commandPresentationSnapshot: repoCommandPresentationBatch?.snapshot ?? .empty,
+                commandPresentationDelta: repoCommandPresentationBatch?.latestDelta,
                 onSetSortOrder: { order in
                     AppCommandDispatcher.shared.dispatch(
                         AppCommandExecutionRequest(
@@ -79,6 +79,9 @@ struct SidebarSurfaceHost: View {
                 },
                 onRefocusActivePane: onRefocusActivePane,
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
+                onVisibleWorktreeSnapshotChanged: { snapshot in
+                    repoCommandPresentationBatch?.acceptVisibleWorktreeSnapshot(snapshot)
+                },
                 latestPaneMessageSnapshot: { paneId in
                     paneActivityStatusAtom.status(for: paneId)?.lastOutputLine
                 },
@@ -90,7 +93,6 @@ struct SidebarSurfaceHost: View {
                 let batch = RepoExplorerCommandPresentationBatch(
                     store: store,
                     repoExplorerPrefs: repoExplorerSidebarPrefs,
-                    visibleWorktrees: atom(\.sidebarVisibleWorktreesRuntime),
                     dispatcher: .shared,
                     performanceTraceRecorder: performanceTraceRecorder
                 )

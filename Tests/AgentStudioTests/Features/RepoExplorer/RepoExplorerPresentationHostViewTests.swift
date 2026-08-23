@@ -48,7 +48,10 @@ struct RepoExplorerPresentationHostViewTests {
         #expect(tableView.numberOfRows == contentBaseline.rowCount)
         #expect(adapter.acknowledgedMaterializationBaseline == contentBaseline)
 
-        for _ in 0..<10_000 where visibleSnapshotRecorder.latest == nil {
+        for _ in 0..<10_000
+        where visibleSnapshotRecorder.latest?.target.materializationGeneration
+            != contentBaseline.visibleGeneration
+        {
             await Task.yield()
         }
         let visibleSnapshot = try #require(visibleSnapshotRecorder.latest)

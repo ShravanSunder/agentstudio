@@ -65,28 +65,23 @@ final class RepoExplorerCommandPresentationBatch {
 
     private let store: WorkspaceStore
     private let repoExplorerPrefs: RepoExplorerSidebarPrefsAtom
-    private let visibleWorktrees: SidebarVisibleWorktreesRuntimeAtom
     private let dispatcher: AppCommandDispatcher
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     @ObservationIgnored private var observationID: UUID?
     @ObservationIgnored private var lastVisibleWorktreeIDs: Set<UUID> = []
     @ObservationIgnored private var lastRequests: Set<RepoExplorerCommandPresentationRequest> = []
     @ObservationIgnored private var lastCapabilityFactsFingerprint: CapabilityFactsFingerprint?
-    @ObservationIgnored private var currentVisibleSnapshot = RepoExplorerVisibleWorktreeSnapshot.empty
-    @ObservationIgnored private var lastResolvedVisibleSnapshot = RepoExplorerVisibleWorktreeSnapshot.empty
-    @ObservationIgnored private var usesNativeVisibleSnapshot = false
-    @ObservationIgnored private var legacyVisibleRevision: UInt64 = 0
+    @ObservationIgnored private var currentVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
+    @ObservationIgnored private var lastResolvedVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
 
     init(
         store: WorkspaceStore,
         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
-        visibleWorktrees: SidebarVisibleWorktreesRuntimeAtom,
         dispatcher: AppCommandDispatcher,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.store = store
         self.repoExplorerPrefs = repoExplorerPrefs
-        self.visibleWorktrees = visibleWorktrees
         self.dispatcher = dispatcher
         self.performanceTraceRecorder = performanceTraceRecorder
     }
@@ -97,12 +92,9 @@ final class RepoExplorerCommandPresentationBatch {
         lastVisibleWorktreeIDs = []
         lastRequests = []
         lastCapabilityFactsFingerprint = nil
-        currentVisibleSnapshot = .empty
-        lastResolvedVisibleSnapshot = .empty
-        usesNativeVisibleSnapshot = false
-        legacyVisibleRevision = 0
+        currentVisibleSnapshot = nil
+        lastResolvedVisibleSnapshot = nil
         latestDelta = nil
-        refresh(observationID: observationID)
     }
 
     func stop() {
@@ -111,20 +103,16 @@ final class RepoExplorerCommandPresentationBatch {
 
     func acceptVisibleWorktreeSnapshot(_ visibleSnapshot: RepoExplorerVisibleWorktreeSnapshot) {
         guard let observationID else { return }
-        usesNativeVisibleSnapshot = true
         currentVisibleSnapshot = visibleSnapshot
         refresh(observationID: observationID)
     }
 
     private func refresh(observationID: UUID) {
-        guard self.observationID == observationID else { return }
-        let shouldUseNativeVisibleSnapshot = usesNativeVisibleSnapshot
-        let capturedVisibleSnapshot = currentVisibleSnapshot
+        guard self.observationID == observationID,
+            let capturedVisibleSnapshot = currentVisibleSnapshot
+        else { return }
         let capture = withObservationTracking {
-            let visibleWorktreeIDs =
-                shouldUseNativeVisibleSnapshot
-                ? capturedVisibleSnapshot.worktreeIDs
-                : visibleWorktrees.visibleWorktreeIds
+            let visibleWorktreeIDs = capturedVisibleSnapshot.worktreeIDs
             return ObservationCapture(
                 visibleWorktreeIDs: visibleWorktreeIDs,
                 capabilityFactsFingerprint: observeApprovedCapabilityFacts(
@@ -142,7 +130,6 @@ final class RepoExplorerCommandPresentationBatch {
         }
         let resolvedBatch = resolve(
             capture: capture,
-            shouldUseNativeVisibleSnapshot: shouldUseNativeVisibleSnapshot,
             capturedVisibleSnapshot: capturedVisibleSnapshot
         )
         publish(resolvedBatch)
@@ -150,22 +137,9 @@ final class RepoExplorerCommandPresentationBatch {
 
     private func resolve(
         capture: ObservationCapture,
-        shouldUseNativeVisibleSnapshot: Bool,
         capturedVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot
     ) -> ResolvedBatch {
-        let nextVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot
-        if shouldUseNativeVisibleSnapshot {
-            nextVisibleSnapshot = capturedVisibleSnapshot
-        } else if capture.visibleWorktreeIDs == currentVisibleSnapshot.worktreeIDs {
-            nextVisibleSnapshot = currentVisibleSnapshot
-        } else {
-            legacyVisibleRevision &+= 1
-            nextVisibleSnapshot = RepoExplorerVisibleWorktreeSnapshot(
-                target: .legacyList(visibleRevision: legacyVisibleRevision),
-                worktreeIDs: capture.visibleWorktreeIDs
-            )
-            currentVisibleSnapshot = nextVisibleSnapshot
-        }
+        let nextVisibleSnapshot = capturedVisibleSnapshot
         let visibleSetDelta = capture.visibleWorktreeIDs.symmetricDifference(lastVisibleWorktreeIDs)
         let survivingVisibleWorktreeIDs = capture.visibleWorktreeIDs.intersection(lastVisibleWorktreeIDs)
         let previousFingerprint = lastCapabilityFactsFingerprint
@@ -205,7 +179,7 @@ final class RepoExplorerCommandPresentationBatch {
             results: retainedResults.merging(resolvedResults) { _, resolved in resolved },
             favoriteStateByRepositoryID: capture.favoriteStateByRepositoryID
         )
-        let targetChanged = nextVisibleSnapshot.target != lastResolvedVisibleSnapshot.target
+        let targetChanged = nextVisibleSnapshot.target != lastResolvedVisibleSnapshot?.target
         let presentationChanged =
             snapshot.results != nextSnapshot.results
             || snapshot.favoriteStateByRepositoryID != nextSnapshot.favoriteStateByRepositoryID

@@ -44,6 +44,8 @@ struct RepoExplorerProjectionAdapterDrainTests {
                 throw CancellationError()
             }
         )
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
         adapter.admit(makeProjectionIntentRequest(generation: 1))
         await gate.waitUntilStarted()
 

@@ -41,6 +41,60 @@ private final class RepoExplorerProjectionExecutionRecorder: @unchecked Sendable
 @Suite("RepoExplorer projection demand")
 struct RepoExplorerProjectionDemandTests {
     @MainActor
+    @Test("demand waits for synchronous rowless R0 host registration before first admission")
+    func demandWaitsForRowlessR0BeforeFirstAdmission() async {
+        await withAsyncTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let capture = RepoExplorerProjectionInputCapture(
+                store: store,
+                preferences: RepoExplorerSidebarPrefsAtom(),
+                repoCache: atoms.repoCache,
+                sidebarState: atoms.workspaceSidebarState,
+                sidebarCache: atoms.sidebarCache,
+                coreAtoms: atoms,
+                bridgeAttendanceSnapshot: { _ in nil },
+                latestPaneMessageSnapshot: { _ in nil }
+            )
+            let recorder = RepoExplorerProjectionExecutionRecorder()
+            let adapter = RepoExplorerProjectionAdapter(
+                inputCapture: capture,
+                project: { work throws(CancellationError) in
+                    recorder.recordExecution(work)
+                    do {
+                        return try RepoExplorerProjectionWorker.project(work)
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        preconditionFailure("Unexpected projection failure: \(error)")
+                    }
+                }
+            )
+            defer { adapter.stop() }
+
+            adapter.updateDemand(isVisible: true, query: "")
+            for _ in 0..<20 { await Task.yield() }
+
+            #expect(adapter.cachedProjectionRequest == nil)
+            #expect(recorder.executionCount == 0)
+
+            let host = registerProjectionTestMaterializationHost(adapter: adapter)
+            defer { host.detach() }
+            for _ in 0..<400 where adapter.publishedResult == nil {
+                await Task.yield()
+            }
+
+            #expect(recorder.executionCount == 1)
+            #expect(host.acceptedBaseline?.revision == 0)
+            #expect(host.acceptedBaseline?.visibleGeneration == 0)
+            #expect(adapter.acknowledgedMaterializationBaseline == host.acceptedBaseline)
+        }
+    }
+
+    @MainActor
     @Test("By Repository pane activity performs zero capture execution and publication")
     func byRepositoryRejectsPaneActivityBeforeCapture() async throws {
         try await withAsyncTestCoreAtoms { atoms in
@@ -93,6 +147,8 @@ struct RepoExplorerProjectionDemandTests {
                 }
             )
             defer { adapter.stop() }
+            let host = registerProjectionTestMaterializationHost(adapter: adapter)
+            defer { host.detach() }
 
             adapter.updateDemand(isVisible: true, query: "")
             for _ in 0..<200 where adapter.publishedResult == nil {
@@ -168,6 +224,8 @@ struct RepoExplorerProjectionDemandTests {
                 }
             )
             defer { adapter.stop() }
+            let host = registerProjectionTestMaterializationHost(adapter: adapter)
+            defer { host.detach() }
 
             adapter.updateDemand(isVisible: true, query: "")
             for _ in 0..<200 where adapter.publishedRevision < 1 { await Task.yield() }
@@ -231,7 +289,8 @@ struct RepoExplorerProjectionDemandTests {
                 latestPaneMessageSnapshot: { _ in nil }
             )
             let adapter = RepoExplorerProjectionAdapter(inputCapture: capture)
-            defer { adapter.stop() }
+            let host = registerProjectionTestMaterializationHost(adapter: adapter)
+            defer { stopProjectionTestMaterializationHost(host, adapter: adapter) }
 
             adapter.updateDemand(isVisible: true, query: "")
             for _ in 0..<200 where adapter.publishedRevision < 1 { await Task.yield() }
@@ -257,7 +316,6 @@ struct RepoExplorerProjectionDemandTests {
 
             preferences.setGroupingMode(.pane)
             for _ in 0..<300 where adapter.observationRegistration.paneIDs.isEmpty { await Task.yield() }
-            #expect(capture.fullCaptureCount == 1)
             #expect(adapter.observationRegistration.paneIDs == [pane.id])
             #expect(adapter.observationRegistration.tabIDs.isEmpty)
             let paneFactCaptureCountAfterGrouping = capture.paneFactCaptureCount
@@ -332,6 +390,8 @@ struct RepoExplorerProjectionDemandTests {
             )
             let adapter = RepoExplorerProjectionAdapter(inputCapture: capture)
             defer { adapter.stop() }
+            let host = registerProjectionTestMaterializationHost(adapter: adapter)
+            defer { host.detach() }
 
             adapter.updateDemand(isVisible: true, query: "")
             for _ in 0..<200 where adapter.publishedResult == nil { await Task.yield() }

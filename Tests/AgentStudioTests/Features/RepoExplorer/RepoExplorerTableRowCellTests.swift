@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AppKit
 import Testing
 
@@ -115,6 +116,45 @@ struct RepoExplorerTableRowCellTests {
             #expect(cell.accessibilityLabel()?.isEmpty == false)
             #expect(cell.currentBindingIdentity?.rowID == row.id)
         }
+    }
+
+    @Test("group and pane interactions validate the represented row before reaching existing owners")
+    func groupAndPaneInteractionsValidateRepresentedRowIdentity() {
+        var toggledGroupIDs: [String] = []
+        var focusedPaneIDs: [UUID] = []
+        let slot = RepoExplorerTableRowSlot(
+            interactions: RepoExplorerTableInteractions(
+                onCommandRequest: { _ in },
+                onToggleGroup: { toggledGroupIDs.append($0) },
+                onFocusPane: { focusedPaneIDs.append($0) }
+            )
+        )
+        let currentIdentity = RepoExplorerTableRowBindingIdentity(
+            visibleGeneration: 4,
+            rowID: .group(groupID: "current"),
+            reuseToken: RepoExplorerTableRowReuseToken(rawValue: 1)
+        )
+        let staleIdentity = RepoExplorerTableRowBindingIdentity(
+            visibleGeneration: 3,
+            rowID: .group(groupID: "stale"),
+            reuseToken: RepoExplorerTableRowReuseToken(rawValue: 0)
+        )
+        slot.install(
+            RepoExplorerTableRowBinding(
+                identity: currentIdentity,
+                row: hostedCellRow(id: "current", title: "Current"),
+                commandPresentationSnapshot: .empty
+            )
+        )
+        let paneID = UUIDv7.generate()
+
+        slot.toggleGroup("stale", identity: staleIdentity)
+        slot.focusPane(UUIDv7.generate(), identity: staleIdentity)
+        slot.toggleGroup("current", identity: currentIdentity)
+        slot.focusPane(paneID, identity: currentIdentity)
+
+        #expect(toggledGroupIDs == ["current"])
+        #expect(focusedPaneIDs == [paneID])
     }
 }
 

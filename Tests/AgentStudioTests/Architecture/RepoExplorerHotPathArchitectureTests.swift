@@ -68,8 +68,8 @@ struct RepoExplorerHotPathArchitectureTests {
         // This slice proves only that new identity construction/materialization stays off MainActor.
     }
 
-    @Test("Repo Explorer immediate Eager settlement is an explicit bounded cutover bridge")
-    func repoExplorerImmediateSettlementIsMarkedForAtomicRemoval() throws {
+    @Test("Repo Explorer materialization requires a registered acknowledged host")
+    func repoExplorerMaterializationRequiresRegisteredAcknowledgedHost() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let brokerSource = try String(
             contentsOf: projectRoot.appending(
@@ -79,9 +79,12 @@ struct RepoExplorerHotPathArchitectureTests {
             encoding: .utf8
         )
 
-        #expect(brokerSource.contains("SLICE-11-CUTOVER"))
-        #expect(brokerSource.contains("guard materializationHost == nil"))
-        #expect(brokerSource.contains("return .immediateAccepted(result)"))
+        #expect(!brokerSource.contains("SLICE-11-CUTOVER"))
+        #expect(!brokerSource.contains("guard materializationHost == nil"))
+        #expect(
+            brokerSource.components(separatedBy: "return .immediateAccepted(result)").count == 2
+        )
+        #expect(brokerSource.contains("let acknowledgedMaterializationBaseline,"))
     }
 
     @Test("Repo Explorer native plans remain inseparable through the sole production applier")
@@ -165,8 +168,8 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!materializer.contains("for row in snapshot.rows"))
     }
 
-    @Test("production presentation host composes one real table without activating before cutover")
-    func productionPresentationHostIsStableAndOffTheLiveTreeUntilCutover() throws {
+    @Test("production presentation host is the sole live Repo Explorer row owner")
+    func productionPresentationHostIsStableAndOwnsTheLiveTree() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let featureRoot = projectRoot.appending(
             path: "Sources/AgentStudio/Features/RepoExplorer"
@@ -199,8 +202,14 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!updateBody.contains("makeHost"))
         #expect(!updateBody.contains("registerMaterializationHost"))
         #expect(!updateBody.contains("rows"))
-        #expect(!repoExplorerView.contains("RepoExplorerPresentationHostView("))
-        #expect(repoExplorerView.contains("RepoExplorerVisibleRowsBridge("))
+        #expect(repoExplorerView.contains("RepoExplorerPresentationHostView("))
+        #expect(!repoExplorerView.contains("List {"))
+        #expect(!repoExplorerView.contains("ForEach(rowIndex.entries)"))
+        #expect(!repoExplorerView.contains("RepoExplorerVisibleRowsBridge("))
+        #expect(!repoExplorerView.contains("previousRowIDs"))
+        #expect(!repoExplorerView.contains("nextRowIDs"))
+        #expect(!repoExplorerView.contains("measureOutlineApplyProxy"))
+        #expect(!repoExplorerView.contains("currentProjection.emptyState != .content"))
     }
 
     @Test("hosted row cells keep one root and accept only injected command presentation")
@@ -240,7 +249,9 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(table.contains("snapshot.rowIDsByRepoID"))
         #expect(!table.contains("snapshot.rows.map"))
         #expect(!renderer.contains("worktree.repo.isFavorite"))
-        #expect(!repoExplorerView.contains("RepoExplorerPresentationHostView("))
+        #expect(repoExplorerView.contains("RepoExplorerPresentationHostView("))
+        #expect(renderer.contains("onToggleGroup(group.groupID)"))
+        #expect(renderer.contains("onFocusPane(pane.destination.paneId)"))
         for forbidden in [
             "atom(",
             "RepoCache",
@@ -266,16 +277,19 @@ struct RepoExplorerHotPathArchitectureTests {
         }
     }
 
-    @Test("RepoExplorerView renders from row index instead of walking groups per row")
-    func repoExplorerViewRendersFromRowIndex() throws {
+    @Test("RepoExplorerView delegates row materialization to the persistent host")
+    func repoExplorerViewDelegatesRowsToPersistentHost() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let source = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
             encoding: .utf8
         )
 
-        #expect(source.contains("RepoExplorerRowIndex"))
         #expect(source.contains("RepoExplorerProjectionAdapter("))
+        #expect(source.contains("RepoExplorerPresentationHostView("))
+        #expect(!source.contains("private var currentRowIndex"))
+        #expect(!source.contains("private var groupList"))
+        #expect(!source.contains("ForEach(rowIndex.entries)"))
         #expect(!source.contains("private var sidebarProjection: SidebarProjection"))
         #expect(!source.contains("private var sidebarRowIndex: RepoExplorerRowIndex"))
         #expect(!source.contains("private func resolvedWorktreeContext("))
@@ -449,11 +463,27 @@ struct RepoExplorerHotPathArchitectureTests {
                 path: "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerProjectionWorker.swift"),
             encoding: .utf8
         )
+        let materializationSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerMaterializationSnapshot.swift"
+            ),
+            encoding: .utf8
+        )
+        let rendererSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift"
+            ),
+            encoding: .utf8
+        )
 
         #expect(!repoExplorerViewSource.contains("private var worktreeStatusById"))
         #expect(!repoExplorerViewSource.contains("private func branchName(for worktree: Worktree)"))
-        #expect(repoExplorerViewSource.contains("cachedProjectionResult.branchStatusByWorktreeId"))
-        #expect(repoExplorerViewSource.contains("cachedProjectionResult.branchNameByWorktreeId"))
+        #expect(!repoExplorerViewSource.contains("branchStatusByWorktreeId"))
+        #expect(!repoExplorerViewSource.contains("branchNameByWorktreeId"))
+        #expect(materializationSource.contains("branchStatus: inputs.branchStatusByWorktreeID"))
+        #expect(materializationSource.contains("branchName: inputs.branchNameByWorktreeID"))
+        #expect(rendererSource.contains("branchStatus: worktree.branchStatus"))
+        #expect(rendererSource.contains("branchName: worktree.branchName"))
         #expect(projectionWorkerSource.contains("branchStatusByWorktreeId"))
         #expect(projectionWorkerSource.contains("branchNameByWorktreeId"))
     }
@@ -489,36 +519,39 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(workerSource.contains("Task.detached(priority: .userInitiated)"))
     }
 
-    @Test("repo favorite rows read current topology state instead of projected entity copies")
-    func repoFavoriteRowsReadCurrentTopologyState() throws {
+    @Test("repo favorite rows read the current App-owned command delta")
+    func repoFavoriteRowsReadCurrentCommandDelta() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let repoExplorerViewSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
             encoding: .utf8
         )
-
-        #expect(repoExplorerViewSource.contains("let isFavorite = currentRepoFavoriteState("))
-        #expect(repoExplorerViewSource.contains("isFavorite: isFavorite"))
-        #expect(
-            repoExplorerViewSource.contains(
-                "store.repositoryTopologyAtom.repo(repoId)?.isFavorite ?? projectedFallback"
-            )
+        let rendererSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift"
+            ),
+            encoding: .utf8
         )
-        #expect(!repoExplorerViewSource.contains("isFavorite: resolvedWorktreeContext.repo.isFavorite"))
+
+        #expect(!repoExplorerViewSource.contains("repositoryTopologyAtom.repo"))
+        #expect(rendererSource.contains("commandPresentationSnapshot.favoriteStateByRepositoryID"))
+        #expect(rendererSource.contains("isFavorite: isFavorite"))
     }
 
     @Test("repo favorite mutations enter through targeted app commands")
     func repoFavoriteMutationsEnterThroughTargetedAppCommands() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let repoExplorerViewSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+        let rendererSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift"
+            ),
             encoding: .utf8
         )
 
-        #expect(!repoExplorerViewSource.contains("repositoryTopologyAtom.setRepoFavorite"))
-        #expect(repoExplorerViewSource.contains(".addRepoFavorite"))
-        #expect(repoExplorerViewSource.contains(".removeRepoFavorite"))
-        #expect(repoExplorerViewSource.contains("targetType: .repo"))
+        #expect(!rendererSource.contains("repositoryTopologyAtom.setRepoFavorite"))
+        #expect(rendererSource.contains(".addRepoFavorite"))
+        #expect(rendererSource.contains(".removeRepoFavorite"))
+        #expect(rendererSource.contains("onCommandRequest(request)"))
     }
 
     @Test("repo sidebar product controls route through App command composition")
@@ -570,10 +603,39 @@ struct RepoExplorerHotPathArchitectureTests {
             encoding: .utf8
         )
 
-        #expect(featureSource.contains("commandPresentationSnapshot"))
+        #expect(featureSource.contains("commandPresentationDelta"))
         #expect(!featureSource.contains("visibilityCommand"))
         #expect(!featureSource.contains("canSetSortOrder"))
         #expect(!presentationSource.contains("dispatcher.canDispatch"))
+    }
+
+    @Test("Repo Explorer native viewport is the only App command-presentation target")
+    func repoExplorerNativeViewportOwnsCommandPresentationTargeting() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let featureRoot = projectRoot.appending(
+            path: "Sources/AgentStudio/Features/RepoExplorer"
+        )
+        let commandPresentationSource = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerCommandPresentation.swift"),
+            encoding: .utf8
+        )
+        let commandBatchSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Windows/RepoExplorerCommandPresentationBatch.swift"
+            ),
+            encoding: .utf8
+        )
+        let sidebarHostSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift"),
+            encoding: .utf8
+        )
+
+        #expect(!commandPresentationSource.contains("legacyList"))
+        #expect(!commandBatchSource.contains("usesNativeVisibleSnapshot"))
+        #expect(!commandBatchSource.contains("legacyVisibleRevision"))
+        #expect(!commandBatchSource.contains("visibleWorktrees.visibleWorktreeIds"))
+        #expect(sidebarHostSource.contains("latestDelta"))
+        #expect(sidebarHostSource.contains("acceptVisibleWorktreeSnapshot"))
     }
 }
 

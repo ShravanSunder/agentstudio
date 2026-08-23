@@ -9,6 +9,8 @@ struct RepoExplorerMaterializedRowView: View {
     let commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
     let octiconLoader: OcticonLoader
     let onCommandRequest: (RepoExplorerCommandPresentationRequest) -> Void
+    let onToggleGroup: (String) -> Void
+    let onFocusPane: (UUID) -> Void
 
     var body: some View {
         content
@@ -44,9 +46,28 @@ struct RepoExplorerMaterializedRowView: View {
                 icon: group.icon,
                 repoTitle: group.title,
                 organizationName: group.organizationName,
-                onToggle: {}
+                onToggle: { onToggleGroup(group.groupID) }
             )
-            .allowsHitTesting(false)
+            .contextMenu {
+                if !group.paneDestinations.isEmpty {
+                    Menu(LocalActionSpec.goToPane.actionSpec.label) {
+                        RepoExplorerPaneDestinationMenuContent(
+                            presentations: group.paneDestinations.map {
+                                RepoExplorerPanePresentation(destination: $0, label: $0.label)
+                            },
+                            onFocusPane: onFocusPane
+                        )
+                    }
+                }
+                if let path = group.semanticRepoPath {
+                    Button(LocalActionSpec.revealInFinder.actionSpec.label) {
+                        PathActions.revealInFinder(path)
+                    }
+                    Button(LocalActionSpec.copyPath.actionSpec.label) {
+                        PathActions.copyPath(path)
+                    }
+                }
+            }
         case .worktree(let worktree):
             let isFavorite =
                 commandPresentationSnapshot.favoriteStateByRepositoryID[
@@ -107,33 +128,22 @@ struct RepoExplorerMaterializedRowView: View {
                 }
             )
         case .associatedPane(let pane):
-            SidebarRowShell(isHovering: false) {
-                RepoExplorerPaneRowContent(
-                    primaryText: pane.primaryText,
-                    secondaryLine: pane.secondaryLine,
-                    branchContextText: pane.branchContextText,
-                    branchStatus: pane.branchStatus,
-                    recencyText: pane.recencyText,
-                    recencyTier: pane.recencyTier,
-                    isActive: pane.isActive,
-                    isDrawerPane: pane.isDrawerPane,
-                    octiconLoader: octiconLoader
-                )
-            }
+            RepoExplorerPaneRow(
+                row: pane,
+                octiconLoader: octiconLoader,
+                onFocus: { onFocusPane(pane.destination.paneId) }
+            )
         case .unassociatedPane(let pane):
-            SidebarRowShell(isHovering: false) {
-                RepoExplorerPaneRowContent(
-                    primaryText: pane.primaryText,
-                    secondaryLine: pane.secondaryLine,
-                    branchContextText: nil,
-                    branchStatus: nil,
-                    recencyText: pane.recencyText,
-                    recencyTier: pane.recencyTier,
-                    isActive: pane.isActive,
-                    isDrawerPane: pane.isDrawerPane,
-                    octiconLoader: octiconLoader
-                )
-            }
+            RepoExplorerUnassociatedPaneRow(
+                primaryText: pane.primaryText,
+                secondaryLine: pane.secondaryLine,
+                recencyText: pane.recencyText,
+                recencyTier: pane.recencyTier,
+                isActive: pane.isActive,
+                isDrawerPane: pane.isDrawerPane,
+                octiconLoader: octiconLoader,
+                onFocus: { onFocusPane(pane.destination.paneId) }
+            )
         case .topologyFault(let fault):
             RepoExplorerTopologyFaultRow(fault: fault)
         case .unresolved:

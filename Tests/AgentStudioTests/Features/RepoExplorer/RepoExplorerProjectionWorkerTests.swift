@@ -464,6 +464,8 @@ struct RepoExplorerProjectionWorkerTests {
         ]
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         for (offset, snapshot) in snapshots.enumerated() {
             let request = RepoExplorerProjectionRequest(
@@ -533,6 +535,8 @@ struct RepoExplorerProjectionWorkerTests {
             onProjectionSuppressed: suppressionProbe.record
         )
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(initialRequest)
         let initialResult = try await publishedResult(generation: 1, from: adapter)
@@ -557,6 +561,8 @@ struct RepoExplorerProjectionWorkerTests {
         let repo = repo(id: repoId, worktreeId: worktreeId, name: "agent-studio")
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(request(repos: [repo], generation: 1))
         _ = try await publishedResult(generation: 1, from: adapter)
@@ -593,6 +599,8 @@ struct RepoExplorerProjectionWorkerTests {
     func changedEmptyStateRepublishesToViewAdapter() async throws {
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(request(repos: [], generation: 1))
         let initialResult = try await publishedResult(generation: 1, from: adapter)
@@ -615,6 +623,8 @@ struct RepoExplorerProjectionWorkerTests {
         let repo = repo(id: repoId, worktreeId: worktreeId, name: "agent-studio")
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(request(repos: [repo], generation: 1))
         _ = try await publishedResult(generation: 1, from: adapter)
@@ -661,6 +671,8 @@ struct RepoExplorerProjectionWorkerTests {
         )
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(initialRequest)
         let initialResult = try await publishedResult(generation: 1, from: adapter)
@@ -693,6 +705,8 @@ struct RepoExplorerProjectionWorkerTests {
         )
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(request(repos: [initialRepo], generation: 1))
         _ = try await publishedResult(generation: 1, from: adapter)

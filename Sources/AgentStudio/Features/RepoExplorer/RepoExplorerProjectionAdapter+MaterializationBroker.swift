@@ -47,12 +47,12 @@ extension RepoExplorerProjectionAdapter {
         else {
             return .rejected
         }
-        if materializationHost != nil {
-            guard let acknowledgedMaterializationBaseline,
-                acknowledgedMaterializationBaseline.demandEpoch == materializationDemandEpoch
-            else {
-                return .rejected
-            }
+        guard let materializationHost,
+            let acknowledgedMaterializationBaseline,
+            acknowledgedMaterializationBaseline.lifetimeID == materializationHost.lifetimeID,
+            acknowledgedMaterializationBaseline.demandEpoch == materializationDemandEpoch
+        else {
+            return .rejected
         }
 
         let context = RepoExplorerProjectionWorkContext(
@@ -106,13 +106,20 @@ extension RepoExplorerProjectionAdapter {
             return .rejected
         }
 
+        guard let materializationHost,
+            let acknowledgedMaterializationBaseline,
+            acknowledgedMaterializationBaseline.lifetimeID == materializationHost.lifetimeID,
+            acknowledgedMaterializationBaseline.demandEpoch == materializationDemandEpoch
+        else {
+            return .rejected
+        }
+
         if let semanticBaselineResult,
             Self.hasEqualRenderedContent(semanticBaselineResult, result)
         {
             return .equalCurrent(result)
         }
-        if let acknowledgedMaterializationBaseline,
-            let nativeUpdatePlan = candidate.nativeUpdatePlan,
+        if let nativeUpdatePlan = candidate.nativeUpdatePlan,
             nativeUpdatePlan.preflightMatches(
                 baseline: acknowledgedMaterializationBaseline,
                 requestGeneration: UInt64(context.requestGeneration)
@@ -121,8 +128,7 @@ extension RepoExplorerProjectionAdapter {
         {
             return .immediateAccepted(result)
         }
-        if let materializationHost,
-            let preparedBaseline = context.acknowledgedBaseline,
+        if let preparedBaseline = context.acknowledgedBaseline,
             preparedBaseline == acknowledgedMaterializationBaseline,
             preparedBaseline.lifetimeID == materializationHost.lifetimeID,
             preparedBaseline.demandEpoch == materializationDemandEpoch,
@@ -136,10 +142,7 @@ extension RepoExplorerProjectionAdapter {
             return .changedAwaitingOwner(result)
         }
 
-        // SLICE-11-CUTOVER: the current SwiftUI List has no persistent materialization host.
-        // Keep this bounded immediate route runnable until the atomic production cutover.
-        guard materializationHost == nil else { return .rejected }
-        return .immediateAccepted(result)
+        return .rejected
     }
 
     func applyAwaitingProjectionCandidate(
@@ -216,6 +219,7 @@ extension RepoExplorerProjectionAdapter {
         materializationHost = host
         acknowledgedMaterializationBaseline = baseline
         lastRecoveryBaselineIdentity = nil
+        materializationHostDidRegister()
         return true
     }
 

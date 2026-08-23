@@ -46,64 +46,6 @@ extension RepoExplorerView {
         return shellName ?? "zsh"
     }
 
-    static func measureRowBodyEvaluationProxy<Content>(
-        rowKind: RepoExplorerRowKind,
-        nowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
-        resolve: () -> Content
-    ) -> RepoExplorerRowBodyEvaluationMeasurement<Content> {
-        let startedAtNanoseconds = nowNanoseconds()
-        let content = resolve()
-        let completedAtNanoseconds = nowNanoseconds()
-        return RepoExplorerRowBodyEvaluationMeasurement(
-            content: content,
-            duration: .nanoseconds(
-                Int64(clamping: completedAtNanoseconds - min(completedAtNanoseconds, startedAtNanoseconds))
-            ),
-            rowKind: rowKind,
-            outcome: .success
-        )
-    }
-
-    static func measureOutlineApplyProxy(
-        previousRowIDs: [RepoExplorerRowID],
-        nextRowIDs: [RepoExplorerRowID],
-        nowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
-        apply: () -> Void
-    ) -> RepoExplorerOutlineApplyMeasurement {
-        let startedAtNanoseconds = nowNanoseconds()
-        apply()
-        let completedAtNanoseconds = nowNanoseconds()
-        let previousIndexByRowID = Dictionary(
-            uniqueKeysWithValues: previousRowIDs.enumerated().map { ($0.element, $0.offset) }
-        )
-        let nextIndexByRowID = Dictionary(
-            uniqueKeysWithValues: nextRowIDs.enumerated().map { ($0.element, $0.offset) }
-        )
-        let changedRowCount = Set(previousIndexByRowID.keys).union(nextIndexByRowID.keys).count { rowID in
-            previousIndexByRowID[rowID] != nextIndexByRowID[rowID]
-        }
-        let isContentIdentical = previousRowIDs == nextRowIDs
-        return RepoExplorerOutlineApplyMeasurement(
-            duration: .nanoseconds(
-                Int64(clamping: completedAtNanoseconds - min(completedAtNanoseconds, startedAtNanoseconds))
-            ),
-            totalRowCount: nextRowIDs.count,
-            changedRowCount: changedRowCount,
-            equalPublishCount: isContentIdentical ? 1 : 0,
-            outcome: isContentIdentical ? .equal : .changed
-        )
-    }
-
-    static func measureSuppressedOutlineApplyProxy(rowCount: Int) -> RepoExplorerOutlineApplyMeasurement {
-        RepoExplorerOutlineApplyMeasurement(
-            duration: .zero,
-            totalRowCount: rowCount,
-            changedRowCount: 0,
-            equalPublishCount: 1,
-            outcome: .suppressed
-        )
-    }
-
     static func projectionRequestKey(
         for request: RepoExplorerProjectionRequest
     ) -> RepoExplorerProjectionRequestKey {

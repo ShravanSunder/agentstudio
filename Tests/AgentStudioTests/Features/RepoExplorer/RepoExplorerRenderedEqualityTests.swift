@@ -13,6 +13,8 @@ struct RepoExplorerRenderedEqualityTests {
         let fixture = PaneEqualityFixture()
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(fixture.request(generation: 1, paneFacts: fixture.initialPaneFacts))
         var previousRevision = try await publishedResult(

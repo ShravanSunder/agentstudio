@@ -68,6 +68,7 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
         private let interactions: RepoExplorerTableInteractions
         private var onVisibleWorktreeSnapshotChange: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
         private var observeCurrentVisibleTarget: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
+        private var currentVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
 
         init(
             projectionAdapter: RepoExplorerProjectionAdapter,
@@ -102,10 +103,10 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
                         octiconLoader: stableOcticonLoader,
                         interactions: self?.interactions ?? .inert,
                         onVisibleWorktreeSnapshotChange: { snapshot in
-                            self?.onVisibleWorktreeSnapshotChange(snapshot)
+                            self?.publishVisibleWorktreeSnapshot(snapshot)
                         },
                         observeCurrentVisibleTarget: { snapshot in
-                            self?.observeCurrentVisibleTarget(snapshot)
+                            self?.observeCurrentVisibleSnapshot(snapshot)
                         }
                     )
                     self?.tableMaterializer = materializer
@@ -120,6 +121,15 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
                 preconditionFailure("Repo Explorer materialization host registration failed")
             }
             materializationHost = host
+            let initialVisibleSnapshot = RepoExplorerVisibleWorktreeSnapshot(
+                target: RepoExplorerCommandPresentationTarget(
+                    materializationHostLifetimeID: hostLifetimeID,
+                    materializationGeneration: 0,
+                    visibleRevision: 0
+                ),
+                worktreeIDs: []
+            )
+            publishVisibleWorktreeSnapshot(initialVisibleSnapshot)
             return host
         }
 
@@ -132,6 +142,9 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
             precondition(self.materializationHost === materializationHost)
             self.onVisibleWorktreeSnapshotChange = onVisibleWorktreeSnapshotChange
             self.observeCurrentVisibleTarget = observeCurrentVisibleTarget
+            if let currentVisibleSnapshot {
+                onVisibleWorktreeSnapshotChange(currentVisibleSnapshot)
+            }
             if let commandPresentationDelta {
                 _ = tableMaterializer?.applyCommandPresentationDelta(commandPresentationDelta)
             }
@@ -145,8 +158,23 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
             materializationHost.detach()
             self.materializationHost = nil
             tableMaterializer = nil
+            currentVisibleSnapshot = nil
             onVisibleWorktreeSnapshotChange = { _ in }
             observeCurrentVisibleTarget = { _ in }
+        }
+
+        private func publishVisibleWorktreeSnapshot(
+            _ snapshot: RepoExplorerVisibleWorktreeSnapshot
+        ) {
+            currentVisibleSnapshot = snapshot
+            onVisibleWorktreeSnapshotChange(snapshot)
+        }
+
+        private func observeCurrentVisibleSnapshot(
+            _ snapshot: RepoExplorerVisibleWorktreeSnapshot
+        ) {
+            currentVisibleSnapshot = snapshot
+            observeCurrentVisibleTarget(snapshot)
         }
     }
 }

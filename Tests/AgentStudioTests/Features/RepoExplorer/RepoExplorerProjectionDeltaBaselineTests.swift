@@ -80,6 +80,8 @@ extension RepoExplorerProjectionWorkerTests {
         )
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(initialRequest)
         let initialResult = try await publishedResult(generation: 1, from: adapter)

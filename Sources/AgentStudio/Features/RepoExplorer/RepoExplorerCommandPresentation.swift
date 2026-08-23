@@ -51,29 +51,12 @@ package struct RepoExplorerCommandPresentationSnapshot: Equatable, Sendable {
 }
 
 package struct RepoExplorerCommandPresentationTarget: Equatable, Sendable {
-    private static let legacyListLifetimeID = RepoExplorerMaterializationHostLifetimeID(
-        rawValue: UUID(uuid: (0, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
-    )
-
     let materializationHostLifetimeID: RepoExplorerMaterializationHostLifetimeID
     let materializationGeneration: UInt64
     let visibleRevision: UInt64
-
-    package static func legacyList(visibleRevision: UInt64) -> Self {
-        Self(
-            materializationHostLifetimeID: legacyListLifetimeID,
-            materializationGeneration: 0,
-            visibleRevision: visibleRevision
-        )
-    }
 }
 
 package struct RepoExplorerVisibleWorktreeSnapshot: Equatable, Sendable {
-    package static let empty = Self(
-        target: .legacyList(visibleRevision: 0),
-        worktreeIDs: []
-    )
-
     package let target: RepoExplorerCommandPresentationTarget
     package let worktreeIDs: Set<UUID>
 
@@ -123,9 +106,15 @@ enum RepoExplorerCommandPresentationDeltaDisposition: Equatable {
 
 @MainActor
 struct RepoExplorerTableInteractions {
-    static let inert = Self(onCommandRequest: { _ in })
+    static let inert = Self(
+        onCommandRequest: { _ in },
+        onToggleGroup: { _ in },
+        onFocusPane: { _ in }
+    )
 
     let onCommandRequest: (RepoExplorerCommandPresentationRequest) -> Void
+    let onToggleGroup: (String) -> Void
+    let onFocusPane: (UUID) -> Void
 }
 
 struct RepoExplorerPresentedCommand {
