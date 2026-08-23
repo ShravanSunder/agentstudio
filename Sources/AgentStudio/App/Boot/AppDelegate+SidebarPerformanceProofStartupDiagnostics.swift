@@ -1,7 +1,15 @@
+import AgentStudioCore
 import AgentStudioInfrastructure
 import AppKit
 
 #if DEBUG
+    private struct StrictSidebarPerformanceFixtureEvidence {
+        let repositoryCount: Int
+        let worktreeCount: Int
+        let topologyFingerprint: String
+        let expectedSessionCount: Int
+    }
+
     extension AppDelegate {
         func sidebarPerformanceProofPolicyAttributes() -> [String: AgentStudioTraceValue] {
             let policy = AppPolicies.SidebarPerformanceProof.self
@@ -28,6 +36,23 @@ import AppKit
                     policy.requiredSuccessfulActionCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor": .int(
                     policy.requiredActionBearingSampleCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(
+                        from: policy.fixturePreparationTimeout)),
+                "agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(
+                        from: policy.fixtureStateObservationInterval)),
+                "agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count": .int(
+                    policy.strictTabCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count": .int(
+                    policy.strictPaneModelCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count": .int(
+                    policy.zeroPTYExpectedSessionCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.mounted_pty_expected_session_count": .int(
+                    policy.mountedPTYExpectedSessionCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(
+                        from: policy.zmxInventoryInterval)),
                 "agentstudio.startup_diagnostic.sidebar_proof.search_character_count": .int(
                     policy.searchCharacterCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms": .double(
@@ -57,34 +82,60 @@ import AppKit
                 recordStrictSidebarPopulationResult(action: action, outcome: "failed")
                 return
             }
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic.sidebar_proof.policy_projected",
+                phase: "startup_diagnostic_action",
+                outcome: "ready",
+                attributes: startupDiagnosticTraceAttributes(for: action).merging(
+                    sidebarPerformanceProofPolicyAttributes()
+                ) { _, newValue in newValue }
+            )
             let session = SidebarPerformanceProofSession(
                 population: population,
                 window: window,
                 recorder: startupTraceRecorder,
+                performanceRecorder: performanceTraceRecorder,
                 readShell: { [weak mainWindowController] in
                     mainWindowController?.sidebarPerformanceProofShellReadback()
                 }
             )
             sidebarPerformanceProofSession = session
-            defer { sidebarPerformanceProofSession = nil }
-
-            let prepared: Bool
-            if population == .zeroPTYIdle {
-                atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)
-                mainWindowController.expandSidebar()
-                SidebarPerformanceProofFixture.populateRealSizeTopology(
-                    store: store,
-                    repositoryRoot: FileManager.default.homeDirectoryForCurrentUser
-                )
-                SidebarPerformanceProofFixture.populateRealSizePaneFleet(store: store)
-                prepared = true
-            } else {
-                prepared = await prepareSidebarPerformanceProofFixture(action: action) != nil
+            defer {
+                if !population.isIdle {
+                    sidebarPerformanceProofSession = nil
+                }
             }
-            guard prepared else {
+
+            guard
+                let fixtureEvidence = await prepareStrictSidebarPerformanceProofFixture(
+                    action: action,
+                    population: population
+                )
+            else {
                 recordStrictSidebarPopulationResult(action: action, outcome: "failed")
                 return
             }
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic.sidebar_proof.fixture_ready",
+                phase: "startup_diagnostic_action",
+                outcome: "ready",
+                attributes: startupDiagnosticTraceAttributes(for: action).merging([
+                    "agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present": .bool(true),
+                    "agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present": .bool(true),
+                    "agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count": .int(
+                        fixtureEvidence.repositoryCount),
+                    "agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count": .int(
+                        fixtureEvidence.worktreeCount),
+                    "agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint": .string(
+                        fixtureEvidence.topologyFingerprint),
+                    "agentstudio.startup_diagnostic.sidebar_proof.tab_count": .int(
+                        AppPolicies.SidebarPerformanceProof.strictTabCount),
+                    "agentstudio.startup_diagnostic.sidebar_proof.pane_model_count": .int(
+                        AppPolicies.SidebarPerformanceProof.strictPaneModelCount),
+                    "agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant": .int(
+                        fixtureEvidence.expectedSessionCount),
+                ]) { _, newValue in newValue }
+            )
             AppCommandDispatcher.shared.dispatch(.showWorktreeSidebar)
             AppCommandDispatcher.shared.dispatch(.setRepoSidebarGroupingRepo)
             startupTraceRecorder.recordAppStartup(
@@ -100,6 +151,147 @@ import AppKit
                 action: action,
                 outcome: succeeded ? "succeeded" : "failed"
             )
+        }
+
+        private func prepareStrictSidebarPerformanceProofFixture(
+            action: AgentStudioStartupDiagnosticAction,
+            population: SidebarPerformanceProofPopulation
+        ) async -> StrictSidebarPerformanceFixtureEvidence? {
+            guard
+                let watchedPaths = SidebarPerformanceProofFixture.registerStrictWatchedRoots(
+                    store: store
+                )
+            else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "required_watched_roots_unavailable"
+                )
+                return nil
+            }
+            guard let summary = await refreshStrictWatchedRootsAndAwaitZeroLogicalDebt(watchedPaths)
+            else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "required_watched_root_scan_timeout_or_debt"
+                )
+                return nil
+            }
+            let rootURLs = SidebarPerformanceProofFixture.strictWatchedRootURLs
+            guard
+                rootURLs.allSatisfy({ rootURL in
+                    !summary.repoPaths(in: rootURL).isEmpty
+                }),
+                summary.filesystemLogicalDebtCount == 0,
+                let topologyFingerprint = summary.topologyFingerprint
+            else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "required_watched_root_scan_incomplete"
+                )
+                return nil
+            }
+
+            let terminalPane: Pane?
+            if population == .zeroPTYIdle {
+                terminalPane = nil
+            } else {
+                terminalPane = workspaceSurfaceCoordinator.openFloatingTerminal(
+                    launchDirectory: rootURLs[1],
+                    title: "Sidebar Performance Terminal"
+                )
+                guard terminalPane?.metadata.contentType == .terminal else {
+                    recordBlockedSidebarPerformanceProofDiagnostic(
+                        action: action,
+                        reason: "terminal_fixture_failed"
+                    )
+                    return nil
+                }
+            }
+
+            guard SidebarPerformanceProofFixture.populateStrictPaneFleet(store: store) else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "pane_fleet_failed"
+                )
+                return nil
+            }
+            atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)
+            mainWindowController?.expandSidebar()
+
+            if let terminalPane {
+                workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(
+                    terminalPane.id,
+                    forceWhenBoundsExist: true
+                )
+                await Task.yield()
+                mainWindowController?.syncVisibleTerminalGeometry(
+                    reason: "sidebarPerformanceProof"
+                )
+                let terminalRenderProof = await waitForIPCTerminalSmokeRenderProof(
+                    for: terminalPane.id
+                )
+                guard terminalRenderProof.succeeded else {
+                    recordBlockedSidebarPerformanceProofDiagnostic(
+                        action: action,
+                        reason: "terminal_render_failed"
+                    )
+                    return nil
+                }
+            }
+
+            let repositoryCount = rootURLs.reduce(into: 0) { count, rootURL in
+                count += summary.repoPaths(in: rootURL).count
+            }
+            let linkedWorktreeCount = rootURLs.reduce(into: 0) { count, rootURL in
+                count += summary.linkedWorktreePaths(in: rootURL).count
+            }
+            return StrictSidebarPerformanceFixtureEvidence(
+                repositoryCount: repositoryCount,
+                worktreeCount: repositoryCount + linkedWorktreeCount,
+                topologyFingerprint: topologyFingerprint,
+                expectedSessionCount: population == .zeroPTYIdle
+                    ? AppPolicies.SidebarPerformanceProof.zeroPTYExpectedSessionCount
+                    : AppPolicies.SidebarPerformanceProof.mountedPTYExpectedSessionCount
+            )
+        }
+
+        private func refreshStrictWatchedRootsAndAwaitZeroLogicalDebt(
+            _ watchedPaths: [WatchedPath]
+        ) async -> WatchedFolderRefreshSummary? {
+            let commands = watchedFolderCommands!
+            let timeout = AppPolicies.SidebarPerformanceProof.fixturePreparationTimeout
+            let observationInterval = AppPolicies.SidebarPerformanceProof.fixtureStateObservationInterval
+            return await withTaskGroup(of: WatchedFolderRefreshSummary?.self) { group in
+                group.addTask {
+                    let summary = await commands.refreshWatchedFolders(watchedPaths)
+                    while !Task.isCancelled {
+                        let logicalDebtCount = await commands.filesystemLogicalDebtCount()
+                        if logicalDebtCount == 0 {
+                            return summary.replacingFilesystemLogicalDebtCount(logicalDebtCount)
+                        }
+                        do {
+                            try await AsyncDelay.taskSleep.wait(observationInterval)
+                        } catch {
+                            return nil
+                        }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    do {
+                        try await AsyncDelay.taskSleep.wait(timeout)
+                    } catch {
+                        return nil
+                    }
+                    return nil
+                }
+                guard let result = await group.next() else {
+                    group.cancelAll()
+                    return nil
+                }
+                group.cancelAll()
+                return result
+            }
         }
 
         private func recordStrictSidebarPopulationResult(

@@ -962,4 +962,5 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         #expect(!verifierScript.contains("\nbash \"$ROOT_DIR/scripts/inject-bundle-version.sh\""))
         #expect(verifierScript.contains("/bin/bash \"$ROOT_DIR/scripts/inject-bundle-version.sh\""))
     }
+
 }

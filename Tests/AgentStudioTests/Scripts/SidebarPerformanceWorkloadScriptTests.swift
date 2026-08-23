@@ -59,7 +59,7 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("kern.memorystatus_vm_pressure_level"))
         #expect(source.contains("/usr/bin/vm_stat"))
         #expect(!source.contains("vm.compressor_mode"))
-        #expect(source.contains("forbidden concurrent processes"))
+        #expect(source.contains("forbidden concurrent process"))
         #expect(source.contains("population_invalidated"))
         #expect(source.contains("no sample replacement or trimming"))
         #expect(source.contains("action population terminal did not satisfy both floors"))
@@ -269,6 +269,112 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(result.stdout.contains("host_envelope_receipt_count=4"))
     }
 
+    @Test("resident agent hosts are allowed when the normalized CPU envelope is valid")
+    func residentAgentHostsAreAllowedInsideValidCPUEnvelope() async throws {
+        let result = try await runHostProcessContract(
+            records: """
+                [
+                  {"pid":101,"ppid":1,"cpu":4.0,"command":"/Applications/Codex.app/Contents/MacOS/Codex"},
+                  {"pid":102,"ppid":1,"cpu":3.0,"command":"claude --resume"},
+                  {"pid":103,"ppid":1,"cpu":2.0,"command":"gemini --model pro"}
+                ]
+                """
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("host_process_contract=passed"))
+    }
+
+    @Test("build test compiler and profiler contamination is rejected")
+    func activeBuildTestCompilerAndProfilerContaminationIsRejected() async throws {
+        for command in [
+            "swift-frontend -frontend -c Sources/App.swift",
+            "xcodebuild -scheme AgentStudio test",
+            "mise run test:swift",
+            "Instruments -t Time Profiler AgentStudio",
+        ] {
+            let result = try await runHostProcessContract(
+                records: """
+                    [{"pid":201,"ppid":1,"cpu":1.0,"command":"\(command)"}]
+                    """
+            )
+
+            #expect(result.exitCode == 1, Comment(rawValue: "command: \(command)\n\(result.stdout)"))
+            #expect(result.stderr.contains("forbidden concurrent process"))
+        }
+    }
+
+    @Test("strict zmx reducer accepts only the declared zero and one session lifecycles")
+    func strictZmxReducerAcceptsOnlyDeclaredZeroAndOneSessionLifecycles() async throws {
+        for sequence in [
+            """
+            [{"phase":"ready","count":0},{"phase":"quiescent","count":0},{"phase":"complete","count":0},{"phase":"retired","count":0}]
+            """,
+            """
+            [{"phase":"ready","count":0},{"phase":"quiescent","count":1,"clients":1},{"phase":"complete","count":1,"clients":1},{"phase":"retired","count":0}]
+            """,
+        ] {
+            let result = try await runZmxStateContract(sequence: sequence)
+            #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+            #expect(result.stdout.contains("zmx_state_contract=passed"))
+        }
+    }
+
+    @Test("strict zmx reducer fails closed on listing transition count and client breaches")
+    func strictZmxReducerRejectsEveryLifecycleBreach() async throws {
+        let invalidSequences = [
+            """
+            [{"phase":"ready","list_error":true},{"phase":"quiescent","count":0},{"phase":"complete","count":0},{"phase":"retired","count":0}]
+            """,
+            """
+            [{"phase":"ready","count":0},{"phase":"quiescent","count":2,"clients":1},{"phase":"complete","count":1,"clients":1},{"phase":"retired","count":0}]
+            """,
+            """
+            [{"phase":"ready","count":1,"clients":1},{"phase":"quiescent","count":0},{"phase":"complete","count":0},{"phase":"retired","count":0}]
+            """,
+            """
+            [{"phase":"ready","count":0},{"phase":"quiescent","count":1,"clients":2},{"phase":"complete","count":1,"clients":1},{"phase":"retired","count":0}]
+            """,
+        ]
+
+        for sequence in invalidSequences {
+            let result = try await runZmxStateContract(sequence: sequence)
+            #expect(result.exitCode == 1, Comment(rawValue: result.stdout))
+            #expect(result.stderr.contains("zmx state contract failed"))
+        }
+    }
+
+    @Test("strict workload receipt requires a complete zero delta")
+    func strictWorkloadReceiptRequiresCompleteZeroDelta() async throws {
+        let result = try await runWorkloadReceiptContract(
+            receipt: """
+                {
+                  "baseline":{"terminal_input":7,"terminal_output":11,"ordered_command":13},
+                  "completion":{"terminal_input":7,"terminal_output":11,"ordered_command":13}
+                }
+                """
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("workload_receipt_contract=passed"))
+    }
+
+    @Test("strict workload receipt rejects missing reset dropped and nonzero evidence")
+    func strictWorkloadReceiptRejectsInvalidEvidence() async throws {
+        let invalidReceipts = [
+            #"{"completion":{"terminal_input":1,"terminal_output":1,"ordered_command":1}}"#,
+            #"{"baseline":{"terminal_input":2,"terminal_output":2,"ordered_command":2},"completion":{"terminal_input":1,"terminal_output":2,"ordered_command":2}}"#,
+            #"{"baseline":{"terminal_input":2,"terminal_output":2,"ordered_command":2},"completion":{"terminal_input":2,"terminal_output":2,"ordered_command":2,"dropped":1}}"#,
+            #"{"baseline":{"terminal_input":2,"terminal_output":2,"ordered_command":2},"completion":{"terminal_input":2,"terminal_output":3,"ordered_command":2}}"#,
+        ]
+
+        for receipt in invalidReceipts {
+            let result = try await runWorkloadReceiptContract(receipt: receipt)
+            #expect(result.exitCode == 1, Comment(rawValue: result.stdout))
+            #expect(result.stderr.contains("workload receipt contract failed"))
+        }
+    }
+
     @Test("native table pilot verifier consumes projected policy without overrides")
     func nativeTablePilotVerifierConsumesProjectedPolicyWithoutOverrides() async throws {
         let pilotScriptPath = "scripts/verify-sidebar-native-table-pilot.sh"
@@ -448,8 +554,10 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("AGENTSTUDIO_TRACE_TAGS=\"$KEY_MUTATION_TRACE_TAGS\""))
         #expect(source.contains("run-debug-observability.sh\" --print-identity"))
         #expect(source.contains("refusing to reset debug data root outside $HOME/.agentstudio-db/"))
-        #expect(source.contains("if data_dir in command:"))
-        #expect(source.contains("refusing to remove debug data root while zmx remains live"))
+        #expect(source.contains("--inventory-exact-root \"$zmx_dir\" --zmx-bin \"$zmx_bin\""))
+        #expect(source.contains("ZMX_DIR=\"$zmx_dir\" \"$zmx_bin\" kill \"$session_name\""))
+        #expect(source.contains("refusing to remove debug data root while exact-root zmx sessions remain"))
+        #expect(!source.contains("if data_dir in command:"))
         #expect(source.contains("trap cleanup EXIT INT TERM"))
         #expect(source.contains("readiness timed out"))
         #expect(source.contains("pace_projection_application()"))
@@ -532,7 +640,7 @@ struct SidebarPerformanceWorkloadScriptTests {
             )
         )
         let keyPhaseSource = source[keyPhase.lowerBound..<interactionPhase.lowerBound]
-        let keyPhaseStop = try #require(keyPhaseSource.range(of: "stop_pid \"$first_phase_pid\""))
+        let keyPhaseStop = try #require(keyPhaseSource.range(of: "retire_current_candidate"))
         let keyPhaseReset = try #require(keyPhaseSource.range(of: "reset_disposable_debug_root"))
         let keyPhaseLaunch = try #require(keyPhaseSource.range(of: "repo-explorer-key-mutation-proof"))
 
@@ -548,7 +656,7 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(interactionPhaseSource.contains("stage=\\\"membership_path\\\""))
         #expect(interactionPhaseSource.contains("\"$WORKLOAD_CYCLES\" >/dev/null"))
         let interactionPhaseStop = try #require(
-            interactionPhaseSource.range(of: "stop_pid \"$key_phase_pid\"")
+            interactionPhaseSource.range(of: "retire_current_candidate")
         )
         let interactionPhaseReset = try #require(
             interactionPhaseSource.range(of: "reset_disposable_debug_root")
@@ -671,6 +779,38 @@ struct SidebarPerformanceWorkloadScriptTests {
             environment: [
                 "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
                 "AGENTSTUDIO_SIDEBAR_TEST_HOST_RECEIPTS": receipts,
+            ]
+        )
+    }
+
+    private func runHostProcessContract(records: String) async throws -> ProcessResult {
+        try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_HOST_PROCESS_RECORDS": records,
+                "AGENTSTUDIO_SIDEBAR_TEST_LOGICAL_CPU_COUNT": "8",
+                "STRICT_POLICY_HOST_CPU_MAX": "20",
+            ]
+        )
+    }
+
+    private func runZmxStateContract(sequence: String) async throws -> ProcessResult {
+        try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_ZMX_STATE_SEQUENCE": sequence,
+            ]
+        )
+    }
+
+    private func runWorkloadReceiptContract(receipt: String) async throws -> ProcessResult {
+        try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_WORKLOAD_RECEIPT": receipt,
             ]
         )
     }

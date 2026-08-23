@@ -5,6 +5,7 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.repo_explorer.native_table_pilot.policy_id",
         "agentstudio.startup_diagnostic.native_table_pilot.policy_id",
         "agentstudio.startup_diagnostic.sidebar_proof.policy_id",
+        "agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint",
     ]
 
     static let numericAttributeKeys: Set<String> = [
@@ -15,6 +16,18 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor",
         "agentstudio.startup_diagnostic.sidebar_proof.action_count_floor",
         "agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor",
+        "agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms",
+        "agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms",
+        "agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.mounted_pty_expected_session_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms",
+        "agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.tab_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.pane_model_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant",
         "agentstudio.startup_diagnostic.sidebar_proof.search_character_count",
         "agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms",
         "agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms",
@@ -29,6 +42,16 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.sidebar.readback.represented_row_count",
         "agentstudio.performance.sidebar.proof.action.sequence",
         "agentstudio.performance.sidebar.proof.monotonic_ns",
+        "agentstudio.performance.sidebar.proof.terminal_input_baseline",
+        "agentstudio.performance.sidebar.proof.terminal_output_baseline",
+        "agentstudio.performance.sidebar.proof.ordered_command_baseline",
+        "agentstudio.performance.sidebar.proof.terminal_input_completion",
+        "agentstudio.performance.sidebar.proof.terminal_output_completion",
+        "agentstudio.performance.sidebar.proof.ordered_command_completion",
+        "agentstudio.performance.sidebar.proof.terminal_input.count",
+        "agentstudio.performance.sidebar.proof.terminal_output.count",
+        "agentstudio.performance.sidebar.proof.ordered_command.count",
+        "agentstudio.performance.terminal.output_advancement.count",
         "agentstudio.performance.repo_explorer.native_table_pilot.baseline_measurement.count",
         "agentstudio.performance.repo_explorer.native_table_pilot.baseline_p95_ms",
         "agentstudio.performance.repo_explorer.native_table_pilot.completed",
@@ -91,6 +114,7 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
 
     static let stringAttributeKeys: Set<String> = [
         "agentstudio.startup_diagnostic.sidebar_proof.policy_id",
+        "agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint",
         "agentstudio.performance.sidebar.readback.grouping_mode",
         "agentstudio.performance.sidebar.readback.query_state",
         "agentstudio.performance.sidebar.readback.demand_state",
@@ -98,6 +122,7 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.sidebar.readback.focus_disposition",
         "agentstudio.performance.sidebar.readback.accessibility_disposition",
         "agentstudio.performance.sidebar.proof.population",
+        "agentstudio.performance.sidebar.proof.workload.kind",
         "agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags",
         "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags",
         "agentstudio.startup_diagnostic.sidebar_proof.idle_populations",
@@ -223,6 +248,8 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         case "agentstudio.performance.sidebar.proof.population":
             ["zero_pty_idle", "quiescent_pty_idle", "search_clear", "grouping", "hide_show", "tab_switch"]
                 .contains(value)
+        case "agentstudio.performance.sidebar.proof.workload.kind":
+            ["terminal_input", "terminal_output", "ordered_command"].contains(value)
         case "agentstudio.performance.sidebar.readback.grouping_mode":
             ["repo", "pane", "tab"].contains(value)
         case "agentstudio.performance.sidebar.readback.query_state":

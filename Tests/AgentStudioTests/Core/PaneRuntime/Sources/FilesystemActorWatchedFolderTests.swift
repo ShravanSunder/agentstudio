@@ -268,6 +268,38 @@ struct FilesystemActorWatchedFolderTests {
         await fixture.actor.shutdown()
     }
 
+    @Test("refresh summary fingerprints repository and linked-worktree identities")
+    func refreshSummaryFingerprintsCompleteDiscoveredTopology() async throws {
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
+        let clone = fixture.watchedFolder.appending(path: "clone")
+        let firstLinkedWorktree = fixture.watchedFolder.appending(path: "linked-one")
+        let secondLinkedWorktree = fixture.watchedFolder.appending(path: "linked-two")
+
+        let firstSummary = await fixture.performInitialRefresh(
+            result: completeResult(entries: [
+                cloneEntry(clone),
+                linkedEntry(firstLinkedWorktree, parentClone: clone),
+            ])
+        )
+        let secondSummary = await fixture.performRefresh(
+            result: completeResult(entries: [
+                cloneEntry(clone),
+                linkedEntry(firstLinkedWorktree, parentClone: clone),
+                linkedEntry(secondLinkedWorktree, parentClone: clone),
+            ])
+        )
+
+        #expect(firstSummary.repoPaths(in: fixture.watchedFolder) == [canonicalURL(clone)])
+        #expect(
+            firstSummary.linkedWorktreePaths(in: fixture.watchedFolder)
+                == [canonicalURL(firstLinkedWorktree)]
+        )
+        #expect(firstSummary.topologyFingerprint != nil)
+        #expect(secondSummary.topologyFingerprint != firstSummary.topologyFingerprint)
+        await fixture.actor.shutdown()
+    }
+
     @Test("shutdown resumes a manual refresh with a pending scan result")
     func shutdownResumesPendingManualRefresh() async throws {
         let fixture = try await WatchedFolderActorFixture()

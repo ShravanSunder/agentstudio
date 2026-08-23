@@ -4,6 +4,7 @@ import Foundation
 
 protocol WatchedFolderCommandHandling: AnyObject, Sendable {
     func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary
+    func filesystemLogicalDebtCount() async -> Int
     func refreshRegisteredWorktreesAndWatchedFolders(
         _ watchedPaths: [WatchedPath]
     ) async -> WatchedFolderRefreshSummary
@@ -175,6 +176,10 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             await gitWorkingDirectoryProjector.refreshRegisteredWorktreesIntersecting(watchedPaths.map(\.path))
         }
         return summary
+    }
+
+    func filesystemLogicalDebtCount() async -> Int {
+        await filesystemActor.logicalDebtCount()
     }
 
     func refreshRegisteredWorktreesAndWatchedFolders(

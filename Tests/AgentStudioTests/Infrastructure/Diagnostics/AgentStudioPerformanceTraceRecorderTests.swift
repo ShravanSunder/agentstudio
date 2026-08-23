@@ -5,6 +5,25 @@ import Testing
 
 @Suite
 struct AgentStudioPerformanceTraceRecorderTests {
+    @Test("sidebar proof workload snapshot is monotonic and reset only establishes a baseline")
+    func sidebarProofWorkloadSnapshotIsMonotonic() {
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: nil)
+
+        let baseline = recorder.beginSidebarPerformanceWorkloadProof()
+        recorder.recordSidebarPerformanceTerminalInput()
+        recorder.recordSidebarPerformanceTerminalOutputAdvancements(2)
+        recorder.recordSidebarPerformanceOrderedCommand()
+        let completion = recorder.completeSidebarPerformanceWorkloadProof()
+
+        #expect(baseline.terminalInputCount == 0)
+        #expect(baseline.terminalOutputAdvancementCount == 0)
+        #expect(baseline.orderedCommandCount == 0)
+        #expect(completion.terminalInputCount == 1)
+        #expect(completion.terminalOutputAdvancementCount == 2)
+        #expect(completion.orderedCommandCount == 1)
+        #expect(recorder.sidebarPerformanceTerminalWorkloadSnapshot() == completion)
+    }
+
     @Test("pane association boot reconciliation records only aggregate counts")
     func paneAssociationBootReconciliationRecordsScrubbedCounts() async throws {
         let traceDirectory = temporaryTraceDirectoryURL()

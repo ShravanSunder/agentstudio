@@ -149,28 +149,8 @@ print(len(values))
 PY
 }
 
-owned_zmx_pids() {
-  /bin/ps -axo pid=,command= | /usr/bin/python3 -c '
-import os, shlex, sys
-data_dir = sys.argv[1]
-for line in sys.stdin:
-    process_fields = line.strip().split(maxsplit=1)
-    if len(process_fields) != 2 or not process_fields[0].isdigit():
-        continue
-    command = process_fields[1]
-    try:
-        command_parts = shlex.split(command)
-    except ValueError:
-        continue
-    if not command_parts or os.path.basename(command_parts[0]) != "zmx":
-        continue
-    if data_dir in command:
-        print(process_fields[0])
-' "$RESET_DATA_DIR"
-}
-
 reset_disposable_debug_root() {
-  local expected_bundle_identifier zmx_pid zmx_pids
+  local expected_bundle_identifier inventory zmx_bin zmx_dir session_name
   RESET_IDENTITY="$("$PROJECT_ROOT/scripts/run-debug-observability.sh" --print-identity)"
   RESET_DEBUG_CODE="$(decode_identity_value "$RESET_IDENTITY" AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE)"
   RESET_DATA_DIR="$(decode_identity_value "$RESET_IDENTITY" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
@@ -194,65 +174,169 @@ reset_disposable_debug_root() {
   fi
 
   "$PROJECT_ROOT/scripts/run-debug-observability.sh" --preflight-idle
-  zmx_pids="$(owned_zmx_pids)"
-  for zmx_pid in $zmx_pids; do
-    kill "$zmx_pid"
-  done
-  for _ in $(seq 1 40); do
-    local live_zmx_pid=""
-    for zmx_pid in $zmx_pids; do
-      if kill -0 "$zmx_pid" >/dev/null 2>&1; then
-        live_zmx_pid="$zmx_pid"
-        break
-      fi
-    done
-    [ -z "$live_zmx_pid" ] && break
-    /bin/sleep 0.25
-  done
-  for zmx_pid in $zmx_pids; do
-    if kill -0 "$zmx_pid" >/dev/null 2>&1; then
-      kill -KILL "$zmx_pid"
-    fi
-  done
-  for _ in $(seq 1 20); do
-    local live_zmx_pid=""
-    for zmx_pid in $zmx_pids; do
-      if kill -0 "$zmx_pid" >/dev/null 2>&1; then
-        live_zmx_pid="$zmx_pid"
-        break
-      fi
-    done
-    [ -z "$live_zmx_pid" ] && break
-    /bin/sleep 0.25
-  done
-  for zmx_pid in $zmx_pids; do
-    if kill -0 "$zmx_pid" >/dev/null 2>&1; then
-      echo "refusing to remove debug data root while zmx remains live: pid=$zmx_pid data_dir=$RESET_DATA_DIR" >&2
+  zmx_dir="$RESET_DATA_DIR/z"
+  zmx_bin="$RESET_DATA_DIR/bin/zmx"
+  if [ -d "$zmx_dir" ]; then
+    inventory="$("$PROJECT_ROOT/scripts/cleanup-debug-zmx-sessions.sh" \
+      --inventory-exact-root "$zmx_dir" --zmx-bin "$zmx_bin")" || return 1
+    while IFS= read -r session_name; do
+      [ -n "$session_name" ] || continue
+      ZMX_DIR="$zmx_dir" "$zmx_bin" kill "$session_name"
+    done < <(printf '%s\n' "$inventory" | sed -n 's/^session=\([^ ]*\).*/\1/p')
+    inventory="$("$PROJECT_ROOT/scripts/cleanup-debug-zmx-sessions.sh" \
+      --inventory-exact-root "$zmx_dir" --zmx-bin "$zmx_bin")" || return 1
+    printf '%s\n' "$inventory" | grep -q 'session_count=0$' || {
+      echo "refusing to remove debug data root while exact-root zmx sessions remain" >&2
       return 1
-    fi
-  done
+    }
+  fi
 
-  echo "sidebar reset: bundle_id=$RESET_BUNDLE_IDENTIFIER data_dir=$RESET_DATA_DIR zmx_pids=${zmx_pids:-none}"
+  echo "sidebar reset: bundle_id=$RESET_BUNDLE_IDENTIFIER data_dir=$RESET_DATA_DIR exact_zmx_reset=true"
   /bin/rm -rf -- "$RESET_DATA_DIR"
+}
+
+retire_current_candidate() {
+  [ -s "$STATE_FILE" ] || return 0
+  AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
+    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --retire-candidate
+  APP_PID=""
+}
+
+validate_current_candidate() {
+  AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
+    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --validate-candidate >/dev/null
 }
 
 cleanup() {
   stop_pid "${CPU_SAMPLER_PID:-}"
   stop_pid "${HOST_ENVELOPE_MONITOR_PID:-}"
-  local cleanup_pid="$APP_PID"
-  if [ -z "$cleanup_pid" ] && [ -f "$STATE_FILE" ] \
-    && [ "$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_MARKER)" = "$TRACE_MARKER" ]
-  then
-    cleanup_pid="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
+  stop_pid "${ZMX_MONITOR_PID:-}"
+  if [ -f "$STATE_FILE" ] \
+    && [ "$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_MARKER)" = "$TRACE_MARKER" ]; then
+    retire_current_candidate || true
   fi
-  case "$cleanup_pid" in
-    ''|*[!0-9]*) ;;
-    *) stop_pid "$cleanup_pid" ;;
-  esac
 
   if [ -n "$RESET_DATA_DIR" ]; then
     reset_disposable_debug_root || true
   fi
+}
+
+validate_host_process_records_json() {
+  local records_json="${1:?missing host process records}"
+  local app_pid="${2:-}"
+  local maximum_cpu="${3:?missing host CPU maximum}"
+  local logical_cpu_count="${4:?missing logical CPU count}"
+  /usr/bin/python3 - "$records_json" "$app_pid" "$maximum_cpu" "$logical_cpu_count" <<'PY'
+import json
+import math
+import re
+import sys
+
+records = json.loads(sys.argv[1])
+app_pid = str(sys.argv[2])
+maximum_cpu = float(sys.argv[3])
+logical_cpu_count = int(sys.argv[4])
+if not isinstance(records, list) or logical_cpu_count <= 0:
+    raise SystemExit("invalid host process records or logical CPU count")
+forbidden_pattern = re.compile(
+    r"swift-frontend|(?:^|[ /])swiftc(?:[ /]|$)|xcodebuild|"
+    r"Instruments|spindump|(?:^|[ /])sample(?:[ /]|$)|mise run (?:test|build)",
+    re.IGNORECASE,
+)
+unrelated_cpu = 0.0
+forbidden = []
+for record in records:
+    if not isinstance(record, dict):
+        raise SystemExit("invalid host process record")
+    pid = str(record.get("pid", ""))
+    if not pid.isdigit():
+        raise SystemExit("invalid host process PID")
+    if pid == app_pid:
+        continue
+    try:
+        cpu = float(record["cpu"])
+    except (KeyError, TypeError, ValueError):
+        raise SystemExit(f"invalid host CPU value for pid {pid}") from None
+    if not math.isfinite(cpu) or cpu < 0:
+        raise SystemExit(f"invalid host CPU value for pid {pid}")
+    command = record.get("command")
+    if not isinstance(command, str):
+        raise SystemExit(f"invalid host command for pid {pid}")
+    unrelated_cpu += cpu
+    if forbidden_pattern.search(command):
+        forbidden.append(f"{pid} {command}")
+normalized_cpu = unrelated_cpu / logical_cpu_count
+if normalized_cpu > maximum_cpu:
+    raise SystemExit(f"unrelated host CPU {normalized_cpu} exceeds {maximum_cpu}")
+if forbidden:
+    raise SystemExit(f"forbidden concurrent process: {forbidden[0]}")
+print("host_process_contract=passed")
+print(f"normalized_unrelated_cpu={normalized_cpu}")
+PY
+}
+
+validate_strict_zmx_state_contract() {
+  local sequence_json="${1:?missing zmx state sequence}"
+  /usr/bin/python3 - "$sequence_json" <<'PY'
+import json
+import sys
+
+try:
+    records = json.loads(sys.argv[1])
+except json.JSONDecodeError as error:
+    raise SystemExit(f"zmx state contract failed: {error}") from None
+expected_phases = ["ready", "quiescent", "complete", "retired"]
+if not isinstance(records, list) or [record.get("phase") for record in records] != expected_phases:
+    raise SystemExit("zmx state contract failed: incomplete phases")
+counts = []
+for record in records:
+    if record.get("list_error") is True:
+        raise SystemExit("zmx state contract failed: list error")
+    count = record.get("count")
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0 or count > 1:
+        raise SystemExit("zmx state contract failed: invalid session count")
+    if count == 1 and record.get("clients") != 1:
+        raise SystemExit("zmx state contract failed: invalid client count")
+    counts.append(count)
+if counts == [0, 0, 0, 0]:
+    pass
+elif counts[0] == 0 and counts[1] == 1 and counts[2] in {0, 1} and counts[3] == 0:
+    pass
+else:
+    raise SystemExit(f"zmx state contract failed: invalid transition {counts}")
+print("zmx_state_contract=passed")
+PY
+}
+
+validate_strict_workload_receipt_contract() {
+  local receipt_json="${1:?missing workload receipt}"
+  /usr/bin/python3 - "$receipt_json" <<'PY'
+import json
+import sys
+
+try:
+    receipt = json.loads(sys.argv[1])
+except json.JSONDecodeError as error:
+    raise SystemExit(f"workload receipt contract failed: {error}") from None
+if not isinstance(receipt, dict):
+    raise SystemExit("workload receipt contract failed: receipt is not an object")
+baseline = receipt.get("baseline")
+completion = receipt.get("completion")
+if not isinstance(baseline, dict) or not isinstance(completion, dict):
+    raise SystemExit("workload receipt contract failed: missing baseline or completion")
+if receipt.get("dropped", 0) != 0 or baseline.get("dropped", 0) != 0 or completion.get("dropped", 0) != 0:
+    raise SystemExit("workload receipt contract failed: dropped evidence")
+for key in ("terminal_input", "terminal_output", "ordered_command"):
+    before = baseline.get(key)
+    after = completion.get(key)
+    if not isinstance(before, int) or isinstance(before, bool) or before < 0:
+        raise SystemExit(f"workload receipt contract failed: invalid baseline {key}")
+    if not isinstance(after, int) or isinstance(after, bool) or after < before:
+        raise SystemExit(f"workload receipt contract failed: reset completion {key}")
+    if after != before:
+        raise SystemExit(f"workload receipt contract failed: nonzero delta {key}")
+print("workload_receipt_contract=passed")
+PY
 }
 
 validate_loopback_url() {
@@ -368,7 +452,7 @@ query_victoria_metrics() {
 }
 
 strict_sidebar_policy_query() {
-  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic_action.command_exercised agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent | limit 1'
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.policy_projected agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count,agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.mounted_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent | limit 1'
 }
 
 load_strict_sidebar_policy() {
@@ -413,6 +497,13 @@ mapping = {
     "STRICT_POLICY_IDLE_SAMPLE_FLOOR": "idle_sample_floor",
     "STRICT_POLICY_ACTION_COUNT_FLOOR": "action_count_floor",
     "STRICT_POLICY_ACTION_SAMPLE_FLOOR": "action_sample_floor",
+    "STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS": "fixture_preparation_timeout_ms",
+    "STRICT_POLICY_FIXTURE_STATE_OBSERVATION_INTERVAL_MS": "fixture_state_observation_interval_ms",
+    "STRICT_POLICY_FIXTURE_TAB_COUNT": "fixture_tab_count",
+    "STRICT_POLICY_FIXTURE_PANE_MODEL_COUNT": "fixture_pane_model_count",
+    "STRICT_POLICY_ZERO_PTY_SESSION_COUNT": "zero_pty_expected_session_count",
+    "STRICT_POLICY_MOUNTED_PTY_SESSION_COUNT": "mounted_pty_expected_session_count",
+    "STRICT_POLICY_ZMX_INVENTORY_INTERVAL_MS": "zmx_inventory_interval_ms",
     "STRICT_POLICY_QUIESCENCE_MS": "quiescence_interval_ms",
     "STRICT_POLICY_READBACK_TIMEOUT_MS": "readback_timeout_ms",
     "STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS": "sampler_gap_max_ms",
@@ -434,6 +525,117 @@ values["STRICT_POLICY_IDLE_POPULATIONS"] = values["STRICT_POLICY_IDLE_POPULATION
 values["STRICT_POLICY_ACTION_POPULATIONS"] = values["STRICT_POLICY_ACTION_POPULATIONS"].replace(",", " ")
 pathlib.Path(sys.argv[2]).write_text("".join(f"{key}={shlex.quote(value)}\n" for key, value in values.items()))
 PY
+}
+
+strict_sidebar_fixture_ready_query() {
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.fixture_ready agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present,agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present,agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count,agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint,agentstudio.startup_diagnostic.sidebar_proof.tab_count,agentstudio.startup_diagnostic.sidebar_proof.pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant | limit 1'
+}
+
+load_strict_sidebar_fixture_ready() {
+  local fixture_file="${1:?missing fixture output file}"
+  local timeout_seconds response query
+  timeout_seconds="$(/usr/bin/python3 -c 'import sys; print(max(1, int(float(sys.argv[1]) / 1000)))' \
+    "$STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS")"
+  query="$(strict_sidebar_fixture_ready_query)"
+  for _ in $(seq 1 "$timeout_seconds"); do
+    response="$(curl --silent --show-error --max-time 5 "$LOGS_QUERY_URL" --data-urlencode "query=$query")"
+    if [ -n "$response" ]; then
+      printf '%s\n' "$response" >"$fixture_file"
+      return 0
+    fi
+    /bin/sleep 1
+  done
+  echo "strict sidebar fixture did not become ready for marker $TRACE_MARKER" >&2
+  return 1
+}
+
+validate_and_bind_strict_sidebar_fixture() {
+  local fixture_file="${1:?missing fixture file}"
+  local population="${2:?missing population}"
+  local fixture_environment="${3:?missing fixture environment}"
+  /usr/bin/python3 - "$fixture_file" "$population" "$STRICT_POLICY_FIXTURE_TAB_COUNT" \
+    "$STRICT_POLICY_FIXTURE_PANE_MODEL_COUNT" "$STRICT_POLICY_ZERO_PTY_SESSION_COUNT" \
+    "$STRICT_POLICY_MOUNTED_PTY_SESSION_COUNT" "$fixture_environment" <<'PY'
+import json
+import pathlib
+import shlex
+import sys
+
+path, population, raw_tabs, raw_panes, raw_zero, raw_mounted, output = sys.argv[1:]
+records = [json.loads(line) for line in pathlib.Path(path).read_text().splitlines() if line.strip()]
+if len(records) != 1:
+    raise SystemExit(f"strict fixture requires exactly one record, got {len(records)}")
+record = records[0]
+prefix = "agentstudio.startup_diagnostic.sidebar_proof."
+if record.get(prefix + "open_source_root_present") is not True:
+    raise SystemExit("strict fixture missing open-source root")
+if record.get(prefix + "project_dev_root_present") is not True:
+    raise SystemExit("strict fixture missing project-dev root")
+def exact_int(name):
+    raw = record.get(prefix + name)
+    try:
+        value = int(float(raw))
+    except (TypeError, ValueError):
+        raise SystemExit(f"strict fixture invalid {name}") from None
+    if float(raw) != value:
+        raise SystemExit(f"strict fixture nonintegral {name}")
+    return value
+repository_count = exact_int("discovered_repository_count")
+worktree_count = exact_int("discovered_worktree_count")
+tab_count = exact_int("tab_count")
+pane_count = exact_int("pane_model_count")
+session_variant = exact_int("expected_session_variant")
+fingerprint = record.get(prefix + "topology_fingerprint")
+if repository_count <= 0 or worktree_count <= 0:
+    raise SystemExit("strict fixture discovery counts must be positive")
+if tab_count != int(float(raw_tabs)) or pane_count != int(float(raw_panes)):
+    raise SystemExit(f"strict fixture expected 5/20-compatible policy counts, got {tab_count}/{pane_count}")
+expected_sessions = int(float(raw_zero if population == "zero_pty_idle" else raw_mounted))
+if session_variant != expected_sessions:
+    raise SystemExit("strict fixture session variant mismatch")
+if not isinstance(fingerprint, str) or len(fingerprint) != 64:
+    raise SystemExit("strict fixture topology fingerprint is missing or malformed")
+values = {
+    "STRICT_FIXTURE_REPOSITORY_COUNT": repository_count,
+    "STRICT_FIXTURE_WORKTREE_COUNT": worktree_count,
+    "STRICT_FIXTURE_TAB_COUNT": tab_count,
+    "STRICT_FIXTURE_PANE_COUNT": pane_count,
+    "STRICT_FIXTURE_EXPECTED_SESSION_COUNT": expected_sessions,
+    "STRICT_FIXTURE_TOPOLOGY_FINGERPRINT": fingerprint,
+}
+pathlib.Path(output).write_text(
+    "".join(f"{key}={shlex.quote(str(value))}\n" for key, value in values.items())
+)
+PY
+  # shellcheck disable=SC1090
+  source "$fixture_environment"
+  if [ -z "${STRICT_EXPECTED_TOPOLOGY_FINGERPRINT:-}" ]; then
+    STRICT_EXPECTED_TOPOLOGY_FINGERPRINT="$STRICT_FIXTURE_TOPOLOGY_FINGERPRINT"
+    STRICT_EXPECTED_REPOSITORY_COUNT="$STRICT_FIXTURE_REPOSITORY_COUNT"
+    STRICT_EXPECTED_WORKTREE_COUNT="$STRICT_FIXTURE_WORKTREE_COUNT"
+  elif [ "$STRICT_FIXTURE_TOPOLOGY_FINGERPRINT" != "$STRICT_EXPECTED_TOPOLOGY_FINGERPRINT" ] ||
+    [ "$STRICT_FIXTURE_REPOSITORY_COUNT" != "$STRICT_EXPECTED_REPOSITORY_COUNT" ] ||
+    [ "$STRICT_FIXTURE_WORKTREE_COUNT" != "$STRICT_EXPECTED_WORKTREE_COUNT" ]; then
+    echo "strict fixture topology drifted across populations" >&2
+    return 1
+  fi
+}
+
+load_and_bind_strict_sidebar_policy() {
+  local population_artifact="${1:?missing population artifact}"
+  local projected_policy="$population_artifact/projected-policy.jsonl"
+  local projected_environment="$population_artifact/projected-policy.env"
+  load_strict_sidebar_policy "$projected_policy"
+  parse_strict_sidebar_policy "$projected_policy" "$projected_environment"
+  if [ ! -f "$ARTIFACT/strict-sidebar-policy.env" ]; then
+    cp "$projected_environment" "$ARTIFACT/strict-sidebar-policy.env"
+    cp "$projected_policy" "$ARTIFACT/strict-sidebar-policy.jsonl"
+  elif ! cmp -s "$projected_environment" "$ARTIFACT/strict-sidebar-policy.env"; then
+    echo "strict sidebar policy drifted across populations" >&2
+    return 1
+  fi
+  # shellcheck disable=SC1090
+  source "$projected_environment"
 }
 
 nearest_rank_percentile() {
@@ -466,43 +668,36 @@ validate_strict_host_envelope() {
   ! grep -Eq 'Low Power Mode[^0-9]*1' "$envelope_artifact.txt" || return 1
   grep -q 'No thermal warning level has been recorded' "$envelope_artifact.txt" || return 1
   grep -Eq 'kern.memorystatus_vm_pressure_level:[[:space:]]*1$' "$envelope_artifact.txt" || return 1
-  /usr/bin/python3 - "$envelope_artifact.processes.txt" "$APP_PID" "$STRICT_POLICY_HOST_CPU_MAX" \
-    "$envelope_artifact.unrelated-cpu.txt" "$envelope_artifact.forbidden-processes.txt" <<'PY'
-import pathlib, re, subprocess, sys
+  local process_records logical_cpu_count contract_output
+  process_records="$(/usr/bin/python3 - "$envelope_artifact.processes.txt" <<'PY'
+import json
+import pathlib
+import sys
 
-process_path, app_pid, maximum_cpu, cpu_path, forbidden_path = sys.argv[1:]
-maximum_cpu = float(maximum_cpu)
-forbidden_pattern = re.compile(
-    r"(?:^|[ /])(codex|claude|gemini)(?:[ /]|$)|swift-frontend|swiftc|xcodebuild|"
-    r"Instruments|spindump|(?:^|[ /])sample(?:[ /]|$)|mise run (?:test|build)",
-    re.IGNORECASE,
-)
-unrelated_cpu = 0.0
-forbidden = []
-for line in pathlib.Path(process_path).read_text().splitlines():
+records = []
+for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
     fields = line.strip().split(maxsplit=3)
     if len(fields) != 4 or not fields[0].isdigit():
         continue
-    pid, _, raw_cpu, command = fields
-    if pid == app_pid:
-        continue
-    try:
-        unrelated_cpu += float(raw_cpu)
-    except ValueError:
-        raise SystemExit(f"invalid host CPU value for pid {pid}: {raw_cpu}")
-    if forbidden_pattern.search(command):
-        forbidden.append(f"{pid} {command}")
-logical_cpu_count = int(subprocess.check_output(
-    ["/usr/sbin/sysctl", "-n", "hw.logicalcpu"], text=True
-).strip())
-unrelated_cpu /= logical_cpu_count
-pathlib.Path(cpu_path).write_text(f"{unrelated_cpu}\n")
-pathlib.Path(forbidden_path).write_text("\n".join(forbidden) + ("\n" if forbidden else ""))
-if unrelated_cpu > maximum_cpu:
-    raise SystemExit(f"unrelated host CPU {unrelated_cpu} exceeds {maximum_cpu}")
-if forbidden:
-    raise SystemExit(f"forbidden concurrent processes: {len(forbidden)}")
+    records.append({
+        "pid": int(fields[0]),
+        "ppid": int(fields[1]),
+        "cpu": fields[2],
+        "command": fields[3],
+    })
+print(json.dumps(records, separators=(",", ":")))
 PY
+  )"
+  logical_cpu_count="$(/usr/sbin/sysctl -n hw.logicalcpu)"
+  if ! contract_output="$(validate_host_process_records_json \
+    "$process_records" "$APP_PID" "$STRICT_POLICY_HOST_CPU_MAX" "$logical_cpu_count" 2>"$envelope_artifact.forbidden-processes.txt")"
+  then
+    cat "$envelope_artifact.forbidden-processes.txt" >&2
+    return 1
+  fi
+  printf '%s\n' "$contract_output" | sed -n 's/^normalized_unrelated_cpu=//p' \
+    >"$envelope_artifact.unrelated-cpu.txt"
+  : >"$envelope_artifact.forbidden-processes.txt"
 }
 
 record_strict_host_envelope_receipt() {
@@ -604,9 +799,127 @@ stop_strict_host_envelope_monitor() {
   [ "$monitor_failed" = "0" ]
 }
 
+strict_zmx_inventory_json() {
+  local phase="${1:?missing zmx inventory phase}"
+  local data_dir zmx_dir zmx_bin inventory
+  if [ -s "$STATE_FILE" ]; then
+    data_dir="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
+  else
+    data_dir="$RESET_DATA_DIR"
+  fi
+  zmx_dir="$data_dir/z"
+  zmx_bin="$data_dir/bin/zmx"
+  if [ ! -d "$zmx_dir" ]; then
+    printf '{"phase":"%s","count":0}\n' "$phase"
+    return 0
+  fi
+  if ! inventory="$("$PROJECT_ROOT/scripts/cleanup-debug-zmx-sessions.sh" \
+    --inventory-exact-root "$zmx_dir" --zmx-bin "$zmx_bin")"; then
+    printf '{"phase":"%s","list_error":true}\n' "$phase"
+    return 1
+  fi
+  /usr/bin/python3 - "$phase" "$inventory" <<'PY'
+import json
+import re
+import sys
+
+phase, inventory = sys.argv[1:]
+header = re.search(r"session_count=(\d+)", inventory)
+if header is None:
+    raise SystemExit("zmx inventory missing session count")
+count = int(header.group(1))
+sessions = []
+for line in inventory.splitlines():
+    match = re.fullmatch(r"session=(\S+) clients=(\d+) start_dir=(.+)", line)
+    if match:
+        sessions.append((match.group(1), int(match.group(2)), match.group(3)))
+if len(sessions) != count or len({name for name, _, _ in sessions}) != len(sessions):
+    raise SystemExit("zmx inventory session rows are incomplete or duplicated")
+record = {"phase": phase, "count": count}
+if count == 1:
+    record["clients"] = sessions[0][1]
+print(json.dumps(record, separators=(",", ":")))
+PY
+}
+
+record_strict_zmx_inventory() {
+  local population="${1:?missing population}"
+  local phase="${2:?missing zmx inventory phase}"
+  local population_artifact="$ARTIFACT/populations/$population"
+  local receipt
+  if ! receipt="$(strict_zmx_inventory_json "$phase")"; then
+    printf '%s\n' "$receipt" >>"$population_artifact/zmx-lifecycle.jsonl"
+    return 1
+  fi
+  printf '%s\n' "$receipt" >>"$population_artifact/zmx-lifecycle.jsonl"
+  /usr/bin/python3 - "$receipt" "$STRICT_FIXTURE_EXPECTED_SESSION_COUNT" <<'PY'
+import json
+import sys
+
+record = json.loads(sys.argv[1])
+expected = int(float(sys.argv[2]))
+count = record.get("count")
+if not isinstance(count, int) or count < 0 or count > expected:
+    raise SystemExit("zmx inventory exceeds population contract")
+if count == 1 and record.get("clients") != 1:
+    raise SystemExit("zmx inventory has unexpected client count")
+PY
+}
+
+start_strict_zmx_monitor() {
+  local population="${1:?missing population}"
+  local population_artifact="$ARTIFACT/populations/$population"
+  local stop_file="$population_artifact/stop-zmx-monitor"
+  local invalid_file="$population_artifact/zmx-invalid.env"
+  local interval_seconds
+  interval_seconds="$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1]) / 1000)' \
+    "$STRICT_POLICY_ZMX_INVENTORY_INTERVAL_MS")"
+  /bin/rm -f -- "$stop_file" "$invalid_file"
+  : >"$population_artifact/zmx-monitor.jsonl"
+  (
+    while [ ! -f "$stop_file" ]; do
+      local receipt
+      if ! receipt="$(strict_zmx_inventory_json during)"; then
+        printf '%s\n' "$receipt" >>"$population_artifact/zmx-monitor.jsonl"
+        echo "population_invalidated=zmx_inventory" >"$invalid_file"
+        exit 1
+      fi
+      printf '%s\n' "$receipt" >>"$population_artifact/zmx-monitor.jsonl"
+      if ! /usr/bin/python3 - "$receipt" "$STRICT_FIXTURE_EXPECTED_SESSION_COUNT" <<'PY'
+import json
+import sys
+record = json.loads(sys.argv[1])
+expected = int(float(sys.argv[2]))
+count = record.get("count")
+raise SystemExit(0 if isinstance(count, int) and 0 <= count <= expected and (count == 0 or record.get("clients") == 1) else 1)
+PY
+      then
+        echo "population_invalidated=zmx_inventory" >"$invalid_file"
+        exit 1
+      fi
+      /bin/sleep "$interval_seconds"
+    done
+  ) &
+  ZMX_MONITOR_PID=$!
+}
+
+stop_strict_zmx_monitor() {
+  local population="${1:?missing population}"
+  local population_artifact="$ARTIFACT/populations/$population"
+  local monitor_failed=0
+  : >"$population_artifact/stop-zmx-monitor"
+  if [ -n "${ZMX_MONITOR_PID:-}" ]; then
+    wait "$ZMX_MONITOR_PID" || monitor_failed=1
+    ZMX_MONITOR_PID=""
+  fi
+  [ ! -s "$population_artifact/zmx-invalid.env" ] || monitor_failed=1
+  [ "$monitor_failed" = "0" ]
+}
+
 record_strict_cpu_sample() {
   local samples="${1:?missing samples file}"
   local sample_interval_seconds cpu_value started_ns ended_ns
+  validate_current_candidate
   sample_interval_seconds="$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
     "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
   started_ns="$(/usr/bin/python3 -c 'import time; print(time.monotonic_ns())')"
@@ -912,12 +1225,15 @@ wait_for_positive_quiescence() {
 begin_strict_population() {
   local population="${1:?missing population}"
   local selector="${2:?missing diagnostic selector}"
-  local trace_tags="${3:-$STRICT_POLICY_STANDARD_TRACE_TAGS}"
+  local trace_tags="${3:-$WORKLOAD_TRACE_TAGS}"
   local population_artifact="$ARTIFACT/populations/$population"
+  local fixture_environment="$population_artifact/fixture.env"
   mkdir -p "$population_artifact"
   reset_disposable_debug_root
   TRACE_MARKER="$(opaque_trace_marker "${TRACE_NAME}-${population}" "$(/usr/bin/uuidgen)")"
   STATE_FILE="$population_artifact/debug-observability.env"
+  : >"$population_artifact/zmx-lifecycle.jsonl"
+  strict_zmx_inventory_json ready >>"$population_artifact/zmx-lifecycle.jsonl"
   env AGENTSTUDIO_TRACE_FLUSH=immediate \
     AGENTSTUDIO_TRACE_TAGS="$trace_tags" \
     AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
@@ -927,7 +1243,11 @@ begin_strict_population() {
   for _ in $(seq 1 60); do [ -s "$STATE_FILE" ] && break; /bin/sleep 1; done
   [ -s "$STATE_FILE" ] || return 1
   APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
-  load_strict_sidebar_policy "$population_artifact/projected-policy.jsonl"
+  validate_current_candidate
+  load_and_bind_strict_sidebar_policy "$population_artifact"
+  load_strict_sidebar_fixture_ready "$population_artifact/fixture-ready.jsonl"
+  validate_and_bind_strict_sidebar_fixture \
+    "$population_artifact/fixture-ready.jsonl" "$population" "$fixture_environment"
   echo "$TRACE_MARKER" >"$population_artifact/marker.txt"
   echo "$APP_PID" >"$population_artifact/pid.txt"
   : >"$population_artifact/host-envelope-receipts.jsonl"
@@ -944,6 +1264,8 @@ begin_strict_population() {
     start_strict_action_sampler "$population"
   fi
   wait_for_positive_quiescence "$TRACE_MARKER"
+  record_strict_zmx_inventory "$population" quiescent
+  start_strict_zmx_monitor "$population"
 }
 
 sample_strict_idle_population() {
@@ -955,6 +1277,7 @@ sample_strict_idle_population() {
   done
   validate_strict_sampler_gaps "$samples"
   stop_strict_host_envelope_monitor "$population"
+  finish_strict_population "$population"
 }
 
 drive_strict_action_population() {
@@ -979,6 +1302,89 @@ drive_strict_action_population() {
   query_strict_action_records "$marker" "$records"
   classify_strict_action_samples "$raw_samples" "$records" "$samples"
   validate_strict_sampler_gaps "$raw_samples"
+  finish_strict_population "$population"
+}
+
+query_and_validate_strict_workload_receipt() {
+  local population="${1:?missing population}"
+  local population_artifact="$ARTIFACT/populations/$population"
+  local output="$population_artifact/workload-receipt-records.jsonl"
+  local query response
+  query='{service.name="AgentStudio",dev.runtime.flavor="debug"} agent.proof.marker:"'"$TRACE_MARKER"'" (_msg:performance.sidebar.proof_population.ready OR _msg:performance.sidebar.proof_population.completed OR _msg:performance.sidebar.proof_action.failed OR _msg:performance.sidebar.proof_workload_changed) | fields _msg,outcome,agentstudio.performance.sidebar.proof.terminal_input_baseline,agentstudio.performance.sidebar.proof.terminal_output_baseline,agentstudio.performance.sidebar.proof.ordered_command_baseline,agentstudio.performance.sidebar.proof.terminal_input_completion,agentstudio.performance.sidebar.proof.terminal_output_completion,agentstudio.performance.sidebar.proof.ordered_command_completion | limit 20'
+  for _ in $(seq 1 30); do
+    response="$(curl --silent --show-error --max-time 5 "$LOGS_QUERY_URL" --data-urlencode "query=$query")"
+    if printf '%s\n' "$response" | grep -q 'performance.sidebar.proof_population.completed'; then
+      printf '%s\n' "$response" >"$output"
+      break
+    fi
+    /bin/sleep 1
+  done
+  [ -s "$output" ] || {
+    echo "workload receipt completion did not become queryable for $population" >&2
+    return 1
+  }
+  local receipt_json
+  receipt_json="$(/usr/bin/python3 - "$output" <<'PY'
+import json
+import pathlib
+import sys
+
+records = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
+ready = [record for record in records if record.get("_msg") == "performance.sidebar.proof_population.ready"]
+completed = [record for record in records if record.get("_msg") == "performance.sidebar.proof_population.completed"]
+changed = [record for record in records if record.get("_msg") == "performance.sidebar.proof_workload_changed"]
+failed = [record for record in records if record.get("_msg") == "performance.sidebar.proof_action.failed"]
+if len(ready) != 1 or len(completed) != 1 or changed or failed:
+    raise SystemExit("workload receipt records are missing, duplicated, or invalidated")
+prefix = "agentstudio.performance.sidebar.proof."
+def exact_counter(record, suffix):
+    raw = record.get(prefix + suffix)
+    try:
+        value = int(float(raw))
+    except (TypeError, ValueError):
+        raise SystemExit(f"workload receipt missing {suffix}") from None
+    if float(raw) != value:
+        raise SystemExit(f"workload receipt nonintegral {suffix}")
+    return value
+receipt = {
+    "baseline": {
+        "terminal_input": exact_counter(ready[0], "terminal_input_baseline"),
+        "terminal_output": exact_counter(ready[0], "terminal_output_baseline"),
+        "ordered_command": exact_counter(ready[0], "ordered_command_baseline"),
+    },
+    "completion": {
+        "terminal_input": exact_counter(completed[0], "terminal_input_completion"),
+        "terminal_output": exact_counter(completed[0], "terminal_output_completion"),
+        "ordered_command": exact_counter(completed[0], "ordered_command_completion"),
+    },
+}
+print(json.dumps(receipt, separators=(",", ":")))
+PY
+  )"
+  validate_strict_workload_receipt_contract "$receipt_json" \
+    >"$population_artifact/workload-receipt-validation.txt"
+}
+
+finish_strict_population() {
+  local population="${1:?missing population}"
+  local population_artifact="$ARTIFACT/populations/$population"
+  stop_strict_zmx_monitor "$population"
+  record_strict_zmx_inventory "$population" complete
+  retire_current_candidate
+  query_and_validate_strict_workload_receipt "$population"
+  reset_disposable_debug_root
+  record_strict_zmx_inventory "$population" retired
+  local lifecycle_json
+  lifecycle_json="$(/usr/bin/python3 - "$population_artifact/zmx-lifecycle.jsonl" <<'PY'
+import json
+import pathlib
+import sys
+records = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
+print(json.dumps(records, separators=(",", ":")))
+PY
+  )"
+  validate_strict_zmx_state_contract "$lifecycle_json" \
+    >"$population_artifact/zmx-lifecycle-validation.txt"
 }
 
 query_strict_action_records() {
@@ -1091,7 +1497,8 @@ PY
 
 strict_required_record_loss() {
   local population="${1:?missing population}"
-  local marker="${TRACE_MARKER:?missing marker}"
+  [ -s "$ARTIFACT/populations/$population/workload-receipt-validation.txt" ] || return 1
+  [ -s "$ARTIFACT/populations/$population/zmx-lifecycle-validation.txt" ] || return 1
   if printf '%s\n' "$STRICT_POLICY_ACTION_POPULATIONS" | grep -qw "$population" \
     || [ "$population" = "grouping_diagnostic" ]
   then
@@ -1102,11 +1509,6 @@ strict_required_record_loss() {
     printf '0\n'
     return
   fi
-  local ready_query='{service.name="AgentStudio",dev.runtime.flavor="debug"} agent.proof.marker:"'"$marker"'" _msg:performance.sidebar.proof_population.ready | fields _msg | limit 2'
-  local ready_count
-  ready_count="$(curl --fail --silent --show-error --max-time 10 "$LOGS_QUERY_URL" \
-    --data-urlencode "query=$ready_query" | /usr/bin/python3 -c 'import sys; print(sum(1 for line in sys.stdin if line.strip()))')"
-  [ "$ready_count" = "1" ] || return 1
   printf '0\n'
 }
 
@@ -1161,10 +1563,6 @@ PY
 }
 
 run_strict_sidebar_cpu_populations() {
-  local policy_environment="$ARTIFACT/strict-sidebar-policy.env"
-  parse_strict_sidebar_policy "$STRICT_SIDEBAR_POLICY_FILE" "$policy_environment"
-  # shellcheck disable=SC1090
-  source "$policy_environment"
   local specifications=(
     "zero_pty_idle:sidebar-cpu-zero-pty-idle" "quiescent_pty_idle:sidebar-cpu-quiescent-pty-idle"
     "search_clear:sidebar-cpu-search-clear" "grouping:sidebar-cpu-grouping"
@@ -1182,7 +1580,6 @@ run_strict_sidebar_cpu_populations() {
     validate_strict_population "$population"
     capture_strict_population_loss "$ARTIFACT/populations/$population/loss.env" "$population"
     validate_strict_zero_loss "$ARTIFACT/populations/$population/loss.env"
-    stop_pid "$APP_PID"; APP_PID=""
   done
   local standard_cpu standard_interaction diagnostic_cpu diagnostic_interaction
   standard_cpu="$(nearest_rank_percentile "$ARTIFACT/populations/grouping/cpu.samples" 0.95)"
@@ -1200,7 +1597,6 @@ run_strict_sidebar_cpu_populations() {
   capture_strict_population_loss "$ARTIFACT/populations/grouping_diagnostic/loss.env" \
     "grouping_diagnostic"
   validate_strict_zero_loss "$ARTIFACT/populations/grouping_diagnostic/loss.env"
-  stop_pid "$APP_PID"; APP_PID=""
 }
 
 metric_result_count() {
@@ -1695,9 +2091,8 @@ PY
 }
 
 run_repo_explorer_key_mutation_phase() {
-  local first_phase_pid="${APP_PID:?missing first phase app pid}"
-  stop_pid "$first_phase_pid"
-  APP_PID=""
+  : "${APP_PID:?missing first phase app pid}"
+  retire_current_candidate
   reset_disposable_debug_root
 
   TRACE_MARKER="$TRACE_MARKER_K"
@@ -1719,9 +2114,8 @@ run_repo_explorer_interaction_phase() {
   wait_for_required_metric_count keyed_wake_key_mutation_completion \
     "sum(agentstudio_performance_events_total{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_K")\",event=\"performance.repo_explorer.keyed_wake\",key_class=\"missing_declared_key\",stage=\"membership_path\"})" \
     "$WORKLOAD_CYCLES" >/dev/null
-  local key_phase_pid="${APP_PID:?missing key phase app pid}"
-  stop_pid "$key_phase_pid"
-  APP_PID=""
+  : "${APP_PID:?missing key phase app pid}"
+  retire_current_candidate
   reset_disposable_debug_root
   TRACE_MARKER="$TRACE_MARKER_I"
   env \
@@ -1904,6 +2298,33 @@ validate_compare_baseline_fixture
 sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="repo",phase=~"startup_diagnostic|request_build_mainactor|mainactor_apply|projection_worker|row_index"}'
 
 if [ "$mode" = "prepare-only" ]; then
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_HOST_PROCESS_RECORDS:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "host process test requires canned test-response authorization" >&2
+      exit 2
+    }
+    validate_host_process_records_json \
+      "$AGENTSTUDIO_SIDEBAR_TEST_HOST_PROCESS_RECORDS" "" \
+      "${STRICT_POLICY_HOST_CPU_MAX:?missing strict host CPU maximum}" \
+      "${AGENTSTUDIO_SIDEBAR_TEST_LOGICAL_CPU_COUNT:?missing logical CPU count}"
+    exit 0
+  fi
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_ZMX_STATE_SEQUENCE:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "zmx state test requires canned test-response authorization" >&2
+      exit 2
+    }
+    validate_strict_zmx_state_contract "$AGENTSTUDIO_SIDEBAR_TEST_ZMX_STATE_SEQUENCE"
+    exit 0
+  fi
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_WORKLOAD_RECEIPT:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "workload receipt test requires canned test-response authorization" >&2
+      exit 2
+    }
+    validate_strict_workload_receipt_contract "$AGENTSTUDIO_SIDEBAR_TEST_WORKLOAD_RECEIPT"
+    exit 0
+  fi
   if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_METRIC_OBSERVATION_TIME:-}" ]; then
     [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
       echo "metric observation test requires canned test-response authorization" >&2
@@ -1963,11 +2384,20 @@ fi
 APP_PID=""
 CPU_SAMPLER_PID=""
 HOST_ENVELOPE_MONITOR_PID=""
+ZMX_MONITOR_PID=""
 RESET_IDENTITY=""
 RESET_DEBUG_CODE=""
 RESET_DATA_DIR=""
 RESET_BUNDLE_IDENTIFIER=""
+STRICT_EXPECTED_TOPOLOGY_FINGERPRINT=""
+STRICT_EXPECTED_REPOSITORY_COUNT=""
+STRICT_EXPECTED_WORKTREE_COUNT=""
 trap cleanup EXIT INT TERM
+if [ "$mode" = "sidebar-proof" ]; then
+  run_strict_sidebar_cpu_populations
+  echo "strict sidebar CPU populations passed: $ARTIFACT"
+  exit 0
+fi
 reset_disposable_debug_root
 
 env \
@@ -1982,16 +2412,7 @@ env \
 
 AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
   wait_for_debug_observability
-STRICT_SIDEBAR_POLICY_FILE="$ARTIFACT/strict-sidebar-policy.jsonl"
-load_strict_sidebar_policy "$STRICT_SIDEBAR_POLICY_FILE"
 APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
-if [ "$mode" = "sidebar-proof" ]; then
-  stop_pid "$APP_PID"
-  APP_PID=""
-  run_strict_sidebar_cpu_populations
-  echo "strict sidebar CPU populations passed: $ARTIFACT"
-  exit 0
-fi
 CPU_SAMPLES_FILE="$ARTIFACT/process-cpu-percent.txt"
 : >"$CPU_SAMPLES_FILE"
 sample_process_cpu "$APP_PID" "$CPU_SAMPLES_FILE" &

@@ -260,6 +260,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        #if DEBUG
+            sidebarPerformanceProofSession?.completeIdlePopulationForTermination()
+        #endif
         mainWindowController?.shutdown()
         guard let store else { return .terminateNow }
 

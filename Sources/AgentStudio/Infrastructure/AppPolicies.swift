@@ -60,6 +60,7 @@ package enum AppPolicies {
         package static let mountedPTYExpectedSessionCount: Int = 1
         package static let zmxInventoryInterval: Duration = .seconds(5)
         package static let fixturePreparationTimeout: Duration = .seconds(300)
+        package static let fixtureStateObservationInterval: Duration = .milliseconds(10)
         package static let representedRowCount: Int = 24
         package static let warmupTransactionCountPerScale: Int = 20
         package static let measuredTransactionCountPerScale: Int = 200

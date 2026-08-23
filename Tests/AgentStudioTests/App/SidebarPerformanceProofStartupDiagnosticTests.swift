@@ -265,7 +265,6 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
             contentsOfFile: "Sources/AgentStudio/App/Boot/SidebarPerformanceProofSession.swift",
             encoding: .utf8
         )
-
         for selector in [
             "sidebar-cpu-zero-pty-idle", "sidebar-cpu-quiescent-pty-idle",
             "sidebar-cpu-search-clear", "sidebar-cpu-grouping", "sidebar-cpu-hide-show",
@@ -299,7 +298,6 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                 "Sources/AgentStudio/App/Boot/AppDelegate+SidebarPerformanceProofStartupDiagnostics.swift",
             encoding: .utf8
         )
-
         #expect(source.contains("func typeFixtureQuery(in window: NSWindow) async -> Bool"))
         #expect(source.contains("func clearFixtureQuery(in window: NSWindow) -> Bool"))
         #expect(source.contains("NSEvent.keyEvent("))
@@ -311,6 +309,78 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(!source.contains("filterText ="))
         #expect(!source.contains("uiState."))
         #expect(!source.contains("AppCommandIPC"))
+    }
+
+    @Test("strict fixture is sourced from one complete two-root watched-folder refresh")
+    func strictFixtureUsesOneCompleteTwoRootWatchedFolderRefresh() throws {
+        let fixtureSource = try String(
+            contentsOfFile: "Sources/AgentStudio/App/Boot/SidebarPerformanceProofFixture+RealSize.swift",
+            encoding: .utf8
+        )
+        let diagnosticSource = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/App/Boot/AppDelegate+SidebarPerformanceProofStartupDiagnostics.swift",
+            encoding: .utf8
+        )
+        let combinedSource = fixtureSource + diagnosticSource
+
+        let requiredRoots = try #require(
+            combinedSource.range(of: "strictWatchedRootURLs")
+        )
+        let addWatchedPath = try #require(
+            combinedSource.range(of: "mutationCoordinator.addWatchedPath")
+        )
+        let refreshWatchedFolders = try #require(
+            diagnosticSource.range(of: "commands.refreshWatchedFolders")
+        )
+        let completedSummary = try #require(
+            diagnosticSource.range(of: "WatchedFolderRefreshSummary")
+        )
+        #expect(requiredRoots.lowerBound < addWatchedPath.lowerBound)
+        #expect(completedSummary.lowerBound < refreshWatchedFolders.lowerBound)
+        #expect(combinedSource.contains("summary.repoPaths(in: rootURL).isEmpty"))
+        #expect(!diagnosticSource.contains("populateRealSizeTopology"))
+    }
+
+    @Test("strict policy is projected before scan and fixture readiness is separate")
+    func strictPolicyPrecedesScanAndFixtureReadinessIsSeparate() throws {
+        let source = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/App/Boot/AppDelegate+SidebarPerformanceProofStartupDiagnostics.swift",
+            encoding: .utf8
+        )
+        let sessionSource = try String(
+            contentsOfFile: "Sources/AgentStudio/App/Boot/SidebarPerformanceProofSession.swift",
+            encoding: .utf8
+        )
+
+        let policyProjection = try #require(
+            source.range(of: "app.startup_diagnostic.sidebar_proof.policy_projected")
+        )
+        let fixturePreparation = try #require(
+            source.range(of: "await prepareStrictSidebarPerformanceProofFixture")
+        )
+        let fixtureReady = try #require(
+            source.range(of: "app.startup_diagnostic.sidebar_proof.fixture_ready")
+        )
+
+        #expect(policyProjection.lowerBound < fixturePreparation.lowerBound)
+        #expect(fixturePreparation.lowerBound < fixtureReady.lowerBound)
+        #expect(source.contains("await commands.refreshWatchedFolders"))
+        for attribute in [
+            "open_source_root_present", "project_dev_root_present",
+            "discovered_repository_count", "discovered_worktree_count",
+            "topology_fingerprint", "tab_count", "pane_model_count",
+            "expected_session_variant",
+        ] {
+            #expect(source.contains("agentstudio.startup_diagnostic.sidebar_proof.\(attribute)"))
+        }
+        for attribute in [
+            "terminal_input_baseline", "terminal_output_baseline",
+            "ordered_command_baseline",
+        ] {
+            #expect(sessionSource.contains("agentstudio.performance.sidebar.proof.\(attribute)"))
+        }
     }
 
     private func makeReadback(

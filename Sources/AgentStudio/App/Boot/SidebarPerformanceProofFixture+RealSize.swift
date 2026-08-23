@@ -4,6 +4,72 @@ import Foundation
 
 #if DEBUG
     extension SidebarPerformanceProofFixture {
+        static var strictWatchedRootURLs: [URL] {
+            AppPolicies.SidebarPerformanceProof.strictWatchedRootURLs.map(\.standardizedFileURL)
+        }
+
+        static func registerStrictWatchedRoots(store: WorkspaceStore) -> [WatchedPath]? {
+            let rootURLs = strictWatchedRootURLs
+            guard rootURLs.count == 2,
+                rootURLs.allSatisfy({
+                    var isDirectory: ObjCBool = false
+                    return FileManager.default.fileExists(atPath: $0.path, isDirectory: &isDirectory)
+                        && isDirectory.boolValue
+                })
+            else { return nil }
+
+            let watchedPaths = rootURLs.compactMap { rootURL in
+                store.mutationCoordinator.addWatchedPath(rootURL)
+            }
+            guard watchedPaths.count == rootURLs.count else { return nil }
+            return watchedPaths
+        }
+
+        @discardableResult
+        static func populateStrictPaneFleet(store: WorkspaceStore) -> Bool {
+            let requiredTabCount = AppPolicies.SidebarPerformanceProof.strictTabCount
+            let requiredPaneCount = AppPolicies.SidebarPerformanceProof.strictPaneModelCount
+            guard store.tabLayoutAtom.tabs.count <= requiredTabCount,
+                store.paneAtom.graphAtom.paneIDs.count <= requiredPaneCount
+            else { return false }
+
+            while store.tabLayoutAtom.tabs.count < requiredTabCount {
+                let pane = store.paneAtom.createPane(
+                    title: "Load Pane",
+                    lifetime: .temporary,
+                    zmxSessionID: .generateUUIDv7()
+                )
+                store.tabLayoutAtom.appendTab(Tab(paneId: pane.id, name: "Load Tab"))
+            }
+
+            var nextTabIndex = 0
+            while store.paneAtom.graphAtom.paneIDs.count < requiredPaneCount {
+                let tabs = store.tabLayoutAtom.tabs
+                guard !tabs.isEmpty else { return false }
+                let tab = tabs[nextTabIndex % tabs.count]
+                nextTabIndex += 1
+                guard let targetPaneID = tab.activePaneIds.first else { return false }
+                let pane = store.paneAtom.createPane(
+                    title: "Load Pane",
+                    lifetime: .temporary,
+                    zmxSessionID: .generateUUIDv7()
+                )
+                guard
+                    store.tabLayoutAtom.insertPane(
+                        pane.id,
+                        inTab: tab.id,
+                        at: targetPaneID,
+                        direction: .horizontal,
+                        position: .after,
+                        sizingMode: .halveTarget
+                    )
+                else { return false }
+            }
+
+            return store.tabLayoutAtom.tabs.count == requiredTabCount
+                && store.paneAtom.graphAtom.paneIDs.count == requiredPaneCount
+        }
+
         static func populateRealSizeTopology(
             store: WorkspaceStore,
             repositoryRoot: URL

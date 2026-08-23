@@ -523,7 +523,7 @@ extension AppDelegate {
             return fixture
         }
 
-        private func recordBlockedSidebarPerformanceProofDiagnostic(
+        func recordBlockedSidebarPerformanceProofDiagnostic(
             action: AgentStudioStartupDiagnosticAction,
             reason: String
         ) {
@@ -719,7 +719,7 @@ extension AppDelegate {
         )
     }
 
-    private func waitForIPCTerminalSmokeRenderProof(for paneId: UUID) async -> CrossTabMoveGeometrySmokeRenderProof {
+    func waitForIPCTerminalSmokeRenderProof(for paneId: UUID) async -> CrossTabMoveGeometrySmokeRenderProof {
         let clock = ContinuousClock()
         let start = clock.now
         var proof = ipcTerminalSmokeRenderProof(for: paneId)

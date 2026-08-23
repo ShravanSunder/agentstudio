@@ -758,6 +758,10 @@ extension Ghostty {
                         payload: payload,
                         surfaceView: resolvedSurfaceView
                     )
+                    if case .commandFinished = payload {
+                        resolvedSurfaceView.performanceTraceRecorder?
+                            .recordSidebarPerformanceOrderedCommand()
+                    }
                 }
                 var didApplyPrecedingTitle = false
                 _ = await routeExactFactOrControlOnMainActor(

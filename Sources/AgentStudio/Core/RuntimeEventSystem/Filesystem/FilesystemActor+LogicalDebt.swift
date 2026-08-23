@@ -41,6 +41,10 @@ struct FilesystemLogicalDebtSnapshot: Equatable, Sendable {
 }
 
 extension FilesystemActor {
+    package func logicalDebtCount() async -> Int {
+        await logicalDebtSnapshot().logicalDebtCount
+    }
+
     func logicalDebtSnapshot() async -> FilesystemLogicalDebtSnapshot {
         makeLogicalDebtSnapshot(
             watchedFolderSchedulerState: await watchedFolderScanScheduler.stateSnapshot(),

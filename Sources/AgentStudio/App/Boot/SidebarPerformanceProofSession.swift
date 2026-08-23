@@ -175,6 +175,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
         private let population: SidebarPerformanceProofPopulation
         private let window: NSWindow
         private let recorder: AgentStudioStartupTraceRecorder
+        private let performanceRecorder: AgentStudioPerformanceTraceRecorder?
         private let delay: AsyncDelay
         private let readShell: @MainActor () -> SidebarPerformanceProofShellReadback?
         private let readbackStream: AsyncStream<SidebarPerformanceProofReadback>
@@ -183,17 +184,21 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
         private var latestReadback: SidebarPerformanceProofReadback?
         private var actionTracker = SidebarPerformanceProofActionTracker()
         private var observesShellState = false
+        private var workloadBaseline: SidebarPerformanceTerminalWorkloadSnapshot?
+        private var didCompleteWorkloadProof = false
 
         init(
             population: SidebarPerformanceProofPopulation,
             window: NSWindow,
             recorder: AgentStudioStartupTraceRecorder,
+            performanceRecorder: AgentStudioPerformanceTraceRecorder?,
             delay: AsyncDelay = .taskSleep,
             readShell: @escaping @MainActor () -> SidebarPerformanceProofShellReadback?
         ) {
             self.population = population
             self.window = window
             self.recorder = recorder
+            self.performanceRecorder = performanceRecorder
             self.delay = delay
             self.readShell = readShell
             (readbackStream, readbackContinuation) = AsyncStream.makeStream(
@@ -218,7 +223,23 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 record("performance.sidebar.proof_action.failed", sequence: 0, outcome: "missing_initial_readback")
                 return false
             }
-            record("performance.sidebar.proof_population.ready", sequence: 0, outcome: "settled")
+            guard let performanceRecorder else {
+                record("performance.sidebar.proof_action.failed", sequence: 0, outcome: "missing_workload_recorder")
+                return false
+            }
+            let workloadBaseline = performanceRecorder.beginSidebarPerformanceWorkloadProof()
+            self.workloadBaseline = workloadBaseline
+            record(
+                "performance.sidebar.proof_population.ready",
+                sequence: 0,
+                outcome: "settled",
+                additionalAttributes: workloadAttributes(
+                    workloadBaseline,
+                    terminalInputKey: "agentstudio.performance.sidebar.proof.terminal_input_baseline",
+                    terminalOutputKey: "agentstudio.performance.sidebar.proof.terminal_output_baseline",
+                    orderedCommandKey: "agentstudio.performance.sidebar.proof.ordered_command_baseline"
+                )
+            )
             if population.isIdle { return true }
             do {
                 try await delay.wait(AppPolicies.SidebarPerformanceProof.quiescenceInterval)
@@ -232,8 +253,13 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             for sequence in 1...actionCount {
                 guard await runAction(sequence: sequence) else { return false }
             }
-            record("performance.sidebar.proof_population.completed", sequence: actionCount, outcome: "settled")
-            return true
+            return completeWorkloadProof(sequence: actionCount)
+        }
+
+        @discardableResult
+        func completeIdlePopulationForTermination() -> Bool {
+            guard population.isIdle else { return false }
+            return completeWorkloadProof(sequence: 0)
         }
 
         private func runAction(sequence: Int) async -> Bool {
@@ -437,7 +463,12 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             }
         }
 
-        private func record(_ message: String, sequence: Int, outcome: String) {
+        private func record(
+            _ message: String,
+            sequence: Int,
+            outcome: String,
+            additionalAttributes: [String: AgentStudioTraceValue] = [:]
+        ) {
             recorder.recordAppStartup(
                 message,
                 phase: "sidebar_performance_proof",
@@ -448,8 +479,52 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                     "agentstudio.performance.sidebar.proof.monotonic_ns": .int(
                         Int(DispatchTime.now().uptimeNanoseconds)
                     ),
-                ]
+                ].merging(additionalAttributes) { _, newValue in newValue }
             )
+        }
+
+        private func workloadAttributes(
+            _ snapshot: SidebarPerformanceTerminalWorkloadSnapshot,
+            terminalInputKey: String,
+            terminalOutputKey: String,
+            orderedCommandKey: String
+        ) -> [String: AgentStudioTraceValue] {
+            [
+                terminalInputKey: .int(Int(snapshot.terminalInputCount)),
+                terminalOutputKey: .int(Int(snapshot.terminalOutputAdvancementCount)),
+                orderedCommandKey: .int(Int(snapshot.orderedCommandCount)),
+            ]
+        }
+
+        private func completeWorkloadProof(sequence: Int) -> Bool {
+            guard !didCompleteWorkloadProof,
+                let performanceRecorder,
+                let workloadBaseline
+            else { return false }
+            didCompleteWorkloadProof = true
+            let workloadCompletion = performanceRecorder.completeSidebarPerformanceWorkloadProof()
+            let completionAttributes = workloadAttributes(
+                workloadCompletion,
+                terminalInputKey: "agentstudio.performance.sidebar.proof.terminal_input_completion",
+                terminalOutputKey: "agentstudio.performance.sidebar.proof.terminal_output_completion",
+                orderedCommandKey: "agentstudio.performance.sidebar.proof.ordered_command_completion"
+            )
+            guard workloadCompletion == workloadBaseline else {
+                record(
+                    "performance.sidebar.proof_action.failed",
+                    sequence: sequence,
+                    outcome: "fixture_workload_changed",
+                    additionalAttributes: completionAttributes
+                )
+                return false
+            }
+            record(
+                "performance.sidebar.proof_population.completed",
+                sequence: sequence,
+                outcome: "settled",
+                additionalAttributes: completionAttributes
+            )
+            return true
         }
     }
 #endif
