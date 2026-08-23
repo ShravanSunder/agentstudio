@@ -516,16 +516,21 @@ struct RepoExplorerWorktreeRowTests {
 
     @Test("pane rows use By Repo rhythm, indent, and group-container color")
     func paneRowsMatchByRepoChromeAndTabGroupColor() throws {
-        let explorerViewSource = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift",
+        let materializationSource = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerMaterializationSnapshot.swift",
+            encoding: .utf8
+        )
+        let adapterSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionAdapter.swift",
             encoding: .utf8
         )
         let appEntityIconSource = try String(
             contentsOfFile: "Sources/AgentStudio/SharedComponents/AppEntityIcon.swift",
             encoding: .utf8
         )
-        #expect(explorerViewSource.contains("leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset"))
-        #expect(explorerViewSource.contains("branchStatusByWorktreeId: result.branchStatusByWorktreeId"))
+        #expect(materializationSource.contains("leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset"))
+        #expect(adapterSource.contains("branchStatus: result.branchStatusByWorktreeId[worktreeId]"))
         #expect(appEntityIconSource.contains("case .tabGroup:"))
         #expect(appEntityIconSource.contains("AppStyles.Shell.Sidebar.tabGroupIconColor"))
     }

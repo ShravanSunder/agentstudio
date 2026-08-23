@@ -11,19 +11,34 @@ struct RepoExplorerBridgePresentationSnapshotTests {
     func worktreeRowsReadCachedBridgePresentation() throws {
         // Arrange
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let source = try String(
+        let adapterSource = try String(
             contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionAdapter.swift"
+            ),
+            encoding: .utf8
+        )
+        let materializationSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerMaterializationSnapshot.swift"
+            ),
+            encoding: .utf8
+        )
+        let rowSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift"
             ),
             encoding: .utf8
         )
 
         // Act
         let rendersFromProjectionSnapshot =
-            source.contains("bridgeCommandResolution:")
-            && source.contains("cachedProjectionResult")
-            && source.contains(".bridgeCommandResolutionByWorktreeId[")
-        let resolvesThroughDispatcher = source.contains(".bridgePaneCommandTarget(")
+            adapterSource.contains("bridgeCommandResolution: result.bridgeCommandResolutionByWorktreeId[")
+            && materializationSource.contains("inputs.bridgeCommandResolutionByWorktreeID[worktreeID]")
+            && rowSource.contains("bridgeCommandResolution: worktree.bridgeCommandResolution")
+        let resolvesThroughDispatcher =
+            adapterSource.contains(".bridgePaneCommandTarget(")
+            || materializationSource.contains(".bridgePaneCommandTarget(")
+            || rowSource.contains(".bridgePaneCommandTarget(")
 
         // Assert
         #expect(rendersFromProjectionSnapshot)

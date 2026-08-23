@@ -20,7 +20,7 @@ struct AgentStudioStartupDiagnosticActionTests {
         )
         let diagnosticEnd = try #require(
             source.range(
-                of: "private func prepareSidebarPerformanceProofFixture(",
+                of: "func prepareSidebarPerformanceProofFixture(",
                 range: diagnosticStart.upperBound..<source.endIndex
             )
         )

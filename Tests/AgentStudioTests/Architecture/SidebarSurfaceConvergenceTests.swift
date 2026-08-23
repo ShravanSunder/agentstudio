@@ -100,28 +100,36 @@ struct SidebarSurfaceConvergenceTests {
     func repoSidebarOwnsSortAndGroupingControlsThroughSharedHeaderSlots() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let repoSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+        let commandToolbarSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift"
+            ),
             encoding: .utf8
         )
         #expect(repoSource.contains("} toolbarRow: {"))
-        #expect(repoSource.contains("repoSidebarSortButton"))
-        #expect(repoSource.contains("repoSidebarGroupingControl"))
-        #expect(repoSource.contains("RepoExplorerGroupingMode.allCases"))
-        #expect(!repoSource.contains("LocalActionSpec.groupRepoExplorerWorktrees.actionSpec"))
-        #expect(repoSource.contains("RepoExplorerToolbarCommandPresentation.resolve("))
-        #expect(repoSource.contains("commandPresentation.command(.setRepoSidebarSortOrder)"))
-        #expect(repoSource.contains("label: sortCommand.commandSpec.label"))
-        #expect(!repoSource.contains("RepoExplorerVisibilityButton"))
-        #expect(!repoSource.contains("setRepoSidebarVisibilityMode"))
-        #expect(!repoSource.contains("visibilityCommand"))
-        #expect(!repoSource.contains("InboxSidebarToolbarTooltipTarget"))
+        #expect(commandToolbarSource.contains("repoSidebarSortButton"))
+        #expect(commandToolbarSource.contains("repoSidebarGroupingControl"))
+        #expect(commandToolbarSource.contains("RepoExplorerGroupingMode.allCases"))
+        #expect(!commandToolbarSource.contains("LocalActionSpec.groupRepoExplorerWorktrees.actionSpec"))
+        #expect(commandToolbarSource.contains("RepoExplorerToolbarCommandPresentation.resolve("))
+        #expect(commandToolbarSource.contains("commandPresentation.command(.setRepoSidebarSortOrder)"))
+        #expect(commandToolbarSource.contains("label: sortCommand.commandSpec.label"))
+        #expect(!commandToolbarSource.contains("RepoExplorerVisibilityButton"))
+        #expect(!commandToolbarSource.contains("setRepoSidebarVisibilityMode"))
+        #expect(!commandToolbarSource.contains("visibilityCommand"))
+        #expect(!commandToolbarSource.contains("InboxSidebarToolbarTooltipTarget"))
     }
 
     @Test("repo and inbox sort controls share the toolbar sort primitive")
     func repoAndInboxSortControlsShareToolbarSortPrimitive() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let repoSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift"),
             encoding: .utf8
         )
         let inboxSource = try String(
@@ -163,10 +171,6 @@ struct SidebarSurfaceConvergenceTests {
     @Test("repo grouping uses shared segments while inbox keeps its selectable popover")
     func repoGroupingUsesSharedSegmentsAndInboxKeepsSelectablePopover() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let repoSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
-            encoding: .utf8
-        )
         let commandToolbarSource = try String(
             contentsOf: projectRoot.appending(
                 path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift"
@@ -193,15 +197,15 @@ struct SidebarSurfaceConvergenceTests {
             encoding: .utf8
         )
 
-        #expect(repoSource.contains("SidebarToolbarSegmentedControl("))
+        #expect(commandToolbarSource.contains("SidebarToolbarSegmentedControl("))
         #expect(inboxSource.contains("SidebarToolbarGroupingButton("))
-        #expect(!repoSource.contains("SidebarGroupingPopover("))
+        #expect(!commandToolbarSource.contains("SidebarGroupingPopover("))
         #expect(inboxSource.contains("SidebarGroupingPopover("))
         #expect(commandToolbarSource.contains("AppEntityIcon.repo"))
         #expect(commandToolbarSource.contains("AppEntityIcon.pane"))
         #expect(commandToolbarSource.contains("AppEntityIcon.tab"))
         #expect(inboxSource.contains("label: { groupingCommandSpec(for: $0).label }"))
-        #expect(repoSource.contains("label: groupingMode.title"))
+        #expect(commandToolbarSource.contains("label: groupingMode.title"))
         #expect(!inboxSource.contains("label: { $0.commandLabel }"))
         #expect(!inboxSource.contains(")\n\n            Divider()\n\n            InboxSidebarContent("))
         #expect(toolbarSource.contains("struct SidebarToolbarGroupingButton"))
