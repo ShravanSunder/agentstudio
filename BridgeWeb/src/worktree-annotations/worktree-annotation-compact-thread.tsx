@@ -253,7 +253,7 @@ export function WorktreeAnnotationThread(
 							data-testid="worktree-annotation-thread-history"
 						>
 							<div
-								className="grid gap-1 pb-1 transition-[opacity,transform] delay-[var(--motion-fast)] duration-[var(--motion-fast)] ease-out group-data-ending-style/annotation-history:-translate-y-1 group-data-ending-style/annotation-history:delay-0 group-data-ending-style/annotation-history:opacity-0 group-data-starting-style/annotation-history:-translate-y-1 group-data-starting-style/annotation-history:opacity-0 motion-reduce:transition-none motion-reduce:delay-0"
+								className="grid gap-1 pb-1 transition-opacity delay-[var(--motion-fast)] duration-[var(--motion-fast)] ease-out group-data-ending-style/annotation-history:delay-0 group-data-ending-style/annotation-history:opacity-0 group-data-starting-style/annotation-history:opacity-0 motion-reduce:transition-none motion-reduce:delay-0"
 								data-testid="worktree-annotation-thread-history-group"
 							>
 								{earlierMessages.map((message) => renderMessage(message, true, false))}

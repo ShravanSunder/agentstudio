@@ -185,6 +185,7 @@ describe('worktree annotation inline shell', () => {
 			historyGroup.querySelectorAll('[data-testid="worktree-annotation-message"]'),
 		).toHaveLength(4);
 		expect(getComputedStyle(historyPanel).transitionDuration).toBe('0.12s');
+		expect(getComputedStyle(historyGroup).transitionProperty).toBe('opacity');
 		expect(getComputedStyle(historyGroup).transitionDelay).toBe('0.12s');
 		expect(getComputedStyle(historyGroup).transitionDuration).toBe('0.12s');
 		await settleThreadMotion(historyPanel, 'Expected grouped five-message motion to settle.');
