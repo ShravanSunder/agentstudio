@@ -46,40 +46,42 @@ const socialImageUrl = new URL(siteMetadata.socialCard.path, siteMetadata.canoni
   </head>
   <body>
     <FullPageTopologyBackdrop />
-    <header
-      class="site-header sticky top-px z-20 mx-auto flex min-h-18 items-center justify-between rounded-floating-shell border border-[rgb(137_180_250/24%)] px-5.5 py-4"
-      data-site-header
-      data-visual-state="resting"
-    >
-      <a
-        class="brand-link inline-flex items-center gap-3 font-bold"
-        href="#top"
-        aria-label={marketingCopy.navigation.homeLabel}
-      >
-        <img src={appLogo.src} width="32" height="32" alt="" />
-        <span>{marketingCopy.productName}</span>
-      </a>
-      <nav
-        class="flex items-center gap-2 text-[14px] text-ink-muted max-phone:gap-1"
-        aria-label={marketingCopy.navigation.primaryLabel}
+    <div class="site-header-anchor sticky top-0 z-20 h-18" data-site-header-anchor>
+      <header
+        class="site-header relative top-px z-20 mx-auto flex min-h-18 items-center justify-between rounded-floating-shell border border-[rgb(137_180_250/24%)] px-5.5 py-4"
+        data-site-header
+        data-visual-state="resting"
       >
         <a
-          class="header-social-action grid size-8 place-items-center hover:text-ink"
-          href={marketingCopy.githubUrl}
-          aria-label={marketingCopy.navigation.githubAction}
+          class="brand-link inline-flex items-center gap-3 font-bold"
+          href="#top"
+          aria-label={marketingCopy.navigation.homeLabel}
         >
-          <GitHubMark />
+          <img src={appLogo.src} width="32" height="32" alt="" />
+          <span>{marketingCopy.productName}</span>
         </a>
-        <a
-          class="header-social-action grid size-8 place-items-center hover:text-ink [&_.social-mark]:size-4"
-          href={marketingCopy.socialLinks.x.url}
-          aria-label={marketingCopy.socialLinks.x.label}
+        <nav
+          class="flex items-center gap-2 text-[14px] text-ink-muted max-phone:gap-1"
+          aria-label={marketingCopy.navigation.primaryLabel}
         >
-          <XMark />
-        </a>
-      </nav>
-    </header>
-    <div class="site-header-frost" aria-hidden="true"></div>
+          <a
+            class="header-social-action grid size-8 place-items-center hover:text-ink"
+            href={marketingCopy.githubUrl}
+            aria-label={marketingCopy.navigation.githubAction}
+          >
+            <GitHubMark />
+          </a>
+          <a
+            class="header-social-action grid size-8 place-items-center hover:text-ink [&_.social-mark]:size-4"
+            href={marketingCopy.socialLinks.x.url}
+            aria-label={marketingCopy.socialLinks.x.label}
+          >
+            <XMark />
+          </a>
+        </nav>
+      </header>
+      <div class="site-header-frost" aria-hidden="true"></div>
+    </div>
     <div
       class="site-frame relative z-[1] mx-auto mb-4 w-[min(calc(100%-32px),var(--container-frame))] overflow-visible bg-transparent max-lg:m-0 max-lg:w-full"
     >
@@ -95,8 +97,11 @@ const socialImageUrl = new URL(siteMetadata.socialCard.path, siteMetadata.canoni
         let pendingAnimationFrame: number | undefined;
 
         const synchronizeHeaderVisualState = (): void => {
-          siteHeader.dataset["visualState"] =
+          const nextVisualState =
             window.scrollY > floatingHeaderScrollThreshold ? "floating" : "resting";
+          if (siteHeader.dataset["visualState"] !== nextVisualState) {
+            siteHeader.dataset["visualState"] = nextVisualState;
+          }
         };
 
         const scheduleHeaderVisualStateUpdate = (): void => {
