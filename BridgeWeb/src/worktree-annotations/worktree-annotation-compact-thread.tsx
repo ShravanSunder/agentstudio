@@ -149,7 +149,7 @@ export function WorktreeAnnotationThread(
 			}}
 		>
 			<ChevronDown
-				className={`transition-transform duration-200 ease-out motion-reduce:transition-none ${
+				className={`transition-transform duration-[var(--motion-fast)] ease-out motion-reduce:transition-none ${
 					isExpanded ? 'rotate-180' : ''
 				}`}
 			/>
@@ -249,10 +249,13 @@ export function WorktreeAnnotationThread(
 				<div className="grid" data-testid="worktree-annotation-thread-chronology">
 					{!hasMultipleMessages ? null : (
 						<CollapsibleContent
-							className="group/annotation-history"
+							className="group/annotation-history duration-[var(--motion-fast)] data-ending-style:delay-[var(--motion-fast)] data-ending-style:duration-[var(--motion-fast)]"
 							data-testid="worktree-annotation-thread-history"
 						>
-							<div className="grid gap-1 pb-1 transition-[opacity,transform] duration-150 ease-out group-data-ending-style/annotation-history:-translate-y-1 group-data-ending-style/annotation-history:opacity-0 group-data-starting-style/annotation-history:-translate-y-1 group-data-starting-style/annotation-history:opacity-0 motion-reduce:transition-none">
+							<div
+								className="grid gap-1 pb-1 transition-[opacity,transform] delay-[var(--motion-fast)] duration-[var(--motion-fast)] ease-out group-data-ending-style/annotation-history:-translate-y-1 group-data-ending-style/annotation-history:delay-0 group-data-ending-style/annotation-history:opacity-0 group-data-starting-style/annotation-history:-translate-y-1 group-data-starting-style/annotation-history:opacity-0 motion-reduce:transition-none motion-reduce:delay-0"
+								data-testid="worktree-annotation-thread-history-group"
+							>
 								{earlierMessages.map((message) => renderMessage(message, true, false))}
 							</div>
 						</CollapsibleContent>
@@ -319,19 +322,17 @@ function WorktreeAnnotationTimelineSummary(
 			<div className="flex items-center justify-center">{props.expansionControl}</div>
 			<div className="flex min-w-0 items-center gap-1.5 text-xs/relaxed text-comment-muted">
 				<div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-					<span className="font-medium text-comment-foreground">{props.messageCount} messages</span>
 					{props.newMessageCount === 0 ? null : (
-						<>
-							<span aria-hidden="true">·</span>
-							<span
-								className="inline-flex items-center gap-1 font-medium text-comment-foreground"
-								data-testid="worktree-annotation-new-status"
-							>
-								<span aria-hidden="true" className="size-1.5 rounded-full bg-comment-active" />
-								{props.newMessageCount} new
-							</span>
-						</>
+						<span
+							className="inline-flex items-center gap-1 font-medium text-comment-foreground"
+							data-testid="worktree-annotation-new-status"
+						>
+							<span aria-hidden="true" className="size-1.5 rounded-full bg-comment-active" />
+							{props.newMessageCount} new
+						</span>
 					)}
+					{props.newMessageCount === 0 ? null : <span aria-hidden="true">·</span>}
+					<span className="font-medium text-comment-foreground">{props.messageCount} messages</span>
 					<span aria-hidden="true">·</span>
 					<span>latest {annotationRelativeTime(props.latestMessage.createdAt)}</span>
 					<span aria-hidden="true">·</span>

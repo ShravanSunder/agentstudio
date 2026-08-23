@@ -43,8 +43,9 @@ describe('worktree annotation inline shell', () => {
 		const compactThreadHeight = compactThread.getBoundingClientRect().height;
 		const followingDiffRowTop = followingDiffRow.getBoundingClientRect().top;
 		const expandButton = rendered.getByRole('button', { name: 'Expand 2 messages' }).element();
-		expect(expandButton.classList).toContain('rounded-full');
+		expect(expandButton.classList).not.toContain('rounded-full');
 		expect(expandButton.classList).not.toContain('border-comment-border');
+		expect(expandButton.classList).toContain('text-comment-muted');
 		await expect.element(rendered.getByText('1 new')).toBeVisible();
 		const newStatus = rendered.getByTestId('worktree-annotation-new-status').element();
 		expect(newStatus.querySelector('.bg-comment-active')).not.toBeNull();
@@ -155,6 +156,41 @@ describe('worktree annotation inline shell', () => {
 		expect(thread.contains(composer.element())).toBe(true);
 	});
 
+	test('reveals a five-message history as one delayed group', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderInlineShell(surface);
+		await publishFiveMessageThread(surface);
+		const summary = rendered.getByTestId('worktree-annotation-thread-summary').element();
+		expect(summary.textContent?.indexOf('5 new')).toBeLessThan(
+			summary.textContent?.indexOf('5 messages') ?? -1,
+		);
+		const expandButton = rendered.getByRole('button', { name: 'Expand 5 messages' }).element();
+		expect(expandButton.classList).not.toContain('rounded-full');
+		expect(expandButton.classList).not.toContain('border-comment-border');
+		expect(expandButton.classList).toContain('text-comment-muted');
+		const expansionChevron = expandButton.querySelector('svg');
+		if (expansionChevron === null) throw new Error('Expected the thread expansion chevron.');
+		expect(getComputedStyle(expansionChevron).transitionDuration).toBe('0.12s');
+
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Expand 5 messages' }).click();
+		});
+		const historyPanel = rendered.getByTestId('worktree-annotation-thread-history').element();
+		await settleBrowserCondition(
+			(): boolean => !historyPanel.hasAttribute('data-starting-style'),
+			'Expected grouped history entrance to start.',
+		);
+		const historyGroup = rendered.getByTestId('worktree-annotation-thread-history-group').element();
+		expect(
+			historyGroup.querySelectorAll('[data-testid="worktree-annotation-message"]'),
+		).toHaveLength(4);
+		expect(getComputedStyle(historyPanel).transitionDuration).toBe('0.12s');
+		expect(getComputedStyle(historyGroup).transitionDelay).toBe('0.12s');
+		expect(getComputedStyle(historyGroup).transitionDuration).toBe('0.12s');
+		await settleThreadMotion(historyPanel, 'Expected grouped five-message motion to settle.');
+		await page.screenshot({ path: '../../../tmp/bridgeweb-inline-five-message-expanded.png' });
+	});
+
 	test('activates on focus and expands the compact thread surface on click', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderInlineShell(surface);
@@ -191,9 +227,14 @@ describe('worktree annotation inline shell', () => {
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Collapse 2 messages' }).click();
 		});
+		await settleThreadMotion(
+			rendered.getByTestId('worktree-annotation-thread-history').element(),
+			'Expected Collapse transition to settle.',
+		);
 		await settleBrowserCondition(
 			(): boolean => !document.body.textContent?.includes('Root message.'),
 			'Expected Collapse to restore compact presentation.',
+			30,
 		);
 	});
 
@@ -340,6 +381,27 @@ async function publishTwoMessageThread(surface: RecordingAnnotationBrowserSurfac
 				makeSavedMessage({ body: 'Root message.', handled: true, messageId: rootMessageId }),
 				makeSavedMessage({ body: 'Latest message.', messageId: latestMessageId, ordinal: 1 }),
 			],
+		});
+		await Promise.resolve();
+	});
+}
+
+async function publishFiveMessageThread(surface: RecordingAnnotationBrowserSurface): Promise<void> {
+	await act(async (): Promise<void> => {
+		surface.publishProjectionState({
+			expectedThreadCount: 1,
+			revision: 6,
+			sessions: [annotationSessionSummary({ revision: 6, sessionId: annotationSessionId })],
+		});
+		surface.publishThreadMessages({
+			context: locatedContext,
+			messages: Array.from({ length: 5 }, (_, ordinal) =>
+				makeSavedMessage({
+					body: ordinal === 0 ? 'Root message.' : `Reply ${ordinal}.`,
+					messageId: `00000000-0000-7000-8000-${String(194 + ordinal).padStart(12, '0')}`,
+					ordinal,
+				}),
+			),
 		});
 		await Promise.resolve();
 	});

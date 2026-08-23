@@ -147,13 +147,15 @@ export function WorktreeAnnotationCommandButton(
 						className={
 							appearance === 'primary'
 								? undefined
-								: appearance === 'toolbar' || appearance === 'timeline'
-									? 'text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
-									: 'border-comment-border bg-comment-surface text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
+								: appearance === 'timeline'
+									? 'text-comment-muted aria-expanded:bg-transparent aria-expanded:text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
+									: appearance === 'toolbar'
+										? 'text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
+										: 'border-comment-border bg-comment-surface text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
 						}
 						disabled={props.disabled}
 						ref={props.buttonRef}
-						shape={appearance === 'toolbar' ? 'default' : 'circle'}
+						shape={appearance === 'toolbar' || appearance === 'timeline' ? 'default' : 'circle'}
 						size={appearance === 'timeline' ? 'icon' : 'icon-sm'}
 						variant={
 							appearance === 'primary'
