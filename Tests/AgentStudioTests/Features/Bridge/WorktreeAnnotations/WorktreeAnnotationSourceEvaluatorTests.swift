@@ -103,6 +103,78 @@ struct WorktreeAnnotationSourceEvaluatorTests {
         )
     }
 
+    @Test("File surface places Review head origins against current working-tree material")
+    func fileSurfacePlacesReviewHeadOriginsAgainstCurrentFileMaterial() throws {
+        let session = makeSourceEvaluationSession()
+        let locatedThread = makeLocatedEvaluationThread(
+            sessionID: session.id,
+            sourceRole: .reviewHead,
+            diffSide: .additions
+        )
+        let result = try WorktreeAnnotationSourceEvaluator.evaluate(
+            .init(
+                session: session,
+                threads: [locatedThread],
+                surface: .file,
+                sourceEpoch: "file-epoch-2",
+                currentFingerprint: .init(
+                    repositoryID: "repo-1",
+                    worktreeID: "worktree-1",
+                    fileSourceIdentity: "file-source-2",
+                    reviewComparisonOrigin: nil
+                ),
+                material: .available([
+                    .init(
+                        path: "Sources/Feature.swift",
+                        sourceRole: .file,
+                        sourceIdentity: "file-source-2",
+                        body: "before\nselected line\nafter\n"
+                    )
+                ])
+            )
+        )
+
+        #expect(result.placements[locatedThread.id]?.placement == .exact)
+        #expect(result.placements[locatedThread.id]?.currentStartLine == 2)
+        #expect(result.placements[locatedThread.id]?.currentSourceIdentity == "file-source-2")
+    }
+
+    @Test("File surface never maps Review base origins onto working-tree material")
+    func fileSurfaceDoesNotPlaceReviewBaseOriginAgainstCurrentFileMaterial() throws {
+        let session = makeSourceEvaluationSession()
+        let thread = makeLocatedEvaluationThread(
+            sessionID: session.id,
+            sourceRole: .reviewBase,
+            diffSide: .deletions
+        )
+
+        let result = try WorktreeAnnotationSourceEvaluator.evaluate(
+            .init(
+                session: session,
+                threads: [thread],
+                surface: .file,
+                sourceEpoch: "file-epoch-2",
+                currentFingerprint: .init(
+                    repositoryID: "repo-1",
+                    worktreeID: "worktree-1",
+                    fileSourceIdentity: "file-source-2",
+                    reviewComparisonOrigin: nil
+                ),
+                material: .available([
+                    .init(
+                        path: "Sources/Feature.swift",
+                        sourceRole: .file,
+                        sourceIdentity: "file-source-2",
+                        body: "before\nselected line\nafter\n"
+                    )
+                ])
+            )
+        )
+
+        #expect(result.placements[thread.id]?.placement == .outdated)
+        #expect(result.placements[thread.id]?.currentPath == nil)
+    }
+
     @Test("one context match relocates while duplicate matches remain outdated")
     func uniqueAndAmbiguousContextMatchesAreDistinguished() throws {
         let session = makeSourceEvaluationSession()
@@ -249,7 +321,9 @@ private func makeSourceEvaluationSession(
 }
 
 private func makeLocatedEvaluationThread(
-    sessionID: WorktreeAnnotationSessionID
+    sessionID: WorktreeAnnotationSessionID,
+    sourceRole: WorktreeAnnotationSourceRole = .file,
+    diffSide: WorktreeAnnotationDiffSide? = nil
 ) -> WorktreeAnnotationThread {
     WorktreeAnnotationThread(
         id: .generate(),
@@ -259,8 +333,8 @@ private func makeLocatedEvaluationThread(
                 repositoryRelativePath: "Sources/Feature.swift",
                 startLine: 2,
                 endLine: 2,
-                sourceRole: .file,
-                diffSide: nil,
+                sourceRole: sourceRole,
+                diffSide: diffSide,
                 sourceIdentity: "file-source-1",
                 selectedExcerpt: "selected line",
                 contextBefore: "before",

@@ -62,7 +62,14 @@ enum WorktreeAnnotationSourceEvaluator {
             acceptedSourceFingerprint: mergedFingerprint(for: input),
             placements: Dictionary(
                 uniqueKeysWithValues: input.threads.map { thread in
-                    (thread.id, placement(for: thread.origin, material: input.material))
+                    (
+                        thread.id,
+                        placement(
+                            for: thread.origin,
+                            surface: input.surface,
+                            material: input.material
+                        )
+                    )
                 }
             )
         )
@@ -111,6 +118,7 @@ enum WorktreeAnnotationSourceEvaluator {
 
     private static func placement(
         for origin: WorktreeAnnotationThreadOrigin,
+        surface: BridgeProductSurface,
         material: WorktreeAnnotationSourceMaterial
     ) -> WorktreeAnnotationThreadPlacementProjection {
         switch origin {
@@ -133,18 +141,21 @@ enum WorktreeAnnotationSourceEvaluator {
                 currentSourceIdentity: currentFile.sourceIdentity
             )
         case .located(let locatedOrigin):
-            return locatedPlacement(for: locatedOrigin, material: material)
+            return locatedPlacement(for: locatedOrigin, surface: surface, material: material)
         }
     }
 
     private static func locatedPlacement(
         for origin: WorktreeAnnotationLocatedOrigin,
+        surface: BridgeProductSurface,
         material: WorktreeAnnotationSourceMaterial
     ) -> WorktreeAnnotationThreadPlacementProjection {
         guard case .available(let files) = material else {
             return projection(placement: .unavailable)
         }
-        let roleFiles = files.filter { $0.sourceRole == origin.sourceRole }
+        let roleFiles = files.filter {
+            currentSourceRoleIsCompatible($0.sourceRole, with: origin.sourceRole, on: surface)
+        }
         if let exactFile = roleFiles.first(where: { $0.path == origin.repositoryRelativePath }),
             excerpt(
                 in: sourceLines(exactFile.body),
@@ -173,6 +184,20 @@ enum WorktreeAnnotationSourceEvaluator {
             currentEndLine: match.endLine,
             currentSourceIdentity: match.file.sourceIdentity
         )
+    }
+
+    private static func currentSourceRoleIsCompatible(
+        _ currentSourceRole: WorktreeAnnotationSourceRole,
+        with originSourceRole: WorktreeAnnotationSourceRole,
+        on surface: BridgeProductSurface
+    ) -> Bool {
+        switch surface {
+        case .file:
+            return currentSourceRole == .file
+                && (originSourceRole == .file || originSourceRole == .reviewHead)
+        case .review:
+            return currentSourceRole == originSourceRole
+        }
     }
 
     private struct ContextMatch {

@@ -107,6 +107,48 @@ struct WorktreeAnnotationGitSourceMaterialProviderTests {
         #expect(ambiguous.placements[thread.id]?.placement == .outdated)
     }
 
+    @Test("working-tree material places a Review head origin on the File surface")
+    func workingTreeMaterialPlacesReviewHeadOrigin() async throws {
+        let repositoryURL = try makeGitSourceFixture()
+        defer { WorktreeAnnotationGitFixture.destroy(repositoryURL) }
+        let provider = GitWorktreeAnnotationSourceMaterialProvider(
+            client: LibGit2AgentStudioGitLocalClient()
+        )
+        let session = makeGitSourceSession()
+        let thread = makeGitSourceThread(
+            sessionID: session.id,
+            sourceRole: .reviewHead,
+            diffSide: .additions
+        )
+        let material = await provider.material(
+            .init(
+                repositoryPath: repositoryURL,
+                candidates: [
+                    .init(
+                        path: "Sources/Feature.swift",
+                        sourceRole: .file,
+                        sourceIdentity: .currentFileDescriptor,
+                        target: .workingTree
+                    )
+                ]
+            )
+        )
+
+        let result = try WorktreeAnnotationSourceEvaluator.evaluate(
+            .init(
+                session: session,
+                threads: [thread],
+                surface: .file,
+                sourceEpoch: "working-tree-review-head",
+                currentFingerprint: makeGitSourceFingerprint(),
+                material: material
+            )
+        )
+
+        #expect(result.placements[thread.id]?.placement == .exact)
+        #expect(result.placements[thread.id]?.currentSourceIdentity != nil)
+    }
+
     @Test("review material reads the exact base and head commits")
     func reviewMaterialReadsBaseAndHeadCommits() async throws {
         let repositoryURL = try makeGitSourceFixture()
@@ -255,7 +297,11 @@ private func makeGitSourceSession() -> WorktreeAnnotationSession {
     )
 }
 
-private func makeGitSourceThread(sessionID: WorktreeAnnotationSessionID) -> WorktreeAnnotationThread {
+private func makeGitSourceThread(
+    sessionID: WorktreeAnnotationSessionID,
+    sourceRole: WorktreeAnnotationSourceRole = .file,
+    diffSide: WorktreeAnnotationDiffSide? = nil
+) -> WorktreeAnnotationThread {
     .init(
         id: .generate(),
         sessionID: sessionID,
@@ -264,8 +310,8 @@ private func makeGitSourceThread(sessionID: WorktreeAnnotationSessionID) -> Work
                 repositoryRelativePath: "Sources/Feature.swift",
                 startLine: 2,
                 endLine: 2,
-                sourceRole: .file,
-                diffSide: nil,
+                sourceRole: sourceRole,
+                diffSide: diffSide,
                 sourceIdentity: "file-original",
                 selectedExcerpt: "selected line",
                 contextBefore: "before",
