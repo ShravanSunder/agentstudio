@@ -382,6 +382,109 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		).toBe(true);
 	});
 
+	test('keeps active Review interactive while same-source comparison remains loading', async () => {
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				codeViewWorkerPoolEnabled={false}
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerContextSwitcher={<div />}
+			/>,
+		);
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEventWithContribution({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 1,
+					sequence: 1,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+			);
+			await import('../review-viewer/shell/review-viewer-shell.js');
+			await settleRenderedReviewFrame();
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 2,
+					publicationRevision: 2,
+					sequence: 2,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+				{
+					candidateDisposition: {
+						affectedStableFileIdentities: ['item-1'],
+						kind: 'sameSource',
+						presentationClass: { kind: 'promoted', reason: 'commits' },
+					},
+				},
+			);
+			harness.publish(reviewComparisonLoadingPanelChromeEventForHarness());
+			await settleRenderedReviewFrame();
+		});
+
+		await expect
+			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.toHaveTextContent('Update ready');
+		const canvas = rendered.getByTestId('bridge-review-canvas').element();
+		const tree = rendered.getByTestId('bridge-review-rail-tree-slot').element();
+		expect(canvas.hasAttribute('inert')).toBe(false);
+		expect(tree.hasAttribute('inert')).toBe(false);
+		expect(getComputedStyle(canvas).pointerEvents).not.toBe('none');
+		expect(getComputedStyle(tree).pointerEvents).not.toBe('none');
+		expect(rendered.getByTestId('bridge-review-comparison-status-banner').query()).toBeNull();
+	});
+
+	test('keeps explicit comparison replacement loading blocked without same-source authority', async () => {
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				codeViewWorkerPoolEnabled={false}
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerContextSwitcher={<div />}
+			/>,
+		);
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEventWithContribution({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 1,
+					sequence: 1,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+			);
+			await import('../review-viewer/shell/review-viewer-shell.js');
+			await settleRenderedReviewFrame();
+			harness.publish(reviewComparisonLoadingPanelChromeEventForHarness());
+			await settleRenderedReviewFrame();
+		});
+
+		const canvas = rendered.getByTestId('bridge-review-canvas').element();
+		const tree = rendered.getByTestId('bridge-review-rail-tree-slot').element();
+		expect(canvas.hasAttribute('inert')).toBe(true);
+		expect(tree.hasAttribute('inert')).toBe(true);
+		expect(getComputedStyle(canvas).pointerEvents).toBe('none');
+		expect(getComputedStyle(tree).pointerEvents).toBe('none');
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-status-banner'))
+			.toBeVisible();
+	});
+
 	test('automatically applies a held promoted Review update when Review attention leaves', async () => {
 		const harness = makeReviewSurfaceHarness();
 		const modeProps = {
@@ -1049,6 +1152,39 @@ function reviewComparisonPanelChromeEvent(): Extract<
 	};
 }
 
+function reviewDisplayEventWithContribution(
+	props: Parameters<typeof reviewDisplayEvent>[0],
+): ReturnType<typeof reviewDisplayEvent> {
+	const event = reviewDisplayEvent(props);
+	return {
+		...event,
+		// oxlint-disable-next-line no-map-spread -- The strict immutable fixture preserves every non-source patch while replacing one nested source payload.
+		patches: event.patches.map((patch) =>
+			patch.slice !== 'reviewSource' || patch.operation !== 'upsert'
+				? patch
+				: {
+						...patch,
+						payload: {
+							...patch.payload,
+							comparisonOrigin: {
+								baseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+								baseRole: 'commonCommit',
+								comparedRole: 'capturedWorkingTree',
+								kind: 'contribution',
+								resolvedTargetOID: 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm',
+								reviewedHeadOID: 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh',
+								symbolicTarget: {
+									basis: 'commonCommit',
+									branchName: 'master',
+									kind: 'localDefaultBranch',
+								},
+							},
+						},
+					},
+		),
+	};
+}
+
 function reviewComparisonPanelChromeEventForHarness(): ReturnType<
 	typeof reviewComparisonPanelChromeEvent
 > {
@@ -1061,6 +1197,40 @@ function reviewComparisonPanelChromeEventForHarness(): ReturnType<
 			revision: 1,
 			sourceIdentity: 'review-browser-harness-source',
 		},
+	};
+}
+
+function reviewComparisonLoadingPanelChromeEventForHarness(): ReturnType<
+	typeof reviewComparisonPanelChromeEvent
+> {
+	const event = reviewComparisonPanelChromeEventForHarness();
+	return {
+		...event,
+		// oxlint-disable-next-line no-map-spread -- The strict immutable fixture preserves every non-panel patch while replacing one nested panel payload.
+		patches: event.patches.map((patch) =>
+			patch.slice !== 'panelChrome' || patch.operation !== 'upsert'
+				? patch
+				: {
+						...patch,
+						payload: {
+							reviewComparison: {
+								activeTarget: {
+									basis: 'commonCommit',
+									branchName: 'master',
+									kind: 'localDefaultBranch',
+								},
+								attempt: { reviewGeneration: 2, status: 'pending' },
+								displayedSnapshot: {
+									packageId: 'review-browser-harness-package',
+									reviewGeneration: 1,
+									revision: 1,
+									status: 'current',
+								},
+								repositoryDefaultTarget: null,
+							},
+						},
+					},
+		),
 	};
 }
 

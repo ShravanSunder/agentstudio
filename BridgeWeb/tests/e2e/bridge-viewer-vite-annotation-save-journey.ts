@@ -634,7 +634,7 @@ export async function selectReviewFile(props: {
 	}, props.path);
 }
 
-async function selectRangeForAnnotation(props: {
+export async function selectRangeForAnnotation(props: {
 	readonly endLine: number;
 	readonly page: Page;
 	readonly startLine: number;
@@ -674,7 +674,28 @@ async function selectRangeForAnnotation(props: {
 		}
 		throw new Error('File annotation range selection exhausted its bounded attempts.');
 	} else {
-		[startBounds, endBounds] = await reviewAdditionRangeBounds(props.page);
+		const interactionState = await props.page.evaluate(
+			(): {
+				readonly inert: boolean;
+				readonly pointerEvents: string | null;
+			} => {
+				const canvas = document.querySelector('[data-testid="bridge-review-canvas"]');
+				return {
+					inert: canvas instanceof HTMLElement && canvas.inert,
+					pointerEvents: canvas instanceof Element ? getComputedStyle(canvas).pointerEvents : null,
+				};
+			},
+		);
+		if (interactionState.inert || interactionState.pointerEvents === 'none') {
+			throw new Error(
+				`Review annotation canvas is not interactive: ${JSON.stringify(interactionState)}`,
+			);
+		}
+		[startBounds, endBounds] = await reviewAdditionRangeBounds({
+			endLine: props.endLine,
+			page: props.page,
+			startLine: props.startLine,
+		});
 	}
 	if (startBounds === null || endBounds === null) {
 		throw new Error('File annotation range rows must have visible pointer geometry.');
@@ -686,7 +707,7 @@ async function selectRangeForAnnotation(props: {
 	const endpointUtility = props.page.locator('[data-utility-button]').first();
 	await endpointUtility.waitFor({
 		state: 'visible',
-		timeout: annotationSaveJourneyTimeoutMilliseconds,
+		timeout: annotationProjectionResponseTimeoutMilliseconds,
 	});
 	await endpointUtility.click();
 	await props.page
@@ -701,10 +722,12 @@ interface AnnotationRangeBounds {
 	readonly y: number;
 }
 
-async function reviewAdditionRangeBounds(
-	page: Page,
-): Promise<readonly [AnnotationRangeBounds, AnnotationRangeBounds]> {
-	const additionRows = await page.evaluate((): AnnotationRangeBounds[] => {
+async function reviewAdditionRangeBounds(props: {
+	readonly endLine: number;
+	readonly page: Page;
+	readonly startLine: number;
+}): Promise<readonly [AnnotationRangeBounds, AnnotationRangeBounds]> {
+	const additionRows = await props.page.evaluate((): AnnotationRangeBounds[] => {
 		const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
 		if (panel === null) return [];
 		const pending: Array<Element | ShadowRoot> = [panel];
@@ -728,7 +751,7 @@ async function reviewAdditionRangeBounds(
 	const startBounds = orderedAdditionRows[0];
 	const endBounds = orderedAdditionRows[2];
 	if (startBounds === undefined || endBounds === undefined) {
-		throw new Error('Review annotation journey requires visible additions-side line geometry.');
+		throw new Error('Review annotation journey requires three visible additions-side rows.');
 	}
 	return [startBounds, endBounds];
 }
@@ -744,7 +767,7 @@ async function settleBrowserFrames(page: Page, frameCount: number): Promise<void
 	}
 }
 
-async function waitForCommittedAnnotationCommand(
+export async function waitForCommittedAnnotationCommand(
 	page: Page,
 	operationKind: 'draft.edit.release' | 'draft.save' | 'root.create',
 	surface: 'file' | 'review',

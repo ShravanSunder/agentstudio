@@ -5,6 +5,8 @@ import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-de
 import {
 	runAnnotationSaveJourney,
 	selectReviewFile,
+	selectRangeForAnnotation,
+	waitForCommittedAnnotationCommand,
 	waitForSelectedFileReady,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
@@ -154,6 +156,42 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				.getByText('Update ready', { exact: true })
 				.waitFor({ state: 'visible', timeout: annotationComposedConvergenceTimeoutMilliseconds });
 			expect(await requireReviewPackageIdentity(page)).toEqual(initialPackage);
+			await selectRangeForAnnotation({ endLine: 5, page, startLine: 2, surface: 'review' });
+			const rootCreateCommitted = waitForCommittedAnnotationCommand(page, 'root.create', 'review');
+			const savedDuringHoldBody = 'A new root comment saved while the promoted refresh was held.';
+			await page
+				.getByRole('textbox', { name: 'Write an annotation in Markdown' })
+				.fill(savedDuringHoldBody);
+			await rootCreateCommitted;
+			await page
+				.locator('[data-testid="worktree-annotation-message"][data-annotation-draft="present"]')
+				.waitFor({
+					state: 'visible',
+					timeout: annotationComposedConvergenceTimeoutMilliseconds,
+				});
+			await page.waitForFunction(
+				(): boolean => {
+					const saveButton = document.querySelector<HTMLButtonElement>(
+						'[aria-label="Save annotation"]',
+					);
+					return saveButton !== null && !saveButton.disabled;
+				},
+				undefined,
+				{ timeout: annotationComposedConvergenceTimeoutMilliseconds },
+			);
+			const draftSaveCommitted = waitForCommittedAnnotationCommand(page, 'draft.save', 'review');
+			await Promise.all([
+				draftSaveCommitted,
+				page.getByRole('button', { name: 'Save annotation' }).click(),
+			]);
+			await page.getByText(savedDuringHoldBody, { exact: true }).waitFor({
+				state: 'visible',
+				timeout: annotationComposedConvergenceTimeoutMilliseconds,
+			});
+			const firstHeldCandidate = await waitForHeldCommitPromotionTelemetry({
+				minimumGenerationExclusive: initialPackage.reviewGeneration,
+				page,
+			});
 			const appliedReceiptResponse = page.waitForResponse(isReviewPublicationAppliedResponse, {
 				timeout: annotationRestartJourneyTimeoutMilliseconds,
 			});
@@ -166,11 +204,14 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				timeoutMilliseconds: annotationRestartJourneyTimeoutMilliseconds,
 			});
 			expect(appliedComparison.packageId).not.toBe(initialPackage.packageId);
-			await waitForHeldCommitPromotionTelemetry({
-				page,
-				reviewGeneration: appliedComparison.reviewGeneration,
-			});
+			expect(appliedComparison.reviewGeneration).toBeGreaterThanOrEqual(
+				firstHeldCandidate.reviewGeneration,
+			);
 			await waitForSelectedReviewPathReady({ page, path: affectedFile.path });
+			await page.getByText(savedDuringHoldBody, { exact: true }).waitFor({
+				state: 'visible',
+				timeout: annotationComposedConvergenceTimeoutMilliseconds,
+			});
 			await page.keyboard.press('Escape');
 			await page
 				.getByText('Update ready', { exact: true })
@@ -190,6 +231,10 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			await page
 				.getByText('Update ready', { exact: true })
 				.waitFor({ state: 'visible', timeout: annotationComposedConvergenceTimeoutMilliseconds });
+			const secondHeldCandidate = await waitForHeldCommitPromotionTelemetry({
+				minimumGenerationExclusive: appliedComparison.reviewGeneration,
+				page,
+			});
 			await selectReviewFile({ page, path: unaffectedFile.path });
 			await waitForSelectedReviewReady({ itemId: unaffectedFile.itemId, page });
 			const automaticallyInstalledComparison = await waitForSettledReviewComparison({
@@ -198,10 +243,9 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				page,
 				timeoutMilliseconds: annotationRestartJourneyTimeoutMilliseconds,
 			});
-			await waitForHeldCommitPromotionTelemetry({
-				page,
-				reviewGeneration: automaticallyInstalledComparison.reviewGeneration,
-			});
+			expect(automaticallyInstalledComparison.reviewGeneration).toBeGreaterThanOrEqual(
+				secondHeldCandidate.reviewGeneration,
+			);
 			expect(await page.getByText('Update ready', { exact: true }).count()).toBe(0);
 		} catch (error: unknown) {
 			primaryFailure = { error };
@@ -371,8 +415,8 @@ async function requireReviewPackageIdentity(page: Page): Promise<{
 }
 
 async function waitForHeldCommitPromotionTelemetry(props: {
+	readonly minimumGenerationExclusive: number;
 	readonly page: Page;
-	readonly reviewGeneration: number;
 }): Promise<{ readonly reviewGeneration: number }> {
 	const statusUrl = new URL('/__bridge-dev-telemetry/status', props.page.url()).toString();
 	let observation: { readonly reviewGeneration: number } | null = null;
@@ -412,7 +456,7 @@ async function waitForHeldCommitPromotionTelemetry(props: {
 					if (
 						typeof reviewGeneration === 'number' &&
 						Number.isSafeInteger(reviewGeneration) &&
-						reviewGeneration === props.reviewGeneration
+						reviewGeneration > props.minimumGenerationExclusive
 					) {
 						observation = { reviewGeneration };
 						return true;

@@ -329,9 +329,13 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	);
 	const displayedReviewPackage = presentationSnapshot?.reviewPackage ?? null;
 	const comparisonPresentation = panelChromeSlice.reviewComparison;
-	const comparisonPaneState = bridgeReviewComparisonPaneState({
+	const rawComparisonPaneState = bridgeReviewComparisonPaneState({
 		comparisonPresentation,
 		displayedReviewPackage,
+	});
+	const comparisonPaneState = reviewComparisonPaneStateForRefreshPresentation({
+		rawComparisonPaneState,
+		reviewRefreshPresentation,
 	});
 	const comparisonPackageMatch =
 		comparisonPresentation === null || comparisonPresentation === undefined
@@ -343,7 +347,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const comparisonAttemptTelemetryStatus =
 		bridgeReviewComparisonAttemptTelemetryStatus(comparisonPresentation);
 	const comparisonPaneTelemetryState =
-		bridgeReviewComparisonPaneTelemetryState(comparisonPaneState);
+		bridgeReviewComparisonPaneTelemetryState(rawComparisonPaneState);
 	useEffect((): void => {
 		recordBridgeReviewComparisonPaneTelemetrySample({
 			attemptStatus: comparisonAttemptTelemetryStatus,
@@ -570,6 +574,18 @@ function bridgeReviewComparisonPaneTelemetryState(
 
 function assertNeverBridgeReviewComparisonPaneTelemetryState(state: never): never {
 	throw new Error(`Unexpected Review comparison pane telemetry state: ${JSON.stringify(state)}`);
+}
+
+export function reviewComparisonPaneStateForRefreshPresentation(props: {
+	readonly rawComparisonPaneState: ReturnType<typeof bridgeReviewComparisonPaneState>;
+	readonly reviewRefreshPresentation: BridgeReviewRenderSnapshotController['reviewRefreshPresentation'];
+}): ReturnType<typeof bridgeReviewComparisonPaneState> {
+	const sameSourceCandidate =
+		props.reviewRefreshPresentation.candidate?.startDisposition.kind === 'sameSource';
+	const sameSourceFailure = props.reviewRefreshPresentation.failure !== null;
+	return sameSourceCandidate || sameSourceFailure
+		? { kind: 'settled' }
+		: props.rawComparisonPaneState;
 }
 
 function reviewPresentationState(props: {

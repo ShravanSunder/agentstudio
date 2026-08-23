@@ -1129,3 +1129,20 @@ The missing telemetry was a stale-recorder bug: Review integration captured the 
 before async telemetry bootstrap replaced the ref. It now resolves the existing recorder ref at event
 time; no new path, timer, observer, or state owner was added. Focused proof is Swift 38/38, TypeScript
 unit/harness 16/16, installed Chrome 28/28, composed real E2E 1/1, and BridgeWeb typecheck green.
+
+## 2026-08-23 14:16 EDT — Backend/UI coordination: held Review interaction GREEN
+
+The composed comment-continuity cap exposed one presentation drift: same-source refresh progress used
+the generic comparison `loadingPrevious` state, and Review shell made visible active A inert and
+pointer-blocked as though the user had requested a target replacement. Native/display identity was
+correct; the candidate remained staged.
+
+Review mode now derives a presentation-only settled state while bounded same-source candidate/failure
+authority exists. Raw comparison state remains unchanged for telemetry, target identity, Retry, and
+package matching; initial load and explicit target replacement remain blocking. The hardened E2E fails
+immediately if the active canvas is inert and bounds its endpoint-utility wait.
+
+Real Chrome now drags a range during `Update ready`, opens the endpoint `+`, creates and saves a new
+root against displayed A, observes exact root-create/draft-save receipts, preserves the saved body
+after Apply now, and then proves the second promoted update auto-installs after moving to an unaffected
+file. Final proof: installed Chrome 30/30, composed E2E 1/1, typecheck/format/type-aware lint green.
