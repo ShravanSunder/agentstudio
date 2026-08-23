@@ -21,6 +21,12 @@ export type BridgeCommWorkerTelemetryLane =
 	| 'speculative'
 	| 'visible';
 
+export type BridgeCommWorkerTelemetrySemanticClass =
+	| 'demand'
+	| 'lifecycle_control'
+	| 'settlement'
+	| 'urgent_action';
+
 export type BridgeCommWorkerTelemetryAction =
 	| 'applyContentReady'
 	| 'applyContentTerminalAvailability'
@@ -170,6 +176,7 @@ export interface RecordBridgeCommWorkerTaskTelemetryProps {
 	readonly queueWaitMilliseconds?: number;
 	readonly result?: 'failed' | 'success' | 'unavailable';
 	readonly resultReason?: BridgeCommWorkerTelemetryResultReason;
+	readonly semanticClass?: BridgeCommWorkerTelemetrySemanticClass;
 	readonly sourceEpoch?: number;
 	readonly taskKind: BridgeCommWorkerTelemetryTaskKind;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
@@ -205,6 +212,9 @@ export function recordBridgeCommWorkerTaskTelemetry(
 			...(props.resultReason === undefined
 				? {}
 				: { 'agentstudio.bridge.result_reason': props.resultReason }),
+			...(props.semanticClass === undefined
+				? {}
+				: { 'agentstudio.bridge.worker.semantic_class': props.semanticClass }),
 			...(props.workKind === undefined
 				? {}
 				: { 'agentstudio.bridge.worker.work_kind': props.workKind }),

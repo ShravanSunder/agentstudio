@@ -51,7 +51,10 @@ import {
 } from './bridge-comm-worker-review-operation-lifecycle.js';
 import { BridgeCommWorkerReviewQueryProjection } from './bridge-comm-worker-review-query-projection.js';
 import { createBridgeCommWorkerReviewRenderPublicationAuthority } from './bridge-comm-worker-review-render-publication-authority.js';
-import { bridgeCommWorkerTelemetryLaneForMessage } from './bridge-comm-worker-runtime-command-routing.js';
+import {
+	bridgeCommWorkerSemanticClassForMessage,
+	bridgeCommWorkerTelemetryLaneForMessage,
+} from './bridge-comm-worker-runtime-command-routing.js';
 import {
 	publishBridgeCommWorkerPostCommitFailureBestEffort,
 	rejectUninstalledBridgeFileContentOpen,
@@ -848,6 +851,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				: {}),
 			lane: bridgeCommWorkerTelemetryLaneForMessage(parsedMessage.data),
 			queueWaitMilliseconds,
+			semanticClass: bridgeCommWorkerSemanticClassForMessage(parsedMessage.data),
 			taskKind: 'message_handler',
 			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		});

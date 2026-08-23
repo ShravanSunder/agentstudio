@@ -1,4 +1,8 @@
-import type { BridgeCommWorkerTelemetryLane } from './bridge-comm-worker-telemetry.js';
+import type {
+	BridgeCommWorkerTelemetryLane,
+	BridgeCommWorkerTelemetrySemanticClass,
+} from './bridge-comm-worker-telemetry.js';
+import type { BridgeProductWorktreeAnnotationOperation } from './bridge-product-call-contracts.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import type { BridgeWorkerMainToServerMessage } from './bridge-worker-contracts.js';
 
@@ -157,6 +161,76 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 			return assertNeverBridgeWorkerMessage(message);
 	}
 }
+
+export function bridgeCommWorkerSemanticClassForMessage(
+	message: BridgeWorkerMainToServerMessage,
+): BridgeCommWorkerTelemetrySemanticClass {
+	switch (message.command) {
+		case 'annotationCommand':
+			return bridgeCommWorkerAnnotationOperationSemanticClass(message.operation);
+		case 'markFileViewed':
+			return 'urgent_action';
+		case 'annotationOutputInspect':
+		case 'fileQueryUpdate':
+		case 'hover':
+		case 'metadataInterestUpdate':
+		case 'reviewComparisonTargetsQuery':
+		case 'reviewComparisonUpdate':
+		case 'reviewInvalidate':
+		case 'reviewProjectionUpdate':
+		case 'select':
+		case 'viewport':
+			return 'demand';
+		case 'renderDisposition':
+			return 'settlement';
+		case 'activeViewerModeUpdate':
+		case 'annotationProjectionRetry':
+		case 'fileDisplayResync':
+		case 'fileRefreshRetry':
+		case 'mode':
+		case 'reviewComparisonTargetsQueryCancel':
+		case 'reviewIntakeReady':
+		case 'reviewPublicationInstallAdmit':
+		case 'reviewPublicationInstalled':
+			return 'lifecycle_control';
+		default:
+			return assertNeverBridgeWorkerMessage(message);
+	}
+}
+
+function bridgeCommWorkerAnnotationOperationSemanticClass(
+	operation: BridgeProductWorktreeAnnotationOperation,
+): BridgeCommWorkerTelemetrySemanticClass {
+	switch (operation.kind) {
+		case 'continuity.choose':
+		case 'draft.edit.acquire':
+		case 'draft.edit.release':
+		case 'draft.flush':
+		case 'draft.revert':
+		case 'draft.save':
+		case 'output.handled.clear':
+		case 'output.scope.commit':
+		case 'recovery.acknowledge':
+		case 'reply.create':
+		case 'root.create':
+		case 'thread.resolution.set':
+			return 'urgent_action';
+		case 'demand.acquire':
+		case 'demand.release':
+		case 'output.history':
+		case 'output.repeat':
+		case 'session.discover':
+		case 'source.refresh':
+			return 'demand';
+		default:
+			return assertNeverBridgeAnnotationOperation(operation);
+	}
+}
+
+function assertNeverBridgeAnnotationOperation(_operation: never): never {
+	throw new Error('Unhandled Bridge annotation operation.');
+}
+
 function assertNeverBridgeWorkerMessage(_message: never): never {
 	throw new Error('Unhandled bridge worker message.');
 }
