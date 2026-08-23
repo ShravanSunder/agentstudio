@@ -386,6 +386,38 @@ private func createHTTPAnnotationDraftBeforeRestart(
         let createdMessage = try #require(projection.messages.first?.message)
         #expect(createdMessage.draft?.body == draftBody)
         #expect(createdMessage.savedBody == nil)
+        let releaseOperation: [String: Any] = [
+            "editToken": "restart-editor-1",
+            "expectedDraftRevision": try #require(createdMessage.draft?.revision),
+            "expectedMessageRevision": createdMessage.messageRevision,
+            "kind": "draft.edit.release",
+            "messageId": createdMessage.messageId.uuidString.lowercased(),
+            "sessionId": sessionID.uuidString.lowercased(),
+        ]
+        let releaseOutcome = try await executeHTTPAnnotationCommand(
+            client: client,
+            connection: connection,
+            operation: releaseOperation,
+            requestID: "annotation-release-before-restart",
+            requestSequence: 8
+        )
+        guard case .committed = releaseOutcome.status else {
+            throw HTTPAnnotationIntegrationError.annotationCommandFailed
+        }
+        _ = try await waitForHTTPAnnotationInvalidation(
+            client: client,
+            connection: connection,
+            recorder: preparation.metadataStream.recorder
+        )
+        let releasedProjection = try await fetchHTTPFileAnnotationProjection(
+            client: client,
+            host: runtime.host,
+            connection: connection,
+            demandedSessionIDs: [sessionID],
+            sourceGeneration: preparation.fileSourceGeneration,
+            requestSequence: 9
+        )
+        #expect(releasedProjection.messages.first?.message.draft?.activeEditToken == nil)
         try await shutdownHTTPHostAndDrainMetadataStream(
             host: runtime.host,
             drain: preparation.metadataStream.drain

@@ -146,6 +146,48 @@ struct BridgeProductStrictJSONTests {
         )
     }
 
+    @Test("encoded annotation drafts preserve a required nullable edit token")
+    func encodedAnnotationDraftsPreserveRequiredNullableEditToken() throws {
+        let detail = try makeCommittedDetail()
+        let thread = try #require(detail.threads.first?.thread)
+        let message = try #require(detail.threads.first?.messages.first)
+        let draft = WorktreeAnnotationDraft(
+            messageID: message.id,
+            activeEditToken: nil,
+            body: "Recovered draft",
+            draftRevision: 1,
+            updatedAt: message.updatedAt
+        )
+        let messageWithRecoveredDraft = WorktreeAnnotationMessage(
+            id: message.id,
+            threadID: message.threadID,
+            ordinal: message.ordinal,
+            semanticRevision: message.semanticRevision,
+            createdAt: message.createdAt,
+            updatedAt: message.updatedAt,
+            savedBody: message.savedBody,
+            savedRevision: message.savedRevision,
+            draft: draft,
+            handled: message.handled,
+            status: message.status
+        )
+        let value = try BridgeProductWorktreeAnnotationMessageEntry(
+            message: messageWithRecoveredDraft,
+            session: detail.session,
+            thread: thread
+        )
+        let encoded = try JSONEncoder().encode(value)
+        let encodedString = try #require(String(bytes: encoded, encoding: .utf8))
+
+        #expect(encodedString.contains(#""activeEditToken":null"#))
+        #expect(
+            try BridgeProductStrictJSON.decode(
+                BridgeProductWorktreeAnnotationMessageEntry.self,
+                from: encoded
+            ) == value
+        )
+    }
+
     @Test("strict product decoding accepts every annotation output response member")
     func acceptsEveryAnnotationOutputResponseMember() throws {
         let sessionID = "00000000-0000-7000-8000-000000000011"

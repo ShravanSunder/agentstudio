@@ -590,6 +590,13 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
             body = try container.decode(String.self, forKey: .body)
             revision = try container.decode(Int.self, forKey: .revision)
         }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(activeEditToken, forKey: .activeEditToken)
+            try container.encode(body, forKey: .body)
+            try container.encode(revision, forKey: .revision)
+        }
     }
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
