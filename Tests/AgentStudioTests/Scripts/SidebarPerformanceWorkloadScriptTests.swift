@@ -110,7 +110,7 @@ struct SidebarPerformanceWorkloadScriptTests {
     func strictQuiescenceRejectsMissingAndEmptyStageVectors() async throws {
         let missingObservations = (0...5).map { timestamp in
             """
-            {"capture":1,"execution":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
+            {"capture":1,"execution":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
             """
         }
         let missing = try await runQuiescenceContract(
@@ -121,7 +121,7 @@ struct SidebarPerformanceWorkloadScriptTests {
 
         let emptyObservations = (0...5).map { timestamp in
             """
-            {"capture":1,"execution":"","publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
+            {"capture":1,"execution":"","publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
             """
         }
         let empty = try await runQuiescenceContract(
@@ -159,7 +159,7 @@ struct SidebarPerformanceWorkloadScriptTests {
     func strictQuiescenceRejectsStaleExportBacklogSample() async throws {
         let observations = (0...5).map { timestamp in
             """
-            {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":0}
+            {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":0}
             """
         }
         let result = try await runQuiescenceContract(
@@ -172,16 +172,31 @@ struct SidebarPerformanceWorkloadScriptTests {
 
     @Test("strict quiescence rejects changing stages and export backlog")
     func strictQuiescenceRejectsChangingStagesAndExportBacklog() async throws {
+        let drainingGitDebt = try await runQuiescenceContract(
+            sequence: """
+                [
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":1,"export_backlog":0,"observation_time":0,"export_sample_time":0},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":1,"export_sample_time":1},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":2,"export_sample_time":2},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":3,"export_sample_time":3},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":4,"export_sample_time":4},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":5,"export_sample_time":5}
+                ]
+                """
+        )
+        #expect(drainingGitDebt.exitCode == 1)
+        #expect(drainingGitDebt.stderr.contains("quiescence git logical debt must reach zero"))
+
         let changingStage = try await runQuiescenceContract(
             sequence: """
                 [
-                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":0,"export_sample_time":0},
-                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":1,"export_sample_time":1},
-                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":2,"export_sample_time":2},
-                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":3,"export_sample_time":3},
-                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":4,"export_sample_time":4},
-                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":5,"export_sample_time":5},
-                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":6,"export_sample_time":6}
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":0,"export_sample_time":0},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":1,"export_sample_time":1},
+                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":2,"export_sample_time":2},
+                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":3,"export_sample_time":3},
+                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":4,"export_sample_time":4},
+                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":5,"export_sample_time":5},
+                  {"capture":2,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":6,"export_sample_time":6}
                 ]
                 """
         )
@@ -191,12 +206,12 @@ struct SidebarPerformanceWorkloadScriptTests {
         let changingBacklog = try await runQuiescenceContract(
             sequence: """
                 [
-                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":0,"export_sample_time":0},
-                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":1,"export_sample_time":1},
-                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":1,"observation_time":2,"export_sample_time":2},
-                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":3,"export_sample_time":3},
-                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":4,"export_sample_time":4},
-                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":5,"export_sample_time":5}
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":0,"export_sample_time":0},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":1,"export_sample_time":1},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":1,"observation_time":2,"export_sample_time":2},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":3,"export_sample_time":3},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":4,"export_sample_time":4},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":5,"export_sample_time":5}
                 ]
                 """
         )
@@ -208,7 +223,7 @@ struct SidebarPerformanceWorkloadScriptTests {
     func strictQuiescenceAcceptsCompleteUnchangedFiveSecondSpan() async throws {
         let observations = (0...5).map { timestamp in
             """
-            {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
+            {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
             """
         }
         let result = try await runQuiescenceContract(
@@ -224,7 +239,7 @@ struct SidebarPerformanceWorkloadScriptTests {
         let observations = (0...6).map { timestamp in
             let capture = timestamp == 0 ? 1 : 2
             return """
-                {"capture":\(capture),"execution":1,"publication":1,"binding":1,"visible_update":1,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
+                {"capture":\(capture),"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
                 """
         }
         let result = try await runQuiescenceContract(

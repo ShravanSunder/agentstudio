@@ -993,7 +993,10 @@ import json
 import math
 import sys
 
-required = ("capture", "execution", "publication", "binding", "visible_update", "export_backlog")
+required = (
+    "capture", "execution", "publication", "binding", "visible_update",
+    "git_logical_debt", "export_backlog",
+)
 try:
     vector = json.loads(sys.argv[1])
 except json.JSONDecodeError as error:
@@ -1013,8 +1016,10 @@ for name in required:
         raise SystemExit(f"quiescence vector invalid {name}: {raw_value}") from None
     if not math.isfinite(value) or value < 0:
         raise SystemExit(f"quiescence vector invalid {name}: {raw_value}")
-    if name != "export_backlog" and value < 1:
+    if name not in {"git_logical_debt", "export_backlog"} and value < 1:
         raise SystemExit(f"quiescence vector nonpositive {name}: {raw_value}")
+    if name == "git_logical_debt" and value != 0:
+        raise SystemExit("quiescence git logical debt must reach zero")
     if name == "export_backlog" and value != 0:
         raise SystemExit("quiescence export backlog must remain zero")
     normalized.append(f"{name}={value:g}")
@@ -1148,7 +1153,8 @@ PY
 strict_sidebar_quiescence_vector_json() {
   local marker="${1:?missing marker}"
   local observation_time="${2:?missing observation time}"
-  local marker_selector capture execution publication binding visible_update export_backlog
+  local marker_selector capture execution publication binding visible_update git_logical_debt
+  local export_backlog
   local export_sample_time export_metric_selector
   marker_selector="$(metric_label_selector "$marker")"
   capture="$(metric_value_at_observation \
@@ -1166,6 +1172,9 @@ strict_sidebar_quiescence_vector_json() {
   visible_update="$(metric_value_at_observation \
     "sum(agentstudio_performance_events_total{agent.proof.marker=\"$marker_selector\",event=\"performance.repo_explorer.stage_snapshot\",stage=\"materialize\",outcome=\"materialized\"})" \
     "$observation_time")"
+  git_logical_debt="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_logical_debt_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
   export_metric_selector='agentstudio_performance_trace_queue_pending_request_count{agent.proof.marker="'"$marker_selector"'",event="performance.runtime_delivery.snapshot"}'
   export_backlog="$(metric_value_at_observation \
     "max($export_metric_selector)" \
@@ -1174,13 +1183,13 @@ strict_sidebar_quiescence_vector_json() {
     "max(timestamp($export_metric_selector))" \
     "$observation_time")"
   /usr/bin/python3 - "$capture" "$execution" "$publication" "$binding" "$visible_update" \
-    "$export_backlog" "$observation_time" "$export_sample_time" <<'PY'
+    "$git_logical_debt" "$export_backlog" "$observation_time" "$export_sample_time" <<'PY'
 import json
 import sys
 
 names = (
-    "capture", "execution", "publication", "binding", "visible_update", "export_backlog",
-    "observation_time", "export_sample_time",
+    "capture", "execution", "publication", "binding", "visible_update",
+    "git_logical_debt", "export_backlog", "observation_time", "export_sample_time",
 )
 print(json.dumps(dict(zip(names, sys.argv[1:]))))
 PY
@@ -1188,7 +1197,8 @@ PY
 
 wait_for_positive_quiescence() {
   local marker="${1:?missing marker}"
-  local maximum_attempts=$(((STRICT_POLICY_QUIESCENCE_MS + STRICT_POLICY_READBACK_TIMEOUT_MS) \
+  local maximum_attempts=$(((STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS \
+    + STRICT_POLICY_QUIESCENCE_MS + STRICT_POLICY_READBACK_TIMEOUT_MS) \
     / STRICT_POLICY_SAMPLE_INTERVAL_MS + 2))
   local prior="" unchanged=0 attempts=0 vector_json observation_time
   local baseline_time="" last_time="" elapsed_ms=0 state
