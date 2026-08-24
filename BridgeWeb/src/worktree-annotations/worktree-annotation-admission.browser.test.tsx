@@ -1,6 +1,7 @@
 import { act, type ReactElement } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
+import { page } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
@@ -17,6 +18,21 @@ const secondSessionId = '00000000-0000-7000-8000-000000000019';
 describe('worktree annotation transient admission decision', () => {
 	afterEach(async (): Promise<void> => {
 		await cleanup();
+	});
+
+	test('does not draw a timeline continuation for an initial root composer', async () => {
+		// Arrange
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await render(<AdmissionFixture surface={surface} />);
+
+		// Act
+		const composerMessage = rendered.getByTestId('worktree-annotation-message').element();
+
+		// Assert
+		expect(composerMessage.querySelector('.h-full.w-px.bg-comment-border')).toBeNull();
+		await page.screenshot({
+			path: '../../../tmp/bridgeweb-initial-composer-without-connector.png',
+		});
 	});
 
 	test('demands the sole applicable session discovered after reload', async () => {

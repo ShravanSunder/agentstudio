@@ -76,9 +76,9 @@ export function WorktreeAnnotationInlineSurface(
 				)}
 			</div>
 			<div className="flex justify-center" aria-hidden="true">
-				{props.continueTimeline === false ? null : (
+				{props.continueTimeline === true ? (
 					<span className="h-full w-px bg-comment-border" />
-				)}
+				) : null}
 			</div>
 			{props.appearance === 'chronology' ? (
 				<div className="relative min-w-0 rounded-md py-1 pr-8 focus-within:ring-1 focus-within:ring-ring/30">
