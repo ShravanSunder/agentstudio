@@ -26,6 +26,7 @@ import {
 	trackSelectedFilePreparationCompletion,
 } from './bridge-comm-worker-operation-lifecycle.js';
 import { BridgeCommWorkerPanePresentationAuthority } from './bridge-comm-worker-pane-presentation.js';
+import { applyBridgeCommWorkerPostResponseOwnerEffects } from './bridge-comm-worker-post-response-owner-effects.js';
 import { drainBridgeCommWorkerPreparations } from './bridge-comm-worker-preparation-drain.js';
 import { callCurrentFileSourceWithTelemetry } from './bridge-comm-worker-product-control-runtime.js';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
@@ -33,7 +34,6 @@ import {
 	BridgeCommWorkerRenderFulfillmentLifecycleDriver,
 	type BridgeCommWorkerRenderFulfillmentSurface,
 } from './bridge-comm-worker-render-fulfillment-lifecycle-driver.js';
-import { applyBridgeCommWorkerRenderDispositionRuntimeEffects } from './bridge-comm-worker-render-publication-release.js';
 import {
 	buildBridgeCommWorkerReviewCandidateReadyPublication,
 	buildBridgeCommWorkerReviewCandidateFailedPublication,
@@ -299,6 +299,15 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		const selectedState = request.store.getState();
 		if (selectedState.selectedId !== request.itemId) return;
 		const previousOperation = selectedFileContentOperationController.current;
+		latestSelectedFilePreparationRequest = request;
+		if (
+			previousOperation !== null &&
+			previousOperation.renderReceiptIdentity !== null &&
+			(previousOperation.itemId !== request.itemId ||
+				previousOperation.selectionEpoch !== selectedState.selectedEpoch)
+		) {
+			return;
+		}
 		const selectedOperation = selectedFileContentOperationController.admitSelection({
 			itemId: request.itemId,
 			selectionEpoch: selectedState.selectedEpoch,
@@ -311,7 +320,6 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			abortAllFileContentPreparations();
 			selectedFileContentOperationStore = request.store;
 		}
-		latestSelectedFilePreparationRequest = request;
 		if (!panePresentationAuthority.admitsWork || activeViewerMode !== 'file') return;
 		const workerDerivationEpoch = activeFileWorkerDerivationEpoch;
 		if (workerDerivationEpoch === null) return;
@@ -757,32 +765,6 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		if (parsedMessage.data.command === 'reviewPublicationInstalled') {
 			installedReviewSource.recordInstallation(parsedMessage.data);
 		}
-		if (parsedMessage.data.command === 'renderDisposition') {
-			applyBridgeCommWorkerRenderDispositionRuntimeEffects({
-				advanceRenderFulfillmentLifecycle,
-				command: parsedMessage.data,
-				currentFileOperationCorrelationId: () =>
-					selectedFileContentOperationController.current?.operationCorrelationId ?? null,
-				messages,
-				onFileOperationSettled: (): void => {
-					selectedFileContentOperationStore = null;
-				},
-				publish: (message): void => port.postMessage(message),
-				recordFileDisposition: (receipt): void => {
-					const currentOperation = selectedFileContentOperationController.current;
-					if (currentOperation !== null) {
-						selectedFileLifecycleTelemetry.disposition(currentOperation, receipt.disposition);
-					}
-				},
-				settleFileDisposition: (receipt) =>
-					settleAcceptedSelectedFileRenderDisposition({
-						controller: selectedFileContentOperationController,
-						createSequence,
-						receipt,
-						store: selectedFileContentOperationStore,
-					}),
-			});
-		}
 		if (
 			parsedMessage.data.command === 'select' &&
 			parsedMessage.data.surface === 'fileView' &&
@@ -871,6 +853,33 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				activeComparisonTargetsProductControlRequestId = requestId;
 			},
 		});
+		if (parsedMessage.data.command === 'renderDisposition') {
+			applyBridgeCommWorkerPostResponseOwnerEffects({
+				advanceRenderFulfillmentLifecycle,
+				command: parsedMessage.data,
+				currentFileOperationCorrelationId: () =>
+					selectedFileContentOperationController.current?.operationCorrelationId ?? null,
+				onFileOperationSettled: (): void => {
+					selectedFileContentOperationStore = null;
+					resumeLatestSelectedFileViewContentReadyPreparation();
+				},
+				publish: (message): void => port.postMessage(message),
+				recordFileDisposition: (receipt): void => {
+					const currentOperation = selectedFileContentOperationController.current;
+					if (currentOperation !== null) {
+						selectedFileLifecycleTelemetry.disposition(currentOperation, receipt.disposition);
+					}
+				},
+				releaseReviewPosition: reviewDemandScheduling.applyPublishedDisposition,
+				settleFileDisposition: (receipt) =>
+					settleAcceptedSelectedFileRenderDisposition({
+						controller: selectedFileContentOperationController,
+						createSequence,
+						receipt,
+						store: selectedFileContentOperationStore,
+					}),
+			});
+		}
 		if (shouldRequestDrainAfterMessage) {
 			requestPreparationDrain();
 		}

@@ -1,5 +1,9 @@
 import type { BridgeCommWorkerDemandMember } from './bridge-comm-worker-reconciler.js';
 import type { BridgeWorkerReviewContentReadyPreparationSettlement } from './bridge-comm-worker-review-preparation.js';
+import type {
+	BridgeWorkerRenderDispositionReceipt,
+	BridgeWorkerRenderReceiptIdentity,
+} from './bridge-worker-render-fulfillment.js';
 
 export type BridgeCommWorkerReviewDemandPositionKind = 'dynamic' | 'reserved';
 
@@ -28,6 +32,11 @@ export interface BridgeCommWorkerReviewDemandLedger {
 			  },
 	) => void;
 	readonly markRetryReady: (itemId: string, attemptToken?: number) => boolean;
+	readonly markPublished: (
+		itemId: string,
+		attemptToken: number,
+		receiptIdentity: BridgeWorkerRenderReceiptIdentity,
+	) => boolean;
 	readonly setSuspended: (suspended: boolean) => void;
 	readonly updateGeneration: (generation: number) => void;
 	readonly reconcile: (membership: readonly BridgeCommWorkerDemandMember[]) => {
@@ -41,6 +50,8 @@ export interface BridgeCommWorkerReviewDemandLedger {
 		disposition: BridgeWorkerReviewContentReadyPreparationSettlement,
 	) => boolean;
 	readonly releaseRejected: (itemId: string, attemptToken: number) => boolean;
+	readonly releasePublished: (receipt: BridgeWorkerRenderDispositionReceipt) => boolean;
+	readonly restartPublished: (itemId: string) => boolean;
 }
 
 interface ActiveBridgeCommWorkerReviewDemandRecord {
@@ -50,6 +61,8 @@ interface ActiveBridgeCommWorkerReviewDemandRecord {
 	readonly itemId: string;
 	readonly positionKind: BridgeCommWorkerReviewDemandPositionKind;
 	readonly preparationIdentity: string | null;
+	intentCurrent: boolean;
+	publishedReceiptIdentity: BridgeWorkerRenderReceiptIdentity | null;
 	role: BridgeCommWorkerDemandMember['role'];
 }
 
@@ -86,8 +99,10 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			attemptToken,
 			handle: props.start(admission),
 			itemId: member.itemId,
+			intentCurrent: true,
 			positionKind,
 			preparationIdentity: props.resolvePreparationIdentity?.(member.itemId) ?? null,
+			publishedReceiptIdentity: null,
 			role: member.role,
 		});
 		return admission;
@@ -164,6 +179,13 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 	return {
 		invalidate: (itemId, activeAttempt = 'cancel'): void => {
 			const activeRecord = activeRecordsByItemId.get(itemId);
+			if (activeRecord !== undefined && activeRecord.publishedReceiptIdentity !== null) {
+				activeRecord.intentCurrent = false;
+				completedItemIds.delete(itemId);
+				retryWaitingAttemptTokenByItemId.delete(itemId);
+				latestMembership = latestMembership.filter((member) => member.itemId !== itemId);
+				return;
+			}
 			const shouldCancelActiveAttempt =
 				activeRecord !== undefined &&
 				(activeAttempt === 'cancel' ||
@@ -184,6 +206,12 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			retryWaitingAttemptTokenByItemId.delete(itemId);
 			return true;
 		},
+		markPublished: (itemId, attemptToken, receiptIdentity): boolean => {
+			const activeRecord = activeRecordsByItemId.get(itemId);
+			if (activeRecord?.attemptToken !== attemptToken) return false;
+			activeRecord.publishedReceiptIdentity = Object.freeze({ ...receiptIdentity });
+			return true;
+		},
 		reconcile,
 		setSuspended: (nextSuspended): void => {
 			if (suspended === nextSuspended) return;
@@ -196,11 +224,15 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 		updateGeneration: (generation): void => {
 			if (currentGeneration === generation) return;
 			currentGeneration = generation;
-			for (const activeRecord of activeRecordsByItemId.values()) {
+			for (const [itemId, activeRecord] of activeRecordsByItemId) {
+				if (activeRecord.publishedReceiptIdentity !== null) {
+					activeRecord.intentCurrent = false;
+					continue;
+				}
 				activeRecord.abortController.abort('review_demand_generation_changed');
 				activeRecord.handle.cancel();
+				activeRecordsByItemId.delete(itemId);
 			}
-			activeRecordsByItemId.clear();
 			completedItemIds.clear();
 			retryWaitingAttemptTokenByItemId.clear();
 			latestMembership = [];
@@ -208,6 +240,10 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 		release: (itemId, attemptToken, disposition): boolean => {
 			const activeRecord = activeRecordsByItemId.get(itemId);
 			if (activeRecord?.attemptToken !== attemptToken) return false;
+			if (activeRecord.publishedReceiptIdentity !== null && disposition !== 'teardown') {
+				if (disposition === 'invalidated') activeRecord.intentCurrent = false;
+				return true;
+			}
 			activeRecordsByItemId.delete(itemId);
 			if (disposition === 'invalidated') {
 				latestMembership = latestMembership.filter((member) => member.itemId !== itemId);
@@ -227,7 +263,56 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			reconcile(latestMembership);
 			return true;
 		},
+		releasePublished: (receipt): boolean => {
+			if (
+				receipt.disposition !== 'queued' &&
+				receipt.disposition !== 'rejected' &&
+				receipt.disposition !== 'superseded'
+			) {
+				return false;
+			}
+			const activeRecord = activeRecordsByItemId.get(receipt.itemId);
+			const receiptIdentity = activeRecord?.publishedReceiptIdentity ?? null;
+			if (activeRecord === undefined || receiptIdentity === null) return false;
+			if (!renderReceiptMatchesIdentity(receipt, receiptIdentity)) return false;
+			activeRecordsByItemId.delete(receipt.itemId);
+			if (activeRecord.intentCurrent) completedItemIds.add(receipt.itemId);
+			else latestMembership = latestMembership.filter((member) => member.itemId !== receipt.itemId);
+			reconcile(latestMembership);
+			return true;
+		},
+		restartPublished: (itemId): boolean => {
+			const activeRecord = activeRecordsByItemId.get(itemId);
+			if (
+				activeRecord === undefined ||
+				activeRecord.publishedReceiptIdentity === null ||
+				!activeRecord.intentCurrent
+			) {
+				return false;
+			}
+			activeRecordsByItemId.delete(itemId);
+			return true;
+		},
 	};
+}
+
+function renderReceiptMatchesIdentity(
+	receipt: BridgeWorkerRenderDispositionReceipt,
+	identity: BridgeWorkerRenderReceiptIdentity,
+): boolean {
+	return (
+		receipt.attemptId === identity.attemptId &&
+		receipt.itemId === identity.itemId &&
+		receipt.operationCorrelationId === identity.operationCorrelationId &&
+		receipt.paneSessionId === identity.paneSessionId &&
+		receipt.publicationId === identity.publicationId &&
+		receipt.publicationSequence === identity.publicationSequence &&
+		receipt.submissionId === identity.submissionId &&
+		receipt.surface === identity.surface &&
+		receipt.windowKey === identity.windowKey &&
+		receipt.workerDerivationEpoch === identity.workerDerivationEpoch &&
+		receipt.workerInstanceId === identity.workerInstanceId
+	);
 }
 
 function roleCanUseReservedPosition(role: BridgeCommWorkerDemandMember['role']): boolean {

@@ -241,6 +241,78 @@ describe('Bridge comm worker runtime render fulfillment', () => {
 		});
 	});
 
+	test('does not release a held Review position when its correlated response post throws', async () => {
+		const requestId = 'request-review-queued-response-post-throws';
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort({
+			beforePostMessage: (message): void => {
+				if (message.kind === 'health' && message.requestId === requestId) {
+					throw new Error('injected Review correlated response failure');
+				}
+			},
+		});
+		const itemIds = Array.from({ length: 13 }, (_, index) => `review-held-${index + 1}`);
+		const source = makeReviewRuntimeSourceForItems(itemIds);
+		const reviewProductSource = await registerRuntimeWithInitialReviewSource(dispatch, {
+			...source,
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			openReviewContent: openReviewContentFromDescriptorMap,
+			pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => 0 }),
+			renderFulfillmentContext: {
+				paneSessionId: runtimePaneSessionId,
+				workerInstanceId: runtimeWorkerInstanceId,
+			},
+			schedulePreparationDrain: (drain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+		openReviewProductSources.add(reviewProductSource);
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				epoch: reviewIntentEpoch,
+				firstVisibleIndex: 0,
+				lastVisibleIndex: itemIds.length - 1,
+				phase: 'settled',
+				requestId: 'request-review-fill-existing-positions',
+				surface: 'review',
+				visibleItemIds: itemIds,
+			}),
+		);
+		await driveScheduledPreparationRounds({
+			nextDrainIndex: 0,
+			remainingRounds: 64,
+			scheduledDrains,
+		});
+		const publicationsBeforeFailure = postedMessages.flatMap(({ message }) =>
+			message.kind === 'reviewPierreRenderJob' ? [message] : [],
+		);
+		expect(publicationsBeforeFailure).toHaveLength(12);
+		const firstPublication = publicationsBeforeFailure[0];
+		if (firstPublication === undefined) throw new Error('Expected a held Review publication.');
+		const drainCountBeforeFailure = scheduledDrains.length;
+
+		expect((): void => {
+			dispatchDisposition(
+				{ dispatch },
+				{
+					disposition: 'queued',
+					identity: firstPublication.renderReceiptIdentity,
+					requestId,
+				},
+			);
+		}).toThrow('injected Review correlated response failure');
+		await driveScheduledPreparationRounds({
+			nextDrainIndex: drainCountBeforeFailure,
+			scheduledDrains,
+		});
+
+		expect(
+			postedMessages.filter(({ message }) => message.kind === 'reviewPierreRenderJob'),
+		).toHaveLength(12);
+		expect(scheduledDrains).toHaveLength(drainCountBeforeFailure);
+	});
+
 	test('re-demands a ready visible Review publication after matching terminal rejection', async () => {
 		// Arrange
 		const scheduledWakes: TestScheduledRenderFulfillmentWake[] = [];
@@ -480,6 +552,21 @@ function makeReviewRuntimeSource(): BridgeCommWorkerReviewRuntimeSource {
 		renderSemantics: [makeRenderSemantics({ itemId: reviewItemId })],
 		reviewPublicationIdentity: null,
 		rows: [{ id: reviewItemId, index: 0, parentId: null }],
+	};
+}
+
+function makeReviewRuntimeSourceForItems(
+	itemIds: readonly string[],
+): BridgeCommWorkerReviewRuntimeSource {
+	return {
+		contentItems: itemIds.map((itemId) => makeWorkerReviewContentMetadata({ itemId })),
+		contentRequestDescriptors: itemIds.flatMap((itemId) => [
+			makeContentRequestDescriptor({ itemId, role: 'base', text: `${itemId} base\n` }),
+			makeContentRequestDescriptor({ itemId, role: 'head', text: `${itemId} head\n` }),
+		]),
+		renderSemantics: itemIds.map((itemId) => makeRenderSemantics({ itemId })),
+		reviewPublicationIdentity: null,
+		rows: itemIds.map((itemId, index) => ({ id: itemId, index, parentId: null })),
 	};
 }
 

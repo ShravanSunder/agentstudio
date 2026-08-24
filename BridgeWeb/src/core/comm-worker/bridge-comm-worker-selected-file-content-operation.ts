@@ -159,10 +159,14 @@ export function settleAcceptedSelectedFileRenderDisposition(props: {
 	readonly receipt: BridgeWorkerRenderDispositionReceipt;
 	readonly store: BridgeCommWorkerStore | null;
 }): { readonly settled: boolean; readonly terminalPatch: BridgeWorkerSlicePatchEvent | null } {
+	const settlingOperation = props.controller.current;
 	const settlement = props.controller.handleAcceptedRenderDisposition({
 		receipt: props.receipt,
 	});
 	if (settlement !== 'settled') return { settled: false, terminalPatch: null };
+	if (settlingOperation === null) {
+		throw new Error('Settled File render disposition is missing its admitted operation.');
+	}
 	if (
 		props.store === null ||
 		(props.receipt.disposition !== 'rejected' && props.receipt.disposition !== 'superseded')
@@ -172,13 +176,13 @@ export function settleAcceptedSelectedFileRenderDisposition(props: {
 	props.store.actions.applyContentTerminalAvailability({
 		itemId: props.receipt.itemId,
 		reason: 'descriptor_rejected',
-		sourceEpoch: props.store.getState().selectedEpoch,
+		sourceEpoch: settlingOperation.selectionEpoch,
 		state: 'unavailable',
 	});
 	return {
 		settled: true,
 		terminalPatch: props.store.actions.takePendingSlicePatchEvent({
-			epoch: props.store.getState().selectedEpoch,
+			epoch: settlingOperation.selectionEpoch,
 			sequence: props.createSequence(),
 		}),
 	};

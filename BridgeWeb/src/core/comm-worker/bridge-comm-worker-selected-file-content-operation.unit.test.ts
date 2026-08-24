@@ -174,6 +174,40 @@ describe('BridgeCommWorkerSelectedFileContentOperationController', () => {
 		});
 		expect(store.getState().paintReadyByItemId.get('file-1')).toBe('file-content-key');
 	});
+
+	test('keeps a terminal predecessor patch tied to its admitted selection epoch', () => {
+		const controller = new BridgeCommWorkerSelectedFileContentOperationController();
+		const store = createBridgeCommWorkerStore({
+			contentItems: [],
+			rows: [
+				{ id: 'file-1', index: 0, parentId: null },
+				{ id: 'file-2', index: 1, parentId: null },
+			],
+			surface: 'file',
+		});
+		store.actions.applySelectedFact({ epoch: 10, itemId: 'file-1' });
+		const operation = controller.admitSelection({ itemId: 'file-1', selectionEpoch: 10 });
+		const receipt = bridgeWorkerRenderDispositionReceiptSchema.parse({
+			...renderReceipt('predecessor-terminal', operation.operationCorrelationId),
+			disposition: 'rejected',
+			reason: 'stale_attempt',
+			retryAtMilliseconds: 1,
+		});
+		controller.bindRenderReceipt({
+			generation: operation.generation,
+			receiptIdentity: receipt,
+		});
+		store.actions.applySelectedFact({ epoch: 11, itemId: 'file-2' });
+
+		const result = settleAcceptedSelectedFileRenderDisposition({
+			controller,
+			createSequence: (): number => 2,
+			receipt,
+			store,
+		});
+
+		expect(result.terminalPatch?.epoch).toBe(10);
+	});
 });
 
 function renderReceipt(

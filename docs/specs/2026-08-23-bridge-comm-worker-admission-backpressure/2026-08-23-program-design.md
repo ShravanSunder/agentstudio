@@ -247,7 +247,7 @@ Current anchors:
 - `BridgeWeb/src/core/comm-worker/bridge-comm-worker-runtime-protocol.ts:761`
 - `BridgeWeb/src/core/comm-worker/bridge-comm-worker-runtime-protocol.ts:855`
 - `BridgeWeb/src/core/comm-worker/bridge-comm-worker-render-disposition-application.ts:21`
-- `BridgeWeb/src/core/comm-worker/bridge-comm-worker-render-publication-release.ts:8`
+- `BridgeWeb/src/core/comm-worker/bridge-comm-worker-post-response-owner-effects.ts:6`
 
 The extracted publication-effect seam is retained only as a post-response
 existing-owner operation. Its name and call placement must describe that job;

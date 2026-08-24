@@ -22,6 +22,7 @@ import type {
 	BridgeWorkerPierreRenderBudget,
 	BridgeWorkerPierreRenderJob,
 } from './bridge-worker-pierre-render-job.js';
+import type { BridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.js';
 import {
 	type BridgeWorkerFetchedReviewContentResource,
 	fetchBridgeWorkerReviewContentResource,
@@ -47,6 +48,7 @@ export interface DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly fetchReviewContentResource?: BridgeWorkerReviewContentResourceFetch;
 	readonly itemId: string;
 	readonly operationCorrelationId?: string | null;
+	readonly onRenderPublished?: (receiptIdentity: BridgeWorkerRenderReceiptIdentity) => void;
 	readonly openContent?: BridgeWorkerReviewContentOpen;
 	readonly port: BridgeCommWorkerPort;
 	readonly registerResponseStartControl?: (
@@ -352,6 +354,7 @@ function commitPreparedBridgeWorkerReviewContentReady(
 		store: props.store,
 	});
 	postPreparedBridgeCommWorkerMessage(props.port, contentReadyCommit.preparedMessage);
+	props.onRenderPublished?.(props.preparedJobEvent.message.renderReceiptIdentity);
 }
 
 function requirePlannedBridgeWorkerReviewJob(

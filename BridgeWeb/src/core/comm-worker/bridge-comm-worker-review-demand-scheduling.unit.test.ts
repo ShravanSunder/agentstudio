@@ -19,6 +19,7 @@ import {
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
+import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
 
 interface TestDemandAdmission {
 	readonly attemptToken: number;
@@ -655,7 +656,7 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 		const deferredStreamsByItemId = new Map<string, DeferredReviewContentStream[]>();
 		const signalsByItemId = new Map<string, AbortSignal[]>();
 		let requestedPreparationDrainCount = 0;
-		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => 0 });
 		const store = createBridgeCommWorkerStore({ contentItems, rows, surface: 'review' });
 		store.actions.applyViewportFact({
@@ -731,6 +732,25 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 			await flushBridgeWorkerRuntimeContinuations();
 			if (deferredStreamsByItemId.has('item-13')) break;
 		}
+		expect(deferredStreamsByItemId.has('item-13')).toBe(false);
+		const itemFourPublication = postedMessages.find(
+			({ message }) => message.kind === 'reviewPierreRenderJob' && message.job.itemId === 'item-4',
+		)?.message;
+		if (itemFourPublication?.kind !== 'reviewPierreRenderJob') {
+			throw new Error('Expected item-4 Review publication.');
+		}
+		expect(
+			scheduling.applyPublishedDisposition(
+				bridgeWorkerRenderDispositionReceiptSchema.parse({
+					...itemFourPublication.renderReceiptIdentity,
+					disposition: 'queued',
+					kind: 'render.disposition',
+					receivedAtMilliseconds: 0,
+				}),
+			),
+		).toBe(true);
+		pump.runUntilBudget();
+		await flushBridgeWorkerRuntimeContinuations();
 
 		expect(deferredStreamsByItemId.get('item-13')).toHaveLength(2);
 		expect(requestedPreparationDrainCount).toBe(14);

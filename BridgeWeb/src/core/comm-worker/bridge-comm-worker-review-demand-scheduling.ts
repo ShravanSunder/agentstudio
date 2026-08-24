@@ -32,6 +32,7 @@ import type {
 	BridgeWorkerDemandRank,
 	BridgeWorkerPierreRenderBudget,
 } from './bridge-worker-pierre-render-job.js';
+import type { BridgeWorkerRenderDispositionReceipt } from './bridge-worker-render-fulfillment.js';
 import {
 	createSharedBridgeWorkerReviewContentResourceFetch,
 	type BridgeWorkerReviewContentOpen,
@@ -57,6 +58,7 @@ interface CreateBridgeCommWorkerReviewDemandSchedulingProps {
 }
 
 export interface BridgeCommWorkerReviewDemandScheduling {
+	readonly applyPublishedDisposition: (receipt: BridgeWorkerRenderDispositionReceipt) => boolean;
 	readonly resume: () => void;
 	readonly scheduleDemandExecution: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
@@ -229,6 +231,21 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 			const ledgerStore = bridgeCommWorkerStoreWithDemandKey(store, admission.itemId, demandKey);
 			const reviewPublicationIdentity =
 				requireBridgeCommWorkerReviewRuntimeSourcePublicationIdentity(reviewRuntimeSource);
+			const onRenderPublished = (
+				receiptIdentity: Parameters<typeof reviewDemandLedger.markPublished>[2],
+			): void => {
+				if (
+					!reviewDemandLedger.markPublished(
+						admission.itemId,
+						admission.attemptToken,
+						receiptIdentity,
+					)
+				) {
+					throw new Error(
+						'Bridge Review publication no longer matches its admitted demand position.',
+					);
+				}
+			};
 			const ticket =
 				member.role === 'selected'
 					? enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
@@ -242,6 +259,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 							fetchReviewContentResource,
 							itemId: admission.itemId,
 							operationCorrelationId: operationCorrelationId(),
+							onRenderPublished,
 							port: props.port,
 							pump: props.pump,
 							reviewPublicationIdentity,
@@ -269,6 +287,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 								!admission.signal.aborted && currentMembershipByItemId.has(admission.itemId),
 							itemId: admission.itemId,
 							operationCorrelationId: operationCorrelationId(),
+							onRenderPublished,
 							port: props.port,
 							preparationRank: member.role,
 							pump: props.pump,
@@ -389,6 +408,9 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		]);
 		for (const itemId of forceExecutionItemIds) {
 			retryAttemptByItemId.delete(itemId);
+			if (request.cause === 'renderFulfillment' && reviewDemandLedger.restartPublished(itemId)) {
+				continue;
+			}
 			reviewDemandLedger.invalidate(
 				itemId,
 				request.cause === 'reviewMetadata'
@@ -542,6 +564,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	};
 
 	return {
+		applyPublishedDisposition: (receipt): boolean => reviewDemandLedger.releasePublished(receipt),
 		resume,
 		scheduleDemandExecution: reconcileDemandExecutionFromRequest,
 		scheduleMetadataReset,
