@@ -118,7 +118,7 @@ describe("full-page topology layout", () => {
     expandedRoute.dataset["routeId"] = "expanded-earlier";
     expandedRoute.dataset["topologyVariants"] = "expanded";
     expandedRoute.dataset["forkPageRow"] = "1";
-    expandedRoute.dataset["endPageOffset"] = "4";
+    expandedRoute.dataset["endPageOffset"] = "5";
     artwork.append(expandedRoute);
 
     expect(layoutFullPageTopology(artwork)).toBe(true);
