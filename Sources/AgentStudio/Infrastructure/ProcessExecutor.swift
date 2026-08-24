@@ -130,6 +130,11 @@ package struct DefaultProcessExecutor: ProcessExecutor {
 private final class ProcessExecution: @unchecked Sendable {
     private typealias Continuation = CheckedContinuation<ProcessResult, Error>
 
+    private enum TerminationCause {
+        case timeout
+        case cancellation
+    }
+
     private enum PipeKind {
         case stdout
         case stderr
@@ -150,8 +155,7 @@ private final class ProcessExecution: @unchecked Sendable {
     private var stdoutFinished = false
     private var stderrFinished = false
     private var terminationStatus: Int32 = 0
-    private var didTimeout = false
-    private var cancelRequested = false
+    private var terminationCause: TerminationCause?
     private var completed = false
     private var processSource: DispatchSourceProcess?
     private var stdoutSource: DispatchSourceRead?
@@ -189,7 +193,7 @@ private final class ProcessExecution: @unchecked Sendable {
 
     private func start(_ continuation: Continuation) {
         self.continuation = continuation
-        guard !cancelRequested else {
+        guard terminationCause != .cancellation else {
             complete(.failure(CancellationError()))
             return
         }
@@ -308,10 +312,10 @@ private final class ProcessExecution: @unchecked Sendable {
     }
 
     private func markTimedOut() {
-        if completed || didTimeout {
+        if completed || terminationCause != nil {
             return
         }
-        didTimeout = true
+        terminationCause = .timeout
 
         processLogger.warning(
             "Process '\(self.command, privacy: .public)' exceeded \(Int(self.timeoutSeconds))s timeout - terminating"
@@ -339,8 +343,13 @@ private final class ProcessExecution: @unchecked Sendable {
         guard processExited, stdoutFinished, stderrFinished else {
             return nil
         }
-        if didTimeout {
+        switch terminationCause {
+        case .timeout:
             return .failure(ProcessError.timedOut(command: command, seconds: timeoutSeconds))
+        case .cancellation:
+            return .failure(CancellationError())
+        case nil:
+            break
         }
         let result = ProcessResult(
             exitCode: Int(terminationStatus),
@@ -357,14 +366,10 @@ private final class ProcessExecution: @unchecked Sendable {
     }
 
     private func cancelOnQueue() {
-        cancelRequested = true
-        guard !completed, let continuation else { return }
-
-        completed = true
-        self.continuation = nil
+        guard !completed, terminationCause == nil else { return }
+        terminationCause = .cancellation
+        guard continuation != nil else { return }
         terminateForCancellation()
-        cleanupSources()
-        continuation.resume(throwing: CancellationError())
     }
 
     private func terminateForCancellation() {

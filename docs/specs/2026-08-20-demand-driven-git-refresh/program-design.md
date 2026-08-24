@@ -203,6 +203,12 @@ nextEligibleAt = max(
 
 The existing 5/10/20/40/60-second backoff still constrains manual reattempt after ordinary failure, but automatic retry never runs faster than three minutes. After three unsuccessful outcomes, presentation may become unavailable while retaining prior current-origin confirmed facts.
 
+### DefaultProcessExecutor child settlement
+
+`DefaultProcessExecutor` remains the sole owner of generic child launch, pipe draining, timeout, cancellation termination, and exact exit observation. Its async `execute` boundary settles only after the launched child has exited and both output pipes have finished. Task cancellation requests `SIGTERM`, retains the existing bounded `SIGKILL` escalation, and records cancellation as the caller result only after that physical settlement. Cancellation does not remove the process-exit or pipe sources early. The executor latches the first accepted termination cause: timeout produces `ProcessError.timedOut`, cancellation produces `CancellationError`, and a later competing cause cannot replace the first while physical settlement remains in progress.
+
+This contract lets source owners distinguish logical interest from physical custody without a Forge-specific process runner. `ForgeActor` may clear publication authority and pending automatic intent immediately on demand or identity loss, but its process-wide capacity lease remains held until the provider call returns after exact child settlement. Existing consumers such as `ZmxBackend` keep the same `ProcessExecutor` interface and result/error vocabulary; they gain the stronger guarantee that a returned cancellation never leaves the owned child running. Timeout continues to return `ProcessError.timedOut` after the same exact-exit settlement.
+
 ### WorkspaceCacheCoordinator and derived projections
 
 The coordinator remains the only EventBus-to-cache applier. Local, remote-ref-triggered local, and Forge results converge through existing typed events; the coordinator performs keyed changed-only atom writes and exact invalidation. It owns no source admission or freshness.
@@ -312,6 +318,7 @@ same triggers
   -> [unchanged] one Forge admission owner and three-minute freshness
   -> [added] global gh capacity two
   -> [changed] demanded-branch alias query plan
+  -> [changed] DefaultProcessExecutor cancellation retains physical custody through child exit
   <- typed atomic repository-plan complete/truncated/rate/failure outcome
   -> [changed] equivalent one-second follow-up rechecks eligibility but cannot bypass success freshness
   -> [changed] automatic retry floor always at least three minutes
@@ -336,7 +343,7 @@ Each source owner uses the same semantic states but owns separate instances and 
 
 Local status additionally composes fact and detail phases inside one materialization attempt. Fact completion may release its physical slot before detail starts, but the projector retains same-worktree single-flight and does not admit the follow-up between phases. Automatic duty accounting sums both native phases.
 
-Remote fetch and Forge use killable child processes. Cancellation requests termination through their existing process owner and retains capacity until exact child exit. Remote fetch writes only generation-scoped staging refs before currentness validation; stale completion cleanup cannot promote them. Forge rejects an incomplete repository plan as a unit. Both owners reject any completion after demand/origin/topology generation changed.
+Remote fetch and Forge use killable child processes. Cancellation requests termination through the owning executor; the executor retains exit and pipe observation, escalates to a bounded hard kill when required, and settles the async call only after exact child exit. Source actors may revoke logical publication authority immediately but retain physical capacity until that settled return. Remote fetch writes only generation-scoped staging refs before currentness validation; stale completion cleanup cannot promote them. Forge rejects an incomplete repository plan as a unit. Both owners reject any completion after demand/origin/topology generation changed.
 
 Illegal transitions fail closed: publication from obsolete identity/generation/scope, second same-key physical work, capacity release before true completion/exit, capacity counted as failure, partial local publication, canonical-ref promotion before currentness validation, automatic remote work without demand, and rendering-triggered source work.
 
@@ -398,6 +405,8 @@ Local work captures worktree/root generation. Fetch captures repository/origin/t
 
 Shutdown first stops demand observation, forbids new starts, cancels all deadline tasks, invalidates publication generations, requests child-process cancellation, and cancels logical interest in native reads. Child capacity releases only after exit; native capacity releases only after true completion or owning process exit. Existing exact AppKit termination and trace-drain sequencing remains authoritative.
 
+`DefaultProcessExecutor` keeps its process and pipe dispatch sources alive during cancellation and shutdown until exit plus pipe settlement. A caller awaiting cancellation therefore cannot finish shutdown or release its source capacity while the child remains alive. Timeout and cancellation racing during settlement preserve the first accepted termination cause while sharing the same termination, hard-kill, exit, and pipe-drain path.
+
 ## Observability and proof architecture
 
 Every often/heavy stage aggregates bounded owner-local counters/histograms before the trace queue. Exact per-attempt events are limited to the marker-scoped performance diagnostic path.
@@ -457,7 +466,7 @@ Final runtime proof may use controlled disposable remotes for staged-fetch mutat
 | U-GIT-REMOTE-REF-1 | RemoteReferenceRefreshActor and targeted local recomputation | demanded fetch/cache/failure integration and read-back |
 | U-GIT-FORGE-1 | existing branch cache plus alias query plan/global CLI capacity | GraphQL plan, recovery, cache, and toolbar/sidebar agreement |
 | U-GIT-CURRENTNESS-1 | per-source captured generations/scopes and changed-only applier | A/B/C identity/invalidation interleavings and integration publication |
-| U-GIT-PHYSICAL-BOUND-1 | shared status gate and child-process capacity owners | non-cooperative native and exact child-exit lifecycle proof |
+| U-GIT-PHYSICAL-BOUND-1 | shared status gate, exact-settling `DefaultProcessExecutor`, and child-process capacity owners | non-cooperative native plus cancellation/timeout exact child-exit lifecycle proof |
 | U-GIT-OBSERVABILITY-1 | bounded owner-local aggregation and marker snapshots | aggregation bounds, perturbation check, zero-loss runtime marker |
 | U-GIT-PROOF-1 | exact-debug fixture/lifecycle and package/app real boundaries | complete two-root 5/20 proof chain and native evidence |
 
@@ -493,5 +502,6 @@ Architecture enforcement prevents:
 - partial publication from an incomplete multi-batch Forge repository plan;
 - capacity reasons entering failure backoff;
 - capacity release before native completion or child exit;
+- process-executor cancellation returning before exact child exit and pipe settlement;
 - partial or obsolete publication;
 - stable/beta targeting from strict proof.

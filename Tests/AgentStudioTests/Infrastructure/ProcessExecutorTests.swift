@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -266,6 +267,45 @@ final class ProcessExecutorTests {
         }
     }
 
+    @Test
+    func test_execute_cancellationReturnsOnlyAfterChildExit() async throws {
+        // Arrange
+        let processIdentifierURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-process-\(UUIDv7.generate().uuidString).pid")
+        defer { try? FileManager.default.removeItem(at: processIdentifierURL) }
+        let cancellationExecutor = DefaultProcessExecutor(timeout: 20)
+        let task = Task {
+            try await cancellationExecutor.execute(
+                command: "sh",
+                args: [
+                    "-c",
+                    "printf '%s' \"$$\" > \"$1\"; trap '' TERM; while :; do :; done",
+                    "agentstudio-process-executor-test",
+                    processIdentifierURL.path,
+                ],
+                cwd: nil,
+                environment: nil
+            )
+        }
+        let childProcessIdentifier = try await waitForProcessIdentifier(at: processIdentifierURL)
+
+        // Act
+        task.cancel()
+
+        // Assert
+        do {
+            _ = try await task.value
+            Issue.record("Expected CancellationError to be thrown")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            Issue.record("Expected CancellationError, got: \(error)")
+        }
+        errno = 0
+        #expect(kill(childProcessIdentifier, 0) == -1)
+        #expect(errno == ESRCH)
+    }
+
     // MARK: - Regression: Fast Exit (Group 8)
 
     @Test
@@ -286,4 +326,23 @@ final class ProcessExecutorTests {
         #expect(result.exitCode == 0)
         #expect(result.succeeded)
     }
+
+    private func waitForProcessIdentifier(at url: URL) async throws -> pid_t {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(3))
+        while clock.now < deadline {
+            if let contents = try? String(contentsOf: url, encoding: .utf8),
+                let processIdentifier = pid_t(contents),
+                processIdentifier > 0
+            {
+                return processIdentifier
+            }
+            await Task.yield()
+        }
+        throw ProcessExecutorTestError.processIdentifierNotPublished
+    }
+}
+
+private enum ProcessExecutorTestError: Error {
+    case processIdentifierNotPublished
 }
