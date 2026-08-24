@@ -162,6 +162,20 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         await forgeActor.setDemand(worktreeIds: worktreeIds)
     }
 
+    func setRepositoryFactDemand(_ snapshot: RepositoryFactDemandSnapshot) async {
+        await filesystemActor.setRepositoryFactAttention(
+            activePaneWorktreeId: snapshot.activePaneWorktreeId,
+            openWorktreeIds: snapshot.openWorktreeIds
+        )
+        await gitWorkingDirectoryProjector.setRepositoryFactAttention(
+            activePaneWorktreeId: snapshot.activePaneWorktreeId,
+            sidebarAttendedWorktreeIds: snapshot.sidebarAttendedWorktreeIds,
+            visibleActiveTabWorktreeIds: snapshot.visibleActiveTabWorktreeIds,
+            openWorktreeIds: snapshot.openWorktreeIds
+        )
+        await forgeActor.setDemand(worktreeIds: snapshot.forgeDemandedWorktreeIds)
+    }
+
     func enqueueRawPathsForTesting(worktreeId: UUID, paths: [String]) async {
         await filesystemActor.enqueueRawPaths(worktreeId: worktreeId, paths: paths)
     }

@@ -49,6 +49,7 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
 
             let source = PullRequestDemandRecordingFilesystemSource()
             let windowLifecycle = WindowLifecycleAtom()
+            let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
             let coordinator = WorkspaceSurfaceCoordinator(
                 store: store,
                 viewRegistry: ViewRegistry(),
@@ -56,11 +57,14 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
                 surfaceManager: PullRequestDemandSurfaceManager(),
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: EventBus<RuntimeEnvelope>(),
+                gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                    physicalGate: gitStatusPhysicalGate
+                ),
+                gitStatusPhysicalGate: gitStatusPhysicalGate,
                 filesystemSource: source,
                 windowLifecycleStore: windowLifecycle,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
-            let sidebarWorktreeId = UUIDv7.generate()
             let owningWindowId = UUIDv7.generate()
             coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([])
             coordinator.bindPullRequestDemand(toOwningWindowId: owningWindowId)
@@ -71,23 +75,17 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
                 WindowPresentationFacts(isVisible: true, isMiniaturized: false, isOccluded: false),
                 for: owningWindowId
             )
-            #expect(await source.waitForLastSnapshot([firstWorktree.id]))
+            #expect(await source.waitForLastSnapshot([firstWorktree.id, secondWorktree.id]))
 
-            coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([sidebarWorktreeId])
-            #expect(
-                await source.waitForLastSnapshot([firstWorktree.id, sidebarWorktreeId])
-            )
-            let snapshotCountBeforeDuplicate = await source.snapshotCount
-            coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([sidebarWorktreeId])
-            await eventually("duplicate demand delivery should settle") {
-                coordinator.pendingPullRequestDemandWorktreeIds == nil
-                    && coordinator.pullRequestDemandDeliveryTask == nil
-            }
-            #expect(await source.snapshotCount == snapshotCountBeforeDuplicate)
+            let snapshotCountBeforeViewportChange = await source.snapshotCount
+            let viewportOnlyWorktreeId = UUIDv7.generate()
+            coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([viewportOnlyWorktreeId])
+            await Task.yield()
+            #expect(await source.snapshotCount == snapshotCountBeforeViewportChange)
 
             store.setActiveTab(secondTab.id)
             #expect(
-                await source.waitForLastSnapshot([secondWorktree.id, sidebarWorktreeId])
+                await source.waitForLastSnapshot([firstWorktree.id, secondWorktree.id])
             )
 
             windowLifecycle.recordWindowPresentation(
@@ -101,72 +99,6 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
         }
     }
 
-    @Test("demand delivery converges to a reversion matching the in-flight snapshot")
-    func demandDeliveryConvergesToInFlightReversion() async throws {
-        try await withAsyncTestCoreAtoms { coreAtoms in
-            let store = WorkspaceStore()
-            let repository = store.addRepo(at: URL(fileURLWithPath: "/tmp/pr-demand-reversion"))
-            let worktree = try #require(repository.worktrees.first)
-            let pane = store.createPane(
-                launchDirectory: worktree.path,
-                facets: PaneContextFacets(
-                    repoId: repository.id,
-                    worktreeId: worktree.id,
-                    cwd: worktree.path
-                )
-            )
-            store.appendTab(Tab(paneId: pane.id))
-
-            let source = PullRequestDemandRecordingFilesystemSource()
-            let windowLifecycle = WindowLifecycleAtom()
-            let coordinator = WorkspaceSurfaceCoordinator(
-                store: store,
-                viewRegistry: ViewRegistry(),
-                runtime: SessionRuntime(store: store),
-                surfaceManager: PullRequestDemandSurfaceManager(),
-                runtimeRegistry: RuntimeRegistry(),
-                paneEventBus: EventBus<RuntimeEnvelope>(),
-                filesystemSource: source,
-                windowLifecycleStore: windowLifecycle,
-                bridgePaneAttendance: BridgePaneAttendanceAtom()
-            )
-            let owningWindowId = UUIDv7.generate()
-            let sidebarWorktreeId = UUIDv7.generate()
-            let visiblePaneDemand: Set<UUID> = [worktree.id]
-            let intermediateDemand: Set<UUID> = [worktree.id, sidebarWorktreeId]
-
-            coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([])
-            coordinator.bindPullRequestDemand(toOwningWindowId: owningWindowId)
-            #expect(await source.waitForLastSnapshot([]))
-            await source.suspendNextSnapshot(visiblePaneDemand)
-
-            windowLifecycle.recordWindowRegistered(owningWindowId)
-            windowLifecycle.recordWindowPresentation(
-                WindowPresentationFacts(isVisible: true, isMiniaturized: false, isOccluded: false),
-                for: owningWindowId
-            )
-            #expect(await source.waitForLastSnapshot(visiblePaneDemand))
-
-            coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([sidebarWorktreeId])
-            await eventually("intermediate demand should become pending") {
-                coordinator.pendingPullRequestDemandWorktreeIds == intermediateDemand
-            }
-
-            coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([])
-            await eventually("latest demand should replace pending demand even when it matches in-flight") {
-                coordinator.pendingPullRequestDemandWorktreeIds == visiblePaneDemand
-            }
-
-            await source.releaseSuspendedSnapshot()
-            await eventually("demand delivery should settle") {
-                coordinator.pullRequestDemandDeliveryTask == nil
-            }
-            #expect(await source.lastSnapshot == visiblePaneDemand)
-            #expect(await source.snapshotCount == 2)
-
-            await coordinator.shutdown()
-        }
-    }
 }
 
 private actor PullRequestDemandRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
@@ -198,6 +130,10 @@ private actor PullRequestDemandRecordingFilesystemSource: WorkspaceFilesystemSou
                 suspendedSnapshotContinuation = continuation
             }
         }
+    }
+
+    func setRepositoryFactDemand(_ snapshot: RepositoryFactDemandSnapshot) async {
+        await setPullRequestDemandWorktrees(snapshot.forgeDemandedWorktreeIds)
     }
 
     func suspendNextSnapshot(_ worktreeIds: Set<UUID>) {

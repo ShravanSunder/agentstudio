@@ -371,6 +371,37 @@ package actor GitWorkingDirectoryProjector {
         scheduleCoalescedVisibilityAdmission()
     }
 
+    package func setRepositoryFactAttention(
+        activePaneWorktreeId: UUID?,
+        sidebarAttendedWorktreeIds: Set<UUID>,
+        visibleActiveTabWorktreeIds: Set<UUID>,
+        openWorktreeIds: Set<UUID>
+    ) {
+        let previousAttentionWorktreeIds =
+            activeWorktreeIds
+            .union(sidebarVisibleWorktreeIds)
+            .union(self.activePaneWorktreeId.map { [$0] } ?? [])
+        let nextOpenWorktreeIds = openWorktreeIds.union(visibleActiveTabWorktreeIds)
+        let nextAttentionWorktreeIds =
+            nextOpenWorktreeIds
+            .union(sidebarAttendedWorktreeIds)
+            .union(activePaneWorktreeId.map { [$0] } ?? [])
+        let newlyAttendedWorktreeIds = nextAttentionWorktreeIds.subtracting(previousAttentionWorktreeIds)
+        let noLongerAttendedWorktreeIds = previousAttentionWorktreeIds.subtracting(nextAttentionWorktreeIds)
+
+        self.activePaneWorktreeId = activePaneWorktreeId
+        activeWorktreeIds = nextOpenWorktreeIds
+        sidebarVisibleWorktreeIds = sidebarAttendedWorktreeIds
+
+        for worktreeId in noLongerAttendedWorktreeIds {
+            tierEligibleWorktreeIds.remove(worktreeId)
+        }
+        for worktreeId in newlyAttendedWorktreeIds {
+            scheduleAutomaticRefresh(worktreeId: worktreeId, allowsPromptMissingBaseline: true)
+        }
+        scheduleCoalescedVisibilityAdmission()
+    }
+
     package func refreshRegisteredWorktreesImmediately() {
         for worktreeId in rootPathByWorktreeId.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
             enqueueImmediateRefreshIfRegistered(

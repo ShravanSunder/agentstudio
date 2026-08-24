@@ -219,6 +219,18 @@ package actor FilesystemActor {
         activePaneWorktreeId = worktreeId
     }
 
+    package func setRepositoryFactAttention(
+        activePaneWorktreeId: UUID?,
+        openWorktreeIds: Set<UUID>
+    ) {
+        self.activePaneWorktreeId = activePaneWorktreeId
+        for worktreeId in roots.keys {
+            guard var root = roots[worktreeId] else { continue }
+            root.isActiveInApp = openWorktreeIds.contains(worktreeId)
+            roots[worktreeId] = root
+        }
+    }
+
     package func start() async {
         // Ingress/drain tasks are initialized during actor init; start is explicit for
         // lifecycle parity with other filesystem source conformers.

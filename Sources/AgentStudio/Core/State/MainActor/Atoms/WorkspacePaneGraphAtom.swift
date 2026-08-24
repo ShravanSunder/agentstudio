@@ -5,6 +5,25 @@ import os.log
 
 private let workspacePaneLogger = Logger(subsystem: "com.agentstudio", category: "WorkspacePaneGraphAtom")
 
+package struct PaneRepositoryAssociation: Equatable, Sendable {
+    package let repoId: UUID?
+    package let worktreeId: UUID?
+
+    package init(repoId: UUID?, worktreeId: UUID?) {
+        if repoId != nil, worktreeId != nil {
+            self.repoId = repoId
+            self.worktreeId = worktreeId
+        } else {
+            self.repoId = nil
+            self.worktreeId = nil
+        }
+    }
+
+    fileprivate init(facets: PaneGraphFacets) {
+        self.init(repoId: facets.repoId, worktreeId: facets.worktreeId)
+    }
+}
+
 struct DrawerGraphState: Hashable, Sendable {
     let drawerId: UUID
     let parentPaneId: UUID
@@ -317,6 +336,10 @@ package final class WorkspacePaneGraphAtom {
         telemetryLabel: "pane_graph_structural",
         isContentEqual: ==
     )
+    @ObservationIgnored private let paneRepositoryAssociationMap = AtomFamily<UUID, PaneRepositoryAssociation>(
+        telemetryLabel: "pane_graph_repository_association",
+        isContentEqual: ==
+    )
     @ObservationIgnored private let acceptedCommitRevision = AtomRevision()
     @ObservationIgnored private var latestIssuedAssociationRevisionByPaneID: [UUID: UInt64] = [:]
     @ObservationIgnored private var lastAppliedAssociationRevisionByPaneID: [UUID: UInt64] = [:]
@@ -327,6 +350,11 @@ package final class WorkspacePaneGraphAtom {
     package var paneIDs: Set<UUID> {
         _ = paneStateMap.membershipRevision
         return paneStateMap.membershipKeys()
+    }
+
+    package var repositoryAssociationPaneIds: Set<UUID> {
+        _ = paneRepositoryAssociationMap.membershipRevision
+        return paneRepositoryAssociationMap.membershipKeys()
     }
 
     package var paneAcceptedCommitRevision: Int {
@@ -343,6 +371,10 @@ package final class WorkspacePaneGraphAtom {
 
     package func paneStructuralFacts(_ id: UUID) -> PaneStructuralFacts? {
         paneStructuralFactsMap.value(for: id)
+    }
+
+    package func repositoryAssociation(for paneId: UUID) -> PaneRepositoryAssociation? {
+        paneRepositoryAssociationMap.value(for: paneId)
     }
 
     package func paneStateSnapshot() -> [UUID: PaneGraphState] {
@@ -920,6 +952,7 @@ package final class WorkspacePaneGraphAtom {
         for removedPaneID in removedPaneIDs {
             paneStateMap.removeValue(for: removedPaneID, mutation: mutation)
             paneStructuralFactsMap.removeValue(for: removedPaneID, mutation: mutation)
+            paneRepositoryAssociationMap.removeValue(for: removedPaneID, mutation: mutation)
             latestIssuedAssociationRevisionByPaneID.removeValue(forKey: removedPaneID)
             lastAppliedAssociationRevisionByPaneID.removeValue(forKey: removedPaneID)
         }
@@ -927,6 +960,11 @@ package final class WorkspacePaneGraphAtom {
             paneStateMap.setValue(nextPaneState, for: paneID, mutation: mutation)
             paneStructuralFactsMap.setValue(
                 PaneStructuralFacts(state: nextPaneState),
+                for: paneID,
+                mutation: mutation
+            )
+            paneRepositoryAssociationMap.setValue(
+                PaneRepositoryAssociation(facets: nextPaneState.metadata.facets),
                 for: paneID,
                 mutation: mutation
             )
@@ -944,6 +982,7 @@ package final class WorkspacePaneGraphAtom {
 
         precondition(Set(paneStateMap.snapshot().keys) == nextPaneIDs)
         precondition(Set(paneStructuralFactsMap.snapshot().keys) == nextPaneIDs)
+        precondition(Set(paneRepositoryAssociationMap.snapshot().keys) == nextPaneIDs)
         precondition(
             nextPaneStates.allSatisfy { paneID, paneState in
                 paneStructuralFactsMap.snapshotValue(for: paneID) == PaneStructuralFacts(state: paneState)

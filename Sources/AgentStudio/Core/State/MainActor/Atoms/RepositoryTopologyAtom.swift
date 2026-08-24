@@ -145,6 +145,10 @@ package final class RepositoryTopologyAtom {
         telemetryLabel: "repository_topology_worktree",
         isContentEqual: ==
     )
+    @ObservationIgnored private let worktreeRepositoryMembershipFamily = AtomFamily<UUID, UUID>(
+        telemetryLabel: "repository_topology_worktree_repository_membership",
+        isContentEqual: ==
+    )
     @ObservationIgnored private let topologyRevisionAtom = AtomRevision()
     @ObservationIgnored private let orderedMembershipRevisionAtom = AtomRevision()
     @ObservationIgnored private var worktreePathIndex: [RepositoryTopologyPathIndexEntry] = []
@@ -184,6 +188,11 @@ package final class RepositoryTopologyAtom {
     package var worktreeIdsInOrder: [UUID] {
         _ = orderedMembershipRevisionAtom.value
         return orderedWorktreeIDs
+    }
+
+    package var repositoryMembershipWorktreeIds: Set<UUID> {
+        _ = worktreeRepositoryMembershipFamily.membershipRevision
+        return worktreeRepositoryMembershipFamily.membershipKeys()
     }
 
     var watchedPathIdsInOrder: [UUID] {
@@ -252,6 +261,10 @@ package final class RepositoryTopologyAtom {
 
     package func worktree(_ id: UUID) -> Worktree? {
         worktreeFamily.value(for: id)
+    }
+
+    package func repositoryId(containing worktreeId: UUID) -> UUID? {
+        worktreeRepositoryMembershipFamily.value(for: worktreeId)
     }
 
     package func validatedAssociation(
@@ -450,6 +463,10 @@ package final class RepositoryTopologyAtom {
         )
         worktreeFamily.replaceAll(
             Dictionary(uniqueKeysWithValues: repos.flatMap(\.worktrees).map { ($0.id, $0) }),
+            mutation: mutation
+        )
+        worktreeRepositoryMembershipFamily.replaceAll(
+            Dictionary(uniqueKeysWithValues: repos.flatMap(\.worktrees).map { ($0.id, $0.repoId) }),
             mutation: mutation
         )
         mutation.commit()

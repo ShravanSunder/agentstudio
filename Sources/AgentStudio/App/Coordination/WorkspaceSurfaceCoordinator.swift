@@ -109,6 +109,11 @@ final class WorkspaceSurfaceCoordinator {
     var pullRequestDemandInFlightWorktreeIds: Set<UUID>?
     var pendingPullRequestDemandWorktreeIds: Set<UUID>?
     var lastDeliveredPullRequestDemandWorktreeIds: Set<UUID>?
+    var repositoryFactDemandOwningWindowId: UUID?
+    var repositoryFactDemandObservationGeneration: UInt64 = 0
+    lazy var repositoryFactDemandCoordinator = RepositoryFactDemandCoordinator { [weak self] snapshot in
+        await self?.filesystemSource.setRepositoryFactDemand(snapshot)
+    }
     var bridgeGitReadActivityPropagationTask: Task<Void, Never>?
     var zoomCompanionContinuityBySourcePaneId: [UUID: ZoomCompanionContinuity] = [:]
 
@@ -220,7 +225,6 @@ final class WorkspaceSurfaceCoordinator {
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         setupPrePersistHook()
         setupFilesystemSourceSync()
-        startObservingActivePaneWorktree()
         startPaneEventIngress()
         startRuntimeReducerConsumers()
         startBridgePaneActivityObservation()
@@ -238,12 +242,13 @@ final class WorkspaceSurfaceCoordinator {
         batchedRuntimeEventsTask?.cancel()
         filesystemSyncTask?.cancel()
         bridgePaneActivityObservationGeneration &+= 1
+        repositoryFactDemandObservationGeneration &+= 1
         pullRequestDemandObservationGeneration &+= 1
         pullRequestDemandDeliveryTask?.cancel()
         let filesystemSource = filesystemSource
         let filesystemProjectionIndex = filesystemProjectionIndex
         Task {
-            await filesystemSource.setPullRequestDemandWorktrees([])
+            await filesystemSource.setRepositoryFactDemand(.empty)
             await filesystemProjectionIndex.shutdown()
             await filesystemSource.shutdown()
         }
@@ -253,6 +258,7 @@ final class WorkspaceSurfaceCoordinator {
         retireAllZoomCompanions()
         closeAllBridgePaneActivityAuthorities()
         bridgePaneActivityObservationGeneration &+= 1
+        stopRepositoryFactDemandObservation()
         pullRequestDemandObservationGeneration &+= 1
         for paneId in viewRegistry.allBridgeViews.keys {
             teardownView(for: paneId)
@@ -286,6 +292,7 @@ final class WorkspaceSurfaceCoordinator {
         }
         runtimeEventBridgeTasks.removeAll()
 
+        await repositoryFactDemandCoordinator.shutdown()
         await filesystemProjectionIndex.shutdown()
 
         if let activePaneEventIngressTask {
@@ -311,7 +318,6 @@ final class WorkspaceSurfaceCoordinator {
         await drainBridgeGitReadActivityPropagation()
         await worktreeProductConstructionCoordinator.shutdown()
         await bridgeGitReadScheduler.shutdown()
-        await filesystemSource.setPullRequestDemandWorktrees([])
         await filesystemSource.shutdown()
     }
 
