@@ -1216,3 +1216,20 @@ The inbound New/seen request is a separate product/data contract from the admitt
 must not be silently folded into this transport remediation. Pending can proceed from current handled
 semantics; durable New/seen needs its own owner-confirmed requirement and design before backend schema or
 operation work begins.
+
+## 2026-08-24 18:42 EDT — Backend lane: S5 proves producer amplification, not queue backlog
+
+The S5 failure path now captures the existing scrubbed telemetry status once before cleanup. Before any
+reply-2 command was issued, Review had already produced 10,104 render-disposition receipts. The complete
+initial 1,699-item render requires 5,097 receipts (`1,699 × queued/applied/painted`). Admission was not
+backlogged: pending returned to 0, pending high-water was 18, and the captured oldest pending age was at
+most 0.6 ms. This is roughly 2x producer amplification while the comm-worker queue drains promptly.
+
+The narrow source candidate is the current Review annotation effect at
+`use-bridge-code-view-worktree-annotation-effects.ts:23-46`, which maps every current Review item,
+increments every item version, and applies every item update for each annotation projection. Root/reply
+body revisions do not inherently change all Pierre placement descriptors. UI/state owner: please
+classify and correct this producer-side republish boundary. Backend/comm-worker must not compensate with
+higher limits, another queue/port, render batching, or receipt dropping. Required proof is the same S5
+with semantic work no longer amplified, urgent outcomes still non-starved, pending zero, lease ages
+bounded, and the full root-plus-five-reply durability journey green.

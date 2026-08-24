@@ -43,7 +43,45 @@ No new port, queue owner, scheduler, coordinator, credit system, generation,
 tombstone, security boundary, persistence layer, or proxy is authorized or
 needed by current evidence.
 
-## Current evidence — 2026-08-24 18:34 EDT
+## Current evidence — 2026-08-24 18:42 EDT
+
+### Proven render-receipt amplification at the reply-2 boundary — 18:42 EDT
+
+The S5 failure path now captures the existing scrubbed telemetry status once
+before cleanup. The first instrumented run observed, before any reply-2 command
+was issued:
+
+- produced Review render-disposition receipts: 10,104;
+- pending receipts: 0 after the latest drain;
+- pending high-water mark: 18;
+- oldest pending receipt: at most 0.6 milliseconds in the captured tail;
+- ordinary acknowledged batches continued to complete, with two degraded
+  terminals recovering immediately to pending zero.
+
+The specified complete initial Review render is 1,699 items times three
+dispositions, or 5,097 receipts. Producing 10,104 before reply 2 proves roughly
+2x render-receipt amplification even though admission drains promptly. This is
+not the prior worker-port backlog: queue age and pending count are low. It is a
+producer-side republish defect upstream of disposition admission.
+
+Current source evidence identifies the narrow candidate at
+`use-bridge-code-view-worktree-annotation-effects.ts:23-46`: every annotation
+projection maps every current Review item, increments every item version, and
+applies every item update. A root/reply body revision does not necessarily
+change all 1,699 Pierre placement descriptors. The UI/state owner must classify
+and correct that producer boundary; this transport lane must not compensate by
+raising limits, adding another queue, batching render jobs, or dropping valid
+receipts.
+
+Required proof after the producer correction:
+
+1. the same S5 failure/success telemetry must no longer exceed the expected
+   semantic render work for unchanged placements;
+2. urgent annotation outcomes must remain ahead of later disposition batches;
+3. pending count must return to zero and oldest age remain below the lease;
+4. the full green journey must still produce exactly 5,097 initial Review
+   receipts unless a documented semantic placement change requires additional
+   work.
 
 ### Combined-HEAD rerun after concurrent UI/state commit
 
@@ -191,8 +229,14 @@ a 47-second urgent-command backlog after the committed correction.
   repeatable product evidence and neither authorizes code changes.
 - The long-running manual Vite/Swift pair remained healthy at the HTTP level
   (`200` Vite, `204` proxied backend health) while one old browser tab waited for
-  Review metadata. That manual-loop flake still needs a fresh owned launch and
-  marker-scoped evidence before assigning a source owner.
+  Review metadata. A fresh isolated launch at 18:38 EDT resolved that ambiguity:
+  backend health was `204`, Vite-proxied health was `204`, the page was `200`,
+  and the Review loaded current worktree metadata plus changed-file content.
+  The fresh loop used Swift PID `77352`, Vite PID `77390`, data root
+  `/tmp/agentstudio-bridge-dev.transport-proof.4lPOCL`, and URL
+  `http://127.0.0.1:5174/?fixture=worktree&viewer=review&workers=on&scenario=current-worktree`.
+  The old waiting tab is therefore stale-loop evidence, not a reproduced current
+  backend startup defect.
 
 ## Open transport/backend questions
 
