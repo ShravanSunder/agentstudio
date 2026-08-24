@@ -1,16 +1,14 @@
 export const marketingCopy = {
   productName: "Agent Studio",
   hero: {
-    eyebrow: "Native macOS. Repository-aware. Terminal-first.",
+    eyebrow: "Native macOS. Repo-aware. Terminal-first.",
     headline: "Run dozens of agents in one workspace. Stay oriented. Miss nothing.",
-    headlineLead: "Run dozens of agents",
-    headlineMiddleBeforeAccent: "in one ",
-    headlineMiddleAccent: "workspace.",
-    headlineTailBeforeAccent: "Stay ",
-    headlineTailAccent: "oriented",
-    headlineTailAfterAccent: ". Miss nothing.",
+    headlineSetupFirst: "Run dozens of agents",
+    headlineSetupSecondBeforeAccent: "in one ",
+    headlineSetupSecondAccent: "workspace.",
+    headlinePayoff: "Stay oriented. Miss nothing.",
     description:
-      "Agent Studio is a native macOS terminal workspace for coding agents, with your repositories and worktrees always within reach. Your agents run in Ghostty terminals, with Files, Review, and annotations right beside them.",
+      "Agent Studio is a native macOS workspace for coding agents, with your repositories and worktrees within reach. Your agents run in Ghostty terminals with files, diffs, and annotations right beside them.",
   },
   switcher: {
     eyebrow: "Organized parallelism",
@@ -28,10 +26,10 @@ export const marketingCopy = {
         "Agent Studio All Panes showing active Codex and Claude Code sessions with repository, worktree, branch, and activity context.",
     },
     watchFolders: {
-      label: "Watch folders",
+      label: "Watch your repos",
       description: "Agent Studio watches your repos. Stay oriented across every repo and worktree.",
       phoneDescription:
-        "Agent Studio watches your repos. Stay oriented across every repo and worktree.",
+        "Agent Studio watches your repos. You can easily create or view terminals in all your repos.",
       imageDescription:
         "Agent Studio welcome screen explaining Watch Folder discovery beside an example repository and worktree map.",
     },
@@ -57,12 +55,12 @@ export const marketingCopy = {
         "Agent Studio Files showing a source file beside its repository tree, with Review available as the adjacent tab and the global sidebar hidden.",
     },
     review: {
-      label: "Review",
+      label: "Files & Review",
       description:
-        "Review every changed file in one continuous diff, with the Changed Files tree beside it.",
-      phoneDescription: "Browse changed files beside the diff.",
+        "Browse your repository and review every changed file without leaving the task you're working on.",
+      phoneDescription: "Browse files and review changes beside your task.",
       imageDescription:
-        "Agent Studio Review showing an AGENTS.md diff and its Changed Files tree, with the global sidebar hidden.",
+        "Agent Studio Review showing an AGENTS.md diff and its Changed Files tree, with Files available as the adjacent tab and the global sidebar hidden.",
     },
     gitContext: {
       label: "Git and PR context",
@@ -184,7 +182,7 @@ export const marketingCopy = {
   finalCallToAction: {
     description:
       "A workspace for keeping agents, terminals, source, reviews, and project context together.",
-    traits: "Agent-agnostic. Repo-aware. Keyboard-first. Built on Ghostty.",
+    traits: "Built on Ghostty.",
   },
   githubUrl: "https://github.com/ShravanSunder/agentstudio",
 } as const;

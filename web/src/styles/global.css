@@ -24,11 +24,28 @@
 
   --text-eyebrow: 12px;
   --text-compact-control: 11px;
-  --text-marketing-body: 19px;
+  --text-marketing-body: clamp(18px, calc(16.4px + 0.25vw), 20px);
   --text-marketing-body--line-height: 1.55;
-  --text-section-title: clamp(48px, 6.4vw, 94px);
+
+  --text-hero: clamp(36px, 7.75vw, 116px);
+  --text-hero--line-height: 0.88;
+  --text-hero--letter-spacing: -0.065em;
+
+  --text-hero-payoff: clamp(26px, 5.5vw, 82px);
+  --text-hero-payoff--line-height: 0.94;
+  --text-hero-payoff--letter-spacing: -0.045em;
+
+  --text-section-title: clamp(28px, 5.6vw, 84px);
   --text-section-title--line-height: 0.92;
-  --text-section-title--letter-spacing: -0.06em;
+  --text-section-title--letter-spacing: -0.055em;
+
+  --text-feature-title: clamp(22px, 3vw, 44px);
+  --text-feature-title--line-height: 1;
+  --text-feature-title--letter-spacing: -0.04em;
+
+  --text-closing-display: clamp(36px, 7vw, 104px);
+  --text-closing-display--line-height: 0.92;
+  --text-closing-display--letter-spacing: -0.055em;
 
   --tracking-eyebrow: 0.12em;
 
@@ -38,7 +55,7 @@
   --radius-control: 10px;
 
   --container-frame: 1440px;
-  --container-copy: 700px;
+  --container-copy: 800px;
   --container-hero: 1296px;
   --container-section-heading: 900px;
 

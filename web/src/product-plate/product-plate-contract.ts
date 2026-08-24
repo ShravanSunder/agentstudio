@@ -2,7 +2,6 @@ export const productPlateStoryIds = [
   "watch-folder",
   "parallel-work",
   "quick-find",
-  "files",
   "review",
 ] as const;
 
