@@ -11,11 +11,11 @@ struct SidebarPerformancePolicyParserScriptTests {
             prefix + "policy_version": 3,
             prefix + "idle_p99_max_percent": 10.0,
             prefix + "action_p95_max_percent": 20.0,
-            prefix + "sample_interval_ms": 1000.0,
+            prefix + "sample_interval_ms": "1000.0",
             prefix + "idle_sample_floor": 1000,
             prefix + "action_count_floor": 100,
             prefix + "action_sample_floor": 200,
-            prefix + "fixture_preparation_timeout_ms": 300_000.0,
+            prefix + "fixture_preparation_timeout_ms": "300000.0",
             prefix + "fixture_state_observation_interval_ms": 10.0,
             prefix + "fixture_tab_count": 5,
             prefix + "fixture_pane_model_count": 20,
@@ -29,25 +29,14 @@ struct SidebarPerformancePolicyParserScriptTests {
             prefix + "diagnostic_cpu_delta_max_points": 5.0,
             prefix + "diagnostic_interaction_growth_max_percent": 10.0,
             prefix + "git_status_physical_limit": 4,
-            prefix + "git_maximum_settlement_ms": 960_000.0,
+            prefix + "git_maximum_settlement_ms": "960000.0",
             prefix + "standard_trace_tags": "performance,app.startup,terminal.startup",
             prefix + "diagnostic_trace_tags": "performance,atoms,app.startup,terminal.startup",
             prefix + "idle_populations": "zero_pty_idle,quiescent_pty_idle",
             prefix + "action_populations": "search_clear,grouping,hide_show,tab_switch",
         ]
         let recordData = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
-        var recordJSON = try #require(String(data: recordData, encoding: .utf8))
-        for (field, value) in [
-            ("sample_interval_ms", "1000"),
-            ("fixture_preparation_timeout_ms", "300000"),
-            ("git_maximum_settlement_ms", "960000"),
-        ] {
-            recordJSON = recordJSON.replacingOccurrences(
-                of: "\(prefix)\(field)\":\(value)",
-                with: "\(prefix)\(field)\":\(value).0"
-            )
-            #expect(recordJSON.contains("\(prefix)\(field)\":\(value).0"))
-        }
+        let recordJSON = try #require(String(data: recordData, encoding: .utf8))
 
         let result = try await runSidebarScript(
             arguments: ["scripts/verify-sidebar-performance-workload.sh", "--prepare-only"],

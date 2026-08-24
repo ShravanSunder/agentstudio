@@ -484,7 +484,7 @@ parse_strict_sidebar_policy() {
   local policy_file="${1:?missing policy file}"
   local environment_file="${2:?missing policy environment file}"
   /usr/bin/python3 - "$policy_file" "$environment_file" <<'PY'
-import json, pathlib, shlex, sys
+import json, math, pathlib, shlex, sys
 records = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
 if len(records) != 1:
     raise SystemExit(f"strict policy requires exactly one record, got {len(records)}")
@@ -526,6 +526,14 @@ for variable, suffix in mapping.items():
         raise SystemExit(f"strict policy missing {suffix}")
     if isinstance(value, float) and value.is_integer():
         value = int(value)
+    elif isinstance(value, str):
+        try:
+            numeric_value = float(value)
+        except ValueError:
+            pass
+        else:
+            if math.isfinite(numeric_value) and numeric_value.is_integer():
+                value = int(numeric_value)
     values[variable] = str(value)
 values["STRICT_POLICY_IDLE_POPULATIONS"] = values["STRICT_POLICY_IDLE_POPULATIONS"].replace(",", " ")
 values["STRICT_POLICY_ACTION_POPULATIONS"] = values["STRICT_POLICY_ACTION_POPULATIONS"].replace(",", " ")
