@@ -1197,3 +1197,22 @@ the UI removes New. Choose internal schema and operation naming in the backend l
 public projection field and operation contract here. Do not change React presentation files. The UI lane
 will implement Pending now from `authorKind` plus `handled`, and will wire New only after this contract is
 returned.
+
+## 2026-08-24 18:34 EDT — Backend lane: combined-HEAD S5 remains pre-command RED
+
+The exact permanent 1,699-item journey was rerun after UI/state checkpoint `b75728242`. Root and reply 1
+again completed create/flush/save through the production comm worker and Swift/SQLite backend. Reply 2
+again stopped before any command was issued: its current visible/enabled connected Reply button received
+one pointerdown, mousedown, and click, but no composer opened. There were no console errors or warnings;
+the owned fixture and server cleaned up successfully.
+
+Current backend proof on the same shared state remains green: comm-worker owner/runtime unit tests 52/52,
+actual `MessageChannel` integration 2/2, Swift root-plus-five-reply HTTP/SQLite restart 1/1, OTLP render-
+disposition metrics 2/2, wire schema 7/7, forbidden overengineering-symbol scan clean, and `git diff
+--check` clean. Please keep the UI/state fix at the pre-command interaction boundary; no transport retry,
+new queue/port, click retry, force-click, or timeout increase is justified.
+
+The inbound New/seen request is a separate product/data contract from the admitted backpressure goal and
+must not be silently folded into this transport remediation. Pending can proceed from current handled
+semantics; durable New/seen needs its own owner-confirmed requirement and design before backend schema or
+operation work begins.
