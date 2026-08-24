@@ -1,5 +1,6 @@
 import AgentStudioGit
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -69,12 +70,31 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         }
         #expect(allFactsArrived)
 
+        await expectInitialSourceWorkSettled(
+            gitProvider: gitProvider,
+            remoteReferenceProvider: remoteReferenceProvider,
+            forgeProvider: forgeProvider
+        )
+
         let sourceCallsBeforeAttentionChange = await sourceCallCounts(
             gitProvider: gitProvider,
             remoteReferenceProvider: remoteReferenceProvider,
             forgeProvider: forgeProvider
         )
         let cacheRevisionBeforeAttentionChange = repoCache.cacheRevision
+        let worktreeInvalidationCounter = DemandIntegrationInvalidationCounter()
+        let pullRequestInvalidationCounter = DemandIntegrationInvalidationCounter()
+        let branchKey = try #require(RepoBranchKey(repoId: repository.id, branch: "main"))
+        withObservationTracking {
+            _ = repoCache.worktreeEnrichment(for: worktreeId)
+        } onChange: {
+            worktreeInvalidationCounter.record()
+        }
+        withObservationTracking {
+            _ = repoCache.pullRequestFacts(for: branchKey)
+        } onChange: {
+            pullRequestInvalidationCounter.record()
+        }
         let changedAttentionWithEqualMembership = RepositoryFactDemandSnapshot(
             activePaneWorktreeId: worktreeId,
             sidebarAttendedWorktreeIds: [],
@@ -85,9 +105,7 @@ struct FilesystemGitPipelineDemandIntegrationTests {
 
         demandCoordinator.accept(changedAttentionWithEqualMembership)
         await demandCoordinator.waitUntilIdle()
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        await pipeline.waitForRepositoryFactDemandAdmission()
 
         let sourceCallsAfterAttentionChange = await sourceCallCounts(
             gitProvider: gitProvider,
@@ -96,12 +114,12 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         )
         #expect(sourceCallsAfterAttentionChange == sourceCallsBeforeAttentionChange)
         #expect(repoCache.cacheRevision == cacheRevisionBeforeAttentionChange)
+        #expect(!worktreeInvalidationCounter.didFire)
+        #expect(!pullRequestInvalidationCounter.didFire)
         #expect(repoCache.worktreeEnrichment(for: worktreeId)?.branch == "main")
         #expect(repoCache.pullRequestFactsForTest(worktreeId: worktreeId)?.openCount == 1)
 
-        await demandCoordinator.shutdown()
-        await pipeline.shutdown()
-        await cacheCoordinator.shutdown()
+        await shutdown(demandCoordinator: demandCoordinator, pipeline: pipeline, cacheCoordinator: cacheCoordinator)
     }
 
     private func eventually(
@@ -137,6 +155,53 @@ struct FilesystemGitPipelineDemandIntegrationTests {
             remoteCleanup: remote.cleanup,
             forge: forge
         )
+    }
+
+    private func expectInitialSourceWorkSettled(
+        gitProvider: DemandIntegrationGitStatusProvider,
+        remoteReferenceProvider: DemandIntegrationRemoteReferenceProvider,
+        forgeProvider: DemandIntegrationForgeProvider
+    ) async {
+        let expectedCounts = DemandIntegrationSourceCallCounts(
+            gitStatus: 2,
+            gitLineDetail: 1,
+            remoteCapture: 2,
+            remoteFetch: 1,
+            remotePromote: 1,
+            remoteCleanup: 1,
+            forge: 1
+        )
+        let settled = await eventually("initial source work should settle completely") {
+            await sourceCallCounts(
+                gitProvider: gitProvider,
+                remoteReferenceProvider: remoteReferenceProvider,
+                forgeProvider: forgeProvider
+            ) == expectedCounts
+        }
+        let actualCounts = await sourceCallCounts(
+            gitProvider: gitProvider,
+            remoteReferenceProvider: remoteReferenceProvider,
+            forgeProvider: forgeProvider
+        )
+        #expect(settled, Comment(rawValue: "initial source call counts: \(actualCounts)"))
+    }
+
+    private func shutdown(
+        demandCoordinator: RepositoryFactDemandCoordinator,
+        pipeline: FilesystemGitPipeline,
+        cacheCoordinator: WorkspaceCacheCoordinator
+    ) async {
+        await demandCoordinator.shutdown()
+        await pipeline.shutdown()
+        await cacheCoordinator.shutdown()
+    }
+}
+
+private final class DemandIntegrationInvalidationCounter: @unchecked Sendable {
+    private(set) var didFire = false
+
+    func record() {
+        didFire = true
     }
 }
 
