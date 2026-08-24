@@ -375,6 +375,9 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         ] {
             #expect(source.contains("agentstudio.startup_diagnostic.sidebar_proof.\(attribute)"))
         }
+        for policyAttribute in ["git_status_physical_limit", "git_maximum_settlement_ms"] {
+            #expect(source.contains("agentstudio.startup_diagnostic.sidebar_proof.\(policyAttribute)"))
+        }
         for attribute in [
             "terminal_input_baseline", "terminal_output_baseline",
             "ordered_command_baseline",

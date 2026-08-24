@@ -85,6 +85,7 @@ extension GitWorkingDirectoryProjector {
         let generation = deadlineTaskGeneration
         deadlineTask?.cancel()
         deadlineTask = nil
+        recordLogicalDebtSnapshotIfChanged()
         guard !isShuttingDown, let earliestDeadline = earliestRefreshDeadline else { return }
 
         let deadlineClock = self.deadlineClock

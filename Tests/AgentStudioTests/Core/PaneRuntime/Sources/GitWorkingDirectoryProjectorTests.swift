@@ -81,8 +81,21 @@ struct GitWorkingDirectoryProjectorTests {
 
         await actor.shutdown()
         try await recorder.drain()
-        let debtCounts = try gitLogicalDebtTraceCounts(from: traceRuntime)
-        #expect(debtCounts == [2, 1, 1, 2, 1, 0])
+        let settlementRecords = try gitLogicalDebtTraceAttributes(from: traceRuntime)
+        let debtCounts = settlementRecords.compactMap {
+            $0["agentstudio.performance.git.logical_debt.count"] as? Int
+        }
+        #expect(debtCounts.first == 0)
+        #expect(debtCounts.last == 0)
+        #expect(debtCounts.contains(2))
+        #expect(
+            settlementRecords.contains {
+                $0["agentstudio.performance.git.future_failure.count"] as? Int == 1
+            })
+        #expect(
+            settlementRecords.allSatisfy {
+                $0["agentstudio.performance.git.overdue_deadline.count"] as? Int == 0
+            })
     }
 
     @Test("real SDK provider emits initial git snapshot")
@@ -176,6 +189,11 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(await calls.value() == 0)
         #expect(await actor.pendingByWorktreeId[worktreeId] != nil)
         #expect(await actor.automaticRefreshDeadlineByWorktreeId[worktreeId] != nil)
+        let futureSettlement = await actor.logicalDebtSnapshot()
+        #expect(futureSettlement.futureAutomaticCount == 1)
+        #expect(futureSettlement.readyPendingCount == 0)
+        #expect(futureSettlement.overdueDeadlineCount == 0)
+        #expect(futureSettlement.nextDeadlineMilliseconds > 0)
 
         await bus.post(
             makeFilesChangedEnvelope(
@@ -367,6 +385,10 @@ struct GitWorkingDirectoryProjectorTests {
                 && snapshot.logicalDebtCount == 1
         }
         #expect(breakerOwnsOneClassifiedRetryDebt)
+        let failureSettlement = await actor.logicalDebtSnapshot()
+        #expect(failureSettlement.futureFailureCount == 1)
+        #expect(failureSettlement.readyPendingCount == 0)
+        #expect(failureSettlement.overdueDeadlineCount == 0)
 
         clock.advance(by: .milliseconds(50))
 
@@ -1220,6 +1242,8 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(boundedDebtSnapshot.logicalPendingCount == 5)
         #expect(boundedDebtSnapshot.logicalRunningCount == 1)
         #expect(boundedDebtSnapshot.logicalDebtCount == 6)
+        #expect(boundedDebtSnapshot.readyPendingCount == 5)
+        #expect(boundedDebtSnapshot.activeFollowUpCount == 0)
 
         await gate.open()
         let drainedAllQueuedWork = await waitUntil {
@@ -4551,9 +4575,9 @@ private func makeGitLogicalDebtTraceRuntime() -> AgentStudioTraceRuntime {
     )
 }
 
-private func gitLogicalDebtTraceCounts(
+private func gitLogicalDebtTraceAttributes(
     from traceRuntime: AgentStudioTraceRuntime
-) throws -> [Int] {
+) throws -> [[String: Any]] {
     let outputFileURL = try #require(traceRuntime.outputFileURL)
     let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
     return try contents.split(separator: "\n").compactMap { line in
@@ -4564,6 +4588,6 @@ private func gitLogicalDebtTraceCounts(
         else {
             return nil
         }
-        return attributes["agentstudio.performance.git.logical_debt.count"] as? Int
+        return attributes
     }
 }

@@ -34,7 +34,7 @@ struct SidebarPerformanceProofPolicyTests {
             encoding: .utf8
         )
 
-        #expect(policySource.contains("package static let policyVersion: Int = 2"))
+        #expect(policySource.contains("package static let policyVersion: Int = 3"))
         #expect(
             policySource.contains(
                 "URL(fileURLWithPath: \"/Users/shravansunder/Documents/dev/open-source\""
@@ -66,6 +66,8 @@ struct SidebarPerformanceProofPolicyTests {
         #expect(AppPolicies.SidebarPerformanceProof.maximumUnrelatedHostCPUPercent == 20)
         #expect(AppPolicies.SidebarPerformanceProof.maximumDiagnosticCPUP95DeltaPercentagePoints == 5)
         #expect(AppPolicies.SidebarPerformanceProof.maximumDiagnosticInteractionP95GrowthPercent == 10)
+        #expect(AppPolicies.SidebarPerformanceProof.gitStatusPhysicalLimit == 4)
+        #expect(AppPolicies.SidebarPerformanceProof.gitMaximumSettlementInterval == .seconds(960))
         #expect(
             AppPolicies.SidebarPerformanceProof.standardTraceTags
                 == ["performance", "app.startup", "terminal.startup"]

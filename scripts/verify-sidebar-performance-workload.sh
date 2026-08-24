@@ -452,7 +452,7 @@ query_victoria_metrics() {
 }
 
 strict_sidebar_policy_query() {
-  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.policy_projected agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count,agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.mounted_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent | limit 1'
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.policy_projected agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count,agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.mounted_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent,agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.git_maximum_settlement_ms | limit 1'
 }
 
 load_strict_sidebar_policy() {
@@ -510,6 +510,8 @@ mapping = {
     "STRICT_POLICY_HOST_CPU_MAX": "unrelated_host_cpu_max_percent",
     "STRICT_POLICY_DIAGNOSTIC_CPU_DELTA_MAX": "diagnostic_cpu_delta_max_points",
     "STRICT_POLICY_DIAGNOSTIC_INTERACTION_GROWTH_MAX": "diagnostic_interaction_growth_max_percent",
+    "STRICT_POLICY_GIT_STATUS_PHYSICAL_LIMIT": "git_status_physical_limit",
+    "STRICT_POLICY_GIT_MAXIMUM_SETTLEMENT_MS": "git_maximum_settlement_ms",
     "STRICT_POLICY_STANDARD_TRACE_TAGS": "standard_trace_tags",
     "STRICT_POLICY_DIAGNOSTIC_TRACE_TAGS": "diagnostic_trace_tags",
     "STRICT_POLICY_IDLE_POPULATIONS": "idle_populations",
@@ -995,7 +997,12 @@ import sys
 
 required = (
     "capture", "execution", "publication", "binding", "visible_update",
-    "git_logical_debt", "export_backlog",
+    "git_logical_debt", "git_future_automatic_count", "git_future_failure_count",
+    "git_ready_pending_count", "git_capacity_pending_count",
+    "git_active_follow_up_count", "git_unclassified_pending_count",
+    "git_overdue_deadline_count", "git_running_count", "git_physical_limit",
+    "git_oldest_preparation_ms", "git_next_deadline_ms",
+    "git_maximum_settlement_ms", "export_backlog",
 )
 try:
     vector = json.loads(sys.argv[1])
@@ -1016,13 +1023,38 @@ for name in required:
         raise SystemExit(f"quiescence vector invalid {name}: {raw_value}") from None
     if not math.isfinite(value) or value < 0:
         raise SystemExit(f"quiescence vector invalid {name}: {raw_value}")
-    if name not in {"git_logical_debt", "export_backlog"} and value < 1:
+    if name in {"capture", "execution", "publication", "binding", "visible_update"} and value < 1:
         raise SystemExit(f"quiescence vector nonpositive {name}: {raw_value}")
-    if name == "git_logical_debt" and value != 0:
-        raise SystemExit("quiescence git logical debt must reach zero")
     if name == "export_backlog" and value != 0:
         raise SystemExit("quiescence export backlog must remain zero")
     normalized.append(f"{name}={value:g}")
+if float(vector["git_overdue_deadline_count"]) != 0:
+    raise SystemExit("quiescence Git deadline is overdue")
+if float(vector["git_ready_pending_count"]) != 0:
+    raise SystemExit("quiescence Git ready work remains pending")
+if float(vector["git_capacity_pending_count"]) != 0:
+    raise SystemExit("quiescence Git capacity retry remains pending")
+if float(vector["git_unclassified_pending_count"]) != 0:
+    raise SystemExit("quiescence Git preparation debt is unclassified")
+running_count = float(vector["git_running_count"])
+physical_limit = float(vector["git_physical_limit"])
+if physical_limit < 1:
+    raise SystemExit("quiescence Git physical limit must be positive")
+if running_count > physical_limit:
+    raise SystemExit("quiescence Git running count exceeds physical limit")
+if float(vector["git_active_follow_up_count"]) > running_count:
+    raise SystemExit("quiescence Git active follow-up exceeds running ownership")
+maximum_settlement_ms = float(vector["git_maximum_settlement_ms"])
+if maximum_settlement_ms <= 0:
+    raise SystemExit("quiescence Git maximum settlement must be positive")
+if float(vector["git_oldest_preparation_ms"]) > maximum_settlement_ms:
+    raise SystemExit("quiescence Git preparation debt exceeds settlement policy")
+next_deadline_ms = float(vector["git_next_deadline_ms"])
+if next_deadline_ms > maximum_settlement_ms:
+    raise SystemExit("quiescence Git next deadline exceeds settlement policy")
+future_count = float(vector["git_future_automatic_count"]) + float(vector["git_future_failure_count"])
+if future_count > 0 and next_deadline_ms <= 0:
+    raise SystemExit("quiescence Git future eligibility is missing its next deadline")
 print(";".join(normalized))
 PY
 }
@@ -1114,6 +1146,57 @@ strict_quiescence_state_is_complete() {
     && [ "$elapsed_ms" -ge "$STRICT_POLICY_QUIESCENCE_MS" ]
 }
 
+strict_final_git_settlement_from_json() {
+  local vector_json="${1:?missing final Git settlement vector}"
+  strict_quiescence_signature_from_json "$vector_json" >/dev/null
+  /usr/bin/python3 - "$vector_json" <<'PY'
+import json
+import sys
+
+vector = json.loads(sys.argv[1])
+if float(vector["git_running_count"]) != 0:
+    raise SystemExit("final Git settlement still owns running work")
+if float(vector["git_active_follow_up_count"]) != 0:
+    raise SystemExit("final Git settlement still owns an active follow-up")
+print("final_git_physical_settlement=complete")
+PY
+}
+
+wait_for_strict_git_physical_settlement() {
+  local marker="${1:?missing marker}"
+  local maximum_attempts=$((STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS \
+    / STRICT_POLICY_SAMPLE_INTERVAL_MS + 2))
+  local attempts=0 observation_time vector_json
+  while [ "$attempts" -lt "$maximum_attempts" ]; do
+    attempts=$((attempts + 1))
+    observation_time="$(/usr/bin/python3 -c 'import time; print(f"{time.time():.6f}")')"
+    vector_json="$(strict_sidebar_quiescence_vector_json \
+      "$marker" "$observation_time" 2>/dev/null || true)"
+    if [ -n "$vector_json" ] \
+      && strict_final_git_settlement_from_json "$vector_json" >/dev/null 2>&1
+    then
+      printf '%s\n' "final_git_physical_settlement=complete"
+      return 0
+    fi
+    /bin/sleep "$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
+      "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
+  done
+  echo "final Git physical settlement did not complete" >&2
+  return 1
+}
+
+validate_strict_periodic_completion_delta() {
+  local baseline="${1:?missing periodic completion baseline}"
+  local final="${2:?missing periodic completion final}"
+  /usr/bin/python3 - "$baseline" "$final" <<'PY'
+import sys
+baseline, final = map(float, sys.argv[1:])
+if final <= baseline:
+    raise SystemExit("idle population did not observe a periodic Git self-heal completion")
+print(f"periodic_completion_delta={final - baseline:g}")
+PY
+}
+
 metric_value_at_observation() {
   local query="${1:?missing metric query}"
   local observation_time="${2:?missing observation time}"
@@ -1154,6 +1237,9 @@ strict_sidebar_quiescence_vector_json() {
   local marker="${1:?missing marker}"
   local observation_time="${2:?missing observation time}"
   local marker_selector capture execution publication binding visible_update git_logical_debt
+  local git_future_automatic_count git_future_failure_count git_ready_pending_count
+  local git_capacity_pending_count git_active_follow_up_count git_unclassified_pending_count
+  local git_overdue_deadline_count git_running_count git_oldest_preparation_ms git_next_deadline_ms
   local export_backlog
   local export_sample_time export_metric_selector
   marker_selector="$(metric_label_selector "$marker")"
@@ -1175,6 +1261,36 @@ strict_sidebar_quiescence_vector_json() {
   git_logical_debt="$(metric_value_at_observation \
     "max(agentstudio_performance_git_logical_debt_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
     "$observation_time")"
+  git_future_automatic_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_future_automatic_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  git_future_failure_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_future_failure_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  git_ready_pending_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_ready_pending_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  git_capacity_pending_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_capacity_pending_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  git_active_follow_up_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_active_follow_up_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  git_unclassified_pending_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_unclassified_pending_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  git_overdue_deadline_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_overdue_deadline_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  git_running_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_logical_running_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  git_oldest_preparation_ms="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_oldest_preparation_ms{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  git_next_deadline_ms="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_next_deadline_ms{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
   export_metric_selector='agentstudio_performance_trace_queue_pending_request_count{agent.proof.marker="'"$marker_selector"'",event="performance.runtime_delivery.snapshot"}'
   export_backlog="$(metric_value_at_observation \
     "max($export_metric_selector)" \
@@ -1183,13 +1299,22 @@ strict_sidebar_quiescence_vector_json() {
     "max(timestamp($export_metric_selector))" \
     "$observation_time")"
   /usr/bin/python3 - "$capture" "$execution" "$publication" "$binding" "$visible_update" \
-    "$git_logical_debt" "$export_backlog" "$observation_time" "$export_sample_time" <<'PY'
+    "$git_logical_debt" "$git_future_automatic_count" "$git_future_failure_count" \
+    "$git_ready_pending_count" "$git_capacity_pending_count" "$git_active_follow_up_count" \
+    "$git_unclassified_pending_count" "$git_overdue_deadline_count" "$git_running_count" \
+    "$STRICT_POLICY_GIT_STATUS_PHYSICAL_LIMIT" "$git_oldest_preparation_ms" \
+    "$git_next_deadline_ms" "$STRICT_POLICY_GIT_MAXIMUM_SETTLEMENT_MS" \
+    "$export_backlog" "$observation_time" "$export_sample_time" <<'PY'
 import json
 import sys
 
 names = (
     "capture", "execution", "publication", "binding", "visible_update",
-    "git_logical_debt", "export_backlog", "observation_time", "export_sample_time",
+    "git_logical_debt", "git_future_automatic_count", "git_future_failure_count",
+    "git_ready_pending_count", "git_capacity_pending_count", "git_active_follow_up_count",
+    "git_unclassified_pending_count", "git_overdue_deadline_count", "git_running_count",
+    "git_physical_limit", "git_oldest_preparation_ms", "git_next_deadline_ms",
+    "git_maximum_settlement_ms", "export_backlog", "observation_time", "export_sample_time",
 )
 print(json.dumps(dict(zip(names, sys.argv[1:]))))
 PY
@@ -1284,11 +1409,29 @@ begin_strict_population() {
 sample_strict_idle_population() {
   local population="${1:?missing population}"
   local samples="$ARTIFACT/populations/$population/cpu.samples"
+  local marker_selector periodic_query periodic_completion_baseline periodic_completion_final
+  marker_selector="$(metric_label_selector "$TRACE_MARKER")"
+  periodic_query="sum(agentstudio_performance_events_total{agent.proof.marker=\"$marker_selector\",event=\"performance.git.status\",trigger_source=\"periodic\"})"
+  periodic_completion_baseline="$(metric_value_or_empty "$periodic_query")"
+  periodic_completion_baseline="${periodic_completion_baseline:-0}"
+  /usr/bin/python3 - "$STRICT_POLICY_IDLE_SAMPLE_FLOOR" "$STRICT_POLICY_SAMPLE_INTERVAL_MS" \
+    "$STRICT_POLICY_GIT_MAXIMUM_SETTLEMENT_MS" <<'PY'
+import sys
+sample_floor, sample_interval_ms, maximum_settlement_ms = map(float, sys.argv[1:])
+if sample_floor * sample_interval_ms < maximum_settlement_ms:
+    raise SystemExit("idle population is shorter than the maximum Git settlement interval")
+PY
   : >"$samples"
   while [ "$(wc -l <"$samples")" -lt "$STRICT_POLICY_IDLE_SAMPLE_FLOOR" ]; do
     record_strict_cpu_sample "$samples"
   done
   validate_strict_sampler_gaps "$samples"
+  wait_for_strict_git_physical_settlement "$TRACE_MARKER"
+  wait_for_positive_quiescence "$TRACE_MARKER"
+  periodic_completion_final="$(metric_value_or_empty "$periodic_query")"
+  periodic_completion_final="${periodic_completion_final:-0}"
+  validate_strict_periodic_completion_delta \
+    "$periodic_completion_baseline" "$periodic_completion_final"
   stop_strict_host_envelope_monitor "$population"
   finish_strict_population "$population"
 }
@@ -2360,6 +2503,25 @@ if [ "$mode" = "prepare-only" ]; then
     metric_value_at_observation \
       "sum(agentstudio_performance_events_total)" \
       "$AGENTSTUDIO_SIDEBAR_TEST_METRIC_OBSERVATION_TIME"
+    exit 0
+  fi
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_PERIODIC_COMPLETION_BASELINE:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "periodic completion test requires canned test-response authorization" >&2
+      exit 2
+    }
+    validate_strict_periodic_completion_delta \
+      "$AGENTSTUDIO_SIDEBAR_TEST_PERIODIC_COMPLETION_BASELINE" \
+      "${AGENTSTUDIO_SIDEBAR_TEST_PERIODIC_COMPLETION_FINAL:?missing final periodic completion count}"
+    exit 0
+  fi
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_FINAL_GIT_SETTLEMENT_VECTOR:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "final Git settlement test requires canned test-response authorization" >&2
+      exit 2
+    }
+    strict_final_git_settlement_from_json \
+      "$AGENTSTUDIO_SIDEBAR_TEST_FINAL_GIT_SETTLEMENT_VECTOR"
     exit 0
   fi
   if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_HOST_RECEIPTS:-}" ]; then

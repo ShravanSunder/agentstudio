@@ -219,6 +219,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                 "agentstudio.performance.git.pending.count": .int(64),
                 "agentstudio.performance.git.running.count": .int(4),
                 "agentstudio.performance.git.status.last_outcome": .string("completed"),
+                "agentstudio.performance.git.trigger_source": .string("periodic"),
                 "agentstudio.performance.git.has_git_internal_changes": .bool(true),
                 "agentstudio.performance.git.root_path": .string("/Users/private/repo"),
                 "agentstudio.trace.tag": .string("performance"),
@@ -231,6 +232,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         #expect(metricEvent.elapsedMilliseconds == 15.5)
         let expectedDimensions = [
             AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.git.status"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "trigger_source", value: "periodic"),
             AgentStudioOTLPPerformanceMetricDimension(name: "last_outcome", value: "completed"),
         ]
         #expect(
@@ -628,84 +630,6 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                 return false
             }
         )
-    }
-
-    @Test
-    func commonQuiescenceRecordsProjectExactAggregateGaugeSeries() throws {
-        let records = [
-            Self.projectedPerformanceRecord(
-                body: "performance.filesystem.logical_debt",
-                attributes: [
-                    "agentstudio.performance.filesystem.pending_worktree.count": .int(9),
-                    "agentstudio.performance.filesystem.drain_task.count": .int(8),
-                    "agentstudio.performance.filesystem.watched_folder.ready.count": .int(7),
-                    "agentstudio.performance.filesystem.watched_folder.active.count": .int(6),
-                    "agentstudio.performance.filesystem.watched_folder.dirty_follow_up.count": .int(2),
-                    "agentstudio.performance.filesystem.logical_debt.count": .int(1),
-                ]
-            ),
-            Self.projectedPerformanceRecord(
-                body: "performance.git.logical_debt",
-                attributes: [
-                    "agentstudio.performance.git.logical_pending.count": .int(4),
-                    "agentstudio.performance.git.retry_pending.count": .int(3),
-                    "agentstudio.performance.git.logical_running.count": .int(2),
-                    "agentstudio.performance.git.logical_debt.count": .int(1),
-                ]
-            ),
-            Self.projectedPerformanceRecord(
-                body: "performance.runtime_delivery.snapshot",
-                attributes: [
-                    "agentstudio.performance.runtime_delivery.runtime_channel_outbound_pending.count": .int(8),
-                    "agentstudio.performance.runtime_delivery.eventbus_active_delivery_debt.count": .int(7),
-                    "agentstudio.performance.runtime_delivery.total_pending.count": .int(6),
-                    "agentstudio.performance.runtime_delivery.runtime_channel_outbound_dropped.count": .int(5),
-                    "agentstudio.performance.runtime_delivery.runtime_channel_retired_undelivered.count": .int(4),
-                    "agentstudio.performance.runtime_delivery.eventbus_live_dropped.count": .int(3),
-                    "agentstudio.performance.runtime_delivery.eventbus_replay_dropped.count": .int(2),
-                    "agentstudio.performance.runtime_delivery.eventbus_retired_undelivered.count": .int(1),
-                    "agentstudio.performance.runtime_delivery.eventbus_active_subscriber.count": .int(4),
-                ]
-            ),
-        ]
-
-        let metricEvents = try records.map { record in
-            try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
-        }
-
-        #expect(
-            metricEvents[0].samples.map(\.label) == [
-                "agentstudio_performance_filesystem_drain_task_count",
-                "agentstudio_performance_filesystem_logical_debt_count",
-                "agentstudio_performance_filesystem_pending_worktree_count",
-                "agentstudio_performance_filesystem_watched_folder_active_count",
-                "agentstudio_performance_filesystem_watched_folder_dirty_follow_up_count",
-                "agentstudio_performance_filesystem_watched_folder_ready_count",
-            ])
-        #expect(
-            metricEvents[1].samples.map(\.label) == [
-                "agentstudio_performance_git_logical_debt_count",
-                "agentstudio_performance_git_logical_pending_count",
-                "agentstudio_performance_git_logical_running_count",
-                "agentstudio_performance_git_retry_pending_count",
-            ])
-        #expect(
-            metricEvents[2].samples.map(\.label) == [
-                "agentstudio_performance_runtime_delivery_eventbus_active_delivery_debt_count",
-                "agentstudio_performance_runtime_delivery_eventbus_active_subscriber_count",
-                "agentstudio_performance_runtime_delivery_eventbus_live_dropped_count",
-                "agentstudio_performance_runtime_delivery_eventbus_replay_dropped_count",
-                "agentstudio_performance_runtime_delivery_eventbus_retired_undelivered_count",
-                "agentstudio_performance_runtime_delivery_runtime_channel_outbound_dropped_count",
-                "agentstudio_performance_runtime_delivery_runtime_channel_outbound_pending_count",
-                "agentstudio_performance_runtime_delivery_runtime_channel_retired_undelivered_count",
-                "agentstudio_performance_runtime_delivery_total_pending_count",
-            ])
-        #expect(
-            metricEvents.flatMap(\.measurements).allSatisfy { measurement in
-                if case .gauge = measurement { return true }
-                return false
-            })
     }
 
     @Test

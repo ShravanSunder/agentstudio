@@ -69,6 +69,11 @@ import AppKit
                     policy.maximumDiagnosticCPUP95DeltaPercentagePoints),
                 "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent": .double(
                     policy.maximumDiagnosticInteractionP95GrowthPercent),
+                "agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit": .int(
+                    policy.gitStatusPhysicalLimit),
+                "agentstudio.startup_diagnostic.sidebar_proof.git_maximum_settlement_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(
+                        from: policy.gitMaximumSettlementInterval)),
             ]
         }
 
