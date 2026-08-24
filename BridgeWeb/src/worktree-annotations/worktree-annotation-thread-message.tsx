@@ -29,6 +29,7 @@ import {
 	messageCommandCursorFromProjection,
 	newestMessageCommandCursor,
 } from './worktree-annotation-message-command-cursor.js';
+import { isPendingWorktreeAnnotationMessage } from './worktree-annotation-share-projection.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationProjectionSnapshot,
@@ -131,6 +132,7 @@ export function WorktreeAnnotationMessageEditor(
 	};
 	const [body, setBody] = useState(initialBody);
 	const [operationError, setOperationError] = useState<string | null>(null);
+	const isPending = isPendingWorktreeAnnotationMessage(props.message);
 	const inactiveEditTokenRef = useRef(createWorktreeAnnotationEditToken());
 	const editToken = props.editToken ?? inactiveEditTokenRef.current;
 	useWorktreeAnnotationEditSurfaceToken(props.isEditing ? editToken : null, 'message');
@@ -333,6 +335,18 @@ export function WorktreeAnnotationMessageEditor(
 							<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
 							{annotationMessageStateLabel(props.message)}
 						</span>
+					)}
+					{!isPending ? null : (
+						<>
+							<span aria-hidden="true">·</span>
+							<span
+								className="inline-flex items-center gap-1 font-medium text-warning"
+								data-testid="worktree-annotation-message-pending-status"
+							>
+								<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
+								Pending
+							</span>
+						</>
 					)}
 				</>
 			}

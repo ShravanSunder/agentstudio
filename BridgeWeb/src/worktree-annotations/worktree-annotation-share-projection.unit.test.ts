@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { deriveWorktreeAnnotationShareProjection } from './worktree-annotation-share-projection.js';
 
 describe('worktree annotation Share projection', () => {
-	test('filters New at message granularity and re-derives mixed threads', () => {
+	test('filters pending human messages at message granularity and excludes agent attention', () => {
 		const projection = deriveWorktreeAnnotationShareProjection({
 			scope: 'new',
 			threads: [
@@ -11,13 +11,14 @@ describe('worktree annotation Share projection', () => {
 					messageFixture('handled-root', { handled: true }),
 					messageFixture('new-locked', { handled: false, status: 'locked' }),
 					messageFixture('draft-reply', { draft: { body: 'editing' }, handled: false }),
+					messageFixture('agent-unseen', { authorKind: 'agent', handled: false }),
 				]),
 				threadFixture('thread-b', 'relocated', [messageFixture('handled-only', { handled: true })]),
 			],
 		});
 
 		expect(projection.newCount).toBe(1);
-		expect(projection.allCount).toBe(3);
+		expect(projection.allCount).toBe(4);
 		expect(projection.inlineThreads).toHaveLength(1);
 		expect(projection.inlineThreads[0]?.messages.map((message) => message.messageId)).toEqual([
 			'new-locked',
@@ -75,6 +76,7 @@ describe('worktree annotation Share projection', () => {
 });
 
 interface MessageFixture {
+	readonly authorKind: 'agent' | 'human';
 	readonly draft: { readonly body: string } | null;
 	readonly handled: boolean;
 	readonly messageId: string;
@@ -90,6 +92,7 @@ function messageFixture(
 	overrides: Partial<Omit<MessageFixture, 'messageId'>> = {},
 ): MessageFixture {
 	return {
+		authorKind: 'human',
 		draft: null,
 		handled: false,
 		messageId,

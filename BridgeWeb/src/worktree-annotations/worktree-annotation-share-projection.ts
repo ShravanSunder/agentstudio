@@ -1,6 +1,7 @@
 import type { WorktreeAnnotationShareScope } from './worktree-annotation-share-mode.js';
 
 export interface WorktreeAnnotationShareMessageFacts {
+	readonly authorKind: 'agent' | 'human';
 	readonly draft: object | null;
 	readonly handled: boolean;
 	readonly messageId: string;
@@ -53,10 +54,10 @@ export function deriveWorktreeAnnotationShareProjection<
 	for (const thread of props.threads) {
 		const currentSavedMessages = thread.messages.filter(isCurrentSavedWorktreeAnnotationMessage);
 		allCount += currentSavedMessages.length;
-		newCount += currentSavedMessages.filter(isNewWorktreeAnnotationMessage).length;
+		newCount += currentSavedMessages.filter(isPendingWorktreeAnnotationMessage).length;
 		const participatingMessages =
 			props.scope === 'new'
-				? currentSavedMessages.filter(isNewWorktreeAnnotationMessage)
+				? currentSavedMessages.filter(isPendingWorktreeAnnotationMessage)
 				: currentSavedMessages;
 		if (participatingMessages.length === 0) continue;
 		const filteredThread: FilteredShareThread<TThread> = {
@@ -79,8 +80,12 @@ export function isCurrentSavedWorktreeAnnotationMessage(
 	return message.savedBody !== null && message.draft === null;
 }
 
-export function isNewWorktreeAnnotationMessage(
+export function isPendingWorktreeAnnotationMessage(
 	message: WorktreeAnnotationShareMessageFacts,
 ): boolean {
-	return isCurrentSavedWorktreeAnnotationMessage(message) && !message.handled;
+	return (
+		message.authorKind === 'human' &&
+		isCurrentSavedWorktreeAnnotationMessage(message) &&
+		!message.handled
+	);
 }

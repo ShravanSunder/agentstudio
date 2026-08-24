@@ -1167,3 +1167,33 @@ without changing comm-worker admission. Preserve the S5 test and turn its `reply
 milestone green. Do not add click retries or force-click in the harness; those would hide a lost user
 interaction. Backend evidence and cleanup are complete; every diagnostic run stopped its owned server
 and disposed its isolated fixture.
+
+## 2026-08-24 18:02 EDT — UI lane: separate inbound New from outbound Pending
+
+The current PR1 `New = current saved revision && !handled` label conflicts with conventional blue-dot
+attention semantics and cannot identify future agent replies. The owner has now separated the two
+observable states:
+
+- `Pending` is outbound workflow state. It applies only to the human-authored current saved revision
+  while its handled boundary is unset. Successful output clears Pending; viewing never does. A later
+  human edit creates a new current saved revision that is Pending again. UI uses the existing warning/
+  amber semantic role for Pending.
+- `New` is inbound attention state. It applies only to an agent-authored current saved revision that
+  the reviewer has not deliberately viewed. It uses the existing primary blue dot plus text, both at
+  thread summary and exact expanded-message presentation. Output never clears New.
+- Deliberately expanding a multi-message thread clears the current New agent revisions in that thread.
+  Clicking/focusing a one-message agent thread clears that message. Passive projection, scrolling,
+  Share mode, Copy, and Export do not clear New. An agent edit whose current revision has not been seen
+  becomes New again.
+- Header language is `● N new · M pending · K messages · latest … · Open`. Zero-valued states are
+  omitted. Expanded human Pending messages show amber `Pending`; expanded agent New messages show a
+  blue dot plus `New`. Human messages are never New; agent messages are never Pending.
+- Share scope changes from `New | All` to `Pending | All` and retains the existing handled-membership
+  semantics. The UI must not reinterpret `handled` as read state.
+
+Backend owner: please publish the per-current-revision inbound seen/new fact and one durable, revision-
+fenced operation for the explicit thread/message view boundary. Return the exact committed result before
+the UI removes New. Choose internal schema and operation naming in the backend lane, then record the
+public projection field and operation contract here. Do not change React presentation files. The UI lane
+will implement Pending now from `authorKind` plus `handled`, and will wire New only after this contract is
+returned.

@@ -15,7 +15,7 @@ import { WorktreeAnnotationNewMessageComposer } from './worktree-annotation-comp
 import { WorktreeAnnotationConversationFrame } from './worktree-annotation-conversation-frame.js';
 import { WorktreeAnnotationCommandButton } from './worktree-annotation-inline-surface.js';
 import type { WorktreeAnnotationRange } from './worktree-annotation-interaction.js';
-import { isNewWorktreeAnnotationMessage } from './worktree-annotation-share-projection.js';
+import { isPendingWorktreeAnnotationMessage } from './worktree-annotation-share-projection.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationThreadProjection,
@@ -122,7 +122,7 @@ export function WorktreeAnnotationThread(
 	};
 	const hasDraft = visibleMessages.some((message) => message.draft !== null);
 	const hasLockedMessage = visibleMessages.some((message) => message.status === 'locked');
-	const newMessageCount = visibleMessages.filter(isNewWorktreeAnnotationMessage).length;
+	const pendingMessageCount = visibleMessages.filter(isPendingWorktreeAnnotationMessage).length;
 
 	const startReply = (invoker: HTMLElement): void => {
 		activateRange();
@@ -254,7 +254,7 @@ export function WorktreeAnnotationThread(
 						hasLockedMessage={hasLockedMessage}
 						latestMessage={latestMessage}
 						messageCount={visibleMessages.length}
-						newMessageCount={newMessageCount}
+						pendingMessageCount={pendingMessageCount}
 						placement={props.thread.context.placement}
 						readStatus={projection.readStatus.kind}
 						resolution={props.thread.context.resolution}
@@ -320,7 +320,7 @@ interface WorktreeAnnotationTimelineSummaryProps {
 	readonly hasLockedMessage: boolean;
 	readonly latestMessage: WorktreeAnnotationMessageEntry;
 	readonly messageCount: number;
-	readonly newMessageCount: number;
+	readonly pendingMessageCount: number;
 	readonly placement: 'exact' | 'outdated' | 'relocated' | 'unavailable';
 	readonly readStatus: 'ready' | 'refreshing' | 'unavailable' | 'unknown';
 	readonly resolution: 'open' | 'resolved';
@@ -338,16 +338,16 @@ function WorktreeAnnotationTimelineSummary(
 			<div className="flex items-center justify-center">{props.expansionControl}</div>
 			<div className="flex min-w-0 items-center gap-1.5 text-xs/relaxed text-comment-muted">
 				<div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-					{props.newMessageCount === 0 ? null : (
+					{props.pendingMessageCount === 0 ? null : (
 						<span
-							className="inline-flex items-center gap-1 font-medium text-comment-foreground"
-							data-testid="worktree-annotation-new-status"
+							className="inline-flex items-center gap-1 font-medium text-warning"
+							data-testid="worktree-annotation-pending-status"
 						>
-							<span aria-hidden="true" className="size-1.5 rounded-full bg-comment-active" />
-							{props.newMessageCount} new
+							<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
+							{props.pendingMessageCount} pending
 						</span>
 					)}
-					{props.newMessageCount === 0 ? null : <span aria-hidden="true">·</span>}
+					{props.pendingMessageCount === 0 ? null : <span aria-hidden="true">·</span>}
 					<span className="font-medium text-comment-foreground">{props.messageCount} messages</span>
 					<span aria-hidden="true">·</span>
 					<span>latest {annotationRelativeTime(props.latestMessage.createdAt)}</span>

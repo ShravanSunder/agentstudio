@@ -46,9 +46,10 @@ describe('worktree annotation inline shell', () => {
 		expect(expandButton.classList).not.toContain('rounded-full');
 		expect(expandButton.classList).not.toContain('border-comment-border');
 		expect(expandButton.classList).toContain('text-comment-muted');
-		await expect.element(rendered.getByText('1 new')).toBeVisible();
-		const newStatus = rendered.getByTestId('worktree-annotation-new-status').element();
-		expect(newStatus.querySelector('.bg-comment-active')).not.toBeNull();
+		await expect.element(rendered.getByText('1 pending')).toBeVisible();
+		const pendingStatus = rendered.getByTestId('worktree-annotation-pending-status').element();
+		expect(pendingStatus.classList).toContain('text-warning');
+		expect(pendingStatus.querySelector('.bg-warning')).not.toBeNull();
 
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Expand 2 messages' }).click();
@@ -58,8 +59,13 @@ describe('worktree annotation inline shell', () => {
 
 		const thread = rendered.getByTestId('worktree-annotation-thread').element();
 		await expect.element(rendered.getByText('Root message.')).toBeVisible();
-		await expect.element(rendered.getByText('1 new')).toBeVisible();
-		expect(rendered.getByTestId('worktree-annotation-new-status').element()).toBe(newStatus);
+		await expect.element(rendered.getByText('1 pending')).toBeVisible();
+		expect(rendered.getByTestId('worktree-annotation-pending-status').element()).toBe(
+			pendingStatus,
+		);
+		expect(rendered.getByTestId('worktree-annotation-message-pending-status').all()).toHaveLength(
+			1,
+		);
 		expect(getComputedStyle(historyPanel).transitionProperty).toContain('height');
 		expect(rendered.getByText('Latest message.').all()).toHaveLength(1);
 		const expandedMessages = [
@@ -161,9 +167,12 @@ describe('worktree annotation inline shell', () => {
 		const rendered = await renderInlineShell(surface);
 		await publishFiveMessageThread(surface);
 		const summary = rendered.getByTestId('worktree-annotation-thread-summary').element();
-		expect(summary.textContent?.indexOf('5 new')).toBeLessThan(
+		expect(summary.textContent?.indexOf('5 pending')).toBeLessThan(
 			summary.textContent?.indexOf('5 messages') ?? -1,
 		);
+		expect(
+			rendered.getByTestId('worktree-annotation-pending-status').element().classList,
+		).toContain('text-warning');
 		const expandButton = rendered.getByRole('button', { name: 'Expand 5 messages' }).element();
 		expect(expandButton.classList).not.toContain('rounded-full');
 		expect(expandButton.classList).not.toContain('border-comment-border');
@@ -184,6 +193,9 @@ describe('worktree annotation inline shell', () => {
 		expect(
 			historyGroup.querySelectorAll('[data-testid="worktree-annotation-message"]'),
 		).toHaveLength(4);
+		expect(rendered.getByTestId('worktree-annotation-message-pending-status').all()).toHaveLength(
+			5,
+		);
 		expect(getComputedStyle(historyPanel).transitionDuration).toBe('0.12s');
 		expect(
 			historyGroup.querySelectorAll('[data-testid="worktree-annotation-thread-history-message"]'),
