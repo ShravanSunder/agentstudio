@@ -524,6 +524,8 @@ for variable, suffix in mapping.items():
     value = record.get(prefix + suffix)
     if value is None:
         raise SystemExit(f"strict policy missing {suffix}")
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
     values[variable] = str(value)
 values["STRICT_POLICY_IDLE_POPULATIONS"] = values["STRICT_POLICY_IDLE_POPULATIONS"].replace(",", " ")
 values["STRICT_POLICY_ACTION_POPULATIONS"] = values["STRICT_POLICY_ACTION_POPULATIONS"].replace(",", " ")
@@ -2456,6 +2458,18 @@ validate_compare_baseline_fixture
 sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="repo",phase=~"startup_diagnostic|request_build_mainactor|mainactor_apply|projection_worker|row_index"}'
 
 if [ "$mode" = "prepare-only" ]; then
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_POLICY_RECORD:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "policy record test requires canned test-response authorization" >&2
+      exit 2
+    }
+    policy_record_test_file="$ARTIFACT/test-policy-record.jsonl"
+    policy_record_environment="$ARTIFACT/test-policy-record.env"
+    printf '%s\n' "$AGENTSTUDIO_SIDEBAR_TEST_POLICY_RECORD" >"$policy_record_test_file"
+    parse_strict_sidebar_policy "$policy_record_test_file" "$policy_record_environment"
+    cat "$policy_record_environment"
+    exit 0
+  fi
   if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_FIXTURE_RECORD:-}" ]; then
     [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
       echo "fixture record test requires canned test-response authorization" >&2
