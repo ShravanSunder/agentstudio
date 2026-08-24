@@ -5,10 +5,10 @@ import Foundation
 /// from disk keeps failing its git status compute (`sdk_error`) forever, burning
 /// the global concurrent-status budget that live worktrees need. Instead of
 /// deleting such a worktree, the projector quarantines it: the worktree is skipped
-/// at admission and at periodic re-enqueue without any further per-tick stat call,
-/// and it is re-armed only by an event that implies the path may have returned
-/// (a file-change from the watcher, or a registration/context-change). Split from
-/// the projector actor body to keep it under the type/file length caps.
+/// at admission and at periodic re-enqueue, then one bounded background deadline
+/// checks whether the path returned. A file-change or registration/context change
+/// may still re-arm it sooner. Split from the projector actor body to keep it under
+/// the type/file length caps.
 extension GitWorkingDirectoryProjector {
     /// Live filesystem probe wired at the production composition root and reused by
     /// quarantine tests against real temp directories. The projector's own default
@@ -38,12 +38,29 @@ extension GitWorkingDirectoryProjector {
     }
 
     /// Marks a worktree quarantined: drops its pending refresh so the pending map
-    /// does not retain dead entries, and emits a single open fact.
+    /// does not retain dead entries, keeps one bounded self-heal deadline, and emits
+    /// a single open fact.
     private func quarantineWorktreePath(worktreeId: UUID) {
         guard quarantinedWorktreeIds.insert(worktreeId).inserted else { return }
         pendingByWorktreeId.removeValue(forKey: worktreeId)
         clearImmediateRefreshIntent(worktreeId: worktreeId)
+        scheduleQuarantineRecheck(worktreeId: worktreeId)
         emitPathQuarantineTelemetry(worktreeId: worktreeId, quarantined: true)
+        rescheduleDeadlineTask()
+    }
+
+    /// Rechecks one quarantined root at its existing automatic deadline. A missing
+    /// root retains quarantine and one successor deadline; a restored root closes
+    /// quarantine and may proceed through ordinary refresh preparation/admission.
+    func admitAutomaticRefreshAfterQuarantine(worktreeId: UUID) -> Bool {
+        guard quarantinedWorktreeIds.contains(worktreeId) else { return true }
+        guard let context = registeredContext(for: worktreeId) else { return false }
+        guard pathExistenceProbe(context.rootPath) else {
+            scheduleQuarantineRecheck(worktreeId: worktreeId)
+            return false
+        }
+        clearQuarantineEmittingClose(worktreeId: worktreeId)
+        return true
     }
 
     /// Event-driven re-arm gate for a file-change on a possibly-quarantined
@@ -72,6 +89,14 @@ extension GitWorkingDirectoryProjector {
     /// no close fact is warranted. Mirrors the non-emitting `clearStatusBackoffState`.
     func clearQuarantineState(worktreeId: UUID) {
         quarantinedWorktreeIds.remove(worktreeId)
+    }
+
+    private func scheduleQuarantineRecheck(worktreeId: UUID) {
+        setRefreshDeadline(
+            deadlineClock.now + refreshPolicy.backgroundCadence,
+            kind: .automatic,
+            worktreeId: worktreeId
+        )
     }
 
     private func emitPathQuarantineTelemetry(worktreeId: UUID, quarantined: Bool) {

@@ -3709,8 +3709,8 @@ struct GitWorkingDirectoryProjectorTests {
 
     // MARK: - Dead-path quarantine
 
-    @Test("dead-path worktree is quarantined without retaining a refresh deadline")
-    func deadPathWorktreeIsQuarantinedWithoutRefreshDeadline() async throws {
+    @Test("dead-path worktree is quarantined with one bounded self-heal deadline")
+    func deadPathWorktreeIsQuarantinedWithBoundedSelfHealDeadline() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let calls = CallCounter()
@@ -3771,8 +3771,22 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(await calls.value() == 0)
         #expect(await observed.snapshotCount(for: worktreeId) == 0)
         #expect(recorder.quarantineEvents().count == 1)
-        #expect(await actor.automaticRefreshDeadlineByWorktreeId[worktreeId] == nil)
-        #expect(clock.pendingSleepCount == 0)
+        #expect(
+            await actor.automaticRefreshDeadlineByWorktreeId[worktreeId]
+                == policy.backgroundCadence
+        )
+        await clock.waitForPendingSleepCount(exactly: 1)
+
+        clock.advance(by: policy.backgroundCadence)
+        #expect(
+            await waitUntil {
+                await actor.automaticRefreshDeadlineByWorktreeId[worktreeId]
+                    == policy.backgroundCadence + policy.backgroundCadence
+            }
+        )
+        await clock.waitForPendingSleepCount(exactly: 1)
+        #expect(await calls.value() == 0)
+        #expect(recorder.quarantineEvents().count == 1)
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -3831,6 +3845,61 @@ struct GitWorkingDirectoryProjectorTests {
             await observed.latestSnapshot(for: worktreeId)?.branch == "rearmed"
         }
         #expect(reArmedSnapshot)
+        #expect(await calls.value() == 1)
+        #expect(recorder.quarantineEvents().contains { !$0.quarantined })
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("quarantined worktree self-heals when its path returns without a filesystem event")
+    func quarantinedWorktreeSelfHealsWhenPathReturnsWithoutEvent() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = CallCounter()
+        let recorder = GitProjectorTraceRecorderSpy()
+        let policy = AppPolicies.GitRefresh.Policy(backgroundStripeCount: 1)
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            _ = await calls.increment()
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                branch: "self-healed",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: policy,
+            performanceTraceRecorder: recorder,
+            pathExistenceProbe: GitWorkingDirectoryProjector.liveRootPathProbe
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "quarantine-self-heal-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { recorder.quarantineEvents().contains { $0.quarantined } })
+        #expect(await calls.value() == 0)
+
+        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
+        clock.advance(by: policy.backgroundCadence)
+
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.branch == "self-healed" })
         #expect(await calls.value() == 1)
         #expect(recorder.quarantineEvents().contains { !$0.quarantined })
 

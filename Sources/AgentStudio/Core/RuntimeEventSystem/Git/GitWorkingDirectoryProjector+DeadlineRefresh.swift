@@ -127,6 +127,7 @@ extension GitWorkingDirectoryProjector {
             switch entry.kind {
             case .automatic:
                 automaticRefreshDeadlineByWorktreeId.removeValue(forKey: entry.worktreeId)
+                guard admitAutomaticRefreshAfterQuarantine(worktreeId: entry.worktreeId) else { continue }
                 guard prepareAutomaticRefreshIfCurrent(worktreeId: entry.worktreeId) else { continue }
                 tierEligibleWorktreeIds.insert(entry.worktreeId)
             case .failure:
