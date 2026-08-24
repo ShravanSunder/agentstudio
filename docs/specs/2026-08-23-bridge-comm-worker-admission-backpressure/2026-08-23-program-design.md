@@ -37,16 +37,19 @@ Review publishes from one of its existing 3 + 9 positions
   -> Main returns its existing ordered disposition batch
   -> worker applies the batch and constructs the correlated response
   -> worker synchronously posts that response
-  -> worker releases only matching Review positions
+  -> first exact queued or terminal rejected/superseded releases only
+     matching Review positions
   -> existing Review reconcile/drain may publish later work
 
 File publishes its one selected operation
   -> a newer selection remains the latest waiting intent
   -> Main returns its existing ordered disposition batch
   -> worker applies the batch and constructs the correlated response
+  -> queued or applied keeps the published File operation current
   -> worker synchronously posts that response
-  -> worker settles the published File operation
-  -> existing File preparation/drain may start the latest intent
+  -> painted or terminal rejected/superseded settles the File operation
+     only after that correlated response posts successfully
+  -> existing File preparation/drain may then start the latest intent
 ```
 
 This call order is sufficient because `postMessage` and the later render posts
@@ -62,7 +65,7 @@ no wait at or above the five-second lease. The same run showed that the reverse
 FIFO was still unbounded: worker handling remained 28.3 ms at maximum, eight
 correlated responses timed out, pending receipts reached 6,144, and three
 worker replacements repeated the loop. The design therefore retains receipt
-batching and fixes only the existing-owner release timing that produced the
+batching and fixes only the existing-owner effect timing that produced the
 reverse backlog.
 
 ## Semantic admission model
@@ -72,7 +75,7 @@ reverse backlog.
 | Urgent action or correctness control | Exact non-replaceable intent | Post directly through the existing typed RPC path; preserve identity, validation, order, and terminal outcome. |
 | Demand | Current desired state | Keep the current producer owner; replace, suppress, or merge only when its equality, generation, and scope rules allow it. |
 | Render disposition | Ordered feedback about delivered work | Preserve attempt order, batch at most 64 per surface, and keep one batch in flight per surface until its existing typed lifecycle settles. |
-| Render publication | Work delivered from worker to Main | Admit through the existing Review positions or File selected operation; do not reuse that owner until the correlated response has posted. |
+| Render publication | Work delivered from worker to Main | Admit through the existing Review positions or File selected operation. Release Review after the correlated response containing first exact queued or terminal rejected/superseded posts; keep File current through queued and applied, then settle it only after the correlated response containing painted or terminal rejected/superseded posts. |
 
 RPC remains the envelope rather than an admission class. The single
 `MessageChannel` remains the final FIFO in each direction; ordering in one
@@ -105,14 +108,18 @@ attempt identity, accepted/duplicate/rejected receipt meaning, source and
 currentness validation, lease expiry, and retry eligibility.
 
 Disposition application returns the existing ready or degraded correlated
-response plus the matching existing-owner effects derived from valid attempt
-identities. These effects are ephemeral results of applying the current batch;
-they are not stored as another queue or ownership system.
+response plus only the lifecycle-eligible existing-owner effects derived from
+valid attempt identities. Review becomes eligible on first exact queued or
+terminal rejected/superseded. File becomes eligible only on painted or terminal
+rejected/superseded; queued and applied preserve its current operation. These
+effects are ephemeral results of applying the current batch; they are not stored
+as another queue or ownership system.
 
 `dispatchBridgeCommWorkerRuntimeProductControl` synchronously posts the
-correlated response. Only after that call succeeds does the runtime apply the
-matching Review/File effects and request the existing preparation drain. If the
-post throws, it applies none of those effects.
+correlated response. Only after that call succeeds does the runtime apply any
+lifecycle-eligible matching Review/File effects and request the corresponding
+existing preparation drain. If the post throws, it applies none of those
+effects.
 
 ### Review demand positions
 
@@ -122,7 +129,8 @@ invalidation, cancellation, and reconcile behavior remain there.
 
 Before publication, stale or cancelled work may release its position under the
 existing rules. After both ordered render posts succeed, the position retains
-the exact attempt association until a matching disposition response is posted.
+the exact attempt association until the correlated response containing first
+exact queued or terminal rejected/superseded is posted successfully.
 If the underlying demand becomes obsolete while published, the record remains
 only long enough to prevent reuse of that position; releasing it must not
 revive stale demand. A mismatched or foreign attempt cannot release it.
@@ -136,8 +144,15 @@ positions. There is no independent numeric owner for twelve.
 The existing File selected-operation controller and latest selected preparation
 request remain the sole owners of File intent. Once a selected operation has
 published, a newer selection replaces only the waiting latest intent. It does
-not allow another File publication until the published operation's matching
-disposition response has posted and the existing operation is settled.
+not allow another File publication while the published operation remains
+current through queued and applied. The existing operation settles only after
+the correlated response containing exact painted or terminal
+rejected/superseded posts successfully.
+
+This preserves the selected operation's existing ownership of install, render,
+paint, file-content, and worker-application lifecycle telemetry. Admission is
+not split from that lifecycle, and no second File operation owner or waiting-job
+queue is introduced.
 
 The worker then runs the existing currentness checks and preparation drain for
 the latest intent. No waiting-job queue or polling loop is added.
@@ -183,26 +198,43 @@ Main render owner
 Result: correlated responses wait behind render work made eligible too
 early; urgent comment outcomes can then wait behind that reverse backlog.
 
-PROPOSED FLOW
+PROPOSED REVIEW FLOW
 
-Review/File demand owner
+Review demand owner
   -> fulfillment registry begins exact attempt and lease                 [=]
   -> worker posts render job then content-ready patch                    [=]
-  -> published Review position or File operation remains held           [+]
+  -> published Review position remains held                              [+]
 
 Main render owner
   -> per-surface admission queues dispositions                          [=]
   -> one ordered batch crosses main-to-worker FIFO                      [=]
   -> worker applies batch and constructs ready/degraded response        [=]
   -> runtime synchronously posts correlated response                    [=]
-  -> runtime applies matching Review/File settlement effect             [+]
-  -> existing reconcile/preparation drain resumes                       [=]
+  -> on first exact queued or terminal rejected/superseded,
+     runtime releases matching Review position                          [+]
+  -> existing Review reconcile/drain resumes                            [=]
   -> later render publication posts behind the response on same FIFO    [+]
+
+PROPOSED FILE FLOW
+
+File selected-operation owner
+  -> fulfillment registry begins exact attempt and lease                 [=]
+  -> worker posts render job then content-ready patch                    [=]
+  -> published File operation remains current                           [+]
+  -> newer selection replaces only existing latest waiting intent       [+]
+
+Main render owner
+  -> queued response posts; File operation remains current              [+]
+  -> applied response posts; File operation remains current             [+]
+  -> painted or terminal rejected/superseded response posts             [=]
+  -> runtime then settles the matching File operation                   [+]
+  -> existing File preparation drain starts latest waiting intent       [=]
+  -> later File publication posts behind terminal response on same FIFO [+]
 
 ERROR RETURN
 
 response post throws
-  -> runtime applies no Review/File settlement effect                   [+]
+  -> runtime applies no lifecycle-eligible Review/File owner effect     [+]
   -> existing worker error and replacement containment receives failure [=]
 ```
 
@@ -246,7 +278,7 @@ the port before an urgent action already present at Main admission.
 | active, not published | preparation cancels or becomes stale | Clear under existing rules and reconcile. |
 | active, not published | job and patch post successfully | Retain the position with the exact attempt association. |
 | published | demand invalidates or becomes stale | Remove obsolete intent but keep the position held; do not revive it later. |
-| published | matching settlement effect runs after response post | Clear the exact association, release the position, and run existing reconcile/drain. |
+| published | correlated response containing first exact queued or terminal rejected/superseded posts successfully | Clear the exact association, release the position, and run existing reconcile/drain. |
 | published | foreign or mismatched settlement | Ignore it and keep the position held. |
 | any | worker replacement, disposal, or teardown | Clear old-lifetime state and make old callbacks inert. |
 
@@ -257,7 +289,8 @@ the port before an urgent action already present at Main admission.
 | latest intent, not published | newer selection arrives | Replace the waiting intent under existing currentness rules. |
 | latest intent, not published | operation publishes | Mark that operation as published; no second File operation may publish. |
 | published operation | newer selection arrives | Store it only as latest waiting intent. |
-| published operation | matching settlement effect runs after response post | Settle the operation, then recheck and drain the latest waiting intent. |
+| published operation | correlated response contains exact queued or applied and posts successfully | Keep the selected operation current; do not start the waiting intent. |
+| published operation | correlated response contains exact painted or terminal rejected/superseded and posts successfully | Settle the operation, then recheck and drain the latest waiting intent. |
 | published operation | foreign or mismatched settlement | Ignore it and keep the operation held. |
 | any | worker replacement, disposal, or teardown | Clear old-lifetime state and make old callbacks inert. |
 
@@ -270,7 +303,11 @@ the port before an urgent action already present at Main admission.
   rejection and supersession remain terminal; exact duplicates are idempotent.
 - Receipt application remains in array order. A stale or invalid receipt may
   degrade the batch without changing current fulfillment truth.
-- Review/File release uses only exact matching attempt results from the batch
+- Review release uses only first exact queued or terminal
+  rejected/superseded for the matching attempt whose correlated response was
+  successfully posted.
+- File remains current through exact queued and applied. File settlement uses
+  only exact painted or terminal rejected/superseded for the matching attempt
   whose correlated response was successfully posted.
 - Review and File do not need a new shared ordering owner: JavaScript executes
   the response post and matching owner effects synchronously in one command
@@ -285,12 +322,14 @@ the port before an urgent action already present at Main admission.
 
 ### Response post throws
 
-The synchronous post is the guard for owner release. If it throws, no matching
-Review position is released, no File operation is settled, and no preparation
-drain is requested. The error propagates through the existing worker failure
-path. Existing replacement clears the old worker lifetime and lets fresh demand
-derive from authoritative state. The worker does not attempt a second response
-or locally infer whether Main received it.
+The synchronous post is the guard for the owner effect relevant to that
+disposition. If it throws, no matching Review position is released, no File
+operation is settled, and no preparation drain is requested. A File queued or
+applied disposition has no settlement effect even after a successful post. The
+error propagates through the existing worker failure path. Existing replacement
+clears the old worker lifetime and lets fresh demand derive from authoritative
+state. The worker does not attempt a second response or locally infer whether
+Main received it.
 
 ### Peer closes without a synchronous error
 
@@ -298,9 +337,10 @@ or locally infer whether Main received it.
 receipt at this boundary. The design therefore does not invent a close detector.
 Main's existing RPC timeout records an unknown delivery outcome; the existing
 single recovery probe, pending ceiling, lease behavior, and replacement path
-contain the failure. Because published Review positions and the File operation
-remain bounded until matching responses, silent loss cannot reopen unlimited
-render production in the worker.
+contain the failure. Because published Review positions remain bounded until
+their queued or terminal response and the File operation remains bounded until
+its painted or terminal response, silent loss cannot reopen unlimited render
+production in the worker.
 
 ### Stale, duplicate, or mixed batch entries
 
@@ -435,13 +475,16 @@ Lower main-to-worker wait alone cannot pass the duplex workload.
 
 ## Alternatives and tradeoffs
 
-### Selected: existing-owner hold until correlated response post
+### Selected: surface-lifecycle hold until the relevant correlated response
 
 This is the only new ordering rule. It preserves the existing single port,
 receipt batches, demand owners, exact attempt identity, and replacement path.
-The cost is that a Review position and the File selected operation remain busy
-for one worker-to-main round trip. Reviewers pay that cost as bounded progressive
-rendering rather than a flood that starves their actions.
+The cost is that a Review position remains busy through its queued response,
+while the File selected operation remains busy through painted or terminal
+rejection/supersession. A newer File selection therefore waits for the current
+File lifecycle to finish. Reviewers pay that cost as bounded progressive
+rendering and preserved File lifecycle evidence rather than a flood that
+starves their actions or a second File owner that splits admission from paint.
 
 Fresh evidence that the existing Review and File bounds still miss the current
 RPC timeout or receipt lease would reopen the rendering budget or envelope
@@ -482,13 +525,15 @@ semantics. Current evidence does not justify either expansion.
   one in-flight batch, timeout/probe behavior, capacity containment, and
   disposal/replacement clearing.
 - Review fills all three reserved plus nine dynamic positions, publishes them,
-  and proves item thirteen waits until one matching response posts.
+  and proves item thirteen waits until a correlated response containing first
+  exact queued or terminal rejected/superseded posts.
 - Review invalidation while published keeps the position occupied and does not
   revive stale demand after release.
-- File publishes selection A, retains selection B as latest intent, and starts
-  B only after A's matching response posts and A settles.
-- A thrown response post releases no Review position, settles no File operation,
-  and requests no drain from the failed command path.
+- File publishes selection A, retains selection B as latest intent, keeps A
+  current through queued and applied responses, and starts B only after A's
+  painted or terminal rejected/superseded response posts and A settles.
+- A thrown lifecycle-eligible response post releases no Review position,
+  settles no File operation, and requests no drain from the failed command path.
 - Telemetry projection exports every required closed count/duration/result and
   rejects prohibited payload and identity fields.
 
@@ -502,8 +547,9 @@ semantics. Current evidence does not justify either expansion.
   later receipt batch and its outcome is not starved by render predecessors.
 - Injected synchronous response-post failure produces no thirteenth
   publication; existing replacement containment receives the failure.
-- File selection B remains waiting behind published selection A until A's
-  correlated response has posted.
+- File selection B remains waiting behind published selection A through A's
+  queued and applied responses; after A's painted or terminal
+  rejected/superseded response, Main observes that response before B publishes.
 
 ### Browser, development backend, and packaged boundary
 
@@ -530,7 +576,7 @@ fixture evidence is never labeled runtime proof.
 | R-CWA-009, R-CWA-010 | Existing asynchronous telemetry plus receipt admission and Review/File outstanding-work observations. | Scrubbing tests and fresh marker-scoped baseline/after evidence expose both directions, ages, timeouts, retries, and drain. |
 | R-CWA-011 | Existing Vite -> production comm worker -> actual `MessageChannel` -> Swift backend -> real worktree -> SQLite path. | Root and five replies remain responsive and survive reload while product state and telemetry reach quiescence. |
 | R-CWA-012 | Stop line retains one port, existing demand owners, individual render messages, and existing recovery. | Diff and runtime evidence prove the correction did not introduce adjacent architecture. |
-| R-CWA-013 | Correlated response posts before matching Review/File owner release; later render work enters the same FIFO afterward. | State tests plus actual-channel integration prove response-before-released-work and bounded predecessor count/age with quiescent drain. |
+| R-CWA-013 | The relevant correlated response posts before its owner effect: first exact queued or terminal response before Review release; painted or terminal response before File settlement. Later render work enters the same FIFO afterward. | State tests plus actual-channel integration prove response-before-released-work, File continuity through queued/applied, and bounded predecessor count/age with quiescent drain. |
 
 ## Forbidden expansions
 
