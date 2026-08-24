@@ -11,7 +11,8 @@ Program realization:
 ## Observable model
 
 Bridge classifies main-to-comm-worker input by semantic obligation before
-choosing a contraction or backpressure mechanism:
+choosing a contraction or backpressure mechanism, and it separately bounds
+worker-to-main progress for render publication and correlated control outcomes:
 
 ```text
 urgent action/control
@@ -22,11 +23,16 @@ demand
 
 delivery settlement
   ordered attempt feedback -> bounded batch -> worker acknowledgement
+
+worker-to-main render publication and control outcomes
+  render work -> bounded published-but-unsettled predecessor work
+  correlated outcome -> before newly released render work -> existing timeout/lease bounds
 ```
 
-The classes share one existing product `MessageChannel`. A class does not gain
-a second worker, route, source of truth, or independent cross-class ordering
-domain.
+The classes share one existing product `MessageChannel`. FIFO ordering applies
+within each direction; a message in one direction does not by itself bound work
+already published in the other. A class does not gain a second worker, route,
+source of truth, or independent cross-class ordering domain.
 
 ## Normative requirements
 
@@ -65,9 +71,12 @@ Basis: U-CWA-001, U-CWA-002, U-CWA-003.
 
 An urgent action or correctness control MUST be posted without waiting for
 unsent demand contraction or pending render-receipt batches. Already-posted
-work may finish first because the physical route is FIFO, but render admission
-MUST bound that predecessor work to at most the one receipt batch already
-in-flight for the action's surface.
+main-to-worker work may finish first because that direction is FIFO, but render
+admission MUST bound that predecessor work to at most the one receipt batch
+already in-flight for the action's surface. The action's correlated worker
+control or terminal outcome MUST NOT then wait behind an unbounded
+worker-to-main render-publication backlog and remains subject to the existing
+timeout and duplex-progress obligation in R-CWA-013.
 
 No later receipt batch may enter the port before an urgent action already
 present at the main admission boundary. Urgent action ordering, revision/source
@@ -76,11 +85,12 @@ remain unchanged.
 
 The real workload MUST report every exact comment-action queue wait separately
 from demand and settlement, and MUST prove that each action already present at
-main admission begins worker handling before any later receipt batch. An
-isolated slower authoritative product call is reported at its own stage and
-MUST NOT be attributed to main-to-worker admission. This increment does not
-invent a numeric comment-action percentile SLO from the separate selected/click
-cohort.
+main admission begins worker handling before any later receipt batch and that
+its correlated outcome is not delayed by unbounded worker-to-main render
+predecessors. An isolated slower authoritative product call is reported at its
+own stage and MUST NOT be attributed to either transport direction. This
+increment does not invent a numeric comment-action percentile SLO from the
+separate selected/click cohort.
 
 Basis: U-CWA-001, U-CWA-004.
 
@@ -127,6 +137,11 @@ the product port. The worker MUST apply its receipts in array order and return
 one existing typed ready or degraded RPC outcome for that batch. Only a
 terminal lifecycle outcome for the in-flight batch may release the next batch.
 
+This one-in-flight rule bounds receipt commands admitted main-to-worker only.
+It does not by itself bound worker-to-main render publications that can precede
+the correlated outcome; reverse-direction progress MUST also satisfy
+R-CWA-013.
+
 The sender MUST NOT pace protocol settlement by animation frame, periodic
 timer, polling, or a chain of unacknowledged message tasks. A backgrounded or
 occluded document must not suspend receipt progress merely because visual
@@ -138,13 +153,14 @@ existing fulfillment state machine.
 
 An acknowledgement timeout is an unknown delivery outcome. The sender MUST
 retain one unknown-delivery debt latch and MUST NOT replay the mixed batch. It
-MAY admit exactly one later receipt batch as a recovery probe. Because both
-batches use the same worker instance and FIFO port, a correlated ready or
-degraded outcome for that probe proves worker progress past the predecessor and
-clears the latch. If the probe also times out, receipt dispatch MUST pause until
-worker replacement clears the debt. Urgent actions remain direct and are not
-held by the receipt latch. Existing lease expiry, retry, and worker-replacement
-owners remain authoritative.
+MAY admit exactly one later receipt batch as a recovery probe. A correlated
+ready or degraded outcome for that probe proves that the worker handled both
+main-to-worker predecessors and that their outcomes reached main, but it does
+not by itself prove that worker-to-main render predecessor work stayed bounded.
+If the probe also times out, receipt dispatch MUST pause until worker
+replacement clears the debt. Urgent actions remain direct and are not held by
+the receipt latch. Existing lease expiry, retry, and worker-replacement owners
+remain authoritative.
 
 Basis: U-CWA-003, U-CWA-004, U-CWA-007.
 
@@ -166,6 +182,11 @@ for the current worker, emit a typed source-scrubbed overload outcome, and
 request the existing worker-replacement lifecycle exactly once. Replacement
 clears old receipt state before the new worker can derive demand. Ordered facts
 MUST NOT be silently dropped while the old worker remains authoritative.
+
+The 6,144-receipt cap is an overload containment boundary, not evidence of
+bounded progress. Reaching it, or repeatedly replacing workers because
+worker-to-main render predecessors delay correlated outcomes, fails the
+required workload.
 
 Basis: U-CWA-003, U-CWA-005, U-CWA-007.
 
@@ -192,6 +213,11 @@ Fresh marker-scoped evidence MUST provide bounded dimensions and values for:
 - main-to-worker queue wait and worker handler duration;
 - receipt batch size, terminal outcome, acknowledgement duration, pending
   count, pending high-water mark, and oldest pending age;
+- worker-to-main render publications published but not yet settled by main,
+  including current count, high-water mark, and oldest unsettled age;
+- correlated worker control and acknowledgement delivery relative to render
+  publications already pending and render publications newly released by the
+  corresponding settlement;
 - render lease expiration and retry counts;
 - annotation lifecycle stage and duration; and
 - product-control duration where a user action crosses that owner.
@@ -215,6 +241,12 @@ The comparison MUST report what was measured, what was derived, and what
 remains unavailable. Old telemetry, stale screenshots, unit fixtures, and
 telemetry export cadence MUST NOT satisfy a fresh runtime claim.
 
+The corrected run MUST show bounded progress in both directions. Reduced
+main-to-worker queue wait or receipt-command count alone is insufficient:
+worker-to-main published-but-unsettled render count and age, correlated outcome
+delivery, and acknowledgement-before-newly-released-render ordering MUST also
+satisfy R-CWA-013.
+
 Basis: U-CWA-005, U-CWA-006.
 
 ### R-CWA-011 — Real five-reply proof
@@ -232,24 +264,56 @@ verify the root and all five reply bodies from durable projection
 Every `draft.flush`/`draft.save` and reply creation MUST receive its exact
 terminal outcome, no receipt lease may expire through admission backlog, the
 page must remain interactively inspectable, and reload must recover the exact
-durable bodies. The proof must cross Vite, production comm worker, Swift
+durable bodies. Correlated action, control, and receipt outcomes MUST NOT time
+out behind render publication; worker-to-main published-but-unsettled render
+count and age MUST remain bounded and drain after workload quiescence; and each
+receipt acknowledgement MUST reach main before render work newly released by
+that settlement. The proof must cross Vite, production comm worker, Swift
 development backend, real Git worktree, and SQLite.
 
 Basis: U-CWA-001, U-CWA-003, U-CWA-006.
 
 ### R-CWA-012 — Conditional expansion only
 
-If receipt batching satisfies the real proof, this increment MUST stop without
-adding a global admission scheduler or new physical route. If a named demand
+If ordered receipt batching and duplex bounded progress satisfy the real proof,
+this increment MUST stop without adding a global admission scheduler, new
+physical route, or required worker-to-main render-batch shape. If a named demand
 producer still causes user-action starvation, its source evidence MUST return
-to this design's demand rule before a keyed contraction owner is added.
+to this design's demand rule before a keyed contraction owner is added. If
+worker-to-main render publication still violates R-CWA-013, that evidence MUST
+return to Program Design for a bounded realization that preserves existing
+render identity, currentness, and settlement semantics; this Specification does
+not preselect batching as that realization.
 
 Separate physical ports require a new Program Design decision supported by
 evidence that one disciplined port remains the transport bottleneck after
-receipt backpressure and fitting demand contraction. Port count MUST NOT be
-used as a substitute for worker scheduling or product-control diagnosis.
+receipt backpressure, duplex bounded progress, and fitting demand contraction.
+Port count MUST NOT be used as a substitute for worker scheduling or
+product-control diagnosis.
 
 Basis: U-CWA-002, U-CWA-005, U-CWA-007.
+
+### R-CWA-013 — Duplex bounded progress
+
+While render publications and correlated worker control or receipt outcomes
+share the worker-to-main FIFO direction, render publication MUST NOT create an
+unbounded predecessor backlog. Correlated outcomes MUST reach main before their
+existing RPC timeout, and reverse-direction backlog MUST NOT age required
+receipt settlement beyond its existing lease.
+
+When applying a receipt batch makes additional render work eligible, main MUST
+observe the correlated ready or degraded acknowledgement before any render
+publication newly released by that settlement. Render publications already
+published may remain ahead of the acknowledgement, but their
+published-but-unsettled count and oldest unsettled age MUST stay bounded and
+MUST drain after demand quiesces in the required real workload.
+
+This obligation preserves current render identity, source and currentness
+fences, per-attempt settlement, and no-silent-drop behavior. It specifies no
+credit count, admission registry, module owner, render batch shape, second port,
+new timeout, or new capacity.
+
+Basis: U-CWA-001, U-CWA-003, U-CWA-004, U-CWA-005, U-CWA-007.
 
 ## Proof obligations
 
@@ -257,14 +321,22 @@ Basis: U-CWA-002, U-CWA-005, U-CWA-007.
   unknown-debt/probe timeout, capacity overload, disposal, and
   worker-replacement tests.
 - V-CWA-002: integration proof that an urgent annotation action posted while a
-  receipt batch is in-flight precedes every later receipt batch.
+  receipt batch is in-flight precedes every later receipt batch and its outcome
+  is not held behind unbounded render predecessors; plus proof that each receipt
+  acknowledgement reaches main before render work newly released by applying
+  that batch.
 - V-CWA-003: source/currentness tests for mixed current and stale receipt
   identities without cross-surface or cross-worker acceptance.
-- V-CWA-004: source-scrubbed telemetry tests for every required bounded outcome
-  and for prohibited payload/identity fields.
+- V-CWA-004: source-scrubbed telemetry tests for every required bounded outcome,
+  including worker-to-main published-but-unsettled render count and age plus
+  correlated outcome/render ordering, and for prohibited payload/identity
+  fields.
 - V-CWA-005: identical baseline/after workload evidence with queue-wait,
-  handler, pending, acknowledgement, expiry, retry, and annotation stages.
-- V-CWA-006: real root-plus-five-reply durability and reload journey.
+  handler, receipt pending, worker-to-main published-but-unsettled render,
+  acknowledgement, expiry, retry, and annotation stages.
+- V-CWA-006: real root-plus-five-reply durability and reload journey with
+  bounded duplex progress, no admission-caused timeout or lease expiry, and
+  eventual drain after workload quiescence.
 - V-CWA-007: focused BridgeWeb typecheck, format, lint, unit, integration, and
   browser gates followed by the repository aggregate and packaged boundary
   proof required by the parent goal.
@@ -273,4 +345,5 @@ Basis: U-CWA-002, U-CWA-005, U-CWA-007.
 
 This contract does not create transport parallelism, a second comm worker,
 cross-port priority, generalized RPC priority, payload batching for user
-actions, a demand event history, or a new comment persistence model.
+actions, a required worker-to-main render-batch shape, a demand event history,
+or a new comment persistence model.
