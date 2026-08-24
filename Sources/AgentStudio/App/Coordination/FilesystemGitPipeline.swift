@@ -19,6 +19,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
 {
     private let filesystemActor: FilesystemActor
     private let gitWorkingDirectoryProjector: GitWorkingDirectoryProjector
+    private let remoteReferenceRefreshActor: RemoteReferenceRefreshActor
     private let forgeActor: ForgeActor
     private let registrationValidator: GitWorktreeRegistrationValidator
 
@@ -27,6 +28,8 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         registrationDiscoveryProvider: any RepoScanner.GitRepositoryDiscoveryProvider =
             RepoScannerGitDiscoveryClient(),
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider,
+        remoteReferenceRefreshProvider: any RemoteReferenceRefreshProviding =
+            AgentStudioGitRemoteReferenceRefreshProvider(),
         forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
         filesystemDebounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
@@ -43,15 +46,30 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             maxFlushLatency: filesystemMaxFlushLatency,
             performanceTraceRecorder: performanceTraceRecorder
         )
-        self.gitWorkingDirectoryProjector = GitWorkingDirectoryProjector(
+        let remoteReferenceAuthoritySink = RemoteReferenceAuthoritySink()
+        let remoteReferenceRefreshActor = RemoteReferenceRefreshActor(
+            provider: remoteReferenceRefreshProvider,
+            onAuthorityUpdate: { update in
+                await remoteReferenceAuthoritySink.send(update)
+            }
+        )
+        self.remoteReferenceRefreshActor = remoteReferenceRefreshActor
+        let gitWorkingDirectoryProjector = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: gitWorkingTreeProvider,
             coalescingWindow: gitCoalescingWindow,
             sleepClock: gitSleepClock,
             refreshPolicy: gitRefreshPolicy,
             performanceTraceRecorder: performanceTraceRecorder,
+            remoteReferenceOriginHandler: { repoId, expectedOrigin in
+                await remoteReferenceRefreshActor.setOrigin(repoId: repoId, expectedOrigin: expectedOrigin)
+            },
             pathExistenceProbe: GitWorkingDirectoryProjector.liveRootPathProbe
         )
+        self.gitWorkingDirectoryProjector = gitWorkingDirectoryProjector
+        remoteReferenceAuthoritySink.install { update in
+            await gitWorkingDirectoryProjector.applyRemoteReferenceAuthorityUpdate(update)
+        }
         self.registrationValidator = GitWorktreeRegistrationValidator(
             discoveryProvider: registrationDiscoveryProvider
         )
@@ -83,7 +101,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
 
     func shutdown() async {
         await forgeActor.setDemand(worktreeIds: [])
+        await remoteReferenceRefreshActor.setDemand(repositoryIds: [])
         await filesystemActor.shutdown()
+        await remoteReferenceRefreshActor.shutdown()
         await gitWorkingDirectoryProjector.shutdown()
         await forgeActor.shutdown()
     }
@@ -98,15 +118,24 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             break
         case .authoritativeNegative:
             await forgeActor.unregister(worktreeId: worktreeId)
+            await remoteReferenceRefreshActor.unregister(worktreeId: worktreeId)
             await filesystemActor.unregister(worktreeId: worktreeId)
             return
         }
+        await remoteReferenceRefreshActor.register(
+            repoId: repoId,
+            worktreeId: worktreeId,
+            repositoryPath: rootPath,
+            remoteName: "origin",
+            expectedOrigin: nil
+        )
         await forgeActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await filesystemActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
     }
 
     func unregister(worktreeId: UUID) async {
         await forgeActor.unregister(worktreeId: worktreeId)
+        await remoteReferenceRefreshActor.unregister(worktreeId: worktreeId)
         await filesystemActor.unregister(worktreeId: worktreeId)
     }
 
@@ -141,6 +170,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             contextsByWorktreeId: validatedContextsByWorktreeId
         )
         await filesystemActor.assertTopology(validatedAssertion)
+        await remoteReferenceRefreshActor.assertTopology(validatedContextsByWorktreeId)
         await gitWorkingDirectoryProjector.assertTopology(validatedAssertion)
     }
 
@@ -173,6 +203,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             visibleActiveTabWorktreeIds: snapshot.visibleActiveTabWorktreeIds,
             openWorktreeIds: snapshot.openWorktreeIds
         )
+        await remoteReferenceRefreshActor.setDemand(repositoryIds: snapshot.demandedRepositoryIds)
         await forgeActor.setDemand(worktreeIds: snapshot.forgeDemandedWorktreeIds)
     }
 
@@ -205,14 +236,35 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     func applyScopeChange(_ change: ScopeChange) async {
         switch change {
         case .registerForgeRepo(let repoId, let remote):
+            await remoteReferenceRefreshActor.setOrigin(repoId: repoId, expectedOrigin: remote)
             await forgeActor.setOrigin(repo: repoId, remote: remote)
         case .unregisterForgeRepo(let repoId):
+            await remoteReferenceRefreshActor.setOrigin(repoId: repoId, expectedOrigin: nil)
             await forgeActor.removeRepository(repo: repoId)
         case .refreshForgeRepo(let repoId, let correlationId):
+            await remoteReferenceRefreshActor.refresh(repoId: repoId)
             await forgeActor.refresh(repo: repoId, correlationId: correlationId)
         case .updateWatchedFolders(let watchedPaths):
             _ = await filesystemActor.refreshWatchedFolders(watchedPaths)
         }
+    }
+}
+
+private final class RemoteReferenceAuthoritySink: @unchecked Sendable {
+    typealias Handler = @Sendable (RemoteReferenceAuthorityUpdate) async -> Void
+
+    private let lock = NSLock()
+    private var handler: Handler?
+
+    func install(_ handler: @escaping Handler) {
+        lock.lock()
+        self.handler = handler
+        lock.unlock()
+    }
+
+    func send(_ update: RemoteReferenceAuthorityUpdate) async {
+        let handler = lock.withLock { self.handler }
+        await handler?(update)
     }
 }
 

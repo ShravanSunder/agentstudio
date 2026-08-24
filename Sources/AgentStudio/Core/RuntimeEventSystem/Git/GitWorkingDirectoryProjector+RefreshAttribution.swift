@@ -5,6 +5,7 @@ enum GitRefreshTriggerSource: String, Sendable {
     case filesystemChange = "filesystem_change"
     case periodic
     case visibilityChange = "visibility_change"
+    case remoteReferenceRefresh = "remote_reference_refresh"
     case retry
 }
 

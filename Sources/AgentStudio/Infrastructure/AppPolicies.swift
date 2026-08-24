@@ -441,6 +441,14 @@ package enum AppPolicies {
         package static let maximumWorktreeKeysPerBatch: Int = 32
     }
 
+    package enum RemoteReferenceRefresh {
+        package static let automaticFreshnessFloor: Duration = .seconds(180)
+        package static let automaticFailureRetryFloor: Duration = .seconds(180)
+        package static let maximumConcurrentFetches: Int = 1
+        package static let childProcessTimeoutSeconds: Double = 120
+        package static let capacityRecheckDelay: Duration = .milliseconds(500)
+    }
+
     package enum ForgeRefresh {
         package static let defaultPollingInterval: Duration = .seconds(45)
         package static let pendingFollowUpDelay: Duration = .seconds(1)

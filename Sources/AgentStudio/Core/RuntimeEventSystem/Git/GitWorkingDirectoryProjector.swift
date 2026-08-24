@@ -26,6 +26,7 @@ package actor GitWorkingDirectoryProjector {
     let refreshPolicy: AppPolicies.GitRefresh.Policy
     private let subscriptionBufferLimit: Int
     let performanceTraceRecorder: (any GitProjectorPerformanceRecording)?
+    let remoteReferenceOriginHandler: (@Sendable (UUID, String?) async -> Void)?
     /// Cheap filesystem existence check used to quarantine dead-path worktrees at
     /// admission (see `GitWorkingDirectoryProjector+PathQuarantine`). Injected so
     /// the projector stays inert in unit tests that register synthetic paths; the
@@ -62,8 +63,10 @@ package actor GitWorkingDirectoryProjector {
     var activePaneWorktreeId: UUID?
     var sidebarVisibleWorktreeIds: Set<UUID> = []
     var repoIdByWorktreeId: [UUID: UUID] = [:]
-    private var lastKnownOriginByRepoId: [UUID: String] = [:]
+    var lastKnownOriginByRepoId: [UUID: String] = [:]
     private var originResolutionByRepoId: [UUID: GitOriginResolution] = [:]
+    var remoteReferenceAcceptanceByRepoId: [UUID: RemoteReferenceAcceptance] = [:]
+    var remoteReferenceAuthorityRevisionByRepoId: [UUID: UInt64] = [:]
     var lastEmittedSnapshotByWorktreeId: [UUID: GitWorkingTreeSnapshot] = [:]
     /// Last successful full status entry set per worktree. Its presence marks a
     /// fold-capable cache: a scoped compute folds into it (see
@@ -115,6 +118,7 @@ package actor GitWorkingDirectoryProjector {
         refreshPolicy: AppPolicies.GitRefresh.Policy = AppPolicies.GitRefresh.defaultPolicy,
         subscriptionBufferLimit: Int = 256,
         performanceTraceRecorder: (any GitProjectorPerformanceRecording)? = nil,
+        remoteReferenceOriginHandler: (@Sendable (UUID, String?) async -> Void)? = nil,
         pathExistenceProbe: @escaping @Sendable (URL) -> Bool = { _ in true }
     ) {
         self.runtimeBus = bus
@@ -130,6 +134,7 @@ package actor GitWorkingDirectoryProjector {
         self.refreshPolicy = refreshPolicy
         self.subscriptionBufferLimit = subscriptionBufferLimit
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.remoteReferenceOriginHandler = remoteReferenceOriginHandler
         self.pathExistenceProbe = pathExistenceProbe
     }
 
@@ -236,6 +241,8 @@ package actor GitWorkingDirectoryProjector {
         repoIdByWorktreeId.removeAll(keepingCapacity: false)
         lastKnownOriginByRepoId.removeAll(keepingCapacity: false)
         originResolutionByRepoId.removeAll(keepingCapacity: false)
+        remoteReferenceAcceptanceByRepoId.removeAll(keepingCapacity: false)
+        remoteReferenceAuthorityRevisionByRepoId.removeAll(keepingCapacity: false)
         lastEmittedSnapshotByWorktreeId.removeAll(keepingCapacity: false)
         lastStatusEntriesByWorktreeId.removeAll(keepingCapacity: false)
         lastAcceptedStatusFactsByWorktreeId.removeAll(keepingCapacity: false)
@@ -561,6 +568,7 @@ package actor GitWorkingDirectoryProjector {
         if !repoIdByWorktreeId.values.contains(repoId) {
             lastKnownOriginByRepoId.removeValue(forKey: repoId)
             originResolutionByRepoId.removeValue(forKey: repoId)
+            remoteReferenceAcceptanceByRepoId.removeValue(forKey: repoId)
         }
         if let task = worktreeTasks.removeValue(forKey: worktreeId) {
             task.cancel()
@@ -695,6 +703,8 @@ package actor GitWorkingDirectoryProjector {
             guard previousOriginResolution != .confirmedAbsent else { return }
             originResolutionByRepoId[changeset.repoId] = .confirmedAbsent
             lastKnownOriginByRepoId.removeValue(forKey: changeset.repoId)
+            remoteReferenceAcceptanceByRepoId.removeValue(forKey: changeset.repoId)
+            await remoteReferenceOriginHandler?(changeset.repoId, nil)
             await emitGitWorkingDirectoryEvent(
                 worktreeId: changeset.worktreeId,
                 repoId: changeset.repoId,
@@ -709,6 +719,8 @@ package actor GitWorkingDirectoryProjector {
             }
             originResolutionByRepoId[changeset.repoId] = .resolved(trimmedOrigin)
             lastKnownOriginByRepoId[changeset.repoId] = trimmedOrigin
+            remoteReferenceAcceptanceByRepoId.removeValue(forKey: changeset.repoId)
+            await remoteReferenceOriginHandler?(changeset.repoId, trimmedOrigin)
             await emitGitWorkingDirectoryEvent(
                 worktreeId: changeset.worktreeId,
                 repoId: changeset.repoId,

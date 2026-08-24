@@ -32,11 +32,17 @@ extension GitWorkingDirectoryProjector {
         guard !Task.isCancelled, !isShuttingDown else { return }
         guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
         guard isCurrentForPublication(changeset) else { return }
+        let currentStatusSnapshot = await prepareRemoteReferenceCurrentStatus(
+            statusSnapshot,
+            changeset: changeset
+        )
         admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
         clearCapacityRetryState(worktreeId: changeset.worktreeId)
         resetStatusBackoff(worktreeId: changeset.worktreeId)
-        lastStatusEntriesByWorktreeId[changeset.worktreeId] = statusSnapshot.entries
-        lastAcceptedStatusFactsByWorktreeId[changeset.worktreeId] = materialized.facts
+        lastStatusEntriesByWorktreeId[changeset.worktreeId] = currentStatusSnapshot.entries
+        lastAcceptedStatusFactsByWorktreeId[changeset.worktreeId] = GitWorkingTreeStatusFacts(
+            status: currentStatusSnapshot
+        )
         if let detail = materialized.detail {
             lastAcceptedLineDetailByWorktreeId[changeset.worktreeId] = detail
             if materialized.refreshedDetail {
@@ -48,8 +54,8 @@ extension GitWorkingDirectoryProjector {
             worktreeId: changeset.worktreeId,
             repoId: changeset.repoId,
             rootPath: changeset.rootPath,
-            summary: statusSnapshot.summary,
-            branch: statusSnapshot.branch
+            summary: currentStatusSnapshot.summary,
+            branch: currentStatusSnapshot.branch
         )
         let previousSnapshot = lastEmittedSnapshotByWorktreeId[changeset.worktreeId]
         let snapshotChanged = previousSnapshot != nextSnapshot
@@ -91,7 +97,7 @@ extension GitWorkingDirectoryProjector {
         }
 
         if let previousSnapshot,
-            let nextBranch = statusSnapshot.branch,
+            let nextBranch = currentStatusSnapshot.branch,
             previousSnapshot.branch != nextBranch
         {
             await emitGitWorkingDirectoryEvent(
@@ -105,7 +111,5 @@ extension GitWorkingDirectoryProjector {
                 )
             )
         }
-        guard shouldCheckOrigin(for: changeset) else { return }
-        await emitOriginResolutionIfChanged(changeset: changeset, statusSnapshot: statusSnapshot)
     }
 }

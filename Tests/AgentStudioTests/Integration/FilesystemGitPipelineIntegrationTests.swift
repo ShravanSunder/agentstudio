@@ -1,3 +1,4 @@
+import AgentStudioGit
 import Foundation
 import Testing
 
@@ -22,6 +23,7 @@ struct FilesystemGitPipelineIntegrationTests {
                     origin: nil
                 )
             },
+            remoteReferenceRefreshProvider: PipelineLocalAuthorityRemoteReferenceProvider(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero
         )
@@ -111,6 +113,7 @@ struct FilesystemGitPipelineIntegrationTests {
             bus: bus,
             registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: provider,
+            remoteReferenceRefreshProvider: PipelineLocalAuthorityRemoteReferenceProvider(),
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
@@ -196,6 +199,7 @@ struct FilesystemGitPipelineIntegrationTests {
             bus: bus,
             registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: provider,
+            remoteReferenceRefreshProvider: PipelineLocalAuthorityRemoteReferenceProvider(),
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
@@ -270,6 +274,7 @@ struct FilesystemGitPipelineIntegrationTests {
             bus: bus,
             registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: provider,
+            remoteReferenceRefreshProvider: PipelineLocalAuthorityRemoteReferenceProvider(),
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
@@ -322,6 +327,7 @@ struct FilesystemGitPipelineIntegrationTests {
             bus: bus,
             registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: provider,
+            remoteReferenceRefreshProvider: PipelineLocalAuthorityRemoteReferenceProvider(),
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
@@ -391,6 +397,7 @@ struct FilesystemGitPipelineIntegrationTests {
             bus: EventBus<RuntimeEnvelope>(),
             registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: provider,
+            remoteReferenceRefreshProvider: PipelineLocalAuthorityRemoteReferenceProvider(),
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
@@ -467,7 +474,7 @@ struct FilesystemGitPipelineIntegrationTests {
 
     @Test("pipeline retries origin discovery after initial empty origin and converges to remote identity")
     func pipelineRetriesOriginDiscoveryAfterInitialEmptyOrigin() async throws {
-        func status(originResolution: GitOriginResolution) -> GitWorkingTreeStatus {
+        func status(originResolution: AgentStudioCore.GitOriginResolution) -> GitWorkingTreeStatus {
             GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
                 branch: "main",
@@ -481,6 +488,7 @@ struct FilesystemGitPipelineIntegrationTests {
             bus: bus,
             registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: provider,
+            remoteReferenceRefreshProvider: PipelineLocalAuthorityRemoteReferenceProvider(),
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
@@ -858,6 +866,49 @@ private actor ObservedFilesystemGitEvents {
     func hasSeenFilesChangedPath(_ path: String, for worktreeId: UUID) -> Bool {
         seenFilesChangedPathsByWorktreeId[worktreeId]?.contains(path) == true
     }
+}
+
+private struct PipelineLocalAuthorityRemoteReferenceProvider: RemoteReferenceRefreshProviding {
+    private let origin = "git@github.com:askluna/agent-studio.git"
+
+    func captureRemoteTrackingSnapshot(
+        repositoryPath: URL,
+        remoteName: String
+    ) async throws -> GitRemoteTrackingSnapshot {
+        GitRemoteTrackingSnapshot(
+            repositoryPath: repositoryPath,
+            repositoryCommonDirectory: repositoryPath.appending(path: ".git"),
+            remoteName: remoteName,
+            configuredRemoteURL: origin,
+            effectiveFetchURL: origin,
+            references: []
+        )
+    }
+
+    func stageFetch(
+        snapshot: GitRemoteTrackingSnapshot,
+        stagingId: UUID
+    ) async throws -> GitStagedFetchResult {
+        GitStagedFetchResult(
+            snapshot: snapshot,
+            handle: GitStagedFetchHandle(
+                repositoryCommonDirectory: snapshot.repositoryCommonDirectory,
+                stagingID: stagingId
+            ),
+            promotionGuard: nil,
+            updates: [],
+            verifications: [],
+            deletions: []
+        )
+    }
+
+    func promoteStagedFetch(_: GitStagedFetchResult) async throws {}
+    func cleanupStagedFetch(_: GitStagedFetchHandle) async throws {}
+
+    func cleanupAbandonedStagedFetches(
+        repositoryCommonDirectory _: URL,
+        retainedStagingIds _: Set<UUID>
+    ) async throws {}
 }
 
 private struct AcceptingRegistrationDiscoveryProvider: RepoScanner.GitRepositoryDiscoveryProvider {
