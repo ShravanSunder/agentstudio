@@ -300,6 +300,20 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(result.stdout.contains("host_process_contract=passed"))
     }
 
+    @Test("resident zero CPU profiler daemons are allowed")
+    func residentZeroCPUProfilerDaemonsAreAllowed() async throws {
+        let result = try await runHostProcessContract(
+            records: """
+                [
+                  {"pid":201,"ppid":1,"cpu":0.0,"command":"/usr/sbin/spindump"}
+                ]
+                """
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("host_process_contract=passed"))
+    }
+
     @Test("build test compiler and profiler contamination is rejected")
     func activeBuildTestCompilerAndProfilerContaminationIsRejected() async throws {
         for command in [

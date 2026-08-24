@@ -263,7 +263,9 @@ for record in records:
     if not isinstance(command, str):
         raise SystemExit(f"invalid host command for pid {pid}")
     unrelated_cpu += cpu
-    if forbidden_pattern.search(command):
+    # Long-lived macOS profiler daemons may remain resident at zero CPU. The
+    # proof contract rejects measured contamination, not process names alone.
+    if cpu > 0 and forbidden_pattern.search(command):
         forbidden.append(f"{pid} {command}")
 normalized_cpu = unrelated_cpu / logical_cpu_count
 if normalized_cpu > maximum_cpu:
