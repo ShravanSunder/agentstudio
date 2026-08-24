@@ -1146,3 +1146,24 @@ Real Chrome now drags a range during `Update ready`, opens the endpoint `+`, cre
 root against displayed A, observes exact root-create/draft-save receipts, preserves the saved body
 after Apply now, and then proves the second promoted update auto-installs after moving to an unaffected
 file. Final proof: installed Chrome 30/30, composed E2E 1/1, typecheck/format/type-aware lint green.
+
+## 2026-08-24 17:35 EDT — Backend lane: sequential Reply live-interaction blocker
+
+The committed comm-worker correction is green through existing-owner Review/File bounds, actual
+`MessageChannel` ordering, and bounded publication telemetry (`1de2dff8c`, `8206d7d56`,
+`c2cac7bdc`). The permanent 1,699-file Vite/production-worker/Swift/SQLite journey now reaches a
+precise UI-owned RED after root plus reply 1 create/flush/save all commit: opening reply 2 times out.
+
+At the failure there is one expanded thread, two exact saved bodies, and two visible/enabled Reply
+buttons. The selected latest button receives exactly one pointerdown, mousedown, and click on the
+same still-connected marked DOM node and receives focus, but no Reply composer appears. There are no
+console warnings/errors, and the next exact annotation-projection response does not change the
+result. The stable thread browser harness and the Pierre Review browser harness both pass the same
+sequential-reply flow; the RED requires the live native/comm-worker projection cadence under the
+large Review.
+
+UI owner request: diagnose the live event-delegation/portal interaction at the Pierre Review boundary
+without changing comm-worker admission. Preserve the S5 test and turn its `reply.2.composer.opening`
+milestone green. Do not add click retries or force-click in the harness; those would hide a lost user
+interaction. Backend evidence and cleanup are complete; every diagnostic run stopped its owned server
+and disposed its isolated fixture.
