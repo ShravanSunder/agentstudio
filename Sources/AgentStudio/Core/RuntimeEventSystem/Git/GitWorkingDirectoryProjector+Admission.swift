@@ -50,15 +50,16 @@ extension GitWorkingDirectoryProjector {
         guard !eligibleWorktreeIds.isEmpty else { return }
 
         var admittedWorktreeIds: [UUID] = []
-        let runningDemandTiers = worktreeTasks.keys.map { demandTier(for: $0) }
+        let runningDemandTiers = worktreeTasks.keys.map { worktreeId in
+            admittedDemandTierByWorktreeId[worktreeId] ?? demandTier(for: worktreeId)
+        }
         var runningCountByTier = Dictionary(grouping: runningDemandTiers, by: { $0 })
             .mapValues(\.count)
         let runningLowerTierCount = runningDemandTiers.filter { $0 != .activePane }.count
-        let activePaneHasDebt =
-            activePaneWorktreeId.map {
-                pendingByWorktreeId[$0] != nil || worktreeTasks[$0] != nil
-            } ?? false
-        let reservedActivePaneSlotCount = activePaneHasDebt ? refreshPolicy.activePaneMaxConcurrent : 0
+        let reservedActivePaneSlotCount = min(
+            refreshPolicy.activePaneMaxConcurrent,
+            max(0, refreshPolicy.maxConcurrentStatusComputes - 1)
+        )
         var availableLowerTierSlots = max(
             0,
             refreshPolicy.maxConcurrentStatusComputes
@@ -98,10 +99,9 @@ extension GitWorkingDirectoryProjector {
             if !isExplicit {
                 admittedDemandTierByWorktreeId[worktreeId] = admittedTier
             }
+            recordAutomaticAdmission(worktreeId: worktreeId, isExplicit: isExplicit)
             explicitRefreshWorktreeIds.remove(worktreeId)
             tierEligibleWorktreeIds.remove(worktreeId)
-            lastPeriodicAdmissionTickByWorktreeId[worktreeId] =
-                admittedTriggerSource == .periodic ? periodicRefreshTick : periodicRefreshTick &- 1
             startDrainTask(worktreeId: worktreeId)
         }
         guard !admittedWorktreeIds.isEmpty else { return }

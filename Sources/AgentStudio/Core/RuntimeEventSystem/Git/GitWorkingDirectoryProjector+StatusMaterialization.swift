@@ -6,6 +6,7 @@ extension GitWorkingDirectoryProjector {
         let facts: GitWorkingTreeStatusFacts
         let detail: GitWorkingTreeLineDetail?
         let refreshedDetail: Bool
+        let capacityCompletionGeneration: UInt64?
     }
 
     func materializeCompleteStatus(
@@ -17,7 +18,7 @@ extension GitWorkingDirectoryProjector {
         let acceptedDetail = lastAcceptedLineDetailByWorktreeId[worktreeId]
         let detailIsFresh =
             lastAcceptedLineDetailAtByWorktreeId[worktreeId].map {
-                $0.duration(to: envelopeClock.now) < refreshPolicy.lineDetailFreshnessInterval
+                deadlineClock.now - $0 < refreshPolicy.lineDetailFreshnessInterval
             } ?? false
         // Synthetic registration/attention refreshes intentionally carry an
         // empty path set even when their changeset is marked Git-internal.
@@ -36,24 +37,28 @@ extension GitWorkingDirectoryProjector {
                 result: .available(facts.composing(acceptedDetail)),
                 facts: facts,
                 detail: acceptedDetail,
-                refreshedDetail: false
+                refreshedDetail: false,
+                capacityCompletionGeneration: nil
             )
         }
 
+        let capacityCompletionGeneration = gitWorkingTreeProvider.physicalCompletionGeneration()
         switch await gitWorkingTreeProvider.lineDetailResult(for: changeset.rootPath) {
         case .available(let detail):
             return MaterializedGitStatus(
                 result: .available(facts.composing(detail)),
                 facts: facts,
                 detail: detail,
-                refreshedDetail: true
+                refreshedDetail: true,
+                capacityCompletionGeneration: capacityCompletionGeneration
             )
         case .unavailable(let unavailable):
             return MaterializedGitStatus(
                 result: .unavailable(unavailable),
                 facts: facts,
                 detail: nil,
-                refreshedDetail: false
+                refreshedDetail: false,
+                capacityCompletionGeneration: capacityCompletionGeneration
             )
         }
     }

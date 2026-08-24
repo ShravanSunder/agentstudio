@@ -55,6 +55,7 @@ struct FilesystemGitPipelineIntegrationTests {
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
+        await pipeline.setActivePaneWorktree(worktreeId: worktreeId)
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await pipeline.enqueueRawPathsForTesting(
             worktreeId: worktreeId,
@@ -114,7 +115,6 @@ struct FilesystemGitPipelineIntegrationTests {
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
             gitCoalescingWindow: .zero,
-            gitPeriodicRefreshInterval: refreshPolicy.activePaneCadence,
             gitRefreshPolicy: refreshPolicy,
             gitSleepClock: gitClock
         )
@@ -186,8 +186,8 @@ struct FilesystemGitPipelineIntegrationTests {
         )
     }
 
-    @Test("active pane worktree switch triggers git refresh without periodic cadence")
-    func activePaneWorktreeSwitchTriggersGitRefreshWithoutPeriodicCadence() async throws {
+    @Test("active pane worktree switch reuses a fresh accepted snapshot")
+    func activePaneWorktreeSwitchReusesFreshAcceptedSnapshot() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let provider = MutableGitWorkingTreeStatusProvider(
             status: makeTrackedStatus(branch: "main")
@@ -200,7 +200,6 @@ struct FilesystemGitPipelineIntegrationTests {
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
             gitCoalescingWindow: .zero,
-            gitPeriodicRefreshInterval: nil
         )
         await pipeline.start()
 
@@ -229,20 +228,31 @@ struct FilesystemGitPipelineIntegrationTests {
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
+        await pipeline.setActivePaneWorktree(worktreeId: worktreeId)
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+        await pipeline.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: 1,
+                contextsByWorktreeId: [
+                    worktreeId: WorktreeFilesystemContext(repoId: repoId, rootPath: rootPath)
+                ]
+            )
+        )
 
         let initialSnapshotArrived = await eventually("initial focus test snapshot should arrive") {
             repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main"
         }
         #expect(initialSnapshotArrived)
 
+        await pipeline.setActivePaneWorktree(worktreeId: nil)
         await provider.setStatus(makeTrackedStatus(branch: "focused"))
         await pipeline.setActivePaneWorktree(worktreeId: worktreeId)
 
-        let focusRefreshArrived = await eventually("focus switch should refresh without periodic cadence") {
-            repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "focused"
+        for _ in 0..<300 {
+            await Task.yield()
         }
-        #expect(focusRefreshArrived)
+        #expect(await provider.callCount == 1)
+        #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
 
         await shutdownWorld(
             pipeline: pipeline,
@@ -264,7 +274,6 @@ struct FilesystemGitPipelineIntegrationTests {
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
             gitCoalescingWindow: .milliseconds(500),
-            gitPeriodicRefreshInterval: nil,
             gitSleepClock: gitClock
         )
         await pipeline.start()
@@ -275,11 +284,23 @@ struct FilesystemGitPipelineIntegrationTests {
         defer { try? FileManager.default.removeItem(at: rootPath) }
 
         let worktreeId = UUID()
-        await pipeline.register(worktreeId: worktreeId, repoId: UUID(), rootPath: rootPath)
+        let repoId = UUID()
+        await pipeline.setActivity(worktreeId: worktreeId, isActiveInApp: true)
+        await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+        await pipeline.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: 1,
+                contextsByWorktreeId: [
+                    worktreeId: WorktreeFilesystemContext(repoId: repoId, rootPath: rootPath)
+                ]
+            )
+        )
         let initialReadCompleted = await eventually("registration should perform its immediate read") {
             await provider.callCount == 1
         }
         #expect(initialReadCompleted)
+        #expect(await waitUntilYielding { gitClock.pendingSleepCount > 0 })
+        await pipeline.setActivity(worktreeId: worktreeId, isActiveInApp: false)
 
         await provider.setStatus(makeTrackedStatus(branch: "manual"))
         _ = await pipeline.refreshWatchedFolders([])
@@ -305,7 +326,6 @@ struct FilesystemGitPipelineIntegrationTests {
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
             gitCoalescingWindow: .zero,
-            gitPeriodicRefreshInterval: nil
         )
         await pipeline.start()
 
@@ -322,18 +342,21 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
 
+        var contextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
         for worktreeRoot in worktreeRoots {
+            let worktreeId = UUIDv7.generate()
+            let repoId = UUIDv7.generate()
+            contextsByWorktreeId[worktreeId] = WorktreeFilesystemContext(repoId: repoId, rootPath: worktreeRoot)
             await pipeline.register(
-                worktreeId: UUIDv7.generate(),
-                repoId: UUIDv7.generate(),
+                worktreeId: worktreeId,
+                repoId: repoId,
                 rootPath: worktreeRoot
             )
         }
-        let registrationReadsCompleted = await eventually("all registration reads should complete") {
-            await provider.callCount == worktreeRoots.count
-        }
-        #expect(registrationReadsCompleted)
-        await provider.resetRecordedRequests()
+        await pipeline.assertTopology(
+            FilesystemTopologyAssertion(generation: 1, contextsByWorktreeId: contextsByWorktreeId)
+        )
+        #expect(await provider.callCount == 0)
 
         let watchedPaths = [WatchedPath(path: watchedFolder)]
         let summary = await pipeline.refreshWatchedFolders(watchedPaths)
@@ -372,7 +395,6 @@ struct FilesystemGitPipelineIntegrationTests {
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
             gitCoalescingWindow: .zero,
-            gitPeriodicRefreshInterval: nil
         )
         await pipeline.start()
 
@@ -384,19 +406,22 @@ struct FilesystemGitPipelineIntegrationTests {
             fixtureRoot.appending(path: "external/worktree-b"),
             fixtureRoot.appending(path: "external/worktree-c"),
         ]
+        var contextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
         for worktreeRoot in worktreeRoots {
             try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
+            let worktreeId = UUIDv7.generate()
+            let repoId = UUIDv7.generate()
+            contextsByWorktreeId[worktreeId] = WorktreeFilesystemContext(repoId: repoId, rootPath: worktreeRoot)
             await pipeline.register(
-                worktreeId: UUIDv7.generate(),
-                repoId: UUIDv7.generate(),
+                worktreeId: worktreeId,
+                repoId: repoId,
                 rootPath: worktreeRoot
             )
         }
-        let registrationReadsCompleted = await eventually("all registration reads should complete") {
-            await provider.callCount == worktreeRoots.count
-        }
-        #expect(registrationReadsCompleted)
-        await provider.resetRecordedRequests()
+        await pipeline.assertTopology(
+            FilesystemTopologyAssertion(generation: 1, contextsByWorktreeId: contextsByWorktreeId)
+        )
+        #expect(await provider.callCount == 0)
         _ = harness.store.addWatchedPath(watchedFolder)
 
         let delegate = AppDelegate()
@@ -460,7 +485,6 @@ struct FilesystemGitPipelineIntegrationTests {
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
             gitCoalescingWindow: .zero,
-            gitPeriodicRefreshInterval: nil
         )
         await pipeline.start()
 
@@ -627,18 +651,12 @@ struct FilesystemGitPipelineIntegrationTests {
         let expectedAheadCount = props.expectedAheadCount
         let expectedBehindCount = props.expectedBehindCount
         await clock.waitForPendingSleepCount(atLeast: 1)
-        guard let currentSleepGeneration = clock.pendingSleepGenerations.max() else {
-            Issue.record("periodic refresh should have a pending sleep before clock advancement")
-            return
-        }
-        let nextSleepGeneration = currentSleepGeneration + 1
         clock.advance(by: cadence)
         await provider.waitForCallCount(expectedStatusReadCount)
         await cacheReceipt.waitForSnapshot(
             aheadCount: expectedAheadCount,
             behindCount: expectedBehindCount
         )
-        await clock.waitForPendingSleepGeneration(nextSleepGeneration)
     }
 
     private func waitForSubscriberCount(
@@ -702,6 +720,7 @@ private actor PeriodicGitCacheReceipt {
 
 private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     private var currentStatus: GitWorkingTreeStatus?
+    private var lineDetailByRootPath: [URL: GitWorkingTreeLineDetail] = [:]
     private(set) var callCount = 0
     private var callCountByRootPath: [URL: Int] = [:]
     private var callCountWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
@@ -731,12 +750,37 @@ private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider 
     }
 
     func statusResult(for rootPath: URL, pathspecs _: [String]?) async -> GitWorkingTreeStatusResult {
+        await recordStatusResult(for: rootPath)
+    }
+
+    func statusFactsResult(
+        for rootPath: URL,
+        pathspecs _: [String]?
+    ) async -> GitWorkingTreeStatusFactsResult {
+        switch await recordStatusResult(for: rootPath) {
+        case .available(let status):
+            return .available(GitWorkingTreeStatusFacts(status: status))
+        case .unavailable(let unavailable):
+            return .unavailable(unavailable)
+        }
+    }
+
+    func lineDetailResult(for rootPath: URL) async -> GitWorkingTreeLineDetailResult {
+        guard let detail = lineDetailByRootPath[rootPath.standardizedFileURL] else {
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
+        }
+        return .available(detail)
+    }
+
+    private func recordStatusResult(for rootPath: URL) async -> GitWorkingTreeStatusResult {
         callCount += 1
         callCountByRootPath[rootPath.standardizedFileURL, default: 0] += 1
         resumeSatisfiedCallCountWaiters()
         guard let currentStatus else {
+            lineDetailByRootPath.removeValue(forKey: rootPath.standardizedFileURL)
             return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
         }
+        lineDetailByRootPath[rootPath.standardizedFileURL] = GitWorkingTreeLineDetail(status: currentStatus)
         return .available(currentStatus)
     }
 

@@ -264,9 +264,17 @@ package protocol GitWorkingTreeStatusProvider: Sendable {
     func statusResult(for rootPath: URL, pathspecs: [String]?) async -> GitWorkingTreeStatusResult
     func statusFactsResult(for rootPath: URL, pathspecs: [String]?) async -> GitWorkingTreeStatusFactsResult
     func lineDetailResult(for rootPath: URL) async -> GitWorkingTreeLineDetailResult
+    func physicalCompletionGeneration() -> UInt64?
+    func waitForPhysicalCompletion(after generation: UInt64) async
 }
 
 extension GitWorkingTreeStatusProvider {
+    package func physicalCompletionGeneration() -> UInt64? {
+        nil
+    }
+
+    package func waitForPhysicalCompletion(after _: UInt64) async {}
+
     package func statusFactsResult(
         for rootPath: URL,
         pathspecs: [String]?

@@ -29,6 +29,47 @@ extension GitWorkingDirectoryProjector {
                 )
             )
         )
+        guard !Task.isCancelled, !isShuttingDown else { return }
+        guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
+        guard isCurrentForPublication(changeset) else { return }
+        admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
+        clearCapacityRetryState(worktreeId: changeset.worktreeId)
+        resetStatusBackoff(worktreeId: changeset.worktreeId)
+        lastStatusEntriesByWorktreeId[changeset.worktreeId] = statusSnapshot.entries
+        lastAcceptedStatusFactsByWorktreeId[changeset.worktreeId] = materialized.facts
+        if let detail = materialized.detail {
+            lastAcceptedLineDetailByWorktreeId[changeset.worktreeId] = detail
+            if materialized.refreshedDetail {
+                lastAcceptedLineDetailAtByWorktreeId[changeset.worktreeId] = deadlineClock.now
+            }
+        }
+
+        let nextSnapshot = GitWorkingTreeSnapshot(
+            worktreeId: changeset.worktreeId,
+            repoId: changeset.repoId,
+            rootPath: changeset.rootPath,
+            summary: statusSnapshot.summary,
+            branch: statusSnapshot.branch
+        )
+        let previousSnapshot = lastEmittedSnapshotByWorktreeId[changeset.worktreeId]
+        let snapshotChanged = previousSnapshot != nextSnapshot
+        if snapshotChanged {
+            lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
+            resetAdaptiveCadence(worktreeId: changeset.worktreeId)
+        } else {
+            performanceTraceRecorder?.record(
+                .gitSnapshotDedup,
+                attributes: [
+                    "agentstudio.worktree.id": .string(changeset.worktreeId.uuidString),
+                    "agentstudio.performance.git.snapshot_dedup.count": .int(1),
+                ]
+            )
+            if pendingByWorktreeId[changeset.worktreeId] == nil {
+                unchangedStatusResultCountByWorktreeId[changeset.worktreeId, default: 0] += 1
+            }
+        }
+        recordAutomaticCompletion(worktreeId: changeset.worktreeId, duty: statusDuration)
+
         await emitGitWorkingDirectoryEvent(
             worktreeId: changeset.worktreeId,
             repoId: changeset.repoId,
@@ -41,49 +82,12 @@ extension GitWorkingDirectoryProjector {
                     consecutiveFailureCount: 0
                 ))
         )
-        guard !Task.isCancelled, !isShuttingDown else { return }
-        guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
-        guard isCurrentForPublication(changeset) else { return }
-        admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
-        nilStatusRetryCountByWorktreeId.removeValue(forKey: changeset.worktreeId)
-        clearCapacityRetryState(worktreeId: changeset.worktreeId)
-        resetStatusBackoff(worktreeId: changeset.worktreeId)
-        lastStatusEntriesByWorktreeId[changeset.worktreeId] = statusSnapshot.entries
-        lastAcceptedStatusFactsByWorktreeId[changeset.worktreeId] = materialized.facts
-        if let detail = materialized.detail {
-            lastAcceptedLineDetailByWorktreeId[changeset.worktreeId] = detail
-            if materialized.refreshedDetail {
-                lastAcceptedLineDetailAtByWorktreeId[changeset.worktreeId] = statusCompletion
-            }
-        }
-
-        let nextSnapshot = GitWorkingTreeSnapshot(
-            worktreeId: changeset.worktreeId,
-            repoId: changeset.repoId,
-            rootPath: changeset.rootPath,
-            summary: statusSnapshot.summary,
-            branch: statusSnapshot.branch
-        )
-        let previousSnapshot = lastEmittedSnapshotByWorktreeId[changeset.worktreeId]
-        if previousSnapshot != nextSnapshot {
-            lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
-            resetAdaptiveCadence(worktreeId: changeset.worktreeId)
+        if snapshotChanged {
             await emitGitWorkingDirectoryEvent(
                 worktreeId: changeset.worktreeId,
                 repoId: changeset.repoId,
                 event: .snapshotChanged(snapshot: nextSnapshot)
             )
-        } else {
-            performanceTraceRecorder?.record(
-                .gitSnapshotDedup,
-                attributes: [
-                    "agentstudio.worktree.id": .string(changeset.worktreeId.uuidString),
-                    "agentstudio.performance.git.snapshot_dedup.count": .int(1),
-                ]
-            )
-            if pendingByWorktreeId[changeset.worktreeId] == nil {
-                unchangedStatusResultCountByWorktreeId[changeset.worktreeId, default: 0] += 1
-            }
         }
 
         if let previousSnapshot,

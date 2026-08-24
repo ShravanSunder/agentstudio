@@ -68,27 +68,6 @@ extension GitWorkingDirectoryProjector {
         }
     }
 
-    func recordPeriodicRefreshTickTelemetry(
-        enqueuedWorktreeIds: [UUID],
-        registeredCount: Int,
-        pendingCount: Int,
-        tick: UInt64
-    ) {
-        guard let performanceTraceRecorder else { return }
-        for worktreeId in enqueuedWorktreeIds {
-            performanceTraceRecorder.record(
-                .gitTick,
-                attributes: [
-                    "agentstudio.worktree.id": .string(worktreeId.uuidString),
-                    "agentstudio.performance.git.enqueued.count": .int(1),
-                    "agentstudio.performance.git.registered.count": .int(registeredCount),
-                    "agentstudio.performance.git.pending.count": .int(pendingCount),
-                    "agentstudio.performance.git.tick.count": .int(Int(tick)),
-                ]
-            )
-        }
-    }
-
     func recordGitAdmissionTelemetry(
         admittedWorktreeIds: [UUID],
         availableSlots: Int

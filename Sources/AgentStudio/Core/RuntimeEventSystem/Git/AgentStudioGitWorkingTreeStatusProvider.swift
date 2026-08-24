@@ -122,6 +122,14 @@ package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProv
         }
     }
 
+    package func physicalCompletionGeneration() -> UInt64? {
+        physicalGate.currentCompletionGeneration()
+    }
+
+    package func waitForPhysicalCompletion(after generation: UInt64) async {
+        await physicalGate.waitForCompletion(after: generation)
+    }
+
     private func readPhysical<ReadValue: Sendable>(
         rootPath: URL,
         operation: @Sendable () async throws -> ReadValue
@@ -366,7 +374,8 @@ package final class AgentStudioGitStatusPhysicalGate: @unchecked Sendable {
     private var activeReadKeys: Set<AgentStudioGitStatusPhysicalReadKey> = []
     private var inactiveWaiters: [AgentStudioGitStatusPhysicalReadKey: [CheckedContinuation<Void, Never>]] = [:]
     private var completionGeneration: UInt64 = 0
-    private var completionWaiters: [(generation: UInt64, continuation: CheckedContinuation<Void, Never>)] = []
+    private var nextCompletionWaiterId: UInt64 = 0
+    private var completionWaiters: [UInt64: (generation: UInt64, continuation: CheckedContinuation<Void, Never>)] = [:]
 
     package init(maxActiveReadCount: Int = AppPolicies.GitRefresh.defaultDetachedStatusReadLimit) {
         precondition(maxActiveReadCount > 0)
@@ -405,10 +414,10 @@ package final class AgentStudioGitStatusPhysicalGate: @unchecked Sendable {
         waiters = inactiveWaiters.removeValue(forKey: key) ?? []
         completionGeneration &+= 1
         completionWaitersToResume =
-            completionWaiters
+            completionWaiters.values
             .filter { $0.generation < completionGeneration }
             .map(\.continuation)
-        completionWaiters.removeAll { $0.generation < completionGeneration }
+        completionWaiters = completionWaiters.filter { $0.value.generation >= completionGeneration }
         lock.unlock()
 
         for waiter in waiters + completionWaitersToResume {
@@ -421,16 +430,32 @@ package final class AgentStudioGitStatusPhysicalGate: @unchecked Sendable {
     }
 
     package func waitForCompletion(after generation: UInt64) async {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            guard completionGeneration <= generation else {
-                lock.unlock()
-                continuation.resume()
-                return
-            }
-            completionWaiters.append((generation: generation, continuation: continuation))
-            lock.unlock()
+        let waiterId = lock.withLock {
+            nextCompletionWaiterId &+= 1
+            return nextCompletionWaiterId
         }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                guard !Task.isCancelled, completionGeneration <= generation else {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                completionWaiters[waiterId] = (generation: generation, continuation: continuation)
+                lock.unlock()
+            }
+        } onCancel: {
+            cancelCompletionWaiter(waiterId)
+        }
+    }
+
+    private func cancelCompletionWaiter(_ waiterId: UInt64) {
+        let continuation: CheckedContinuation<Void, Never>?
+        lock.lock()
+        continuation = completionWaiters.removeValue(forKey: waiterId)?.continuation
+        lock.unlock()
+        continuation?.resume()
     }
 
     func waitUntilInactive(_ rootPath: URL) async {

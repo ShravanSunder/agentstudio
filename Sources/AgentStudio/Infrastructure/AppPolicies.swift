@@ -235,8 +235,6 @@ package enum AppPolicies {
             package let backgroundMaxConcurrent: Int
             package let visibleSidebarStripeSize: Int
             package let suppressedWorktreeTombstoneLimit: Int
-            package let maxNilStatusRetries: Int
-            package let nilStatusRetryDelay: Duration
             /// First backoff step applied when a worktree's status compute times
             /// out. The per-worktree circuit breaker doubles this per consecutive
             /// failure up to `statusFailureBackoffMaxDelay`, coalescing file-change
@@ -258,6 +256,10 @@ package enum AppPolicies {
             /// remain equal. A due detail is refreshed without discarding the last
             /// complete accepted candidate.
             package let lineDetailFreshnessInterval: Duration
+            /// Multiplier applied to completed physical duty before another
+            /// automatic start may run. Freshness cadence remains the primary
+            /// floor; this prevents slow reads from creating continuous duty.
+            package let automaticDutyGapMultiplier: Int
             /// Periodic cadence multipliers indexed by consecutive unchanged
             /// results. The default reaches 4x after two equal outcomes, reducing
             /// admissions by 75% while retaining a bounded refresh backstop.
@@ -276,8 +278,6 @@ package enum AppPolicies {
                 backgroundMaxConcurrent: Int = 1,
                 visibleSidebarStripeSize: Int = 8,
                 suppressedWorktreeTombstoneLimit: Int = 1024,
-                maxNilStatusRetries: Int = 1,
-                nilStatusRetryDelay: Duration = .seconds(5),
                 statusFailureBackoffBaseDelay: Duration = .seconds(5),
                 statusFailureBackoffMultiplier: Int = 2,
                 statusFailureBackoffMaxDelay: Duration = .seconds(60),
@@ -285,6 +285,7 @@ package enum AppPolicies {
                 capacityRetryJitterMaxDelay: Duration = .milliseconds(100),
                 maxScopedStatusPathspecCount: Int = 128,
                 lineDetailFreshnessInterval: Duration = .seconds(960),
+                automaticDutyGapMultiplier: Int = 4,
                 unchangedStatusCadenceMultipliers: [Int] = [1, 2, 4]
             ) {
                 precondition(activePaneCadence > .zero)
@@ -299,7 +300,6 @@ package enum AppPolicies {
                 precondition(backgroundMaxConcurrent > 0)
                 precondition(visibleSidebarStripeSize > 0)
                 precondition(suppressedWorktreeTombstoneLimit > 0)
-                precondition(maxNilStatusRetries >= 0)
                 precondition(statusFailureBackoffBaseDelay > .zero)
                 precondition(statusFailureBackoffMultiplier >= 1)
                 precondition(statusFailureBackoffMaxDelay >= statusFailureBackoffBaseDelay)
@@ -307,6 +307,7 @@ package enum AppPolicies {
                 precondition(capacityRetryJitterMaxDelay >= .zero)
                 precondition(maxScopedStatusPathspecCount > 0)
                 precondition(lineDetailFreshnessInterval > .zero)
+                precondition(automaticDutyGapMultiplier >= 1)
                 precondition(unchangedStatusCadenceMultipliers.first == 1)
                 precondition(
                     unchangedStatusCadenceMultipliers.elementsEqual(
@@ -326,8 +327,6 @@ package enum AppPolicies {
                 self.backgroundMaxConcurrent = backgroundMaxConcurrent
                 self.visibleSidebarStripeSize = visibleSidebarStripeSize
                 self.suppressedWorktreeTombstoneLimit = suppressedWorktreeTombstoneLimit
-                self.maxNilStatusRetries = maxNilStatusRetries
-                self.nilStatusRetryDelay = nilStatusRetryDelay
                 self.statusFailureBackoffBaseDelay = statusFailureBackoffBaseDelay
                 self.statusFailureBackoffMultiplier = statusFailureBackoffMultiplier
                 self.statusFailureBackoffMaxDelay = statusFailureBackoffMaxDelay
@@ -335,6 +334,7 @@ package enum AppPolicies {
                 self.capacityRetryJitterMaxDelay = capacityRetryJitterMaxDelay
                 self.maxScopedStatusPathspecCount = maxScopedStatusPathspecCount
                 self.lineDetailFreshnessInterval = lineDetailFreshnessInterval
+                self.automaticDutyGapMultiplier = automaticDutyGapMultiplier
                 self.unchangedStatusCadenceMultipliers = unchangedStatusCadenceMultipliers
             }
 
@@ -364,34 +364,33 @@ package enum AppPolicies {
                     )
             }
 
+            package func adaptiveCadence(
+                base: Duration,
+                unchangedResultCount: Int
+            ) -> Duration {
+                let index = min(max(unchangedResultCount, 0), unchangedStatusCadenceMultipliers.count - 1)
+                return Self.scaled(base, by: unchangedStatusCadenceMultipliers[index])
+            }
+
+            package func automaticDutyGap(for completedDuty: Duration) -> Duration {
+                Self.scaled(completedDuty, by: automaticDutyGapMultiplier)
+            }
+
+            package func backgroundRegistrationDelay(for worktreeId: UUID) -> Duration {
+                registrationPhaseDelay(for: worktreeId, cadence: backgroundCadence)
+            }
+
+            package func registrationPhaseDelay(
+                for worktreeId: UUID,
+                cadence: Duration
+            ) -> Duration {
+                let stripe = backgroundStripe(for: worktreeId) + 1
+                let cadenceNanoseconds = Self.nanoseconds(from: cadence)
+                return .nanoseconds(cadenceNanoseconds * Int64(stripe) / Int64(backgroundStripeCount))
+            }
+
             package func backgroundStripe(for worktreeId: UUID) -> Int {
                 Int(Self.stableHash(for: worktreeId) % UInt64(backgroundStripeCount))
-            }
-
-            package func isBackgroundWorktreeDue(_ worktreeId: UUID, tick: UInt64) -> Bool {
-                let currentStripe = Int(tick % UInt64(backgroundStripeCount))
-                return backgroundStripe(for: worktreeId) == currentStripe
-            }
-
-            package func cadenceTickInterval(forUnchangedResultCount count: Int) -> UInt64 {
-                let index = min(max(count, 0), unchangedStatusCadenceMultipliers.count - 1)
-                return UInt64(unchangedStatusCadenceMultipliers[index])
-            }
-
-            package var activeCadence: Duration {
-                activePaneCadence
-            }
-
-            package func cadenceTickInterval(
-                for cadence: Duration,
-                unchangedResultCount: Int
-            ) -> UInt64 {
-                let baseTicks = Self.tickCount(for: cadence, baseCadence: activePaneCadence)
-                return baseTicks * cadenceTickInterval(forUnchangedResultCount: unchangedResultCount)
-            }
-
-            package func isCadenceDue(_ cadence: Duration, tick: UInt64) -> Bool {
-                tick.isMultiple(of: Self.tickCount(for: cadence, baseCadence: activePaneCadence))
             }
 
             private static func scaled(_ duration: Duration, by multiplier: Int) -> Duration {
@@ -400,16 +399,6 @@ package enum AppPolicies {
                     scaledDuration += duration
                 }
                 return scaledDuration
-            }
-
-            private static func tickCount(for cadence: Duration, baseCadence: Duration) -> UInt64 {
-                var elapsed = Duration.zero
-                var tickCount: UInt64 = 0
-                while elapsed < cadence {
-                    elapsed += baseCadence
-                    tickCount &+= 1
-                }
-                return max(1, tickCount)
             }
 
             private static func jitterDelay(maxDelay: Duration, worktreeId: UUID) -> Duration {

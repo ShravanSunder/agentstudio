@@ -32,7 +32,6 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         filesystemDebounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
         filesystemMaxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
         gitCoalescingWindow: Duration = AppPolicies.GitRefresh.filesystemDerivedCoalescingWindow,
-        gitPeriodicRefreshInterval: Duration? = nil,
         gitRefreshPolicy: AppPolicies.GitRefresh.Policy = AppPolicies.GitRefresh.defaultPolicy,
         gitSleepClock: any Clock<Duration> & Sendable = ContinuousClock(),
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
@@ -48,7 +47,6 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             bus: bus,
             gitWorkingTreeProvider: gitWorkingTreeProvider,
             coalescingWindow: gitCoalescingWindow,
-            periodicRefreshInterval: gitPeriodicRefreshInterval ?? gitRefreshPolicy.activeCadence,
             sleepClock: gitSleepClock,
             refreshPolicy: gitRefreshPolicy,
             performanceTraceRecorder: performanceTraceRecorder,
