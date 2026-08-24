@@ -127,6 +127,7 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.queue.depth_bucket',
 	'agentstudio.bridge.result',
 	'agentstudio.bridge.result_reason',
+	'agentstudio.bridge.render_disposition.outcome',
 	'agentstudio.bridge.review.refresh.install_trigger',
 	'agentstudio.bridge.review.refresh.presentation_class',
 	'agentstudio.bridge.review.refresh.promotion_reason',
@@ -145,6 +146,7 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.worker.lane',
 	'agentstudio.bridge.worker.payload_class',
 	'agentstudio.bridge.worker.review_select_dispatch',
+	'agentstudio.bridge.worker.semantic_class',
 	'agentstudio.bridge.worker.session_state',
 	'agentstudio.bridge.worker.task_kind',
 	'agentstudio.bridge.worker.work_kind',
@@ -224,6 +226,14 @@ const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySe
 		'agentstudio.bridge.worker.session_state',
 		new Set(['awaiting_bootstrap', 'bootstrapping', 'disposed', 'ready', 'replacement_requested']),
 	],
+	[
+		'agentstudio.bridge.render_disposition.outcome',
+		new Set(['acked', 'cleared', 'degraded', 'timed_out']),
+	],
+	[
+		'agentstudio.bridge.worker.semantic_class',
+		new Set(['demand', 'lifecycle_control', 'settlement', 'urgent_action']),
+	],
 ]);
 
 const bridgeDevNumericAttributeKeys = new Set<string>([
@@ -263,6 +273,14 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.source.generation',
 	'agentstudio.bridge.stage.attempt',
 	'agentstudio.bridge.review.item_count',
+	'agentstudio.bridge.render_disposition.accepted_count',
+	'agentstudio.bridge.render_disposition.batch_receipt_count',
+	'agentstudio.bridge.render_disposition.duplicate_count',
+	'agentstudio.bridge.render_disposition.oldest_pending_age_ms',
+	'agentstudio.bridge.render_disposition.pending_count',
+	'agentstudio.bridge.render_disposition.pending_high_water_mark',
+	'agentstudio.bridge.render_disposition.produced_count',
+	'agentstudio.bridge.render_disposition.rejected_count',
 	'agentstudio.bridge.scroll.frame_gap.max_ms',
 	'agentstudio.bridge.scroll.frame_gap.over_16ms.count',
 	'agentstudio.bridge.scroll.frame_gap.over_33ms.count',
