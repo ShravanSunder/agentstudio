@@ -81,12 +81,8 @@ final class WorkspaceSurfaceCoordinator {
     var filesystemSyncTask: Task<Void, Never>?
     var filesystemSyncRequested = false
     var pendingFilesystemPaneUpdatesByPaneId: [UUID: FilesystemProjectionPaneUpdate] = [:]
-    var pendingActivePaneWorktreeUpdate = false
     var filesystemFullReconciliationRequestCount: UInt64 = 0
     var filesystemAffectedKeyRequestCount: UInt64 = 0
-    var isObservingActivePaneWorktree = false
-    var activePaneWorktreeObservationGeneration: UInt64 = 0
-    var lastObservedActivePaneWorktreeId: UUID?
     var pendingPaneRefocusReasonsByPaneId: [UUID: PaneRefocusRequestTrigger.Reason] = [:]
     var filesystemRegisteredContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
     var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
@@ -233,8 +229,6 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     isolated deinit {
-        isObservingActivePaneWorktree = false
-        activePaneWorktreeObservationGeneration &+= 1
         paneEventIngressTask?.cancel()
         for task in runtimeEventBridgeTasks.values {
             task.cancel()
@@ -282,8 +276,6 @@ final class WorkspaceSurfaceCoordinator {
         filesystemSyncTask = nil
         filesystemSyncRequested = false
         pendingFilesystemPaneUpdatesByPaneId.removeAll()
-        pendingActivePaneWorktreeUpdate = false
-        stopObservingActivePaneWorktree()
         pullRequestDemandDeliveryTask?.cancel()
         pullRequestDemandDeliveryTask = nil
         pullRequestDemandInFlightWorktreeIds = nil

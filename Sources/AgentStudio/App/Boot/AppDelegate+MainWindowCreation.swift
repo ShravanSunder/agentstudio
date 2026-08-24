@@ -111,9 +111,6 @@ extension AppDelegate {
                 dependencies.bridgePaneAttendance.ordinal(for: paneId)
             },
             performanceTraceRecorder: dependencies.performanceTraceRecorder,
-            onSidebarVisibleWorktreesChanged: { [weak workspaceSurfaceCoordinator] in
-                workspaceSurfaceCoordinator?.scheduleSidebarVisibleWorktreesUpdate()
-            },
             onPerformanceProofReadback: { [weak self] readback in
                 self?.receiveSidebarPerformanceProofReadback(readback)
             },

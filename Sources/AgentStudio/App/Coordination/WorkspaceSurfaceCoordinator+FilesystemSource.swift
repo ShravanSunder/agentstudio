@@ -82,53 +82,6 @@ extension WorkspaceSurfaceCoordinator {
         scheduleFilesystemPaneUpdate(update, paneId: paneId)
     }
 
-    func scheduleActivePaneWorktreeUpdate() {
-        filesystemAffectedKeyRequestCount &+= 1
-        pendingActivePaneWorktreeUpdate = true
-        startFilesystemEffectTaskIfNeeded()
-    }
-
-    func scheduleSidebarVisibleWorktreesUpdate() {
-        guard hasPendingSidebarVisibleWorktreesUpdate else { return }
-        filesystemAffectedKeyRequestCount &+= 1
-        startFilesystemEffectTaskIfNeeded()
-    }
-
-    func startObservingActivePaneWorktree() {
-        guard !isObservingActivePaneWorktree else { return }
-        isObservingActivePaneWorktree = true
-        lastObservedActivePaneWorktreeId = activePaneWorktree()
-        observeActivePaneWorktreeChange()
-    }
-
-    func stopObservingActivePaneWorktree() {
-        isObservingActivePaneWorktree = false
-        activePaneWorktreeObservationGeneration &+= 1
-    }
-
-    private func observeActivePaneWorktreeChange() {
-        guard isObservingActivePaneWorktree else { return }
-        activePaneWorktreeObservationGeneration &+= 1
-        let observationGeneration = activePaneWorktreeObservationGeneration
-        withObservationTracking {
-            _ = activePaneWorktree()
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self,
-                    self.isObservingActivePaneWorktree,
-                    self.activePaneWorktreeObservationGeneration == observationGeneration
-                else { return }
-                let nextWorktreeId = self.activePaneWorktree()
-                let didChange = self.lastObservedActivePaneWorktreeId != nextWorktreeId
-                self.lastObservedActivePaneWorktreeId = nextWorktreeId
-                self.observeActivePaneWorktreeChange()
-                if didChange {
-                    self.scheduleActivePaneWorktreeUpdate()
-                }
-            }
-        }
-    }
-
     func handleFilesystemEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) async -> Bool {
         guard Self.shouldProjectPaneFilesystemEnvelope(envelope) else {
             return false
@@ -383,20 +336,12 @@ extension WorkspaceSurfaceCoordinator {
     private var hasPendingFilesystemEffects: Bool {
         filesystemSyncRequested
             || !pendingFilesystemPaneUpdatesByPaneId.isEmpty
-            || pendingActivePaneWorktreeUpdate
-            || hasPendingSidebarVisibleWorktreesUpdate
-    }
-
-    private var hasPendingSidebarVisibleWorktreesUpdate: Bool {
-        atom(\.sidebarVisibleWorktreesRuntime).visibleWorktreeIds
-            != filesystemLastSidebarVisibleWorktreeIds
     }
 
     private func performAffectedFilesystemEffectsPass() async {
         let paneUpdates = pendingFilesystemPaneUpdatesByPaneId.values
             .sorted { $0.requestGeneration < $1.requestGeneration }
         pendingFilesystemPaneUpdatesByPaneId.removeAll(keepingCapacity: true)
-        pendingActivePaneWorktreeUpdate = false
         var didApplyPaneEffect = false
 
         for paneUpdate in paneUpdates {

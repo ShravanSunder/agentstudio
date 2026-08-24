@@ -232,7 +232,7 @@ struct AppBootSequenceTests {
 
         #expect(reopenFunctionBody.contains("mainWindowCreationDependencies(caller:"))
         #expect(helperFunctionBody.contains("workspaceActionExecutor: dependencies.executor"))
-        #expect(helperFunctionBody.contains("scheduleSidebarVisibleWorktreesUpdate()"))
+        #expect(!helperFunctionBody.contains("scheduleSidebarVisibleWorktreesUpdate()"))
         #expect(!helperFunctionBody.contains("syncFilesystemRootsAndActivity()"))
         #expect(!reopenFunctionBody.contains("workspaceActionExecutor: executor"))
     }

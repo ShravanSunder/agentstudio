@@ -258,6 +258,7 @@ struct GitTopologyPipelineHarness {
             maxFlushLatency: .zero
         )
         let filesystemSource = RecordingFilesystemSourceHarness()
+        let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         let workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(
             store: workspaceStore,
             viewRegistry: ViewRegistry(),
@@ -265,6 +266,8 @@ struct GitTopologyPipelineHarness {
             surfaceManager: HarnessSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: bus,
+            gitWorkingTreeStatusProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: filesystemSource,
             windowLifecycleStore: WindowLifecycleAtom(),
             bridgePaneAttendance: BridgePaneAttendanceAtom()
