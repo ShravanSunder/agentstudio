@@ -273,8 +273,8 @@ struct ForgeActorAdmissionEdgeTests {
         await fixture.stopObserving()
     }
 
-    @Test("same-scope upstream facts during a request retain a deadline follow-up")
-    func sameScopeUpstreamFactsRetainDeadlineFollowUp() async {
+    @Test("same-scope follow-up rechecks at one second without bypassing success freshness")
+    func sameScopeFollowUpRespectsSuccessFreshness() async {
         let fixture = await ForgeActorFixture.make()
         let repoId = UUIDv7.generate()
         let worktreeId = UUIDv7.generate()
@@ -310,6 +310,13 @@ struct ForgeActorAdmissionEdgeTests {
         #expect(await fixture.provider.callCount == 1)
 
         fixture.advance(by: AppPolicies.ForgeRefresh.pendingFollowUpDelay)
+        await Task.yield()
+        #expect(await fixture.provider.callCount == 1)
+
+        fixture.advance(
+            by: AppPolicies.Forge.automaticRefreshMinimumInterval
+                - AppPolicies.ForgeRefresh.pendingFollowUpDelay
+        )
         #expect(await fixture.provider.waitForCallCount(2))
 
         await fixture.provider.resolve(callAt: 1, with: .complete([]))
@@ -522,14 +529,14 @@ struct ForgeActorAdmissionEdgeTests {
         #expect(await fixture.events.pullRequestsUnavailableCount(for: repoId) == 0)
 
         await fixture.clock.waitForPendingSleepCount(atLeast: 1)
-        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffBaseDelay)
+        fixture.advance(by: AppPolicies.ForgeRefresh.automaticFailureRetryFloor)
         #expect(await fixture.provider.waitForCallCount(2))
         await fixture.provider.resolve(callAt: 1, with: .failed(message: "offline"))
         #expect(await fixture.events.waitForRefreshFailureCount(repoId: repoId, expectedCount: 2))
         #expect(await fixture.events.pullRequestsUnavailableCount(for: repoId) == 0)
 
         await fixture.clock.waitForPendingSleepCount(atLeast: 1)
-        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffDelay(forConsecutiveFailureCount: 2))
+        fixture.advance(by: AppPolicies.ForgeRefresh.automaticFailureRetryFloor)
         #expect(await fixture.provider.waitForCallCount(3))
         await fixture.provider.resolve(callAt: 2, with: .failed(message: "offline"))
         #expect(await fixture.events.waitForRefreshFailureCount(repoId: repoId, expectedCount: 3))
@@ -538,9 +545,9 @@ struct ForgeActorAdmissionEdgeTests {
         #expect(await fixture.events.waitForPullRequestsUnavailable(repoId: repoId))
         #expect(await fixture.events.pullRequestsUnavailableCount(for: repoId) == 1)
 
-        // Bounded retries keep running at the normal backoff cadence.
+        // Automatic recovery remains bounded by the three-minute source floor.
         await fixture.clock.waitForPendingSleepCount(atLeast: 1)
-        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffDelay(forConsecutiveFailureCount: 3))
+        fixture.advance(by: AppPolicies.ForgeRefresh.automaticFailureRetryFloor)
         #expect(await fixture.provider.waitForCallCount(4))
         let recoveryURL = URL(string: "https://github.com/acme/studio/pull/9")!
         await fixture.provider.resolve(

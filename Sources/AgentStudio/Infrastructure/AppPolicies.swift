@@ -450,6 +450,13 @@ package enum AppPolicies {
     }
 
     package enum ForgeRefresh {
+        package static let automaticFailureRetryFloor: Duration = .seconds(180)
+        package static let maximumConcurrentProviderRequests: Int = 2
+        package static let maximumBranchAliasesPerBatch: Int = 8
+        package static let graphQLPageSize: Int = 25
+        package static let maximumPagesPerBranch: Int = 4
+        package static let providerTimeoutSeconds: Double = 8
+        package static let capacityRecheckDelay: Duration = .milliseconds(500)
         package static let defaultPollingInterval: Duration = .seconds(45)
         package static let pendingFollowUpDelay: Duration = .seconds(1)
         package static let failureBackoffBaseDelay: Duration = .seconds(5)
@@ -476,9 +483,6 @@ package enum AppPolicies {
     }
 
     package enum Forge {
-        /// Hard cap for one repository-wide pull request query. Reaching the
-        /// cap is treated as potentially truncated rather than complete.
-        package static let pullRequestResultLimit: Int = 200
         /// Shared floor for automatic-refresh freshness and retries after a
         /// failed, truncated, or rate-limited pull request query.
         package static let automaticRefreshMinimumInterval: Duration = .seconds(180)

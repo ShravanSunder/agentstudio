@@ -91,7 +91,10 @@ package struct StubForgeStatusProvider: ForgeStatusProvider {
         self.handler = handler
     }
 
-    package func pullRequests(origin: String) async -> ForgePullRequestQueryOutcome {
+    package func pullRequests(
+        origin: String,
+        demandedBranches _: Set<String>
+    ) async -> ForgePullRequestQueryOutcome {
         await handler(origin)
     }
 }

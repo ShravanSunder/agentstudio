@@ -9,7 +9,7 @@ package actor ForgeActor {
         var branch: String?
     }
 
-    private struct RepositoryRefreshState {
+    struct RepositoryRefreshState {
         var origin: String?
         var generation: UInt64 = 0
         var lastSuccessfulRefreshAt: Duration?
@@ -34,12 +34,13 @@ package actor ForgeActor {
         var hasEmittedUnavailable = false
     }
 
-    private struct ProviderRequest: Sendable {
+    struct ProviderRequest: Sendable {
         let id: UInt64
         let repoId: UUID
         let origin: String
         let generation: UInt64
         let demandedBranches: Set<String>
+        let trigger: RefreshTrigger
         let correlationId: UUID?
 
         var signature: ProviderRequestSignature {
@@ -47,27 +48,29 @@ package actor ForgeActor {
         }
     }
 
-    private struct ProviderRequestSignature: Equatable, Sendable {
+    struct ProviderRequestSignature: Equatable, Sendable {
         let origin: String
         let demandedBranches: Set<String>
     }
 
-    private enum RefreshTrigger {
+    enum RefreshTrigger {
         case automatic
         case manual
+        case manualFollowUp
+        case scopeChanged
         case followUp
 
         var bypassesFreshness: Bool {
             switch self {
-            case .automatic: false
-            case .manual, .followUp: true
+            case .automatic, .followUp: false
+            case .manual, .manualFollowUp, .scopeChanged: true
             }
         }
 
         var requiresFollowUpRefresh: Bool {
             switch self {
             case .manual: true
-            case .automatic, .followUp: false
+            case .automatic, .manualFollowUp, .scopeChanged, .followUp: false
             }
         }
 
@@ -75,7 +78,14 @@ package actor ForgeActor {
             switch self {
             case .automatic: .automatic
             case .manual: .manual
-            case .followUp: .followUp
+            case .manualFollowUp, .scopeChanged, .followUp: .followUp
+            }
+        }
+
+        var usesAutomaticFailureFloor: Bool {
+            switch self {
+            case .automatic, .scopeChanged, .followUp: true
+            case .manual, .manualFollowUp: false
             }
         }
     }
@@ -89,20 +99,22 @@ package actor ForgeActor {
     private let monotonicNow: @Sendable () -> Duration
     private let delay: AsyncDelay
     private let subscriptionBufferLimit: Int
+    let maximumConcurrentProviderRequests: Int
     private let performanceTraceRecorder: (any ForgePerformanceRecording)?
     private let beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)?
 
     private var subscriptionTask: Task<Void, Never>?
     private var deadlineTask: Task<Void, Never>?
-    private var providerTasksByRepoId: [UUID: Task<Void, Never>] = [:]
+    var providerTasksByRequestId: [UInt64: Task<Void, Never>] = [:]
+    var providerRepoIdByRequestId: [UInt64: UUID] = [:]
     private var nextDeadlineGeneration: UInt64 = 0
     private var nextProviderRequestId: UInt64 = 0
     private var nextEnvelopeSequence: UInt64 = 0
     private var membershipByWorktreeId: [UUID: WorktreeMembership] = [:]
     private var demandedWorktreeIds: Set<UUID> = []
-    private var refreshStateByRepoId: [UUID: RepositoryRefreshState] = [:]
-    private var performanceAccumulator = ForgePerformanceAccumulator()
-    private var isShuttingDown = false
+    var refreshStateByRepoId: [UUID: RepositoryRefreshState] = [:]
+    var performanceAccumulator = ForgePerformanceAccumulator()
+    var isShuttingDown = false
 
     package init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -114,6 +126,8 @@ package actor ForgeActor {
         },
         sleepClock: (any Clock<Duration> & Sendable)? = nil,
         subscriptionBufferLimit: Int = 256,
+        maximumConcurrentProviderRequests: Int =
+            AppPolicies.ForgeRefresh.maximumConcurrentProviderRequests,
         performanceTraceRecorder: (any ForgePerformanceRecording)? = nil,
         beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)? = nil
     ) {
@@ -124,6 +138,7 @@ package actor ForgeActor {
         self.monotonicNow = monotonicNow
         delay = sleepClock.map(AsyncDelay.clock) ?? .taskSleep
         self.subscriptionBufferLimit = subscriptionBufferLimit
+        self.maximumConcurrentProviderRequests = max(1, maximumConcurrentProviderRequests)
         self.performanceTraceRecorder = performanceTraceRecorder
         self.beforeEventEmission = beforeEventEmission
     }
@@ -131,7 +146,7 @@ package actor ForgeActor {
     isolated deinit {
         subscriptionTask?.cancel()
         deadlineTask?.cancel()
-        for task in providerTasksByRepoId.values {
+        for task in providerTasksByRequestId.values {
             task.cancel()
         }
     }
@@ -307,7 +322,7 @@ package actor ForgeActor {
         isShuttingDown = true
         let activeSubscriptionTask = subscriptionTask
         let activeDeadlineTask = deadlineTask
-        let activeProviderTasks = Array(providerTasksByRepoId.values)
+        let activeProviderTasks = Array(providerTasksByRequestId.values)
 
         subscriptionTask?.cancel()
         deadlineTask?.cancel()
@@ -320,11 +335,12 @@ package actor ForgeActor {
         }
         subscriptionTask = nil
         deadlineTask = nil
-        providerTasksByRepoId.removeAll(keepingCapacity: false)
 
         if let activeSubscriptionTask { await activeSubscriptionTask.value }
         if let activeDeadlineTask { await activeDeadlineTask.value }
         for task in activeProviderTasks { await task.value }
+        providerTasksByRequestId.removeAll(keepingCapacity: false)
+        providerRepoIdByRequestId.removeAll(keepingCapacity: false)
 
         membershipByWorktreeId.removeAll(keepingCapacity: false)
         demandedWorktreeIds.removeAll(keepingCapacity: false)
@@ -419,7 +435,8 @@ package actor ForgeActor {
         if demandedWorktreeIds.contains(worktreeId) {
             await requestRefreshIfDemanded(
                 repoId: repoId,
-                trigger: .automatic,
+                trigger: priorMembership.repoId != repoId || priorMembership.branch != normalizedBranch
+                    ? .scopeChanged : .automatic,
                 correlationId: correlationId
             )
         }
@@ -524,7 +541,7 @@ package actor ForgeActor {
         }
     }
 
-    private func requestRefreshIfDemanded(
+    func requestRefreshIfDemanded(
         repoId: UUID,
         trigger: RefreshTrigger,
         correlationId: UUID?
@@ -577,6 +594,8 @@ package actor ForgeActor {
             return
         }
 
+        if deferStartIfPhysicallyBlocked(repoId: repoId, trigger: trigger, now: now, state: &state) { return }
+
         nextProviderRequestId &+= 1
         let request = ProviderRequest(
             id: nextProviderRequestId,
@@ -584,6 +603,7 @@ package actor ForgeActor {
             origin: origin,
             generation: state.generation,
             demandedBranches: demandedBranches,
+            trigger: trigger,
             correlationId: correlationId
         )
         state.activeRequestId = request.id
@@ -618,9 +638,13 @@ package actor ForgeActor {
 
         let statusProvider = self.statusProvider
         performanceAccumulator.recordExecution(.started)
-        providerTasksByRepoId[repoId] = Task { [weak self, statusProvider] in
+        providerRepoIdByRequestId[request.id] = request.repoId
+        providerTasksByRequestId[request.id] = Task { [weak self, statusProvider] in
             guard let self else { return }
-            let outcome = await statusProvider.pullRequests(origin: request.origin)
+            let outcome = await statusProvider.pullRequests(
+                origin: request.origin,
+                demandedBranches: request.demandedBranches
+            )
             await self.completeProviderRequest(request, outcome: outcome)
         }
     }
@@ -677,11 +701,19 @@ package actor ForgeActor {
         case .failed(let message):
             state.consecutiveFailureCount += 1
             state.consecutiveUnsuccessfulAttempts += 1
-            state.backoffUntil =
+            let manualBackoffUntil =
                 completionTime
                 + AppPolicies.ForgeRefresh.failureBackoffDelay(
                     forConsecutiveFailureCount: state.consecutiveFailureCount
                 )
+            if request.trigger.usesAutomaticFailureFloor {
+                let automaticRetryFloor =
+                    (state.lastAttemptAt ?? completionTime)
+                    + AppPolicies.ForgeRefresh.automaticFailureRetryFloor
+                state.backoffUntil = max(manualBackoffUntil, automaticRetryFloor)
+            } else {
+                state.backoffUntil = manualBackoffUntil
+            }
             return .refreshFailed(repoId: request.repoId, error: message)
         }
     }
@@ -706,7 +738,7 @@ package actor ForgeActor {
         return nextEligibleAt
     }
 
-    private func rescheduleDeadline() {
+    func rescheduleDeadline() {
         nextDeadlineGeneration &+= 1
         let deadlineGeneration = nextDeadlineGeneration
         if deadlineTask != nil {
@@ -760,7 +792,9 @@ package actor ForgeActor {
     }
 
     private func cancelProviderRequest(repoId: UUID) {
-        if let providerTask = providerTasksByRepoId.removeValue(forKey: repoId) {
+        if let activeRequestId = refreshStateByRepoId[repoId]?.activeRequestId,
+            let providerTask = providerTasksByRequestId[activeRequestId]
+        {
             performanceAccumulator.recordExecution(.cancelled)
             providerTask.cancel()
         }
@@ -773,11 +807,11 @@ package actor ForgeActor {
         }
     }
 
-    private func demandedRepoIds() -> Set<UUID> {
+    func demandedRepoIds() -> Set<UUID> {
         Set(demandedWorktreeIds.compactMap { membershipByWorktreeId[$0]?.repoId })
     }
 
-    private func demandedBranches(repoId: UUID) -> Set<String> {
+    func demandedBranches(repoId: UUID) -> Set<String> {
         Set(
             demandedWorktreeIds.compactMap { worktreeId in
                 guard let membership = membershipByWorktreeId[worktreeId],
@@ -788,7 +822,7 @@ package actor ForgeActor {
         )
     }
 
-    private func representedBranches(repoId: UUID) -> Set<String> {
+    func representedBranches(repoId: UUID) -> Set<String> {
         Set(
             membershipByWorktreeId.values.compactMap { membership in
                 guard membership.repoId == repoId else { return nil }
@@ -838,32 +872,34 @@ extension ForgeActor {
         outcome: ForgePullRequestQueryOutcome
     ) async {
         defer { flushPerformanceSnapshot() }
-        guard !isShuttingDown else {
-            providerTasksByRepoId.removeValue(forKey: request.repoId)
-            return
-        }
+        providerTasksByRequestId.removeValue(forKey: request.id)
+        providerRepoIdByRequestId.removeValue(forKey: request.id)
+        guard !isShuttingDown else { return }
         performanceAccumulator.recordExecution(.completed)
         guard var state = refreshStateByRepoId[request.repoId] else {
             performanceAccumulator.recordExecution(.superseded)
             performanceAccumulator.recordValidation(.staleGeneration)
+            await rearmAfterProviderPhysicalCompletion()
             return
         }
         guard state.generation == request.generation else {
             performanceAccumulator.recordExecution(.superseded)
             performanceAccumulator.recordValidation(.staleGeneration)
+            await rearmAfterProviderPhysicalCompletion()
             return
         }
         guard state.origin == request.origin else {
             performanceAccumulator.recordExecution(.superseded)
             performanceAccumulator.recordValidation(.staleOrigin)
+            await rearmAfterProviderPhysicalCompletion()
             return
         }
         guard state.activeRequestId == request.id else {
             performanceAccumulator.recordExecution(.superseded)
+            await rearmAfterProviderPhysicalCompletion()
             return
         }
 
-        providerTasksByRepoId.removeValue(forKey: request.repoId)
         state.activeRequestId = nil
         let completionTime = monotonicNow()
         let diagnosticEvent: ForgeEvent?
@@ -895,7 +931,7 @@ extension ForgeActor {
             performanceAccumulator.recordPublication(.equal)
         }
         state.acceptedProjection = completionProjection
-        let shouldAdmitFollowUp = captureFollowUpDecision(
+        let followUpTrigger = captureFollowUpDecision(
             state: &state,
             request: request,
             completionTime: completionTime
@@ -926,67 +962,17 @@ extension ForgeActor {
             currentState.generation == request.generation,
             currentState.activeRequestId == nil
         else {
-            rescheduleDeadline()
+            await rearmAfterProviderPhysicalCompletion()
             return
         }
-        if shouldAdmitFollowUp {
+        if let followUpTrigger {
             await requestRefreshIfDemanded(
                 repoId: request.repoId,
-                trigger: .followUp,
+                trigger: followUpTrigger,
                 correlationId: nil
             )
         }
-        rescheduleDeadline()
+        await rearmAfterProviderPhysicalCompletion()
     }
 
-    private func captureFollowUpDecision(
-        state: inout RepositoryRefreshState,
-        request: ProviderRequest,
-        completionTime: Duration
-    ) -> Bool {
-        guard state.pendingFollowUp else { return false }
-        let currentSignature = state.origin.map {
-            ProviderRequestSignature(
-                origin: $0,
-                demandedBranches: demandedBranches(repoId: request.repoId)
-            )
-        }
-        if state.pendingFollowUpRequiresRefresh || currentSignature != request.signature {
-            state.pendingFollowUp = false
-            state.pendingFollowUpRequiresRefresh = false
-            state.pendingFollowUpEligibleAt = nil
-            return true
-        }
-
-        state.pendingFollowUpEligibleAt =
-            completionTime + AppPolicies.ForgeRefresh.pendingFollowUpDelay
-        performanceAccumulator.recordAdmission(.freshnessDeferred)
-        return false
-    }
-
-    private func applyFailureHonestyThreshold(to state: inout RepositoryRefreshState) {
-        guard !state.hasEmittedUnavailable,
-            state.consecutiveUnsuccessfulAttempts
-                >= AppPolicies.Forge.consecutiveFailureHonestyThreshold
-        else { return }
-        state.hasEmittedUnavailable = true
-        state.stablePresentation = .unavailable(
-            previousConfirmedFactsByBranch: ForgePresentationFacts.confirmedFacts(
-                in: state.stablePresentation
-            )
-        )
-    }
-
-    private func requestRemainsCurrentForResultPublication(_ request: ProviderRequest) -> Bool {
-        guard !isShuttingDown,
-            let currentState = refreshStateByRepoId[request.repoId],
-            currentState.generation == request.generation,
-            currentState.origin == request.origin
-        else { return false }
-
-        return demandedBranches(repoId: request.repoId) == request.demandedBranches
-            && request.demandedBranches.isSubset(
-                of: representedBranches(repoId: request.repoId)
-            )
-    }
 }
