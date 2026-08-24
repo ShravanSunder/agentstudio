@@ -10,7 +10,8 @@ struct RepositoryFactDemandCoordinatorTests {
     @Test("equal complete snapshots do not call the receiver twice")
     func equalSnapshotsAreSuppressedBeforeDelivery() async {
         let receiver = RepositoryFactDemandReceiverProbe()
-        let coordinator = RepositoryFactDemandCoordinator { snapshot in
+        let performanceRecorder = RepositoryFactDemandPerformanceRecorderSpy()
+        let coordinator = RepositoryFactDemandCoordinator(performanceRecorder: performanceRecorder) { snapshot in
             await receiver.receive(snapshot)
         }
         let snapshot = makeDemandSnapshot(seed: 1)
@@ -20,6 +21,35 @@ struct RepositoryFactDemandCoordinatorTests {
         await coordinator.waitUntilIdle()
 
         #expect(await receiver.receivedSnapshots() == [snapshot])
+        #expect(
+            performanceRecorder.snapshots
+                == [
+                    RepositoryFactDemandPerformanceSnapshot(
+                        projected: 2,
+                        contentEqual: 1,
+                        delivered: 1,
+                        cleared: 0,
+                        rejectedAfterShutdown: 0
+                    )
+                ]
+        )
+    }
+
+    @Test("high-rate equal input flushes bounded aggregate snapshots")
+    func equalInputTelemetryStaysBounded() async {
+        let performanceRecorder = RepositoryFactDemandPerformanceRecorderSpy()
+        let coordinator = RepositoryFactDemandCoordinator(performanceRecorder: performanceRecorder) { _ in }
+        let snapshot = makeDemandSnapshot(seed: 1)
+
+        coordinator.accept(snapshot)
+        await coordinator.waitUntilIdle()
+        for _ in 0..<Int(AppPolicies.RepositoryFactDemand.telemetryFlushInputCount * 2) {
+            coordinator.accept(snapshot)
+        }
+        await coordinator.waitUntilIdle()
+
+        #expect(performanceRecorder.snapshots.count == 3)
+        #expect(performanceRecorder.snapshots.dropFirst().allSatisfy { $0.contentEqual == 64 })
     }
 
     @Test("A B A reversion is delivered after B is already in flight")
@@ -82,6 +112,23 @@ struct RepositoryFactDemandCoordinatorTests {
 
     private func seededUUID(_ seed: UInt8) -> UUID {
         UUID(uuid: (seed, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, seed))
+    }
+}
+
+private final class RepositoryFactDemandPerformanceRecorderSpy:
+    RepositoryFactDemandPerformanceRecording, @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var recordedSnapshots: [RepositoryFactDemandPerformanceSnapshot] = []
+
+    var snapshots: [RepositoryFactDemandPerformanceSnapshot] {
+        lock.withLock { recordedSnapshots }
+    }
+
+    func recordRepositoryFactDemandPerformanceSnapshot(
+        _ snapshot: RepositoryFactDemandPerformanceSnapshot
+    ) {
+        lock.withLock { recordedSnapshots.append(snapshot) }
     }
 }
 

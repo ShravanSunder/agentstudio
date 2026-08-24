@@ -60,6 +60,7 @@ extension ForgeActor {
             state.consecutiveUnsuccessfulAttempts
                 >= AppPolicies.Forge.consecutiveFailureHonestyThreshold
         else { return }
+        performanceAccumulator.recordUnavailableTransition()
         state.hasEmittedUnavailable = true
         state.stablePresentation = .unavailable(
             previousConfirmedFactsByBranch: ForgePresentationFacts.confirmedFacts(

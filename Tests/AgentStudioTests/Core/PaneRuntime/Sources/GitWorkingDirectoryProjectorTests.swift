@@ -1629,8 +1629,8 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
-    @Test("git status and admission telemetry carry worktree identity for trace attribution")
-    func gitStatusAndAdmissionTelemetryCarryWorktreeIdentity() async throws {
+    @Test("git status retains worktree attribution while admission telemetry is bounded")
+    func gitStatusRetainsWorktreeAttributionWhileAdmissionTelemetryIsBounded() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let recorder = GitProjectorTraceRecorderSpy()
@@ -1679,19 +1679,18 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(statusRecorded)
 
         let statusAttributes = try #require(recorder.recordedAttributes(for: .gitStatusComputed).first)
-        let admissionAttributes = try #require(recorder.recordedAttributes(for: .gitAdmission).first)
         #expect(statusAttributes["agentstudio.worktree.id"] == .string(worktreeId.uuidString))
         #expect(statusAttributes["agentstudio.performance.git.demand_class"] == .string("open_pane"))
         #expect(statusAttributes["agentstudio.performance.git.trigger_source"] == .string("registration"))
         #expect(statusAttributes["agentstudio.performance.git.cadence_tier"] == .string("open_pane"))
         #expect(statusAttributes["agentstudio.performance.git.admission_to_status.elapsed_ms"] != nil)
-        #expect(
-            statusAttributes["agentstudio.performance.git.request.sequence"]
-                == admissionAttributes["agentstudio.performance.git.request.sequence"]
-        )
+        #expect(recorder.recordedAttributes(for: .gitAdmission).isEmpty)
         #expect(recorder.recordedAttributes(for: .gitTick).isEmpty)
 
         await actor.shutdown()
+        let aggregateSnapshot = try #require(recorder.gitAggregateSnapshots().first)
+        #expect(aggregateSnapshot.admitted == 1)
+        #expect(aggregateSnapshot.eventPosted >= 1)
         collectionTask.cancel()
     }
 
@@ -4434,6 +4433,7 @@ private final class GitProjectorTraceRecorderSpy: GitProjectorPerformanceRecordi
     private let lock = NSLock()
     let isEnabled: Bool
     private var recordedEvents: [(AgentStudioPerformanceTraceRecorder.Event, [String: AgentStudioTraceValue])] = []
+    private var recordedGitAggregateSnapshots: [GitWorkingDirectoryPerformanceSnapshot] = []
 
     init(isEnabled: Bool = true) {
         self.isEnabled = isEnabled
@@ -4460,6 +4460,21 @@ private final class GitProjectorTraceRecorderSpy: GitProjectorPerformanceRecordi
         lock.lock()
         recordedEvents.append((event, evaluatedAttributes))
         lock.unlock()
+    }
+
+    func recordGitWorkingDirectoryPerformanceSnapshot(
+        _ snapshot: GitWorkingDirectoryPerformanceSnapshot
+    ) {
+        guard isEnabled else { return }
+        lock.lock()
+        recordedGitAggregateSnapshots.append(snapshot)
+        lock.unlock()
+    }
+
+    func gitAggregateSnapshots() -> [GitWorkingDirectoryPerformanceSnapshot] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedGitAggregateSnapshots
     }
 
     func backoffEvents(open: Bool) -> [BackoffEvent] {

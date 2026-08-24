@@ -63,13 +63,8 @@ extension GitWorkingDirectoryProjector {
             lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
             resetAdaptiveCadence(worktreeId: changeset.worktreeId)
         } else {
-            performanceTraceRecorder?.record(
-                .gitSnapshotDedup,
-                attributes: [
-                    "agentstudio.worktree.id": .string(changeset.worktreeId.uuidString),
-                    "agentstudio.performance.git.snapshot_dedup.count": .int(1),
-                ]
-            )
+            aggregatePerformance.increment(\.snapshotEqual)
+            flushAggregatePerformanceSnapshotIfNeeded()
             if pendingByWorktreeId[changeset.worktreeId] == nil {
                 unchangedStatusResultCountByWorktreeId[changeset.worktreeId, default: 0] += 1
             }

@@ -95,6 +95,7 @@ package actor GitWorkingDirectoryProjector {
     var unchangedStatusResultCountByWorktreeId: [UUID: Int] = [:]
     var nextEnvelopeSequence: UInt64 = 0
     var lastRecordedLogicalDebtSnapshot: GitLogicalDebtSnapshot?
+    var aggregatePerformance = GitWorkingDirectoryPerformanceAccumulator()
     var isShuttingDown = false
 
     var queuedLogicalDebtCount: Int {
@@ -208,6 +209,7 @@ package actor GitWorkingDirectoryProjector {
         for task in tasksToAwait {
             await task.value
         }
+        flushAggregatePerformanceSnapshot()
         capacityRetryWorktreeIds.removeAll(keepingCapacity: false)
         capacityFallbackDeadlineByWorktreeId.removeAll(keepingCapacity: false)
         statusBackoffFailureCountByWorktreeId.removeAll(keepingCapacity: false)
@@ -280,19 +282,8 @@ package actor GitWorkingDirectoryProjector {
             guard !suppressedWorktreeIds.contains(worktreeId) else { return }
             guard acceptsFilesystemChanges(changeset) else { return }
             guard Self.shouldRefresh(for: changeset) else {
-                performanceTraceRecorder?.record(
-                    .gitSuppressedInputSkipped,
-                    attributes: [
-                        "agentstudio.worktree.id": .string(worktreeId.uuidString),
-                        "agentstudio.performance.git.input_path.count": .int(changeset.paths.count),
-                        "agentstudio.performance.git.suppressed_ignored_path.count": .int(
-                            changeset.suppressedIgnoredPathCount
-                        ),
-                        "agentstudio.performance.git.suppressed_git_internal_path.count": .int(
-                            changeset.suppressedGitInternalPathCount
-                        ),
-                    ]
-                )
+                aggregatePerformance.increment(\.suppressedInput)
+                flushAggregatePerformanceSnapshotIfNeeded()
                 return
             }
             guard admitFileChangeAfterQuarantine(worktreeId: worktreeId, rootPath: changeset.rootPath) else { return }

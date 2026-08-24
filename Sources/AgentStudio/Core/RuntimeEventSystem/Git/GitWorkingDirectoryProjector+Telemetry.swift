@@ -52,51 +52,47 @@ extension GitWorkingDirectoryProjector {
         worktreeIds: Set<UUID>,
         outcome: GitVisibilityAdmissionOutcome
     ) {
-        guard let performanceTraceRecorder else { return }
-        for worktreeId in worktreeIds {
-            performanceTraceRecorder.record(
-                .gitAdmission,
-                attributes: [
-                    "agentstudio.worktree.id": .string(worktreeId.uuidString),
-                    "agentstudio.performance.git.visibility_admission.outcome": .string(outcome.rawValue),
-                    "agentstudio.performance.git.trigger_source": .string(
-                        GitRefreshTriggerSource.visibilityChange.rawValue
-                    ),
-                    "agentstudio.performance.git.cadence_tier": .string(GitDemandTier.visibleSidebar.rawValue),
-                ]
-            )
+        let keyPath: WritableKeyPath<GitWorkingDirectoryPerformanceSnapshot, UInt64>
+        switch outcome {
+        case .batched: keyPath = \.visibilityBatched
+        case .tierDeferred: keyPath = \.visibilityTierDeferred
+        case .superseded: keyPath = \.visibilitySuperseded
+        case .admittedUncovered: keyPath = \.visibilityAdmittedUncovered
         }
+        aggregatePerformance.increment(keyPath, by: worktreeIds.count)
+        recordAggregatePhysicalState()
+        flushAggregatePerformanceSnapshotIfNeeded()
     }
 
     func recordGitAdmissionTelemetry(
         admittedWorktreeIds: [UUID],
         availableSlots: Int
     ) {
-        guard let performanceTraceRecorder else { return }
-        for worktreeId in admittedWorktreeIds {
-            performanceTraceRecorder.record(
-                .gitAdmission,
-                attributes: [
-                    "agentstudio.worktree.id": .string(worktreeId.uuidString),
-                    "agentstudio.performance.git.admitted.count": .int(1),
-                    "agentstudio.performance.git.pending.count": .int(pendingByWorktreeId.count),
-                    "agentstudio.performance.git.running.count": .int(worktreeTasks.count),
-                    "agentstudio.performance.git.available_slot.count": .int(availableSlots),
-                    "agentstudio.performance.git.demand_class": .string(
-                        refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] ?? "background"
-                    ),
-                    "agentstudio.performance.git.trigger_source": .string(
-                        (refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId] ?? .registration).rawValue
-                    ),
-                    "agentstudio.performance.git.cadence_tier": .string(
-                        refreshAttribution.admittedCadenceTierByWorktreeId[worktreeId] ?? "1"
-                    ),
-                    "agentstudio.performance.git.request.sequence": .int(
-                        Int(refreshAttribution.requestSequenceByWorktreeId[worktreeId] ?? 0)
-                    ),
-                ]
-            )
-        }
+        aggregatePerformance.increment(\.admitted, by: admittedWorktreeIds.count)
+        aggregatePerformance.recordPhysicalState(
+            pending: pendingByWorktreeId.count,
+            running: worktreeTasks.count
+        )
+        _ = availableSlots
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordAggregatePhysicalState() {
+        aggregatePerformance.recordPhysicalState(
+            pending: pendingByWorktreeId.count,
+            running: worktreeTasks.count
+        )
+    }
+
+    func flushAggregatePerformanceSnapshotIfNeeded() {
+        guard aggregatePerformance.eventCount >= AppPolicies.GitRefresh.telemetryFlushEventCount else { return }
+        flushAggregatePerformanceSnapshot()
+    }
+
+    func flushAggregatePerformanceSnapshot() {
+        let snapshot = aggregatePerformance.takeSnapshot()
+        guard !snapshot.isEmpty else { return }
+        performanceTraceRecorder?.recordGitWorkingDirectoryPerformanceSnapshot(snapshot)
     }
 
     func demandClass(for worktreeId: UUID) -> String {

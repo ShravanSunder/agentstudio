@@ -49,6 +49,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         let remoteReferenceAuthoritySink = RemoteReferenceAuthoritySink()
         let remoteReferenceRefreshActor = RemoteReferenceRefreshActor(
             provider: remoteReferenceRefreshProvider,
+            performanceRecorder: performanceTraceRecorder,
             onAuthorityUpdate: { update in
                 await remoteReferenceAuthoritySink.send(update)
             }

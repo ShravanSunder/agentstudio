@@ -34,6 +34,7 @@ package actor RemoteReferenceRefreshActor {
     private let automaticFailureBackoff: Duration
     private let monotonicNow: @Sendable () -> Duration
     private let delay: AsyncDelay
+    private let performanceRecorder: (any RemoteReferencePerformanceRecording)?
 
     private var registrationsByRepoId: [UUID: RemoteReferenceRegistration] = [:]
     private var latestTopologyGenerationByRepoId: [UUID: UInt64] = [:]
@@ -52,6 +53,7 @@ package actor RemoteReferenceRefreshActor {
     private var deadlineGeneration: UInt64 = 0
     private var authorityRevision: UInt64 = 0
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+    private var performanceAccumulator = RemoteReferencePerformanceAccumulator()
     private var isShuttingDown = false
 
     package init(
@@ -63,6 +65,7 @@ package actor RemoteReferenceRefreshActor {
             .seconds(ProcessInfo.processInfo.systemUptime)
         },
         sleepClock: (any Clock<Duration> & Sendable)? = nil,
+        performanceRecorder: (any RemoteReferencePerformanceRecording)? = nil,
         onAuthorityUpdate: @escaping AuthorityUpdateHandler = { _ in }
     ) {
         precondition(maximumConcurrentFetches > 0)
@@ -74,6 +77,7 @@ package actor RemoteReferenceRefreshActor {
         self.automaticFailureBackoff = automaticFailureBackoff
         self.monotonicNow = monotonicNow
         delay = sleepClock.map(AsyncDelay.clock) ?? .taskSleep
+        self.performanceRecorder = performanceRecorder
         self.onAuthorityUpdate = onAuthorityUpdate
     }
 
@@ -261,6 +265,10 @@ package actor RemoteReferenceRefreshActor {
 
     package func setDemand(repositoryIds: Set<UUID>) async {
         guard !isShuttingDown, repositoryIds != demandedRepositoryIds else { return }
+        performanceAccumulator.increment(\.demandChanged)
+        if repositoryIds.isEmpty {
+            performanceAccumulator.increment(\.demandCleared)
+        }
         let removedRepositoryIds = demandedRepositoryIds.subtracting(repositoryIds)
         demandedRepositoryIds = repositoryIds
         pendingRepositoryIds.subtract(removedRepositoryIds)
@@ -272,6 +280,7 @@ package actor RemoteReferenceRefreshActor {
         pendingRepositoryIds.formUnion(repositoryIds.filter { registrationsByRepoId[$0] != nil })
         admitPendingAttempts()
         rescheduleDeadline()
+        flushPerformanceSnapshot()
     }
 
     package func refresh(repoId: UUID) {
@@ -311,6 +320,7 @@ package actor RemoteReferenceRefreshActor {
         }
         acceptedReferenceByRepoId.removeAll()
         resumeIdleWaitersIfNeeded()
+        flushPerformanceSnapshot()
     }
 
     private var hasOutstandingPhysicalWork: Bool {
@@ -350,6 +360,7 @@ package actor RemoteReferenceRefreshActor {
                 snapshot: snapshot
             )
             acceptedReferenceByRepoId[repoId] = acceptance
+            performanceAccumulator.increment(\.publicationLocalAccepted)
             await onAuthorityUpdate(.localAccepted(acceptance))
         } catch {
             // Registration remains valid; demanded refresh owns bounded recovery.
@@ -384,10 +395,17 @@ package actor RemoteReferenceRefreshActor {
                 await Self.performStaging(attempt, provider: provider)
             }
             activeOperationsByRepoId[repoId] = .staging(attempt, task)
+            performanceAccumulator.increment(\.admissionAdmitted)
+            performanceAccumulator.increment(\.stagingStarted)
             Task { [weak self] in
                 let outcome = await task.value
                 await self?.finishStaging(outcome)
             }
+        }
+        if activeOperationsByRepoId.count >= maximumConcurrentFetches,
+            pendingRepositoryIds.contains(where: { activeOperationsByRepoId[$0] == nil })
+        {
+            performanceAccumulator.increment(\.admissionCapacityDeferred)
         }
         rescheduleDeadline()
         resumeIdleWaitersIfNeeded()
@@ -436,21 +454,26 @@ package actor RemoteReferenceRefreshActor {
             case .staging(let activeAttempt, _) = activeOperationsByRepoId[attempt.repoId],
             activeAttempt.stagingId == attempt.stagingId
         else { return }
+        performanceAccumulator.increment(\.stagingCompleted)
         switch outcome {
         case .failed:
             finishFailedAttempt(attempt)
         case .obsolete:
+            performanceAccumulator.increment(\.validationObsolete)
             finishObsoleteAttempt(attempt)
         case .staged(_, let stagedFetch):
             guard accepts(attempt) else {
+                performanceAccumulator.increment(\.validationObsolete)
                 await recordCleanup(stagedFetch.handle, repoId: attempt.repoId)
                 finishObsoleteAttempt(attempt)
                 return
             }
+            performanceAccumulator.increment(\.validationCurrent)
             let task = Task { [provider] in
                 await Self.performPromotion(attempt, stagedFetch: stagedFetch, provider: provider)
             }
             activeOperationsByRepoId[attempt.repoId] = .promoting(attempt, stagedFetch, task)
+            performanceAccumulator.increment(\.promotionStarted)
             Task { [weak self] in
                 let promotionOutcome = await task.value
                 await self?.finishPromotion(promotionOutcome)
@@ -477,6 +500,7 @@ package actor RemoteReferenceRefreshActor {
             case .promoting(let activeAttempt, _, _) = activeOperationsByRepoId[attempt.repoId],
             activeAttempt.stagingId == attempt.stagingId
         else { return }
+        performanceAccumulator.increment(\.promotionCompleted)
 
         await recordCleanup(outcome.stagedFetch.handle, repoId: attempt.repoId)
         switch outcome {
@@ -484,9 +508,11 @@ package actor RemoteReferenceRefreshActor {
             finishFailedAttempt(attempt)
         case .promoted(_, let stagedFetch):
             guard accepts(attempt), let registration = registrationsByRepoId[attempt.repoId] else {
+                performanceAccumulator.increment(\.validationObsolete)
                 finishObsoleteAttempt(attempt)
                 return
             }
+            performanceAccumulator.increment(\.validationCurrent)
             let acceptance = RemoteReferenceAcceptance(
                 repoId: attempt.repoId,
                 expectedOrigin: attempt.expectedOrigin,
@@ -500,16 +526,19 @@ package actor RemoteReferenceRefreshActor {
             currentnessRetryAtByRepoId.removeValue(forKey: attempt.repoId)
             explicitRepositoryIds.remove(attempt.repoId)
             activeOperationsByRepoId.removeValue(forKey: attempt.repoId)
+            performanceAccumulator.increment(\.publicationPromoted)
             await onAuthorityUpdate(
                 .promoted(acceptance, representedWorktreeIds: registration.worktreeIds)
             )
             admitPendingAttempts()
+            flushPerformanceSnapshot()
         }
     }
 
     private func finishFailedAttempt(_ attempt: RemoteReferenceAttempt) {
         guard activeOperationsByRepoId[attempt.repoId]?.attempt.stagingId == attempt.stagingId else { return }
         activeOperationsByRepoId.removeValue(forKey: attempt.repoId)
+        performanceAccumulator.increment(\.executionFailed)
         explicitRepositoryIds.remove(attempt.repoId)
         currentnessRetryAtByRepoId.removeValue(forKey: attempt.repoId)
         if demandedRepositoryIds.contains(attempt.repoId) {
@@ -517,6 +546,7 @@ package actor RemoteReferenceRefreshActor {
         }
         rescheduleDeadline()
         admitPendingAttempts()
+        flushPerformanceSnapshot()
     }
 
     private func finishObsoleteAttempt(_ attempt: RemoteReferenceAttempt) {
@@ -529,6 +559,7 @@ package actor RemoteReferenceRefreshActor {
         }
         rescheduleDeadline()
         admitPendingAttempts()
+        flushPerformanceSnapshot()
     }
 
     private func revokeActiveOperation(repoId: UUID, alreadyInvalidating: Bool = false) async {
@@ -539,6 +570,7 @@ package actor RemoteReferenceRefreshActor {
             }
         }
         guard let operation = activeOperationsByRepoId[repoId] else { return }
+        performanceAccumulator.increment(\.executionCancelled)
         switch operation {
         case .staging(_, let task):
             task.cancel()
@@ -564,14 +596,17 @@ package actor RemoteReferenceRefreshActor {
         }
         activeOperationsByRepoId.removeValue(forKey: repoId)
         resumeIdleWaitersIfNeeded()
+        flushPerformanceSnapshot()
     }
 
     private func recordCleanup(_ handle: GitStagedFetchHandle, repoId: UUID) async {
         do {
             try await provider.cleanupStagedFetch(handle)
+            performanceAccumulator.increment(\.cleanupSucceeded)
             cleanupDebtByRepoId.removeValue(forKey: repoId)
             cleanupRetryAtByRepoId.removeValue(forKey: repoId)
         } catch {
+            performanceAccumulator.increment(\.cleanupFailed)
             cleanupDebtByRepoId[repoId] = handle
             cleanupRetryAtByRepoId[repoId] =
                 monotonicNow() + AppPolicies.RemoteReferenceRefresh.capacityRecheckDelay
@@ -616,6 +651,7 @@ package actor RemoteReferenceRefreshActor {
 
     private func invalidateAuthority(repoId: UUID, topologyGeneration: UInt64) async {
         acceptedReferenceByRepoId.removeValue(forKey: repoId)
+        performanceAccumulator.increment(\.publicationInvalidated)
         await onAuthorityUpdate(
             .invalidated(
                 repoId: repoId,
@@ -623,6 +659,12 @@ package actor RemoteReferenceRefreshActor {
                 authorityRevision: nextAuthorityRevision()
             )
         )
+    }
+
+    package func flushPerformanceSnapshot() {
+        let snapshot = performanceAccumulator.takeSnapshot()
+        guard !snapshot.isEmpty else { return }
+        performanceRecorder?.recordRemoteReferencePerformanceSnapshot(snapshot)
     }
 
     private func activeStagingIds(

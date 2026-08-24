@@ -27,6 +27,22 @@ extension ForgeActor {
             now + AppPolicies.ForgeRefresh.capacityRecheckDelay
         )
         refreshStateByRepoId[repoId] = state
+        recordPhysicalPerformanceState()
         return true
+    }
+
+    func recordPhysicalPerformanceState() {
+        performanceAccumulator.recordPhysicalState(
+            active: providerTasksByRequestId.count,
+            pending: refreshStateByRepoId.values.filter(\.pendingFollowUp).count
+        )
+    }
+
+    func recordQueryPlan(for request: ProviderRequest) {
+        let batchCapacity = AppPolicies.ForgeRefresh.maximumBranchAliasesPerBatch
+        performanceAccumulator.recordQueryPlan(
+            demandedBranchCount: request.demandedBranches.count,
+            aliasBatchCount: max(1, (request.demandedBranches.count + batchCapacity - 1) / batchCapacity)
+        )
     }
 }

@@ -111,7 +111,9 @@ final class WorkspaceSurfaceCoordinator {
     var lastDeliveredPullRequestDemandWorktreeIds: Set<UUID>?
     var repositoryFactDemandOwningWindowId: UUID?
     var repositoryFactDemandObservationGeneration: UInt64 = 0
-    lazy var repositoryFactDemandCoordinator = RepositoryFactDemandCoordinator { [weak self] snapshot in
+    lazy var repositoryFactDemandCoordinator = RepositoryFactDemandCoordinator(
+        performanceRecorder: performanceTraceRecorder
+    ) { [weak self] snapshot in
         await self?.filesystemSource.setRepositoryFactDemand(snapshot)
     }
     var bridgeGitReadActivityPropagationTask: Task<Void, Never>?

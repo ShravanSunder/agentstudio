@@ -24,6 +24,18 @@ struct ForgePerformanceAccumulatorTests {
         accumulator.recordPublication(.published)
         accumulator.recordDeadline(.scheduled)
         accumulator.recordDeadline(.fired)
+        accumulator.recordQueryPlan(demandedBranchCount: 3, aliasBatchCount: 1)
+        accumulator.recordQueryOutcome(
+            .complete([
+                ForgePullRequest(
+                    headRefName: "main",
+                    url: URL(string: "https://example.test/pull/1")!
+                )
+            ])
+        )
+        accumulator.recordUnavailableTransition()
+        accumulator.recordRecovery()
+        accumulator.recordPhysicalState(active: 2, pending: 4)
 
         let snapshot = accumulator.takeSnapshot()
 
@@ -39,6 +51,14 @@ struct ForgePerformanceAccumulatorTests {
         #expect(snapshot.publication.published == 1)
         #expect(snapshot.deadline.scheduled == 1)
         #expect(snapshot.deadline.fired == 1)
+        #expect(snapshot.query.demandedBranchCount == 3)
+        #expect(snapshot.query.aliasBatchCount == 1)
+        #expect(snapshot.query.returnedNodeCount == 1)
+        #expect(snapshot.query.completePlan == 1)
+        #expect(snapshot.recovery.unavailable == 1)
+        #expect(snapshot.recovery.recovered == 1)
+        #expect(snapshot.physical.activeMaximum == 2)
+        #expect(snapshot.physical.pendingMaximum == 4)
         #expect(!snapshot.isEmpty)
         #expect(accumulator.takeSnapshot().isEmpty)
     }

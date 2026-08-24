@@ -89,12 +89,34 @@ package struct ForgePerformanceSnapshot: Equatable, Sendable {
         package let cancelled: UInt64
     }
 
+    package struct Query: Equatable, Sendable {
+        package let demandedBranchCount: UInt64
+        package let aliasBatchCount: UInt64
+        package let returnedNodeCount: UInt64
+        package let completePlan: UInt64
+        package let rejectedPlan: UInt64
+    }
+
+    package struct Recovery: Equatable, Sendable {
+        package let rateLimited: UInt64
+        package let unavailable: UInt64
+        package let recovered: UInt64
+    }
+
+    package struct Physical: Equatable, Sendable {
+        package let activeMaximum: UInt64
+        package let pendingMaximum: UInt64
+    }
+
     package let inputs: Inputs
     package let admission: Admission
     package let execution: Execution
     package let validation: Validation
     package let publication: Publication
     package let deadline: Deadline
+    package let query: Query
+    package let recovery: Recovery
+    package let physical: Physical
 
     package var isEmpty: Bool { self == .zero }
 
@@ -112,7 +134,11 @@ package struct ForgePerformanceSnapshot: Equatable, Sendable {
         execution: Execution(started: 0, completed: 0, failed: 0, cancelled: 0, superseded: 0),
         validation: Validation(current: 0, staleGeneration: 0, staleOrigin: 0, staleScope: 0),
         publication: Publication(published: 0, equal: 0, invalidated: 0),
-        deadline: Deadline(scheduled: 0, rescheduled: 0, fired: 0, cancelled: 0)
+        deadline: Deadline(scheduled: 0, rescheduled: 0, fired: 0, cancelled: 0),
+        query: Query(
+            demandedBranchCount: 0, aliasBatchCount: 0, returnedNodeCount: 0, completePlan: 0, rejectedPlan: 0),
+        recovery: Recovery(rateLimited: 0, unavailable: 0, recovered: 0),
+        physical: Physical(activeMaximum: 0, pendingMaximum: 0)
     )
 }
 
@@ -143,6 +169,16 @@ package struct ForgePerformanceAccumulator: Sendable {
     private var deadlineRescheduled: UInt64 = 0
     private var deadlineFired: UInt64 = 0
     private var deadlineCancelled: UInt64 = 0
+    private var queryDemandedBranchCount: UInt64 = 0
+    private var queryAliasBatchCount: UInt64 = 0
+    private var queryReturnedNodeCount: UInt64 = 0
+    private var queryCompletePlan: UInt64 = 0
+    private var queryRejectedPlan: UInt64 = 0
+    private var recoveryRateLimited: UInt64 = 0
+    private var recoveryUnavailable: UInt64 = 0
+    private var recoveryRecovered: UInt64 = 0
+    private var physicalActiveMaximum: UInt64 = 0
+    private var physicalPendingMaximum: UInt64 = 0
 
     package init() {}
 
@@ -202,6 +238,37 @@ package struct ForgePerformanceAccumulator: Sendable {
         }
     }
 
+    package mutating func recordQueryPlan(demandedBranchCount: Int, aliasBatchCount: Int) {
+        Self.add(demandedBranchCount, to: &queryDemandedBranchCount)
+        Self.add(aliasBatchCount, to: &queryAliasBatchCount)
+    }
+
+    package mutating func recordQueryOutcome(_ outcome: ForgePullRequestQueryOutcome) {
+        switch outcome {
+        case .complete(let pullRequests):
+            Self.add(pullRequests.count, to: &queryReturnedNodeCount)
+            Self.increment(&queryCompletePlan)
+        case .truncated, .rateLimited, .failed:
+            Self.increment(&queryRejectedPlan)
+        }
+        if case .rateLimited = outcome {
+            Self.increment(&recoveryRateLimited)
+        }
+    }
+
+    package mutating func recordUnavailableTransition() {
+        Self.increment(&recoveryUnavailable)
+    }
+
+    package mutating func recordRecovery() {
+        Self.increment(&recoveryRecovered)
+    }
+
+    package mutating func recordPhysicalState(active: Int, pending: Int) {
+        physicalActiveMaximum = max(physicalActiveMaximum, UInt64(clamping: active))
+        physicalPendingMaximum = max(physicalPendingMaximum, UInt64(clamping: pending))
+    }
+
     package mutating func takeSnapshot() -> ForgePerformanceSnapshot {
         let snapshot = ForgePerformanceSnapshot(
             inputs: .init(automatic: inputAutomatic, manual: inputManual, followUp: inputFollowUp),
@@ -237,6 +304,22 @@ package struct ForgePerformanceAccumulator: Sendable {
                 rescheduled: deadlineRescheduled,
                 fired: deadlineFired,
                 cancelled: deadlineCancelled
+            ),
+            query: .init(
+                demandedBranchCount: queryDemandedBranchCount,
+                aliasBatchCount: queryAliasBatchCount,
+                returnedNodeCount: queryReturnedNodeCount,
+                completePlan: queryCompletePlan,
+                rejectedPlan: queryRejectedPlan
+            ),
+            recovery: .init(
+                rateLimited: recoveryRateLimited,
+                unavailable: recoveryUnavailable,
+                recovered: recoveryRecovered
+            ),
+            physical: .init(
+                activeMaximum: physicalActiveMaximum,
+                pendingMaximum: physicalPendingMaximum
             )
         )
         self = Self()
@@ -245,6 +328,12 @@ package struct ForgePerformanceAccumulator: Sendable {
 
     private static func increment(_ value: inout UInt64) {
         if value < .max { value += 1 }
+    }
+
+    private static func add(_ increment: Int, to value: inout UInt64) {
+        guard increment > 0 else { return }
+        let increment = UInt64(increment)
+        value = value > UInt64.max - increment ? .max : value + increment
     }
 }
 
@@ -307,6 +396,26 @@ extension AgentStudioPerformanceTraceRecorder: ForgePerformanceRecording {
                 "agentstudio.performance.forge.deadline.fired.count": Self.forgeTraceInteger(snapshot.deadline.fired),
                 "agentstudio.performance.forge.deadline.cancelled.count": Self.forgeTraceInteger(
                     snapshot.deadline.cancelled),
+                "agentstudio.performance.forge.query.demanded_branch.count": Self.forgeTraceInteger(
+                    snapshot.query.demandedBranchCount),
+                "agentstudio.performance.forge.query.alias_batch.count": Self.forgeTraceInteger(
+                    snapshot.query.aliasBatchCount),
+                "agentstudio.performance.forge.query.returned_node.count": Self.forgeTraceInteger(
+                    snapshot.query.returnedNodeCount),
+                "agentstudio.performance.forge.query.complete_plan.count": Self.forgeTraceInteger(
+                    snapshot.query.completePlan),
+                "agentstudio.performance.forge.query.rejected_plan.count": Self.forgeTraceInteger(
+                    snapshot.query.rejectedPlan),
+                "agentstudio.performance.forge.recovery.rate_limited.count": Self.forgeTraceInteger(
+                    snapshot.recovery.rateLimited),
+                "agentstudio.performance.forge.recovery.unavailable.count": Self.forgeTraceInteger(
+                    snapshot.recovery.unavailable),
+                "agentstudio.performance.forge.recovery.recovered.count": Self.forgeTraceInteger(
+                    snapshot.recovery.recovered),
+                "agentstudio.performance.forge.physical.active.maximum": Self.forgeTraceInteger(
+                    snapshot.physical.activeMaximum),
+                "agentstudio.performance.forge.physical.pending.maximum": Self.forgeTraceInteger(
+                    snapshot.physical.pendingMaximum),
             ]
         )
     }

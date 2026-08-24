@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 struct RepositoryFactDemandSnapshot: Equatable, Sendable {
@@ -39,6 +40,8 @@ final class RepositoryFactDemandCoordinator {
     typealias Delivery = @Sendable (RepositoryFactDemandSnapshot) async -> Void
 
     private let delivery: Delivery
+    private let performanceRecorder: (any RepositoryFactDemandPerformanceRecording)?
+    private var performanceSnapshot = RepositoryFactDemandPerformanceSnapshot()
     private var pendingSnapshot: RepositoryFactDemandSnapshot?
     private var pendingSnapshotMustDeliver = false
     private var inFlightSnapshot: RepositoryFactDemandSnapshot?
@@ -48,17 +51,34 @@ final class RepositoryFactDemandCoordinator {
     private var acceptsSnapshots = true
     private var didStartShutdown = false
 
-    init(delivery: @escaping Delivery) {
+    init(
+        performanceRecorder: (any RepositoryFactDemandPerformanceRecording)? = nil,
+        delivery: @escaping Delivery
+    ) {
+        self.performanceRecorder = performanceRecorder
         self.delivery = delivery
     }
 
     func accept(_ snapshot: RepositoryFactDemandSnapshot) {
-        guard acceptsSnapshots else { return }
-        guard pendingSnapshot != snapshot else { return }
+        guard acceptsSnapshots else {
+            increment(\.rejectedAfterShutdown)
+            flushPerformanceSnapshotIfNeeded()
+            return
+        }
+        increment(\.projected)
+        guard pendingSnapshot != snapshot else {
+            increment(\.contentEqual)
+            flushPerformanceSnapshotIfNeeded()
+            return
+        }
         if pendingSnapshot == nil, inFlightSnapshot == snapshot {
+            increment(\.contentEqual)
+            flushPerformanceSnapshotIfNeeded()
             return
         }
         if deliveryTask == nil, lastDeliveredSnapshot == snapshot {
+            increment(\.contentEqual)
+            flushPerformanceSnapshotIfNeeded()
             return
         }
         pendingSnapshot = snapshot
@@ -67,7 +87,10 @@ final class RepositoryFactDemandCoordinator {
     }
 
     func waitUntilIdle() async {
-        guard deliveryTask != nil else { return }
+        guard deliveryTask != nil else {
+            flushPerformanceSnapshot()
+            return
+        }
         await withCheckedContinuation { continuation in
             idleWaiters.append(continuation)
         }
@@ -100,6 +123,10 @@ final class RepositoryFactDemandCoordinator {
 
                 self.inFlightSnapshot = nextSnapshot
                 await self.delivery(nextSnapshot)
+                self.increment(\.delivered)
+                if nextSnapshot == .empty {
+                    self.increment(\.cleared)
+                }
                 self.inFlightSnapshot = nil
                 guard !Task.isCancelled else {
                     self.finishDeliveryTask()
@@ -113,10 +140,30 @@ final class RepositoryFactDemandCoordinator {
 
     private func finishDeliveryTask() {
         deliveryTask = nil
+        flushPerformanceSnapshot()
         let waiters = idleWaiters
         idleWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters {
             waiter.resume()
         }
+    }
+
+    private func increment(_ keyPath: WritableKeyPath<RepositoryFactDemandPerformanceSnapshot, UInt64>) {
+        if performanceSnapshot[keyPath: keyPath] < .max {
+            performanceSnapshot[keyPath: keyPath] += 1
+        }
+    }
+
+    private func flushPerformanceSnapshotIfNeeded() {
+        guard performanceSnapshot.inputCount >= AppPolicies.RepositoryFactDemand.telemetryFlushInputCount else {
+            return
+        }
+        flushPerformanceSnapshot()
+    }
+
+    private func flushPerformanceSnapshot() {
+        guard !performanceSnapshot.isEmpty else { return }
+        performanceRecorder?.recordRepositoryFactDemandPerformanceSnapshot(performanceSnapshot)
+        performanceSnapshot = RepositoryFactDemandPerformanceSnapshot()
     }
 }

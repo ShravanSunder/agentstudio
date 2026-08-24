@@ -11,8 +11,10 @@ struct RemoteReferenceRefreshActorTests {
     @Test("current demanded stage promotes and targets represented worktrees")
     func currentDemandPromotesAndRecomputes() async throws {
         let fixture = RemoteReferenceRefreshFixture()
+        let performanceRecorder = RemoteReferencePerformanceRecorderSpy()
         let actor = RemoteReferenceRefreshActor(
             provider: fixture.provider,
+            performanceRecorder: performanceRecorder,
             onAuthorityUpdate: { update in
                 await fixture.acceptanceRecorder.record(update)
             }
@@ -38,6 +40,16 @@ struct RemoteReferenceRefreshActorTests {
         #expect(accepted.expectedOrigin == fixture.originA)
         #expect(await fixture.acceptanceRecorder.lastWorktreeIds == [fixture.worktreeId])
         #expect(await fixture.acceptanceRecorder.acceptanceCount == 1)
+        let performance = performanceRecorder.combinedSnapshot
+        #expect(performance.demandChanged == 1)
+        #expect(performance.admissionAdmitted == 1)
+        #expect(performance.stagingStarted == 1)
+        #expect(performance.stagingCompleted == 1)
+        #expect(performance.promotionStarted == 1)
+        #expect(performance.promotionCompleted == 1)
+        #expect(performance.publicationLocalAccepted == 1)
+        #expect(performance.publicationPromoted == 1)
+        #expect(performance.cleanupSucceeded == 1)
 
         await actor.shutdown()
     }
@@ -445,6 +457,41 @@ struct RemoteReferenceRefreshActorTests {
 
         #expect(await fixture.provider.stageCount == 1)
         await actor.shutdown()
+    }
+}
+
+private final class RemoteReferencePerformanceRecorderSpy:
+    RemoteReferencePerformanceRecording, @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var snapshots: [RemoteReferencePerformanceSnapshot] = []
+
+    var combinedSnapshot: RemoteReferencePerformanceSnapshot {
+        lock.withLock {
+            snapshots.reduce(into: RemoteReferencePerformanceSnapshot()) { result, snapshot in
+                result.demandChanged += snapshot.demandChanged
+                result.demandCleared += snapshot.demandCleared
+                result.admissionAdmitted += snapshot.admissionAdmitted
+                result.admissionCapacityDeferred += snapshot.admissionCapacityDeferred
+                result.stagingStarted += snapshot.stagingStarted
+                result.stagingCompleted += snapshot.stagingCompleted
+                result.promotionStarted += snapshot.promotionStarted
+                result.promotionCompleted += snapshot.promotionCompleted
+                result.executionFailed += snapshot.executionFailed
+                result.executionCancelled += snapshot.executionCancelled
+                result.validationCurrent += snapshot.validationCurrent
+                result.validationObsolete += snapshot.validationObsolete
+                result.publicationLocalAccepted += snapshot.publicationLocalAccepted
+                result.publicationPromoted += snapshot.publicationPromoted
+                result.publicationInvalidated += snapshot.publicationInvalidated
+                result.cleanupSucceeded += snapshot.cleanupSucceeded
+                result.cleanupFailed += snapshot.cleanupFailed
+            }
+        }
+    }
+
+    func recordRemoteReferencePerformanceSnapshot(_ snapshot: RemoteReferencePerformanceSnapshot) {
+        lock.withLock { snapshots.append(snapshot) }
     }
 }
 

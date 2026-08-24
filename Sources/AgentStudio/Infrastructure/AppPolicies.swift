@@ -221,6 +221,7 @@ package enum AppPolicies {
         package static let filesystemMaxFlushLatency: Duration = .seconds(10)
         package static let filesystemDerivedCoalescingWindow: Duration = .milliseconds(500)
         package static let visibilityChangeCoalescingWindow: Duration = .milliseconds(200)
+        package static let telemetryFlushEventCount: UInt64 = 64
 
         package struct Policy: Equatable, Sendable {
             package let activePaneCadence: Duration
@@ -447,6 +448,10 @@ package enum AppPolicies {
         package static let maximumConcurrentFetches: Int = 1
         package static let childProcessTimeoutSeconds: Double = 120
         package static let capacityRecheckDelay: Duration = .milliseconds(500)
+    }
+
+    package enum RepositoryFactDemand {
+        package static let telemetryFlushInputCount: UInt64 = 64
     }
 
     package enum ForgeRefresh {

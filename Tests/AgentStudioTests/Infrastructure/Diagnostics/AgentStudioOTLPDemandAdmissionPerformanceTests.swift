@@ -85,6 +85,14 @@ struct AgentStudioOTLPDemandAdmissionPerformanceTests {
             "agentstudio.performance.forge.deadline.rescheduled.count",
             "agentstudio.performance.forge.deadline.fired.count",
             "agentstudio.performance.forge.deadline.cancelled.count",
+            "agentstudio.performance.forge.query.demanded_branch.count",
+            "agentstudio.performance.forge.query.alias_batch.count",
+            "agentstudio.performance.forge.query.returned_node.count",
+            "agentstudio.performance.forge.query.complete_plan.count",
+            "agentstudio.performance.forge.query.rejected_plan.count",
+            "agentstudio.performance.forge.recovery.rate_limited.count",
+            "agentstudio.performance.forge.recovery.unavailable.count",
+            "agentstudio.performance.forge.recovery.recovered.count",
         ]
         var attributes: [String: AgentStudioTraceValue] = [:]
         for (index, key) in expectedCounterKeys.enumerated() {
@@ -115,5 +123,58 @@ struct AgentStudioOTLPDemandAdmissionPerformanceTests {
                 return true
             }
         )
+    }
+
+    @Test
+    func repositoryDemandRemoteReferenceAndGitAggregatesProjectAsBoundedMetrics() throws {
+        let events: [(String, [String: AgentStudioTraceValue], Int)] = [
+            (
+                "performance.repository_fact_demand",
+                [
+                    "agentstudio.performance.repository_fact_demand.projected.count": .int(64),
+                    "agentstudio.performance.repository_fact_demand.content_equal.count": .int(63),
+                    "agentstudio.performance.repository_fact_demand.delivered.count": .int(1),
+                ],
+                3
+            ),
+            (
+                "performance.remote_reference.refresh",
+                [
+                    "agentstudio.performance.remote_reference.admission.admitted.count": .int(2),
+                    "agentstudio.performance.remote_reference.publication.promoted.count": .int(2),
+                    "agentstudio.performance.remote_reference.validation.obsolete.count": .int(1),
+                ],
+                3
+            ),
+            (
+                "performance.git.aggregate",
+                [
+                    "agentstudio.performance.git.aggregate.admitted.count": .int(4),
+                    "agentstudio.performance.git.aggregate.event_posted.count": .int(4),
+                    "agentstudio.performance.git.aggregate.running.maximum": .int(2),
+                ],
+                3
+            ),
+        ]
+
+        for (index, event) in events.enumerated() {
+            let record = AgentStudioTraceRecord(
+                timeUnixNano: UInt64(200 + index),
+                severityText: .info,
+                body: event.0,
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                attributes: event.1
+            )
+
+            let projection = AgentStudioOTLPTraceProjection.project(record)
+            let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: projection))
+
+            #expect(metricEvent.measurements.count == event.2)
+            #expect(projection.attributes.count >= event.1.count)
+        }
     }
 }

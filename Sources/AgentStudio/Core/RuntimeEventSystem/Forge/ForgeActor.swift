@@ -638,6 +638,7 @@ package actor ForgeActor {
 
         let statusProvider = self.statusProvider
         performanceAccumulator.recordExecution(.started)
+        recordQueryPlan(for: request)
         providerRepoIdByRequestId[request.id] = request.repoId
         providerTasksByRequestId[request.id] = Task { [weak self, statusProvider] in
             guard let self else { return }
@@ -647,6 +648,7 @@ package actor ForgeActor {
             )
             await self.completeProviderRequest(request, outcome: outcome)
         }
+        recordPhysicalPerformanceState()
     }
 
     private func applyOutcome(
@@ -655,8 +657,12 @@ package actor ForgeActor {
         request: ProviderRequest,
         completionTime: Duration
     ) -> ForgeEvent? {
+        performanceAccumulator.recordQueryOutcome(outcome)
         switch outcome {
         case .complete(let pullRequests):
+            if state.hasEmittedUnavailable {
+                performanceAccumulator.recordRecovery()
+            }
             let priorConfirmedFacts = ForgePresentationFacts.confirmedFacts(in: state.stablePresentation) ?? [:]
             let representedBranches = representedBranches(repoId: request.repoId)
             var confirmedFactsByBranch = priorConfirmedFacts.filter { branch, _ in
@@ -874,6 +880,7 @@ extension ForgeActor {
         defer { flushPerformanceSnapshot() }
         providerTasksByRequestId.removeValue(forKey: request.id)
         providerRepoIdByRequestId.removeValue(forKey: request.id)
+        recordPhysicalPerformanceState()
         guard !isShuttingDown else { return }
         performanceAccumulator.recordExecution(.completed)
         guard var state = refreshStateByRepoId[request.repoId] else {
