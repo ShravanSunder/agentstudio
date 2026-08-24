@@ -27,6 +27,7 @@ import type {
 	BridgeCommWorkerStoreState,
 } from './bridge-comm-worker-store.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
+import { recordBridgeWorkerOutstandingPublicationTelemetry } from './bridge-render-disposition-telemetry.js';
 import type { WorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import type {
 	BridgeWorkerDemandRank,
@@ -204,7 +205,20 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 			setTimeout(wake, delayMilliseconds);
 		});
 
+	const telemetryClient = props.telemetryClient;
 	const reviewDemandLedger = createBridgeCommWorkerReviewDemandLedger({
+		...(props.now === undefined ? {} : { now: props.now }),
+		...(telemetryClient === undefined
+			? {}
+			: {
+					observeOutstandingPublications: (observation): void => {
+						recordBridgeWorkerOutstandingPublicationTelemetry({
+							observation,
+							surface: 'review',
+							telemetryClient,
+						});
+					},
+				}),
 		resolvePreparationIdentity: (itemId): string =>
 			reviewItemPreparationIdentity({ itemId, source: reviewRuntimeSource }),
 		start: (admission): BridgeCommWorkerReviewDemandStartHandle => {

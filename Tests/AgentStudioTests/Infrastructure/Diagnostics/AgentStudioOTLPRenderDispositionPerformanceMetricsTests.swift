@@ -49,4 +49,41 @@ struct BridgeRenderDispositionOTLPMetricsTests {
             ]
         )
     }
+
+    @Test
+    func workerOutstandingPublicationProjectsBoundedGauges() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.bridge.worker.render_publication_outstanding",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.phase": .string("render_publication_outstanding_changed"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("warm"),
+                "agentstudio.bridge.render_publication.current_count": .int(12),
+                "agentstudio.bridge.render_publication.high_water_mark": .int(12),
+                "agentstudio.bridge.render_publication.oldest_age_ms": .double(25),
+                "agentstudio.bridge.render_publication.outcome": .string("published"),
+                "agentstudio.bridge.slice": .string("command_acks"),
+                "agentstudio.bridge.viewer": .string("review"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.dimensions.contains(.init(name: "viewer", value: "review")))
+        #expect(metricEvent.dimensions.contains(.init(name: "render_publication_outcome", value: "published")))
+        #expect(
+            metricEvent.samples.map(\.label) == [
+                "agentstudio_bridge_render_publication_current_count",
+                "agentstudio_bridge_render_publication_high_water_mark",
+                "agentstudio_bridge_render_publication_oldest_age_ms",
+            ]
+        )
+    }
 }

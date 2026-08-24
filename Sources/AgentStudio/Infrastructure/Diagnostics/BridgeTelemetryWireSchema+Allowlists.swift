@@ -8,9 +8,7 @@ enum BridgeComparisonTargetCatalogTelemetryKeys {
         "agentstudio.bridge.review.comparison_targets.reservation_age_ms",
     ]
 
-    static let booleanAttributeKeys: Set<String> = [
-        "agentstudio.bridge.review.comparison_targets.is_truncated"
-    ]
+    static let booleanAttributeKeys: Set<String> = ["agentstudio.bridge.review.comparison_targets.is_truncated"]
 }
 
 extension BridgeTelemetryWireSchema {
@@ -548,7 +546,6 @@ extension BridgeTelemetryWireSchema {
             "unsupported_content",
             "updated",
         ],
-        "agentstudio.bridge.render_disposition.outcome": ["acked", "cleared", "degraded", "timed_out"],
         "agentstudio.bridge.result_reason": [
             "admission_failed",
             "admission_rejected",
@@ -855,7 +852,9 @@ extension BridgeTelemetryWireSchema {
             "review_content_ready",
             "review_source_reset",
         ],
-    ]
+    ].merging(BridgeRenderDispositionTelemetryContract.outcomeValues) { existingValues, renderValues in
+        existingValues.union(renderValues)
+    }
 
     static let allowedNumericAttributeKeys: Set<String> = Set([
         "agentstudio.bridge.activation.sequence",

@@ -9,6 +9,70 @@ export type BridgeRenderDispositionAdmissionPhase =
 
 export type BridgeRenderDispositionTerminalOutcome = 'acked' | 'cleared' | 'degraded' | 'timed_out';
 
+export type BridgeWorkerOutstandingPublicationPhase =
+	| 'render_disposition_response_posted_before_owner_effect'
+	| 'render_publication_outstanding_changed';
+
+export type BridgeWorkerOutstandingPublicationOutcome =
+	| 'cleared'
+	| 'painted'
+	| 'published'
+	| 'queued'
+	| 'rejected'
+	| 'released'
+	| 'settled'
+	| 'superseded';
+
+export interface BridgeWorkerOutstandingPublicationObservation {
+	readonly currentCount: number;
+	readonly highWaterMark: number;
+	readonly oldestAgeMilliseconds: number;
+	readonly outcome: BridgeWorkerOutstandingPublicationOutcome;
+	readonly phase: BridgeWorkerOutstandingPublicationPhase;
+}
+
+export function recordBridgeWorkerOutstandingPublicationTelemetry(props: {
+	readonly observation: BridgeWorkerOutstandingPublicationObservation;
+	readonly surface: 'file' | 'review';
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
+}): void {
+	if (props.telemetryClient === undefined) return;
+	try {
+		props.telemetryClient.record({
+			scope: 'web',
+			name: 'performance.bridge.worker.render_publication_outstanding',
+			durationMilliseconds: null,
+			traceContext: null,
+			stringAttributes: {
+				'agentstudio.bridge.phase': props.observation.phase,
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'warm',
+				'agentstudio.bridge.render_publication.outcome': props.observation.outcome,
+				'agentstudio.bridge.result':
+					props.observation.outcome === 'rejected'
+						? 'failure'
+						: props.observation.outcome === 'superseded'
+							? 'stale'
+							: 'success',
+				'agentstudio.bridge.slice': 'command_acks',
+				'agentstudio.bridge.transport': 'worker',
+				'agentstudio.bridge.viewer': props.surface,
+			},
+			numericAttributes: {
+				'agentstudio.bridge.render_publication.current_count': props.observation.currentCount,
+				'agentstudio.bridge.render_publication.high_water_mark': props.observation.highWaterMark,
+				'agentstudio.bridge.render_publication.oldest_age_ms': Math.max(
+					0,
+					props.observation.oldestAgeMilliseconds,
+				),
+			},
+			booleanAttributes: {},
+		});
+	} catch {
+		// Optional operational evidence must never control publication ownership.
+	}
+}
+
 export function recordBridgeRenderDispositionAdmissionTelemetry(props: {
 	readonly acknowledgementDurationMilliseconds?: number;
 	readonly batchReceiptCount?: number;

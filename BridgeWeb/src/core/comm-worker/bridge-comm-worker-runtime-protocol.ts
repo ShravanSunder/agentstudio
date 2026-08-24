@@ -90,6 +90,7 @@ import {
 	recordBridgeCommWorkerPanePresentationTelemetry,
 	recordBridgeCommWorkerTaskTelemetry,
 } from './bridge-comm-worker-telemetry.js';
+import { recordBridgeWorkerOutstandingPublicationTelemetry } from './bridge-render-disposition-telemetry.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import {
 	isBridgeWorkerFileViewContentMetadata,
@@ -170,8 +171,22 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	};
 	let latestSelectedFilePreparationRequest: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest | null =
 		null;
+	const runtimeTelemetryClient = props.telemetryClient;
 	const selectedFileContentOperationController =
-		new BridgeCommWorkerSelectedFileContentOperationController();
+		new BridgeCommWorkerSelectedFileContentOperationController({
+			...(props.now === undefined ? {} : { now: props.now }),
+			...(runtimeTelemetryClient === undefined
+				? {}
+				: {
+						observeOutstandingPublications: (observation): void => {
+							recordBridgeWorkerOutstandingPublicationTelemetry({
+								observation,
+								surface: 'file',
+								telemetryClient: runtimeTelemetryClient,
+							});
+						},
+					}),
+		});
 	let selectedFileContentOperationStore: BridgeCommWorkerStore | null = null;
 	const selectedFileLifecycleTelemetry = new BridgeCommWorkerSelectedFileLifecycleTelemetry(
 		props.telemetryClient,

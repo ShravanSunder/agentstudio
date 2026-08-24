@@ -8,6 +8,109 @@ import {
 } from './bridge-worker-render-fulfillment.js';
 
 describe('Bridge comm worker Review published-position ownership', () => {
+	test('keeps Review publication ownership fail-open when its observer throws', () => {
+		const ledger = createBridgeCommWorkerReviewDemandLedger({
+			observeOutstandingPublications: (): never => {
+				throw new Error('observer unavailable');
+			},
+			start: () => ({ cancel: () => {}, updateRole: () => {} }),
+		});
+		const admission = ledger.reconcile([{ itemId: 'fail-open-review', role: 'visible' }]).active[0];
+		if (admission === undefined) throw new Error('Expected Review admission.');
+		const identity = renderReceiptIdentity(admission.itemId, admission.attemptToken);
+
+		expect(ledger.markPublished(admission.itemId, admission.attemptToken, identity)).toBe(true);
+		expect(ledger.release(admission.itemId, admission.attemptToken, 'resident')).toBe(true);
+		expect(
+			ledger.releasePublished(
+				bridgeWorkerRenderDispositionReceiptSchema.parse({
+					...identity,
+					disposition: 'queued',
+					kind: 'render.disposition',
+					receivedAtMilliseconds: 1,
+				}),
+			),
+		).toBe(true);
+		expect(ledger.reconcile([]).active).toEqual([]);
+	});
+
+	test('observes bounded held-publication count, age, high-water mark, and response phase', () => {
+		let nowMilliseconds = 10;
+		const observations: Array<{
+			readonly currentCount: number;
+			readonly highWaterMark: number;
+			readonly oldestAgeMilliseconds: number;
+			readonly outcome: string;
+			readonly phase: string;
+		}> = [];
+		const ledger = createBridgeCommWorkerReviewDemandLedger({
+			now: (): number => nowMilliseconds,
+			observeOutstandingPublications: (observation): void => {
+				observations.push(observation);
+			},
+			start: () => ({ cancel: () => {}, updateRole: () => {} }),
+		});
+		const active = ledger.reconcile([
+			{ itemId: 'observed-1', role: 'visible' },
+			{ itemId: 'observed-2', role: 'visible' },
+		]).active;
+		const first = active[0];
+		const second = active[1];
+		if (first === undefined || second === undefined)
+			throw new Error('Expected two Review positions.');
+		ledger.markPublished(
+			first.itemId,
+			first.attemptToken,
+			renderReceiptIdentity(first.itemId, first.attemptToken),
+		);
+		nowMilliseconds = 20;
+		ledger.markPublished(
+			second.itemId,
+			second.attemptToken,
+			renderReceiptIdentity(second.itemId, second.attemptToken),
+		);
+		nowMilliseconds = 30;
+		ledger.releasePublished(
+			bridgeWorkerRenderDispositionReceiptSchema.parse({
+				...renderReceiptIdentity(first.itemId, first.attemptToken),
+				disposition: 'queued',
+				kind: 'render.disposition',
+				receivedAtMilliseconds: 30,
+			}),
+		);
+
+		expect(observations).toEqual([
+			{
+				currentCount: 1,
+				highWaterMark: 1,
+				oldestAgeMilliseconds: 0,
+				outcome: 'published',
+				phase: 'render_publication_outstanding_changed',
+			},
+			{
+				currentCount: 2,
+				highWaterMark: 2,
+				oldestAgeMilliseconds: 10,
+				outcome: 'published',
+				phase: 'render_publication_outstanding_changed',
+			},
+			{
+				currentCount: 2,
+				highWaterMark: 2,
+				oldestAgeMilliseconds: 20,
+				outcome: 'queued',
+				phase: 'render_disposition_response_posted_before_owner_effect',
+			},
+			{
+				currentCount: 1,
+				highWaterMark: 2,
+				oldestAgeMilliseconds: 10,
+				outcome: 'released',
+				phase: 'render_publication_outstanding_changed',
+			},
+		]);
+	});
+
 	test('holds all twelve published positions until the first exact queued response effect', () => {
 		const startedItemIds: string[] = [];
 		const ledger = createTestLedger(startedItemIds);

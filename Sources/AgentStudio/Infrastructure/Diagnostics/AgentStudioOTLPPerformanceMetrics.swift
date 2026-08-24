@@ -509,6 +509,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             ("semantic_class", "agentstudio.bridge.worker.semantic_class"),
             ("viewer", "agentstudio.bridge.viewer"),
             ("render_disposition_outcome", "agentstudio.bridge.render_disposition.outcome"),
+            ("render_publication_outcome", "agentstudio.bridge.render_publication.outcome"),
         ]
         for (name, attributeKey) in bridgeDimensionAttributes {
             appendBridgeDimension(
@@ -651,6 +652,9 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         "agentstudio.bridge.render_disposition.pending_high_water_mark",
         "agentstudio.bridge.render_disposition.produced_count",
         "agentstudio.bridge.render_disposition.rejected_count",
+        "agentstudio.bridge.render_publication.current_count",
+        "agentstudio.bridge.render_publication.high_water_mark",
+        "agentstudio.bridge.render_publication.oldest_age_ms",
         "agentstudio.bridge.telemetry.dropped_count",
     ]
 

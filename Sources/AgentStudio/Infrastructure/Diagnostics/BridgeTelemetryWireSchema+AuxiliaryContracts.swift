@@ -37,6 +37,8 @@ extension BridgeTelemetryWireSchema {
             workerTaskContractMatches(contract)
         case "performance.bridge.worker.render_disposition_batch":
             workerRenderDispositionBatchContractMatches(contract)
+        case "performance.bridge.worker.render_publication_outstanding":
+            workerRenderPublicationOutstandingContractMatches(contract)
         default:
             nil
         }
@@ -770,6 +772,43 @@ extension BridgeTelemetryWireSchema {
                 )
             )
         )
+    }
+
+    private static func workerRenderPublicationOutstandingContractMatches(
+        _ contract: EventContract
+    ) -> Bool {
+        let commonKeys = EventAttributeKeys(
+            additionalStringKeys: [
+                "agentstudio.bridge.render_publication.outcome",
+                "agentstudio.bridge.result",
+                "agentstudio.bridge.viewer",
+            ],
+            numericKeys: [
+                "agentstudio.bridge.render_publication.current_count",
+                "agentstudio.bridge.render_publication.high_water_mark",
+                "agentstudio.bridge.render_publication.oldest_age_ms",
+            ]
+        )
+        return contract.matches(
+            .init(
+                phase: "render_publication_outstanding_changed",
+                plane: .data,
+                priority: .warm,
+                slice: .commandAcks,
+                transport: "worker",
+                attributeKeys: commonKeys
+            )
+        )
+            || contract.matches(
+                .init(
+                    phase: "render_disposition_response_posted_before_owner_effect",
+                    plane: .data,
+                    priority: .warm,
+                    slice: .commandAcks,
+                    transport: "worker",
+                    attributeKeys: commonKeys
+                )
+            )
     }
 
     private static func commWorkerContentPreparationContractMatches(

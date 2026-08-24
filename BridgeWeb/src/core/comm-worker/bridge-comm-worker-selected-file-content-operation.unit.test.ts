@@ -8,6 +8,83 @@ import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
 
 describe('BridgeCommWorkerSelectedFileContentOperationController', () => {
+	test('keeps File publication ownership fail-open when its observer throws', () => {
+		const controller = new BridgeCommWorkerSelectedFileContentOperationController({
+			observeOutstandingPublications: (): never => {
+				throw new Error('observer unavailable');
+			},
+		});
+		const operation = controller.admitSelection({ itemId: 'file-1', selectionEpoch: 10 });
+		const receipt = renderReceipt('fail-open', operation.operationCorrelationId);
+
+		expect(
+			controller.bindRenderReceipt({
+				generation: operation.generation,
+				receiptIdentity: receipt,
+			}),
+		).toBe(true);
+		expect(controller.handleAcceptedRenderDisposition({ receipt })).toBe('current');
+		expect(
+			controller.handleAcceptedRenderDisposition({
+				receipt: { ...receipt, disposition: 'applied' },
+			}),
+		).toBe('current');
+		expect(
+			controller.handleAcceptedRenderDisposition({
+				receipt: { ...receipt, disposition: 'painted' },
+			}),
+		).toBe('settled');
+		expect(controller.current).toBeNull();
+	});
+
+	test('observes File outstanding publication only from the selected operation lifecycle', () => {
+		let nowMilliseconds = 10;
+		const observations: Array<{
+			readonly currentCount: number;
+			readonly highWaterMark: number;
+			readonly oldestAgeMilliseconds: number;
+			readonly outcome: string;
+			readonly phase: string;
+		}> = [];
+		const controller = new BridgeCommWorkerSelectedFileContentOperationController({
+			now: (): number => nowMilliseconds,
+			observeOutstandingPublications: (observation): void => {
+				observations.push(observation);
+			},
+		});
+		const operation = controller.admitSelection({ itemId: 'file-1', selectionEpoch: 10 });
+		const receipt = renderReceipt('observed', operation.operationCorrelationId);
+		controller.bindRenderReceipt({ generation: operation.generation, receiptIdentity: receipt });
+		controller.handleAcceptedRenderDisposition({ receipt });
+		controller.handleAcceptedRenderDisposition({ receipt: { ...receipt, disposition: 'applied' } });
+		nowMilliseconds = 30;
+		controller.handleAcceptedRenderDisposition({ receipt: { ...receipt, disposition: 'painted' } });
+
+		expect(observations).toEqual([
+			{
+				currentCount: 1,
+				highWaterMark: 1,
+				oldestAgeMilliseconds: 0,
+				outcome: 'published',
+				phase: 'render_publication_outstanding_changed',
+			},
+			{
+				currentCount: 1,
+				highWaterMark: 1,
+				oldestAgeMilliseconds: 20,
+				outcome: 'painted',
+				phase: 'render_disposition_response_posted_before_owner_effect',
+			},
+			{
+				currentCount: 0,
+				highWaterMark: 1,
+				oldestAgeMilliseconds: 0,
+				outcome: 'settled',
+				phase: 'render_publication_outstanding_changed',
+			},
+		]);
+	});
+
 	test('keeps one operation generation from selection through descriptor and render preparation', () => {
 		const controller = new BridgeCommWorkerSelectedFileContentOperationController();
 

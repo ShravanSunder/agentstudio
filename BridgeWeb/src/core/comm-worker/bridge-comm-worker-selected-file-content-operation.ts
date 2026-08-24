@@ -2,6 +2,11 @@ import type { BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest } f
 import type { BridgeCommWorkerFileViewRuntimeSource } from './bridge-comm-worker-file-view-runtime-source.js';
 import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import { mintBridgeOperationCorrelationId } from './bridge-operation-correlation.js';
+import type {
+	BridgeWorkerOutstandingPublicationObservation,
+	BridgeWorkerOutstandingPublicationOutcome,
+	BridgeWorkerOutstandingPublicationPhase,
+} from './bridge-render-disposition-telemetry.js';
 import {
 	isBridgeWorkerFileViewContentMetadata,
 	type BridgeWorkerFileRenderPatchEvent,
@@ -27,6 +32,7 @@ export type BridgeSelectedFileContentOperation = {
 	readonly operationCorrelationId: string;
 	readonly renderStageAttempt: number;
 	readonly renderReceiptIdentity: BridgeWorkerRenderReceiptIdentity | null;
+	readonly renderPublishedAtMilliseconds: number | null;
 	readonly selectionEpoch: number;
 	readonly workerDerivationEpoch: number | null;
 	readonly phase: BridgeSelectedFileContentOperationPhase;
@@ -35,6 +41,23 @@ export type BridgeSelectedFileContentOperation = {
 export class BridgeCommWorkerSelectedFileContentOperationController {
 	private currentOperation: BridgeSelectedFileContentOperation | null = null;
 	private nextGeneration = 0;
+	private readonly now: () => number;
+	private readonly observeOutstandingPublications:
+		| ((observation: BridgeWorkerOutstandingPublicationObservation) => void)
+		| undefined;
+	private outstandingPublicationHighWaterMark = 0;
+
+	constructor(
+		options: {
+			readonly now?: () => number;
+			readonly observeOutstandingPublications?: (
+				observation: BridgeWorkerOutstandingPublicationObservation,
+			) => void;
+		} = {},
+	) {
+		this.now = options.now ?? performance.now.bind(performance);
+		this.observeOutstandingPublications = options.observeOutstandingPublications;
+	}
 
 	get current(): BridgeSelectedFileContentOperation | null {
 		return this.currentOperation;
@@ -58,6 +81,7 @@ export class BridgeCommWorkerSelectedFileContentOperationController {
 			phase: 'preparingDescriptor',
 			renderStageAttempt: 0,
 			renderReceiptIdentity: null,
+			renderPublishedAtMilliseconds: null,
 			selectionEpoch: props.selectionEpoch,
 			workerDerivationEpoch: null,
 		};
@@ -88,6 +112,7 @@ export class BridgeCommWorkerSelectedFileContentOperationController {
 			phase: 'preparingDescriptor',
 			renderStageAttempt: 0,
 			renderReceiptIdentity: null,
+			renderPublishedAtMilliseconds: null,
 			selectionEpoch: currentOperation.selectionEpoch,
 			workerDerivationEpoch: props.workerDerivationEpoch,
 		};
@@ -117,13 +142,19 @@ export class BridgeCommWorkerSelectedFileContentOperationController {
 					? this.currentOperation.renderStageAttempt
 					: this.currentOperation.renderStageAttempt + 1,
 			renderReceiptIdentity: Object.freeze({ ...props.receiptIdentity }),
+			renderPublishedAtMilliseconds: this.now(),
 		};
+		this.observeOutstanding('render_publication_outstanding_changed', 'published');
 		return true;
 	}
 
 	settle(generation: number): boolean {
 		if (this.currentOperation?.generation !== generation) return false;
+		const wasPublished = this.currentOperation.renderReceiptIdentity !== null;
 		this.currentOperation = null;
+		if (wasPublished) {
+			this.observeOutstanding('render_publication_outstanding_changed', 'settled');
+		}
 		return true;
 	}
 
@@ -142,6 +173,10 @@ export class BridgeCommWorkerSelectedFileContentOperationController {
 			this.advance(currentOperation.generation, 'preparingRender');
 			return 'current';
 		}
+		this.observeOutstanding(
+			'render_disposition_response_posted_before_owner_effect',
+			props.receipt.disposition,
+		);
 		this.settle(currentOperation.generation);
 		return 'settled';
 	}
@@ -149,7 +184,39 @@ export class BridgeCommWorkerSelectedFileContentOperationController {
 	cancel(): BridgeSelectedFileContentOperation | null {
 		const cancelledOperation = this.currentOperation;
 		this.currentOperation = null;
+		if (cancelledOperation !== null && cancelledOperation.renderReceiptIdentity !== null) {
+			this.observeOutstanding('render_publication_outstanding_changed', 'cleared');
+		}
 		return cancelledOperation;
+	}
+
+	private observeOutstanding(
+		phase: BridgeWorkerOutstandingPublicationPhase,
+		outcome: BridgeWorkerOutstandingPublicationOutcome,
+	): void {
+		const currentCount =
+			this.currentOperation === null || this.currentOperation.renderReceiptIdentity === null
+				? 0
+				: 1;
+		this.outstandingPublicationHighWaterMark = Math.max(
+			this.outstandingPublicationHighWaterMark,
+			currentCount,
+		);
+		try {
+			this.observeOutstandingPublications?.({
+				currentCount,
+				highWaterMark: this.outstandingPublicationHighWaterMark,
+				oldestAgeMilliseconds:
+					this.currentOperation?.renderPublishedAtMilliseconds === null ||
+					this.currentOperation === null
+						? 0
+						: Math.max(0, this.now() - this.currentOperation.renderPublishedAtMilliseconds),
+				outcome,
+				phase,
+			});
+		} catch {
+			// Optional operational evidence must not alter File operation ownership.
+		}
 	}
 }
 

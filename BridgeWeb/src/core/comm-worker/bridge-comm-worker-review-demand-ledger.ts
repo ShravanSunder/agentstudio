@@ -1,6 +1,11 @@
 import type { BridgeCommWorkerDemandMember } from './bridge-comm-worker-reconciler.js';
 import type { BridgeWorkerReviewContentReadyPreparationSettlement } from './bridge-comm-worker-review-preparation.js';
 import type {
+	BridgeWorkerOutstandingPublicationObservation,
+	BridgeWorkerOutstandingPublicationOutcome,
+	BridgeWorkerOutstandingPublicationPhase,
+} from './bridge-render-disposition-telemetry.js';
+import type {
 	BridgeWorkerRenderDispositionReceipt,
 	BridgeWorkerRenderReceiptIdentity,
 } from './bridge-worker-render-fulfillment.js';
@@ -62,11 +67,16 @@ interface ActiveBridgeCommWorkerReviewDemandRecord {
 	readonly positionKind: BridgeCommWorkerReviewDemandPositionKind;
 	readonly preparationIdentity: string | null;
 	intentCurrent: boolean;
+	publishedAtMilliseconds: number | null;
 	publishedReceiptIdentity: BridgeWorkerRenderReceiptIdentity | null;
 	role: BridgeCommWorkerDemandMember['role'];
 }
 
 export function createBridgeCommWorkerReviewDemandLedger(props: {
+	readonly now?: () => number;
+	readonly observeOutstandingPublications?: (
+		observation: BridgeWorkerOutstandingPublicationObservation,
+	) => void;
 	readonly resolvePreparationIdentity?: (itemId: string) => string;
 	readonly start: (
 		admission: BridgeCommWorkerReviewDemandAdmission,
@@ -79,6 +89,44 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 	let suspended = false;
 	let currentGeneration: number | null = null;
 	let nextAttemptToken = 1;
+	let outstandingPublicationHighWaterMark = 0;
+	const now = props.now ?? performance.now.bind(performance);
+	const observeOutstandingPublications = (
+		phase: BridgeWorkerOutstandingPublicationPhase,
+		outcome: BridgeWorkerOutstandingPublicationOutcome,
+	): void => {
+		const observedAtMilliseconds = now();
+		const publishedRecords = [...activeRecordsByItemId.values()].filter(
+			(record) => record.publishedReceiptIdentity !== null,
+		);
+		outstandingPublicationHighWaterMark = Math.max(
+			outstandingPublicationHighWaterMark,
+			publishedRecords.length,
+		);
+		const oldestPublishedAtMilliseconds = publishedRecords.reduce<number | null>(
+			(oldest, record) =>
+				record.publishedAtMilliseconds === null
+					? oldest
+					: oldest === null
+						? record.publishedAtMilliseconds
+						: Math.min(oldest, record.publishedAtMilliseconds),
+			null,
+		);
+		try {
+			props.observeOutstandingPublications?.({
+				currentCount: publishedRecords.length,
+				highWaterMark: outstandingPublicationHighWaterMark,
+				oldestAgeMilliseconds:
+					oldestPublishedAtMilliseconds === null
+						? 0
+						: Math.max(0, observedAtMilliseconds - oldestPublishedAtMilliseconds),
+				outcome,
+				phase,
+			});
+		} catch {
+			// Optional operational evidence must not alter Review position ownership.
+		}
+	};
 
 	const startMember = (
 		member: BridgeCommWorkerDemandMember,
@@ -102,6 +150,7 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			intentCurrent: true,
 			positionKind,
 			preparationIdentity: props.resolvePreparationIdentity?.(member.itemId) ?? null,
+			publishedAtMilliseconds: null,
 			publishedReceiptIdentity: null,
 			role: member.role,
 		});
@@ -210,6 +259,8 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			const activeRecord = activeRecordsByItemId.get(itemId);
 			if (activeRecord?.attemptToken !== attemptToken) return false;
 			activeRecord.publishedReceiptIdentity = Object.freeze({ ...receiptIdentity });
+			activeRecord.publishedAtMilliseconds = now();
+			observeOutstandingPublications('render_publication_outstanding_changed', 'published');
 			return true;
 		},
 		reconcile,
@@ -244,7 +295,11 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 				if (disposition === 'invalidated') activeRecord.intentCurrent = false;
 				return true;
 			}
+			const wasPublished = activeRecord.publishedReceiptIdentity !== null;
 			activeRecordsByItemId.delete(itemId);
+			if (wasPublished) {
+				observeOutstandingPublications('render_publication_outstanding_changed', 'cleared');
+			}
 			if (disposition === 'invalidated') {
 				latestMembership = latestMembership.filter((member) => member.itemId !== itemId);
 				return true;
@@ -275,10 +330,15 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			const receiptIdentity = activeRecord?.publishedReceiptIdentity ?? null;
 			if (activeRecord === undefined || receiptIdentity === null) return false;
 			if (!renderReceiptMatchesIdentity(receipt, receiptIdentity)) return false;
+			observeOutstandingPublications(
+				'render_disposition_response_posted_before_owner_effect',
+				receipt.disposition,
+			);
 			activeRecordsByItemId.delete(receipt.itemId);
 			if (activeRecord.intentCurrent) completedItemIds.add(receipt.itemId);
 			else latestMembership = latestMembership.filter((member) => member.itemId !== receipt.itemId);
 			reconcile(latestMembership);
+			observeOutstandingPublications('render_publication_outstanding_changed', 'released');
 			return true;
 		},
 		restartPublished: (itemId): boolean => {
@@ -291,6 +351,7 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 				return false;
 			}
 			activeRecordsByItemId.delete(itemId);
+			observeOutstandingPublications('render_publication_outstanding_changed', 'released');
 			return true;
 		},
 	};
