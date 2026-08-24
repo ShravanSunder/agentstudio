@@ -2,8 +2,8 @@ import { describe, expect, test } from 'vitest';
 
 import { makeReviewPublicationIdentity } from './bridge-comm-worker-entry.test-support.js';
 import type { BridgeCommWorkerDemandMember } from './bridge-comm-worker-reconciler.js';
+import { createBridgeCommWorkerReviewDemandLedger } from './bridge-comm-worker-review-demand-ledger.js';
 import {
-	createBridgeCommWorkerReviewDemandLedger,
 	createBridgeCommWorkerReviewDemandScheduling,
 	createBridgeCommWorkerVisibleSourceChurnDedupeState,
 	recordBridgeCommWorkerVisibleSourceChurn,

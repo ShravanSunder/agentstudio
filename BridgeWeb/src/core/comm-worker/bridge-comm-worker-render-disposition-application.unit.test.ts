@@ -1,7 +1,8 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
-import { applyBridgeWorkerRenderDispositionCommand } from './bridge-comm-worker-command-handler.js';
+import { createBridgeCommWorkerCommandHandler } from './bridge-comm-worker-command-handler.js';
+import { applyBridgeWorkerRenderDispositionCommand } from './bridge-comm-worker-render-disposition-application.js';
 import type { BridgeWorkerRenderDispositionCommand } from './bridge-worker-contracts.js';
 import type { BridgeWorkerRenderDispositionReceipt } from './bridge-worker-render-fulfillment.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
@@ -62,6 +63,37 @@ describe('Bridge comm worker render disposition application', () => {
 					'agentstudio.bridge.result': 'failed',
 				}),
 			}),
+		]);
+	});
+
+	test('routes default command handling through batch telemetry', () => {
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const command = {
+			command: 'renderDisposition',
+			direction: 'mainToServerWorker',
+			epoch: 1,
+			kind: 'command',
+			receipts: [makeQueuedReceipt(1)],
+			requestId: 'default-handler-batch',
+			transferDescriptors: [],
+			wireVersion: 1,
+		} satisfies BridgeWorkerRenderDispositionCommand;
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			scheduleSelectedFileViewContentReadyPreparation: (): void => {},
+			scheduleSelectedReviewContentReadyPreparation: (): void => {},
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
+		});
+
+		handler.handleMessage(command);
+
+		expect(telemetrySamples).toEqual([
+			expect.objectContaining({ name: 'performance.bridge.worker.render_disposition_batch' }),
 		]);
 	});
 });

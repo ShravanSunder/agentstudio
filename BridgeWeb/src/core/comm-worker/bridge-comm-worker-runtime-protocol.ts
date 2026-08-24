@@ -33,6 +33,7 @@ import {
 	BridgeCommWorkerRenderFulfillmentLifecycleDriver,
 	type BridgeCommWorkerRenderFulfillmentSurface,
 } from './bridge-comm-worker-render-fulfillment-lifecycle-driver.js';
+import { applyBridgeCommWorkerRenderDispositionRuntimeEffects } from './bridge-comm-worker-render-publication-release.js';
 import {
 	buildBridgeCommWorkerReviewCandidateReadyPublication,
 	buildBridgeCommWorkerReviewCandidateFailedPublication,
@@ -756,32 +757,31 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		if (parsedMessage.data.command === 'reviewPublicationInstalled') {
 			installedReviewSource.recordInstallation(parsedMessage.data);
 		}
-		if (
-			parsedMessage.data.command === 'renderDisposition' &&
-			parsedMessage.data.receipts.some((receipt): boolean => receipt.surface === 'file') &&
-			bridgeWorkerRuntimeMessagesContainReadyRequest({
+		if (parsedMessage.data.command === 'renderDisposition') {
+			applyBridgeCommWorkerRenderDispositionRuntimeEffects({
+				advanceRenderFulfillmentLifecycle,
+				command: parsedMessage.data,
+				currentFileOperationCorrelationId: () =>
+					selectedFileContentOperationController.current?.operationCorrelationId ?? null,
 				messages,
-				requestId: parsedMessage.data.requestId,
-			})
-		) {
-			for (const receipt of parsedMessage.data.receipts) {
-				if (receipt.surface !== 'file') continue;
-				const currentOperation = selectedFileContentOperationController.current;
-				if (
-					currentOperation !== null &&
-					receipt.operationCorrelationId === currentOperation.operationCorrelationId
-				) {
-					selectedFileLifecycleTelemetry.disposition(currentOperation, receipt.disposition);
-				}
-				const settlement = settleAcceptedSelectedFileRenderDisposition({
-					controller: selectedFileContentOperationController,
-					createSequence,
-					receipt,
-					store: selectedFileContentOperationStore,
-				});
-				if (settlement.terminalPatch !== null) port.postMessage(settlement.terminalPatch);
-				if (settlement.settled) selectedFileContentOperationStore = null;
-			}
+				onFileOperationSettled: (): void => {
+					selectedFileContentOperationStore = null;
+				},
+				publish: (message): void => port.postMessage(message),
+				recordFileDisposition: (receipt): void => {
+					const currentOperation = selectedFileContentOperationController.current;
+					if (currentOperation !== null) {
+						selectedFileLifecycleTelemetry.disposition(currentOperation, receipt.disposition);
+					}
+				},
+				settleFileDisposition: (receipt) =>
+					settleAcceptedSelectedFileRenderDisposition({
+						controller: selectedFileContentOperationController,
+						createSequence,
+						receipt,
+						store: selectedFileContentOperationStore,
+					}),
+			});
 		}
 		if (
 			parsedMessage.data.command === 'select' &&
@@ -833,13 +833,6 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					reviewDemandScheduling.resume();
 				}
 				publishUpdatingChrome();
-			}
-		}
-		if (parsedMessage.data.command === 'renderDisposition') {
-			for (const surface of new Set(
-				parsedMessage.data.receipts.map((receipt) => receipt.surface),
-			)) {
-				advanceRenderFulfillmentLifecycle(surface);
 			}
 		}
 		const handlerDurationMilliseconds =
