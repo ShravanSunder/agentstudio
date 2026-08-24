@@ -8,6 +8,7 @@ import {
   measureFullPageTopologyGrid,
   resolveTopologyGlassBand,
 } from "../src/topology-lab/full-page-topology-model";
+import { resolveTopologyRouteRowsWithoutCollisions } from "../src/topology-lab/full-page-topology-paths";
 
 const routeIdsByVariant = (variant: "compact" | "expanded" | "standard"): string[] =>
   authoredTopologyRoutes
@@ -292,5 +293,51 @@ describe("full-page topology grid measurement", () => {
         grid,
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("surface-aware topology route rows", () => {
+  it("moves glass anchors to the nearest free row inside differently sized surfaces", () => {
+    const grid = measureFullPageTopologyGrid({
+      frameLeft: 768,
+      frameRight: 1792,
+      height: 5000,
+      requestedTopPadding: 96,
+      width: 2560,
+    });
+    if (grid === undefined) {
+      throw new Error("Expected an eligible topology grid");
+    }
+    const glassSurfaces = [
+      { bottom: 600, top: 300 },
+      { bottom: 1100, top: 800 },
+      { bottom: 1700, top: 1400 },
+      { bottom: 2300, top: 2000 },
+      { bottom: 3800, top: 3500 },
+    ] as const;
+    const band = resolveTopologyGlassBand({ glassSurfaces, grid });
+    if (band === undefined) {
+      throw new Error("Expected a valid topology glass band");
+    }
+
+    const routes = resolveTopologyRouteRowsWithoutCollisions(
+      authoredTopologyRoutes,
+      {
+        frameLeft: 768,
+        frameRight: 1792,
+        glassSurfaces,
+      },
+      grid,
+      band,
+    );
+
+    expect(routes).toBeDefined();
+    const resolvedRows = routes?.flatMap((route) => [route.forkRow, route.endRow]) ?? [];
+    expect(new Set(resolvedRows).size).toBe(resolvedRows.length);
+    expect(routes?.find((route) => route.id === "worktree-c")).toMatchObject({
+      endRow: 21,
+      forkRow: 5,
+    });
+    expect(routes?.find((route) => route.id === "worktree-g")?.forkRow).toBe(14);
   });
 });

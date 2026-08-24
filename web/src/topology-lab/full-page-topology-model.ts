@@ -236,17 +236,25 @@ function rowsInsideSurface(
   });
 }
 
+export function topologySurfaceRowsByDistance(
+  surface: TopologyGlassSurfaceBounds,
+  grid: FullPageTopologyGrid,
+  verticalRatio: number,
+): readonly number[] {
+  const targetY = surface.top + (surface.bottom - surface.top) * verticalRatio;
+  return rowsInsideSurface(surface, grid).toSorted((leftRow, rightRow) => {
+    const leftDistance = Math.abs(grid.topPadding + leftRow * topologyRowUnit - targetY);
+    const rightDistance = Math.abs(grid.topPadding + rightRow * topologyRowUnit - targetY);
+    return leftDistance === rightDistance ? leftRow - rightRow : leftDistance - rightDistance;
+  });
+}
+
 export function closestTopologySurfaceRow(
   surface: TopologyGlassSurfaceBounds,
   grid: FullPageTopologyGrid,
   verticalRatio: number,
 ): number | undefined {
-  const targetY = surface.top + (surface.bottom - surface.top) * verticalRatio;
-  return rowsInsideSurface(surface, grid).toSorted((leftRow, rightRow) => {
-    const leftDistance = Math.abs(grid.topPadding + leftRow * topologyRowUnit - targetY);
-    const rightDistance = Math.abs(grid.topPadding + rightRow * topologyRowUnit - targetY);
-    return leftDistance - rightDistance;
-  })[0];
+  return topologySurfaceRowsByDistance(surface, grid, verticalRatio)[0];
 }
 
 export function resolveTopologyGlassBand(

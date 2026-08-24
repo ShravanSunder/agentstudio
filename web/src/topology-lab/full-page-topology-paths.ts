@@ -1,6 +1,6 @@
 import type { TopologyRouteContract } from "./full-page-topology-contract";
 import {
-  closestTopologySurfaceRow,
+  topologySurfaceRowsByDistance,
   topologyRowUnit,
   type FullPageTopologyGrid,
   type TopologyGlassBand,
@@ -26,48 +26,119 @@ export interface ResolvedTopologyRouteGeometry {
   readonly targetX: number;
 }
 
-function rowForGlassIndex(
+interface RouteRowOption {
+  readonly endRow: number;
+  readonly forkRow: number;
+  readonly preferenceRank: number;
+}
+
+function rowsForGlassIndex(
   glassIndex: number | undefined,
   portal: FullPageTopologyPortal,
   grid: FullPageTopologyGrid,
   band: TopologyGlassBand,
-): number | undefined {
+): readonly number[] {
   if (glassIndex === undefined) {
-    return undefined;
-  }
-  if (glassIndex === 0) {
-    return band.firstCrossRow;
-  }
-  if (glassIndex === portal.glassSurfaces.length - 1) {
-    return band.lastCrossRow;
+    return [];
   }
   const surface = portal.glassSurfaces[glassIndex];
-  return surface === undefined ? undefined : closestTopologySurfaceRow(surface, grid, 0.5);
+  if (surface === undefined) {
+    return [];
+  }
+  const verticalRatio =
+    glassIndex === 0 ? 0.7 : glassIndex === portal.glassSurfaces.length - 1 ? 0.3 : 0.5;
+  const preferredRow =
+    glassIndex === 0
+      ? band.firstCrossRow
+      : glassIndex === portal.glassSurfaces.length - 1
+        ? band.lastCrossRow
+        : undefined;
+  const rowsByDistance = topologySurfaceRowsByDistance(surface, grid, verticalRatio);
+  if (preferredRow === undefined || rowsByDistance[0] === preferredRow) {
+    return rowsByDistance;
+  }
+  return [preferredRow, ...rowsByDistance.filter((row) => row !== preferredRow)];
 }
 
-export function resolveTopologyRouteRows(
+function routeRowOptions(
   route: TopologyRouteContract,
   portal: FullPageTopologyPortal,
   grid: FullPageTopologyGrid,
   band: TopologyGlassBand,
-): ResolvedTopologyRoute | undefined {
-  const forkRow = route.forkPageRow ?? rowForGlassIndex(route.forkGlassIndex, portal, grid, band);
-  const endRow =
+): readonly RouteRowOption[] {
+  const fixedEndRow =
     route.endPageRow ??
-    (route.endPageOffset === undefined ? undefined : grid.finalRow - route.endPageOffset) ??
-    rowForGlassIndex(route.endGlassIndex, portal, grid, band);
-  if (
-    forkRow === undefined ||
-    endRow === undefined ||
-    forkRow < 1 ||
-    forkRow >= grid.finalRow ||
-    endRow < 1 ||
-    endRow >= grid.finalRow ||
-    endRow <= forkRow
-  ) {
-    return undefined;
-  }
-  return { ...route, endRow, forkRow };
+    (route.endPageOffset === undefined ? undefined : grid.finalRow - route.endPageOffset);
+  const forkRows =
+    route.forkPageRow === undefined
+      ? rowsForGlassIndex(route.forkGlassIndex, portal, grid, band)
+      : [route.forkPageRow];
+  const endRows =
+    fixedEndRow === undefined
+      ? rowsForGlassIndex(route.endGlassIndex, portal, grid, band)
+      : [fixedEndRow];
+  return forkRows
+    .flatMap((forkRow, forkPreferenceRank) =>
+      endRows.map((endRow, endPreferenceRank) => ({
+        endRow,
+        forkRow,
+        preferenceRank: forkPreferenceRank + endPreferenceRank,
+      })),
+    )
+    .filter(
+      ({ endRow, forkRow }) =>
+        forkRow >= 1 &&
+        forkRow < grid.finalRow &&
+        endRow >= 1 &&
+        endRow < grid.finalRow &&
+        endRow > forkRow,
+    )
+    .toSorted((left, right) => {
+      const preferenceDifference = left.preferenceRank - right.preferenceRank;
+      if (preferenceDifference !== 0) {
+        return preferenceDifference;
+      }
+      const forkDifference = left.forkRow - right.forkRow;
+      return forkDifference === 0 ? left.endRow - right.endRow : forkDifference;
+    });
+}
+
+export function resolveTopologyRouteRowsWithoutCollisions(
+  routes: readonly TopologyRouteContract[],
+  portal: FullPageTopologyPortal,
+  grid: FullPageTopologyGrid,
+  band: TopologyGlassBand,
+): readonly ResolvedTopologyRoute[] | undefined {
+  const occupiedRows = new Set([0, grid.finalRow]);
+  const resolvedRoutes: ResolvedTopologyRoute[] = [];
+
+  const assignRoute = (routeIndex: number): boolean => {
+    const route = routes[routeIndex];
+    if (route === undefined) {
+      return true;
+    }
+    for (const option of routeRowOptions(route, portal, grid, band)) {
+      if (occupiedRows.has(option.forkRow) || occupiedRows.has(option.endRow)) {
+        continue;
+      }
+      occupiedRows.add(option.forkRow);
+      occupiedRows.add(option.endRow);
+      resolvedRoutes.push({
+        ...route,
+        endRow: option.endRow,
+        forkRow: option.forkRow,
+      });
+      if (assignRoute(routeIndex + 1)) {
+        return true;
+      }
+      resolvedRoutes.pop();
+      occupiedRows.delete(option.forkRow);
+      occupiedRows.delete(option.endRow);
+    }
+    return false;
+  };
+
+  return assignRoute(0) ? [...resolvedRoutes] : undefined;
 }
 
 function localForkPath(

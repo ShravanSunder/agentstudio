@@ -19,7 +19,7 @@ import {
 } from "./full-page-topology-model";
 import {
   resolveTopologyRouteGeometry,
-  resolveTopologyRouteRows,
+  resolveTopologyRouteRowsWithoutCollisions,
   topologyPathLengthFractionAtY,
   topologyPathPointAtY,
   type FullPageTopologyPortal,
@@ -181,9 +181,21 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
     const variantRouteCandidates = authoredRoutes.filter(({ dataset }) =>
       dataset.variants.includes(variant),
     );
-    const variantRoutes = variantRouteCandidates.flatMap(({ dataset, group }) => {
-      const resolvedDataset = resolveTopologyRouteRows(dataset, portal, grid, band);
-      return resolvedDataset === undefined ? [] : [{ dataset: resolvedDataset, group }];
+    const resolvedVariantRoutes = resolveTopologyRouteRowsWithoutCollisions(
+      variantRouteCandidates.map(({ dataset }) => dataset),
+      portal,
+      grid,
+      band,
+    );
+    if (resolvedVariantRoutes === undefined) {
+      return hideTopology(artwork, "invalid-route-glass-anchor");
+    }
+    const groupByRouteId = new Map(
+      variantRouteCandidates.map(({ dataset, group }) => [dataset.id, group] as const),
+    );
+    const variantRoutes = resolvedVariantRoutes.flatMap((dataset) => {
+      const group = groupByRouteId.get(dataset.id);
+      return group === undefined ? [] : [{ dataset, group }];
     });
     if (variantRoutes.length !== variantRouteCandidates.length) {
       return hideTopology(artwork, "invalid-route-glass-anchor");
