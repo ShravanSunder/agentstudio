@@ -1233,3 +1233,38 @@ classify and correct this producer-side republish boundary. Backend/comm-worker 
 higher limits, another queue/port, render batching, or receipt dropping. Required proof is the same S5
 with semantic work no longer amplified, urgent outcomes still non-starved, pending zero, lease ages
 bounded, and the full root-plus-five-reply durability journey green.
+
+## 2026-08-24 19:00 EDT — Correction: annotation suppression rejected; S5 oracle needs design owner
+
+The prior producer-amplification handoff was too strong. A bounded UI-owner correction suppressed
+unchanged annotation-placement item updates and passed its focused Chrome RED/GREEN, but the full S5
+still failed at the identical reply-2 pre-command boundary. Receipt production fell only from 10,104 to
+9,483; the correction removed 621 receipts and did not restore interaction. It has been fully reverted,
+and all three UI/test files match HEAD.
+
+The remaining 4,386-receipt delta equals 1,462 additional queued/applied/painted attempts. Progressive
+placeholder-to-hydrated Review delivery can legitimately create a second attempt, while current scrubbed
+aggregate telemetry intentionally omits attempt/generation identity. Therefore the S5 exact lifetime
+oracle (`1,699 × 3 = 5,097`) and the runtime disagree, but current evidence cannot call every additional
+attempt a defect. Comm-worker admission still drains to pending zero with low age.
+
+This reaches the comm-worker plan's explicit stop/replan condition: the corrected 1,699-item run remains
+unbounded relative to an unproven oracle. Program Design must choose and justify exact lifetime attempts,
+exact final-generation attempts, or a bounded progressive-attempt ceiling plus zero-pending/lease/failure
+invariants. Do not add identity-bearing telemetry, render batching, another queue/port, higher ceilings,
+receipt dropping, or another UI optimization before that decision. The separate reply-2 interaction RED
+also remains with the UI/state owner.
+
+## 2026-08-24 19:08 EDT — Correction: Specification already owns the S5 receipt proof
+
+No design-cycle decision is needed for lifetime receipt count. R-CWA-010 explicitly says receipt-command
+count alone is insufficient and requires bounded published-but-unsettled count/age, correlated outcomes,
+and acknowledgement ordering. R-CWA-011 requires exact annotation outcomes, no lease expiry, interactive
+inspectability, durable reload, bounded drain, and acknowledgement-before-newly-released-render ordering.
+Neither requires exactly one lifetime attempt per item.
+
+The S5 harness had invented the exact `5,097` lifetime oracle. It is corrected to retain the legitimate
+initial-render minimum, enforce every specified pending/high-water/age/failure/order/durability gate, and
+require produced count to remain unchanged after demand stops. This does not permit unbounded attempts and
+does not change Requirements, Specification, or Program Design. The corrected final telemetry gate remains
+unreachable until the separate reply-2 pre-command UI interaction RED is fixed.

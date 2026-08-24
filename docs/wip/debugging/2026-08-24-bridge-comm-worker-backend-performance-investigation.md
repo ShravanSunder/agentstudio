@@ -45,7 +45,7 @@ needed by current evidence.
 
 ## Current evidence — 2026-08-24 18:42 EDT
 
-### Proven render-receipt amplification at the reply-2 boundary — 18:42 EDT
+### Render-receipt count exceeds the current S5 oracle — corrected 19:00 EDT
 
 The S5 failure path now captures the existing scrubbed telemetry status once
 before cleanup. The first instrumented run observed, before any reply-2 command
@@ -58,30 +58,38 @@ was issued:
 - ordinary acknowledged batches continued to complete, with two degraded
   terminals recovering immediately to pending zero.
 
-The specified complete initial Review render is 1,699 items times three
-dispositions, or 5,097 receipts. Producing 10,104 before reply 2 proves roughly
-2x render-receipt amplification even though admission drains promptly. This is
-not the prior worker-port backlog: queue age and pending count are low. It is a
-producer-side republish defect upstream of disposition admission.
+The current S5 oracle assumes one render attempt per item: 1,699 items times
+three dispositions, or 5,097 receipts. The observed 10,104 receipts prove that
+the oracle and runtime disagree, while low pending count and age prove this is
+not the prior worker-port backlog.
 
-Current source evidence identifies the narrow candidate at
-`use-bridge-code-view-worktree-annotation-effects.ts:23-46`: every annotation
-projection maps every current Review item, increments every item version, and
-applies every item update. A root/reply body revision does not necessarily
-change all 1,699 Pierre placement descriptors. The UI/state owner must classify
-and correct that producer boundary; this transport lane must not compensate by
-raising limits, adding another queue, batching render jobs, or dropping valid
-receipts.
+A bounded UI-owner experiment suppressed unchanged annotation placement updates.
+Its focused Chrome RED/GREEN was valid, but the full S5 remained at the same
+reply-2 failure and still produced 9,483 receipts. The experiment removed only
+621 receipts and was fully reverted. It is therefore not accepted as the root
+fix and no UI source change remains.
 
-Required proof after the producer correction:
+The remaining delta is 4,386 receipts, or 1,462 additional three-disposition
+render attempts. Current Review architecture supports progressive placeholder
+to hydrated-item delivery, so those attempts may be legitimate second attempts
+rather than amplification. The current aggregate telemetry intentionally omits
+identities/generations and cannot distinguish those cases. The exact-count S5
+oracle is therefore unproven and must not be weakened or "fixed" by guessing.
 
-1. the same S5 failure/success telemetry must no longer exceed the expected
-   semantic render work for unchanged placements;
-2. urgent annotation outcomes must remain ahead of later disposition batches;
-3. pending count must return to zero and oldest age remain below the lease;
-4. the full green journey must still produce exactly 5,097 initial Review
-   receipts unless a documented semantic placement change requires additional
-   work.
+The governing Specification already settles this proof question. R-CWA-010 says
+reduced receipt-command count alone is insufficient and requires bounded
+published-but-unsettled count/age, correlated outcomes, and acknowledgement
+ordering. R-CWA-011 requires exact command outcomes, no lease expiry, interactive
+inspectability, durable reload, bounded drain, and acknowledgement-before-newly-
+released-render ordering. It does not require exactly one lifetime attempt per
+item.
+
+The S5 harness had added an unauthorized exact lifetime oracle. It is corrected
+to report a nonzero count with the legitimate initial-render minimum, enforce
+all specified boundedness/failure/order gates, and require the produced count to
+remain unchanged after demand stops. This is a proof-implementation correction,
+not a Specification or Program Design change. The corrected final telemetry gate
+cannot run until the separate reply-2 UI interaction RED is fixed.
 
 ### Combined-HEAD rerun after concurrent UI/state commit
 
