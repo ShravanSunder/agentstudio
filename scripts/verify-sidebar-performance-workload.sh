@@ -226,6 +226,9 @@ validate_host_process_records_json() {
   local app_pid="${2:-}"
   local maximum_cpu="${3:?missing host CPU maximum}"
   local logical_cpu_count="${4:?missing logical CPU count}"
+  if [ -n "$app_pid" ]; then
+    validate_no_debug_owned_helpers_json "$records_json" "$app_pid" >/dev/null
+  fi
   /usr/bin/python3 - "$records_json" "$app_pid" "$maximum_cpu" "$logical_cpu_count" <<'PY'
 import json
 import math
@@ -275,6 +278,80 @@ if forbidden:
 print("host_process_contract=passed")
 print(f"normalized_unrelated_cpu={normalized_cpu}")
 PY
+}
+
+validate_no_debug_owned_helpers_json() {
+  local records_json="${1:?missing process records}"
+  local app_pid="${2:?missing app PID}"
+  /usr/bin/python3 - "$records_json" "$app_pid" <<'PY'
+import json
+import sys
+
+records = json.loads(sys.argv[1])
+app_pid = int(sys.argv[2])
+if not isinstance(records, list) or app_pid <= 0:
+    raise SystemExit("invalid debug-owned process records or app PID")
+records_by_pid = {}
+children_by_parent = {}
+for record in records:
+    if not isinstance(record, dict):
+        raise SystemExit("invalid debug-owned process record")
+    try:
+        pid = int(record["pid"])
+        parent_pid = int(record["ppid"])
+    except (KeyError, TypeError, ValueError):
+        raise SystemExit("invalid debug-owned process identity") from None
+    if pid <= 0 or parent_pid < 0:
+        raise SystemExit("invalid debug-owned process identity")
+    records_by_pid[pid] = record
+    children_by_parent.setdefault(parent_pid, []).append(pid)
+if app_pid not in records_by_pid:
+    raise SystemExit("exact debug app PID is absent from process inventory")
+
+descendants = []
+pending = list(children_by_parent.get(app_pid, []))
+while pending:
+    pid = pending.pop()
+    if pid in descendants:
+        continue
+    descendants.append(pid)
+    pending.extend(children_by_parent.get(pid, []))
+if descendants:
+    first = records_by_pid[min(descendants)]
+    command = first.get("command", "")
+    raise SystemExit(f"debug-owned helper remains active: {first['pid']} {command}")
+print("debug_owned_helper_contract=passed")
+PY
+}
+
+debug_owned_process_records_json() {
+  /bin/ps -axo pid=,ppid=,%cpu=,command= | /usr/bin/python3 -c '
+import json, sys
+records = []
+for line in sys.stdin:
+    fields = line.strip().split(maxsplit=3)
+    if len(fields) == 4 and fields[0].isdigit() and fields[1].isdigit():
+        records.append({"pid": int(fields[0]), "ppid": int(fields[1]), "cpu": fields[2], "command": fields[3]})
+print(json.dumps(records, separators=(",", ":")))
+'
+}
+
+record_debug_owned_process_inventory() {
+  local receipt_file="${1:?missing inventory receipt file}"
+  local phase="${2:?missing inventory phase}"
+  local records_json inventory_json
+  records_json="$(debug_owned_process_records_json)"
+  validate_no_debug_owned_helpers_json "$records_json" "$APP_PID" >/dev/null
+  inventory_json="$(/usr/bin/python3 - "$records_json" "$APP_PID" "$phase" <<'PY'
+import json
+import sys
+records = json.loads(sys.argv[1])
+app_pid = int(sys.argv[2])
+phase = sys.argv[3]
+print(json.dumps({"phase": phase, "app_pid": app_pid, "owned_pids": [app_pid], "descendant_count": 0}, separators=(",", ":")))
+PY
+  )"
+  printf '%s\n' "$inventory_json" >>"$receipt_file"
 }
 
 validate_strict_zmx_state_contract() {
@@ -937,14 +1014,18 @@ stop_strict_zmx_monitor() {
 
 record_strict_cpu_sample() {
   local samples="${1:?missing samples file}"
+  local inventory_receipts="$samples.owned-processes.jsonl"
   local sample_interval_seconds cpu_value started_ns ended_ns
   validate_current_candidate
   sample_interval_seconds="$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
     "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
   started_ns="$(/usr/bin/python3 -c 'import time; print(time.monotonic_ns())')"
+  record_debug_owned_process_inventory "$inventory_receipts" "before"
   cpu_value="$(/usr/bin/top -l 2 -s "$sample_interval_seconds" -pid "$APP_PID" -stats pid,cpu \
     | awk -v pid="$APP_PID" '$1 == pid { value=$2 } END { if (value != "") print value }')"
   [ -n "$cpu_value" ] || return 1
+  record_debug_owned_process_inventory "$inventory_receipts" "after"
+  validate_current_candidate
   ended_ns="$(/usr/bin/python3 -c 'import time; print(time.monotonic_ns())')"
   printf '%s %s %s\n' "$started_ns" "$ended_ns" "$cpu_value" >>"$samples"
 }
@@ -2638,6 +2719,16 @@ if [ "$mode" = "prepare-only" ]; then
       "$AGENTSTUDIO_SIDEBAR_TEST_HOST_PROCESS_RECORDS" "" \
       "${STRICT_POLICY_HOST_CPU_MAX:?missing strict host CPU maximum}" \
       "${AGENTSTUDIO_SIDEBAR_TEST_LOGICAL_CPU_COUNT:?missing logical CPU count}"
+    exit 0
+  fi
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_DEBUG_PROCESS_RECORDS:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "debug process test requires canned test-response authorization" >&2
+      exit 2
+    }
+    validate_no_debug_owned_helpers_json \
+      "$AGENTSTUDIO_SIDEBAR_TEST_DEBUG_PROCESS_RECORDS" \
+      "${AGENTSTUDIO_SIDEBAR_TEST_DEBUG_APP_PID:?missing debug app PID}"
     exit 0
   fi
   if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_ZMX_STATE_SEQUENCE:-}" ]; then

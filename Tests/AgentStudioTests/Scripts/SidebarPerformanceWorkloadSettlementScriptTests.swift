@@ -91,6 +91,32 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
         #expect(result.stderr.contains("remote settlement sample is stale"))
     }
 
+    @Test("strict CPU proof rejects any exact-debug descendant even at zero CPU")
+    func strictCPUProofRejectsExactDebugDescendants() async throws {
+        let rejected = try await runDebugProcessContract(
+            records: """
+                [
+                  {"pid":700,"ppid":1,"cpu":1.0,"command":"AgentStudio Debug"},
+                  {"pid":701,"ppid":700,"cpu":0.0,"command":"git fetch origin"},
+                  {"pid":702,"ppid":701,"cpu":0.0,"command":"git-remote-https origin"}
+                ]
+                """
+        )
+        #expect(rejected.exitCode == 1)
+        #expect(rejected.stderr.contains("debug-owned helper remains active"))
+
+        let accepted = try await runDebugProcessContract(
+            records: """
+                [
+                  {"pid":700,"ppid":1,"cpu":1.0,"command":"AgentStudio Debug"},
+                  {"pid":801,"ppid":1,"cpu":4.0,"command":"unrelated browser"}
+                ]
+                """
+        )
+        #expect(accepted.exitCode == 0, Comment(rawValue: accepted.stderr))
+        #expect(accepted.stdout.contains("debug_owned_helper_contract=passed"))
+    }
+
     @Test("strict quiescence rejects missing reasoned Git settlement fields")
     func strictQuiescenceRejectsMissingReasonedGitSettlementFields() async throws {
         let observations = (0...5).map { timestamp in
@@ -165,6 +191,17 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
                 "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
                 "AGENTSTUDIO_SIDEBAR_TEST_PERIODIC_COMPLETION_BASELINE": String(baseline),
                 "AGENTSTUDIO_SIDEBAR_TEST_PERIODIC_COMPLETION_FINAL": String(final),
+            ]
+        )
+    }
+
+    private func runDebugProcessContract(records: String) async throws -> ProcessResult {
+        try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_DEBUG_PROCESS_RECORDS": records,
+                "AGENTSTUDIO_SIDEBAR_TEST_DEBUG_APP_PID": "700",
             ]
         )
     }
