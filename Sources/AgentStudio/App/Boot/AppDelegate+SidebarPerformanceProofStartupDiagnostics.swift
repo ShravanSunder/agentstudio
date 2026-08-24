@@ -71,6 +71,10 @@ import AppKit
                     policy.maximumDiagnosticInteractionP95GrowthPercent),
                 "agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit": .int(
                     policy.gitStatusPhysicalLimit),
+                "agentstudio.startup_diagnostic.sidebar_proof.remote_reference_physical_limit": .int(
+                    policy.remoteReferencePhysicalLimit),
+                "agentstudio.startup_diagnostic.sidebar_proof.forge_physical_limit": .int(
+                    policy.forgePhysicalLimit),
                 "agentstudio.startup_diagnostic.sidebar_proof.git_maximum_settlement_ms": .double(
                     AgentStudioPerformanceTraceRecorder.milliseconds(
                         from: policy.gitMaximumSettlementInterval)),

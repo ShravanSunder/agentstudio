@@ -108,6 +108,18 @@ package struct ForgePerformanceSnapshot: Equatable, Sendable {
         package let pendingMaximum: UInt64
     }
 
+    package struct Settlement: Equatable, Sendable {
+        package let physicalActive: UInt64
+        package let pendingTotal: UInt64
+        package let pendingFuture: UInt64
+        package let pendingReady: UInt64
+        package let pendingCapacity: UInt64
+        package let pendingActiveFollowUp: UInt64
+        package let pendingUnclassified: UInt64
+        package let deadlineOverdue: UInt64
+        package let deadlineNextMilliseconds: Double
+    }
+
     package let inputs: Inputs
     package let admission: Admission
     package let execution: Execution
@@ -117,6 +129,7 @@ package struct ForgePerformanceSnapshot: Equatable, Sendable {
     package let query: Query
     package let recovery: Recovery
     package let physical: Physical
+    package let settlement: Settlement?
 
     package var isEmpty: Bool { self == .zero }
 
@@ -138,7 +151,8 @@ package struct ForgePerformanceSnapshot: Equatable, Sendable {
         query: Query(
             demandedBranchCount: 0, aliasBatchCount: 0, returnedNodeCount: 0, completePlan: 0, rejectedPlan: 0),
         recovery: Recovery(rateLimited: 0, unavailable: 0, recovered: 0),
-        physical: Physical(activeMaximum: 0, pendingMaximum: 0)
+        physical: Physical(activeMaximum: 0, pendingMaximum: 0),
+        settlement: nil
     )
 }
 
@@ -269,7 +283,9 @@ package struct ForgePerformanceAccumulator: Sendable {
         physicalPendingMaximum = max(physicalPendingMaximum, UInt64(clamping: pending))
     }
 
-    package mutating func takeSnapshot() -> ForgePerformanceSnapshot {
+    package mutating func takeSnapshot(
+        settlement: ForgePerformanceSnapshot.Settlement? = nil
+    ) -> ForgePerformanceSnapshot {
         let snapshot = ForgePerformanceSnapshot(
             inputs: .init(automatic: inputAutomatic, manual: inputManual, followUp: inputFollowUp),
             admission: .init(
@@ -320,7 +336,8 @@ package struct ForgePerformanceAccumulator: Sendable {
             physical: .init(
                 activeMaximum: physicalActiveMaximum,
                 pendingMaximum: physicalPendingMaximum
-            )
+            ),
+            settlement: settlement
         )
         self = Self()
         return snapshot
@@ -344,80 +361,107 @@ package protocol ForgePerformanceRecording: Sendable {
 extension AgentStudioPerformanceTraceRecorder: ForgePerformanceRecording {
     package func recordForgePerformanceSnapshot(_ snapshot: ForgePerformanceSnapshot) {
         guard !snapshot.isEmpty else { return }
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.forge.input.automatic.count": Self.forgeTraceInteger(snapshot.inputs.automatic),
+            "agentstudio.performance.forge.input.manual.count": Self.forgeTraceInteger(snapshot.inputs.manual),
+            "agentstudio.performance.forge.input.follow_up.count": Self.forgeTraceInteger(snapshot.inputs.followUp),
+            "agentstudio.performance.forge.admission.admitted.count": Self.forgeTraceInteger(
+                snapshot.admission.admitted),
+            "agentstudio.performance.forge.admission.no_demand_rejected.count": Self.forgeTraceInteger(
+                snapshot.admission.noDemandRejected),
+            "agentstudio.performance.forge.admission.missing_origin_rejected.count": Self.forgeTraceInteger(
+                snapshot.admission.missingOriginRejected),
+            "agentstudio.performance.forge.admission.active_request_coalesced.count": Self.forgeTraceInteger(
+                snapshot.admission.activeRequestCoalesced),
+            "agentstudio.performance.forge.admission.capacity_limited.count": Self.forgeTraceInteger(
+                snapshot.admission.capacityLimited),
+            "agentstudio.performance.forge.admission.freshness_deferred.count": Self.forgeTraceInteger(
+                snapshot.admission.freshnessDeferred),
+            "agentstudio.performance.forge.admission.backoff_deferred.count": Self.forgeTraceInteger(
+                snapshot.admission.backoffDeferred),
+            "agentstudio.performance.forge.execution.started.count": Self.forgeTraceInteger(
+                snapshot.execution.started),
+            "agentstudio.performance.forge.execution.completed.count": Self.forgeTraceInteger(
+                snapshot.execution.completed),
+            "agentstudio.performance.forge.execution.failed.count": Self.forgeTraceInteger(snapshot.execution.failed),
+            "agentstudio.performance.forge.execution.cancelled.count": Self.forgeTraceInteger(
+                snapshot.execution.cancelled),
+            "agentstudio.performance.forge.execution.superseded.count": Self.forgeTraceInteger(
+                snapshot.execution.superseded),
+            "agentstudio.performance.forge.validation.current.count": Self.forgeTraceInteger(
+                snapshot.validation.current),
+            "agentstudio.performance.forge.validation.stale_generation.count": Self.forgeTraceInteger(
+                snapshot.validation.staleGeneration),
+            "agentstudio.performance.forge.validation.stale_origin.count": Self.forgeTraceInteger(
+                snapshot.validation.staleOrigin),
+            "agentstudio.performance.forge.validation.stale_scope.count": Self.forgeTraceInteger(
+                snapshot.validation.staleScope),
+            "agentstudio.performance.forge.publication.published.count": Self.forgeTraceInteger(
+                snapshot.publication.published),
+            "agentstudio.performance.forge.publication.equal.count": Self.forgeTraceInteger(
+                snapshot.publication.equal),
+            "agentstudio.performance.forge.publication.invalidated.count": Self.forgeTraceInteger(
+                snapshot.publication.invalidated),
+            "agentstudio.performance.forge.deadline.scheduled.count": Self.forgeTraceInteger(
+                snapshot.deadline.scheduled),
+            "agentstudio.performance.forge.deadline.rescheduled.count": Self.forgeTraceInteger(
+                snapshot.deadline.rescheduled),
+            "agentstudio.performance.forge.deadline.fired.count": Self.forgeTraceInteger(snapshot.deadline.fired),
+            "agentstudio.performance.forge.deadline.cancelled.count": Self.forgeTraceInteger(
+                snapshot.deadline.cancelled),
+            "agentstudio.performance.forge.query.demanded_branch.count": Self.forgeTraceInteger(
+                snapshot.query.demandedBranchCount),
+            "agentstudio.performance.forge.query.alias_batch.count": Self.forgeTraceInteger(
+                snapshot.query.aliasBatchCount),
+            "agentstudio.performance.forge.query.returned_node.count": Self.forgeTraceInteger(
+                snapshot.query.returnedNodeCount),
+            "agentstudio.performance.forge.query.complete_plan.count": Self.forgeTraceInteger(
+                snapshot.query.completePlan),
+            "agentstudio.performance.forge.query.rejected_plan.count": Self.forgeTraceInteger(
+                snapshot.query.rejectedPlan),
+            "agentstudio.performance.forge.recovery.rate_limited.count": Self.forgeTraceInteger(
+                snapshot.recovery.rateLimited),
+            "agentstudio.performance.forge.recovery.unavailable.count": Self.forgeTraceInteger(
+                snapshot.recovery.unavailable),
+            "agentstudio.performance.forge.recovery.recovered.count": Self.forgeTraceInteger(
+                snapshot.recovery.recovered),
+            "agentstudio.performance.forge.physical.active.maximum": Self.forgeTraceInteger(
+                snapshot.physical.activeMaximum),
+            "agentstudio.performance.forge.physical.pending.maximum": Self.forgeTraceInteger(
+                snapshot.physical.pendingMaximum),
+        ]
+        if let settlement = snapshot.settlement {
+            attributes.merge(Self.forgeSettlementAttributes(settlement), uniquingKeysWith: { _, current in current })
+        }
         record(
             .forgeRefresh,
-            attributes: [
-                "agentstudio.performance.forge.input.automatic.count": Self.forgeTraceInteger(
-                    snapshot.inputs.automatic),
-                "agentstudio.performance.forge.input.manual.count": Self.forgeTraceInteger(snapshot.inputs.manual),
-                "agentstudio.performance.forge.input.follow_up.count": Self.forgeTraceInteger(snapshot.inputs.followUp),
-                "agentstudio.performance.forge.admission.admitted.count": Self.forgeTraceInteger(
-                    snapshot.admission.admitted),
-                "agentstudio.performance.forge.admission.no_demand_rejected.count": Self.forgeTraceInteger(
-                    snapshot.admission.noDemandRejected),
-                "agentstudio.performance.forge.admission.missing_origin_rejected.count": Self.forgeTraceInteger(
-                    snapshot.admission.missingOriginRejected),
-                "agentstudio.performance.forge.admission.active_request_coalesced.count": Self.forgeTraceInteger(
-                    snapshot.admission.activeRequestCoalesced),
-                "agentstudio.performance.forge.admission.capacity_limited.count": Self.forgeTraceInteger(
-                    snapshot.admission.capacityLimited),
-                "agentstudio.performance.forge.admission.freshness_deferred.count": Self.forgeTraceInteger(
-                    snapshot.admission.freshnessDeferred),
-                "agentstudio.performance.forge.admission.backoff_deferred.count": Self.forgeTraceInteger(
-                    snapshot.admission.backoffDeferred),
-                "agentstudio.performance.forge.execution.started.count": Self.forgeTraceInteger(
-                    snapshot.execution.started),
-                "agentstudio.performance.forge.execution.completed.count": Self.forgeTraceInteger(
-                    snapshot.execution.completed),
-                "agentstudio.performance.forge.execution.failed.count": Self.forgeTraceInteger(
-                    snapshot.execution.failed),
-                "agentstudio.performance.forge.execution.cancelled.count": Self.forgeTraceInteger(
-                    snapshot.execution.cancelled),
-                "agentstudio.performance.forge.execution.superseded.count": Self.forgeTraceInteger(
-                    snapshot.execution.superseded),
-                "agentstudio.performance.forge.validation.current.count": Self.forgeTraceInteger(
-                    snapshot.validation.current),
-                "agentstudio.performance.forge.validation.stale_generation.count": Self.forgeTraceInteger(
-                    snapshot.validation.staleGeneration),
-                "agentstudio.performance.forge.validation.stale_origin.count": Self.forgeTraceInteger(
-                    snapshot.validation.staleOrigin),
-                "agentstudio.performance.forge.validation.stale_scope.count": Self.forgeTraceInteger(
-                    snapshot.validation.staleScope),
-                "agentstudio.performance.forge.publication.published.count": Self.forgeTraceInteger(
-                    snapshot.publication.published),
-                "agentstudio.performance.forge.publication.equal.count": Self.forgeTraceInteger(
-                    snapshot.publication.equal),
-                "agentstudio.performance.forge.publication.invalidated.count": Self.forgeTraceInteger(
-                    snapshot.publication.invalidated),
-                "agentstudio.performance.forge.deadline.scheduled.count": Self.forgeTraceInteger(
-                    snapshot.deadline.scheduled),
-                "agentstudio.performance.forge.deadline.rescheduled.count": Self.forgeTraceInteger(
-                    snapshot.deadline.rescheduled),
-                "agentstudio.performance.forge.deadline.fired.count": Self.forgeTraceInteger(snapshot.deadline.fired),
-                "agentstudio.performance.forge.deadline.cancelled.count": Self.forgeTraceInteger(
-                    snapshot.deadline.cancelled),
-                "agentstudio.performance.forge.query.demanded_branch.count": Self.forgeTraceInteger(
-                    snapshot.query.demandedBranchCount),
-                "agentstudio.performance.forge.query.alias_batch.count": Self.forgeTraceInteger(
-                    snapshot.query.aliasBatchCount),
-                "agentstudio.performance.forge.query.returned_node.count": Self.forgeTraceInteger(
-                    snapshot.query.returnedNodeCount),
-                "agentstudio.performance.forge.query.complete_plan.count": Self.forgeTraceInteger(
-                    snapshot.query.completePlan),
-                "agentstudio.performance.forge.query.rejected_plan.count": Self.forgeTraceInteger(
-                    snapshot.query.rejectedPlan),
-                "agentstudio.performance.forge.recovery.rate_limited.count": Self.forgeTraceInteger(
-                    snapshot.recovery.rateLimited),
-                "agentstudio.performance.forge.recovery.unavailable.count": Self.forgeTraceInteger(
-                    snapshot.recovery.unavailable),
-                "agentstudio.performance.forge.recovery.recovered.count": Self.forgeTraceInteger(
-                    snapshot.recovery.recovered),
-                "agentstudio.performance.forge.physical.active.maximum": Self.forgeTraceInteger(
-                    snapshot.physical.activeMaximum),
-                "agentstudio.performance.forge.physical.pending.maximum": Self.forgeTraceInteger(
-                    snapshot.physical.pendingMaximum),
-            ]
+            attributes: attributes
         )
+    }
+
+    private static func forgeSettlementAttributes(
+        _ settlement: ForgePerformanceSnapshot.Settlement
+    ) -> [String: AgentStudioTraceValue] {
+        [
+            "agentstudio.performance.forge.settlement.physical.active.current":
+                forgeTraceInteger(settlement.physicalActive),
+            "agentstudio.performance.forge.settlement.pending.total.current":
+                forgeTraceInteger(settlement.pendingTotal),
+            "agentstudio.performance.forge.settlement.pending.future.current":
+                forgeTraceInteger(settlement.pendingFuture),
+            "agentstudio.performance.forge.settlement.pending.ready.current":
+                forgeTraceInteger(settlement.pendingReady),
+            "agentstudio.performance.forge.settlement.pending.capacity.current":
+                forgeTraceInteger(settlement.pendingCapacity),
+            "agentstudio.performance.forge.settlement.pending.active_follow_up.current":
+                forgeTraceInteger(settlement.pendingActiveFollowUp),
+            "agentstudio.performance.forge.settlement.pending.unclassified.current":
+                forgeTraceInteger(settlement.pendingUnclassified),
+            "agentstudio.performance.forge.settlement.deadline.overdue.current":
+                forgeTraceInteger(settlement.deadlineOverdue),
+            "agentstudio.performance.forge.settlement.deadline.next_ms":
+                .double(settlement.deadlineNextMilliseconds),
+        ]
     }
 
     private static func forgeTraceInteger(_ value: UInt64) -> AgentStudioTraceValue {

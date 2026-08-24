@@ -50,6 +50,8 @@ struct RemoteReferenceRefreshActorTests {
         #expect(performance.publicationLocalAccepted == 1)
         #expect(performance.publicationPromoted == 1)
         #expect(performance.cleanupSucceeded == 1)
+        #expect(performanceRecorder.settlements.contains { $0.physicalActive == 1 })
+        #expect(performanceRecorder.settlements.last?.physicalActive == 0)
 
         await actor.shutdown()
     }
@@ -488,6 +490,10 @@ private final class RemoteReferencePerformanceRecorderSpy:
                 result.cleanupFailed += snapshot.cleanupFailed
             }
         }
+    }
+
+    var settlements: [RemoteReferencePerformanceSnapshot.Settlement] {
+        lock.withLock { snapshots.compactMap(\.settlement) }
     }
 
     func recordRemoteReferencePerformanceSnapshot(_ snapshot: RemoteReferencePerformanceSnapshot) {

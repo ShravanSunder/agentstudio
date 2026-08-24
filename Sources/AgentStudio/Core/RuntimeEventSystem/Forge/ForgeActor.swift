@@ -96,11 +96,11 @@ package actor ForgeActor {
     private let statusProvider: any ForgeStatusProvider
     private let providerName: String
     private let envelopeClock: ContinuousClock
-    private let monotonicNow: @Sendable () -> Duration
+    let monotonicNow: @Sendable () -> Duration
     private let delay: AsyncDelay
     private let subscriptionBufferLimit: Int
     let maximumConcurrentProviderRequests: Int
-    private let performanceTraceRecorder: (any ForgePerformanceRecording)?
+    let performanceTraceRecorder: (any ForgePerformanceRecording)?
     private let beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)?
 
     private var subscriptionTask: Task<Void, Never>?
@@ -114,6 +114,7 @@ package actor ForgeActor {
     private var demandedWorktreeIds: Set<UUID> = []
     var refreshStateByRepoId: [UUID: RepositoryRefreshState] = [:]
     var performanceAccumulator = ForgePerformanceAccumulator()
+    var lastRecordedSettlementSnapshot: ForgePerformanceSnapshot.Settlement?
     var isShuttingDown = false
 
     package init(
@@ -164,6 +165,7 @@ package actor ForgeActor {
                 await self.handleIncomingRuntimeEnvelope(runtimeEnvelope)
             }
         }
+        flushPerformanceSnapshot()
     }
 
     package func register(
@@ -172,6 +174,7 @@ package actor ForgeActor {
         rootPath: URL,
         branch: String? = nil
     ) async {
+        defer { flushPerformanceSnapshot() }
         let normalizedBranch = ForgePresentationFacts.normalizedBranch(branch)
         let priorMembership = membershipByWorktreeId[worktreeId]
         membershipByWorktreeId[worktreeId] = WorktreeMembership(
@@ -194,6 +197,7 @@ package actor ForgeActor {
 
     package func unregister(worktreeId: UUID) async {
         guard let removedMembership = membershipByWorktreeId.removeValue(forKey: worktreeId) else { return }
+        defer { flushPerformanceSnapshot() }
         demandedWorktreeIds.remove(worktreeId)
         await invalidateBranchIfUnrepresented(
             repoId: removedMembership.repoId,
@@ -215,6 +219,7 @@ package actor ForgeActor {
 
         var state = refreshStateByRepoId[repoId] ?? RepositoryRefreshState()
         guard state.origin != normalizedOrigin else { return }
+        defer { flushPerformanceSnapshot() }
         let replacedExistingOrigin = state.origin != nil
 
         cancelProviderRequest(repoId: repoId)
@@ -252,6 +257,7 @@ package actor ForgeActor {
     }
 
     package func removeRepository(repo repoId: UUID) async {
+        defer { flushPerformanceSnapshot() }
         cancelProviderRequest(repoId: repoId)
         refreshStateByRepoId.removeValue(forKey: repoId)
         let removedWorktreeIds = Set(
@@ -277,6 +283,7 @@ package actor ForgeActor {
 
     package func setDemand(worktreeIds: Set<UUID>) async {
         guard demandedWorktreeIds != worktreeIds else { return }
+        defer { flushPerformanceSnapshot() }
         let previouslyDemandedRepoIds = demandedRepoIds()
         demandedWorktreeIds = worktreeIds
         let currentlyDemandedRepoIds = demandedRepoIds()
@@ -313,6 +320,7 @@ package actor ForgeActor {
     }
 
     package func refresh(repo repoId: UUID, correlationId: UUID? = nil) async {
+        defer { flushPerformanceSnapshot() }
         await requestRefreshIfDemanded(repoId: repoId, trigger: .manual, correlationId: correlationId)
         rescheduleDeadline()
     }
@@ -345,12 +353,7 @@ package actor ForgeActor {
         membershipByWorktreeId.removeAll(keepingCapacity: false)
         demandedWorktreeIds.removeAll(keepingCapacity: false)
         refreshStateByRepoId.removeAll(keepingCapacity: false)
-    }
-
-    package func flushPerformanceSnapshot() {
-        let snapshot = performanceAccumulator.takeSnapshot()
-        guard !snapshot.isEmpty else { return }
-        performanceTraceRecorder?.recordForgePerformanceSnapshot(snapshot)
+        flushPerformanceSnapshot()
     }
 
     private func handleIncomingRuntimeEnvelope(_ envelope: RuntimeEnvelope) async {
@@ -420,6 +423,7 @@ package actor ForgeActor {
         correlationId: UUID?
     ) async {
         guard let priorMembership = membershipByWorktreeId[worktreeId] else { return }
+        defer { flushPerformanceSnapshot() }
         let normalizedBranch = ForgePresentationFacts.normalizedBranch(branch)
         membershipByWorktreeId[worktreeId] = WorktreeMembership(
             repoId: repoId,
@@ -454,6 +458,7 @@ package actor ForgeActor {
     private func clearOrigin(repoId: UUID) async {
         var state = refreshStateByRepoId[repoId] ?? RepositoryRefreshState()
         guard state.origin != nil || !state.hasEmittedUnavailable else { return }
+        defer { flushPerformanceSnapshot() }
         cancelProviderRequest(repoId: repoId)
         state.generation &+= 1
         state.origin = nil
@@ -649,6 +654,7 @@ package actor ForgeActor {
             await self.completeProviderRequest(request, outcome: outcome)
         }
         recordPhysicalPerformanceState()
+        flushPerformanceSnapshot()
     }
 
     private func applyOutcome(
@@ -731,7 +737,7 @@ package actor ForgeActor {
         (state.lastAttemptAt ?? completionTime) + AppPolicies.Forge.automaticRefreshMinimumInterval
     }
 
-    private func nextEligibleRefreshAt(
+    func nextEligibleRefreshAt(
         state: RepositoryRefreshState,
         bypassFreshness: Bool
     ) -> Duration? {
@@ -756,14 +762,7 @@ package actor ForgeActor {
         guard !isShuttingDown else { return }
 
         let now = monotonicNow()
-        let deadlines = demandedRepoIds().compactMap { repoId -> Duration? in
-            guard let state = refreshStateByRepoId[repoId],
-                state.origin != nil,
-                state.activeRequestId == nil
-            else { return nil }
-            return state.pendingFollowUpEligibleAt
-                ?? nextEligibleRefreshAt(state: state, bypassFreshness: false)
-        }
+        let deadlines = deadlineCandidates()
         guard let earliestDeadline = deadlines.min() else { return }
         let waitDuration = max(.zero, earliestDeadline - now)
         let delay = self.delay
@@ -795,6 +794,7 @@ package actor ForgeActor {
             }
         }
         rescheduleDeadline()
+        flushPerformanceSnapshot()
     }
 
     private func cancelProviderRequest(repoId: UUID) {

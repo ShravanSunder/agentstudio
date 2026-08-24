@@ -29,6 +29,8 @@ struct SidebarPerformancePolicyParserScriptTests {
             prefix + "diagnostic_cpu_delta_max_points": 5.0,
             prefix + "diagnostic_interaction_growth_max_percent": 10.0,
             prefix + "git_status_physical_limit": 4,
+            prefix + "remote_reference_physical_limit": 1,
+            prefix + "forge_physical_limit": 2,
             prefix + "git_maximum_settlement_ms": "960000.0",
             prefix + "standard_trace_tags": "performance,app.startup,terminal.startup",
             prefix + "diagnostic_trace_tags": "performance,atoms,app.startup,terminal.startup",
@@ -49,6 +51,8 @@ struct SidebarPerformancePolicyParserScriptTests {
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout.contains("STRICT_POLICY_SAMPLE_INTERVAL_MS=1000\n"))
         #expect(result.stdout.contains("STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS=300000\n"))
+        #expect(result.stdout.contains("STRICT_POLICY_REMOTE_REFERENCE_PHYSICAL_LIMIT=1\n"))
+        #expect(result.stdout.contains("STRICT_POLICY_FORGE_PHYSICAL_LIMIT=2\n"))
         #expect(result.stdout.contains("STRICT_POLICY_GIT_MAXIMUM_SETTLEMENT_MS=960000\n"))
     }
 }

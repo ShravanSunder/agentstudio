@@ -54,6 +54,7 @@ package actor RemoteReferenceRefreshActor {
     private var authorityRevision: UInt64 = 0
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
     private var performanceAccumulator = RemoteReferencePerformanceAccumulator()
+    private var lastRecordedSettlementSnapshot: RemoteReferencePerformanceSnapshot.Settlement?
     private var isShuttingDown = false
 
     package init(
@@ -409,6 +410,7 @@ package actor RemoteReferenceRefreshActor {
         }
         rescheduleDeadline()
         resumeIdleWaitersIfNeeded()
+        flushPerformanceSnapshot()
     }
 
     private func isEligible(repoId: UUID, now: Duration) -> Bool {
@@ -662,9 +664,77 @@ package actor RemoteReferenceRefreshActor {
     }
 
     package func flushPerformanceSnapshot() {
-        let snapshot = performanceAccumulator.takeSnapshot()
+        let settlementSnapshot = currentSettlementSnapshot()
+        let changedSettlementSnapshot =
+            settlementSnapshot == lastRecordedSettlementSnapshot ? nil : settlementSnapshot
+        lastRecordedSettlementSnapshot = settlementSnapshot
+        let snapshot = performanceAccumulator.takeSnapshot(settlement: changedSettlementSnapshot)
         guard !snapshot.isEmpty else { return }
         performanceRecorder?.recordRemoteReferencePerformanceSnapshot(snapshot)
+    }
+
+    private func currentSettlementSnapshot() -> RemoteReferencePerformanceSnapshot.Settlement {
+        let now = monotonicNow()
+        let activeRepositoryIds = Set(activeOperationsByRepoId.keys)
+        var pendingFuture = 0
+        var pendingReady = 0
+        var pendingCapacity = 0
+        var pendingActiveFollowUp = 0
+        var pendingUnclassified = 0
+
+        for repoId in pendingRepositoryIds {
+            if activeRepositoryIds.contains(repoId) {
+                pendingActiveFollowUp += 1
+            } else if pendingFutureDeadline(repoId: repoId, now: now) != nil {
+                pendingFuture += 1
+            } else if isEligible(repoId: repoId, now: now) {
+                if activeOperationsByRepoId.count >= maximumConcurrentFetches {
+                    pendingCapacity += 1
+                } else {
+                    pendingReady += 1
+                }
+            } else {
+                pendingUnclassified += 1
+            }
+        }
+
+        let deadlines = deadlineCandidates(now: now)
+        let nextDeadline = deadlines.filter { $0 > now }.min()
+        return RemoteReferencePerformanceSnapshot.Settlement(
+            physicalActive: UInt64(clamping: activeOperationsByRepoId.count),
+            pendingTotal: UInt64(clamping: pendingRepositoryIds.count),
+            pendingFuture: UInt64(clamping: pendingFuture),
+            pendingReady: UInt64(clamping: pendingReady),
+            pendingCapacity: UInt64(clamping: pendingCapacity),
+            pendingActiveFollowUp: UInt64(clamping: pendingActiveFollowUp),
+            pendingUnclassified: UInt64(clamping: pendingUnclassified),
+            deadlineOverdue: UInt64(clamping: deadlines.count { $0 <= now }),
+            deadlineNextMilliseconds: nextDeadline.map {
+                AgentStudioPerformanceTraceRecorder.milliseconds(from: max(.zero, $0 - now))
+            } ?? 0
+        )
+    }
+
+    private func pendingFutureDeadline(repoId: UUID, now: Duration) -> Duration? {
+        var deadlines: [Duration] = []
+        if let cleanupRetryAt = cleanupRetryAtByRepoId[repoId], cleanupRetryAt > now {
+            deadlines.append(cleanupRetryAt)
+        }
+        if demandedRepositoryIds.contains(repoId), registrationsByRepoId[repoId] != nil,
+            let currentnessRetryAt = currentnessRetryAtByRepoId[repoId], currentnessRetryAt > now
+        {
+            deadlines.append(currentnessRetryAt)
+        }
+        if let failureDeadline = failureDeadlineByRepoId[repoId], failureDeadline > now {
+            deadlines.append(failureDeadline)
+        }
+        if let lastSuccessfulFetchAt = lastSuccessfulFetchAtByRepoId[repoId] {
+            let freshnessDeadline = lastSuccessfulFetchAt + successfulResultFreshness
+            if freshnessDeadline > now {
+                deadlines.append(freshnessDeadline)
+            }
+        }
+        return deadlines.min()
     }
 
     private func activeStagingIds(
@@ -692,6 +762,22 @@ package actor RemoteReferenceRefreshActor {
         deadlineTask = nil
         guard !isShuttingDown else { return }
         let now = monotonicNow()
+        let deadlines = deadlineCandidates(now: now)
+        guard let earliest = deadlines.min() else { return }
+        let wait = max(.zero, earliest - now)
+        let delay = self.delay
+        deadlineTask = Task { [weak self, delay] in
+            do {
+                try await delay.wait(wait)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            await self.deadlineDidFire(generation: generation)
+        }
+    }
+
+    private func deadlineCandidates(now: Duration) -> [Duration] {
         var deadlines = cleanupRetryAtByRepoId.values.map { $0 }
         deadlines.append(
             contentsOf: currentnessRetryAtByRepoId.compactMap { repoId, deadline in
@@ -709,18 +795,7 @@ package actor RemoteReferenceRefreshActor {
                 let freshnessDeadline = lastSuccessfulFetchAt + successfulResultFreshness
                 return freshnessDeadline > now ? freshnessDeadline : nil
             })
-        guard let earliest = deadlines.min() else { return }
-        let wait = max(.zero, earliest - now)
-        let delay = self.delay
-        deadlineTask = Task { [weak self, delay] in
-            do {
-                try await delay.wait(wait)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled, let self else { return }
-            await self.deadlineDidFire(generation: generation)
-        }
+        return deadlines
     }
 
     private func deadlineDidFire(generation: UInt64) async {

@@ -86,6 +86,8 @@ package enum AppPolicies {
         package static let maximumDiagnosticCPUP95DeltaPercentagePoints: Double = 5
         package static let maximumDiagnosticInteractionP95GrowthPercent: Double = 10
         package static let gitStatusPhysicalLimit = GitRefresh.defaultDetachedStatusReadLimit
+        package static let remoteReferencePhysicalLimit = RemoteReferenceRefresh.maximumConcurrentFetches
+        package static let forgePhysicalLimit = ForgeRefresh.maximumConcurrentProviderRequests
         package static let gitMaximumSettlementInterval =
             GitRefresh.defaultPolicy.maximumSettlementInterval
         package static let standardTraceTags = ["performance", "app.startup", "terminal.startup"]

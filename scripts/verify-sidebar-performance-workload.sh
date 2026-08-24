@@ -454,7 +454,7 @@ query_victoria_metrics() {
 }
 
 strict_sidebar_policy_query() {
-  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.policy_projected agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count,agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.mounted_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent,agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.git_maximum_settlement_ms | limit 1'
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.policy_projected agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count,agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.mounted_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent,agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.remote_reference_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.forge_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.git_maximum_settlement_ms | limit 1'
 }
 
 load_strict_sidebar_policy() {
@@ -513,6 +513,8 @@ mapping = {
     "STRICT_POLICY_DIAGNOSTIC_CPU_DELTA_MAX": "diagnostic_cpu_delta_max_points",
     "STRICT_POLICY_DIAGNOSTIC_INTERACTION_GROWTH_MAX": "diagnostic_interaction_growth_max_percent",
     "STRICT_POLICY_GIT_STATUS_PHYSICAL_LIMIT": "git_status_physical_limit",
+    "STRICT_POLICY_REMOTE_REFERENCE_PHYSICAL_LIMIT": "remote_reference_physical_limit",
+    "STRICT_POLICY_FORGE_PHYSICAL_LIMIT": "forge_physical_limit",
     "STRICT_POLICY_GIT_MAXIMUM_SETTLEMENT_MS": "git_maximum_settlement_ms",
     "STRICT_POLICY_STANDARD_TRACE_TAGS": "standard_trace_tags",
     "STRICT_POLICY_DIAGNOSTIC_TRACE_TAGS": "diagnostic_trace_tags",
@@ -1014,6 +1016,13 @@ required = (
     "git_active_follow_up_count", "git_unclassified_pending_count",
     "git_overdue_deadline_count", "git_running_count", "git_physical_limit",
     "git_oldest_preparation_ms", "git_next_deadline_ms",
+    "remote_physical_active", "remote_pending_total", "remote_pending_future",
+    "remote_pending_ready", "remote_pending_capacity", "remote_pending_active_follow_up",
+    "remote_pending_unclassified", "remote_overdue_deadline", "remote_next_deadline_ms",
+    "remote_physical_limit", "forge_physical_active", "forge_pending_total",
+    "forge_pending_future", "forge_pending_ready", "forge_pending_capacity",
+    "forge_pending_active_follow_up", "forge_pending_unclassified",
+    "forge_overdue_deadline", "forge_next_deadline_ms", "forge_physical_limit",
     "git_maximum_settlement_ms", "export_backlog",
 )
 try:
@@ -1067,6 +1076,40 @@ if next_deadline_ms > maximum_settlement_ms:
 future_count = float(vector["git_future_automatic_count"]) + float(vector["git_future_failure_count"])
 if future_count > 0 and next_deadline_ms <= 0:
     raise SystemExit("quiescence Git future eligibility is missing its next deadline")
+for source in ("remote", "forge"):
+    pending_total = float(vector[f"{source}_pending_total"])
+    pending_future = float(vector[f"{source}_pending_future"])
+    pending_ready = float(vector[f"{source}_pending_ready"])
+    pending_capacity = float(vector[f"{source}_pending_capacity"])
+    pending_active_follow_up = float(vector[f"{source}_pending_active_follow_up"])
+    pending_unclassified = float(vector[f"{source}_pending_unclassified"])
+    classified_total = (
+        pending_future + pending_ready + pending_capacity
+        + pending_active_follow_up + pending_unclassified
+    )
+    if pending_total != classified_total:
+        raise SystemExit(f"quiescence {source} pending classification is inconsistent")
+    if pending_ready != 0:
+        raise SystemExit(f"quiescence {source} ready work remains pending")
+    if pending_capacity != 0:
+        raise SystemExit(f"quiescence {source} capacity work remains pending")
+    if pending_unclassified != 0:
+        raise SystemExit(f"quiescence {source} pending work is unclassified")
+    if float(vector[f"{source}_overdue_deadline"]) != 0:
+        raise SystemExit(f"quiescence {source} deadline is overdue")
+    physical_active = float(vector[f"{source}_physical_active"])
+    physical_limit = float(vector[f"{source}_physical_limit"])
+    if physical_limit < 1:
+        raise SystemExit(f"quiescence {source} physical limit must be positive")
+    if physical_active > physical_limit:
+        raise SystemExit(f"quiescence {source} physical count exceeds its limit")
+    if pending_active_follow_up > physical_active:
+        raise SystemExit(f"quiescence {source} active follow-up exceeds physical ownership")
+    source_next_deadline_ms = float(vector[f"{source}_next_deadline_ms"])
+    if source_next_deadline_ms > maximum_settlement_ms:
+        raise SystemExit(f"quiescence {source} next deadline exceeds settlement policy")
+    if pending_future > 0 and source_next_deadline_ms <= 0:
+        raise SystemExit(f"quiescence {source} future eligibility is missing its next deadline")
 print(";".join(normalized))
 PY
 }
@@ -1129,14 +1172,23 @@ vector = json.loads(vector_json)
 try:
     observation_time = float(vector["observation_time"])
     export_sample_time = float(vector["export_sample_time"])
+    # Canned contract sequences predate source gauges; production vectors always
+    # provide both values because their metric queries fail closed when absent.
+    remote_sample_time = float(vector.get("remote_sample_time", export_sample_time))
+    forge_sample_time = float(vector.get("forge_sample_time", export_sample_time))
 except (KeyError, TypeError, ValueError):
     raise SystemExit("quiescence vector has missing or invalid observation time") from None
 if not math.isfinite(observation_time) or not math.isfinite(export_sample_time):
     raise SystemExit("quiescence vector has nonfinite observation time")
 maximum_export_age = float(raw_maximum_age) / 1000
-export_age = observation_time - export_sample_time
-if export_age < -0.001 or export_age > maximum_export_age:
-    raise SystemExit("quiescence export backlog sample is stale")
+for sample_name, sample_time in (
+    ("export backlog", export_sample_time),
+    ("remote settlement", remote_sample_time),
+    ("forge settlement", forge_sample_time),
+):
+    sample_age = observation_time - sample_time
+    if sample_age < -0.001 or sample_age > maximum_export_age:
+        raise SystemExit(f"quiescence {sample_name} sample is stale")
 if raw_last and observation_time <= float(raw_last):
     raise SystemExit("quiescence observation time is not monotonic")
 if prior_signature == signature and raw_baseline:
@@ -1170,6 +1222,11 @@ if float(vector["git_running_count"]) != 0:
     raise SystemExit("final Git settlement still owns running work")
 if float(vector["git_active_follow_up_count"]) != 0:
     raise SystemExit("final Git settlement still owns an active follow-up")
+for source in ("remote", "forge"):
+    if float(vector[f"{source}_physical_active"]) != 0:
+        raise SystemExit(f"final {source} physical settlement still owns running work")
+    if float(vector[f"{source}_pending_active_follow_up"]) != 0:
+        raise SystemExit(f"final {source} settlement still owns an active follow-up")
 print("final_git_physical_settlement=complete")
 PY
 }
@@ -1245,6 +1302,22 @@ print(f"{value:g}")
 PY
 }
 
+source_settlement_metric_value_at_observation() {
+  local source="${1:?missing source}"
+  local metric_suffix="${2:?missing metric suffix}"
+  local marker_selector="${3:?missing marker selector}"
+  local observation_time="${4:?missing observation time}"
+  local event_name
+  case "$source" in
+    remote_reference) event_name="performance.remote_reference.refresh" ;;
+    forge) event_name="performance.forge.refresh" ;;
+    *) echo "unsupported settlement source: $source" >&2; return 1 ;;
+  esac
+  metric_value_at_observation \
+    "max(agentstudio_performance_${source}_settlement_${metric_suffix}{agent.proof.marker=\"$marker_selector\",event=\"$event_name\"})" \
+    "$observation_time"
+}
+
 strict_sidebar_quiescence_vector_json() {
   local marker="${1:?missing marker}"
   local observation_time="${2:?missing observation time}"
@@ -1252,6 +1325,12 @@ strict_sidebar_quiescence_vector_json() {
   local git_future_automatic_count git_future_failure_count git_ready_pending_count
   local git_capacity_pending_count git_active_follow_up_count git_unclassified_pending_count
   local git_overdue_deadline_count git_running_count git_oldest_preparation_ms git_next_deadline_ms
+  local remote_physical_active remote_pending_total remote_pending_future remote_pending_ready
+  local remote_pending_capacity remote_pending_active_follow_up remote_pending_unclassified
+  local remote_overdue_deadline remote_next_deadline_ms remote_sample_time
+  local forge_physical_active forge_pending_total forge_pending_future forge_pending_ready
+  local forge_pending_capacity forge_pending_active_follow_up forge_pending_unclassified
+  local forge_overdue_deadline forge_next_deadline_ms forge_sample_time
   local export_backlog
   local export_sample_time export_metric_selector
   marker_selector="$(metric_label_selector "$marker")"
@@ -1303,6 +1382,48 @@ strict_sidebar_quiescence_vector_json() {
   git_next_deadline_ms="$(metric_value_at_observation \
     "max(agentstudio_performance_git_next_deadline_ms{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
     "$observation_time")"
+  remote_physical_active="$(source_settlement_metric_value_at_observation \
+    remote_reference physical_active_current "$marker_selector" "$observation_time")"
+  remote_pending_total="$(source_settlement_metric_value_at_observation \
+    remote_reference pending_total_current "$marker_selector" "$observation_time")"
+  remote_pending_future="$(source_settlement_metric_value_at_observation \
+    remote_reference pending_future_current "$marker_selector" "$observation_time")"
+  remote_pending_ready="$(source_settlement_metric_value_at_observation \
+    remote_reference pending_ready_current "$marker_selector" "$observation_time")"
+  remote_pending_capacity="$(source_settlement_metric_value_at_observation \
+    remote_reference pending_capacity_current "$marker_selector" "$observation_time")"
+  remote_pending_active_follow_up="$(source_settlement_metric_value_at_observation \
+    remote_reference pending_active_follow_up_current "$marker_selector" "$observation_time")"
+  remote_pending_unclassified="$(source_settlement_metric_value_at_observation \
+    remote_reference pending_unclassified_current "$marker_selector" "$observation_time")"
+  remote_overdue_deadline="$(source_settlement_metric_value_at_observation \
+    remote_reference deadline_overdue_current "$marker_selector" "$observation_time")"
+  remote_next_deadline_ms="$(source_settlement_metric_value_at_observation \
+    remote_reference deadline_next_ms "$marker_selector" "$observation_time")"
+  remote_sample_time="$(metric_value_at_observation \
+    "max(timestamp(agentstudio_performance_remote_reference_settlement_physical_active_current{agent.proof.marker=\"$marker_selector\",event=\"performance.remote_reference.refresh\"}))" \
+    "$observation_time")"
+  forge_physical_active="$(source_settlement_metric_value_at_observation \
+    forge physical_active_current "$marker_selector" "$observation_time")"
+  forge_pending_total="$(source_settlement_metric_value_at_observation \
+    forge pending_total_current "$marker_selector" "$observation_time")"
+  forge_pending_future="$(source_settlement_metric_value_at_observation \
+    forge pending_future_current "$marker_selector" "$observation_time")"
+  forge_pending_ready="$(source_settlement_metric_value_at_observation \
+    forge pending_ready_current "$marker_selector" "$observation_time")"
+  forge_pending_capacity="$(source_settlement_metric_value_at_observation \
+    forge pending_capacity_current "$marker_selector" "$observation_time")"
+  forge_pending_active_follow_up="$(source_settlement_metric_value_at_observation \
+    forge pending_active_follow_up_current "$marker_selector" "$observation_time")"
+  forge_pending_unclassified="$(source_settlement_metric_value_at_observation \
+    forge pending_unclassified_current "$marker_selector" "$observation_time")"
+  forge_overdue_deadline="$(source_settlement_metric_value_at_observation \
+    forge deadline_overdue_current "$marker_selector" "$observation_time")"
+  forge_next_deadline_ms="$(source_settlement_metric_value_at_observation \
+    forge deadline_next_ms "$marker_selector" "$observation_time")"
+  forge_sample_time="$(metric_value_at_observation \
+    "max(timestamp(agentstudio_performance_forge_settlement_physical_active_current{agent.proof.marker=\"$marker_selector\",event=\"performance.forge.refresh\"}))" \
+    "$observation_time")"
   export_metric_selector='agentstudio_performance_trace_queue_pending_request_count{agent.proof.marker="'"$marker_selector"'",event="performance.runtime_delivery.snapshot"}'
   export_backlog="$(metric_value_at_observation \
     "max($export_metric_selector)" \
@@ -1315,8 +1436,16 @@ strict_sidebar_quiescence_vector_json() {
     "$git_ready_pending_count" "$git_capacity_pending_count" "$git_active_follow_up_count" \
     "$git_unclassified_pending_count" "$git_overdue_deadline_count" "$git_running_count" \
     "$STRICT_POLICY_GIT_STATUS_PHYSICAL_LIMIT" "$git_oldest_preparation_ms" \
-    "$git_next_deadline_ms" "$STRICT_POLICY_GIT_MAXIMUM_SETTLEMENT_MS" \
-    "$export_backlog" "$observation_time" "$export_sample_time" <<'PY'
+    "$git_next_deadline_ms" "$remote_physical_active" "$remote_pending_total" \
+    "$remote_pending_future" "$remote_pending_ready" "$remote_pending_capacity" \
+    "$remote_pending_active_follow_up" "$remote_pending_unclassified" "$remote_overdue_deadline" \
+    "$remote_next_deadline_ms" "$STRICT_POLICY_REMOTE_REFERENCE_PHYSICAL_LIMIT" \
+    "$forge_physical_active" "$forge_pending_total" "$forge_pending_future" \
+    "$forge_pending_ready" "$forge_pending_capacity" "$forge_pending_active_follow_up" \
+    "$forge_pending_unclassified" "$forge_overdue_deadline" "$forge_next_deadline_ms" \
+    "$STRICT_POLICY_FORGE_PHYSICAL_LIMIT" "$STRICT_POLICY_GIT_MAXIMUM_SETTLEMENT_MS" \
+    "$export_backlog" "$observation_time" "$export_sample_time" \
+    "$remote_sample_time" "$forge_sample_time" <<'PY'
 import json
 import sys
 
@@ -1326,7 +1455,15 @@ names = (
     "git_ready_pending_count", "git_capacity_pending_count", "git_active_follow_up_count",
     "git_unclassified_pending_count", "git_overdue_deadline_count", "git_running_count",
     "git_physical_limit", "git_oldest_preparation_ms", "git_next_deadline_ms",
-    "git_maximum_settlement_ms", "export_backlog", "observation_time", "export_sample_time",
+    "remote_physical_active", "remote_pending_total", "remote_pending_future",
+    "remote_pending_ready", "remote_pending_capacity", "remote_pending_active_follow_up",
+    "remote_pending_unclassified", "remote_overdue_deadline", "remote_next_deadline_ms",
+    "remote_physical_limit", "forge_physical_active", "forge_pending_total",
+    "forge_pending_future", "forge_pending_ready", "forge_pending_capacity",
+    "forge_pending_active_follow_up", "forge_pending_unclassified", "forge_overdue_deadline",
+    "forge_next_deadline_ms", "forge_physical_limit", "git_maximum_settlement_ms",
+    "export_backlog", "observation_time", "export_sample_time", "remote_sample_time",
+    "forge_sample_time",
 )
 print(json.dumps(dict(zip(names, sys.argv[1:]))))
 PY

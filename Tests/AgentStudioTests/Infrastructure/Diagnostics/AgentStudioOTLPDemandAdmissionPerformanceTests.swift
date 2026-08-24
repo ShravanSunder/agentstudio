@@ -177,4 +177,59 @@ struct AgentStudioOTLPDemandAdmissionPerformanceTests {
             #expect(projection.attributes.count >= event.1.count)
         }
     }
+
+    @Test
+    func remoteReferenceAndForgeCurrentSettlementFieldsProjectAsGaugesIncludingZero() throws {
+        let settlementAttributesByEvent: [(String, [String: AgentStudioTraceValue])] = [
+            (
+                "performance.remote_reference.refresh",
+                settlementAttributes(source: "remote_reference")
+            ),
+            (
+                "performance.forge.refresh",
+                settlementAttributes(source: "forge")
+            ),
+        ]
+
+        for (index, event) in settlementAttributesByEvent.enumerated() {
+            let record = AgentStudioTraceRecord(
+                timeUnixNano: UInt64(300 + index),
+                severityText: .info,
+                body: event.0,
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                attributes: event.1
+            )
+
+            let projection = AgentStudioOTLPTraceProjection.project(record)
+            let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: projection))
+
+            #expect(event.1.keys.allSatisfy { projection.attributes[$0] != nil })
+            #expect(metricEvent.measurements.count == event.1.count)
+            #expect(
+                metricEvent.measurements.allSatisfy {
+                    guard case .gauge(let sample) = $0 else { return false }
+                    return sample.value == 0
+                }
+            )
+        }
+    }
+
+    private func settlementAttributes(source: String) -> [String: AgentStudioTraceValue] {
+        let prefix = "agentstudio.performance.\(source).settlement"
+        return [
+            "\(prefix).physical.active.current": .int(0),
+            "\(prefix).pending.total.current": .int(0),
+            "\(prefix).pending.future.current": .int(0),
+            "\(prefix).pending.ready.current": .int(0),
+            "\(prefix).pending.capacity.current": .int(0),
+            "\(prefix).pending.active_follow_up.current": .int(0),
+            "\(prefix).pending.unclassified.current": .int(0),
+            "\(prefix).deadline.overdue.current": .int(0),
+            "\(prefix).deadline.next_ms": .double(0),
+        ]
+    }
 }

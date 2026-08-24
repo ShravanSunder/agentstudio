@@ -37,7 +37,19 @@ struct ForgePerformanceAccumulatorTests {
         accumulator.recordRecovery()
         accumulator.recordPhysicalState(active: 2, pending: 4)
 
-        let snapshot = accumulator.takeSnapshot()
+        let settlement = ForgePerformanceSnapshot.Settlement(
+            physicalActive: 2,
+            pendingTotal: 4,
+            pendingFuture: 1,
+            pendingReady: 1,
+            pendingCapacity: 1,
+            pendingActiveFollowUp: 1,
+            pendingUnclassified: 0,
+            deadlineOverdue: 0,
+            deadlineNextMilliseconds: 1000
+        )
+
+        let snapshot = accumulator.takeSnapshot(settlement: settlement)
 
         #expect(snapshot.inputs.automatic == 1)
         #expect(snapshot.inputs.manual == 1)
@@ -59,12 +71,26 @@ struct ForgePerformanceAccumulatorTests {
         #expect(snapshot.recovery.recovered == 1)
         #expect(snapshot.physical.activeMaximum == 2)
         #expect(snapshot.physical.pendingMaximum == 4)
+        #expect(snapshot.settlement == settlement)
         #expect(!snapshot.isEmpty)
         #expect(accumulator.takeSnapshot().isEmpty)
+
+        let settledZero = ForgePerformanceSnapshot.Settlement(
+            physicalActive: 0,
+            pendingTotal: 0,
+            pendingFuture: 0,
+            pendingReady: 0,
+            pendingCapacity: 0,
+            pendingActiveFollowUp: 0,
+            pendingUnclassified: 0,
+            deadlineOverdue: 0,
+            deadlineNextMilliseconds: 0
+        )
+        #expect(!accumulator.takeSnapshot(settlement: settledZero).isEmpty)
     }
 
-    @Test("ForgeActor accumulates inputs without recorder fanout and flushes once per provider completion")
-    func actorFlushesOneAggregateSnapshotPerProviderCompletion() async throws {
+    @Test("ForgeActor emits current physical state while retaining bounded aggregate counters")
+    func actorEmitsCurrentPhysicalStateAndAggregateCounters() async throws {
         let recorder = ForgePerformanceSnapshotRecorderSpy()
         let fixture = await ForgeActorFixture.make(performanceTraceRecorder: recorder)
         let repoId = UUIDv7.generate()
@@ -87,23 +113,28 @@ struct ForgePerformanceAccumulatorTests {
         )
         #expect(await fixture.provider.waitForCallCount(2))
         await fixture.actor.flushPerformanceSnapshot()
-        let snapshot = try #require(recorder.snapshots.only)
+        let snapshots = recorder.snapshots
 
-        #expect(snapshot.inputs.automatic >= 1)
-        #expect(snapshot.inputs.manual == 2)
-        #expect(snapshot.admission.admitted == 2)
-        #expect(snapshot.admission.activeRequestCoalesced == 2)
-        #expect(snapshot.admission.capacityLimited == 0)
-        #expect(snapshot.execution.started == 2)
-        #expect(snapshot.execution.completed == 1)
-        #expect(snapshot.validation.current == 1)
-        #expect(snapshot.publication.published >= 2)
+        #expect(snapshots.reduce(0) { $0 + $1.inputs.automatic } >= 1)
+        #expect(snapshots.reduce(0) { $0 + $1.inputs.manual } == 2)
+        #expect(snapshots.reduce(0) { $0 + $1.admission.admitted } == 2)
+        #expect(snapshots.reduce(0) { $0 + $1.admission.activeRequestCoalesced } == 2)
+        #expect(snapshots.reduce(0) { $0 + $1.admission.capacityLimited } == 0)
+        #expect(snapshots.reduce(0) { $0 + $1.execution.started } == 2)
+        #expect(snapshots.reduce(0) { $0 + $1.execution.completed } == 1)
+        #expect(snapshots.reduce(0) { $0 + $1.validation.current } == 1)
+        #expect(snapshots.reduce(0) { $0 + $1.publication.published } >= 2)
+        #expect(snapshots.contains { $0.settlement?.physicalActive == 1 })
+        #expect(snapshots.contains { $0.physical.activeMaximum >= 1 })
 
+        let snapshotCountAfterExplicitFlush = recorder.snapshots.count
         await fixture.actor.flushPerformanceSnapshot()
-        #expect(recorder.snapshots.count == 1)
+        #expect(recorder.snapshots.count == snapshotCountAfterExplicitFlush)
 
         await fixture.provider.resolve(callAt: 1, with: .complete([]))
         await fixture.actor.shutdown()
+        #expect(recorder.snapshots.last?.settlement?.physicalActive == 0)
+        #expect(recorder.snapshots.last?.settlement?.pendingTotal == 0)
         await fixture.stopObserving()
     }
 }
@@ -120,11 +151,5 @@ private final class ForgePerformanceSnapshotRecorderSpy: ForgePerformanceRecordi
         lock.withLock {
             recordedSnapshots.append(snapshot)
         }
-    }
-}
-
-extension Array {
-    fileprivate var only: Element? {
-        count == 1 ? first : nil
     }
 }
