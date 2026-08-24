@@ -76,15 +76,12 @@ struct PrimarySidebarPipelineIntegrationTests {
                 return nil
             }
 
-            await forgeActor.register(
-                worktreeId: worktreeA,
-                repoId: repoA.id,
-                rootPath: repoA.repoPath
-            )
-            await forgeActor.register(
-                worktreeId: worktreeB,
-                repoId: repoB.id,
-                rootPath: repoB.repoPath
+            await registerForgeWorktree(worktreeA, repository: repoA, forgeActor: forgeActor)
+            await registerForgeWorktree(worktreeB, repository: repoB, forgeActor: forgeActor)
+            await attendRepositoryFacts(
+                worktreeIds: [worktreeA, worktreeB],
+                activePaneWorktreeId: worktreeA,
+                projector: projector
             )
             await forgeActor.setDemand(worktreeIds: [worktreeA, worktreeB])
             await postWorktreeRegistered(bus: bus, worktreeId: worktreeA, repoId: repoA.id, rootPath: repoA.repoPath)
@@ -153,6 +150,12 @@ struct PrimarySidebarPipelineIntegrationTests {
                 return
             }
 
+            await attendRepositoryFacts(
+                worktreeIds: [worktreeId],
+                activePaneWorktreeId: worktreeId,
+                projector: projector
+            )
+
             await postWorktreeRegistered(
                 bus: bus,
                 worktreeId: worktreeId,
@@ -211,7 +214,8 @@ struct PrimarySidebarPipelineIntegrationTests {
                 case .updateWatchedFolders:
                     break
                 }
-            }
+            },
+            enrichmentApplyTickCadence: .zero
         )
 
         await withStartedForgeScopeCoordinator(bus: bus, coordinator: coordinator, forgeActor: forgeActor) {
@@ -351,6 +355,7 @@ struct PrimarySidebarPipelineIntegrationTests {
                 registeredWorktreeIds.insert(worktree.id)
                 await postWorktreeRegistered(bus: bus, worktreeId: worktree.id, repoId: repo.id, rootPath: repoPath)
             }
+            await attendRepositoryFacts(worktreeIds: registeredWorktreeIds, projector: projector)
             await forgeActor.setDemand(worktreeIds: registeredWorktreeIds)
 
             let identityConverged = await eventually("all finance repos should share one remote group key") {
@@ -405,6 +410,31 @@ struct PrimarySidebarPipelineIntegrationTests {
                 )
             )
         }
+    }
+
+    private func attendRepositoryFacts(
+        worktreeIds: Set<UUID>,
+        activePaneWorktreeId: UUID? = nil,
+        projector: GitWorkingDirectoryProjector
+    ) async {
+        await projector.setRepositoryFactAttention(
+            activePaneWorktreeId: activePaneWorktreeId,
+            sidebarAttendedWorktreeIds: worktreeIds,
+            visibleActiveTabWorktreeIds: [],
+            openWorktreeIds: worktreeIds
+        )
+    }
+
+    private func registerForgeWorktree(
+        _ worktreeId: UUID,
+        repository: Repo,
+        forgeActor: ForgeActor
+    ) async {
+        await forgeActor.register(
+            worktreeId: worktreeId,
+            repoId: repository.id,
+            rootPath: repository.repoPath
+        )
     }
 
     private func makeWorkspaceStore() -> WorkspaceStore {
@@ -469,7 +499,8 @@ struct PrimarySidebarPipelineIntegrationTests {
                 case .updateWatchedFolders:
                     break
                 }
-            }
+            },
+            enrichmentApplyTickCadence: .zero
         )
         let projector = GitWorkingDirectoryProjector(
             bus: bus,
