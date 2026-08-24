@@ -84,8 +84,8 @@ extension WorkspaceSurfaceCoordinator {
         let activeLayoutPaneIds = Set(activeTab.activeArrangement.layout.paneIds)
         var relevantPaneIds = activeLayoutPaneIds
         let expandedDrawerProjection: (UUID) -> PullRequestDemandProjection.ExpandedDrawer? = { parentPaneId in
-            guard store.paneAtom.isDrawerExpanded(for: parentPaneId),
-                let drawerView = arrangementView.drawerView(forParent: parentPaneId)
+            guard self.store.paneAtom.isDrawerExpanded(for: parentPaneId),
+                let drawerView = self.arrangementView.drawerView(forParent: parentPaneId)
             else { return nil }
             relevantPaneIds.formUnion(drawerView.layout.paneIds)
             return PullRequestDemandProjection.ExpandedDrawer(
