@@ -1268,3 +1268,16 @@ initial-render minimum, enforce every specified pending/high-water/age/failure/o
 require produced count to remain unchanged after demand stops. This does not permit unbounded attempts and
 does not change Requirements, Specification, or Program Design. The corrected final telemetry gate remains
 unreachable until the separate reply-2 pre-command UI interaction RED is fixed.
+
+## 2026-08-24 19:13 EDT — Backend lane: UI remediation exhausted; exact external blocker
+
+A final bounded UI-state hypothesis proved that identical `activateSavedThread` focus activation caused a
+redundant context render, and semantic equal-write suppression passed focused Chrome 2/2. The full S5 still
+failed at the identical reply-2 pre-command boundary. That patch was fully reverted; the interaction owner
+and its test exactly match HEAD. The earlier annotation-placement suppression attempt was also reverted.
+
+No UI experiment remains. Comm-worker/backend lower layers remain green, the corrected S5 proof harness is
+ready, and the fresh manual Vite/Swift loop loads the real worktree. The only remaining S5 blocker is the
+external UI/state owner finding why a connected visible enabled Reply control receives one native gesture
+without opening its composer under the 1,699-item live cadence. Backend lane will not add a third UI guess,
+click workaround, timing change, transport mechanism, or weakened proof.

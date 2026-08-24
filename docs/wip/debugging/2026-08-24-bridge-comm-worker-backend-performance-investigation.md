@@ -91,6 +91,13 @@ remain unchanged after demand stops. This is a proof-implementation correction,
 not a Specification or Program Design change. The corrected final telemetry gate
 cannot run until the separate reply-2 UI interaction RED is fixed.
 
+A final bounded UI-state hypothesis was also tested: identical
+`activateSavedThread` focus activation caused a redundant interaction-context
+render, and semantic equal-write suppression passed its focused Chrome RED/GREEN.
+The full S5 nevertheless failed at the identical reply-2 pre-command boundary.
+That patch was fully reverted. Both attempted UI corrections now match HEAD, and
+this transport/backend lane will not stack a third speculative UI fix.
+
 ### Combined-HEAD rerun after concurrent UI/state commit
 
 The UI/state owner committed its current changes at `b75728242`. The unchanged
