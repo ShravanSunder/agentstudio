@@ -91,6 +91,9 @@ Unit/state:
 Integration:
 
 - production codecs and runtime over an actual `MessageChannel`;
+- 66 dispositions drain across the real channel as batches of 1, 64, and 1,
+  with exactly one in-flight batch and zero final retained/pending/in-flight
+  receipts;
 - correlated response reaches Main before newly released Review/File work;
 - urgent annotation action is not starved by a later disposition batch;
 - thrown response post releases neither Review nor File ownership;
@@ -107,8 +110,8 @@ End-to-end:
 
 ### Verified passing evidence
 
-- existing-owner focused behavior: 48/48;
-- actual `MessageChannel`: 2/2;
+- existing-owner focused behavior: 52/52 on the combined current state;
+- actual `MessageChannel`: 3/3, including the 66-receipt multi-batch drain;
 - render-disposition admission: 12/12;
 - TypeScript telemetry: 31/31;
 - Swift OTLP metrics: 2/2;

@@ -29,6 +29,7 @@ import type {
 } from './bridge-worker-contracts.js';
 import { bridgeWorkerServerToMainMessageSchema } from './bridge-worker-contracts.js';
 import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 import {
 	createBridgeWorkerRpcClient,
 	type BridgeWorkerRpcClient,
@@ -50,6 +51,97 @@ afterEach((): void => {
 });
 
 describe('Bridge comm worker duplex backpressure over an actual MessageChannel', () => {
+	test('drains 66 dispositions as one, 64, and one with one batch in flight', async () => {
+		// Arrange
+		const channel = new MessageChannel();
+		const collector = createMainPortCollector(channel.port2);
+		registerBridgeCommWorkerRuntimePortProtocol(channel.port1, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+		});
+		const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
+		let nextRequestSequence = 0;
+		const rpcClient = createBridgeWorkerRpcClient({
+			dispatch: (message): void => channel.port2.postMessage(message),
+			lifecycleStore,
+			requestIdFactory: (): string => `review-duplex-batch-${(nextRequestSequence += 1)}`,
+			surface: 'review',
+		});
+		collector.addRpcClient(rpcClient);
+		const dispatchedBatches: Array<{
+			readonly receiptCount: number;
+			readonly requestId: string;
+		}> = [];
+		const admission = createBridgeMainRenderDispositionAdmission({
+			dispatchBatch: (receipts): string => {
+				const requestId = rpcClient.send({
+					command: 'renderDisposition',
+					epoch: receipts[0]?.workerDerivationEpoch ?? 0,
+					receipts,
+				});
+				dispatchedBatches.push({ receiptCount: receipts.length, requestId });
+				return requestId;
+			},
+			lifecycleStore,
+			requestWorkerReplacement: (): void => {
+				throw new Error('Unexpected worker replacement in duplex batch proof.');
+			},
+			surface: 'review',
+		});
+
+		// Act
+		for (let publicationSequence = 1; publicationSequence <= 66; publicationSequence += 1) {
+			admission.enqueue(
+				bridgeWorkerRenderDispositionReceiptSchema.parse({
+					...makeBridgeWorkerRenderReceiptIdentity({
+						itemId: `review-duplex-batch-item-${publicationSequence}`,
+						publicationSequence,
+						surface: 'review',
+						workerDerivationEpoch: 1,
+					}),
+					disposition: 'queued',
+					kind: 'render.disposition',
+					receivedAtMilliseconds: publicationSequence,
+				}),
+			);
+		}
+
+		// Assert
+		expect(dispatchedBatches.map(({ receiptCount }) => receiptCount)).toEqual([1]);
+		expect(admission.snapshot()).toMatchObject({
+			inFlightReceiptCount: 1,
+			pendingReceiptCount: 65,
+		});
+		const firstRequestId = dispatchedBatches[0]?.requestId;
+		if (firstRequestId === undefined) throw new Error('Expected the first disposition batch.');
+		await collector.waitFor(
+			(message) => message.kind === 'health' && message.requestId === firstRequestId,
+		);
+		expect(dispatchedBatches.map(({ receiptCount }) => receiptCount)).toEqual([1, 64]);
+		expect(admission.snapshot()).toMatchObject({
+			inFlightReceiptCount: 64,
+			pendingReceiptCount: 1,
+		});
+		const secondRequestId = dispatchedBatches[1]?.requestId;
+		if (secondRequestId === undefined) throw new Error('Expected the second disposition batch.');
+		await collector.waitFor(
+			(message) => message.kind === 'health' && message.requestId === secondRequestId,
+		);
+		expect(dispatchedBatches.map(({ receiptCount }) => receiptCount)).toEqual([1, 64, 1]);
+		const thirdRequestId = dispatchedBatches[2]?.requestId;
+		if (thirdRequestId === undefined) throw new Error('Expected the third disposition batch.');
+		await collector.waitFor(
+			(message) => message.kind === 'health' && message.requestId === thirdRequestId,
+		);
+		expect(admission.snapshot()).toMatchObject({
+			inFlightReceiptCount: 0,
+			pendingReceiptCount: 0,
+			retainedReceiptCount: 0,
+		});
+		channel.port1.close();
+		channel.port2.close();
+	});
+
 	test('orders urgent Review outcome and receipt response before publication thirteen', async () => {
 		const channel = new MessageChannel();
 		const collector = createMainPortCollector(channel.port2);
