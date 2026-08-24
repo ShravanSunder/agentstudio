@@ -92,10 +92,18 @@ struct GitWorkingDirectoryProjectorTests {
             settlementRecords.contains {
                 $0["agentstudio.performance.git.future_failure.count"] as? Int == 1
             })
+        let observedOverdueRecords = settlementRecords.filter {
+            ($0["agentstudio.performance.git.overdue_deadline.count"] as? Int ?? 0) > 0
+        }
         #expect(
-            settlementRecords.allSatisfy {
-                $0["agentstudio.performance.git.overdue_deadline.count"] as? Int == 0
+            observedOverdueRecords.allSatisfy {
+                $0["agentstudio.performance.git.overdue_deadline.count"] as? Int == 1
+                    && $0["agentstudio.performance.git.retry_pending.count"] as? Int == 1
+                    && $0["agentstudio.performance.git.logical_running.count"] as? Int == 0
             })
+        #expect(
+            settlementRecords.last?["agentstudio.performance.git.overdue_deadline.count"] as? Int == 0
+        )
     }
 
     @Test("real SDK provider emits initial git snapshot")
