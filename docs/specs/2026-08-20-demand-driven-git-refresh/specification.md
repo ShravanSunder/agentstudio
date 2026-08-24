@@ -16,7 +16,7 @@ After fixture preparation and settlement, the isolated debug Agent Studio proces
 
 ### S2 — Real-scale interaction CPU
 
-Sidebar search, grouping changes, sidebar hide/show, and tab switching MUST measure below 20% process CPU at p95. Each action MUST reach its expected visible/read-back state without stale publication, duplicates, focus loss, or source work caused solely by rendering or attention changes while accepted facts remain fresh.
+Sidebar search, grouping changes, sidebar hide/show, and tab switching MUST measure below 20% process CPU at p95. Search, grouping, scrolling, and row materialization MUST NOT change repository-fact demand. Each action MUST reach its expected visible/read-back state without stale publication, duplicates, focus loss, or source work caused solely by rendering or attention changes while accepted facts remain fresh.
 
 ### S3 — Real fixture identity
 
@@ -56,7 +56,7 @@ Ahead/behind MUST be immediately computed from accepted local remote-tracking re
 
 ### S12 — Demanded Forge facts
 
-PR, check, review, mergeability, and merge-state facts MUST remain keyed by exact repository, non-empty branch, and current origin. Automatic demand MUST be the union of visible sidebar worktrees and visible panes in the active tab. A demanded repository with no accepted result MUST refresh immediately; after success it MUST NOT automatically refresh again before three minutes. Losing demand MUST stop future automatic work without deleting current-origin facts.
+PR, check, review, mergeability, and merge-state facts MUST remain keyed by exact repository, non-empty branch, and current origin. Automatic demand MUST be the union of sidebar-attended worktrees and visible panes in the active tab. While the sidebar is attended, sidebar-attended worktrees MUST be its semantic worktree membership before search, grouping, scrolling, or row materialization. Hiding, minimizing, occluding, or closing the sidebar/window MUST remove sidebar attention without deleting accepted facts. A demanded repository with no accepted result MUST refresh immediately; after success it MUST NOT automatically refresh again before three minutes. Losing demand MUST stop future automatic work without deleting current-origin facts.
 
 ### S13 — Efficient, bounded, and atomic GitHub query
 

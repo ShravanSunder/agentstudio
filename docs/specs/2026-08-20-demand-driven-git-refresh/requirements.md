@@ -22,7 +22,7 @@ With the complete real watched workspace loaded and no terminal or agent workloa
 
 ### U-GIT-ACTION-CPU-1 — Ordinary navigation stays inexpensive
 
-Sidebar search, grouping changes, sidebar hide/show, and tab switching must remain below 20% process CPU at p95 when no agents or terminals are running. Presentation actions must not turn cached repository facts into local Git, network, GitHub CLI, or fleet-scale projection work.
+Sidebar search, grouping changes, sidebar hide/show, and tab switching must remain below 20% process CPU at p95 when no agents or terminals are running. Search, grouping, scrolling, and row materialization are presentation-only: they must not change repository-fact demand or turn cached repository facts into local Git, network, GitHub CLI, or fleet-scale projection work.
 
 ### U-GIT-CACHE-FIRST-1 — Accepted atoms answer before sources
 
@@ -38,7 +38,7 @@ Every registered, available worktree must retain an eventual local Git backstop 
 
 ### U-GIT-FOREGROUND-1 — Current work outranks background inventory
 
-The active pane, visible sidebar rows, visible panes in the active tab, and explicit refreshes must retain priority over background correctness work. A slow or unhealthy background worktree, remote fetch, or GitHub request must not block the repository facts the user is actively inspecting.
+The active pane, sidebar-attended worktrees, visible panes in the active tab, and explicit refreshes must retain priority over background correctness work. While the sidebar is attended, its worktree membership is the semantic membership eligible for that sidebar before search, grouping, scrolling, or row materialization; those presentation operations do not add or remove demand. A slow or unhealthy background worktree, remote fetch, or GitHub request must not block the repository facts the user is actively inspecting.
 
 ### U-GIT-ADMISSION-1 — Debounce contracts bursts; admission decides usefulness
 

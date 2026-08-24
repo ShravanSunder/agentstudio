@@ -14,7 +14,7 @@ workspace/window/pane/sidebar state
               ▼
 RepositoryFactDemandCoordinator (App)
   ├─ active pane worktree
-  ├─ visible sidebar worktrees
+  ├─ sidebar-attended worktrees
   ├─ visible active-tab pane worktrees
   ├─ open worktrees
   └─ demanded repository identities
@@ -75,17 +75,21 @@ The App composition layer owns one read-only `RepositoryFactDemandSnapshot`. It 
 The snapshot contains:
 
 - active-pane worktree identity;
-- visible-sidebar worktree identities;
+- sidebar-attended worktree identities: the sidebar's semantic worktree membership before search, grouping, scrolling, or row materialization;
 - visible-pane worktrees in the active tab, honoring management, drawer, zoom, occlusion, minimization, and window visibility semantics already defined by PR-fact demand;
 - open worktrees;
 - demanded worktree identities with their attention class for Forge;
 - demanded repository identities for remote-reference refresh.
 
-The coordinator owns no freshness, provider, cache, or retry state. It does not read `ViewRegistry`; render bookkeeping never creates source demand. Empty demand is delivered on hiding, minimization, occlusion, topology removal, and shutdown.
+The coordinator owns no freshness, provider, cache, or retry state. It does not read `ViewRegistry`, `RepoExplorerTableMaterializer`, viewport rows, search state, grouping presentation, or row materialization; render bookkeeping never creates source demand. Sidebar attention comes from canonical sidebar presentation state plus canonical repository/worktree membership. Empty attention is delivered on hiding, minimization, occlusion, topology removal, and shutdown; the local projector independently retains registered worktrees as background self-heal inventory.
 
-The current separate `setActivePaneWorktree`, `setActivity`, `setSidebarVisibleWorktrees`, and PR-demand observations become one content-equal capture followed by narrow projections to each owner. This prevents the local and remote definitions of “visible” from drifting without making those owners share scheduling state.
+The current separate `setActivePaneWorktree`, `setActivity`, `setSidebarVisibleWorktrees`, and PR-demand observations become one content-equal capture followed by narrow projections to each owner. `FilesystemGitPipeline` accepts the complete snapshot once and projects it to filesystem-ingress attention, local-Git attention, remote-reference repository demand, and Forge worktree demand. This prevents the local and remote definitions of “visible” from drifting without making those owners share scheduling state.
 
-The capture is ID-only and uses existing keyed membership/location indices. It observes active tab/window state, visible worktree IDs, open-pane membership revisions, and worktree-to-repository membership needed for those IDs. It does not read branch or enrichment facts, filesystem paths, cache dictionaries, row presentation, or every pane's display state. `ForgeActor` retains its existing actor-owned worktree membership and resolves current non-empty branches after receiving demanded worktree IDs; branch changes therefore alter Forge scope without creating a second MainActor branch owner. Membership/topology changes may rebuild the compact identity projection; ordinary focus, search, row rendering, and unrelated pane activity update only their affected keyed inputs. Content equality runs before any source-owner call.
+The capture is ID-only and uses dedicated association-only keyed facts rather than composite pane or worktree models. `WorkspacePaneGraphAtom` owns `paneID -> (repoID?, worktreeID?)` association slots plus their membership revision; it updates a slot only when pane membership or that association changes. `RepositoryTopologyAtom` owns `worktreeID -> repoID` membership slots plus their membership revision; it updates a slot only when repository/worktree membership changes. These are narrow read interfaces over the existing canonical atoms, not new mutable truth owners. They prevent CWD, path, name, note, residency, content, drawer placement, or other unrelated changes from invalidating demand capture.
+
+The coordinator observes active tab/window/sidebar presentation state, pane-association membership, repository/worktree membership, and the association slots needed for the complete snapshot. `FilesystemProjectionIndex` remains a filesystem event/topology projection owner and is not attention authority. The capture does not observe `SidebarVisibleWorktreesRuntimeAtom`, composite `PaneStructuralFacts`, composite `Pane`/`Worktree` values, branch or enrichment facts, filesystem paths, cache dictionaries, search, grouping, viewport rows, row presentation, or every pane's display state. `ForgeActor` retains its existing actor-owned worktree membership and resolves current non-empty branches after receiving demanded worktree IDs; branch changes therefore alter Forge scope without creating a second MainActor branch owner. Membership/topology changes may rebuild the compact identity projection; search, grouping, scrolling, row rendering, unrelated pane facts, and unrelated enrichment writes do not rebuild or deliver demand. Content equality runs before any source-owner call.
+
+The same complete snapshot preserves filesystem ingress priority without restoring a second demand path. `FilesystemGitPipeline` projects active-pane and open-worktree IDs to one `FilesystemActor` attention update, and projects the full active/sidebar-attended/active-tab-visible/open classification to one `GitWorkingDirectoryProjector` attention update. The current `FilesystemProjectionIndex -> setActivity -> FilesystemActor + GitWorkingDirectoryProjector` fan-out is removed; the index no longer writes attention to either owner. `FilesystemActor` still prioritizes active/open worktree flushes, but those IDs now come from the coordinator's canonical snapshot. A failed or cancelled delivery commits no partial owner state; latest-value delivery retries the complete snapshot, including an A -> B -> A reversion, before accepting it as delivered.
 
 ### RepoEnrichmentCacheAtom and RepoCacheAtom
 
@@ -223,6 +227,31 @@ UI/derived reader
   [removed] render/body -> any Git, fetch, gh, or demand side effect
 ```
 
+### Repository-fact attention path
+
+```text
+CURRENT
+active-pane observation ---------------------> setActivePaneWorktree
+filesystem projection activity --------------> setActivity
+rendered viewport rows -> visible-worktree atom -> setSidebarVisibleWorktrees
+separate PR-demand observation --------------> ForgeActor.setDemand
+  [defect] four partial values can disagree, and scrolling/rendering owns source attention
+
+TARGET
+canonical window/tab/pane/sidebar/topology IDs
+  -> [added] one complete RepositoryFactDemandSnapshot capture
+  -> [added] complete-value equality and latest-value contraction
+  -> [changed] one pipeline fan-out
+       active/open ingress IDs ------> FilesystemActor
+       local attention IDs ----------> GitWorkingDirectoryProjector
+       attended repository IDs -----> RemoteReferenceRefreshActor
+       attended worktree IDs --------> ForgeActor
+  [removed] FilesystemProjectionIndex as attention authority
+  [removed] setActivity fan-out from FilesystemProjectionIndex to filesystem + Git owners
+  [removed] viewport/search/grouping/row-materialization -> demand
+  <- fresh cache suppresses physical work; changed attention alone is not a source call
+```
+
 ### Local filesystem and self-heal path
 
 ```text
@@ -310,6 +339,8 @@ Local status additionally composes fact and detail phases inside one materializa
 Remote fetch and Forge use killable child processes. Cancellation requests termination through their existing process owner and retains capacity until exact child exit. Remote fetch writes only generation-scoped staging refs before currentness validation; stale completion cleanup cannot promote them. Forge rejects an incomplete repository plan as a unit. Both owners reject any completion after demand/origin/topology generation changed.
 
 Illegal transitions fail closed: publication from obsolete identity/generation/scope, second same-key physical work, capacity release before true completion/exit, capacity counted as failure, partial local publication, canonical-ref promotion before currentness validation, automatic remote work without demand, and rendering-triggered source work.
+
+Demand delivery is one complete-value consistency boundary. No source owner observes a mixture of old active-pane, sidebar, open-pane, or Forge demand fields. A cancelled or superseded delivery does not advance the delivered baseline; the coordinator retains one latest complete pending snapshot and replays it after the in-flight delivery settles. Shutdown delivers and drains `.empty` before source-owner shutdown, then rejects late observation callbacks.
 
 ## Deadline and admission model
 
@@ -434,7 +465,7 @@ Final runtime proof may use controlled disposable remotes for staged-fetch mutat
 
 This is one holistic internal cutover:
 
-- one App demand snapshot replaces independently drifting visibility/demand observations;
+- one App demand snapshot replaces independently drifting visibility/demand observations, and sidebar attention changes only with canonical sidebar presentation or semantic membership rather than search, grouping, scrolling, or rendering;
 - the local fixed fleet tick is removed when the earliest-deadline path becomes authoritative;
 - local caller timeout becomes slow observation;
 - `agentstudio-git` status facts no longer hide line-count detail;
@@ -450,6 +481,7 @@ The package cutover lands in dependency order from Agent Studio's current exact 
 Architecture enforcement prevents:
 
 - source calls from render/body/materialization paths;
+- viewport, search, grouping, or row-materialization state from owning repository-fact demand;
 - enrichment, path, cache-dictionary, or fleet presentation reads inside demand capture;
 - a second local fleet timer or generic cross-source scheduler;
 - hidden line-detail work inside status-fact reads;
