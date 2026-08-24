@@ -310,8 +310,8 @@ MUST drain after demand quiesces in the required real workload.
 
 This obligation preserves current render identity, source and currentness
 fences, per-attempt settlement, and no-silent-drop behavior. It specifies no
-credit count, admission registry, module owner, render batch shape, second port,
-new timeout, or new capacity.
+new admission identity or registry, module owner, render batch shape, second
+port, timeout, or capacity.
 
 Basis: U-CWA-001, U-CWA-003, U-CWA-004, U-CWA-005, U-CWA-007.
 
@@ -326,7 +326,7 @@ Basis: U-CWA-001, U-CWA-003, U-CWA-004, U-CWA-005, U-CWA-007.
   acknowledgement reaches main before render work newly released by applying
   that batch.
 - V-CWA-003: source/currentness tests for mixed current and stale receipt
-  identities without cross-surface or cross-worker acceptance.
+  identities without acceptance by the wrong surface or worker.
 - V-CWA-004: source-scrubbed telemetry tests for every required bounded outcome,
   including worker-to-main published-but-unsettled render count and age plus
   correlated outcome/render ordering, and for prohibited payload/identity
