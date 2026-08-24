@@ -88,11 +88,20 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
                 await source.waitForLastSnapshot([firstWorktree.id, secondWorktree.id])
             )
 
+            await source.suspendNextSnapshot([])
             windowLifecycle.recordWindowPresentation(
                 WindowPresentationFacts(isVisible: false, isMiniaturized: false, isOccluded: true),
                 for: owningWindowId
             )
             #expect(await source.waitForLastSnapshot([]))
+            let settlementTask = Task { @MainActor in
+                await coordinator.settleRepositoryFactDemandAdmissionForPerformanceProof()
+            }
+            await Task.yield()
+            #expect(await source.repositoryFactDemandAdmissionSettlementCount == 0)
+            await source.releaseSuspendedSnapshot()
+            await settlementTask.value
+            #expect(await source.repositoryFactDemandAdmissionSettlementCount == 1)
 
             coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([])
             await coordinator.shutdown()
@@ -106,6 +115,7 @@ private actor PullRequestDemandRecordingFilesystemSource: WorkspaceFilesystemSou
     private var snapshotWaiters: [UUID: AsyncStream<Set<UUID>>.Continuation] = [:]
     private var suspendedSnapshot: Set<UUID>?
     private var suspendedSnapshotContinuation: CheckedContinuation<Void, Never>?
+    private(set) var repositoryFactDemandAdmissionSettlementCount = 0
 
     var snapshotCount: Int { demandSnapshots.count }
     var lastSnapshot: Set<UUID>? { demandSnapshots.last }
@@ -134,6 +144,10 @@ private actor PullRequestDemandRecordingFilesystemSource: WorkspaceFilesystemSou
 
     func setRepositoryFactDemand(_ snapshot: RepositoryFactDemandSnapshot) async {
         await setPullRequestDemandWorktrees(snapshot.forgeDemandedWorktreeIds)
+    }
+
+    func waitForRepositoryFactDemandAdmission() async {
+        repositoryFactDemandAdmissionSettlementCount += 1
     }
 
     func suspendNextSnapshot(_ worktreeIds: Set<UUID>) {

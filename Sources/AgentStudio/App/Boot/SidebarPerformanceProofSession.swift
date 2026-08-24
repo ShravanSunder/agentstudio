@@ -177,6 +177,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
         private let recorder: AgentStudioStartupTraceRecorder
         private let performanceRecorder: AgentStudioPerformanceTraceRecorder?
         private let delay: AsyncDelay
+        private let settleRepositoryFactDemandAdmission: @MainActor @Sendable () async -> Void
         private let readShell: @MainActor () -> SidebarPerformanceProofShellReadback?
         private let readbackStream: AsyncStream<SidebarPerformanceProofReadback>
         private let readbackContinuation: AsyncStream<SidebarPerformanceProofReadback>.Continuation
@@ -193,6 +194,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             recorder: AgentStudioStartupTraceRecorder,
             performanceRecorder: AgentStudioPerformanceTraceRecorder?,
             delay: AsyncDelay = .taskSleep,
+            settleRepositoryFactDemandAdmission: @escaping @MainActor @Sendable () async -> Void = {},
             readShell: @escaping @MainActor () -> SidebarPerformanceProofShellReadback?
         ) {
             self.population = population
@@ -200,6 +202,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             self.recorder = recorder
             self.performanceRecorder = performanceRecorder
             self.delay = delay
+            self.settleRepositoryFactDemandAdmission = settleRepositoryFactDemandAdmission
             self.readShell = readShell
             (readbackStream, readbackContinuation) = AsyncStream.makeStream(
                 of: SidebarPerformanceProofReadback.self,
@@ -382,33 +385,38 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
         private func waitForSettlement(
             of outstandingAction: SidebarPerformanceProofOutstandingAction
         ) async -> Bool {
+            let readbackSettled: Bool
             if let latestReadback,
                 SidebarPerformanceProofActionTracker.matches(latestReadback, action: outstandingAction)
             {
-                return true
-            }
-            return await withTaskGroup(of: Bool.self) { group in
-                group.addTask { [readbackStream] in
-                    for await readback in readbackStream {
-                        if SidebarPerformanceProofActionTracker.matches(
-                            readback,
-                            action: outstandingAction
-                        ) {
-                            return true
+                readbackSettled = true
+            } else {
+                readbackSettled = await withTaskGroup(of: Bool.self) { group in
+                    group.addTask { [readbackStream] in
+                        for await readback in readbackStream {
+                            if SidebarPerformanceProofActionTracker.matches(
+                                readback,
+                                action: outstandingAction
+                            ) {
+                                return true
+                            }
                         }
+                        return false
                     }
-                    return false
+                    group.addTask { [delay] in
+                        do {
+                            try await delay.wait(AppPolicies.SidebarPerformanceProof.actionReadbackTimeout)
+                        } catch {}
+                        return false
+                    }
+                    let result = await group.next() ?? false
+                    group.cancelAll()
+                    return result
                 }
-                group.addTask { [delay] in
-                    do {
-                        try await delay.wait(AppPolicies.SidebarPerformanceProof.actionReadbackTimeout)
-                    } catch {}
-                    return false
-                }
-                let result = await group.next() ?? false
-                group.cancelAll()
-                return result
             }
+            guard readbackSettled else { return false }
+            await settleRepositoryFactDemandAdmission()
+            return true
         }
 
         private func waitForInitialReadback() async -> Bool {

@@ -284,6 +284,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(sessionSource.contains("performance.sidebar.proof_action.started"))
         #expect(sessionSource.contains("performance.sidebar.proof_action.settled"))
         #expect(sessionSource.contains("performance.sidebar.proof_action.failed"))
+        #expect(sessionSource.contains("await settleRepositoryFactDemandAdmission()"))
         #expect(!sessionSource.contains("socket"))
         #expect(!sessionSource.contains("FIFO"))
         #expect(!sessionSource.contains("NotificationCenter"))

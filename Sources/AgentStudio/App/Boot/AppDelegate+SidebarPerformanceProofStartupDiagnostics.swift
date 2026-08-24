@@ -104,6 +104,10 @@ import AppKit
                 window: window,
                 recorder: startupTraceRecorder,
                 performanceRecorder: performanceTraceRecorder,
+                settleRepositoryFactDemandAdmission: { [weak workspaceSurfaceCoordinator] in
+                    await workspaceSurfaceCoordinator?
+                        .settleRepositoryFactDemandAdmissionForPerformanceProof()
+                },
                 readShell: { [weak mainWindowController] in
                     mainWindowController?.sidebarPerformanceProofShellReadback()
                 }

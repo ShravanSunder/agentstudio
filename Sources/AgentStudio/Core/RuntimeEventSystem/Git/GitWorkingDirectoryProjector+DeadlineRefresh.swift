@@ -2,6 +2,12 @@ import AgentStudioInfrastructure
 import Foundation
 
 extension GitWorkingDirectoryProjector {
+    package func waitForVisibilityAdmission() async {
+        while let activeTask = visibilityAdmissionTask {
+            await activeTask.value
+        }
+    }
+
     func scheduleCoalescedVisibilityAdmission() {
         if visibilityAdmissionTask != nil {
             recordVisibilityAdmissionTelemetry(

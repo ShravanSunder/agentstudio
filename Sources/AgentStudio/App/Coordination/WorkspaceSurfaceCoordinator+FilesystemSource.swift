@@ -15,12 +15,14 @@ protocol WorkspaceFilesystemSourceManaging: AnyObject, Sendable {
     func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) async
     func setPullRequestDemandWorktrees(_ worktreeIds: Set<UUID>) async
     func setRepositoryFactDemand(_ snapshot: RepositoryFactDemandSnapshot) async
+    func waitForRepositoryFactDemandAdmission() async
 }
 
 extension WorkspaceFilesystemSourceManaging {
     func setSidebarVisibleWorktrees(_: Set<UUID>) async {}
     func setPullRequestDemandWorktrees(_: Set<UUID>) async {}
     func setRepositoryFactDemand(_: RepositoryFactDemandSnapshot) async {}
+    func waitForRepositoryFactDemandAdmission() async {}
 }
 
 extension FilesystemActor: WorkspaceFilesystemSourceManaging {}

@@ -13,6 +13,12 @@ extension WorkspaceSurfaceCoordinator {
         repositoryFactDemandObservationGeneration &+= 1
     }
 
+    func settleRepositoryFactDemandAdmissionForPerformanceProof() async {
+        repositoryFactDemandCoordinator.accept(captureRepositoryFactDemandSnapshot())
+        await repositoryFactDemandCoordinator.waitUntilIdle()
+        await filesystemSource.waitForRepositoryFactDemandAdmission()
+    }
+
     private func restartRepositoryFactDemandObservation() {
         repositoryFactDemandObservationGeneration &+= 1
         observeRepositoryFactDemand(generation: repositoryFactDemandObservationGeneration)
