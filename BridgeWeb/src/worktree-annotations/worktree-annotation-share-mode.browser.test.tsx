@@ -12,7 +12,7 @@ import {
 } from './worktree-annotation-share-mode.js';
 
 describe('worktree annotation Share comments presentation', () => {
-	test('opens one in-flow New/All row without selection or floating UI', async () => {
+	test('opens one in-flow Pending/All row without selection or floating UI', async () => {
 		const onCopy = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
 		const onExport = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
 		const rendered = await render(<ShareModeFixture onCopy={onCopy} onExport={onExport} />);
@@ -23,8 +23,11 @@ describe('worktree annotation Share comments presentation', () => {
 		const shareMode = rendered.getByRole('region', { name: 'Share comments' });
 		await expect.element(shareMode).toBeVisible();
 		await expect
-			.element(rendered.getByRole('button', { name: 'New comments, 4' }))
+			.element(rendered.getByRole('button', { name: 'Pending comments, 4' }))
 			.toHaveAttribute('aria-pressed', 'true');
+		await expect
+			.element(rendered.getByRole('button', { name: 'Pending comments, 4' }))
+			.toHaveFocus();
 		await expect.element(rendered.getByRole('button', { name: 'All comments, 11' })).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeEnabled();
 		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeEnabled();
@@ -53,7 +56,7 @@ describe('worktree annotation Share comments presentation', () => {
 		const onCopy = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
 		const onExport = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
 		const rendered = await render(
-			<ShareModeFixture allCount={0} newCount={0} onCopy={onCopy} onExport={onExport} />,
+			<ShareModeFixture allCount={0} pendingCount={0} onCopy={onCopy} onExport={onExport} />,
 		);
 
 		await performBrowserAction(() =>
@@ -71,7 +74,8 @@ describe('worktree annotation Share comments presentation', () => {
 		);
 		const shareMode = rendered.getByRole('region', { name: 'Share comments' });
 		await performBrowserAction(async (): Promise<void> => {
-			shareMode
+			rendered
+				.getByRole('button', { name: 'Pending comments, 0' })
 				.element()
 				.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
 		});
@@ -103,12 +107,12 @@ describe('worktree annotation Share comments presentation', () => {
 function ShareModeFixture(props: {
 	readonly allCount?: number;
 	readonly error?: string | null;
-	readonly newCount?: number;
+	readonly pendingCount?: number;
 	readonly onCopy?: (scope: WorktreeAnnotationShareScope) => void;
 	readonly onExport?: (scope: WorktreeAnnotationShareScope) => void;
 }): ReactElement {
 	const [isOpen, setIsOpen] = useState(false);
-	const [scope, setScope] = useState<WorktreeAnnotationShareScope>('new');
+	const [scope, setScope] = useState<WorktreeAnnotationShareScope>('pending');
 	return (
 		<div>
 			<WorktreeAnnotationShareTrigger disabled={false} onOpen={() => setIsOpen(true)} />
@@ -119,7 +123,7 @@ function ShareModeFixture(props: {
 					membership={{
 						allCount: props.allCount ?? 11,
 						kind: 'ready',
-						newCount: props.newCount ?? 4,
+						pendingCount: props.pendingCount ?? 4,
 					}}
 					onCopy={(selectedScope) => props.onCopy?.(selectedScope)}
 					onDone={() => setIsOpen(false)}

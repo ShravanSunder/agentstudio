@@ -29,6 +29,8 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
         -> WorktreeAnnotationSessionDetail
     func setSourceRelationship(_ props: WorktreeAnnotationSQLiteRepository.SetSourceRelationshipProps) async throws
         -> WorktreeAnnotationSessionDetail
+    func markMessagesViewed(_ props: WorktreeAnnotationSQLiteRepository.MarkMessagesViewedProps) async throws
+        -> WorktreeAnnotationSQLiteRepository.ViewedMutationResult
     func prepareOutput(_ props: WorktreeAnnotationSQLiteRepository.PrepareOutputProps) async throws
         -> WorktreeAnnotationOutputMutationResult
     func inspectOutputAttempt(attemptID: WorktreeAnnotationOutputAttemptID) async throws
@@ -80,6 +82,13 @@ extension WorktreeAnnotationRepositoryAccess {
         demandedSessionIDs: [WorktreeAnnotationSessionID]
     ) async throws -> WorktreeAnnotationRepositoryProjectionSnapshot {
         _ = (worktreeID, demandedSessionIDs)
+        throw WorktreeAnnotationRepositoryError.invalidState
+    }
+
+    func markMessagesViewed(_ props: WorktreeAnnotationSQLiteRepository.MarkMessagesViewedProps) async throws
+        -> WorktreeAnnotationSQLiteRepository.ViewedMutationResult
+    {
+        _ = props
         throw WorktreeAnnotationRepositoryError.invalidState
     }
 
@@ -243,6 +252,12 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
         -> WorktreeAnnotationSessionDetail
     {
         try await mutate { try $0.setSourceRelationship(props) }
+    }
+
+    func markMessagesViewed(_ props: WorktreeAnnotationSQLiteRepository.MarkMessagesViewedProps) async throws
+        -> WorktreeAnnotationSQLiteRepository.ViewedMutationResult
+    {
+        try await mutate { try $0.markMessagesViewed(props) }
     }
 
     func prepareOutput(_ props: WorktreeAnnotationSQLiteRepository.PrepareOutputProps) async throws

@@ -317,6 +317,41 @@ package actor WorktreeAnnotationServiceActor {
     }
 
     @discardableResult
+    func markMessagesViewed(
+        _ props: WorktreeAnnotationSQLiteRepository.MarkMessagesViewedProps
+    ) async throws -> WorktreeAnnotationSQLiteRepository.ViewedMutationResult {
+        try requireMutationAllowed()
+        let operationCorrelationID = BridgeOperationCorrelation.mintScrubbedID()
+        await recordNativeAnnotationWork(
+            operationCorrelationID: operationCorrelationID,
+            result: .started,
+            stage: .nativeWorkStarted
+        )
+        do {
+            let committed = try await repositoryAccess.markMessagesViewed(props)
+            await recordNativeAnnotationWork(
+                operationCorrelationID: operationCorrelationID,
+                result: .success,
+                stage: .nativeWorkTerminal
+            )
+            if committed.changed {
+                await publishSnapshotRequired(
+                    worktreeID: committed.worktreeID,
+                    operationCorrelationID: operationCorrelationID
+                )
+            }
+            return committed
+        } catch {
+            await recordNativeAnnotationWork(
+                operationCorrelationID: operationCorrelationID,
+                result: .failure,
+                stage: .nativeWorkTerminal
+            )
+            throw error
+        }
+    }
+
+    @discardableResult
     func refreshSource(
         _ props: WorktreeAnnotationSourceRefreshProps
     ) async throws -> WorktreeAnnotationSessionDetail {

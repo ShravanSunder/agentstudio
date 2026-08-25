@@ -1,6 +1,7 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudioBridge
@@ -8,6 +9,90 @@ import Testing
 @MainActor
 @Suite("Worktree annotation transport adapter")
 struct WorktreeAnnotationTransportAdapterTests {
+    @Test("viewed command returns exact results and publishes only changed state")
+    func viewedCommandReturnsExactResultsAndPublishesOnlyChangedState() async throws {
+        let harness = try await makeTransportAdapterHarness()
+        defer { try? FileManager.default.removeItem(at: harness.root) }
+        let savedMessage = try await createSavedTransportMessage(harness: harness)
+        let databasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: harness.root.appending(path: "local.sqlite"),
+            label: "annotation-viewed-adapter-test"
+        )
+        try await databasePool.write { database in
+            try database.execute(
+                sql: "UPDATE annotation_message SET author_kind = 'agent' WHERE id = ?",
+                arguments: [savedMessage.message.id.databaseValue]
+            )
+        }
+        let before = try await harness.store.captureProjection(
+            worktreeID: "worktree-1",
+            demandedSessionIDs: [savedMessage.detail.session.id]
+        )
+        let request = try decodeAnnotationCommand(
+            """
+            { "operation": {
+              "items": [{
+                "expectedSavedRevision": \(savedMessage.savedRevision),
+                "messageId": "\(savedMessage.message.id.rawValue.uuidString.lowercased())"
+              }],
+              "kind": "message.viewed.mark",
+              "sessionId": "\(savedMessage.detail.session.id.rawValue.uuidString.lowercased())"
+            } }
+            """
+        )
+
+        let changedOutcome = await harness.adapter.apply(
+            request,
+            surface: .file,
+            correlation: try makeAnnotationCorrelation(requestID: "viewed-changed"),
+            productAdmission: harness.productAdmission
+        )
+        let committedSessionRevision = savedMessage.detail.session.semanticRevision + 1
+        #expect(changedOutcome.sessionId == savedMessage.detail.session.id.rawValue)
+        #expect(changedOutcome.receipt == nil)
+        #expect(
+            changedOutcome.status
+                == .viewed([
+                    .viewed(
+                        messageId: savedMessage.message.id.rawValue,
+                        savedRevision: savedMessage.savedRevision,
+                        committedSessionRevision: committedSessionRevision,
+                        disposition: .changed
+                    )
+                ]))
+        let afterChanged = try await harness.store.captureProjection(
+            worktreeID: "worktree-1",
+            demandedSessionIDs: [savedMessage.detail.session.id]
+        )
+        #expect(afterChanged.revision == before.revision + 1)
+        #expect(
+            try afterChanged.repositorySnapshot.details.first?.threads.first?.messages.first?
+                .projectNewPendingState().attentionState == .viewed
+        )
+
+        let repeatedOutcome = await harness.adapter.apply(
+            request,
+            surface: .file,
+            correlation: try makeAnnotationCorrelation(requestID: "viewed-idempotent"),
+            productAdmission: harness.productAdmission
+        )
+        #expect(
+            repeatedOutcome.status
+                == .viewed([
+                    .viewed(
+                        messageId: savedMessage.message.id.rawValue,
+                        savedRevision: savedMessage.savedRevision,
+                        committedSessionRevision: committedSessionRevision,
+                        disposition: .alreadyViewed
+                    )
+                ]))
+        let afterRepeated = try await harness.store.captureProjection(
+            worktreeID: "worktree-1",
+            demandedSessionIDs: [savedMessage.detail.session.id]
+        )
+        #expect(afterRepeated.revision == afterChanged.revision)
+    }
+
     @Test("committed root command returns its exact outcome and persists durable detail")
     func committedRootCommandReturnsOutcomeAndPersistsDetail() async throws {
         // Arrange
@@ -378,7 +463,7 @@ struct WorktreeAnnotationTransportAdapterTests {
                   "displayedProjectionRevision": \(projection.revision),
                   "expectedSessionRevision": \(sessionRevision),
                   "kind": "output.scope.commit", "outputKind": "clipboardMarkdown",
-                  "scope": "new", "sessionId": "\(sessionID.rawValue.uuidString.lowercased())",
+                  "scope": "pending", "sessionId": "\(sessionID.rawValue.uuidString.lowercased())",
                   "sourceGeneration": 7
                 } }
                 """
@@ -437,7 +522,7 @@ struct WorktreeAnnotationTransportAdapterTests {
         )
     }
 
-    @Test("New and All output complete saved-message scopes without selection chunks")
+    @Test("Pending and All output complete saved-message scopes without selection chunks")
     func outputScopesPreserveCanonicalMembership() async throws {
         let outputEffect = TransportTestOutputEffect(outcome: .failed("proof effect"))
         let harness = try await makeTransportAdapterHarness(outputEffect: outputEffect)
@@ -473,9 +558,9 @@ struct WorktreeAnnotationTransportAdapterTests {
         #expect(orderedMessageIDs.count == 130)
         try await executeOutputScope(
             harness: harness,
-            scope: .new,
+            scope: .pending,
             sessionID: detail.session.id,
-            requestID: "new-scope"
+            requestID: "pending-scope"
         )
         try await executeOutputScope(
             harness: harness,
@@ -514,7 +599,7 @@ struct WorktreeAnnotationTransportAdapterTests {
                   "displayedProjectionRevision": \(projection.revision + 1),
                   "expectedSessionRevision": \(sessionRevision),
                   "kind": "output.scope.commit", "outputKind": "clipboardMarkdown",
-                  "scope": "new",
+                  "scope": "pending",
                   "sessionId": "\(savedFixture.sessionID.rawValue.uuidString.lowercased())",
                   "sourceGeneration": 7
                 } }

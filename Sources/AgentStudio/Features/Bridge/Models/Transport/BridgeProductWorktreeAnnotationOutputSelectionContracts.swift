@@ -7,7 +7,7 @@ extension BridgeProductWorktreeAnnotationOperation {
     }
 
     enum OutputScope: String, Codable, Equatable, Sendable {
-        case new
+        case pending
         case all
     }
 

@@ -19,8 +19,8 @@ export async function verifyAnnotationOutputCaptures(
 	const markdownNamesBefore = await outputCaptureNames(outputDirectory, '.md');
 
 	await props.page.getByRole('button', { name: 'Share comments' }).press('Enter');
-	const newScope = props.page.locator('[aria-label^="New comments, "]');
-	await newScope.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
+	const pendingScope = props.page.locator('[aria-label^="Pending comments, "]');
+	await pendingScope.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
 	await props.page.getByRole('button', { name: 'Copy Markdown' }).press('Enter');
 	await props.page
 		.getByRole('region', { name: 'Share comments' })
@@ -45,7 +45,7 @@ export async function verifyAnnotationOutputCaptures(
 		.getByRole('button', { name: 'Mark as not handled' })
 		.first()
 		.press('Enter');
-	await waitForNewCommentMembership(props.page, props.timeoutMilliseconds);
+	await waitForPendingCommentMembership(props.page, props.timeoutMilliseconds);
 
 	const jsonNamesBefore = await outputCaptureNames(outputDirectory, '.json');
 	await props.page.getByRole('button', { name: 'Export JSON' }).press('Enter');
@@ -94,7 +94,7 @@ export async function verifyAnnotationOutputCaptures(
 		.getByRole('button', { name: 'Mark as not handled' })
 		.first()
 		.press('Enter');
-	await waitForNewCommentMembership(props.page, props.timeoutMilliseconds);
+	await waitForPendingCommentMembership(props.page, props.timeoutMilliseconds);
 }
 
 async function outputCaptureNames(
@@ -126,14 +126,17 @@ async function requireNewOutputCapture(props: {
 	return join(props.outputDirectory, createdNames[0] ?? '');
 }
 
-async function waitForNewCommentMembership(page: Page, timeoutMilliseconds: number): Promise<void> {
+async function waitForPendingCommentMembership(
+	page: Page,
+	timeoutMilliseconds: number,
+): Promise<void> {
 	await page.waitForFunction(
 		(): boolean => {
 			const label = document
-				.querySelector('[aria-label^="New comments, "]')
+				.querySelector('[aria-label^="Pending comments, "]')
 				?.getAttribute('aria-label');
 			if (label === undefined || label === null) return false;
-			const count = Number(label.slice('New comments, '.length));
+			const count = Number(label.slice('Pending comments, '.length));
 			return Number.isInteger(count) && count > 0;
 		},
 		undefined,

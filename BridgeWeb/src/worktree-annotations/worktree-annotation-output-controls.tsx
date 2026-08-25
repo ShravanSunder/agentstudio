@@ -140,7 +140,7 @@ export function WorktreeAnnotationShareSurface(): ReactElement | null {
 			<WorktreeAnnotationShareModeRow
 				error={error}
 				isOutputPending={isPending}
-				membership={{ allCount: shared.allCount, kind: 'ready', newCount: shared.newCount }}
+				membership={{ allCount: shared.allCount, kind: 'ready', pendingCount: shared.pendingCount }}
 				onCopy={(scope) => void executeOutput('clipboardMarkdown', scope)}
 				onDone={interaction.closeShareMode}
 				onExport={(scope) => void executeOutput('jsonFile', scope)}

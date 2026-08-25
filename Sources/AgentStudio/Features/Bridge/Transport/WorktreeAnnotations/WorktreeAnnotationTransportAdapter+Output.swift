@@ -65,7 +65,7 @@ extension WorktreeAnnotationTransportAdapter {
                 return false
             }
             switch body.scope {
-            case .new: return !message.handled
+            case .pending: return message.authorKind == .human && !message.handled
             case .all: return true
             }
         }

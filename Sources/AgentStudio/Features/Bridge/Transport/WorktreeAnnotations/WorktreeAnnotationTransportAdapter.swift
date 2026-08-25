@@ -257,6 +257,9 @@ final class WorktreeAnnotationTransportAdapter {
         case .saveDraft(let body):
             let applied = try await saveDraft(body, ownerGeneration: ownerGeneration)
             return .init(sessionID: applied.sessionID, status: .committed, receipt: applied.receipt)
+        case .markMessagesViewed(let body):
+            let result = try await markMessagesViewed(body)
+            return .init(sessionID: result.sessionID, status: .viewed(result.results), receipt: nil)
         default:
             let sessionID = try await apply(
                 operation,
@@ -349,8 +352,8 @@ final class WorktreeAnnotationTransportAdapter {
                 reviewPublicationIdentity: reviewPublicationIdentity,
                 productAdmission: productAdmission
             )
-        case .markMessagesViewed:
-            throw WorktreeAnnotationTransportAdapterError.operationUnavailable
+        case .markMessagesViewed(let body):
+            return try await markMessagesViewed(body).sessionID
         case .outputScopeCommit:
             throw WorktreeAnnotationTransportAdapterError.outputUnavailable
         case .outputHandledClear:
@@ -368,6 +371,23 @@ final class WorktreeAnnotationTransportAdapter {
             try await store.acknowledgeRecovery(at: now())
             return nil
         }
+    }
+
+    private func markMessagesViewed(
+        _ body: BridgeProductWorktreeAnnotationOperation.ViewedBody
+    ) async throws -> WorktreeAnnotationSQLiteRepository.ViewedMutationResult {
+        try await store.markMessagesViewed(
+            .init(
+                sessionID: .init(rawValue: body.sessionId),
+                items: body.items.map {
+                    .init(
+                        messageID: .init(rawValue: $0.messageId),
+                        expectedSavedRevision: $0.expectedSavedRevision
+                    )
+                },
+                now: now()
+            )
+        )
     }
 
     private func setThreadResolution(
@@ -725,7 +745,6 @@ final class WorktreeAnnotationTransportAdapter {
         } else if let adapterError = error as? WorktreeAnnotationTransportAdapterError {
             switch adapterError {
             case .messageReceiptUnavailable: .unexpected
-            case .operationUnavailable: .unavailable
             case .outputUnavailable: .outputUnavailable
             }
         } else {
@@ -736,6 +755,5 @@ final class WorktreeAnnotationTransportAdapter {
 
 enum WorktreeAnnotationTransportAdapterError: Error {
     case messageReceiptUnavailable
-    case operationUnavailable
     case outputUnavailable
 }

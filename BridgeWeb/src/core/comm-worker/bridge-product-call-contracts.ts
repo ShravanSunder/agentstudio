@@ -273,7 +273,7 @@ export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUni
 			expectedSessionRevision: z.number().int().nonnegative(),
 			kind: z.literal('output.scope.commit'),
 			outputKind: z.enum(['clipboardMarkdown', 'jsonFile']),
-			scope: z.enum(['new', 'all']),
+			scope: z.enum(['pending', 'all']),
 			sessionId: bridgeProductWorktreeAnnotationIdSchema,
 			sourceGeneration: z.number().int().nonnegative(),
 		})

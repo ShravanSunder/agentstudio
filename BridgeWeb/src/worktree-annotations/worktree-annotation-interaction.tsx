@@ -106,7 +106,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 		);
 	}, []);
 	const openShareMode = useCallback((): void => {
-		setShareMode({ kind: 'open', scope: 'new' });
+		setShareMode({ kind: 'open', scope: 'pending' });
 	}, []);
 	const closeShareMode = useCallback((): void => {
 		setShareMode({ kind: 'closed' });

@@ -39,7 +39,7 @@ export interface WorktreeAnnotationShareProjection<
 > {
 	readonly allCount: number;
 	readonly inlineThreads: readonly FilteredShareThread<TThread>[];
-	readonly newCount: number;
+	readonly pendingCount: number;
 	readonly otherThreads: readonly FilteredShareThread<TThread>[];
 }
 
@@ -50,7 +50,7 @@ export function deriveWorktreeAnnotationShareProjection<
 	readonly threads: readonly TThread[];
 }): WorktreeAnnotationShareProjection<TThread> {
 	let allCount = 0;
-	let newCount = 0;
+	let pendingCount = 0;
 	const inlineThreads: FilteredShareThread<TThread>[] = [];
 	const otherThreads: FilteredShareThread<TThread>[] = [];
 
@@ -59,11 +59,11 @@ export function deriveWorktreeAnnotationShareProjection<
 			(message): boolean => deriveWorktreeAnnotationMessageState(message).isAllEligible,
 		);
 		allCount += currentSavedMessages.length;
-		newCount += currentSavedMessages.filter(
+		pendingCount += currentSavedMessages.filter(
 			(message): boolean => deriveWorktreeAnnotationMessageState(message).isPending,
 		).length;
 		const participatingMessages =
-			props.scope === 'new'
+			props.scope === 'pending'
 				? currentSavedMessages.filter(
 						(message): boolean => deriveWorktreeAnnotationMessageState(message).isPending,
 					)
@@ -80,5 +80,5 @@ export function deriveWorktreeAnnotationShareProjection<
 		}
 	}
 
-	return { allCount, inlineThreads, newCount, otherThreads };
+	return { allCount, inlineThreads, otherThreads, pendingCount };
 }

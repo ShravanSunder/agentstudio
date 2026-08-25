@@ -363,7 +363,7 @@ struct WorktreeAnnotationTransportContractTests {
                 "expectedSessionRevision": 4,
                 "kind": "output.scope.commit",
                 "outputKind": "clipboardMarkdown",
-                "scope": "new",
+                "scope": "pending",
                 "sessionId": sessionID,
                 "sourceGeneration": 7,
             ],
@@ -447,7 +447,7 @@ struct WorktreeAnnotationTransportContractTests {
                 "expectedSessionRevision": 4,
                 "kind": "output.scope.commit",
                 "outputKind": "clipboardMarkdown",
-                "scope": "new",
+                "scope": "pending",
                 "sessionId": sessionID,
             ],
             [

@@ -328,7 +328,7 @@ describe('Bridge product call contracts', () => {
 				expectedSessionRevision: 4,
 				kind: 'output.scope.commit',
 				outputKind: 'clipboardMarkdown',
-				scope: 'new',
+				scope: 'pending',
 				sessionId,
 				sourceGeneration: 7,
 			},
@@ -369,7 +369,7 @@ describe('Bridge product call contracts', () => {
 				expectedSessionRevision: 4,
 				kind: 'output.scope.commit',
 				outputKind: 'clipboardMarkdown',
-				scope: 'new',
+				scope: 'pending',
 				sessionId,
 			},
 			{

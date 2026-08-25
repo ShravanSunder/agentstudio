@@ -11,10 +11,10 @@ import {
 	bridgeViewerChromeSegmentedControlClassName,
 } from '../app/bridge-viewer-chrome.js';
 
-export type WorktreeAnnotationShareScope = 'new' | 'all';
+export type WorktreeAnnotationShareScope = 'pending' | 'all';
 export type WorktreeAnnotationShareMembership =
 	| { readonly kind: 'unknown' }
-	| { readonly allCount: number; readonly kind: 'ready'; readonly newCount: number };
+	| { readonly allCount: number; readonly kind: 'ready'; readonly pendingCount: number };
 
 export function WorktreeAnnotationShareTrigger(props: {
 	readonly disabled: boolean;
@@ -43,12 +43,12 @@ export function WorktreeAnnotationShareModeRow(props: {
 	const displayedCount =
 		props.membership.kind === 'unknown'
 			? null
-			: props.scope === 'new'
-				? props.membership.newCount
+			: props.scope === 'pending'
+				? props.membership.pendingCount
 				: props.membership.allCount;
 	const outputDisabled = displayedCount === null || displayedCount === 0 || props.isOutputPending;
-	const newCountLabel =
-		props.membership.kind === 'unknown' ? 'unknown' : String(props.membership.newCount);
+	const pendingCountLabel =
+		props.membership.kind === 'unknown' ? 'unknown' : String(props.membership.pendingCount);
 	const allCountLabel =
 		props.membership.kind === 'unknown' ? 'unknown' : String(props.membership.allCount);
 	const handleKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
@@ -71,7 +71,7 @@ export function WorktreeAnnotationShareModeRow(props: {
 					aria-label="Comments to share"
 					onValueChange={(scopes): void => {
 						const nextScope = scopes[0];
-						if (nextScope === 'new' || nextScope === 'all') props.onScopeChange(nextScope);
+						if (nextScope === 'pending' || nextScope === 'all') props.onScopeChange(nextScope);
 					}}
 					className={bridgeViewerChromeSegmentedControlClassName}
 					role="group"
@@ -81,11 +81,12 @@ export function WorktreeAnnotationShareModeRow(props: {
 					variant="default"
 				>
 					<ToggleGroupItem
-						aria-label={`New comments, ${newCountLabel}`}
+						aria-label={`Pending comments, ${pendingCountLabel}`}
+						autoFocus
 						className={bridgeViewerChromeSegmentButtonClassName}
-						value="new"
+						value="pending"
 					>
-						New ({props.membership.kind === 'unknown' ? '—' : props.membership.newCount})
+						Pending ({props.membership.kind === 'unknown' ? '—' : props.membership.pendingCount})
 					</ToggleGroupItem>
 					<ToggleGroupItem
 						aria-label={`All comments, ${allCountLabel}`}

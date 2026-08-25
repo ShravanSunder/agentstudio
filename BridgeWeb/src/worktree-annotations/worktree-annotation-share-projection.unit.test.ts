@@ -5,7 +5,7 @@ import { deriveWorktreeAnnotationShareProjection } from './worktree-annotation-s
 describe('worktree annotation Share projection', () => {
 	test('filters pending human messages at message granularity and excludes agent attention', () => {
 		const projection = deriveWorktreeAnnotationShareProjection({
-			scope: 'new',
+			scope: 'pending',
 			threads: [
 				threadFixture('thread-a', 'exact', [
 					messageFixture('handled-root', { handled: true }),
@@ -17,7 +17,7 @@ describe('worktree annotation Share projection', () => {
 			],
 		});
 
-		expect(projection.newCount).toBe(1);
+		expect(projection.pendingCount).toBe(1);
 		expect(projection.allCount).toBe(4);
 		expect(projection.inlineThreads).toHaveLength(1);
 		expect(projection.inlineThreads[0]?.messages.map((message) => message.messageId)).toEqual([
@@ -43,7 +43,7 @@ describe('worktree annotation Share projection', () => {
 			],
 		});
 
-		expect(projection.newCount).toBe(2);
+		expect(projection.pendingCount).toBe(2);
 		expect(projection.allCount).toBe(4);
 		expect(projection.inlineThreads[0]?.messages.map((message) => message.messageId)).toEqual([
 			'handled-root',
@@ -55,13 +55,13 @@ describe('worktree annotation Share projection', () => {
 		]);
 	});
 
-	test('excludes draft-bearing prior saved bodies from New and All', () => {
+	test('excludes draft-bearing prior saved bodies from Pending and All', () => {
 		const draftMessage = messageFixture('draft-over-saved', {
 			draft: { body: 'unsaved edit' },
 			handled: false,
 		});
 
-		for (const scope of ['new', 'all'] as const) {
+		for (const scope of ['pending', 'all'] as const) {
 			const projection = deriveWorktreeAnnotationShareProjection({
 				scope,
 				threads: [threadFixture('thread-a', 'exact', [draftMessage])],
@@ -69,7 +69,7 @@ describe('worktree annotation Share projection', () => {
 
 			expect(projection.inlineThreads).toEqual([]);
 			expect(projection.otherThreads).toEqual([]);
-			expect(projection.newCount).toBe(0);
+			expect(projection.pendingCount).toBe(0);
 			expect(projection.allCount).toBe(0);
 		}
 	});
