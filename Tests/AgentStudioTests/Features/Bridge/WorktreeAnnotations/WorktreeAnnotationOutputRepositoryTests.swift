@@ -311,6 +311,32 @@ struct WorktreeAnnotationOutputRepositoryTests {
         )
     }
 
+    @Test("successful output locks agent membership without marking it handled")
+    func successfulOutputLocksAgentWithoutHandling() throws {
+        let fixture = try makeOutputRepositoryFixture()
+        try fixture.databaseQueue.write { database in
+            try database.execute(
+                sql: "UPDATE annotation_message SET author_kind = 'agent' WHERE id = ?",
+                arguments: [fixture.message.id.databaseValue]
+            )
+        }
+        let prepared = try fixture.repository.prepareOutput(fixture.prepareProps())
+
+        _ = try fixture.repository.finalizeOutputAttempt(
+            attemptID: prepared.attempt.id,
+            eventKind: .copied,
+            now: Date(timeIntervalSince1970: 4)
+        )
+
+        let message = try #require(
+            fixture.repository.fetchSessionDetail(sessionID: fixture.detail.session.id)
+                .threads.first?.messages.first
+        )
+        #expect(message.authorKind == .agent)
+        #expect(message.status == .locked)
+        #expect(message.handled == false)
+    }
+
     @Test("unknown recovery locks exact membership without handling or replay evidence")
     func unknownRecoveryLocksWithoutHandling() throws {
         let fixture = try makeOutputRepositoryFixture()

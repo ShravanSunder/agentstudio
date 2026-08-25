@@ -510,7 +510,7 @@ extension WorktreeAnnotationSQLiteRepository {
                 sql: """
                     UPDATE annotation_message AS message
                     SET handled = 0, semantic_revision = semantic_revision + 1, updated_at = ?
-                    WHERE handled = 1 AND EXISTS (
+                    WHERE author_kind = 'human' AND handled = 1 AND EXISTS (
                         SELECT 1
                         FROM annotation_output_attempt_message membership
                         WHERE membership.attempt_id = ?
@@ -693,7 +693,8 @@ extension WorktreeAnnotationSQLiteRepository {
         try database.execute(
             sql: """
                 UPDATE annotation_message AS message
-                SET status = 'locked', handled = 1,
+                SET status = 'locked',
+                    handled = CASE WHEN author_kind = 'human' THEN 1 ELSE handled END,
                     semantic_revision = semantic_revision + 1, updated_at = ?
                 WHERE EXISTS (
                     SELECT 1
@@ -701,7 +702,10 @@ extension WorktreeAnnotationSQLiteRepository {
                     WHERE membership.attempt_id = ?
                       AND membership.message_id = message.id
                       AND membership.expected_saved_revision = message.saved_revision
-                ) AND (status != 'locked' OR handled = 0)
+                ) AND (
+                    status != 'locked'
+                    OR (author_kind = 'human' AND handled = 0)
+                )
                 """,
             arguments: [now.timeIntervalSince1970, attemptID.databaseValue]
         )
