@@ -63,8 +63,6 @@ import AppKit
                     AgentStudioPerformanceTraceRecorder.milliseconds(from: policy.actionReadbackTimeout)),
                 "agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms": .double(
                     AgentStudioPerformanceTraceRecorder.milliseconds(from: policy.maximumSamplerGap)),
-                "agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent": .double(
-                    policy.maximumUnrelatedHostCPUPercent),
                 "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points": .double(
                     policy.maximumDiagnosticCPUP95DeltaPercentagePoints),
                 "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent": .double(

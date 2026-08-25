@@ -33,7 +33,6 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms",
         "agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms",
         "agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms",
-        "agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent",
         "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points",
         "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent",
         "agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit",

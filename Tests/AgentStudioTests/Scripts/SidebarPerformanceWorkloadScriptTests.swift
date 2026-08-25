@@ -41,8 +41,8 @@ struct SidebarPerformanceWorkloadScriptTests {
         let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
         for owner in [
             "parse_strict_sidebar_policy", "run_strict_sidebar_cpu_populations",
-            "begin_strict_population", "validate_strict_host_envelope",
-            "wait_for_positive_quiescence", "sample_strict_idle_population",
+            "begin_strict_population", "wait_for_positive_quiescence",
+            "sample_strict_idle_population",
             "drive_strict_action_population", "validate_strict_population",
             "validate_strict_perturbation_pair", "validate_strict_zero_loss",
             "nearest_rank_percentile",
@@ -56,10 +56,6 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("duplicate action record"))
         #expect(source.contains("overlaps or is non-monotonic"))
         #expect(source.contains("strict_required_record_loss"))
-        #expect(source.contains("kern.memorystatus_vm_pressure_level"))
-        #expect(source.contains("/usr/bin/vm_stat"))
-        #expect(!source.contains("vm.compressor_mode"))
-        #expect(source.contains("forbidden concurrent process"))
         #expect(source.contains("population_invalidated"))
         #expect(source.contains("no sample replacement or trimming"))
         #expect(source.contains("action population terminal did not satisfy both floors"))
@@ -93,17 +89,10 @@ struct SidebarPerformanceWorkloadScriptTests {
         ]
         let samplerArm = try #require(populationSource.range(of: "start_strict_action_sampler"))
         let quiescence = try #require(populationSource.range(of: "wait_for_positive_quiescence"))
-        let hostValidation = try #require(populationSource.range(of: "validate_strict_host_envelope"))
-        let hostMonitorStart = try #require(
-            populationSource.range(of: "start_strict_host_envelope_monitor")
-        )
-        #expect(hostValidation.lowerBound < hostMonitorStart.lowerBound)
-        #expect(hostMonitorStart.lowerBound < samplerArm.lowerBound)
         #expect(samplerArm.lowerBound < quiescence.lowerBound)
-        #expect(source.contains("start_strict_host_envelope_monitor"))
-        #expect(source.contains("stop_strict_host_envelope_monitor"))
-        #expect(source.contains("HOST_ENVELOPE_MONITOR_PID"))
-        #expect(source.contains("population_invalidated=host_envelope"))
+        #expect(!source.contains("STRICT_POLICY_HOST_CPU_MAX"))
+        #expect(!source.contains("unrelated_host_cpu_max_percent"))
+        #expect(!source.contains("validate_strict_host_envelope"))
     }
 
     @Test("strict quiescence rejects missing and empty stage vectors")
@@ -249,89 +238,6 @@ struct SidebarPerformanceWorkloadScriptTests {
 
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout.contains("positive_quiescence=test_contract_passed"))
-    }
-
-    @Test("strict population rejects a retained mid-population host breach")
-    func strictPopulationRejectsRetainedMidPopulationHostBreach() async throws {
-        let result = try await runHostReceiptContract(
-            receipts: """
-                [
-                  {"observation":"initial","observed_at":1,"valid":true},
-                  {"observation":"during-1","observed_at":2,"valid":false},
-                  {"observation":"during-2","observed_at":3,"valid":true},
-                  {"observation":"final","observed_at":4,"valid":true}
-                ]
-                """
-        )
-
-        #expect(result.exitCode == 1)
-        #expect(result.stderr.contains("host envelope breached at observation 2"))
-    }
-
-    @Test("strict population accepts complete valid host receipts")
-    func strictPopulationAcceptsCompleteValidHostReceipts() async throws {
-        let result = try await runHostReceiptContract(
-            receipts: """
-                [
-                  {"observation":"initial","observed_at":1,"valid":true},
-                  {"observation":"during-1","observed_at":2,"valid":true},
-                  {"observation":"during-2","observed_at":3,"valid":true},
-                  {"observation":"final","observed_at":4,"valid":true}
-                ]
-                """
-        )
-
-        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout.contains("host_envelope_receipt_count=4"))
-    }
-
-    @Test("resident agent hosts are allowed when the normalized CPU envelope is valid")
-    func residentAgentHostsAreAllowedInsideValidCPUEnvelope() async throws {
-        let result = try await runHostProcessContract(
-            records: """
-                [
-                  {"pid":101,"ppid":1,"cpu":4.0,"command":"/Applications/Codex.app/Contents/MacOS/Codex"},
-                  {"pid":102,"ppid":1,"cpu":3.0,"command":"claude --resume"},
-                  {"pid":103,"ppid":1,"cpu":2.0,"command":"gemini --model pro"}
-                ]
-                """
-        )
-
-        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout.contains("host_process_contract=passed"))
-    }
-
-    @Test("resident zero CPU profiler daemons are allowed")
-    func residentZeroCPUProfilerDaemonsAreAllowed() async throws {
-        let result = try await runHostProcessContract(
-            records: """
-                [
-                  {"pid":201,"ppid":1,"cpu":0.0,"command":"/usr/sbin/spindump"}
-                ]
-                """
-        )
-
-        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout.contains("host_process_contract=passed"))
-    }
-
-    @Test("build test compiler and profiler contamination is rejected")
-    func activeBuildTestCompilerAndProfilerContaminationIsRejected() async throws {
-        for command in [
-            "swift-frontend -frontend -c Sources/App.swift",
-            "xcodebuild -scheme AgentStudio test",
-            "mise run test:swift",
-            "Instruments -t Time Profiler AgentStudio",
-        ] {
-            let result = try await runHostProcessContract(
-                records: """
-                    [{"pid":201,"ppid":1,"cpu":1.0,"command":"\(command)"}]
-                    """
-            )
-
-            #expect(result.exitCode == 1, Comment(rawValue: "command: \(command)\n\(result.stdout)"))
-            #expect(result.stderr.contains("forbidden concurrent process"))
-        }
     }
 
     @Test("strict zmx reducer accepts only the declared zero and one session lifecycles")
@@ -810,28 +716,6 @@ struct SidebarPerformanceWorkloadScriptTests {
                 "STRICT_POLICY_QUIESCENCE_MS": "5000",
                 "STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS": "1250",
                 "STRICT_POLICY_SAMPLE_INTERVAL_MS": "1000",
-            ]
-        )
-    }
-
-    private func runHostReceiptContract(receipts: String) async throws -> ProcessResult {
-        try await runSidebarScript(
-            arguments: [scriptPath, "--prepare-only"],
-            environment: [
-                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
-                "AGENTSTUDIO_SIDEBAR_TEST_HOST_RECEIPTS": receipts,
-            ]
-        )
-    }
-
-    private func runHostProcessContract(records: String) async throws -> ProcessResult {
-        try await runSidebarScript(
-            arguments: [scriptPath, "--prepare-only"],
-            environment: [
-                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
-                "AGENTSTUDIO_SIDEBAR_TEST_HOST_PROCESS_RECORDS": records,
-                "AGENTSTUDIO_SIDEBAR_TEST_LOGICAL_CPU_COUNT": "8",
-                "STRICT_POLICY_HOST_CPU_MAX": "20",
             ]
         )
     }

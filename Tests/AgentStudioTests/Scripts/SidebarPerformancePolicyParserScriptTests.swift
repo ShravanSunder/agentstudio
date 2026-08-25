@@ -8,7 +8,7 @@ struct SidebarPerformancePolicyParserScriptTests {
         let prefix = "agentstudio.startup_diagnostic.sidebar_proof."
         let record: [String: Any] = [
             prefix + "policy_id": "strict-sidebar-cpu",
-            prefix + "policy_version": 3,
+            prefix + "policy_version": 4,
             prefix + "idle_p99_max_percent": 10.0,
             prefix + "action_p95_max_percent": 20.0,
             prefix + "sample_interval_ms": "1000.0",
@@ -25,7 +25,6 @@ struct SidebarPerformancePolicyParserScriptTests {
             prefix + "quiescence_interval_ms": 5000.0,
             prefix + "readback_timeout_ms": 5000.0,
             prefix + "sampler_gap_max_ms": 1250.0,
-            prefix + "unrelated_host_cpu_max_percent": 20.0,
             prefix + "diagnostic_cpu_delta_max_points": 5.0,
             prefix + "diagnostic_interaction_growth_max_percent": 10.0,
             prefix + "git_status_physical_limit": 4,

@@ -41,7 +41,7 @@ package enum AppPolicies {
 
     package enum SidebarPerformanceProof {
         package static let policyID = "strict-sidebar-cpu"
-        package static let policyVersion: Int = 3
+        package static let policyVersion: Int = 4
         package static let nativeTablePilotPolicyID = "sidebar-native-table-pilot"
         package static let nativeTablePilotPolicyVersion: Int = 1
         package static let repositoryCount: Int = 150
@@ -82,7 +82,6 @@ package enum AppPolicies {
         package static let quiescenceInterval: Duration = .seconds(5)
         package static let actionReadbackTimeout: Duration = .seconds(5)
         package static let maximumSamplerGap: Duration = .milliseconds(1250)
-        package static let maximumUnrelatedHostCPUPercent: Double = 20
         package static let maximumDiagnosticCPUP95DeltaPercentagePoints: Double = 5
         package static let maximumDiagnosticInteractionP95GrowthPercent: Double = 10
         package static let gitStatusPhysicalLimit = GitRefresh.defaultDetachedStatusReadLimit

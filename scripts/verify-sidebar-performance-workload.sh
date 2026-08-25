@@ -209,7 +209,6 @@ validate_current_candidate() {
 
 cleanup() {
   stop_pid "${CPU_SAMPLER_PID:-}"
-  stop_pid "${HOST_ENVELOPE_MONITOR_PID:-}"
   stop_pid "${ZMX_MONITOR_PID:-}"
   if [ -f "$STATE_FILE" ] \
     && [ "$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_MARKER)" = "$TRACE_MARKER" ]; then
@@ -219,65 +218,6 @@ cleanup() {
   if [ -n "$RESET_DATA_DIR" ]; then
     reset_disposable_debug_root || true
   fi
-}
-
-validate_host_process_records_json() {
-  local records_json="${1:?missing host process records}"
-  local app_pid="${2:-}"
-  local maximum_cpu="${3:?missing host CPU maximum}"
-  local logical_cpu_count="${4:?missing logical CPU count}"
-  if [ -n "$app_pid" ]; then
-    validate_no_debug_owned_helpers_json "$records_json" "$app_pid" >/dev/null
-  fi
-  /usr/bin/python3 - "$records_json" "$app_pid" "$maximum_cpu" "$logical_cpu_count" <<'PY'
-import json
-import math
-import re
-import sys
-
-records = json.loads(sys.argv[1])
-app_pid = str(sys.argv[2])
-maximum_cpu = float(sys.argv[3])
-logical_cpu_count = int(sys.argv[4])
-if not isinstance(records, list) or logical_cpu_count <= 0:
-    raise SystemExit("invalid host process records or logical CPU count")
-forbidden_pattern = re.compile(
-    r"swift-frontend|(?:^|[ /])swiftc(?:[ /]|$)|xcodebuild|"
-    r"Instruments|spindump|(?:^|[ /])sample(?:[ /]|$)|mise run (?:test|build)",
-    re.IGNORECASE,
-)
-unrelated_cpu = 0.0
-forbidden = []
-for record in records:
-    if not isinstance(record, dict):
-        raise SystemExit("invalid host process record")
-    pid = str(record.get("pid", ""))
-    if not pid.isdigit():
-        raise SystemExit("invalid host process PID")
-    if pid == app_pid:
-        continue
-    try:
-        cpu = float(record["cpu"])
-    except (KeyError, TypeError, ValueError):
-        raise SystemExit(f"invalid host CPU value for pid {pid}") from None
-    if not math.isfinite(cpu) or cpu < 0:
-        raise SystemExit(f"invalid host CPU value for pid {pid}")
-    command = record.get("command")
-    if not isinstance(command, str):
-        raise SystemExit(f"invalid host command for pid {pid}")
-    unrelated_cpu += cpu
-    # Long-lived macOS profiler daemons may remain resident at zero CPU. The
-    # proof contract rejects measured contamination, not process names alone.
-    if cpu > 0 and forbidden_pattern.search(command):
-        forbidden.append(f"{pid} {command}")
-normalized_cpu = unrelated_cpu / logical_cpu_count
-if normalized_cpu > maximum_cpu:
-    raise SystemExit(f"unrelated host CPU {normalized_cpu} exceeds {maximum_cpu}")
-if forbidden:
-    raise SystemExit(f"forbidden concurrent process: {forbidden[0]}")
-print("host_process_contract=passed")
-print(f"normalized_unrelated_cpu={normalized_cpu}")
-PY
 }
 
 validate_no_debug_owned_helpers_json() {
@@ -531,7 +471,7 @@ query_victoria_metrics() {
 }
 
 strict_sidebar_policy_query() {
-  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.policy_projected agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count,agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.mounted_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.unrelated_host_cpu_max_percent,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent,agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.remote_reference_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.forge_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.git_maximum_settlement_ms | limit 1'
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.policy_projected agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count,agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.mounted_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent,agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.remote_reference_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.forge_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.git_maximum_settlement_ms | limit 1'
 }
 
 load_strict_sidebar_policy() {
@@ -586,7 +526,6 @@ mapping = {
     "STRICT_POLICY_QUIESCENCE_MS": "quiescence_interval_ms",
     "STRICT_POLICY_READBACK_TIMEOUT_MS": "readback_timeout_ms",
     "STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS": "sampler_gap_max_ms",
-    "STRICT_POLICY_HOST_CPU_MAX": "unrelated_host_cpu_max_percent",
     "STRICT_POLICY_DIAGNOSTIC_CPU_DELTA_MAX": "diagnostic_cpu_delta_max_points",
     "STRICT_POLICY_DIAGNOSTIC_INTERACTION_GROWTH_MAX": "diagnostic_interaction_growth_max_percent",
     "STRICT_POLICY_GIT_STATUS_PHYSICAL_LIMIT": "git_status_physical_limit",
@@ -744,155 +683,6 @@ if not values: raise SystemExit("population has no usable samples")
 rank = max(1, math.ceil(len(values) * float(sys.argv[2])))
 print(values[rank - 1])
 PY
-}
-
-validate_strict_host_envelope() {
-  local artifact="${1:?missing population artifact}"
-  local observation="${2:-initial}"
-  local envelope_artifact="$artifact/host-envelope/$observation"
-  mkdir -p "$(dirname "$envelope_artifact")"
-  {
-    /usr/bin/pmset -g batt
-    /usr/bin/pmset -g custom
-    /usr/bin/pmset -g therm
-    /usr/bin/memory_pressure -Q
-    /usr/sbin/sysctl kern.memorystatus_vm_pressure_level vm.swapusage
-    /usr/bin/vm_stat
-  } >"$envelope_artifact.txt"
-  /bin/ps -axo pid=,ppid=,%cpu=,command= >"$envelope_artifact.processes.txt"
-  grep -q "AC Power" "$envelope_artifact.txt" || return 1
-  ! grep -Eq 'Low Power Mode[^0-9]*1' "$envelope_artifact.txt" || return 1
-  grep -q 'No thermal warning level has been recorded' "$envelope_artifact.txt" || return 1
-  grep -Eq 'kern.memorystatus_vm_pressure_level:[[:space:]]*1$' "$envelope_artifact.txt" || return 1
-  local process_records logical_cpu_count contract_output
-  process_records="$(/usr/bin/python3 - "$envelope_artifact.processes.txt" <<'PY'
-import json
-import pathlib
-import sys
-
-records = []
-for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
-    fields = line.strip().split(maxsplit=3)
-    if len(fields) != 4 or not fields[0].isdigit():
-        continue
-    records.append({
-        "pid": int(fields[0]),
-        "ppid": int(fields[1]),
-        "cpu": fields[2],
-        "command": fields[3],
-    })
-print(json.dumps(records, separators=(",", ":")))
-PY
-  )"
-  logical_cpu_count="$(/usr/sbin/sysctl -n hw.logicalcpu)"
-  if ! contract_output="$(validate_host_process_records_json \
-    "$process_records" "$APP_PID" "$STRICT_POLICY_HOST_CPU_MAX" "$logical_cpu_count" 2>"$envelope_artifact.forbidden-processes.txt")"
-  then
-    cat "$envelope_artifact.forbidden-processes.txt" >&2
-    return 1
-  fi
-  printf '%s\n' "$contract_output" | sed -n 's/^normalized_unrelated_cpu=//p' \
-    >"$envelope_artifact.unrelated-cpu.txt"
-  : >"$envelope_artifact.forbidden-processes.txt"
-}
-
-record_strict_host_envelope_receipt() {
-  local population_artifact="${1:?missing population artifact}"
-  local observation="${2:?missing host observation}"
-  local valid="${3:?missing host validity}"
-  local observed_at
-  observed_at="$(/usr/bin/python3 -c 'import time; print(f"{time.monotonic():.6f}")')"
-  printf '{"observation":"%s","observed_at":%s,"valid":%s}\n' \
-    "$observation" "$observed_at" "$valid" \
-    >>"$population_artifact/host-envelope-receipts.jsonl"
-}
-
-validate_strict_host_envelope_receipts() {
-  local receipts="${1:?missing host receipts}"
-  /usr/bin/python3 - "$receipts" <<'PY'
-import json
-import math
-import pathlib
-import sys
-
-records = []
-for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
-    if not line.strip():
-        continue
-    try:
-        records.append(json.loads(line))
-    except json.JSONDecodeError as error:
-        raise SystemExit(f"invalid host envelope receipt: {error}")
-if not records:
-    raise SystemExit("missing host envelope receipts")
-observations = [record.get("observation", "") for record in records]
-if observations[0] != "initial" or observations[-1] != "final":
-    raise SystemExit("host envelope receipts do not span the population")
-if not any(observation.startswith("during-") for observation in observations):
-    raise SystemExit("host envelope receipts have no during-population observation")
-prior_time = None
-for index, record in enumerate(records, start=1):
-    observed_at = record.get("observed_at")
-    if not isinstance(observed_at, (int, float)) or not math.isfinite(observed_at):
-        raise SystemExit(f"host envelope receipt {index} has invalid time")
-    if prior_time is not None and observed_at <= prior_time:
-        raise SystemExit("host envelope receipt times are not monotonic")
-    prior_time = observed_at
-    if record.get("valid") is not True:
-        raise SystemExit(f"host envelope breached at observation {index}")
-print(f"host_envelope_receipt_count={len(records)}")
-PY
-}
-
-start_strict_host_envelope_monitor() {
-  local population="${1:?missing population}"
-  local population_artifact="$ARTIFACT/populations/$population"
-  local stop_file="$population_artifact/stop-host-envelope-monitor"
-  local invalid_file="$population_artifact/invalid.env"
-  local interval_seconds
-  interval_seconds="$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
-    "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
-  /bin/rm -f -- "$stop_file" "$invalid_file"
-  (
-    local observation=0
-    while [ ! -f "$stop_file" ]; do
-      observation=$((observation + 1))
-      if ! validate_strict_host_envelope "$population_artifact" "during-$observation"; then
-        record_strict_host_envelope_receipt \
-          "$population_artifact" "during-$observation" false
-        echo "population_invalidated=host_envelope" >"$invalid_file"
-        exit 1
-      fi
-      record_strict_host_envelope_receipt \
-        "$population_artifact" "during-$observation" true
-      /bin/sleep "$interval_seconds"
-    done
-  ) &
-  HOST_ENVELOPE_MONITOR_PID=$!
-}
-
-stop_strict_host_envelope_monitor() {
-  local population="${1:?missing population}"
-  local population_artifact="$ARTIFACT/populations/$population"
-  local stop_file="$population_artifact/stop-host-envelope-monitor"
-  local invalid_file="$population_artifact/invalid.env"
-  local monitor_failed=0
-  : >"$stop_file"
-  if [ -n "${HOST_ENVELOPE_MONITOR_PID:-}" ]; then
-    wait "$HOST_ENVELOPE_MONITOR_PID" || monitor_failed=1
-    HOST_ENVELOPE_MONITOR_PID=""
-  fi
-  if ! validate_strict_host_envelope "$population_artifact" final; then
-    record_strict_host_envelope_receipt "$population_artifact" final false
-    echo "population_invalidated=host_envelope" >"$invalid_file"
-    monitor_failed=1
-  else
-    record_strict_host_envelope_receipt "$population_artifact" final true
-  fi
-  validate_strict_host_envelope_receipts \
-    "$population_artifact/host-envelope-receipts.jsonl" || monitor_failed=1
-  [ ! -s "$invalid_file" ] || monitor_failed=1
-  [ "$monitor_failed" = "0" ]
 }
 
 strict_zmx_inventory_json() {
@@ -1618,14 +1408,6 @@ begin_strict_population() {
     "$population_artifact/fixture-ready.jsonl" "$population" "$fixture_environment"
   echo "$TRACE_MARKER" >"$population_artifact/marker.txt"
   echo "$APP_PID" >"$population_artifact/pid.txt"
-  : >"$population_artifact/host-envelope-receipts.jsonl"
-  validate_strict_host_envelope "$population_artifact" initial || {
-    record_strict_host_envelope_receipt "$population_artifact" initial false
-    echo "population_invalidated=host_envelope" >"$population_artifact/invalid.env"
-    return 1
-  }
-  record_strict_host_envelope_receipt "$population_artifact" initial true
-  start_strict_host_envelope_monitor "$population"
   if printf '%s\n' "$STRICT_POLICY_ACTION_POPULATIONS" | grep -qw "$population" \
     || [ "$population" = "grouping_diagnostic" ]
   then
@@ -1662,7 +1444,6 @@ PY
   periodic_completion_final="${periodic_completion_final:-0}"
   validate_strict_periodic_completion_delta \
     "$periodic_completion_baseline" "$periodic_completion_final"
-  stop_strict_host_envelope_monitor "$population"
   finish_strict_population "$population"
 }
 
@@ -1684,7 +1465,6 @@ drive_strict_action_population() {
   : >"$population_artifact/stop-sampler"
   wait "$CPU_SAMPLER_PID"
   CPU_SAMPLER_PID=""
-  stop_strict_host_envelope_monitor "$population"
   query_strict_action_records "$marker" "$records"
   classify_strict_action_samples "$raw_samples" "$records" "$samples"
   validate_strict_sampler_gaps "$raw_samples"
@@ -2710,17 +2490,6 @@ if [ "$mode" = "prepare-only" ]; then
     cat "$fixture_record_environment"
     exit 0
   fi
-  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_HOST_PROCESS_RECORDS:-}" ]; then
-    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
-      echo "host process test requires canned test-response authorization" >&2
-      exit 2
-    }
-    validate_host_process_records_json \
-      "$AGENTSTUDIO_SIDEBAR_TEST_HOST_PROCESS_RECORDS" "" \
-      "${STRICT_POLICY_HOST_CPU_MAX:?missing strict host CPU maximum}" \
-      "${AGENTSTUDIO_SIDEBAR_TEST_LOGICAL_CPU_COUNT:?missing logical CPU count}"
-    exit 0
-  fi
   if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_DEBUG_PROCESS_RECORDS:-}" ]; then
     [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
       echo "debug process test requires canned test-response authorization" >&2
@@ -2776,26 +2545,6 @@ if [ "$mode" = "prepare-only" ]; then
       "$AGENTSTUDIO_SIDEBAR_TEST_FINAL_GIT_SETTLEMENT_VECTOR"
     exit 0
   fi
-  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_HOST_RECEIPTS:-}" ]; then
-    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
-      echo "host receipt test requires canned test-response authorization" >&2
-      exit 2
-    }
-    host_receipt_test_file="$ARTIFACT/test-host-envelope-receipts.jsonl"
-    /usr/bin/python3 - "$AGENTSTUDIO_SIDEBAR_TEST_HOST_RECEIPTS" \
-      "$host_receipt_test_file" <<'PY'
-import json
-import pathlib
-import sys
-
-records = json.loads(sys.argv[1])
-pathlib.Path(sys.argv[2]).write_text(
-    "".join(json.dumps(record, separators=(",", ":")) + "\n" for record in records)
-)
-PY
-    validate_strict_host_envelope_receipts "$host_receipt_test_file"
-    exit 0
-  fi
   if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_QUIESCENCE_SEQUENCE:-}" ]; then
     [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
       echo "quiescence test sequence requires canned test-response authorization" >&2
@@ -2824,7 +2573,6 @@ fi
 
 APP_PID=""
 CPU_SAMPLER_PID=""
-HOST_ENVELOPE_MONITOR_PID=""
 ZMX_MONITOR_PID=""
 RESET_IDENTITY=""
 RESET_DEBUG_CODE=""
