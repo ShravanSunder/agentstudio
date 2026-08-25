@@ -42,7 +42,11 @@ import type {
 	WorktreeAnnotationOutputHistorySummary,
 	WorktreeAnnotationThreadContext,
 } from './worktree-annotation-surface-client.js';
-import { WorktreeAnnotationSurfaceProvider } from './worktree-annotation-surface-provider.js';
+import {
+	useWorktreeAnnotationProjection,
+	useWorktreeAnnotationViewedController,
+	WorktreeAnnotationSurfaceProvider,
+} from './worktree-annotation-surface-provider.js';
 
 const handledMessageId = '00000000-0000-7000-8000-000000000081';
 const newMessageId = '00000000-0000-7000-8000-000000000082';
@@ -72,6 +76,58 @@ describe('worktree annotation Share comments integrated surface', () => {
 		await expect.element(rendered.getByText('All (—)')).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
 		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
+	});
+
+	test('preserves All membership but disables output until viewed projection convergence', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(<ShareSurfaceFixture includeViewedControl surface={surface} />);
+		const agentMessage = {
+			...annotationMessage({ messageId: newMessageId, threadId: annotationHeadThreadId }),
+			attentionState: 'new' as const,
+			authorKind: 'agent' as const,
+			sessionRevision: 3,
+		};
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				expectedThreadCount: 1,
+				revision: 3,
+				sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
+			});
+			surface.publishThreadMessages({ context: locatedContext, messages: [agentMessage] });
+			await settleInteraction();
+		});
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Share comments' }).click(),
+		);
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'All comments, 1' }).click(),
+		);
+		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeEnabled();
+
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Mark agent viewed' }).click(),
+		);
+		await settleInteraction();
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentViewed(5);
+			await settleInteraction();
+		});
+		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
+		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
+
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				expectedThreadCount: 1,
+				revision: 4,
+				sessions: [annotationSessionSummary({ revision: 5, sessionId: annotationSessionId })],
+			});
+			surface.publishThreadMessages({
+				context: locatedContext,
+				messages: [{ ...agentMessage, attentionState: 'viewed', sessionRevision: 5 }],
+			});
+			await settleInteraction();
+		});
+		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeEnabled();
 	});
 
 	test.each(['fileView', 'review'] as const)(
@@ -314,6 +370,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 });
 
 function ShareSurfaceFixture(props: {
+	readonly includeViewedControl?: boolean;
 	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient;
 	readonly surface: RecordingAnnotationBrowserSurface;
 }): ReactElement {
@@ -322,11 +379,28 @@ function ShareSurfaceFixture(props: {
 			markdownWorkerClient={props.markdownWorkerClient}
 			surfaceClient={props.surface.client}
 		>
+			{props.includeViewedControl === true ? <ViewedCommandTestControl /> : null}
 			<div data-testid="review-or-file-header">
 				<WorktreeAnnotationShareHeaderControl />
 			</div>
 			<WorktreeAnnotationShareSurface />
 		</WorktreeAnnotationSurfaceProvider>
+	);
+}
+
+function ViewedCommandTestControl(): ReactElement {
+	const projection = useWorktreeAnnotationProjection();
+	const viewedController = useWorktreeAnnotationViewedController();
+	return (
+		<button
+			type="button"
+			onClick={() => {
+				const messages = projection.threads.flatMap((thread) => thread.messages);
+				void viewedController.markMessagesViewed(annotationSessionId, messages);
+			}}
+		>
+			Mark agent viewed
+		</button>
 	);
 }
 

@@ -17,6 +17,7 @@ import {
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionSelection,
 	useWorktreeAnnotationSurfaceClient,
+	useWorktreeAnnotationViewedController,
 } from './worktree-annotation-surface-provider.js';
 
 export function WorktreeAnnotationShareHeaderControl(): ReactElement | null {
@@ -41,6 +42,7 @@ export function WorktreeAnnotationShareSurface(): ReactElement | null {
 	const interaction = useWorktreeAnnotationInteraction();
 	const projection = useWorktreeAnnotationProjection();
 	const selection = useWorktreeAnnotationSessionSelection();
+	const viewedController = useWorktreeAnnotationViewedController();
 	const [error, setError] = useState<string | null>(null);
 	const [isPending, setIsPending] = useState(false);
 	if (interaction.shareMode.kind === 'closed') return null;
@@ -49,6 +51,7 @@ export function WorktreeAnnotationShareSurface(): ReactElement | null {
 			<WorktreeAnnotationShareModeRow
 				error={null}
 				isOutputPending={false}
+				isOutputReady={false}
 				membership={{ kind: 'unknown' }}
 				onCopy={ignoreUnknownOutput}
 				onDone={interaction.closeShareMode}
@@ -69,6 +72,12 @@ export function WorktreeAnnotationShareSurface(): ReactElement | null {
 			thread.messages.some(({ sessionId }) => sessionId === session.sessionId),
 		),
 	});
+	const sessionMessages = projection.threads
+		.flatMap((thread) => thread.messages)
+		.filter((message) => message.sessionId === session.sessionId);
+	const isOutputReady =
+		projection.readStatus.kind === 'ready' &&
+		viewedController.isOutputReady(session.sessionId, session.semanticRevision, sessionMessages);
 	const clearHandled = async (attemptId: string, sessionId: string): Promise<void> => {
 		try {
 			const outcome = await clearWorktreeAnnotationOutputHandled({
@@ -140,6 +149,7 @@ export function WorktreeAnnotationShareSurface(): ReactElement | null {
 			<WorktreeAnnotationShareModeRow
 				error={error}
 				isOutputPending={isPending}
+				isOutputReady={isOutputReady}
 				membership={{ allCount: shared.allCount, kind: 'ready', pendingCount: shared.pendingCount }}
 				onCopy={(scope) => void executeOutput('clipboardMarkdown', scope)}
 				onDone={interaction.closeShareMode}

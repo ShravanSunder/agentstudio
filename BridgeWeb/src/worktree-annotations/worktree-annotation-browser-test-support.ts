@@ -322,6 +322,39 @@ export class RecordingAnnotationBrowserSurface {
 		});
 	}
 
+	settleMostRecentViewed(committedSessionRevision: number): void {
+		const pendingCommand = this.#takeMostRecentPendingAnnotationCommand('message.viewed.mark');
+		if (pendingCommand.operation.kind !== 'message.viewed.mark') {
+			throw new Error('Expected message.viewed.mark.');
+		}
+		const productRequestId = `product-${pendingCommand.requestId}`;
+		this.#publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationCommandAccepted',
+			outcome: {
+				receipt: undefined,
+				requestId: productRequestId,
+				sessionId: pendingCommand.operation.sessionId,
+				status: {
+					kind: 'viewed',
+					results: pendingCommand.operation.items.map((item) => ({
+						committedSessionRevision,
+						disposition: 'changed',
+						kind: 'viewed',
+						messageId: item.messageId,
+						savedRevision: item.expectedSavedRevision,
+					})),
+				},
+				surface: this.client.surface === 'fileView' ? 'file' : 'review',
+			},
+			productRequestId,
+			requestId: pendingCommand.requestId,
+			surface: this.client.surface,
+			transferDescriptors: [],
+			wireVersion: 1,
+		});
+	}
+
 	#messageReceiptForOperation(
 		operation: BridgeProductWorktreeAnnotationOperation,
 	): WorktreeAnnotationCommandOutcome['receipt'] {

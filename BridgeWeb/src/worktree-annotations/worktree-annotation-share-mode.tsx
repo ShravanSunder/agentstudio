@@ -33,6 +33,7 @@ export function WorktreeAnnotationShareTrigger(props: {
 export function WorktreeAnnotationShareModeRow(props: {
 	readonly error: string | null;
 	readonly isOutputPending: boolean;
+	readonly isOutputReady?: boolean | undefined;
 	readonly membership: WorktreeAnnotationShareMembership;
 	readonly onCopy: (scope: WorktreeAnnotationShareScope) => void;
 	readonly onDone: () => void;
@@ -46,7 +47,11 @@ export function WorktreeAnnotationShareModeRow(props: {
 			: props.scope === 'pending'
 				? props.membership.pendingCount
 				: props.membership.allCount;
-	const outputDisabled = displayedCount === null || displayedCount === 0 || props.isOutputPending;
+	const outputDisabled =
+		displayedCount === null ||
+		displayedCount === 0 ||
+		props.isOutputPending ||
+		props.isOutputReady === false;
 	const pendingCountLabel =
 		props.membership.kind === 'unknown' ? 'unknown' : String(props.membership.pendingCount);
 	const allCountLabel =

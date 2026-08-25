@@ -26,6 +26,7 @@ import {
 	useWorktreeAnnotationSessionDemand,
 	useWorktreeAnnotationSessionSelection,
 	useWorktreeAnnotationSurfaceClient,
+	useWorktreeAnnotationViewedController,
 } from './worktree-annotation-surface-provider.js';
 import {
 	annotationRelativeTime,
@@ -57,17 +58,21 @@ export function WorktreeAnnotationThread(
 	props: WorktreeAnnotationThreadProps,
 ): ReactElement | null {
 	const annotationClient = useWorktreeAnnotationSurfaceClient();
+	const viewedController = useWorktreeAnnotationViewedController();
 	const interaction = useWorktreeAnnotationInteraction();
 	const projection = useWorktreeAnnotationProjection();
 	const sessionSelection = useWorktreeAnnotationSessionSelection();
 	const activeNewMessageEditTokens = useWorktreeAnnotationActiveNewMessageEditTokens();
 	const [operationError, setOperationError] = useState<string | null>(null);
 	const threadId = props.thread.context.threadId;
-	const visibleMessages = props.thread.messages.filter(
+	const projectedVisibleMessages = props.thread.messages.filter(
 		(message): boolean =>
 			message.draft?.activeEditToken === null ||
 			message.draft?.activeEditToken === undefined ||
 			!activeNewMessageEditTokens.has(message.draft.activeEditToken),
+	);
+	const visibleMessages = projectedVisibleMessages.map((message) =>
+		viewedController.presentMessage(message),
 	);
 	const firstMessage = visibleMessages[0];
 	const latestMessage = visibleMessages.at(-1);
@@ -102,7 +107,15 @@ export function WorktreeAnnotationThread(
 			return;
 		if (window.getSelection()?.isCollapsed === false) return;
 		event.stopPropagation();
+		void markExposedNewMessagesViewed();
 		interaction.expandThread(threadId, event.currentTarget);
+	};
+	const markExposedNewMessagesViewed = async (): Promise<void> => {
+		if (sessionId === null) return;
+		const result = await viewedController.markMessagesViewed(sessionId, projectedVisibleMessages);
+		if (result.failedGroupCount > 0) {
+			setOperationError('Some new agent comments could not be marked viewed.');
+		}
 	};
 	const setResolution = async (): Promise<void> => {
 		if (!canSetThreadResolution) return;
@@ -156,7 +169,10 @@ export function WorktreeAnnotationThread(
 			onClick={(event) => {
 				activateRange();
 				if (isExpanded) void interaction.collapseThread();
-				else interaction.expandThread(threadId, event.currentTarget);
+				else {
+					void markExposedNewMessagesViewed();
+					interaction.expandThread(threadId, event.currentTarget);
+				}
 			}}
 		>
 			<ChevronDown
@@ -206,6 +222,22 @@ export function WorktreeAnnotationThread(
 				editToken={messageEditor?.editToken ?? null}
 				isEditing={messageEditor !== null}
 				message={message}
+				onActivate={() => {
+					activateRange();
+					if (message.authorKind === 'agent') {
+						void viewedController
+							.markMessagesViewed(message.sessionId, [
+								projectedVisibleMessages.find(
+									(candidate) => candidate.messageId === message.messageId,
+								) ?? message,
+							])
+							.then((result) => {
+								if (result.failedGroupCount > 0) {
+									setOperationError('The agent comment could not be marked viewed.');
+								}
+							});
+					}
+				}}
 				onBeginEdit={(invoker) =>
 					interaction.shareMode.kind === 'open'
 						? activateRange()

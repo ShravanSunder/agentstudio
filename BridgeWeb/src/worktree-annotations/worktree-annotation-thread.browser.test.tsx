@@ -71,11 +71,33 @@ describe('worktree annotation inline thread', () => {
 		expect(newStatus.element().className).toContain('text-primary');
 		expect(rendered.getByRole('button', { name: 'Edit annotation' }).all()).toHaveLength(0);
 		await expect.element(rendered.getByRole('button', { name: 'Reply to thread' })).toBeVisible();
+		const agentMessageSurface = rendered.getByText('Agent response.').element();
+		agentMessageSurface.focus();
+		expect(
+			surface.sentOperations.filter((operation) => operation.kind === 'message.viewed.mark'),
+		).toHaveLength(0);
 		await rendered.getByText('Agent response.').click();
 		expect(document.querySelector('[aria-label="Annotation Markdown"]')).toBeNull();
 		expect(
 			surface.sentOperations.some((operation) => operation.kind === 'draft.edit.acquire'),
 		).toBe(false);
+		await settleBrowserCondition(
+			(): boolean =>
+				surface.sentOperations.some((operation) => operation.kind === 'message.viewed.mark'),
+			'Expected deliberate agent message activation to issue message.viewed.mark.',
+		);
+		expect(
+			surface.sentOperations.find((operation) => operation.kind === 'message.viewed.mark'),
+		).toEqual({
+			items: [{ expectedSavedRevision: 1, messageId: rootMessageId }],
+			kind: 'message.viewed.mark',
+			sessionId: annotationSessionId,
+		});
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentViewed(2);
+			await Promise.resolve();
+		});
+		expect(rendered.getByTestId('worktree-annotation-message-new-status').all()).toHaveLength(0);
 	});
 
 	test('renders summary plus latest collapsed and every message once when expanded inline', async () => {
@@ -161,6 +183,15 @@ describe('worktree annotation inline thread', () => {
 			rendered.getByTestId('worktree-annotation-thread-history').element(),
 			'Expected New/Pending thread expansion motion to settle.',
 		);
+		expect(
+			surface.sentOperations.filter((operation) => operation.kind === 'message.viewed.mark'),
+		).toEqual([
+			{
+				items: [{ expectedSavedRevision: 1, messageId: replyMessageId }],
+				kind: 'message.viewed.mark',
+				sessionId: annotationSessionId,
+			},
+		]);
 		await expect.element(rendered.getByText('Human pending.')).toBeVisible();
 		await expect.element(rendered.getByText('Agent new.')).toBeVisible();
 		expect(rendered.getByTestId('worktree-annotation-message-pending-status').all()).toHaveLength(

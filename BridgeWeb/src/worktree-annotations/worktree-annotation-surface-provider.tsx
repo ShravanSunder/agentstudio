@@ -26,6 +26,7 @@ import {
 	type WorktreeAnnotationProjectionSnapshot,
 	type WorktreeAnnotationSurfaceClient,
 } from './worktree-annotation-surface-client.js';
+import { WorktreeAnnotationViewedController } from './worktree-annotation-viewed-controller.js';
 
 const worktreeAnnotationSurfaceClientContext =
 	createContext<WorktreeAnnotationSurfaceClient | null>(null);
@@ -35,6 +36,8 @@ const worktreeAnnotationSessionSelectionContext =
 	createContext<WorktreeAnnotationSessionSelection | null>(null);
 const worktreeAnnotationEditSurfaceRegistryContext =
 	createContext<WorktreeAnnotationEditSurfaceRegistry | null>(null);
+const worktreeAnnotationViewedControllerContext =
+	createContext<WorktreeAnnotationViewedController | null>(null);
 
 export interface WorktreeAnnotationSessionCapabilities {
 	readonly canCreateAnnotations: boolean;
@@ -89,6 +92,11 @@ export function WorktreeAnnotationSurfaceProvider(
 		annotationClient.subscribe,
 		annotationClient.getSnapshot,
 		annotationClient.getServerSnapshot,
+	);
+	const viewedController = useMemo(
+		() =>
+			new WorktreeAnnotationViewedController((operation) => annotationClient.execute(operation)),
+		[annotationClient],
 	);
 	const subscribeToInstalledReviewPublication = useCallback(
 		(listener: () => void): (() => void) =>
@@ -301,7 +309,13 @@ export function WorktreeAnnotationSurfaceProvider(
 			releaseEditWhenInactive,
 		],
 	);
-	useEffect((): (() => void) => (): void => annotationClient.dispose(), [annotationClient]);
+	useEffect(
+		(): (() => void) => (): void => {
+			viewedController.dispose();
+			annotationClient.dispose();
+		},
+		[annotationClient, viewedController],
+	);
 	useEffect((): void => {
 		if (installedPublicationKey === null) return;
 		void annotationClient.execute({ kind: 'session.discover' }).catch((): void => {});
@@ -309,14 +323,17 @@ export function WorktreeAnnotationSurfaceProvider(
 	return (
 		<worktreeAnnotationMarkdownClientContext.Provider value={props.markdownWorkerClient ?? null}>
 			<worktreeAnnotationSurfaceClientContext.Provider value={annotationClient}>
-				<WorktreeAnnotationInteractionProvider>
-					<worktreeAnnotationEditSurfaceRegistryContext.Provider value={editSurfaceRegistry}>
-						<worktreeAnnotationSessionSelectionContext.Provider value={sessionSelection}>
-							{props.children}
-							<WorktreeAnnotationThreadExpansionReconciler />
-						</worktreeAnnotationSessionSelectionContext.Provider>
-					</worktreeAnnotationEditSurfaceRegistryContext.Provider>
-				</WorktreeAnnotationInteractionProvider>
+				<worktreeAnnotationViewedControllerContext.Provider value={viewedController}>
+					<WorktreeAnnotationInteractionProvider>
+						<worktreeAnnotationEditSurfaceRegistryContext.Provider value={editSurfaceRegistry}>
+							<worktreeAnnotationSessionSelectionContext.Provider value={sessionSelection}>
+								{props.children}
+								<WorktreeAnnotationThreadExpansionReconciler />
+								<WorktreeAnnotationViewedProjectionReconciler />
+							</worktreeAnnotationSessionSelectionContext.Provider>
+						</worktreeAnnotationEditSurfaceRegistryContext.Provider>
+					</WorktreeAnnotationInteractionProvider>
+				</worktreeAnnotationViewedControllerContext.Provider>
 			</worktreeAnnotationSurfaceClientContext.Provider>
 		</worktreeAnnotationMarkdownClientContext.Provider>
 	);
@@ -351,6 +368,21 @@ function WorktreeAnnotationThreadExpansionReconciler(): null {
 	return null;
 }
 
+function WorktreeAnnotationViewedProjectionReconciler(): null {
+	const projection = useWorktreeAnnotationProjection();
+	const viewedController = useWorktreeAnnotationViewedController();
+	useLayoutEffect((): void => {
+		for (const session of projection.sessions) {
+			viewedController.reconcileProjection(
+				session.sessionId,
+				session.semanticRevision,
+				projection.threads.flatMap((thread) => thread.messages),
+			);
+		}
+	}, [projection.sessions, projection.threads, viewedController]);
+	return null;
+}
+
 export function useWorktreeAnnotationMarkdownClient(): BridgeMarkdownRenderWorkerClient | null {
 	return useContext(worktreeAnnotationMarkdownClientContext);
 }
@@ -372,6 +404,19 @@ export function useWorktreeAnnotationSessionSelection(): WorktreeAnnotationSessi
 }
 
 export { useWorktreeAnnotationInteraction };
+
+export function useWorktreeAnnotationViewedController(): WorktreeAnnotationViewedController {
+	const controller = useContext(worktreeAnnotationViewedControllerContext);
+	useSyncExternalStore(
+		controller?.subscribe ?? noAnnotationProjectionSubscription,
+		controller?.getSnapshot ?? zeroViewedRevision,
+		controller?.getSnapshot ?? zeroViewedRevision,
+	);
+	if (controller === null) {
+		throw new Error('Worktree annotation viewed state requires a surface provider.');
+	}
+	return controller;
+}
 
 export function useWorktreeAnnotationActiveEditTokens(): ReadonlySet<string> {
 	return (
@@ -428,6 +473,10 @@ function noAnnotationProjectionSubscription(): () => void {
 
 function emptyAnnotationProjectionSnapshot(): WorktreeAnnotationProjectionSnapshot {
 	return emptyWorktreeAnnotationProjectionSnapshot;
+}
+
+function zeroViewedRevision(): number {
+	return 0;
 }
 
 const emptyEditTokens: ReadonlySet<string> = new Set<string>();

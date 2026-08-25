@@ -51,6 +51,7 @@ export interface WorktreeAnnotationMessageEditorProps {
 	readonly editToken: string | null;
 	readonly isEditing: boolean;
 	readonly message: WorktreeAnnotationMessageEntry;
+	readonly onActivate?: (() => void) | undefined;
 	readonly onBeginEdit: (invoker: HTMLElement) => void;
 	readonly onFinishEdit: () => void;
 	readonly ordinal: number;
@@ -209,13 +210,15 @@ export function WorktreeAnnotationMessageEditor(
 	const messageCanBeginEditing =
 		props.canEdit && props.message.authorKind === 'human' && props.message.status === 'editable';
 	const beginEditingFromBody = (event: ReactMouseEvent<HTMLDivElement>): void => {
-		if (!messageCanBeginEditing || props.isEditing) return;
+		if (props.message.authorKind === 'agent') props.onActivate?.();
 		if (
 			event.target instanceof Element &&
 			event.target.closest('a, button, input, select, textarea, [role="button"]') !== null
 		)
 			return;
 		if (window.getSelection()?.isCollapsed === false) return;
+		if (props.message.authorKind === 'human') props.onActivate?.();
+		if (!messageCanBeginEditing || props.isEditing) return;
 		props.onBeginEdit(event.currentTarget);
 	};
 	const registerExitHandler = props.registerExitHandler;
