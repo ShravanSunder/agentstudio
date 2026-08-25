@@ -39,6 +39,7 @@ enum BridgeProductStrictJSON {
             "aggregateSha256",
             "attempt",
             "attemptId",
+            "attentionState",
             "authority",
             "authorKind",
             "authoredAt",

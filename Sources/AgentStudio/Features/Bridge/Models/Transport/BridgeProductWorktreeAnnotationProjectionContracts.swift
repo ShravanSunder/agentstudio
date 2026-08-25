@@ -600,6 +600,7 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
     }
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case attentionState
         case authorKind
         case createdAtUnixMilliseconds
         case draft
@@ -616,7 +617,8 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
         case threadRevision
     }
 
-    let authorKind: String
+    let attentionState: WorktreeAnnotationAttentionState
+    let authorKind: WorktreeAnnotationAuthorKind
     let createdAt: Date
     let draft: DraftEntry?
     let handled: Bool
@@ -636,7 +638,9 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
         session: WorktreeAnnotationSession,
         thread: WorktreeAnnotationThread
     ) throws {
-        authorKind = "human"
+        let newPendingProjection = try message.projectNewPendingState()
+        attentionState = newPendingProjection.attentionState
+        authorKind = message.authorKind
         createdAt = message.createdAt
         draft = message.draft.map {
             DraftEntry(activeEditToken: $0.activeEditToken, body: $0.body, revision: $0.draftRevision)
@@ -662,13 +666,8 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
     init(from decoder: Decoder) throws {
         try rejectAnnotationProjectionUnknownKeys(decoder, keys: CodingKeys.allCases)
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        authorKind = try container.decode(String.self, forKey: .authorKind)
-        guard authorKind == "human" else {
-            throw BridgeProductContractDecoding.invalidValue(
-                "Annotation message author must be human",
-                codingPath: decoder.codingPath
-            )
-        }
+        attentionState = try container.decode(WorktreeAnnotationAttentionState.self, forKey: .attentionState)
+        authorKind = try container.decode(WorktreeAnnotationAuthorKind.self, forKey: .authorKind)
         createdAt = annotationDateFromUnixMilliseconds(
             try container.decode(Int64.self, forKey: .createdAtUnixMilliseconds)
         )
@@ -710,10 +709,51 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
                 codingPath: decoder.codingPath
             )
         }
+        let projectedViewedSavedRevision: Int? =
+            attentionState == .viewed ? savedRevision : nil
+        let decodedMessage = WorktreeAnnotationMessage(
+            id: .init(rawValue: messageId),
+            threadID: .init(rawValue: threadId),
+            ordinal: ordinal,
+            semanticRevision: messageRevision,
+            createdAt: createdAt,
+            updatedAt: createdAt,
+            savedBody: savedBody,
+            savedRevision: savedRevision,
+            draft: draft.map {
+                WorktreeAnnotationDraft(
+                    messageID: .init(rawValue: messageId),
+                    activeEditToken: $0.activeEditToken,
+                    body: $0.body,
+                    draftRevision: $0.revision,
+                    updatedAt: createdAt
+                )
+            },
+            handled: handled,
+            status: status,
+            authorKind: authorKind,
+            viewedSavedRevision: projectedViewedSavedRevision
+        )
+        let projection: WorktreeAnnotationMessageNewPendingProjection
+        do {
+            projection = try decodedMessage.projectNewPendingState()
+        } catch {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Annotation message author and attention state are invalid",
+                codingPath: decoder.codingPath
+            )
+        }
+        guard projection.attentionState == attentionState else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Annotation message author and attention state are invalid",
+                codingPath: decoder.codingPath
+            )
+        }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(attentionState, forKey: .attentionState)
         try container.encode(authorKind, forKey: .authorKind)
         try container.encode(
             annotationUnixMilliseconds(createdAt),

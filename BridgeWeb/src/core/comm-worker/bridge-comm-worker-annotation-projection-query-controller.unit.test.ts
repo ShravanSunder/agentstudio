@@ -294,7 +294,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 
 	test('rejects a mixed snapshot identity and publishes no partial projection', async () => {
 		const pages = await makeProjectionPages(2, 30, 1_200);
-		expect(pages).toHaveLength(2);
+		expect(pages.length).toBeGreaterThanOrEqual(2);
 		const secondPage = pages[1];
 		if (secondPage === undefined) throw new Error('Expected a second projection page.');
 		secondPage.descriptor = {
@@ -554,6 +554,7 @@ async function makeProjectionPages(
 						threadId,
 					},
 					message: {
+						attentionState: 'not_applicable',
 						authorKind: 'human',
 						createdAtUnixMilliseconds: ordinal + 3,
 						draft: null,

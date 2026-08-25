@@ -233,7 +233,8 @@ const annotationMessageDraftSchema = z
 	.strict();
 
 const annotationMessageEntryShape = {
-	authorKind: z.literal('human'),
+	attentionState: z.enum(['not_applicable', 'new', 'viewed']),
+	authorKind: z.enum(['human', 'agent']),
 	draft: annotationMessageDraftSchema.nullable(),
 	handled: z.boolean(),
 	messageId: bridgeProductReviewPublicationIdSchema,
@@ -279,6 +280,43 @@ export const bridgeProductWorktreeAnnotationDecodedMessageEntrySchema = z
 				message: 'A locked message cannot retain a working draft.',
 				path: ['draft'],
 			});
+		}
+		if (message.authorKind === 'human' && message.attentionState !== 'not_applicable') {
+			context.addIssue({
+				code: 'custom',
+				message: 'Human annotation messages cannot carry agent attention state.',
+				path: ['attentionState'],
+			});
+		}
+		if (message.authorKind === 'agent') {
+			if (message.attentionState === 'not_applicable') {
+				context.addIssue({
+					code: 'custom',
+					message: 'Agent annotation messages require New or viewed attention state.',
+					path: ['attentionState'],
+				});
+			}
+			if (message.draft !== null) {
+				context.addIssue({
+					code: 'custom',
+					message: 'Agent annotation messages cannot retain a working draft.',
+					path: ['draft'],
+				});
+			}
+			if (message.handled) {
+				context.addIssue({
+					code: 'custom',
+					message: 'Agent annotation messages cannot be handled.',
+					path: ['handled'],
+				});
+			}
+			if (message.savedBody === null || message.savedRevision === null) {
+				context.addIssue({
+					code: 'custom',
+					message: 'Agent annotation messages require a current saved revision.',
+					path: ['savedRevision'],
+				});
+			}
 		}
 	});
 

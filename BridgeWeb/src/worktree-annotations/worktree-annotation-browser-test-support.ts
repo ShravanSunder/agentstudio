@@ -722,6 +722,7 @@ export function annotationMessage(props: {
 	readonly threadRevision?: number;
 }): WorktreeAnnotationMessageEntry {
 	return {
+		attentionState: 'not_applicable',
 		authorKind: 'human',
 		createdAt: props.ordinal ?? 0,
 		draft: null,

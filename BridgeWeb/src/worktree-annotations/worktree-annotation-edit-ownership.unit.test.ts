@@ -155,6 +155,7 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 
 function messageWithDraft(activeEditToken: string | null): WorktreeAnnotationMessageEntry {
 	return {
+		attentionState: 'not_applicable',
 		authorKind: 'human',
 		createdAt: 1,
 		draft: { activeEditToken, body: 'Draft body', revision: 1 },

@@ -73,6 +73,7 @@ describe('Bridge product worktree annotation contracts', () => {
 		const messageId = '01890abc-def0-7abc-8def-012345678901';
 		const threadId = '01890abc-def0-7abc-8def-012345678902';
 		const baseMessage = {
+			attentionState: 'not_applicable',
 			authorKind: 'human',
 			createdAtUnixMilliseconds: 1,
 			messageId,
@@ -101,8 +102,23 @@ describe('Bridge product worktree annotation contracts', () => {
 			...savedMessage,
 			draft: { activeEditToken: null, body: '', revision: 2 },
 		} as const;
+		const newAgentMessage = {
+			...savedMessage,
+			attentionState: 'new',
+			authorKind: 'agent',
+		} as const;
+		const viewedAgentMessage = {
+			...newAgentMessage,
+			attentionState: 'viewed',
+		} as const;
 
-		for (const message of [neverSavedDraft, savedMessage, savedMessageWithEmptyDraft]) {
+		for (const message of [
+			neverSavedDraft,
+			savedMessage,
+			savedMessageWithEmptyDraft,
+			newAgentMessage,
+			viewedAgentMessage,
+		]) {
 			const { createdAtUnixMilliseconds, ...messageWithoutWireTimestamp } = message;
 			expect(bridgeProductWorktreeAnnotationMessageEntrySchema.parse(message)).toEqual({
 				...messageWithoutWireTimestamp,
@@ -120,6 +136,14 @@ describe('Bridge product worktree annotation contracts', () => {
 			{ ...savedMessage, createdAtUnixMilliseconds: undefined, createdAt: 1 },
 			{ ...savedMessage, savedRevision: undefined },
 			{ ...savedMessage, handled: undefined },
+			{ ...savedMessage, attentionState: undefined },
+			{ ...savedMessage, attentionState: 'new' },
+			{ ...savedMessage, authorKind: 'agent', attentionState: 'not_applicable' },
+			{ ...newAgentMessage, authorKind: 'robot' },
+			{ ...newAgentMessage, attentionState: 'unread' },
+			{ ...newAgentMessage, draft: savedMessageWithEmptyDraft.draft },
+			{ ...newAgentMessage, handled: true },
+			{ ...newAgentMessage, savedBody: null, savedRevision: null },
 		] as const) {
 			expect(bridgeProductWorktreeAnnotationMessageEntrySchema.safeParse(rejected).success).toBe(
 				false,

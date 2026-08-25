@@ -443,6 +443,7 @@ function projectionSnapshot(
 				},
 				messages: [
 					{
+						attentionState: 'not_applicable',
 						authorKind: 'human',
 						createdAt: 2,
 						draft: null,
