@@ -331,3 +331,14 @@ in comparison refresh.
   removal from a same-thread summary click. Removing Textarea blur as a
   lifecycle owner made the composer, expanded state, and exact root/latest DOM
   nodes remain stable; the focused inline-shell suite passed 9/9.
+- 2026-08-25: post-checkpoint Computer Use proof on the populated real-Pierre
+  Vite surface tested message content, the thread summary, painted padding, and
+  outside code separately. Summary and painted-padding clicks retained the
+  Reply composer and expanded chronology; an outside-code click exited and
+  collapsed as designed. A message-body click deliberately replaced Reply with
+  the saved-message editor, which explains the first operator's ambiguous
+  coordinate observation.
+- 2026-08-25: live Cmd+Enter reached `Saving draft…` and then reported
+  `Bridge comm worker failed to forward review.annotations.command.` while
+  retaining the draft. That is a transport/backend failure and is not part of
+  this UI interaction fix.
