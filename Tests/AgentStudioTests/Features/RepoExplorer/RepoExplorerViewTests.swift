@@ -40,18 +40,22 @@ struct RepoExplorerViewTests {
         #expect(sharedChipsSource.contains("SidebarPullRequestChipSpec.chip(count:"))
     }
 
-    @Test("grouping control preserves the compact v0.0.88 popover presentation")
-    func groupingControlPreservesCompactPopoverPresentation() throws {
+    @Test("selected grouping segment icon call site passes the accent foregroundOverride")
+    func selectedGroupingSegmentIconUsesAccentOverride() throws {
         let source = try String(
             contentsOfFile:
                 "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift",
             encoding: .utf8
         )
-        #expect(source.contains("SidebarToolbarGroupingButton("))
-        #expect(source.contains("SidebarGroupingPopover("))
-        #expect(source.contains("selectionLabel: repoExplorerPrefs.groupingMode.title"))
-        #expect(!source.contains("SidebarToolbarSegmentedControl("))
-        #expect(!source.contains("foregroundOverride:"))
+        let iconClosureStart = try #require(source.range(of: "icon: { groupingMode in"))
+        let iconClosureEnd = try #require(
+            source.range(of: "},", range: iconClosureStart.upperBound..<source.endIndex))
+        let iconClosureSource = String(source[iconClosureStart.lowerBound..<iconClosureEnd.lowerBound])
+
+        #expect(iconClosureSource.contains("groupingMode == repoExplorerPrefs.groupingMode"))
+        #expect(iconClosureSource.contains("foregroundOverride:"))
+        #expect(iconClosureSource.contains("AppStyles.General.Accent.primaryColor"))
+        #expect(!iconClosureSource.contains(".foregroundStyle("))
     }
 
     @Test("flat list entries expand a resolved group into header and child rows")

@@ -13,7 +13,6 @@ package typealias LatestPaneMessageSnapshot =
 
 enum RepoSidebarToolbarTooltipTarget: Hashable {
     case sort
-    case grouping
 }
 
 /// Sidebar chrome and interaction wiring around the persistent native presentation host.
@@ -114,7 +113,6 @@ package struct RepoExplorerView: View {
 
     @State private var filterText = ""
     @State private var debouncedQuery = ""
-    @State var groupingMenuOpen = false
     @State private var hasReportedInitialProjection = false
     @State private var hoveredTooltipTarget: RepoSidebarToolbarTooltipTarget?
     @State private var tooltipFrames: [RepoSidebarToolbarTooltipTarget: CGRect] = [:]
@@ -251,7 +249,7 @@ package struct RepoExplorerView: View {
         .overlay(alignment: .topLeading) {
             GeometryReader { geometryProxy in
                 FloatingHoverTooltipPresenter(
-                    activeTarget: activeTooltipTarget,
+                    activeTarget: hoveredTooltipTarget,
                     anchorFrames: tooltipFrames,
                     availableWidth: geometryProxy.size.width,
                     verticalAnchor: .aboveAnchor,
@@ -272,10 +270,6 @@ package struct RepoExplorerView: View {
         )
     }
 
-    private var activeTooltipTarget: RepoSidebarToolbarTooltipTarget? {
-        groupingMenuOpen ? nil : hoveredTooltipTarget
-    }
-
     func updateTooltipTarget(_ target: RepoSidebarToolbarTooltipTarget, isHovered: Bool) {
         withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
             hoveredTooltipTarget = isHovered ? target : nil
@@ -287,11 +281,6 @@ package struct RepoExplorerView: View {
         case .sort:
             AppCommand.setRepoSidebarSortOrder.definition.controlTooltipRenderValue(
                 textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
-            )
-        case .grouping:
-            LocalActionSpec.groupRepoExplorerWorktrees.actionSpec.controlTooltipRenderValue(
-                provenance: .localAction(rawValue: "groupRepoExplorerWorktrees"),
-                textOverride: "Group"
             )
         }
     }
