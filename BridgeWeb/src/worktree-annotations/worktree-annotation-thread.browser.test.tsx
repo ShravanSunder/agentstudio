@@ -27,6 +27,7 @@ import {
 	secondReplyMessageId,
 	secondRootMessageId,
 	settleBrowserCondition,
+	settleThreadMotion,
 	thirdReplyMessageId,
 } from './worktree-annotation-thread.browser.test-support.js';
 
@@ -156,6 +157,10 @@ describe('worktree annotation inline thread', () => {
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Expand 2 messages' }).click();
 		});
+		await settleThreadMotion(
+			rendered.getByTestId('worktree-annotation-thread-history').element(),
+			'Expected New/Pending thread expansion motion to settle.',
+		);
 		await expect.element(rendered.getByText('Human pending.')).toBeVisible();
 		await expect.element(rendered.getByText('Agent new.')).toBeVisible();
 		expect(rendered.getByTestId('worktree-annotation-message-pending-status').all()).toHaveLength(

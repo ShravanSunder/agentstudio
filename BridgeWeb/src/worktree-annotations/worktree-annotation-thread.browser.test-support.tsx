@@ -165,6 +165,25 @@ export async function settleBrowserCondition(
 	await settleBrowserCondition(predicate, failureMessage, remainingFrames - 1);
 }
 
+export async function settleThreadMotion(panel: Element, failureMessage: string): Promise<void> {
+	await settleBrowserCondition(
+		(): boolean => !panel.hasAttribute('data-starting-style'),
+		failureMessage,
+	);
+	await act(async (): Promise<void> => {
+		await Promise.all(
+			panel.getAnimations({ subtree: true }).map(async (animation): Promise<void> => {
+				try {
+					await animation.finished;
+				} catch {
+					// Reversing an in-flight transition cancels its predecessor.
+				}
+			}),
+		);
+		await Promise.resolve();
+	});
+}
+
 export function createDeferred<TValue>(): {
 	readonly promise: Promise<TValue>;
 	readonly reject: (error: Error) => void;
