@@ -8,7 +8,7 @@ export const marketingCopy = {
     headlineSetupSecondAccent: "workspace.",
     headlinePayoff: "Stay oriented. Miss nothing.",
     description:
-      "Agent Studio is a native macOS workspace for coding agents, with your repositories and worktrees within reach. Your agents run in Ghostty terminals with files, diffs, and annotations right beside them.",
+      "Agent Studio is a native macOS workspace for coding agents, with your repositories and worktrees within reach. Your agents run in Ghostty terminals with files and diffs right beside them.",
   },
   switcher: {
     eyebrow: "Organized parallelism",
@@ -55,12 +55,12 @@ export const marketingCopy = {
         "Agent Studio Files showing a source file beside its repository tree, with Review available as the adjacent tab and the global sidebar hidden.",
     },
     review: {
-      label: "Files & Review",
+      label: "Review",
       description:
-        "Browse your repository and review every changed file without leaving the task you're working on.",
-      phoneDescription: "Browse files and review changes beside your task.",
+        "Review every changed file in one continuous diff, with the Changed Files tree beside it.",
+      phoneDescription: "Browse changed files beside the diff.",
       imageDescription:
-        "Agent Studio Review showing an AGENTS.md diff and its Changed Files tree, with Files available as the adjacent tab and the global sidebar hidden.",
+        "Agent Studio Review showing an AGENTS.md diff and its Changed Files tree, with the global sidebar hidden.",
     },
     gitContext: {
       label: "Git and PR context",

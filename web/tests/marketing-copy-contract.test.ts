@@ -12,7 +12,7 @@ describe("marketing copy", () => {
       headlineSetupSecondAccent: "workspace.",
       headlinePayoff: "Stay oriented. Miss nothing.",
       description:
-        "Agent Studio is a native macOS workspace for coding agents, with your repositories and worktrees within reach. Your agents run in Ghostty terminals with files, diffs, and annotations right beside them.",
+        "Agent Studio is a native macOS workspace for coding agents, with your repositories and worktrees within reach. Your agents run in Ghostty terminals with files and diffs right beside them.",
     });
 
     expect(marketingCopy.hero.headlineSetupFirst).toBe("Run dozens of agents");
