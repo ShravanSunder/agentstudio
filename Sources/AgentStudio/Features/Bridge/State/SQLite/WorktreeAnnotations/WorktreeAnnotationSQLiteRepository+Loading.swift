@@ -493,8 +493,8 @@ extension WorktreeAnnotationSQLiteRepository {
             sql: "SELECT * FROM annotation_message_draft WHERE message_id = ?",
             arguments: [messageID.databaseValue]
         )
-        let authorKind: String = row["author_kind"]
-        guard authorKind == "human" else { throw WorktreeAnnotationRepositoryError.invalidState }
+        let authorKind: WorktreeAnnotationAuthorKind = try decodeRawValue(row["author_kind"] as String)
+        let viewedSavedRevision: Int? = row["viewed_saved_revision"]
         let savedBody: String? = row["saved_body"]
         let savedRevision: Int? = row["saved_revision"]
         guard (savedBody == nil) == (savedRevision == nil), savedRevision.map({ $0 > 0 }) ?? true else {
@@ -514,9 +514,9 @@ extension WorktreeAnnotationSQLiteRepository {
             )
         }
         guard savedBody != nil || draft != nil else { throw WorktreeAnnotationRepositoryError.invalidState }
-        return try WorktreeAnnotationMessage(
+        let message = WorktreeAnnotationMessage(
             id: messageID,
-            threadID: decodeIdentity(row["thread_id"] as String),
+            threadID: try decodeIdentity(row["thread_id"] as String),
             ordinal: row["ordinal"],
             semanticRevision: row["semantic_revision"],
             createdAt: Date(timeIntervalSince1970: row["created_at"]),
@@ -525,8 +525,16 @@ extension WorktreeAnnotationSQLiteRepository {
             savedRevision: savedRevision,
             draft: draft,
             handled: row["handled"],
-            status: decodeRawValue(row["status"] as String)
+            status: try decodeRawValue(row["status"] as String),
+            authorKind: authorKind,
+            viewedSavedRevision: viewedSavedRevision
         )
+        do {
+            _ = try message.projectNewPendingState()
+        } catch {
+            throw WorktreeAnnotationRepositoryError.invalidState
+        }
+        return message
     }
 
     func decodeIdentity<TIdentityScope>(_ value: String) throws -> WorktreeAnnotationIdentity<TIdentityScope> {
