@@ -111,11 +111,11 @@ interface WorktreeAnnotationSurfaceCardProps {
 function WorktreeAnnotationSurfaceCard(props: WorktreeAnnotationSurfaceCardProps): ReactElement {
 	return (
 		<div className="relative mt-1 min-h-20 min-w-0 overflow-hidden rounded-2xl border border-comment-border bg-comment-surface text-comment-foreground transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50">
-			<div className="min-w-0 p-2.5 pr-8">{props.children}</div>
+			<div className="min-w-0 p-2 pr-10">{props.children}</div>
 			{props.commands === undefined ? null : (
 				<div
 					aria-label="Comment commands"
-					className="absolute right-2 bottom-2 flex flex-col items-center gap-0.5"
+					className="absolute right-2 bottom-2 flex flex-col items-center gap-2"
 				>
 					{props.commands}
 				</div>

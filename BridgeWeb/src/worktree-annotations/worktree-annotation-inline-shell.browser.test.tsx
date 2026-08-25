@@ -92,6 +92,16 @@ describe('worktree annotation inline shell', () => {
 		}
 		const latestCommandRailBounds = latestCommandRail.getBoundingClientRect();
 		const latestCardBounds = latestCard.getBoundingClientRect();
+		const latestCardContent = latestCard.firstElementChild;
+		if (!(latestCardContent instanceof HTMLElement)) {
+			throw new Error('Expected the latest message card content inset owner.');
+		}
+		const commandButtons = [...latestCommandRail.querySelectorAll<HTMLElement>('button')];
+		const topCommandBounds = commandButtons[0]?.getBoundingClientRect();
+		const bottomCommandBounds = commandButtons[1]?.getBoundingClientRect();
+		if (topCommandBounds === undefined || bottomCommandBounds === undefined) {
+			throw new Error('Expected two stacked latest-message commands.');
+		}
 		const expandedThreadBounds = thread.getBoundingClientRect();
 		expect(latestCommandRailBounds.top).toBeGreaterThanOrEqual(latestCardBounds.top);
 		expect(latestCommandRailBounds.bottom).toBeLessThanOrEqual(latestCardBounds.bottom);
@@ -99,6 +109,10 @@ describe('worktree annotation inline shell', () => {
 		expect(latestCardBounds.bottom - latestCommandRailBounds.bottom).toBeCloseTo(9, 1);
 		expect(latestCommandRail.classList).toContain('right-2');
 		expect(latestCommandRail.classList).toContain('bottom-2');
+		expect(latestCommandRail.classList).toContain('gap-2');
+		expect(bottomCommandBounds.top - topCommandBounds.bottom).toBeCloseTo(8, 1);
+		expect(latestCardContent.classList).toContain('p-2');
+		expect(latestCardContent.classList).toContain('pr-10');
 		expect(expandedThreadBounds.right - latestCardBounds.right).toBeCloseTo(36, 1);
 		expect(expandedThreadBounds.bottom - latestCardBounds.bottom).toBeCloseTo(36, 1);
 		expect(compactThread.getBoundingClientRect().height).toBeGreaterThan(compactThreadHeight);
