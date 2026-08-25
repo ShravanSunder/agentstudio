@@ -72,7 +72,7 @@ struct RepoExplorerPaneRowContent: View {
                 )
                 .frame(
                     width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
-                    alignment: .trailing
+                    alignment: .leading
                 )
                 Text(primaryText)
                     .font(.system(size: AppStyles.General.Typography.textBase, weight: .semibold))

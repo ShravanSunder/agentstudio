@@ -142,7 +142,7 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
             requiresVisibleWidthMeasurement = false
         case .loadingRepository(_, _, _, let isStatusUnavailable):
             rowClass = .loadingRepository
-            leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset
+            leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
             trailingInset = AppStyles.General.Spacing.loose
             minimumLineCount = 1
             fallbackMetadataLineCount = isStatusUnavailable ? 1 : 0
@@ -158,7 +158,7 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
             requiresVisibleWidthMeasurement = false
         case .worktree(let worktree):
             rowClass = .worktree
-            leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset
+            leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
             trailingInset = 0
             minimumLineCount = 2
             fallbackMetadataLineCount = worktree.placementText.isEmpty ? 1 : 2
@@ -169,7 +169,7 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
             requiresVisibleWidthMeasurement = false
         case .pane(let pane):
             rowClass = .pane
-            leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset
+            leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
             trailingInset = 0
             minimumLineCount = 2
             fallbackMetadataLineCount =
@@ -179,7 +179,7 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
             requiresVisibleWidthMeasurement = false
         case .unassociatedPane(let pane):
             rowClass = .pane
-            leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset
+            leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
             trailingInset = 0
             minimumLineCount = 2
             fallbackMetadataLineCount = pane.secondaryLine == nil ? 0 : 1
@@ -187,7 +187,7 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
             requiresVisibleWidthMeasurement = false
         case .topologyFault, .unresolved:
             rowClass = .fault
-            leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset
+            leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
             trailingInset = AppStyles.General.Spacing.standard
             minimumLineCount = 2
             fallbackMetadataLineCount = 2

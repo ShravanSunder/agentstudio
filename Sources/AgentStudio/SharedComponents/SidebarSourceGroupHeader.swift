@@ -46,7 +46,7 @@ package struct SidebarSourceGroupHeader<TrailingContent: View>: View {
                     headerIcon
                         .frame(
                             width: AppStyles.Shell.Sidebar.groupIconColumnWidth,
-                            alignment: .trailing
+                            alignment: .leading
                         )
 
                     HStack(spacing: AppStyles.Shell.Sidebar.groupTitleSpacing) {

@@ -71,7 +71,7 @@ struct RepoExplorerWorktreeRowContent: View {
         VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                 checkoutTypeIcon
-                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .trailing)
+                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
 
                 Text(checkoutTitle)
                     .font(

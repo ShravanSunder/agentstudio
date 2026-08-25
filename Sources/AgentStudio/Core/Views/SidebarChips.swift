@@ -120,7 +120,7 @@ extension View {
                     SidebarPendingPullRequestIndicator()
                         .frame(
                             width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
-                            alignment: .trailing
+                            alignment: .leading
                         )
                         .offset(
                             x:

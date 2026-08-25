@@ -525,7 +525,8 @@ struct RepoExplorerWorktreeRowTests {
             contentsOfFile: "Sources/AgentStudio/SharedComponents/AppEntityIcon.swift",
             encoding: .utf8
         )
-        #expect(materializationSource.contains("leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset"))
+        #expect(
+            materializationSource.contains("leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset"))
         #expect(materializationSource.contains("branchStatus: inputs.branchStatusByWorktreeID[worktreeID]"))
         #expect(appEntityIconSource.contains("case .tabGroup:"))
         #expect(appEntityIconSource.contains("AppStyles.Shell.Sidebar.tabGroupIconColor"))
@@ -545,6 +546,19 @@ struct RepoExplorerWorktreeRowTests {
             contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarTextColumnAlignment.swift",
             encoding: .utf8
         )
+        let metadataLineSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarMetadataLine.swift",
+            encoding: .utf8
+        )
+        let groupHeaderSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarSourceGroupHeader.swift",
+            encoding: .utf8
+        )
+        let materializationSource = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerMaterializationSnapshot.swift",
+            encoding: .utf8
+        )
 
         for source in [paneRowSource, worktreeRowSource] {
             #expect(source.contains("VStack(alignment: .sidebarTextColumn"))
@@ -557,6 +571,19 @@ struct RepoExplorerWorktreeRowTests {
         #expect(worktreeRowSource.contains("AppStyles.Shell.Sidebar.worktreeIconSize"))
         #expect(alignmentSource.contains("AppStyles.Shell.Sidebar.statusRowLeadingIndent"))
         #expect(!alignmentSource.contains("textColumnLeadingInset"))
+        #expect(AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth == AppStyles.Shell.Sidebar.groupIconColumnWidth)
+        #expect(
+            materializationSource.contains(
+                "leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset"
+            )
+        )
+        for source in [paneRowSource, worktreeRowSource, metadataLineSource, groupHeaderSource] {
+            #expect(source.contains("alignment: .leading"))
+        }
+        #expect(!paneRowSource.contains("rowLeadingIconColumnWidth,\n                    alignment: .trailing"))
+        #expect(!worktreeRowSource.contains("rowLeadingIconColumnWidth, alignment: .trailing"))
+        #expect(!metadataLineSource.contains("rowLeadingIconColumnWidth, alignment: .trailing"))
+        #expect(!groupHeaderSource.contains("groupIconColumnWidth,\n                            alignment: .trailing"))
 
         // The dedicated chips-line guide aligns the first pill edge with the shared text column.
         // The pending-facts glyph renders separately in the leading icon gutter.
