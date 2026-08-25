@@ -619,7 +619,7 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!featureSource.contains("repoExplorerPrefs.setGroupingMode(candidate)"))
         #expect(featureSource.contains("let nextSortOrder = repoExplorerPrefs.sortOrder.toggled"))
         #expect(featureSource.contains("onSetSortOrder(nextSortOrder)"))
-        #expect(featureSource.contains("let command = groupingCommand(for: candidate)"))
+        #expect(featureSource.contains("let command = groupingCommand(for: groupingMode)"))
         #expect(featureSource.contains("commandPresentation.command(command)?.isEnabled == true"))
         #expect(featureSource.contains("commandDispatcher.dispatch(command)"))
         #expect(!featureSource.contains("AppCommandDispatcher.shared"))
