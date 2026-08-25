@@ -2,7 +2,6 @@ import { Check, ChevronDown, Reply, RotateCcw } from 'lucide-react';
 import {
 	useState,
 	type CSSProperties,
-	type FocusEvent,
 	type MouseEvent as ReactMouseEvent,
 	type ReactElement,
 	type ReactNode,
@@ -92,9 +91,6 @@ export function WorktreeAnnotationThread(
 	const activateRange = (): void => {
 		if (props.rangeIdentity === undefined) return;
 		interaction.activateSavedThread({ threadId, ...props.rangeIdentity });
-	};
-	const handleThreadBlur = (event: FocusEvent<HTMLElement>): void => {
-		interaction.handleCommentBlur(event.relatedTarget);
 	};
 	const handleThreadClick = (event: ReactMouseEvent<HTMLElement>): void => {
 		activateRange();
@@ -231,9 +227,7 @@ export function WorktreeAnnotationThread(
 			data-annotation-resolution={props.thread.context.resolution}
 			data-annotation-expanded={isExpanded ? 'true' : 'false'}
 			data-testid="worktree-annotation-thread"
-			onBlurCapture={handleThreadBlur}
 			onClickCapture={handleThreadClick}
-			onFocusCapture={activateRange}
 			onKeyDownCapture={(event) => {
 				if (
 					event.target instanceof Element &&

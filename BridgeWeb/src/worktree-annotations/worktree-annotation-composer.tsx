@@ -1,5 +1,13 @@
 import { Check, LoaderCircle, Undo2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+	type ReactElement,
+} from 'react';
 
 import { Textarea } from '@/components/ui/textarea.js';
 
@@ -97,6 +105,7 @@ export function WorktreeAnnotationNewMessageComposer(
 		readonly resolve: (decision: WorktreeAnnotationAdmissionDecision) => void;
 	} | null>(null);
 	const admissionAnchorRef = useRef<HTMLDivElement | null>(null);
+	const committedPreviewRef = useRef<HTMLDivElement | null>(null);
 	const hasLocalEditSinceMountRef = useRef(false);
 	const targetMessageIdRef = useRef<string | null>(initialDurableMessage?.messageId ?? null);
 	const targetMessageCursorRef = useRef<WorktreeAnnotationMessageCommandCursor | null>(
@@ -269,6 +278,10 @@ export function WorktreeAnnotationNewMessageComposer(
 		}
 		props.onSaved();
 	}, [committedCursor, projectedCommittedMessage, props]);
+	useLayoutEffect((): void => {
+		if (committedCursor === null) return;
+		committedPreviewRef.current?.focus();
+	}, [committedCursor]);
 	const validation = validateWorktreeAnnotationMarkdown(body);
 	const onCancel = props.onCancel;
 	const registerExitHandler = props.registerExitHandler;
@@ -490,7 +503,11 @@ export function WorktreeAnnotationNewMessageComposer(
 							)}
 						</div>
 					) : (
-						<div data-testid="worktree-annotation-committed-pending-projection">
+						<div
+							ref={committedPreviewRef}
+							data-testid="worktree-annotation-committed-pending-projection"
+							tabIndex={-1}
+						>
 							<p className="whitespace-pre-wrap text-xs/relaxed">{body}</p>
 						</div>
 					)}

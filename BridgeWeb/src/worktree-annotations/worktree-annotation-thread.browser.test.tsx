@@ -651,6 +651,9 @@ describe('worktree annotation inline thread', () => {
 			'Expected the exact committed Save receipt to close the editor before projection.',
 		);
 		expect(
+			rendered.getByTestId('worktree-annotation-thread').element().contains(document.activeElement),
+		).toBe(true);
+		expect(
 			rendered
 				.getByTestId('worktree-annotation-thread')
 				.element()
@@ -672,6 +675,30 @@ describe('worktree annotation inline thread', () => {
 		await expect
 			.element(rendered.getByTestId('worktree-annotation-thread').getByText('Reviewed body.'))
 			.toBeVisible();
+		expect(
+			rendered.getByTestId('worktree-annotation-thread').element().contains(document.activeElement),
+		).toBe(true);
+	});
+
+	test('anchors Reply to the shared tooltip and shows the editor focus surface', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Tooltip body.', messageId: rootMessageId }),
+		]);
+
+		const replyButton = rendered.getByRole('button', { name: 'Reply to thread' });
+		expect(replyButton.element().getAttribute('data-slot')).toBe('tooltip-trigger');
+
+		await act(async (): Promise<void> => {
+			await replyButton.click();
+		});
+		const composer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
+		await expect.element(composer).toBeVisible();
+		const focusSurface = composer.element().closest<HTMLElement>('.bg-comment-surface');
+		if (focusSurface === null) throw new Error('Expected the shared comment-card focus surface.');
+		expect(focusSurface.contains(document.activeElement)).toBe(true);
+		expect(getComputedStyle(focusSurface).boxShadow).not.toBe('none');
 	});
 
 	test('persists an empty draft while editing an already saved message', async () => {

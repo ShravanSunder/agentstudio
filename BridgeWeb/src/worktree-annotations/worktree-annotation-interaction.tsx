@@ -63,7 +63,6 @@ export interface WorktreeAnnotationInteractionController {
 	readonly exitThreadEditor: () => Promise<void>;
 	readonly expandThread: (threadId: string, invoker: HTMLElement) => void;
 	readonly finishThreadEditor: () => void;
-	readonly handleCommentBlur: (nextTarget: EventTarget | null) => void;
 	readonly openShareMode: () => void;
 	readonly pierreRangePresentation: WorktreeAnnotationPierreRangePresentation;
 	readonly registerThreadEditorExit: (exitEditor: () => Promise<void>) => () => void;
@@ -158,10 +157,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 	const exitThreadEditor = useCallback(async (): Promise<void> => {
 		await threadEditorExitRef.current?.();
 		threadEditorExitRef.current = null;
-		const focusTarget =
-			threadExpansion.kind === 'open' && threadExpansion.invoker.isConnected
-				? threadExpansion.invoker
-				: null;
+		const focusTarget = focusTargetForThreadExpansion(threadExpansion);
 		setThreadExpansion(
 			(currentExpansion): WorktreeAnnotationThreadExpansion =>
 				currentExpansion.kind === 'closed'
@@ -172,10 +168,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 	}, [threadExpansion]);
 	const finishThreadEditor = useCallback((): void => {
 		threadEditorExitRef.current = null;
-		const focusTarget =
-			threadExpansion.kind === 'open' && threadExpansion.invoker.isConnected
-				? threadExpansion.invoker
-				: null;
+		const focusTarget = focusTargetForThreadExpansion(threadExpansion);
 		setThreadExpansion(
 			(currentExpansion): WorktreeAnnotationThreadExpansion =>
 				currentExpansion.kind === 'closed'
@@ -195,7 +188,8 @@ export function WorktreeAnnotationInteractionProvider(props: {
 	}, []);
 	const resolveThreadFocus = useCallback((): HTMLElement | null => {
 		if (threadExpansion.kind === 'closed') return null;
-		if (threadExpansion.invoker.isConnected) return threadExpansion.invoker;
+		const sameThreadTarget = focusTargetForThreadExpansion(threadExpansion);
+		if (sameThreadTarget !== null) return sameThreadTarget;
 		const survivingControls = [
 			...document.querySelectorAll<HTMLElement>(
 				'[data-testid="worktree-annotation-thread"] button:not(:disabled)',
@@ -203,31 +197,6 @@ export function WorktreeAnnotationInteractionProvider(props: {
 		];
 		return nearestElementToPoint(survivingControls, threadExpansion.returnFocusPoint);
 	}, [threadExpansion]);
-	const handleCommentBlur = useCallback(
-		(nextTarget: EventTarget | null): void => {
-			requestAnimationFrame((): void => {
-				const focusedElement = nextTarget instanceof Element ? nextTarget : document.activeElement;
-				if (threadExpansion.kind === 'open') {
-					if (
-						focusedElement instanceof Element &&
-						focusedElement.closest('[data-worktree-annotation-preserve-expansion]') !== null
-					)
-						return;
-					const sameThread = focusedElement?.closest(
-						`[data-annotation-thread-id="${CSS.escape(threadExpansion.threadId)}"]`,
-					);
-					if (sameThread === null) void collapseThread();
-					return;
-				}
-				if (focusedElement?.closest('[data-worktree-annotation-interaction]') === null) {
-					setPierreRangePresentation((currentPresentation) =>
-						currentPresentation.kind === 'savedThread' ? { kind: 'none' } : currentPresentation,
-					);
-				}
-			});
-		},
-		[collapseThread, threadExpansion],
-	);
 	useEffect((): (() => void) | undefined => {
 		if (threadExpansion.kind !== 'open') return undefined;
 		const handleDocumentClick = (event: globalThis.MouseEvent): void => {
@@ -260,7 +229,6 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			exitThreadEditor,
 			expandThread,
 			finishThreadEditor,
-			handleCommentBlur,
 			openShareMode,
 			pierreRangePresentation,
 			registerThreadEditorExit,
@@ -280,7 +248,6 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			exitThreadEditor,
 			expandThread,
 			finishThreadEditor,
-			handleCommentBlur,
 			openShareMode,
 			pierreRangePresentation,
 			registerThreadEditorExit,
@@ -303,6 +270,16 @@ export function WorktreeAnnotationInteractionProvider(props: {
 function elementCenter(element: HTMLElement): { readonly x: number; readonly y: number } {
 	const bounds = element.getBoundingClientRect();
 	return { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 };
+}
+
+function focusTargetForThreadExpansion(
+	expansion: WorktreeAnnotationThreadExpansion,
+): HTMLElement | null {
+	if (expansion.kind === 'closed') return null;
+	if (expansion.invoker.isConnected) return expansion.invoker;
+	return document.querySelector<HTMLElement>(
+		`[data-annotation-thread-id="${CSS.escape(expansion.threadId)}"] [data-testid="worktree-annotation-message"]`,
+	);
 }
 
 function nearestElementToPoint(

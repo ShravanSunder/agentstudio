@@ -225,7 +225,7 @@ describe('worktree annotation inline shell', () => {
 		await settleThreadMotion(historyPanel, 'Expected reversed soft mask motion to settle.');
 	});
 
-	test('activates on focus and expands the compact thread surface on click', async () => {
+	test('keeps focus presentation-only and activates the compact thread on click', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderInlineShell(surface);
 		await publishTwoMessageThread(surface);
@@ -236,7 +236,7 @@ describe('worktree annotation inline shell', () => {
 			await Promise.resolve();
 		});
 		expect(document.body.textContent).not.toContain('Root message.');
-		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
+		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).not.toContain(
 			'bg-comment-active-surface',
 		);
 		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
@@ -258,6 +258,28 @@ describe('worktree annotation inline shell', () => {
 			await Promise.resolve();
 		});
 		await expect.element(rendered.getByText('Root message.')).toBeVisible();
+		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
+			'bg-comment-active-surface',
+		);
+
+		const externalFocusTarget = document.createElement('button');
+		externalFocusTarget.textContent = 'External keyboard target';
+		document.body.append(externalFocusTarget);
+		await act(async (): Promise<void> => {
+			externalFocusTarget.focus();
+			await new Promise<void>((resolve): void => {
+				requestAnimationFrame((): void => {
+					requestAnimationFrame((): void => resolve());
+				});
+			});
+		});
+		expect(
+			rendered
+				.getByTestId('worktree-annotation-thread')
+				.element()
+				.getAttribute('data-annotation-expanded'),
+		).toBe('true');
+		externalFocusTarget.remove();
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Collapse 2 messages' }).click();
 		});
