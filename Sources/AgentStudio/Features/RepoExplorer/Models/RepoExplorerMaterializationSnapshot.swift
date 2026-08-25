@@ -114,143 +114,142 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
     let metrics: RepoExplorerRowLayoutMetrics
     let requiresVisibleWidthMeasurement: Bool
 
-    static func make(for presentation: RepoExplorerMaterializedRowPresentation) -> Self {
+    private struct Facts {
         let rowClass: RepoExplorerRowLayoutClass
-        let leadingInset: CGFloat
-        let trailingInset: CGFloat
-        let minimumLineCount: CGFloat
-        let fallbackMetadataLineCount: CGFloat
-        let fallbackChipLineCount: CGFloat
-        let requiresVisibleWidthMeasurement: Bool
+        let primaryLineHeight: CGFloat
+        var leadingInset: CGFloat = 0
+        var trailingInset: CGFloat = 0
+        var metadataLineHeight = AppStyles.Shell.Sidebar.nativeMetadataTextLineHeight
+        var metadataLineCount: CGFloat = 0
+        var chipLineCount: CGFloat = 0
+        var verticalInset: CGFloat = 0
+        var additionalVerticalPadding: CGFloat = 0
+        var requiresVisibleWidthMeasurement = false
+    }
 
-        switch presentation {
-        case .sectionHeader:
-            rowClass = .sectionHeader
-            leadingInset = 0
-            trailingInset = 0
-            minimumLineCount = 1
-            fallbackMetadataLineCount = 0
-            fallbackChipLineCount = 0
-            requiresVisibleWidthMeasurement = false
-        case .loadingSectionHeader:
-            rowClass = .loadingSectionHeader
-            leadingInset = 0
-            trailingInset = 0
-            minimumLineCount = 1
-            fallbackMetadataLineCount = 0
-            fallbackChipLineCount = 0
-            requiresVisibleWidthMeasurement = false
-        case .loadingRepository(_, _, _, let isStatusUnavailable):
-            rowClass = .loadingRepository
-            leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
-            trailingInset = AppStyles.General.Spacing.loose
-            minimumLineCount = 1
-            fallbackMetadataLineCount = isStatusUnavailable ? 1 : 0
-            fallbackChipLineCount = 0
-            requiresVisibleWidthMeasurement = false
-        case .groupHeader:
-            rowClass = .groupHeader
-            leadingInset = 0
-            trailingInset = 0
-            minimumLineCount = 1
-            fallbackMetadataLineCount = 0
-            fallbackChipLineCount = 0
-            requiresVisibleWidthMeasurement = false
-        case .worktree(let worktree):
-            rowClass = .worktree
-            leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
-            trailingInset = 0
-            minimumLineCount = 2
-            fallbackMetadataLineCount = worktree.placementText.isEmpty ? 1 : 2
-            fallbackChipLineCount =
-                SidebarGitStatusChips.hasContent(
-                    branchStatus: worktree.branchStatus
-                ) ? 1 : 0
-            requiresVisibleWidthMeasurement = false
-        case .pane(let pane):
-            rowClass = .pane
-            leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
-            trailingInset = 0
-            minimumLineCount = 2
-            fallbackMetadataLineCount =
-                (pane.secondaryLine == nil ? 0 : 1)
-                + (pane.branchContextText == nil ? 0 : 1)
-            fallbackChipLineCount = 1
-            requiresVisibleWidthMeasurement = false
-        case .unassociatedPane(let pane):
-            rowClass = .pane
-            leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
-            trailingInset = 0
-            minimumLineCount = 2
-            fallbackMetadataLineCount = pane.secondaryLine == nil ? 0 : 1
-            fallbackChipLineCount = 1
-            requiresVisibleWidthMeasurement = false
-        case .topologyFault, .unresolved:
-            rowClass = .fault
-            leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
-            trailingInset = AppStyles.General.Spacing.standard
-            minimumLineCount = 2
-            fallbackMetadataLineCount = 2
-            fallbackChipLineCount = 0
-            requiresVisibleWidthMeasurement = true
-        }
-
+    static func make(for presentation: RepoExplorerMaterializedRowPresentation) -> Self {
+        let facts = facts(for: presentation)
         return Self(
-            rowClass: rowClass,
-            metrics: metrics(
-                rowClass: rowClass,
-                leadingInset: leadingInset,
-                trailingInset: trailingInset,
-                minimumLineCount: minimumLineCount,
-                fallbackMetadataLineCount: fallbackMetadataLineCount,
-                fallbackChipLineCount: fallbackChipLineCount
-            ),
-            requiresVisibleWidthMeasurement: requiresVisibleWidthMeasurement
+            rowClass: facts.rowClass,
+            metrics: metrics(facts),
+            requiresVisibleWidthMeasurement: facts.requiresVisibleWidthMeasurement
         )
     }
 
-    private static func metrics(
-        rowClass: RepoExplorerRowLayoutClass,
-        leadingInset: CGFloat,
-        trailingInset: CGFloat,
-        minimumLineCount: CGFloat,
-        fallbackMetadataLineCount: CGFloat,
-        fallbackChipLineCount: CGFloat
-    ) -> RepoExplorerRowLayoutMetrics {
-        let primaryLineHeight =
-            rowClass == .groupHeader
-            ? AppStyles.General.Typography.textLg
-            : AppStyles.General.Typography.textBase
-        let metadataLineHeight = AppStyles.General.Typography.textSm
+    private static func facts(for presentation: RepoExplorerMaterializedRowPresentation) -> Facts {
+        switch presentation {
+        case .sectionHeader(_, let isFirstRow):
+            var facts = Facts(
+                rowClass: .sectionHeader,
+                primaryLineHeight: AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+            )
+            facts.additionalVerticalPadding =
+                (isFirstRow ? 0 : AppStyles.Components.SectionSubheading.topPadding)
+                + AppStyles.Components.SectionSubheading.bottomPadding
+            return facts
+        case .loadingSectionHeader:
+            var facts = Facts(
+                rowClass: .loadingSectionHeader,
+                primaryLineHeight: AppStyles.Shell.Sidebar.nativeLoadingSectionContentHeight
+            )
+            facts.metadataLineHeight = AppStyles.Shell.Sidebar.nativeLoadingCaptionLineHeight
+            facts.additionalVerticalPadding =
+                AppStyles.General.Spacing.standard + AppStyles.General.Spacing.tight
+            return facts
+        case .loadingRepository(_, _, _, let isStatusUnavailable):
+            var facts = Facts(
+                rowClass: .loadingRepository,
+                primaryLineHeight: AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+            )
+            facts.leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+            facts.trailingInset = AppStyles.General.Spacing.loose
+            facts.metadataLineHeight = AppStyles.Shell.Sidebar.nativeLoadingCaptionLineHeight
+            facts.metadataLineCount = isStatusUnavailable ? 1 : 0
+            return facts
+        case .groupHeader:
+            var facts = Facts(
+                rowClass: .groupHeader,
+                primaryLineHeight: AppStyles.Shell.Sidebar.nativeGroupTitleLineHeight
+            )
+            facts.verticalInset = AppStyles.Shell.Sidebar.groupRowVerticalPadding
+            facts.additionalVerticalPadding =
+                AppStyles.Shell.Sidebar.nativeGroupHeaderTopPadding
+                + AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding
+            return facts
+        case .worktree(let worktree):
+            var facts = Facts(
+                rowClass: .worktree,
+                primaryLineHeight:
+                    worktree.isMainCheckout
+                    ? AppStyles.Shell.Sidebar.nativeInlineControlLineHeight
+                    : AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+            )
+            facts.leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+            facts.metadataLineCount = worktree.placementText.isEmpty ? 1 : 2
+            facts.chipLineCount =
+                SidebarGitStatusChips.hasContent(
+                    branchStatus: worktree.branchStatus
+                ) ? 1 : 0
+            facts.verticalInset = AppStyles.Shell.Sidebar.nativeRowVerticalInset
+            return facts
+        case .pane(let pane):
+            var facts = Facts(
+                rowClass: .pane,
+                primaryLineHeight: AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+            )
+            facts.leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+            facts.metadataLineCount =
+                (pane.secondaryLine == nil ? 0 : 1)
+                + (pane.branchContextText == nil ? 0 : 1)
+            facts.chipLineCount = 1
+            facts.verticalInset = AppStyles.Shell.Sidebar.nativeRowVerticalInset
+            return facts
+        case .unassociatedPane(let pane):
+            var facts = Facts(
+                rowClass: .pane,
+                primaryLineHeight: AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+            )
+            facts.leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+            facts.metadataLineCount = pane.secondaryLine == nil ? 0 : 1
+            facts.chipLineCount = 1
+            facts.verticalInset = AppStyles.Shell.Sidebar.nativeRowVerticalInset
+            return facts
+        case .topologyFault, .unresolved:
+            var facts = Facts(
+                rowClass: .fault,
+                primaryLineHeight: AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+            )
+            facts.leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+            facts.trailingInset = AppStyles.General.Spacing.standard
+            facts.metadataLineCount = 2
+            facts.verticalInset = AppStyles.Shell.Sidebar.nativeRowVerticalInset
+            facts.requiresVisibleWidthMeasurement = true
+            return facts
+        }
+    }
+
+    private static func metrics(_ facts: Facts) -> RepoExplorerRowLayoutMetrics {
         let chipLineHeight = AppStyles.Shell.Sidebar.chipLineHeight
         let contentSpacing = AppStyles.Shell.Sidebar.rowContentSpacing
-        let verticalInset =
-            rowClass == .groupHeader
-            ? AppStyles.Shell.Sidebar.groupRowVerticalPadding
-            : AppStyles.Shell.Sidebar.nativeRowVerticalInset
-        let fallbackChildSpacingCount = fallbackMetadataLineCount + fallbackChipLineCount
-        let additionalVerticalPadding =
-            rowClass == .groupHeader
-            ? AppStyles.Shell.Sidebar.nativeGroupHeaderTopPadding
-                + AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding
-            : 0
+        let fallbackChildSpacingCount = facts.metadataLineCount + facts.chipLineCount
+        let fallbackHeight =
+            facts.primaryLineHeight
+            + facts.metadataLineHeight * facts.metadataLineCount
+            + chipLineHeight * facts.chipLineCount
+            + contentSpacing * fallbackChildSpacingCount
+            + facts.verticalInset * 2
+            + facts.additionalVerticalPadding
 
         return RepoExplorerRowLayoutMetrics(
-            primaryLineHeight: primaryLineHeight,
-            metadataLineHeight: metadataLineHeight,
+            primaryLineHeight: facts.primaryLineHeight,
+            metadataLineHeight: facts.metadataLineHeight,
             chipLineHeight: chipLineHeight,
             contentSpacing: contentSpacing,
-            verticalInset: verticalInset,
-            leadingInset: leadingInset,
-            trailingInset: trailingInset,
-            minimumHeight: primaryLineHeight * minimumLineCount + verticalInset * 2
-                + additionalVerticalPadding,
-            fallbackHeight: primaryLineHeight
-                + metadataLineHeight * fallbackMetadataLineCount
-                + chipLineHeight * fallbackChipLineCount
-                + contentSpacing * fallbackChildSpacingCount
-                + verticalInset * 2
-                + additionalVerticalPadding
+            verticalInset: facts.verticalInset,
+            leadingInset: facts.leadingInset,
+            trailingInset: facts.trailingInset,
+            minimumHeight: fallbackHeight,
+            fallbackHeight: fallbackHeight
         )
     }
 }
@@ -278,6 +277,7 @@ struct RepoExplorerMaterializationInputs: Sendable {
 
 struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
     let rows: [RepoExplorerMaterializedRow]
+    let fallbackContentHeight: CGFloat
     let rowIndexByID: [RepoExplorerRowID: Int]
     let rowIDsByWorktreeID: [UUID: [RepoExplorerRowID]]
     let rowIDsByRepoID: [UUID: [RepoExplorerRowID]]
@@ -306,6 +306,9 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
         }
 
         self.rows = rows
+        fallbackContentHeight = rows.reduce(into: 0) { totalHeight, row in
+            totalHeight += row.layout.metrics.fallbackHeight
+        }
         self.rowIndexByID = rowIndexByID
         self.rowIDsByWorktreeID = rowIDsByWorktreeID
         self.rowIDsByRepoID = rowIDsByRepoID

@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AppKit
 import Foundation
 import Testing
 
@@ -19,6 +20,12 @@ struct RepoExplorerMaterializationSnapshotTests {
 
         #expect(orderedIDs == result.rowIndex.entries.map(\.id))
         #expect(materialization.rowIndexByID.count == materialization.rows.count)
+        #expect(
+            materialization.fallbackContentHeight
+                == materialization.rows.reduce(into: 0) { totalHeight, row in
+                    totalHeight += row.layout.metrics.fallbackHeight
+                }
+        )
         for (expectedIndex, rowID) in orderedIDs.enumerated() {
             #expect(materialization.rowIndexByID[rowID] == expectedIndex)
             #expect(materialization.row(id: rowID)?.id == rowID)
@@ -90,16 +97,22 @@ struct RepoExplorerMaterializationSnapshotTests {
                 .worktree,
             ])
         #expect(result.materializationSnapshot.rows.allSatisfy { !$0.layout.requiresVisibleWidthMeasurement })
-        #expect(
-            result.materializationSnapshot.rows.filter { $0.layout.rowClass != .groupHeader }.allSatisfy {
-                $0.layout.metrics.primaryLineHeight == AppStyles.General.Typography.textBase
-            }
+        let sectionRow = try #require(
+            result.materializationSnapshot.rows.first { $0.layout.rowClass == .sectionHeader }
         )
         let worktreeRow = try #require(
             result.materializationSnapshot.rows.first { $0.layout.rowClass == .worktree }
         )
         let groupHeaderRow = try #require(
             result.materializationSnapshot.rows.first { $0.layout.rowClass == .groupHeader }
+        )
+        #expect(
+            sectionRow.layout.metrics.primaryLineHeight
+                == AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+        )
+        #expect(
+            worktreeRow.layout.metrics.primaryLineHeight
+                == AppStyles.Shell.Sidebar.nativeInlineControlLineHeight
         )
         #expect(
             worktreeRow.layout.metrics.fallbackHeight
@@ -110,7 +123,7 @@ struct RepoExplorerMaterializationSnapshotTests {
         )
         #expect(
             groupHeaderRow.layout.metrics.fallbackHeight
-                == AppStyles.General.Typography.textLg
+                == AppStyles.Shell.Sidebar.nativeGroupTitleLineHeight
                 + AppStyles.Shell.Sidebar.groupRowVerticalPadding * 2
                 + AppStyles.Shell.Sidebar.nativeGroupHeaderTopPadding
                 + AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding
@@ -154,6 +167,62 @@ struct RepoExplorerMaterializationSnapshotTests {
 
         #expect(faultMaterialization.rows.map(\.layout.rowClass) == [.fault])
         #expect(faultMaterialization.rows.allSatisfy { $0.layout.requiresVisibleWidthMeasurement })
+    }
+
+    @Test("fixed native row slots never undercut their rendered controls or text")
+    func fixedNativeRowSlotsNeverUndercutRenderedContent() throws {
+        let mainResult = try RepoExplorerProjectionWorker.project(
+            makeRepoRequest(
+                repoID: UUIDv7.generate(),
+                worktreeID: UUIDv7.generate(),
+                isMainWorktree: true
+            )
+        )
+        let linkedResult = try RepoExplorerProjectionWorker.project(
+            makeRepoRequest(
+                repoID: UUIDv7.generate(),
+                worktreeID: UUIDv7.generate(),
+                isMainWorktree: false
+            )
+        )
+        let sectionRow = try #require(
+            mainResult.materializationSnapshot.rows.first { $0.layout.rowClass == .sectionHeader }
+        )
+        let groupRow = try #require(
+            mainResult.materializationSnapshot.rows.first { $0.layout.rowClass == .groupHeader }
+        )
+        let mainWorktreeRow = try #require(
+            mainResult.materializationSnapshot.rows.first { $0.layout.rowClass == .worktree }
+        )
+        let linkedWorktreeRow = try #require(
+            linkedResult.materializationSnapshot.rows.first { $0.layout.rowClass == .worktree }
+        )
+
+        let renderedPrimaryLineHeight = ceil(
+            NSFont.systemFont(
+                ofSize: AppStyles.General.Typography.textBase,
+                weight: .semibold
+            ).boundingRectForFont.height
+        )
+        let renderedMetadataLineHeight = ceil(
+            NSFont.systemFont(
+                ofSize: AppStyles.General.Typography.textSm,
+                weight: .medium
+            ).boundingRectForFont.height
+        )
+        let renderedGroupTitleLineHeight = ceil(
+            NSFont.systemFont(
+                ofSize: AppStyles.General.Typography.textLg,
+                weight: .semibold
+            ).boundingRectForFont.height
+        )
+
+        #expect(sectionRow.layout.metrics.primaryLineHeight >= renderedPrimaryLineHeight)
+        #expect(groupRow.layout.metrics.primaryLineHeight >= renderedGroupTitleLineHeight)
+        #expect(mainWorktreeRow.layout.metrics.primaryLineHeight >= AppStyles.General.Button.compact)
+        #expect(linkedWorktreeRow.layout.metrics.primaryLineHeight >= renderedPrimaryLineHeight)
+        #expect(mainWorktreeRow.layout.metrics.metadataLineHeight >= renderedMetadataLineHeight)
+        #expect(linkedWorktreeRow.layout.metrics.metadataLineHeight >= renderedMetadataLineHeight)
     }
 
     @Test("content revision changes for every associated-pane rendered field")
@@ -366,14 +435,15 @@ struct RepoExplorerMaterializationSnapshotTests {
 
     private func makeRepoRequest(
         repoID: UUID,
-        worktreeID: UUID
+        worktreeID: UUID,
+        isMainWorktree: Bool = true
     ) -> RepoExplorerProjectionRequest {
         let worktree = Worktree(
             id: worktreeID,
             repoId: repoID,
             name: "main",
             path: URL(fileURLWithPath: "/tmp/agent-studio"),
-            isMainWorktree: true
+            isMainWorktree: isMainWorktree
         )
         let repo = RepoPresentationItem(
             id: repoID,

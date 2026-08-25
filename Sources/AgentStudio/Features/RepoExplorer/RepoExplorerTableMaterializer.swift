@@ -593,9 +593,14 @@ final class RepoExplorerTableMaterializer: NSObject,
     }
 
     private func updateTableFrame() {
+        let fallbackContentHeight = snapshot?.fallbackContentHeight ?? 0
+        let visibleMeasurementDelta = heightByRowID.reduce(into: CGFloat.zero) { delta, entry in
+            guard let row = snapshot?.row(id: entry.key) else { return }
+            delta += max(0, entry.value.height - row.layout.metrics.fallbackHeight)
+        }
         let documentHeight = max(
             scrollView.contentView.bounds.height,
-            CGFloat(numberOfRows) * tableView.rowHeight
+            fallbackContentHeight + visibleMeasurementDelta
         )
         tableView.frame = NSRect(
             x: 0,

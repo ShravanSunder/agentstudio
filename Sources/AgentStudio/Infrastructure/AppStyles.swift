@@ -126,6 +126,14 @@ package enum AppStyles {
             package static let nativeItemSpacing: CGFloat = 8
             package static let nativeGroupSpacing: CGFloat = 12
             package static let nativeRowVerticalInset: CGFloat = nativeItemSpacing / 2
+            package static let nativePrimaryTextLineHeight: CGFloat = 17
+            package static let nativeMetadataTextLineHeight: CGFloat = 15
+            package static let nativeGroupTitleLineHeight: CGFloat = 18
+            package static let nativeInlineControlLineHeight: CGFloat = AppStyles.General.Button.compact
+            package static let nativeLoadingCaptionLineHeight: CGFloat = 14
+            package static let loadingSectionCapsuleVerticalPadding: CGFloat = 4
+            package static let nativeLoadingSectionContentHeight: CGFloat =
+                nativeLoadingCaptionLineHeight + loadingSectionCapsuleVerticalPadding * 2
             package static let nativeGroupHeaderTopPadding: CGFloat =
                 nativeGroupSpacing - nativeRowVerticalInset - groupRowVerticalPadding
             package static let nativeGroupHeaderBottomPadding: CGFloat =
