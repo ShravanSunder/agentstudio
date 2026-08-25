@@ -25,6 +25,7 @@ struct RepoExplorerRowIdentityTests {
                 worktreeID: worktreeID,
                 paneID: paneID
             ),
+            .tabPane(groupID: "tab-group", paneID: paneID),
             .unassociatedPane(paneID: paneID),
             .topologyFault,
         ]

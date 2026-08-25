@@ -4,8 +4,8 @@ import AgentStudioSharedComponents
 import Foundation
 
 struct RepoExplorerPaneListEntryIdentity: Equatable, Sendable {
-    let repoId: UUID
-    let worktreeId: UUID
+    let repoId: UUID?
+    let worktreeId: UUID?
     let paneId: UUID
 }
 

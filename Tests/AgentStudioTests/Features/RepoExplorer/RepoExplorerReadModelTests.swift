@@ -705,7 +705,7 @@ extension RepoExplorerReadModelTests {
         #expect(Set(rowIds).count == 2)
         #expect(
             rowIds.allSatisfy { rowID in
-                if case .associatedPane = rowID { return true }
+                if case .tabPane = rowID { return true }
                 return false
             }
         )

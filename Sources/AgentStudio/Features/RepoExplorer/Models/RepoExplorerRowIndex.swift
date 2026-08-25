@@ -16,7 +16,7 @@ struct RepoExplorerResolvedPaneContext: Sendable {
     let rowId: RepoExplorerRowID
     let group: RepoPresentationGroup
     let row: RepoExplorerProjectedPaneRow
-    let destination: RepoExplorerPaneDestination
+    let destination: RepoExplorerProjectedPaneDestination
 }
 
 struct RepoExplorerWorktreeIdentityClaim: Equatable, Sendable {
@@ -150,12 +150,7 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
             uniqueKeysWithValues: projection.paneRowsByGroupId.values.flatMap { rows in
                 rows.map { row in
                     (
-                        RepoExplorerRowID.associatedPane(
-                            groupID: row.groupId,
-                            repoID: row.repoId,
-                            worktreeID: row.destination.worktreeId,
-                            paneID: row.destination.paneId
-                        ),
+                        Self.paneRowID(for: row),
                         row
                     )
                 }
@@ -163,12 +158,15 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
         self.worktreeIds =
             projectedRowsByGroupId.values.flatMap { rows in
                 rows.map(\.worktree.id)
-            } + projection.paneRowsByGroupId.values.flatMap { rows in rows.map(\.destination.worktreeId) }
+            }
+            + projection.paneRowsByGroupId.values.flatMap { rows in
+                rows.compactMap(\.worktreeId)
+            }
     }
 
     func resolvePane(
         groupId: String,
-        repoId: UUID,
+        repoId: UUID?,
         paneId: UUID,
         rowId: RepoExplorerRowID
     ) -> RepoExplorerResolvedPaneContext? {
@@ -252,15 +250,10 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
                         groupId: group.id,
                         identity: RepoExplorerPaneListEntryIdentity(
                             repoId: row.repoId,
-                            worktreeId: row.destination.worktreeId,
+                            worktreeId: row.worktreeId,
                             paneId: row.destination.paneId
                         ),
-                        rowId: .associatedPane(
-                            groupID: row.groupId,
-                            repoID: row.repoId,
-                            worktreeID: row.destination.worktreeId,
-                            paneID: row.destination.paneId
-                        )
+                        rowId: paneRowID(for: row)
                     )
                 )
             }
@@ -288,6 +281,25 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
                 )
             }
         )
+    }
+
+    private static func paneRowID(
+        for row: RepoExplorerProjectedPaneRow
+    ) -> RepoExplorerRowID {
+        switch row.membershipOwner {
+        case .tab:
+            return .tabPane(groupID: row.groupId, paneID: row.destination.paneId)
+        case .association:
+            guard let repoId = row.repoId, let worktreeId = row.worktreeId else {
+                preconditionFailure("Association-owned pane row requires repository enrichment")
+            }
+            return .associatedPane(
+                groupID: row.groupId,
+                repoID: repoId,
+                worktreeID: worktreeId,
+                paneID: row.destination.paneId
+            )
+        }
     }
 
     private static func buildSectionedListEntries(

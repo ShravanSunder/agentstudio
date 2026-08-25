@@ -7,6 +7,7 @@ enum RepoExplorerRowID: Hashable, Sendable {
     case group(groupID: String)
     case worktree(groupID: String, repoID: UUID, worktreeID: UUID)
     case associatedPane(groupID: String, repoID: UUID, worktreeID: UUID, paneID: UUID)
+    case tabPane(groupID: String, paneID: UUID)
     case unassociatedPane(paneID: UUID)
     case topologyFault
 
@@ -35,6 +36,8 @@ enum RepoExplorerRowID: Hashable, Sendable {
         ):
             lhsGroupID == rhsGroupID && lhsRepoID == rhsRepoID
                 && lhsWorktreeID == rhsWorktreeID && lhsPaneID == rhsPaneID
+        case (.tabPane(let lhsGroupID, let lhsPaneID), .tabPane(let rhsGroupID, let rhsPaneID)):
+            lhsGroupID == rhsGroupID && lhsPaneID == rhsPaneID
         case (.unassociatedPane(let lhsPaneID), .unassociatedPane(let rhsPaneID)):
             lhsPaneID == rhsPaneID
         case (.topologyFault, .topologyFault):
@@ -70,11 +73,15 @@ enum RepoExplorerRowID: Hashable, Sendable {
             hasher.combine(repoID)
             hasher.combine(worktreeID)
             hasher.combine(paneID)
-        case .unassociatedPane(let paneID):
+        case .tabPane(let groupID, let paneID):
             hasher.combine(6)
+            hasher.combine(groupID)
+            hasher.combine(paneID)
+        case .unassociatedPane(let paneID):
+            hasher.combine(7)
             hasher.combine(paneID)
         case .topologyFault:
-            hasher.combine(7)
+            hasher.combine(8)
         }
     }
 }

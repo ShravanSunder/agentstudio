@@ -13,7 +13,7 @@ private enum RepoExplorerRenderedRowContent: Equatable {
     case loadingRepo(RepoExplorerSidebarSectionKind, UUID, String, Bool)
     case groupHeader(RepoExplorerRenderedGroupHeaderContent)
     case worktree(RepoExplorerRenderedWorktreeContent)
-    case associatedPane(RepoExplorerProjectedPaneRow)
+    case pane(RepoExplorerProjectedPaneRow)
     case unassociatedPane(RepoExplorerUnassociatedPaneDestination, RepoExplorerPaneRowFacts?)
     case topologyFault(Int)
     case unresolved(RepoExplorerRowID)

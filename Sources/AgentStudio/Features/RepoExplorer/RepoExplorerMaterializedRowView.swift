@@ -127,7 +127,7 @@ struct RepoExplorerMaterializedRowView: View {
                     dispatch(.openWorktreeInPane, surface: .contextMenu, from: commandPresentation)
                 }
             )
-        case .associatedPane(let pane):
+        case .pane(let pane):
             RepoExplorerPaneRow(
                 row: pane,
                 octiconLoader: octiconLoader,
@@ -184,7 +184,7 @@ struct RepoExplorerMaterializedRowView: View {
             [worktree.checkoutTitle, worktree.branchName, worktree.placementText]
                 .filter { !$0.isEmpty }
                 .joined(separator: ", ")
-        case .associatedPane(let pane):
+        case .pane(let pane):
             [
                 pane.primaryText,
                 pane.secondaryText,

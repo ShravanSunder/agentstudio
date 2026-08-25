@@ -77,7 +77,7 @@ enum RepoExplorerMaterializedRowPresentation: Equatable, Sendable {
     )
     case groupHeader(RepoExplorerMaterializedGroupHeaderPresentation)
     case worktree(RepoExplorerMaterializedWorktreePresentation)
-    case associatedPane(RepoExplorerProjectedPaneRow)
+    case pane(RepoExplorerProjectedPaneRow)
     case unassociatedPane(RepoExplorerUnassociatedPanePresentation)
     case topologyFault(RepoExplorerTopologyFault)
     case unresolved(RepoExplorerRowID)
@@ -158,7 +158,7 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
             minimumLineCount = 2
             fallbackLineCount = 4
             requiresVisibleWidthMeasurement = false
-        case .associatedPane, .unassociatedPane:
+        case .pane, .unassociatedPane:
             rowClass = .pane
             leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset
             trailingInset = 0
@@ -370,7 +370,7 @@ extension RepoExplorerMaterializationSnapshot {
                     rowId: rowID
                 )
             else { return .unresolved(entry.id) }
-            return .associatedPane(context.row)
+            return .pane(context.row)
         case .unassociatedPaneRow(let destination):
             let paneFacts = inputs.paneRowFactsByPaneID[destination.paneId]
             return .unassociatedPane(
@@ -399,8 +399,8 @@ extension RepoExplorerMaterializationSnapshot {
             return (repoID, nil)
         case .worktree(let worktree):
             return (worktree.repo.id, worktree.worktree.id)
-        case .associatedPane(let pane):
-            return (pane.repoId, pane.destination.worktreeId)
+        case .pane(let pane):
+            return (pane.repoId, pane.worktreeId)
         case .sectionHeader, .loadingSectionHeader, .groupHeader, .unassociatedPane,
             .topologyFault, .unresolved:
             return (nil, nil)

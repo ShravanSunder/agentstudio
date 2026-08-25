@@ -540,6 +540,13 @@ binding, and command-presentation snapshot publication. Whole dictionaries and
 topology snapshots remain persistence/cold-batch bridges, not hot sidebar
 observation inputs.
 
+`By Tab` membership comes from `WorkspaceTabGraph`: every canonical active pane
+belongs to its canonical tab regardless of repository association. Repository
+topology optionally enriches those pane rows with repo, worktree, branch, Git,
+and pull-request facts; it never admits or suppresses tab membership. `By Repo`
+remains repository-only, and `All Panes` continues to place unassociated panes
+under `No Repositories`.
+
 This is not a broad live "join" problem — each store has one clear job and the
 capture declares the exact keys being combined. The bus keeps owners current;
 the sidebar performs no imperative fetches or mutations.

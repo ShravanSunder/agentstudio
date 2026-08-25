@@ -189,15 +189,94 @@ struct RepoExplorerMaterializationSnapshotTests {
             replacing(baseline, isDrawerPane: true),
         ]
         let baselineRevision = RepoExplorerRowContentRevision(
-            presentation: .associatedPane(baseline)
+            presentation: .pane(baseline)
         )
 
         for changedRow in changedRows {
             #expect(
-                RepoExplorerRowContentRevision(presentation: .associatedPane(changedRow))
+                RepoExplorerRowContentRevision(presentation: .pane(changedRow))
                     != baselineRevision
             )
         }
+    }
+
+    @Test("By Tab materializes an unassociated pane as a focusable pane without repository identity")
+    func byTabMaterializesUnassociatedPaneWithoutRepositoryIdentity() throws {
+        let paneID = UUIDv7.generate()
+        let tabID = UUIDv7.generate()
+        let groupID = "tab:\(tabID.uuidString)"
+        let destination = RepoExplorerUnassociatedPaneDestination(
+            paneId: paneID,
+            tabId: tabID,
+            tabIndex: 0,
+            paneIndexInTab: 0,
+            isActiveInTab: true
+        )
+        let projectedRow = RepoExplorerProjectedPaneRow(
+            groupId: groupID,
+            destination: destination,
+            rowId: "pane-row:\(groupID):\(paneID.uuidString)",
+            primaryText: "Pane 1 · shell",
+            secondaryLine: .terminalOutput("ready"),
+            recencyText: "Now",
+            isActive: true
+        )
+        let group = RepoPresentationGroup(
+            id: groupID,
+            repoTitle: "Unassociated",
+            organizationName: "1 pane",
+            repos: []
+        )
+        let projection = RepoExplorerSidebarProjection.ready(
+            RepoExplorerSidebarContent(
+                sections: [
+                    RepoExplorerSidebarSection(
+                        kind: .tabs,
+                        resolvedGroups: [group],
+                        loadingRepos: []
+                    )
+                ],
+                resolvedGroups: [group],
+                paneRowsByGroupId: [groupID: [projectedRow]],
+                loadingRepos: [],
+                emptyState: .content
+            )
+        )
+        let rowIndex = RepoExplorerRowIndex(
+            projection: projection,
+            collapsedGroupIds: [],
+            isFiltering: false
+        )
+        let materialization = RepoExplorerMaterializationSnapshot.build(
+            rowIndex: rowIndex,
+            inputs: RepoExplorerMaterializationInputs(
+                snapshot: RepoExplorerSnapshot(
+                    repos: [],
+                    repoEnrichmentByRepoId: [:],
+                    groupingMode: .tab,
+                    query: ""
+                ),
+                projection: projection,
+                branchStatusByWorktreeID: [:],
+                branchNameByWorktreeID: [:],
+                bridgeCommandResolutionByWorktreeID: [:],
+                paneRowFactsByPaneID: [:]
+            )
+        )
+
+        let rowID = RepoExplorerRowID.tabPane(groupID: groupID, paneID: paneID)
+        let materializedRow = try #require(materialization.row(id: rowID))
+        guard case .pane(let pane) = materializedRow.presentation else {
+            Issue.record("Expected an ordinary pane-row presentation")
+            return
+        }
+        #expect(pane.destination.paneId == paneID)
+        #expect(pane.repoId == nil)
+        #expect(pane.worktreeId == nil)
+        #expect(pane.branchContextText == nil)
+        #expect(pane.branchStatus == nil)
+        #expect(materializedRow.representedRepoID == nil)
+        #expect(materializedRow.representedWorktreeID == nil)
     }
 
     private func makeRepoRequest(
@@ -258,19 +337,35 @@ struct RepoExplorerMaterializationSnapshotTests {
         isActive: Bool? = nil,
         isDrawerPane: Bool? = nil
     ) -> RepoExplorerProjectedPaneRow {
-        RepoExplorerProjectedPaneRow(
-            groupId: row.groupId,
-            repoId: row.repoId,
-            destination: row.destination,
-            rowId: row.rowId,
-            primaryText: primaryText ?? row.primaryText,
-            secondaryLine: secondaryLine ?? row.secondaryLine,
-            branchContextText: branchContextText ?? row.branchContextText,
-            branchStatus: branchStatus ?? row.branchStatus,
-            recencyText: recencyText ?? row.recencyText,
-            recencyTier: recencyTier ?? row.recencyTier,
-            isActive: isActive ?? row.isActive,
-            isDrawerPane: isDrawerPane ?? row.isDrawerPane
-        )
+        switch row.destination {
+        case .associated(let destination):
+            RepoExplorerProjectedPaneRow(
+                groupId: row.groupId,
+                repoId: destination.repoId,
+                destination: destination,
+                membershipOwner: row.membershipOwner,
+                rowId: row.rowId,
+                primaryText: primaryText ?? row.primaryText,
+                secondaryLine: secondaryLine ?? row.secondaryLine,
+                branchContextText: branchContextText ?? row.branchContextText,
+                branchStatus: branchStatus ?? row.branchStatus,
+                recencyText: recencyText ?? row.recencyText,
+                recencyTier: recencyTier ?? row.recencyTier,
+                isActive: isActive ?? row.isActive,
+                isDrawerPane: isDrawerPane ?? row.isDrawerPane
+            )
+        case .unassociated(let destination):
+            RepoExplorerProjectedPaneRow(
+                groupId: row.groupId,
+                destination: destination,
+                rowId: row.rowId,
+                primaryText: primaryText ?? row.primaryText,
+                secondaryLine: secondaryLine ?? row.secondaryLine,
+                recencyText: recencyText ?? row.recencyText,
+                recencyTier: recencyTier ?? row.recencyTier,
+                isActive: isActive ?? row.isActive,
+                isDrawerPane: isDrawerPane ?? row.isDrawerPane
+            )
+        }
     }
 }

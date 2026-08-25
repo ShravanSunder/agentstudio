@@ -642,11 +642,11 @@ actor RepoExplorerProjectionWorker {
             request.paneRowFactsByPaneId[paneId] != nil,
             case .ready(let previousContent) = previous.projection
         else { return nil }
-        var foundAssociatedRow = false
+        var foundPaneRow = false
         let updatedPaneRows = previousContent.paneRowsByGroupId.mapValues { rows in
             let updatedRows = rows.map { row in
                 guard row.destination.paneId == paneId else { return row }
-                foundAssociatedRow = true
+                foundPaneRow = true
                 return updatedPaneRow(
                     row,
                     request: request,
@@ -654,7 +654,7 @@ actor RepoExplorerProjectionWorker {
                     branchStatuses: previous.branchStatusByWorktreeId
                 )
             }
-            guard foundAssociatedRow else { return updatedRows }
+            guard foundPaneRow else { return updatedRows }
             return updatedRows.sorted { lhs, rhs in
                 RepoExplorerProjection.paneRowPrecedes(
                     lhs.destination,
@@ -665,7 +665,7 @@ actor RepoExplorerProjectionWorker {
             }
         }
         let isUnassociatedPane = request.snapshot.unassociatedPaneLocations.contains { $0.paneId == paneId }
-        guard foundAssociatedRow || isUnassociatedPane else { return nil }
+        guard foundPaneRow || isUnassociatedPane else { return nil }
         let projection = RepoExplorerSidebarProjection.ready(
             RepoExplorerSidebarContent(
                 sections: previousContent.sections,
@@ -689,37 +689,57 @@ actor RepoExplorerProjectionWorker {
     ) -> RepoExplorerProjectedPaneRow {
         let paneFacts = request.paneRowFactsByPaneId[row.destination.paneId]
         let normalizedBranchName = RepoExplorerProjection.normalizedBranchName(
-            branchNames[row.destination.worktreeId]
+            row.worktreeId.flatMap { branchNames[$0] }
         )
         let branchContextText: String?
         if request.snapshot.groupingMode == .tab {
             branchContextText = normalizedBranchName.map { branchName in
                 let repositoryName =
-                    request.snapshot.repos
-                    .first(where: { $0.id == row.destination.repoId })?.name
+                    row.repoId.flatMap { repoId in
+                        request.snapshot.repos.first(where: { $0.id == repoId })?.name
+                    }
                     ?? "Repository"
                 return "\(repositoryName) · \(branchName)"
             }
         } else {
             branchContextText = normalizedBranchName
         }
-        return RepoExplorerProjectedPaneRow(
-            groupId: row.groupId,
-            repoId: row.repoId,
-            destination: row.destination,
-            rowId: row.rowId,
-            primaryText: RepoExplorerProjection.panePrimaryText(
-                row.destination,
-                terminalTitle: paneFacts?.sidebarTerminalTitle
-            ),
-            secondaryLine: paneFacts?.secondaryLine,
-            branchContextText: branchContextText,
-            branchStatus: branchStatuses[row.destination.worktreeId],
-            recencyText: paneFacts?.recencyText ?? "Now",
-            recencyTier: paneFacts?.recencyTier ?? .strongBlue,
-            isActive: paneFacts?.isActive ?? false,
-            isDrawerPane: paneFacts?.isDrawerPane ?? false
-        )
+        switch row.destination {
+        case .associated(let destination):
+            return RepoExplorerProjectedPaneRow(
+                groupId: row.groupId,
+                repoId: destination.repoId,
+                destination: destination,
+                membershipOwner: row.membershipOwner,
+                rowId: row.rowId,
+                primaryText: RepoExplorerProjection.panePrimaryText(
+                    row.destination,
+                    terminalTitle: paneFacts?.sidebarTerminalTitle
+                ),
+                secondaryLine: paneFacts?.secondaryLine,
+                branchContextText: branchContextText,
+                branchStatus: branchStatuses[destination.worktreeId],
+                recencyText: paneFacts?.recencyText ?? "Now",
+                recencyTier: paneFacts?.recencyTier ?? .strongBlue,
+                isActive: paneFacts?.isActive ?? false,
+                isDrawerPane: paneFacts?.isDrawerPane ?? false
+            )
+        case .unassociated(let destination):
+            return RepoExplorerProjectedPaneRow(
+                groupId: row.groupId,
+                destination: destination,
+                rowId: row.rowId,
+                primaryText: RepoExplorerProjection.panePrimaryText(
+                    row.destination,
+                    terminalTitle: paneFacts?.sidebarTerminalTitle
+                ),
+                secondaryLine: paneFacts?.secondaryLine,
+                recencyText: paneFacts?.recencyText ?? "Now",
+                recencyTier: paneFacts?.recencyTier ?? .strongBlue,
+                isActive: paneFacts?.isActive ?? false,
+                isDrawerPane: paneFacts?.isDrawerPane ?? false
+            )
+        }
     }
 
     private static func applyScopedTabChange(

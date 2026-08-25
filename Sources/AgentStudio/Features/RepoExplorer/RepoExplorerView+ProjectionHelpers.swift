@@ -265,6 +265,20 @@ extension RepoExplorerView {
         "\(destination.paneId.uuidString):\(destination.repoId.uuidString):\(destination.worktreeId.uuidString):\(destination.worktreeLabel):\(destination.paneDisplayLabel):\(destination.tabId.uuidString):\(destination.tabIndex):\(destination.paneIndexInTab):\(destination.isActiveInTab)"
     }
 
+    private static func paneDestinationFingerprint(
+        _ destination: RepoExplorerProjectedPaneDestination
+    ) -> String {
+        switch destination {
+        case .associated(let associatedDestination):
+            return "associated:\(paneDestinationFingerprint(associatedDestination))"
+        case .unassociated(let unassociatedDestination):
+            return
+                "unassociated:\(unassociatedDestination.paneId.uuidString):"
+                + "\(unassociatedDestination.tabId.uuidString):\(unassociatedDestination.tabIndex):"
+                + "\(unassociatedDestination.paneIndexInTab):\(unassociatedDestination.isActiveInTab)"
+        }
+    }
+
     private static func paneBranchStatusFingerprint(_ status: GitBranchStatus?) -> String {
         guard let status else { return "none" }
         let syncFingerprint =
