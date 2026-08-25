@@ -123,6 +123,13 @@ package enum AppStyles {
             package static let rowHorizontalInset: CGFloat = AppStyles.General.Spacing.tight / 2
             package static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.bar
             package static let groupRowVerticalPadding: CGFloat = 2
+            package static let nativeItemSpacing: CGFloat = 8
+            package static let nativeGroupSpacing: CGFloat = 12
+            package static let nativeRowVerticalInset: CGFloat = nativeItemSpacing / 2
+            package static let nativeGroupHeaderTopPadding: CGFloat =
+                nativeGroupSpacing - nativeRowVerticalInset - groupRowVerticalPadding
+            package static let nativeGroupHeaderBottomPadding: CGFloat =
+                nativeItemSpacing - groupRowVerticalPadding - nativeRowVerticalInset
             package static let countBadgeHorizontalPadding: CGFloat = 6
             package static let countBadgeVerticalPadding: CGFloat = 2
             package static let countBadgeBackgroundOpacity: CGFloat = 0.15

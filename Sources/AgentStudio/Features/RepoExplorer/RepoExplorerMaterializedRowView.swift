@@ -14,6 +14,10 @@ struct RepoExplorerMaterializedRowView: View {
 
     var body: some View {
         content
+            .environment(
+                \.sidebarRowVerticalInset,
+                AppStyles.Shell.Sidebar.nativeRowVerticalInset
+            )
             .padding(.leading, row.layout.metrics.leadingInset)
             .padding(.trailing, row.layout.metrics.trailingInset)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -48,6 +52,8 @@ struct RepoExplorerMaterializedRowView: View {
                 organizationName: group.organizationName,
                 onToggle: { onToggleGroup(group.groupID) }
             )
+            .padding(.top, AppStyles.Shell.Sidebar.nativeGroupHeaderTopPadding)
+            .padding(.bottom, AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding)
             .contextMenu {
                 if !group.paneDestinations.isEmpty {
                     Menu(LocalActionSpec.goToPane.actionSpec.label) {

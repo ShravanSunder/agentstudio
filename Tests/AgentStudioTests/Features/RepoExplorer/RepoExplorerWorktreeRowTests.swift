@@ -558,15 +558,43 @@ struct RepoExplorerWorktreeRowTests {
         #expect(alignmentSource.contains("AppStyles.Shell.Sidebar.statusRowLeadingIndent"))
         #expect(!alignmentSource.contains("textColumnLeadingInset"))
 
-        // The dedicated chips-line guide must outdent by the pill's own horizontal padding, sourced from
-        // the same constant the pill uses, so the first chip's CONTENT (not its pill background edge)
-        // lands on the shared text column. The plain sidebarTextColumnGuide() stays leading-only.
+        // The dedicated chips-line guide aligns the first pill edge with the shared text column.
+        // The pending-facts glyph renders separately in the leading icon gutter.
         let guideStart = try #require(
             alignmentSource.range(of: "package func sidebarChipRowTextColumnGuide() -> some View {"))
         let guideEnd = try #require(
             alignmentSource.range(of: "}\n}", range: guideStart.upperBound..<alignmentSource.endIndex))
         let guideSource = String(alignmentSource[guideStart.lowerBound..<guideEnd.lowerBound])
-        #expect(guideSource.contains("AppStyles.Shell.Sidebar.chipHorizontalPadding"))
+        #expect(guideSource.contains("dimensions[.leading]"))
+        #expect(!guideSource.contains("chipHorizontalPadding"))
+    }
+
+    @Test("native groups preserve standardized 12 point group and 8 point item spacing")
+    func nativeGroupsPreserveVerticalRhythm() throws {
+        let materializedRowSource = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift",
+            encoding: .utf8
+        )
+
+        #expect(
+            AppStyles.Shell.Sidebar.nativeRowVerticalInset * 2
+                == AppStyles.Shell.Sidebar.nativeItemSpacing
+        )
+        #expect(
+            AppStyles.Shell.Sidebar.nativeRowVerticalInset
+                + AppStyles.Shell.Sidebar.nativeGroupHeaderTopPadding
+                + AppStyles.Shell.Sidebar.groupRowVerticalPadding
+                == AppStyles.Shell.Sidebar.nativeGroupSpacing
+        )
+        #expect(
+            AppStyles.Shell.Sidebar.groupRowVerticalPadding
+                + AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding
+                + AppStyles.Shell.Sidebar.nativeRowVerticalInset
+                == AppStyles.Shell.Sidebar.nativeItemSpacing
+        )
+        #expect(materializedRowSource.contains("nativeGroupHeaderTopPadding"))
+        #expect(materializedRowSource.contains("nativeGroupHeaderBottomPadding"))
     }
 
     @Test("an admitted PR refresh shows gutter progress even when cached facts remain")

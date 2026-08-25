@@ -198,6 +198,7 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
         return Self(
             rowClass: rowClass,
             metrics: metrics(
+                rowClass: rowClass,
                 leadingInset: leadingInset,
                 trailingInset: trailingInset,
                 minimumLineCount: minimumLineCount,
@@ -209,18 +210,30 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
     }
 
     private static func metrics(
+        rowClass: RepoExplorerRowLayoutClass,
         leadingInset: CGFloat,
         trailingInset: CGFloat,
         minimumLineCount: CGFloat,
         fallbackMetadataLineCount: CGFloat,
         fallbackChipLineCount: CGFloat
     ) -> RepoExplorerRowLayoutMetrics {
-        let primaryLineHeight = AppStyles.General.Typography.textBase
+        let primaryLineHeight =
+            rowClass == .groupHeader
+            ? AppStyles.General.Typography.textLg
+            : AppStyles.General.Typography.textBase
         let metadataLineHeight = AppStyles.General.Typography.textSm
         let chipLineHeight = AppStyles.Shell.Sidebar.chipLineHeight
         let contentSpacing = AppStyles.Shell.Sidebar.rowContentSpacing
-        let verticalInset = AppStyles.Shell.Sidebar.rowVerticalInset
+        let verticalInset =
+            rowClass == .groupHeader
+            ? AppStyles.Shell.Sidebar.groupRowVerticalPadding
+            : AppStyles.Shell.Sidebar.nativeRowVerticalInset
         let fallbackChildSpacingCount = fallbackMetadataLineCount + fallbackChipLineCount
+        let additionalVerticalPadding =
+            rowClass == .groupHeader
+            ? AppStyles.Shell.Sidebar.nativeGroupHeaderTopPadding
+                + AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding
+            : 0
 
         return RepoExplorerRowLayoutMetrics(
             primaryLineHeight: primaryLineHeight,
@@ -230,12 +243,14 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
             verticalInset: verticalInset,
             leadingInset: leadingInset,
             trailingInset: trailingInset,
-            minimumHeight: primaryLineHeight * minimumLineCount + verticalInset * 2,
+            minimumHeight: primaryLineHeight * minimumLineCount + verticalInset * 2
+                + additionalVerticalPadding,
             fallbackHeight: primaryLineHeight
                 + metadataLineHeight * fallbackMetadataLineCount
                 + chipLineHeight * fallbackChipLineCount
                 + contentSpacing * fallbackChildSpacingCount
                 + verticalInset * 2
+                + additionalVerticalPadding
         )
     }
 }

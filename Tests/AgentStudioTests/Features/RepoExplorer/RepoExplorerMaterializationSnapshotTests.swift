@@ -91,12 +91,15 @@ struct RepoExplorerMaterializationSnapshotTests {
             ])
         #expect(result.materializationSnapshot.rows.allSatisfy { !$0.layout.requiresVisibleWidthMeasurement })
         #expect(
-            result.materializationSnapshot.rows.allSatisfy {
+            result.materializationSnapshot.rows.filter { $0.layout.rowClass != .groupHeader }.allSatisfy {
                 $0.layout.metrics.primaryLineHeight == AppStyles.General.Typography.textBase
             }
         )
         let worktreeRow = try #require(
             result.materializationSnapshot.rows.first { $0.layout.rowClass == .worktree }
+        )
+        let groupHeaderRow = try #require(
+            result.materializationSnapshot.rows.first { $0.layout.rowClass == .groupHeader }
         )
         #expect(
             worktreeRow.layout.metrics.fallbackHeight
@@ -104,6 +107,13 @@ struct RepoExplorerMaterializationSnapshotTests {
                     metadataLineCount: 1,
                     metrics: worktreeRow.layout.metrics
                 )
+        )
+        #expect(
+            groupHeaderRow.layout.metrics.fallbackHeight
+                == AppStyles.General.Typography.textLg
+                + AppStyles.Shell.Sidebar.groupRowVerticalPadding * 2
+                + AppStyles.Shell.Sidebar.nativeGroupHeaderTopPadding
+                + AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding
         )
 
         let fault = RepoExplorerTopologyFault.duplicateWorktreeIdentities([
