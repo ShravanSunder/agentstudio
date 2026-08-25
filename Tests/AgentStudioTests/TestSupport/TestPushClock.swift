@@ -175,6 +175,12 @@ package struct TestPushClock: Clock {
         state.withCriticalRegion { Set($0.pending.map(\.generation)) }
     }
 
+    package var pendingSleepDeadlines: Set<Instant> {
+        state.withCriticalRegion { currentState in
+            Set(currentState.pending.map { Instant(nanoseconds: $0.deadline) })
+        }
+    }
+
     package func waitForPendingSleepCount(atLeast count: Int = 1) async {
         await waitForPendingSleepCount(matching: .atLeast(count))
     }

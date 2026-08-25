@@ -1065,7 +1065,7 @@ struct GitWorkingDirectoryProjectorTests {
                 await actor.lastStatusEntriesByWorktreeId[worktreeId] != nil
             })
 
-        let coalescingSleepGeneration = clock.scheduledSleepGeneration
+        let coalescingDeadline = clock.now.advanced(by: .milliseconds(500))
         await bus.post(
             makeFilesChangedEnvelope(
                 seq: 2,
@@ -1075,7 +1075,11 @@ struct GitWorkingDirectoryProjectorTests {
                 paths: ["a.txt"]
             )
         )
-        await clock.waitForPendingSleepCount(atLeast: 1, fromGeneration: coalescingSleepGeneration)
+        #expect(
+            await waitUntilYielding {
+                clock.pendingSleepDeadlines.contains(coalescingDeadline)
+            }
+        )
         await bus.post(
             makeFilesChangedEnvelope(
                 seq: 3,
