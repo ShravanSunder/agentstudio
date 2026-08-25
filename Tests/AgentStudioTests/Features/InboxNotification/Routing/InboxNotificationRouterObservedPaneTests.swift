@@ -673,13 +673,14 @@ struct InboxNotificationRouterObservedPaneTests {
                 event: .agentNotificationRequested(title: "Overflow", body: nil)
             )
         )
+        await assertEventuallyMain("overflow notification should be applied before trace flush") {
+            fixture.inboxAtom.notifications.contains { $0.title == "Overflow" }
+        }
+        await fixture.router.flushTraceRecords()
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("retention drop should be traced") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"inbox.retention.dropped\"") == true
-        }
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"inbox.retention.dropped\""))
         #expect(contents.contains("\"agentstudio.inbox.dropped_count\":1"))
         #expect(contents.contains("\"agentstudio.notification.dropped_ids\""))
         await stop(fixture)
