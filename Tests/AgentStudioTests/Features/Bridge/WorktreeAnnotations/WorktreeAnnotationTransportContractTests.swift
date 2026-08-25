@@ -176,6 +176,102 @@ struct WorktreeAnnotationTransportContractTests {
         }
     }
 
+    @Test("message viewed commands and results are bounded exact-revision contracts")
+    func messageViewedCommandsAndResultsAreBoundedExactRevisionContracts() throws {
+        let sessionID = "00000000-0000-7000-8000-000000000011"
+        let messageID = "00000000-0000-7000-8000-000000000013"
+        let item: [String: Any] = ["expectedSavedRevision": 2, "messageId": messageID]
+        let uniqueItems = (0..<257).map { index in
+            [
+                "expectedSavedRevision": index + 1,
+                "messageId": String(format: "00000000-0000-7000-8000-%012llx", index),
+            ] as [String: Any]
+        }
+        _ = try decodeAnnotationCommand(
+            method: "file.annotations.command",
+            operation: ["items": [item], "kind": "message.viewed.mark", "sessionId": sessionID]
+        )
+        _ = try decodeAnnotationCommand(
+            method: "file.annotations.command",
+            operation: [
+                "items": Array(uniqueItems.prefix(256)),
+                "kind": "message.viewed.mark",
+                "sessionId": sessionID,
+            ]
+        )
+        for items in [[], [item, item], uniqueItems] {
+            #expect(throws: (any Error).self) {
+                _ = try decodeAnnotationCommand(
+                    method: "file.annotations.command",
+                    operation: ["items": items, "kind": "message.viewed.mark", "sessionId": sessionID]
+                )
+            }
+        }
+
+        _ = try decodeStrict(
+            BridgeProductCallResult.self,
+            object: [
+                "method": "file.annotations.command",
+                "result": [
+                    "kind": "completed",
+                    "outcome": [
+                        "receipt": NSNull(),
+                        "requestId": "annotation-viewed-1",
+                        "sessionId": sessionID,
+                        "status": [
+                            "kind": "viewed",
+                            "results": [
+                                [
+                                    "committedSessionRevision": 9,
+                                    "disposition": "changed",
+                                    "kind": "viewed",
+                                    "messageId": messageID,
+                                    "savedRevision": 2,
+                                ],
+                                [
+                                    "disposition": "not_agent",
+                                    "expectedSavedRevision": 3,
+                                    "kind": "not_viewed",
+                                    "messageId": "00000000-0000-7000-8000-000000000014",
+                                ],
+                            ],
+                        ],
+                        "surface": "file",
+                    ],
+                ],
+            ]
+        )
+        #expect(throws: (any Error).self) {
+            _ = try decodeStrict(
+                BridgeProductCallResult.self,
+                object: [
+                    "method": "file.annotations.command",
+                    "result": [
+                        "kind": "completed",
+                        "outcome": [
+                            "receipt": NSNull(),
+                            "requestId": "annotation-viewed-invalid",
+                            "sessionId": sessionID,
+                            "status": [
+                                "kind": "viewed",
+                                "results": [
+                                    [
+                                        "disposition": "not_agent",
+                                        "expectedSavedRevision": 2,
+                                        "kind": "not_viewed",
+                                        "messageId": messageID,
+                                        "unexpected": true,
+                                    ]
+                                ],
+                            ],
+                            "surface": "file",
+                        ],
+                    ],
+                ]
+            )
+        }
+    }
+
     private func annotationLifecycleOperations(
         sessionID: String,
         threadID: String,

@@ -146,6 +146,12 @@ const bridgeProductWorktreeAnnotationOriginSchema = z
 	.refine((origin) => origin.endLine >= origin.startLine, {
 		message: 'Annotation endLine cannot precede startLine.',
 	});
+const bridgeProductWorktreeAnnotationViewedItemSchema = z
+	.object({
+		expectedSavedRevision: z.number().int().positive(),
+		messageId: bridgeProductWorktreeAnnotationIdSchema,
+	})
+	.strict();
 export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('session.discover') }).strict(),
 	z
@@ -236,6 +242,22 @@ export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUni
 			kind: z.literal('source.refresh'),
 			sessionId: bridgeProductWorktreeAnnotationIdSchema,
 			sourceEpoch: z.number().int().nonnegative(),
+		})
+		.strict(),
+	z
+		.object({
+			items: z
+				.array(bridgeProductWorktreeAnnotationViewedItemSchema)
+				.min(1)
+				.max(256)
+				.refine(
+					(items) =>
+						new Set(items.map((item) => `${item.messageId}:${item.expectedSavedRevision}`)).size ===
+						items.length,
+					{ message: 'Viewed annotation items must be unique.' },
+				),
+			kind: z.literal('message.viewed.mark'),
+			sessionId: bridgeProductWorktreeAnnotationIdSchema,
 		})
 		.strict(),
 	z

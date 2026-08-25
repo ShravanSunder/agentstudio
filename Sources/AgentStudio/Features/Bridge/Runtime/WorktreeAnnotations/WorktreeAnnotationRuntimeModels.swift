@@ -27,7 +27,33 @@ enum WorktreeAnnotationCommandOutcomeStatus: Equatable, Sendable {
     case admissionRequired(WorktreeAnnotationAdmissionChoice)
     case history([WorktreeAnnotationOutputHistorySummary])
     case output(WorktreeAnnotationOutputCommandOutcome)
+    case viewed([WorktreeAnnotationViewedResult])
     case failed(WorktreeAnnotationCommandFailureCode)
+}
+
+enum WorktreeAnnotationViewedResult: Equatable, Sendable {
+    case viewed(
+        messageID: WorktreeAnnotationMessageID,
+        savedRevision: Int,
+        committedSessionRevision: Int,
+        disposition: ViewedDisposition
+    )
+    case notViewed(
+        messageID: WorktreeAnnotationMessageID,
+        expectedSavedRevision: Int,
+        disposition: NotViewedDisposition
+    )
+
+    enum ViewedDisposition: Equatable, Sendable {
+        case changed
+        case alreadyViewed
+    }
+
+    enum NotViewedDisposition: Equatable, Sendable {
+        case stale
+        case notAgent
+        case notFound
+    }
 }
 
 struct WorktreeAnnotationPlacementContextKey: Hashable, Sendable {

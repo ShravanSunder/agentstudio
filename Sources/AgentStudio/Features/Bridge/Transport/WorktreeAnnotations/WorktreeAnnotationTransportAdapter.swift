@@ -349,6 +349,8 @@ final class WorktreeAnnotationTransportAdapter {
                 reviewPublicationIdentity: reviewPublicationIdentity,
                 productAdmission: productAdmission
             )
+        case .markMessagesViewed:
+            throw WorktreeAnnotationTransportAdapterError.operationUnavailable
         case .outputScopeCommit:
             throw WorktreeAnnotationTransportAdapterError.outputUnavailable
         case .outputHandledClear:
@@ -688,6 +690,8 @@ final class WorktreeAnnotationTransportAdapter {
             .init(rawValue: body.sessionId)
         case .outputScopeCommit(let body):
             .init(rawValue: body.sessionId)
+        case .markMessagesViewed(let body):
+            .init(rawValue: body.sessionId)
         case .acknowledgeRecovery, .createRoot, .discoverSessions, .outputHandledClear, .repeatOutput:
             nil
         }
@@ -721,6 +725,7 @@ final class WorktreeAnnotationTransportAdapter {
         } else if let adapterError = error as? WorktreeAnnotationTransportAdapterError {
             switch adapterError {
             case .messageReceiptUnavailable: .unexpected
+            case .operationUnavailable: .unavailable
             case .outputUnavailable: .outputUnavailable
             }
         } else {
@@ -731,5 +736,6 @@ final class WorktreeAnnotationTransportAdapter {
 
 enum WorktreeAnnotationTransportAdapterError: Error {
     case messageReceiptUnavailable
+    case operationUnavailable
     case outputUnavailable
 }

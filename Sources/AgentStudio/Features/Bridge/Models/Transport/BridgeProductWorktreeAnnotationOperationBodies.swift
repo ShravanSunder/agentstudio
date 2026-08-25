@@ -56,4 +56,42 @@ extension BridgeProductWorktreeAnnotationOperation {
         let sessionId: UUID
         let sourceEpoch: Int
     }
+
+    struct ViewedItem: Codable, Equatable, Hashable, Sendable {
+        private enum CodingKeys: String, CodingKey, CaseIterable {
+            case expectedSavedRevision
+            case messageId
+        }
+
+        let expectedSavedRevision: Int
+        let messageId: UUID
+
+        init(from decoder: Decoder) throws {
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+                contract: "viewed annotation item"
+            )
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            expectedSavedRevision = try container.decode(Int.self, forKey: .expectedSavedRevision)
+            messageId = try BridgeProductReviewPublicationIdContract.decode(
+                container.decode(String.self, forKey: .messageId),
+                codingPath: decoder.codingPath
+            )
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(expectedSavedRevision, forKey: .expectedSavedRevision)
+            try container.encode(
+                BridgeProductReviewPublicationIdContract.encode(messageId),
+                forKey: .messageId
+            )
+        }
+    }
+
+    struct ViewedBody: Codable, Equatable, Sendable {
+        let items: [ViewedItem]
+        let sessionId: UUID
+    }
 }

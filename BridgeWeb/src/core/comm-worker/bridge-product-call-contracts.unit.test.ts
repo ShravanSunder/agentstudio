@@ -33,6 +33,16 @@ const currentFileSource = {
 	worktreeId: '00000000-0000-4000-8000-000000000002',
 } as const;
 
+function viewedItem(index: number): {
+	readonly expectedSavedRevision: number;
+	readonly messageId: string;
+} {
+	return {
+		expectedSavedRevision: index + 1,
+		messageId: `00000000-0000-7000-8000-${index.toString(16).padStart(12, '0')}`,
+	};
+}
+
 describe('Bridge product call contracts', () => {
 	test('returns current source authority instead of a generic stale projection error', () => {
 		for (const method of [
@@ -100,6 +110,121 @@ describe('Bridge product call contracts', () => {
 				}).success,
 			).toBe(false);
 		}
+	});
+
+	test('defines bounded exact-revision message viewed commands and results', () => {
+		const sessionId = '00000000-0000-7000-8000-000000000011';
+		const item = viewedItem(1);
+		const request = {
+			method: 'file.annotations.command',
+			request: { operation: { items: [item], kind: 'message.viewed.mark', sessionId } },
+		} as const;
+		const result = {
+			method: 'file.annotations.command',
+			result: {
+				kind: 'completed',
+				outcome: {
+					requestId: 'annotation-viewed-1',
+					receipt: null,
+					sessionId,
+					status: {
+						kind: 'viewed',
+						results: [
+							{
+								committedSessionRevision: 9,
+								disposition: 'changed',
+								kind: 'viewed',
+								messageId: item.messageId,
+								savedRevision: item.expectedSavedRevision,
+							},
+						],
+					},
+					surface: 'file',
+				},
+			},
+		} as const;
+
+		expect(bridgeProductCallRequestSchema.parse(request)).toEqual(request);
+		const { receipt: _viewedReceipt, ...decodedViewedOutcome } = result.result.outcome;
+		expect(bridgeProductCallResultSchema.parse(result)).toEqual({
+			...result,
+			result: { ...result.result, outcome: decodedViewedOutcome },
+		});
+		expect(
+			bridgeProductCallRequestSchema.safeParse({
+				...request,
+				request: {
+					operation: {
+						...request.request.operation,
+						items: Array.from({ length: 256 }, (_, index) => viewedItem(index)),
+					},
+				},
+			}).success,
+		).toBe(true);
+		expect(
+			bridgeProductCallRequestSchema.safeParse({
+				...request,
+				request: { operation: { ...request.request.operation, items: [] } },
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeProductCallRequestSchema.safeParse({
+				...request,
+				request: { operation: { ...request.request.operation, items: [item, item] } },
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeProductCallRequestSchema.safeParse({
+				...request,
+				request: {
+					operation: {
+						...request.request.operation,
+						items: Array.from({ length: 257 }, (_, index) => viewedItem(index)),
+					},
+				},
+			}).success,
+		).toBe(false);
+		const notViewedResult = {
+			...result,
+			result: {
+				...result.result,
+				outcome: {
+					...result.result.outcome,
+					status: {
+						kind: 'viewed',
+						results: [
+							{
+								disposition: 'not_agent',
+								expectedSavedRevision: item.expectedSavedRevision,
+								kind: 'not_viewed',
+								messageId: item.messageId,
+							},
+						],
+					},
+				},
+			},
+		} as const;
+		const { receipt: _notViewedReceipt, ...decodedNotViewedOutcome } =
+			notViewedResult.result.outcome;
+		expect(bridgeProductCallResultSchema.parse(notViewedResult)).toEqual({
+			...notViewedResult,
+			result: { ...notViewedResult.result, outcome: decodedNotViewedOutcome },
+		});
+		expect(
+			bridgeProductCallResultSchema.safeParse({
+				...notViewedResult,
+				result: {
+					...notViewedResult.result,
+					outcome: {
+						...notViewedResult.result.outcome,
+						status: {
+							kind: 'viewed',
+							results: [{ ...notViewedResult.result.outcome.status.results[0], unexpected: true }],
+						},
+					},
+				},
+			}).success,
+		).toBe(false);
 	});
 
 	test('covers the complete PR1 annotation operation vocabulary', () => {

@@ -24,6 +24,20 @@ describe('Bridge comm worker semantic command classification', () => {
 		expect(
 			bridgeCommWorkerSemanticClassForMessage(
 				annotationMessage({
+					items: [
+						{
+							expectedSavedRevision: 2,
+							messageId: '00000000-0000-7000-8000-000000000012',
+						},
+					],
+					kind: 'message.viewed.mark',
+					sessionId: '00000000-0000-7000-8000-000000000013',
+				}),
+			),
+		).toBe('urgent_action');
+		expect(
+			bridgeCommWorkerSemanticClassForMessage(
+				annotationMessage({
 					kind: 'demand.acquire',
 					sessionId: '00000000-0000-7000-8000-000000000013',
 				}),

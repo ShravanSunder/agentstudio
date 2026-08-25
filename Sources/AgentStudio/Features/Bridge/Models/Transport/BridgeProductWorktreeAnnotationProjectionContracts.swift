@@ -217,10 +217,11 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
         )
         case history([BridgeProductAnnotationOutputHistoryDTO])
         case output(BridgeProductAnnotationOutputOutcomeDTO)
+        case viewed([BridgeProductWorktreeAnnotationViewedResultDTO])
         case failed(WorktreeAnnotationCommandFailureCode)
 
         private enum CodingKeys: String, CodingKey, CaseIterable {
-            case candidateSessionIds, code, kind, outcome, reason, summaries
+            case candidateSessionIds, code, kind, outcome, reason, results, summaries
         }
 
         init(from decoder: Decoder) throws {
@@ -237,6 +238,7 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
                     ]
                 case "history": [CodingKeys.kind.rawValue, CodingKeys.summaries.rawValue]
                 case "output": [CodingKeys.kind.rawValue, CodingKeys.outcome.rawValue]
+                case "viewed": [CodingKeys.kind.rawValue, CodingKeys.results.rawValue]
                 case "failed": [CodingKeys.code.rawValue, CodingKeys.kind.rawValue]
                 default: []
                 }
@@ -279,6 +281,20 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
                         forKey: .summaries
                     )
                 )
+            case "viewed":
+                let results = try container.decode(
+                    [BridgeProductWorktreeAnnotationViewedResultDTO].self,
+                    forKey: .results
+                )
+                guard (1...256).contains(results.count),
+                    Set(results.map(\.revisionIdentity)).count == results.count
+                else {
+                    throw BridgeProductContractDecoding.invalidValue(
+                        "Viewed annotation results must be nonempty and bounded",
+                        codingPath: decoder.codingPath
+                    )
+                }
+                self = .viewed(results)
             case "failed":
                 self = .failed(
                     try container.decode(WorktreeAnnotationCommandFailureCode.self, forKey: .code)
@@ -306,6 +322,9 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
             case .history(let summaries):
                 try container.encode("history", forKey: .kind)
                 try container.encode(summaries, forKey: .summaries)
+            case .viewed(let results):
+                try container.encode("viewed", forKey: .kind)
+                try container.encode(results, forKey: .results)
             case .failed(let code):
                 try container.encode(code, forKey: .code)
                 try container.encode("failed", forKey: .kind)
@@ -342,6 +361,8 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
         case .output(let output): status = .output(.init(output))
         case .history(let summaries):
             status = .history(summaries.map(BridgeProductAnnotationOutputHistoryDTO.init))
+        case .viewed(let results):
+            status = .viewed(results.map(BridgeProductWorktreeAnnotationViewedResultDTO.init))
         case .failed(let code): status = .failed(code)
         }
     }
@@ -349,10 +370,6 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
     init(from decoder: Decoder) throws {
         try rejectAnnotationProjectionUnknownKeys(decoder, keys: CodingKeys.allCases)
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        receipt = try container.decodeIfPresent(
-            BridgeProductWorktreeAnnotationMessageReceiptDTO.self,
-            forKey: .receipt
-        )
         requestId = try container.decode(String.self, forKey: .requestId)
         sessionId = try BridgeProductContractDecoding.decodeRequiredNullable(
             UUID.self,
@@ -362,11 +379,36 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
         )
         status = try container.decode(Status.self, forKey: .status)
         surface = try container.decode(BridgeProductSurface.self, forKey: .surface)
+        if case .viewed = status {
+            guard container.contains(.receipt), try container.decodeNil(forKey: .receipt) else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Viewed annotation outcomes require an explicit null receipt",
+                    codingPath: decoder.codingPath
+                )
+            }
+            receipt = nil
+        } else {
+            let receiptIsNull = try container.contains(.receipt) && container.decodeNil(forKey: .receipt)
+            guard !receiptIsNull else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Only viewed annotation outcomes permit a null receipt",
+                    codingPath: decoder.codingPath
+                )
+            }
+            receipt = try container.decodeIfPresent(
+                BridgeProductWorktreeAnnotationMessageReceiptDTO.self,
+                forKey: .receipt
+            )
+        }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encodeIfPresent(receipt, forKey: .receipt)
+        if case .viewed = status {
+            try container.encodeNil(forKey: .receipt)
+        } else {
+            try container.encodeIfPresent(receipt, forKey: .receipt)
+        }
         try container.encode(requestId, forKey: .requestId)
         try container.encode(
             sessionId.map(BridgeProductReviewPublicationIdContract.encode),

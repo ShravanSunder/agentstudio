@@ -131,6 +131,45 @@ const annotationOutputCommandOutcomeStatusSchema = z
 		outcome: annotationOutputCommandOutcomeSchema,
 	})
 	.strict();
+const annotationViewedResultSchema = z.discriminatedUnion('kind', [
+	z
+		.object({
+			committedSessionRevision: bridgeProductNonnegativeSequenceSchema,
+			disposition: z.enum(['changed', 'already_viewed']),
+			kind: z.literal('viewed'),
+			messageId: bridgeProductReviewPublicationIdSchema,
+			savedRevision: bridgeProductNonnegativeSequenceSchema.positive(),
+		})
+		.strict(),
+	z
+		.object({
+			disposition: z.enum(['stale', 'not_agent', 'not_found']),
+			expectedSavedRevision: bridgeProductNonnegativeSequenceSchema.positive(),
+			kind: z.literal('not_viewed'),
+			messageId: bridgeProductReviewPublicationIdSchema,
+		})
+		.strict(),
+]);
+const annotationViewedCommandOutcomeStatusSchema = z
+	.object({
+		kind: z.literal('viewed'),
+		results: z.array(annotationViewedResultSchema).min(1).max(256).readonly(),
+	})
+	.strict()
+	.superRefine((status, context) => {
+		const identities = status.results.map((result) =>
+			result.kind === 'viewed'
+				? `${result.messageId}:${result.savedRevision}`
+				: `${result.messageId}:${result.expectedSavedRevision}`,
+		);
+		if (new Set(identities).size !== identities.length) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Viewed annotation results must have unique revision identities.',
+				path: ['results'],
+			});
+		}
+	});
 const annotationFailedCommandOutcomeStatusSchema = z
 	.object({
 		code: z.enum([
@@ -199,25 +238,47 @@ const annotationCommandReceiptSchema = z.discriminatedUnion('kind', [
 		.strict(),
 ]);
 
-export const bridgeProductWorktreeAnnotationCommandOutcomeSchema = z
-	.object({
-		receipt: annotationCommandReceiptSchema.optional(),
-		requestId: bridgeProductIdentifierSchema,
-		sessionId: bridgeProductReviewPublicationIdSchema.nullable(),
-		status: annotationCommandOutcomeStatusSchema,
-		surface: z.enum(['file', 'review']),
-	})
-	.strict();
+const annotationCommandOutcomeCommonShape = {
+	requestId: bridgeProductIdentifierSchema,
+	sessionId: bridgeProductReviewPublicationIdSchema.nullable(),
+	surface: z.enum(['file', 'review']),
+} as const;
 
-export const bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema = z
-	.object({
-		receipt: annotationCommandReceiptSchema.optional(),
-		requestId: bridgeProductIdentifierSchema,
-		sessionId: bridgeProductReviewPublicationIdSchema.nullable(),
-		status: annotationDecodedCommandOutcomeStatusSchema,
-		surface: z.enum(['file', 'review']),
-	})
-	.strict();
+export const bridgeProductWorktreeAnnotationCommandOutcomeSchema = z.union([
+	z
+		.object({
+			...annotationCommandOutcomeCommonShape,
+			receipt: annotationCommandReceiptSchema.optional(),
+			status: annotationCommandOutcomeStatusSchema,
+		})
+		.strict(),
+	z
+		.object({
+			...annotationCommandOutcomeCommonShape,
+			receipt: z.null(),
+			status: annotationViewedCommandOutcomeStatusSchema,
+		})
+		.strict()
+		.transform(({ receipt: _receipt, ...outcome }) => ({ ...outcome, receipt: undefined })),
+]);
+
+export const bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema = z.union([
+	z
+		.object({
+			...annotationCommandOutcomeCommonShape,
+			receipt: annotationCommandReceiptSchema.optional(),
+			status: annotationDecodedCommandOutcomeStatusSchema,
+		})
+		.strict(),
+	z
+		.object({
+			...annotationCommandOutcomeCommonShape,
+			receipt: z.undefined().optional(),
+			status: annotationViewedCommandOutcomeStatusSchema,
+		})
+		.strict()
+		.transform((outcome) => ({ ...outcome, receipt: undefined })),
+]);
 
 const annotationMessageBodySchema = z.string().refine((body) => {
 	const byteLength = bridgeProductUnicodeScalarUtf8ByteLength(body);

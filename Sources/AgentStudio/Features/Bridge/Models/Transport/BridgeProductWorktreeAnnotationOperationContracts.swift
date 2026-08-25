@@ -24,6 +24,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
     case outputHandledClear(OutputHandledClearBody)
     case outputHistory(sessionID: UUID)
     case repeatOutput(attemptID: UUID)
+    case markMessagesViewed(ViewedBody)
     case acknowledgeRecovery
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
@@ -38,7 +39,9 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         case expectedMessageRevision
         case expectedOpenThreadCount
         case expectedSessionRevision
+        case expectedSavedRevision
         case expectedThreadRevision
+        case items
         case kind
         case lifecycle
         case messageId
@@ -65,6 +68,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         case outputHistory = "output.history"
         case outputHandledClear = "output.handled.clear"
         case outputScopeCommit = "output.scope.commit"
+        case markMessagesViewed = "message.viewed.mark"
         case releaseDemand = "demand.release"
         case repeatOutput = "output.repeat"
         case revertDraft = "draft.revert"
@@ -139,6 +143,22 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
             self = .outputHistory(sessionID: try Self.decodeID(container, .sessionId, decoder))
         case .repeatOutput:
             self = .repeatOutput(attemptID: try Self.decodeID(container, .attemptId, decoder))
+        case .markMessagesViewed:
+            let items = try container.decode([ViewedItem].self, forKey: .items)
+            guard (1...256).contains(items.count), Set(items).count == items.count,
+                items.allSatisfy({ $0.expectedSavedRevision > 0 })
+            else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Viewed annotation items must be unique, nonempty, bounded, and positive",
+                    codingPath: decoder.codingPath
+                )
+            }
+            self = .markMessagesViewed(
+                ViewedBody(
+                    items: items,
+                    sessionId: try Self.decodeID(container, .sessionId, decoder)
+                )
+            )
         case .acknowledgeRecovery:
             self = .acknowledgeRecovery
         }
@@ -315,6 +335,13 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
             try Self.encode(kind: .outputHistory, id: sessionID, key: .sessionId, into: &container)
         case .repeatOutput(let attemptID):
             try Self.encode(kind: .repeatOutput, id: attemptID, key: .attemptId, into: &container)
+        case .markMessagesViewed(let body):
+            try container.encode(Kind.markMessagesViewed, forKey: .kind)
+            try container.encode(body.items, forKey: .items)
+            try container.encode(
+                BridgeProductReviewPublicationIdContract.encode(body.sessionId),
+                forKey: .sessionId
+            )
         case .acknowledgeRecovery:
             try container.encode(Kind.acknowledgeRecovery, forKey: .kind)
         }
@@ -328,6 +355,8 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
             [.kind, .sessionId]
         case .repeatOutput:
             [.attemptId, .kind]
+        case .markMessagesViewed:
+            [.items, .kind, .sessionId]
         case .createRoot:
             [.admission, .body, .editToken, .kind, .origin]
         case .createReply:
