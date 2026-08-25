@@ -34,6 +34,38 @@ enum WorktreeAnnotationMessageStatus: String, Codable, CaseIterable, Sendable {
     case locked
 }
 
+enum WorktreeAnnotationAuthorKind: String, Codable, CaseIterable, Sendable {
+    case human
+    case agent
+}
+
+enum WorktreeAnnotationAttentionState: String, Codable, CaseIterable, Sendable {
+    case notApplicable = "not_applicable"
+    case new
+    case viewed
+}
+
+enum WorktreeAnnotationMessageStateValidationError: Error, Equatable, Sendable {
+    case humanViewedRevision
+    case agentDraft
+    case agentHandled
+    case agentCurrentRevisionMissing
+    case agentCurrentRevisionIsNotPositive(currentSavedRevision: Int)
+    case agentViewedRevisionIsNotPositive(viewedSavedRevision: Int)
+    case agentViewedRevisionIsNewerThanCurrent(
+        viewedSavedRevision: Int,
+        currentSavedRevision: Int
+    )
+}
+
+struct WorktreeAnnotationMessageNewPendingProjection: Equatable, Sendable {
+    let attentionState: WorktreeAnnotationAttentionState
+    let isPending: Bool
+    let isAllEligible: Bool
+
+    var isNew: Bool { attentionState == .new }
+}
+
 enum WorktreeAnnotationSourceRole: String, Codable, CaseIterable, Sendable {
     case file
     case reviewBase = "review_base"
@@ -155,6 +187,7 @@ struct WorktreeAnnotationMessage: Equatable, Sendable {
     let id: WorktreeAnnotationMessageID
     let threadID: WorktreeAnnotationThreadID
     let ordinal: Int
+    let authorKind: WorktreeAnnotationAuthorKind
     let semanticRevision: Int
     let createdAt: Date
     let updatedAt: Date
@@ -162,7 +195,89 @@ struct WorktreeAnnotationMessage: Equatable, Sendable {
     let savedRevision: Int?
     let draft: WorktreeAnnotationDraft?
     let handled: Bool
+    let viewedSavedRevision: Int?
     let status: WorktreeAnnotationMessageStatus
+
+    init(
+        id: WorktreeAnnotationMessageID,
+        threadID: WorktreeAnnotationThreadID,
+        ordinal: Int,
+        semanticRevision: Int,
+        createdAt: Date,
+        updatedAt: Date,
+        savedBody: String?,
+        savedRevision: Int?,
+        draft: WorktreeAnnotationDraft?,
+        handled: Bool,
+        status: WorktreeAnnotationMessageStatus,
+        authorKind: WorktreeAnnotationAuthorKind = .human,
+        viewedSavedRevision: Int? = nil
+    ) {
+        self.id = id
+        self.threadID = threadID
+        self.ordinal = ordinal
+        self.authorKind = authorKind
+        self.semanticRevision = semanticRevision
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.savedBody = savedBody
+        self.savedRevision = savedRevision
+        self.draft = draft
+        self.handled = handled
+        self.viewedSavedRevision = viewedSavedRevision
+        self.status = status
+    }
+
+    func projectNewPendingState() throws -> WorktreeAnnotationMessageNewPendingProjection {
+        let hasCurrentSavedRevision = savedBody != nil && savedRevision != nil
+        let isOutputEligible = hasCurrentSavedRevision && draft == nil
+
+        switch authorKind {
+        case .human:
+            guard viewedSavedRevision == nil else {
+                throw WorktreeAnnotationMessageStateValidationError.humanViewedRevision
+            }
+            return .init(
+                attentionState: .notApplicable,
+                isPending: isOutputEligible && !handled,
+                isAllEligible: isOutputEligible
+            )
+
+        case .agent:
+            guard draft == nil else {
+                throw WorktreeAnnotationMessageStateValidationError.agentDraft
+            }
+            guard !handled else {
+                throw WorktreeAnnotationMessageStateValidationError.agentHandled
+            }
+            guard savedBody != nil, let savedRevision else {
+                throw WorktreeAnnotationMessageStateValidationError.agentCurrentRevisionMissing
+            }
+            guard savedRevision > 0 else {
+                throw WorktreeAnnotationMessageStateValidationError.agentCurrentRevisionIsNotPositive(
+                    currentSavedRevision: savedRevision
+                )
+            }
+            if let viewedSavedRevision, viewedSavedRevision < 1 {
+                throw WorktreeAnnotationMessageStateValidationError.agentViewedRevisionIsNotPositive(
+                    viewedSavedRevision: viewedSavedRevision
+                )
+            }
+            if let viewedSavedRevision, viewedSavedRevision > savedRevision {
+                throw WorktreeAnnotationMessageStateValidationError.agentViewedRevisionIsNewerThanCurrent(
+                    viewedSavedRevision: viewedSavedRevision,
+                    currentSavedRevision: savedRevision
+                )
+            }
+            let attentionState: WorktreeAnnotationAttentionState =
+                viewedSavedRevision == savedRevision ? .viewed : .new
+            return .init(
+                attentionState: attentionState,
+                isPending: false,
+                isAllEligible: true
+            )
+        }
+    }
 }
 
 struct WorktreeAnnotationThreadDetail: Equatable, Sendable {
