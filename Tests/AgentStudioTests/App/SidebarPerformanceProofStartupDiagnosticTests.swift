@@ -233,15 +233,17 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(SidebarPerformanceProofActionTracker.matches(settled, action: action))
     }
 
-    @Test("shell accessibility readback uses the compact grouping button label")
-    func shellAccessibilityReadbackUsesCompactGroupingButtonLabel() {
+    @Test("shell accessibility readback resolves the selected grouping segment")
+    func shellAccessibilityReadbackResolvesSelectedGroupingSegment() {
         let rootView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
-        let selectedSegment = SelectedSidebarGroupingAccessibilityButton(
-            identifier: "repoSidebarGroupingButton",
-            label: "Group: All Panes"
-        )
-        selectedSegment.frame = NSRect(x: 0, y: 0, width: 80, height: 24)
-        rootView.addSubview(selectedSegment)
+        for groupingMode in RepoExplorerGroupingMode.allCases {
+            let segment = SelectedSidebarGroupingAccessibilityButton(
+                identifier: "repoSidebarGroupingSegment.\(groupingMode.rawValue)",
+                label: groupingMode.title,
+                isSelected: groupingMode == .pane
+            )
+            rootView.addSubview(segment)
+        }
         let tableView = NSTableView(frame: NSRect(x: 0, y: 30, width: 300, height: 270))
         rootView.addSubview(tableView)
 
@@ -452,10 +454,12 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
 private final class SelectedSidebarGroupingAccessibilityButton: NSButton {
     private let fixedAccessibilityIdentifier: String
     private let fixedAccessibilityLabel: String
+    private let fixedIsSelected: Bool
 
-    init(identifier: String, label: String) {
+    init(identifier: String, label: String, isSelected: Bool) {
         fixedAccessibilityIdentifier = identifier
         fixedAccessibilityLabel = label
+        fixedIsSelected = isSelected
         super.init(frame: .zero)
     }
 
@@ -470,5 +474,9 @@ private final class SelectedSidebarGroupingAccessibilityButton: NSButton {
 
     override func accessibilityLabel() -> String? {
         fixedAccessibilityLabel
+    }
+
+    override func isAccessibilitySelected() -> Bool {
+        fixedIsSelected
     }
 }

@@ -112,9 +112,9 @@ struct SidebarSurfaceConvergenceTests {
         )
         #expect(repoSource.contains("} toolbarRow: {"))
         #expect(commandToolbarSource.contains("repoSidebarSortButton"))
-        #expect(commandToolbarSource.contains("repoSidebarGroupingButton"))
+        #expect(commandToolbarSource.contains("repoSidebarGroupingControl"))
         #expect(commandToolbarSource.contains("RepoExplorerGroupingMode.allCases"))
-        #expect(commandToolbarSource.contains("LocalActionSpec.groupRepoExplorerWorktrees.actionSpec"))
+        #expect(!commandToolbarSource.contains("LocalActionSpec.groupRepoExplorerWorktrees.actionSpec"))
         #expect(commandToolbarSource.contains("RepoExplorerToolbarCommandPresentation.resolve("))
         #expect(commandToolbarSource.contains("commandPresentation.command(.setRepoSidebarSortOrder)"))
         #expect(commandToolbarSource.contains("label: sortCommand.commandSpec.label"))
@@ -168,8 +168,8 @@ struct SidebarSurfaceConvergenceTests {
         #expect(toolbarSource.contains(".tint(Color.secondary)"))
     }
 
-    @Test("repo grouping preserves the compact selectable popover")
-    func repoGroupingPreservesCompactSelectablePopover() throws {
+    @Test("repo grouping uses shared segments while inbox keeps its selectable popover")
+    func repoGroupingUsesSharedSegmentsAndInboxKeepsSelectablePopover() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let commandToolbarSource = try String(
             contentsOf: projectRoot.appending(
@@ -192,16 +192,15 @@ struct SidebarSurfaceConvergenceTests {
             encoding: .utf8
         )
 
-        #expect(commandToolbarSource.contains("SidebarToolbarGroupingButton("))
+        #expect(commandToolbarSource.contains("SidebarToolbarSegmentedControl("))
         #expect(inboxSource.contains("SidebarToolbarGroupingButton("))
-        #expect(!commandToolbarSource.contains("SidebarToolbarSegmentedControl("))
-        #expect(commandToolbarSource.contains("SidebarGroupingPopover("))
+        #expect(!commandToolbarSource.contains("SidebarGroupingPopover("))
         #expect(inboxSource.contains("SidebarGroupingPopover("))
         #expect(commandToolbarSource.contains("AppEntityIcon.repo"))
         #expect(commandToolbarSource.contains("AppEntityIcon.pane"))
         #expect(commandToolbarSource.contains("AppEntityIcon.tab"))
         #expect(inboxSource.contains("label: { groupingCommandSpec(for: $0).label }"))
-        #expect(commandToolbarSource.contains("selectionLabel: repoExplorerPrefs.groupingMode.title"))
+        #expect(commandToolbarSource.contains("label: groupingMode.title"))
         #expect(!inboxSource.contains("label: { $0.commandLabel }"))
         #expect(!inboxSource.contains(")\n\n            Divider()\n\n            InboxSidebarContent("))
         #expect(toolbarSource.contains("struct SidebarToolbarGroupingButton"))

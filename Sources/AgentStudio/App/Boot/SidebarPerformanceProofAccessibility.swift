@@ -6,29 +6,23 @@ enum SidebarPerformanceProofAccessibility {
     static func selectedRepoGroupingMode(
         in rootView: NSView
     ) -> RepoExplorerGroupingMode? {
-        var visited: Set<ObjectIdentifier> = []
-        guard
-            let element = accessibilityElement(
-                in: rootView,
-                identifier: "repoSidebarGroupingButton",
-                visited: &visited
-            ),
-            let label = accessibilityLabel(of: element)
-        else { return nil }
-        return RepoExplorerGroupingMode.allCases.first { groupingMode in
-            label.localizedCaseInsensitiveContains(accessibilityTitle(for: groupingMode))
+        for groupingMode in RepoExplorerGroupingMode.allCases {
+            var visited: Set<ObjectIdentifier> = []
+            guard
+                let element = accessibilityElement(
+                    in: rootView,
+                    identifier: "repoSidebarGroupingSegment.\(groupingMode.rawValue)",
+                    visited: &visited
+                )
+            else { continue }
+            if isAccessibilitySelected(element) { return groupingMode }
         }
+        return nil
     }
 
-    private static func accessibilityTitle(for groupingMode: RepoExplorerGroupingMode) -> String {
-        switch groupingMode {
-        case .repo:
-            return "By Repo"
-        case .pane:
-            return "All Panes"
-        case .tab:
-            return "By Tab"
-        }
+    private static func isAccessibilitySelected(_ element: AnyObject) -> Bool {
+        guard let accessibilityElement = element as? any NSAccessibilityProtocol else { return false }
+        return accessibilityElement.isAccessibilitySelected()
     }
 
     static func firstDescendant<Descendant: NSView>(
@@ -84,11 +78,6 @@ enum SidebarPerformanceProofAccessibility {
     private static func accessibilityIdentifier(of element: AnyObject) -> String? {
         guard let accessibilityElement = element as? any NSAccessibilityProtocol else { return nil }
         return accessibilityElement.accessibilityIdentifier()
-    }
-
-    private static func accessibilityLabel(of element: AnyObject) -> String? {
-        guard let accessibilityElement = element as? any NSAccessibilityProtocol else { return nil }
-        return accessibilityElement.accessibilityLabel()
     }
 
     private static func accessibilityChildren(of element: AnyObject) -> [AnyObject] {
