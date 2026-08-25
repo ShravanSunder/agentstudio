@@ -93,6 +93,12 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(!source.contains("STRICT_POLICY_HOST_CPU_MAX"))
         #expect(!source.contains("unrelated_host_cpu_max_percent"))
         #expect(!source.contains("validate_strict_host_envelope"))
+        #expect(
+            source.contains(
+                "if ! \"$PROJECT_ROOT/scripts/run-debug-observability.sh\" --preflight-idle; then"
+            )
+        )
+        #expect(source.contains("refusing to reset a non-idle debug root"))
     }
 
     @Test("strict quiescence rejects missing and empty stage vectors")

@@ -173,7 +173,10 @@ reset_disposable_debug_root() {
     return 1
   fi
 
-  "$PROJECT_ROOT/scripts/run-debug-observability.sh" --preflight-idle
+  if ! "$PROJECT_ROOT/scripts/run-debug-observability.sh" --preflight-idle; then
+    echo "refusing to reset a non-idle debug root" >&2
+    return 1
+  fi
   zmx_dir="$RESET_DATA_DIR/z"
   zmx_bin="$RESET_DATA_DIR/bin/zmx"
   if [ -d "$zmx_dir" ]; then
