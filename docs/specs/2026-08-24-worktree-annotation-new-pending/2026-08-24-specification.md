@@ -10,8 +10,9 @@ Governing Requirements:
 Related current contract:
 [Worktree Annotations PR1 specification](../2026-08-06-worktree-annotations/pr1-specification.md).
 
-Program Design: not yet authored. Internal realization is outside this
-Specification.
+Program Design:
+[2026-08-25-program-design.md](./2026-08-25-program-design.md). Internal
+realization remains outside this Specification.
 
 ## Observable outcome
 
