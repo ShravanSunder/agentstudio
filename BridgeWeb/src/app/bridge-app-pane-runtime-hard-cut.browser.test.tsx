@@ -143,6 +143,7 @@ vi.mock('../core/comm-worker/bridge-pane-runtime.js', async (importOriginal) => 
 					lifecycleStore.dispose();
 					surfaceMessageListeners.clear();
 				},
+				installMainTelemetryRecorder: vi.fn(),
 				installNativeBootstrap: vi.fn(),
 				installTelemetryProducer: vi.fn(),
 				lifecycleStore,
