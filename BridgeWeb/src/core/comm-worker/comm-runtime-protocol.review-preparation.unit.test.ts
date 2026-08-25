@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
+	encodeBridgeWorkerRenderDispositionCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
@@ -22,6 +23,7 @@ import {
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
+import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
 
 afterEach((): void => {
 	vi.useRealTimers();
@@ -469,6 +471,8 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			scheduledDrains,
 			startIndex: 0,
 		});
+		queueLatestReviewPublication(dispatch, postedMessages, 'selected-before-source-rollover');
+		await flushBridgeWorkerRuntimeContinuations();
 		const rolloverDrainStartIndex = scheduledDrains.length;
 
 		reviewProductSource.publishSource(
@@ -852,6 +856,33 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		expect(scheduledDrains).toHaveLength(1);
 	});
 });
+
+function queueLatestReviewPublication(
+	dispatch: ReturnType<typeof createRecordingBridgeCommWorkerPort>['dispatch'],
+	postedMessages: ReturnType<typeof createRecordingBridgeCommWorkerPort>['postedMessages'],
+	requestLabel: string,
+): void {
+	const publication = postedMessages
+		.flatMap((postedMessage) =>
+			postedMessage.message.kind === 'reviewPierreRenderJob' ? [postedMessage.message] : [],
+		)
+		.at(-1);
+	if (publication === undefined) throw new Error('Expected a Review publication to queue.');
+	dispatch.message(
+		encodeBridgeWorkerRenderDispositionCommand({
+			epoch: publication.workerDerivationEpoch,
+			receipts: [
+				bridgeWorkerRenderDispositionReceiptSchema.parse({
+					...publication.renderReceiptIdentity,
+					disposition: 'queued',
+					kind: 'render.disposition',
+					receivedAtMilliseconds: 0,
+				}),
+			],
+			requestId: `request-queue-${requestLabel}`,
+		}),
+	);
+}
 
 function unexpectedEOFReviewContentStream(
 	descriptorId: string,

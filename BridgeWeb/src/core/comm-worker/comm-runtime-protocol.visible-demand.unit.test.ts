@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+	encodeBridgeWorkerRenderDispositionCommand,
 	encodeBridgeWorkerReviewInvalidateCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
@@ -25,6 +26,7 @@ import {
 	registerBridgeRuntimeWithInitialReviewSource,
 } from './bridge-comm-worker-runtime-protocol.visible-demand.test-support.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
+import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
 
 describe('Bridge comm worker runtime visible demand protocol', () => {
 	test('refreshes a ready visible Review item after source update changes content descriptors', async () => {
@@ -85,6 +87,8 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				(postedMessage) => postedMessage.message.kind === 'reviewPierreRenderJob',
 			),
 		).toHaveLength(1);
+		queueLatestReviewPublication(dispatch, postedMessages, 'ready-before-source-update');
+		await flushBridgeWorkerRuntimeContinuations();
 
 		const updatedCandidateReady = waitForMessage(
 			(message): boolean => message.kind === 'reviewCandidateReady' && message.revision === 6,
@@ -201,6 +205,8 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				(postedMessage) => postedMessage.message.kind === 'reviewPierreRenderJob',
 			),
 		).toHaveLength(1);
+		queueLatestReviewPublication(dispatch, postedMessages, 'byte-bound-before-source-update');
+		await flushBridgeWorkerRuntimeContinuations();
 
 		const byteBoundCandidateReady = waitForMessage(
 			(message): boolean => message.kind === 'reviewCandidateReady' && message.revision === 6,
@@ -302,6 +308,8 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(scheduledDrains).toEqual([]);
+		queueLatestReviewPublication(dispatch, postedMessages, 'sticky-before-source-update');
+		await flushBridgeWorkerRuntimeContinuations();
 
 		const staleCandidateReady = waitForMessage(
 			(message): boolean => message.kind === 'reviewCandidateReady' && message.revision === 6,
@@ -337,6 +345,9 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		expect(deferredStreamsByDescriptorId.size).toBe(2);
 		const freshDrainStartIndex = scheduledDrains.length;
 
+		const freshCandidateReady = waitForMessage(
+			(message): boolean => message.kind === 'reviewCandidateReady' && message.revision === 7,
+		);
 		reviewProductSource.publishSource(
 			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
@@ -373,6 +384,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		for (const deferredStream of deferredStreamsByDescriptorId.values()) {
 			deferredStream.resolve('stale body');
 		}
+		await freshCandidateReady;
 		await drainBridgeWorkerVisibleDemandRuntimeUntil({
 			hasExpectedEvent: () =>
 				postedMessages.some(
@@ -893,6 +905,33 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		expect(publishedItemIds).toHaveLength(itemIds.length);
 	});
 });
+
+function queueLatestReviewPublication(
+	dispatch: ReturnType<typeof createRecordingBridgeCommWorkerPort>['dispatch'],
+	postedMessages: ReturnType<typeof createRecordingBridgeCommWorkerPort>['postedMessages'],
+	requestLabel: string,
+): void {
+	const publication = postedMessages
+		.flatMap((postedMessage) =>
+			postedMessage.message.kind === 'reviewPierreRenderJob' ? [postedMessage.message] : [],
+		)
+		.at(-1);
+	if (publication === undefined) throw new Error('Expected a Review publication to queue.');
+	dispatch.message(
+		encodeBridgeWorkerRenderDispositionCommand({
+			epoch: publication.workerDerivationEpoch,
+			receipts: [
+				bridgeWorkerRenderDispositionReceiptSchema.parse({
+					...publication.renderReceiptIdentity,
+					disposition: 'queued',
+					kind: 'render.disposition',
+					receivedAtMilliseconds: 0,
+				}),
+			],
+			requestId: `request-queue-${requestLabel}`,
+		}),
+	);
+}
 
 function makeInexactContentRequestDescriptor(
 	props: Parameters<typeof makeContentRequestDescriptor>[0],

@@ -33,7 +33,10 @@ import {
 } from './bridge-comm-worker-file-view-runtime-source.js';
 import type { BridgeCommWorkerFileMetadataDemand } from './bridge-comm-worker-product-controller.js';
 import { buildBridgeWorkerReadyHealthEvent } from './bridge-comm-worker-protocol.js';
-import { applyBridgeWorkerRenderDispositionCommand } from './bridge-comm-worker-render-disposition-application.js';
+import {
+	applyBridgeWorkerRenderDispositionCommand,
+	type BridgeWorkerRenderDispositionApplication,
+} from './bridge-comm-worker-render-disposition-application.js';
 import { handleBridgeCommWorkerReviewHoverCommand } from './bridge-comm-worker-review-hover-command.js';
 import {
 	applyBridgeCommWorkerReviewMetadataApplication,
@@ -160,6 +163,22 @@ export function createBridgeCommWorkerCommandHandler(
 			// Post-commit diagnostics cannot invalidate an already committed Review publication.
 		}
 	};
+	const applyRenderDispositionCommand = (
+		command: BridgeWorkerRenderDispositionCommand,
+		store: BridgeCommWorkerStore,
+	): BridgeWorkerRenderDispositionApplication => {
+		if (props.applyRenderDisposition !== undefined) {
+			return {
+				messages: props.applyRenderDisposition({ command, store }),
+				receiptResults: [],
+			};
+		}
+		return applyBridgeWorkerRenderDispositionCommand({
+			command,
+			store,
+			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
+		});
+	};
 	const prepareReviewMetadataApplication = (
 		application: BridgeCommWorkerReviewMetadataApplication,
 	): BridgeCommWorkerReviewMetadataApplicationTransaction => {
@@ -240,6 +259,11 @@ export function createBridgeCommWorkerCommandHandler(
 	};
 
 	return {
+		applyRenderDispositionCommand: (command) =>
+			applyRenderDispositionCommand(
+				command,
+				command.receipts[0]?.surface === 'file' ? fileViewStore : reviewStore,
+			),
 		advanceFileRenderFulfillmentLifecycle: (
 			atMilliseconds,
 		): BridgeCommWorkerRenderFulfillmentLifecycleAdvance => {
@@ -394,9 +418,8 @@ export function createBridgeCommWorkerCommandHandler(
 				...(props.requestFileDisplayResync === undefined
 					? {}
 					: { requestFileDisplayResync: props.requestFileDisplayResync }),
-				...(props.applyRenderDisposition === undefined
-					? {}
-					: { applyRenderDisposition: props.applyRenderDisposition }),
+				applyRenderDisposition: ({ command, store }) =>
+					applyRenderDispositionCommand(command, store).messages,
 				...(props.retryAnnotationProjection === undefined
 					? {}
 					: { retryAnnotationProjection: props.retryAnnotationProjection }),
@@ -512,7 +535,7 @@ function handleBridgeWorkerCommand(
 					...(props.telemetryClient === undefined
 						? {}
 						: { telemetryClient: props.telemetryClient }),
-				})
+				}).messages
 			);
 		case 'hover':
 			return handleBridgeCommWorkerReviewHoverCommand({

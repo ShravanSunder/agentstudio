@@ -196,6 +196,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 			const activeAttempt = currentState.activeAttempt;
 			if (
 				activeAttempt === null ||
+				activeAttempt.highestDisposition !== null ||
 				atMilliseconds < activeAttempt.receiptLeaseExpiresAtMilliseconds
 			) {
 				continue;
@@ -261,7 +262,9 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 			const candidateWakeAtMilliseconds =
 				currentState.stage === 'retry_wait'
 					? currentState.retryAtMilliseconds
-					: currentState.activeAttempt?.receiptLeaseExpiresAtMilliseconds;
+					: currentState.activeAttempt?.highestDisposition === null
+						? currentState.activeAttempt.receiptLeaseExpiresAtMilliseconds
+						: null;
 			if (
 				candidateWakeAtMilliseconds !== null &&
 				candidateWakeAtMilliseconds !== undefined &&

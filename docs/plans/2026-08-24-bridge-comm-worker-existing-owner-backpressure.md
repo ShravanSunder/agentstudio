@@ -134,12 +134,19 @@ Implementation:
    existing latest-request currentness check and drain.
 4. Apply the batch and construct its current typed response, synchronously call
    `dispatchBridgeCommWorkerRuntimeProductControl`, then apply only exact,
-   lifecycle-eligible Review/File effects and request existing drains. Let a
-   post throw escape before effects.
-5. Preserve fulfillment source/currentness fences and later applied/painted
-   transitions. Preserve the existing File operation's install, render, paint,
-   file-content, and worker-application lifecycle evidence. Do not split File
-   admission from lifecycle or add another owner, state machine, or queue.
+   lifecycle-eligible Review/File effects derived from accepted or
+   exact-idempotent duplicate per-receipt application results and request
+   existing drains. Rejected raw inputs apply no owner effect. Let a post throw
+   escape before effects.
+5. End an attempt's five-second delivery lease on its first accepted `queued`
+   disposition. Retain exact queued fulfillment identity and ordered later
+   `applied`/`painted` transitions, but schedule no lease-expiry retry merely
+   because virtualized Review work remains offscreen. Preserve fulfillment
+   source/currentness fences and use existing visible-demand revalidation for
+   genuinely missing or stale material.
+6. Preserve the existing File operation's install, render, paint, file-content,
+   and worker-application lifecycle evidence. Do not split File admission from
+   lifecycle or add another owner, state machine, or queue.
 
 ```bash
 pnpm --dir BridgeWeb exec vitest --config vitest.config.ts run \
@@ -156,8 +163,10 @@ git diff --check
 Checkpoint only with S1 green, item thirteen starting after one exact Review
 release, File B waiting through A queued and applied then starting only after A
 painted or terminal rejected/superseded, post throw applying no owner effect,
-and the full focused set green. Commit the whole behavior slice; never the hold
-without its matching release or settlement.
+an offscreen queued Review attempt crossing its former lease deadline without
+retry, rejected batch inputs applying no owner effect, and the full focused set
+green. Commit the whole behavior slice; never the hold without its matching
+release or settlement.
 
 ## S3 — Actual `MessageChannel` integration
 
@@ -181,6 +190,11 @@ Prove:
   Review queued/terminal response starts no Review thirteen, and a failed File
   painted/terminal response starts no File B; neither failure requests a drain.
   Do not label this peer-close detection.
+- an offscreen Review publication receives exact queued, crosses the
+  five-second delivery deadline without retry or republication, and remains
+  eligible for ordered applied/painted settlement when later materialized;
+- a mixed accepted/rejected batch posts its degraded response before applying
+  only the accepted or exact-idempotent duplicate owner effects.
 
 ```bash
 pnpm --dir BridgeWeb exec vitest --config vitest.integration.config.ts run \
@@ -250,7 +264,10 @@ and `draft.save` exact outcome; remains semantically inspectable; reloads and
 verifies all six bodies from durable projection; stops demand and waits for
 receipt and Review/File state to drain. Fail on admission-caused timeout, lease
 expiry, amplification, overload, replacement, unbounded count/age, or wrong
-response/publication order. Use bounded protocol waits, never sleeps.
+response/publication order. The quiescent telemetry oracle must also prove that
+delivered offscreen Review work does not restart at the receipt-lease cadence
+after source generation and demand stabilize. Use bounded protocol waits, never
+sleeps.
 
 ```bash
 pnpm --dir BridgeWeb exec vitest --config vitest.e2e.config.ts run \

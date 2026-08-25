@@ -776,7 +776,12 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		const queueWaitMilliseconds =
 			handlerStartedAtMilliseconds -
 			(parsedMessage.data.issuedAtMilliseconds ?? handlerStartedAtMilliseconds);
-		const messages = handler.handleMessage(parsedMessage.data);
+		const renderDispositionApplication =
+			parsedMessage.data.command === 'renderDisposition'
+				? handler.applyRenderDispositionCommand(parsedMessage.data)
+				: null;
+		const messages =
+			renderDispositionApplication?.messages ?? handler.handleMessage(parsedMessage.data);
 		if (parsedMessage.data.command === 'reviewPublicationInstalled') {
 			installedReviewSource.recordInstallation(parsedMessage.data);
 		}
@@ -869,9 +874,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			},
 		});
 		if (parsedMessage.data.command === 'renderDisposition') {
+			if (renderDispositionApplication === null) {
+				throw new Error('Bridge render disposition application result is unavailable.');
+			}
 			applyBridgeCommWorkerPostResponseOwnerEffects({
 				advanceRenderFulfillmentLifecycle,
-				command: parsedMessage.data,
 				currentFileOperationCorrelationId: () =>
 					selectedFileContentOperationController.current?.operationCorrelationId ?? null,
 				onFileOperationSettled: (): void => {
@@ -886,6 +893,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					}
 				},
 				releaseReviewPosition: reviewDemandScheduling.applyPublishedDisposition,
+				receiptResults: renderDispositionApplication.receiptResults,
 				settleFileDisposition: (receipt) =>
 					settleAcceptedSelectedFileRenderDisposition({
 						controller: selectedFileContentOperationController,

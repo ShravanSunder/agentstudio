@@ -257,6 +257,39 @@ describe('Bridge comm worker Review published-position ownership', () => {
 			1,
 		);
 	});
+
+	test('starts same-item successor demand after the old generation receives queued', () => {
+		// Arrange
+		const startedItemIds: string[] = [];
+		const ledger = createTestLedger(startedItemIds);
+		const membership = [{ itemId: 'same-item', role: 'visible' }] as const;
+		ledger.updateGeneration(1);
+		const firstGeneration = ledger.reconcile(membership);
+		const firstAdmission = firstGeneration.active[0];
+		if (firstAdmission === undefined) throw new Error('Expected first-generation admission.');
+		const firstIdentity = renderReceiptIdentity(firstAdmission.itemId, firstAdmission.attemptToken);
+		ledger.markPublished(firstAdmission.itemId, firstAdmission.attemptToken, firstIdentity);
+		ledger.release(firstAdmission.itemId, firstAdmission.attemptToken, 'resident');
+
+		// Act
+		ledger.updateGeneration(2);
+		ledger.reconcile(membership);
+		const released = ledger.releasePublished(
+			bridgeWorkerRenderDispositionReceiptSchema.parse({
+				...firstIdentity,
+				disposition: 'queued',
+				kind: 'render.disposition',
+				receivedAtMilliseconds: 1,
+			}),
+		);
+
+		// Assert
+		expect(released).toBe(true);
+		expect(startedItemIds).toEqual(['same-item', 'same-item']);
+		expect(ledger.reconcile(membership).active[0]?.attemptToken).not.toBe(
+			firstAdmission.attemptToken,
+		);
+	});
 });
 
 function createTestLedger(

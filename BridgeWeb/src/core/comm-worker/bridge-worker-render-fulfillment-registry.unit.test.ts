@@ -106,6 +106,41 @@ describe('Bridge worker render fulfillment registry', () => {
 		expect(repeated.state).toBe(accepted.state);
 	});
 
+	test('ends the delivery lease after queued while preserving later paint settlement', () => {
+		// Arrange
+		let nowMilliseconds = 0;
+		const registry = createRegistry(reviewContext, (): number => nowMilliseconds);
+		const publication = registry.beginPublication({
+			job: makeRenderJob('offscreen-review-item'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+
+		// Act
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'queued', 1)),
+		).toMatchObject({ status: 'accepted' });
+		nowMilliseconds = 100;
+
+		// Assert
+		expect(registry.expireReceiptLeases()).toEqual([]);
+		expect(registry.nextLifecycleWakeAtMilliseconds()).toBeNull();
+		expect(registry.getItemState('offscreen-review-item')).toMatchObject({
+			isDesired: true,
+			stage: 'queued',
+		});
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'applied', 101)),
+		).toMatchObject({ status: 'accepted' });
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'painted', 102)),
+		).toMatchObject({ status: 'accepted' });
+		expect(registry.getItemState('offscreen-review-item')).toMatchObject({
+			isDesired: false,
+			stage: 'painted',
+		});
+	});
+
 	test('retires publication residency before the same semantic window is republished', () => {
 		// Arrange
 		const registry = createRegistry(reviewContext);

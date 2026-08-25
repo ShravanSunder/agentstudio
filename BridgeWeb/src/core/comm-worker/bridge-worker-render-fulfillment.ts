@@ -529,6 +529,7 @@ function assertRenderReceiptIdentity(
 	if (
 		event.receivedAtMilliseconds < 0 ||
 		(state.activeAttempt !== null &&
+			state.activeAttempt.highestDisposition === null &&
 			event.receivedAtMilliseconds > state.activeAttempt.receiptLeaseExpiresAtMilliseconds)
 	) {
 		throw new BridgeWorkerRenderReceiptRejectionError(

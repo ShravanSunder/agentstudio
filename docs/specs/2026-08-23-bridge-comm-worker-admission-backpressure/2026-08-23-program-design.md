@@ -107,6 +107,15 @@ registry. `BridgeWorkerRenderFulfillmentRegistry` remains authoritative for
 attempt identity, accepted/duplicate/rejected receipt meaning, source and
 currentness validation, lease expiry, and retry eligibility.
 
+The registry returns one ephemeral application result per input receipt. That
+result retains the input receipt plus its `accepted`, `duplicate`, or
+`rejected` application status. It exists only for the synchronous command turn:
+it is not a wire type, queue, retained ledger, or second source of fulfillment
+truth. Post-response Review/File owner effects may consume only `accepted` or
+exact-idempotent `duplicate` application results. Rejected inputs remain
+visible through the batch's typed degraded response and telemetry but cannot
+release or settle an owner.
+
 Disposition application returns the existing ready or degraded correlated
 response plus only the lifecycle-eligible existing-owner effects derived from
 valid attempt identities. Review becomes eligible on first exact queued or
@@ -114,6 +123,17 @@ terminal rejected/superseded. File becomes eligible only on painted or terminal
 rejected/superseded; queued and applied preserve its current operation. These
 effects are ephemeral results of applying the current batch; they are not stored
 as another queue or ownership system.
+
+The five-second receipt lease protects delivery of the first exact
+disposition, not visual residency. An accepted `queued` disposition ends the
+delivery lease while retaining the exact active-attempt identity and queued
+fulfillment state. The registry schedules no lease-expiry wake for queued or
+applied Review work. Later `applied` and `painted` receipts remain ordered and
+valid when the item is materialized. An offscreen queued item is not retried
+merely because virtualization has not mounted or painted it. Later visible
+demand uses the existing currentness and source-revalidation owners to reuse
+valid delivered material or begin a fresh publication when it is actually
+missing, stale, rejected, or superseded.
 
 `dispatchBridgeCommWorkerRuntimeProductControl` synchronously posts the
 correlated response. Only after that call succeeds does the runtime apply any
@@ -208,12 +228,16 @@ Review demand owner
 Main render owner
   -> per-surface admission queues dispositions                          [=]
   -> one ordered batch crosses main-to-worker FIFO                      [=]
-  -> worker applies batch and constructs ready/degraded response        [=]
+  -> worker applies batch and retains per-receipt application results   [+]
+  -> first accepted queued ends that attempt's delivery lease           [+]
+  -> worker constructs ready/degraded response                          [=]
   -> runtime synchronously posts correlated response                    [=]
-  -> on first exact queued or terminal rejected/superseded,
+  -> from accepted/duplicate results only, on first exact queued or
+     terminal rejected/superseded,
      runtime releases matching Review position                          [+]
   -> existing Review reconcile/drain resumes                            [=]
   -> later render publication posts behind the response on same FIFO    [+]
+  -> offscreen queued work waits without a paint-driven retry            [+]
 
 PROPOSED FILE FLOW
 
@@ -301,11 +325,15 @@ the port before an urgent action already present at Main admission.
 - One disposition batch contains one surface and current worker lifetime.
 - Positive receipts retain queued -> applied -> painted order per attempt;
   rejection and supersession remain terminal; exact duplicates are idempotent.
+- The receipt lease applies while an attempt awaits its first exact
+  disposition. Accepted queued ends the delivery lease without fabricating
+  applied or painted residency. Queued/applied work has no lease-expiry wake.
 - Receipt application remains in array order. A stale or invalid receipt may
   degrade the batch without changing current fulfillment truth.
-- Review release uses only first exact queued or terminal
-  rejected/superseded for the matching attempt whose correlated response was
-  successfully posted.
+- Review release uses only an accepted or exact-idempotent duplicate first
+  queued or terminal rejected/superseded result for the matching attempt whose
+  correlated response was successfully posted. A rejected raw input produces
+  no owner effect.
 - File remains current through exact queued and applied. File settlement uses
   only exact painted or terminal rejected/superseded for the matching attempt
   whose correlated response was successfully posted.
@@ -365,6 +393,9 @@ position or operation held in that old lifetime is cleared by replacement.
 - Receipt pending overflow closes old-lifetime admission and requests existing
   replacement; it does not drop ordered facts or increase the ceiling.
 - Existing fulfillment lease expiry and retry policy remain authoritative.
+- Fulfillment lease expiry is eligible only while the current attempt is still
+  awaiting its first exact disposition. Accepted queued/applied work cannot
+  expire into retry solely because it remains offscreen or unpainted.
 - Owner-initiated worker replacement, surface disposal, and document teardown
   clear all old-lifetime admission and preparation state before new work.
 - Optional telemetry failure never changes product behavior.
@@ -490,6 +521,13 @@ Fresh evidence that the existing Review and File bounds still miss the current
 RPC timeout or receipt lease would reopen the rendering budget or envelope
 shape. It would not silently authorize another ownership system.
 
+Separating delivery from residency means queued offscreen Review work may
+remain represented in fulfillment state until later visibility, source churn,
+rejection/supersession, or worker retirement resolves it. The existing bounded
+Review registry and worker lifetime pay that cost. This is preferable to
+treating absence of offscreen paint as delivery failure and continuously
+recomputing material the main runtime already accepted.
+
 ### Rejected: an additional admission ownership system
 
 A separate identity/state machine for published work duplicates the Review
@@ -529,6 +567,12 @@ semantics. Current evidence does not justify either expansion.
   exact queued or terminal rejected/superseded posts.
 - Review invalidation while published keeps the position occupied and does not
   revive stale demand after release.
+- A queued offscreen Review publication crosses its former lease deadline
+  without lease expiry, retry, or a second publication; later visibility may
+  still advance it through applied and painted.
+- A mixed batch's rejected input produces no post-response Review/File owner
+  effect, while accepted and exact-idempotent duplicate inputs retain their
+  lifecycle-eligible effects.
 - File publishes selection A, retains selection B as latest intent, keeps A
   current through queued and applied responses, and starts B only after A's
   painted or terminal rejected/superseded response posts and A settles.

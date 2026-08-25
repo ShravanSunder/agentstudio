@@ -27,7 +27,7 @@ describe('Bridge comm worker render disposition application', () => {
 			wireVersion: 1,
 		} satisfies BridgeWorkerRenderDispositionCommand;
 
-		const messages = applyBridgeWorkerRenderDispositionCommand({
+		const application = applyBridgeWorkerRenderDispositionCommand({
 			command,
 			store: { renderFulfillmentRegistry: { applyDisposition } },
 			telemetryClient: {
@@ -42,12 +42,17 @@ describe('Bridge comm worker render disposition application', () => {
 			'item-2',
 			'item-3',
 		]);
-		expect(messages).toEqual([
+		expect(application.messages).toEqual([
 			expect.objectContaining({
 				kind: 'health',
 				requestId: 'mixed-batch',
 				status: 'degraded',
 			}),
+		]);
+		expect(application.receiptResults).toEqual([
+			{ receipt: receipts[0], status: 'rejected' },
+			{ receipt: receipts[1], status: 'accepted' },
+			{ receipt: receipts[2], status: 'duplicate' },
 		]);
 		expect(telemetrySamples).toEqual([
 			expect.objectContaining({
