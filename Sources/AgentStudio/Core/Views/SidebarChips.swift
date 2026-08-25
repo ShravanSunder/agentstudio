@@ -112,23 +112,39 @@ package struct SidebarPendingPullRequestIndicator: View {
     }
 }
 
-extension View {
-    package func sidebarPendingPullRequestIndicator(isVisible: Bool) -> some View {
-        frame(minHeight: isVisible ? AppStyles.Shell.Sidebar.chipLineHeight : nil)
-            .overlay(alignment: .leading) {
-                if isVisible {
+package struct SidebarStatusChipRow<Content: View>: View {
+    let isPendingPullRequestFacts: Bool
+    @ViewBuilder let content: () -> Content
+
+    package init(
+        isPendingPullRequestFacts: Bool,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.isPendingPullRequestFacts = isPendingPullRequestFacts
+        self.content = content
+    }
+
+    package var body: some View {
+        HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
+            Group {
+                if isPendingPullRequestFacts {
                     SidebarPendingPullRequestIndicator()
-                        .frame(
-                            width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
-                            alignment: .leading
-                        )
-                        .offset(
-                            x:
-                                -(AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
-                                + AppStyles.Shell.Sidebar.groupIconTitleSpacing)
-                        )
+                } else {
+                    Color.clear
+                        .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
                 }
             }
+            .frame(
+                width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
+                alignment: .leading
+            )
+
+            HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

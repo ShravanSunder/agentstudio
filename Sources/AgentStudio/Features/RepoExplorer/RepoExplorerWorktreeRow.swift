@@ -68,7 +68,7 @@ struct RepoExplorerWorktreeRowContent: View {
     }
 
     var body: some View {
-        VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+        VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                 checkoutTypeIcon
                     .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
@@ -108,7 +108,6 @@ struct RepoExplorerWorktreeRowContent: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .sidebarIconLineTextColumnGuide()
 
             SidebarMetadataLine(
                 icon: .octicon(name: "octicon-git-branch", loader: octiconLoader),
@@ -123,19 +122,15 @@ struct RepoExplorerWorktreeRowContent: View {
             }
 
             if hasStatusMetadata {
-                HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+                SidebarStatusChipRow(
+                    isPendingPullRequestFacts: SidebarGitStatusChips.showsPendingPullRequestFacts(
+                        branchStatus: branchStatus
+                    )
+                ) {
                     if SidebarGitStatusChips.hasContent(branchStatus: branchStatus) {
                         SidebarGitStatusChips(branchStatus: branchStatus, octiconLoader: octiconLoader)
                     }
-
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .sidebarChipRowTextColumnGuide()
-                .sidebarPendingPullRequestIndicator(
-                    isVisible: SidebarGitStatusChips.showsPendingPullRequestFacts(
-                        branchStatus: branchStatus
-                    )
-                )
             }
         }
     }

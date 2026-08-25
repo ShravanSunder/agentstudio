@@ -201,7 +201,10 @@ struct RepoExplorerWorktreeRowTests {
 
         let glyphStart = try #require(rowSource.range(of: "package struct SidebarPendingPullRequestIndicator"))
         let glyphEnd = try #require(
-            rowSource.range(of: "extension View", range: glyphStart.upperBound..<rowSource.endIndex)
+            rowSource.range(
+                of: "package struct SidebarStatusChipRow",
+                range: glyphStart.upperBound..<rowSource.endIndex
+            )
         )
         let glyphSource = String(rowSource[glyphStart.lowerBound..<glyphEnd.lowerBound])
 
@@ -227,13 +230,13 @@ struct RepoExplorerWorktreeRowTests {
 
         #expect(
             chipSource.components(separatedBy: ".frame(height: AppStyles.Shell.Sidebar.chipLineHeight)").count
-                == 5
+                == 6
         )
         #expect(!chipSource.contains(".padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)"))
     }
 
-    @Test("pending progress overlays the icon gutter and never enters chip layout flow")
-    func pendingProgressOverlaysIconGutterWithoutTakingChipSpace() throws {
+    @Test("pending progress occupies the fixed icon gutter without shifting chips")
+    func pendingProgressOccupiesFixedIconGutterWithoutShiftingChips() throws {
         let sharedSource = try String(
             contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
             encoding: .utf8
@@ -247,14 +250,15 @@ struct RepoExplorerWorktreeRowTests {
             encoding: .utf8
         )
 
-        #expect(sharedSource.contains(".overlay(alignment: .leading)"))
+        #expect(sharedSource.contains("package struct SidebarStatusChipRow"))
         #expect(sharedSource.contains("AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth"))
         #expect(sharedSource.contains("AppStyles.Shell.Sidebar.groupIconTitleSpacing"))
         #expect(sharedSource.contains(".accessibilityLabel(\"Refreshing pull request status\")"))
+        #expect(!sharedSource.contains(".offset("))
         #expect(!sharedSource.contains("Pull request facts not fetched"))
         #expect(!sharedSource.contains("pendingPullRequestGlyph"))
-        #expect(worktreeSource.contains(".sidebarPendingPullRequestIndicator("))
-        #expect(paneSource.contains(".sidebarPendingPullRequestIndicator("))
+        #expect(worktreeSource.contains("SidebarStatusChipRow("))
+        #expect(paneSource.contains("SidebarStatusChipRow("))
         #expect(paneSource.contains("text: \"Active\""))
         #expect(!paneSource.contains("text: \"active\""))
     }
@@ -532,8 +536,8 @@ struct RepoExplorerWorktreeRowTests {
         #expect(appEntityIconSource.contains("AppStyles.Shell.Sidebar.tabGroupIconColor"))
     }
 
-    @Test("pane and By Repo rows align all text and chips on one shared guide")
-    func paneAndByRepoRowsShareTextColumnAlignmentGuide() throws {
+    @Test("every grouping mode uses one content-independent sidebar grid")
+    func everyGroupingModeUsesOneContentIndependentSidebarGrid() throws {
         let paneRowSource = try String(
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
             encoding: .utf8
@@ -542,8 +546,8 @@ struct RepoExplorerWorktreeRowTests {
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
             encoding: .utf8
         )
-        let alignmentSource = try String(
-            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarTextColumnAlignment.swift",
+        let chipSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
             encoding: .utf8
         )
         let metadataLineSource = try String(
@@ -561,16 +565,18 @@ struct RepoExplorerWorktreeRowTests {
         )
 
         for source in [paneRowSource, worktreeRowSource] {
-            #expect(source.contains("VStack(alignment: .sidebarTextColumn"))
-            #expect(source.contains(".sidebarIconLineTextColumnGuide()"))
-            #expect(source.contains(".sidebarChipRowTextColumnGuide()"))
+            #expect(source.contains("VStack(alignment: .leading"))
+            #expect(source.contains("SidebarStatusChipRow("))
+            #expect(!source.contains("sidebarTextColumn"))
             #expect(source.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
         }
+        #expect(chipSource.contains("package struct SidebarStatusChipRow"))
+        #expect(chipSource.contains("width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth"))
+        #expect(chipSource.contains("spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing"))
+        #expect(!metadataLineSource.contains("sidebarTextColumn"))
         #expect(paneRowSource.contains("AppEntityIcon.pane.swiftUIImage("))
         #expect(paneRowSource.contains("size: AppStyles.Shell.Sidebar.rowIdentityIconSize"))
         #expect(worktreeRowSource.contains("AppStyles.Shell.Sidebar.worktreeIconSize"))
-        #expect(alignmentSource.contains("AppStyles.Shell.Sidebar.statusRowLeadingIndent"))
-        #expect(!alignmentSource.contains("textColumnLeadingInset"))
         #expect(AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth == AppStyles.Shell.Sidebar.groupIconColumnWidth)
         #expect(
             materializationSource.contains(
@@ -585,15 +591,23 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!metadataLineSource.contains("rowLeadingIconColumnWidth, alignment: .trailing"))
         #expect(!groupHeaderSource.contains("groupIconColumnWidth,\n                            alignment: .trailing"))
 
-        // The dedicated chips-line guide aligns the first pill edge with the shared text column.
-        // The pending-facts glyph renders separately in the leading icon gutter.
-        let guideStart = try #require(
-            alignmentSource.range(of: "package func sidebarChipRowTextColumnGuide() -> some View {"))
-        let guideEnd = try #require(
-            alignmentSource.range(of: "}\n}", range: guideStart.upperBound..<alignmentSource.endIndex))
-        let guideSource = String(alignmentSource[guideStart.lowerBound..<guideEnd.lowerBound])
-        #expect(guideSource.contains("dimensions[.leading]"))
-        #expect(!guideSource.contains("chipHorizontalPadding"))
+        let groupIconOrigin =
+            AppStyles.Shell.Sidebar.listRowLeadingInset
+            + AppStyles.Shell.Sidebar.sectionHeaderChevronColumnWidth
+            + AppStyles.Shell.Sidebar.sectionHeaderChevronLabelSpacing
+        let itemIconOrigin =
+            AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+            + AppStyles.Shell.Sidebar.rowHorizontalInset
+        let groupTextOrigin =
+            groupIconOrigin
+            + AppStyles.Shell.Sidebar.groupIconColumnWidth
+            + AppStyles.Shell.Sidebar.groupIconTitleSpacing
+        let itemTextAndChipOrigin =
+            itemIconOrigin
+            + AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
+            + AppStyles.Shell.Sidebar.groupIconTitleSpacing
+        #expect(groupIconOrigin == itemIconOrigin)
+        #expect(groupTextOrigin == itemTextAndChipOrigin)
     }
 
     @Test("native groups preserve standardized 12 point group and 8 point item spacing")

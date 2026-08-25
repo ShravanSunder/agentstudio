@@ -64,7 +64,7 @@ struct RepoExplorerPaneRowContent: View {
     let octiconLoader: OcticonLoader
 
     var body: some View {
-        VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+        VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                 AppEntityIcon.pane.swiftUIImage(
                     loader: octiconLoader,
@@ -83,7 +83,6 @@ struct RepoExplorerPaneRowContent: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .sidebarIconLineTextColumnGuide()
             if let secondaryLine {
                 SidebarMetadataLine(
                     icon: .systemName(secondaryLine.iconSystemName),
@@ -103,7 +102,11 @@ struct RepoExplorerPaneRowContent: View {
 
     @ViewBuilder
     private var chipRow: some View {
-        HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+        SidebarStatusChipRow(
+            isPendingPullRequestFacts: branchStatus.map {
+                SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: $0)
+            } ?? false
+        ) {
             if let branchStatus,
                 SidebarGitStatusChips.hasContent(branchStatus: branchStatus)
             {
@@ -132,13 +135,6 @@ struct RepoExplorerPaneRowContent: View {
                 )
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .sidebarChipRowTextColumnGuide()
-        .sidebarPendingPullRequestIndicator(
-            isVisible: branchStatus.map {
-                SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: $0)
-            } ?? false
-        )
     }
 
     private var recencyChipStyle: SidebarChip.Style {

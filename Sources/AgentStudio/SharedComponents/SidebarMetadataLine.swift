@@ -62,7 +62,6 @@ package struct SidebarMetadataLine: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .sidebarIconLineTextColumnGuide()
     }
 }
 
