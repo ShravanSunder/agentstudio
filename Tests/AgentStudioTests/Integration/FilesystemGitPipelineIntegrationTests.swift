@@ -57,7 +57,11 @@ struct FilesystemGitPipelineIntegrationTests {
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
-        await pipeline.setActivePaneWorktree(worktreeId: worktreeId)
+        await pipeline.setRepositoryFactDemand(
+            makeRepositoryFactDemand(
+                activePaneWorktreeId: worktreeId,
+                repositoryIdByWorktreeId: [worktreeId: repoId]
+            ))
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await pipeline.enqueueRawPathsForTesting(
             worktreeId: worktreeId,
@@ -152,7 +156,11 @@ struct FilesystemGitPipelineIntegrationTests {
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
-        await pipeline.setSidebarVisibleWorktrees([worktreeId])
+        await pipeline.setRepositoryFactDemand(
+            makeRepositoryFactDemand(
+                sidebarAttendedWorktreeIds: [worktreeId],
+                repositoryIdByWorktreeId: [worktreeId: repoId]
+            ))
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
 
         let initialSnapshotArrived = await eventually("initial periodic snapshot should arrive") {
@@ -232,7 +240,11 @@ struct FilesystemGitPipelineIntegrationTests {
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
-        await pipeline.setActivePaneWorktree(worktreeId: worktreeId)
+        await pipeline.setRepositoryFactDemand(
+            makeRepositoryFactDemand(
+                activePaneWorktreeId: worktreeId,
+                repositoryIdByWorktreeId: [worktreeId: repoId]
+            ))
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await pipeline.assertTopology(
             FilesystemTopologyAssertion(
@@ -248,9 +260,13 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         #expect(initialSnapshotArrived)
 
-        await pipeline.setActivePaneWorktree(worktreeId: nil)
+        await pipeline.setRepositoryFactDemand(.empty)
         await provider.setStatus(makeTrackedStatus(branch: "focused"))
-        await pipeline.setActivePaneWorktree(worktreeId: worktreeId)
+        await pipeline.setRepositoryFactDemand(
+            makeRepositoryFactDemand(
+                activePaneWorktreeId: worktreeId,
+                repositoryIdByWorktreeId: [worktreeId: repoId]
+            ))
 
         for _ in 0..<300 {
             await Task.yield()
@@ -290,7 +306,11 @@ struct FilesystemGitPipelineIntegrationTests {
 
         let worktreeId = UUID()
         let repoId = UUID()
-        await pipeline.setActivity(worktreeId: worktreeId, isActiveInApp: true)
+        await pipeline.setRepositoryFactDemand(
+            makeRepositoryFactDemand(
+                openWorktreeIds: [worktreeId],
+                repositoryIdByWorktreeId: [worktreeId: repoId]
+            ))
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await pipeline.assertTopology(
             FilesystemTopologyAssertion(
@@ -305,7 +325,7 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         #expect(initialReadCompleted)
         #expect(await waitUntilYielding { gitClock.pendingSleepCount > 0 })
-        await pipeline.setActivity(worktreeId: worktreeId, isActiveInApp: false)
+        await pipeline.setRepositoryFactDemand(.empty)
 
         await provider.setStatus(makeTrackedStatus(branch: "manual"))
         _ = await pipeline.refreshWatchedFolders([])
@@ -472,6 +492,22 @@ struct FilesystemGitPipelineIntegrationTests {
         )
     }
 
+    private func makeRepositoryFactDemand(
+        activePaneWorktreeId: UUID? = nil,
+        sidebarAttendedWorktreeIds: Set<UUID> = [],
+        visibleActiveTabWorktreeIds: Set<UUID> = [],
+        openWorktreeIds: Set<UUID> = [],
+        repositoryIdByWorktreeId: [UUID: UUID]
+    ) -> RepositoryFactDemandSnapshot {
+        RepositoryFactDemandSnapshot(
+            activePaneWorktreeId: activePaneWorktreeId,
+            sidebarAttendedWorktreeIds: sidebarAttendedWorktreeIds,
+            visibleActiveTabWorktreeIds: visibleActiveTabWorktreeIds,
+            openWorktreeIds: openWorktreeIds,
+            repositoryIdByWorktreeId: repositoryIdByWorktreeId
+        )
+    }
+
     @Test("pipeline retries origin discovery after initial empty origin and converges to remote identity")
     func pipelineRetriesOriginDiscoveryAfterInitialEmptyOrigin() async throws {
         func status(originResolution: AgentStudioCore.GitOriginResolution) -> GitWorkingTreeStatus {
@@ -527,7 +563,11 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
         await pipeline.register(worktreeId: worktreeId, repoId: repo.id, rootPath: rootPath)
-        await pipeline.setSidebarVisibleWorktrees([worktreeId])
+        await pipeline.setRepositoryFactDemand(
+            makeRepositoryFactDemand(
+                sidebarAttendedWorktreeIds: [worktreeId],
+                repositoryIdByWorktreeId: [worktreeId: repo.id]
+            ))
 
         let initialSnapshotArrived = await eventually("initial origin-retry snapshot should arrive") {
             repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main"

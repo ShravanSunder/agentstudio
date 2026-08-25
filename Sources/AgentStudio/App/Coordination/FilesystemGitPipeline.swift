@@ -175,24 +175,6 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         await gitWorkingDirectoryProjector.assertTopology(validatedAssertion)
     }
 
-    func setActivity(worktreeId: UUID, isActiveInApp: Bool) async {
-        await filesystemActor.setActivity(worktreeId: worktreeId, isActiveInApp: isActiveInApp)
-        await gitWorkingDirectoryProjector.setActivity(worktreeId: worktreeId, isActiveInApp: isActiveInApp)
-    }
-
-    func setActivePaneWorktree(worktreeId: UUID?) async {
-        await filesystemActor.setActivePaneWorktree(worktreeId: worktreeId)
-        await gitWorkingDirectoryProjector.setActivePaneWorktree(worktreeId: worktreeId)
-    }
-
-    func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) async {
-        await gitWorkingDirectoryProjector.setSidebarVisibleWorktrees(worktreeIds)
-    }
-
-    func setPullRequestDemandWorktrees(_ worktreeIds: Set<UUID>) async {
-        await forgeActor.setDemand(worktreeIds: worktreeIds)
-    }
-
     func setRepositoryFactDemand(_ snapshot: RepositoryFactDemandSnapshot) async {
         await filesystemActor.setRepositoryFactAttention(
             activePaneWorktreeId: snapshot.activePaneWorktreeId,

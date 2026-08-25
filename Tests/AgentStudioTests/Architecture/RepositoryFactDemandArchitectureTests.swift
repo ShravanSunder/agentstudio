@@ -73,6 +73,18 @@ struct RepositoryFactDemandArchitectureTests {
             ),
             encoding: .utf8
         )
+        let filesystemSourceProtocol = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift"
+            ),
+            encoding: .utf8
+        )
+        let retiredPartialDemandMethods = [
+            "func setActivity(",
+            "func setActivePaneWorktree(",
+            "func setSidebarVisibleWorktrees(",
+            "func setPullRequestDemandWorktrees(",
+        ]
 
         #expect(pipelineSource.contains("func setRepositoryFactDemand(_ snapshot:"))
         #expect(pipelineSource.contains("filesystemActor.setRepositoryFactAttention("))
@@ -83,5 +95,9 @@ struct RepositoryFactDemandArchitectureTests {
         #expect(!workspaceDemandSource.contains("setActivePaneWorktree("))
         #expect(!workspaceDemandSource.contains("setSidebarVisibleWorktrees("))
         #expect(!workspaceDemandSource.contains("setPullRequestDemandWorktrees("))
+        for retiredMethod in retiredPartialDemandMethods {
+            #expect(!pipelineSource.contains(retiredMethod))
+            #expect(!filesystemSourceProtocol.contains(retiredMethod))
+        }
     }
 }
