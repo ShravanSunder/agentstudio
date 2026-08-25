@@ -37,7 +37,15 @@ export function WorktreeAnnotationShareHeaderControl(): ReactElement | null {
 	);
 }
 
-export function WorktreeAnnotationShareSurface(): ReactElement | null {
+export function WorktreeAnnotationShareSurface(): ReactElement {
+	return (
+		<div className="min-h-0" data-testid="worktree-annotation-share-surface">
+			<WorktreeAnnotationShareSurfaceContent />
+		</div>
+	);
+}
+
+function WorktreeAnnotationShareSurfaceContent(): ReactElement | null {
 	const client = useWorktreeAnnotationSurfaceClient();
 	const interaction = useWorktreeAnnotationInteraction();
 	const projection = useWorktreeAnnotationProjection();

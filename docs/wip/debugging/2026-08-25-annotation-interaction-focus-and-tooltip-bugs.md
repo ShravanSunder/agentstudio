@@ -78,6 +78,26 @@ Date: 2026-08-25
      Textarea blur no longer owns editor exit; Escape and complete-thread
      outside click remain the explicit exit owners.
 
+6. **Output history steals pointer clicks from Share commands**
+   - Actual: `Copy Markdown` is visibly enabled, but pointer activation does
+     nothing. Keyboard Enter on the same button succeeds.
+   - Expected: History remains in document layout below the Share command row
+     and cannot overlap or intercept any command control.
+   - Evidence: in the failing matching-stack layout,
+     `elementFromPoint()` at the Copy button center returned the `Output
+     history` section. Keyboard activation bypassed that hit-test conflict and
+     created a succeeded v2 output attempt for two messages and 590 exact
+     bytes.
+   - Root cause: `WorktreeAnnotationShareSurface` returns multiple Fragment
+     children into File and Review fixed-row grids. The hosts intend one Share
+     row, but CSS Grid independently places the command row, optional other
+     comments, and History, causing History's hit-test box to overlap Copy.
+   - Fix: Share now has one stable layout owner, while File and Review reserve
+     explicit auto rows for that owner before their flexible canvas row.
+   - Status: fixed. The focused browser regression passes for File and Review
+     with History collapsed and expanded. Live Chrome pointer Copy succeeded
+     for two comments, and durable-history undo restored both to Pending.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component

@@ -292,6 +292,40 @@ describe('worktree annotation Share comments integrated surface', () => {
 		});
 	});
 
+	test.each(['fileView', 'review'] as const)(
+		'keeps collapsed and expanded History outside the %s Share command hit area',
+		async (surfaceKind) => {
+			const surface = new RecordingAnnotationBrowserSurface(surfaceKind);
+			const rendered = await render(
+				<ShareSurfaceGridFixture surface={surface} surfaceKind={surfaceKind} />,
+			);
+			await publishShareProjection(surface, true);
+			await performBrowserAction(() =>
+				rendered.getByRole('button', { name: 'Share comments' }).click(),
+			);
+
+			const shareLayoutOwner = rendered.getByTestId('worktree-annotation-share-surface').element();
+			expect(
+				shareLayoutOwner.contains(
+					rendered.getByRole('button', { name: 'Copy Markdown' }).element(),
+				),
+			).toBe(true);
+			expect(
+				shareLayoutOwner.contains(rendered.getByRole('button', { name: 'History (1)' }).element()),
+			).toBe(true);
+			assertElementOwnsItsCenterHitTarget(
+				rendered.getByRole('button', { name: 'Copy Markdown' }).element(),
+			);
+			await act(async (): Promise<void> => {
+				await rendered.getByRole('button', { name: 'History (1)' }).click();
+				await settleInteraction();
+			});
+			assertElementOwnsItsCenterHitTarget(
+				rendered.getByRole('button', { name: 'Copy Markdown' }).element(),
+			);
+		},
+	);
+
 	test('retries unhandle once after the output projection advances past a revision conflict', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('review');
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
@@ -386,6 +420,39 @@ function ShareSurfaceFixture(props: {
 			<WorktreeAnnotationShareSurface />
 		</WorktreeAnnotationSurfaceProvider>
 	);
+}
+
+function ShareSurfaceGridFixture(props: {
+	readonly surface: RecordingAnnotationBrowserSurface;
+	readonly surfaceKind: 'fileView' | 'review';
+}): ReactElement {
+	return (
+		<WorktreeAnnotationSurfaceProvider surfaceClient={props.surface.client}>
+			<div
+				className={
+					props.surfaceKind === 'fileView'
+						? 'grid h-96 grid-rows-[auto_auto_minmax(0,1fr)]'
+						: 'grid h-96 grid-rows-[auto_auto_auto_minmax(0,1fr)]'
+				}
+			>
+				<div data-testid="review-or-file-header">
+					<WorktreeAnnotationShareHeaderControl />
+				</div>
+				<WorktreeAnnotationShareSurface />
+				{props.surfaceKind === 'review' ? <div>Comparison status</div> : null}
+				<div data-testid="share-layout-code-canvas">Code canvas</div>
+			</div>
+		</WorktreeAnnotationSurfaceProvider>
+	);
+}
+
+function assertElementOwnsItsCenterHitTarget(element: Element): void {
+	const bounds = element.getBoundingClientRect();
+	const hitTarget = document.elementFromPoint(
+		bounds.left + bounds.width / 2,
+		bounds.top + bounds.height / 2,
+	);
+	expect(element.contains(hitTarget)).toBe(true);
 }
 
 function ViewedCommandTestControl(): ReactElement {

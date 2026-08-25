@@ -134,7 +134,7 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 				autosaveId="bridge-viewer-right-rail"
 				isActive={true}
 				content={
-					<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
+					<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_auto_minmax(0,1fr)]">
 						<BridgeViewerContentHeader
 							controls={props.viewerHeaderControls}
 							mode="file"
