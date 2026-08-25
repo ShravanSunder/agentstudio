@@ -522,7 +522,7 @@ struct WorktreeAnnotationBatchSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-private func rejectUnknownBatchKeys<TCodingKey: CodingKey & CaseIterable>(
+func rejectUnknownBatchKeys<TCodingKey: CodingKey & CaseIterable>(
     _ decoder: Decoder,
     _ keyType: TCodingKey.Type,
     contract: String
@@ -534,7 +534,7 @@ private func rejectUnknownBatchKeys<TCodingKey: CodingKey & CaseIterable>(
     )
 }
 
-private func rejectUnknownBatchKeys<TCodingKey: CodingKey>(
+func rejectUnknownBatchKeys<TCodingKey: CodingKey>(
     _ decoder: Decoder,
     _ allowedKeys: [TCodingKey],
     contract: String

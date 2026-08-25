@@ -13,7 +13,7 @@ extension WorktreeAnnotationSQLiteRepository {
         let outputKind: WorktreeAnnotationOutputKind
         let formatVersion: Int
         let contentType: String
-        let canonicalSnapshot: WorktreeAnnotationBatchSnapshot
+        let canonicalSnapshot: WorktreeAnnotationBatchSnapshotV2
         let exactBytes: Data
         let markdownPresentation: WorktreeAnnotationMarkdownPresentationContext?
         let destinationPath: String?
@@ -29,7 +29,7 @@ extension WorktreeAnnotationSQLiteRepository {
             outputKind: WorktreeAnnotationOutputKind,
             formatVersion: Int,
             contentType: String,
-            canonicalSnapshot: WorktreeAnnotationBatchSnapshot,
+            canonicalSnapshot: WorktreeAnnotationBatchSnapshotV2,
             exactBytes: Data,
             markdownPresentation: WorktreeAnnotationMarkdownPresentationContext?,
             destinationPath: String?,
@@ -64,7 +64,7 @@ extension WorktreeAnnotationSQLiteRepository {
 
     struct PreparedOutput: Equatable, Sendable {
         let attempt: WorktreeAnnotationOutputAttempt
-        let canonicalSnapshot: WorktreeAnnotationBatchSnapshot
+        let canonicalSnapshot: WorktreeAnnotationStoredBatchDocument
         let memberships: [OutputAttemptMembership]
         let event: WorktreeAnnotationOutputEvent?
 
@@ -92,7 +92,7 @@ extension WorktreeAnnotationSQLiteRepository {
             props.outputKind == .clipboardMarkdown
             ? "text/markdown; charset=utf-8"
             : "application/json; charset=utf-8"
-        guard props.formatVersion == WorktreeAnnotationBatchSnapshot.currentFormatVersion,
+        guard props.formatVersion == WorktreeAnnotationBatchSnapshotV2.currentFormatVersion,
             props.contentType == expectedContentType,
             props.canonicalSnapshot.createdAt == WorktreeAnnotationBatchProjector.createdAtString(props.now)
         else {
@@ -260,7 +260,7 @@ extension WorktreeAnnotationSQLiteRepository {
                     throw WorktreeAnnotationRepositoryError.invalidState
                 }
             }
-            let snapshotJSON = try WorktreeAnnotationBatchProjector.jsonData(for: source.canonicalSnapshot)
+            let snapshotJSON = try source.canonicalSnapshot.jsonData()
             let snapshotJSONString = try Self.requireUTF8String(snapshotJSON)
             try database.execute(
                 sql: """
@@ -557,7 +557,10 @@ extension WorktreeAnnotationSQLiteRepository {
         )
         let attempt = try decodeOutputAttempt(attemptRow)
         let snapshotJSON: String = attemptRow["snapshot_json"]
-        let snapshot = try WorktreeAnnotationBatchProjector.decodeJSON(Data(snapshotJSON.utf8))
+        let snapshot = try WorktreeAnnotationStoredBatchDocument.decodeJSON(
+            Data(snapshotJSON.utf8),
+            persistedFormatVersion: attempt.formatVersion
+        )
         let memberships = try membershipRows.map { row in
             try OutputAttemptMembership(
                 messageID: decodeIdentity(row["message_id"] as String),
@@ -565,11 +568,11 @@ extension WorktreeAnnotationSQLiteRepository {
                 batchOrdinal: row["batch_ordinal"]
             )
         }
-        guard snapshot.session.sessionID == attempt.sessionID,
+        guard snapshot.sessionID == attempt.sessionID,
             snapshot.formatVersion == attempt.formatVersion,
-            snapshot.entries.map(\.messageID) == memberships.map(\.messageID),
-            snapshot.entries.map(\.savedRevision) == memberships.map(\.expectedSavedRevision),
-            snapshot.entries.map(\.batchOrdinal) == memberships.map(\.batchOrdinal)
+            snapshot.messageIDs == memberships.map(\.messageID),
+            snapshot.savedRevisions == memberships.map(\.expectedSavedRevision),
+            snapshot.batchOrdinals == memberships.map(\.batchOrdinal)
         else {
             throw WorktreeAnnotationRepositoryError.invalidState
         }
@@ -648,6 +651,7 @@ extension WorktreeAnnotationSQLiteRepository {
                 let savedBody = message.savedBody,
                 let savedRevision = message.savedRevision,
                 entry.messageOrdinal == message.ordinal,
+                entry.message.author.kind.domainValue == message.authorKind,
                 entry.savedRevision == savedRevision,
                 entry.bodyMarkdown == savedBody,
                 entry.resolution == threadDetail.thread.resolution,

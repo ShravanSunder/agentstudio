@@ -158,7 +158,7 @@ enum WorktreeAnnotationSourceEvaluator {
         }
         if let exactFile = roleFiles.first(where: { $0.path == origin.repositoryRelativePath }),
             excerpt(
-                in: sourceLines(exactFile.body),
+                in: worktreeAnnotationSourceFileLines(exactFile.body),
                 startLine: origin.startLine,
                 endLine: origin.endLine
             ) == origin.selectedExcerpt
@@ -210,8 +210,8 @@ enum WorktreeAnnotationSourceEvaluator {
         origin: WorktreeAnnotationLocatedOrigin,
         file: WorktreeAnnotationCurrentSourceFile
     ) -> [ContextMatch] {
-        let lines = sourceLines(file.body)
-        let excerptLines = sourceLines(origin.selectedExcerpt)
+        let lines = worktreeAnnotationSourceFileLines(file.body)
+        let excerptLines = worktreeAnnotationSelectedExcerptLines(origin.selectedExcerpt)
         guard !excerptLines.isEmpty, excerptLines.count <= lines.count else { return [] }
         return (0...(lines.count - excerptLines.count)).compactMap { startIndex in
             let endIndex = startIndex + excerptLines.count - 1
@@ -228,12 +228,6 @@ enum WorktreeAnnotationSourceEvaluator {
                 endLine: endIndex + 1
             )
         }
-    }
-
-    private static func sourceLines(_ source: String) -> [String] {
-        var lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if source.hasSuffix("\n") { lines.removeLast() }
-        return lines
     }
 
     private static func excerpt(

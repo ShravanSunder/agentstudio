@@ -481,7 +481,7 @@ struct WorktreeAnnotationStoreTests {
                 attemptID: attemptID,
                 sessionID: detail.session.id,
                 outputKind: .clipboardMarkdown,
-                formatVersion: 1,
+                formatVersion: snapshot.formatVersion,
                 contentType: "text/markdown; charset=utf-8",
                 canonicalSnapshot: snapshot,
                 exactBytes: exactBytes,

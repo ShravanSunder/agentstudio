@@ -218,7 +218,7 @@ private struct OutputCoordinatorFixture {
     let recorder: OutputSequenceRecorder
     let detail: WorktreeAnnotationSessionDetail
     let selection: WorktreeAnnotationSQLiteRepository.OutputMessageSelection
-    let snapshot: WorktreeAnnotationBatchSnapshot
+    let snapshot: WorktreeAnnotationBatchSnapshotV2
 
     func request(
         outputKind: WorktreeAnnotationOutputKind = .clipboardMarkdown,
@@ -364,7 +364,7 @@ private func makeCoordinatorSnapshot(
     detail: WorktreeAnnotationSessionDetail,
     selection: WorktreeAnnotationSQLiteRepository.OutputMessageSelection,
     threadID: WorktreeAnnotationThreadID
-) -> WorktreeAnnotationBatchSnapshot {
+) -> WorktreeAnnotationBatchSnapshotV2 {
     let initialAttemptID = WorktreeAnnotationOutputAttemptID(rawValue: outputCoordinatorTestUUID(10))
     return try! WorktreeAnnotationBatchProjector.makeSnapshot(
         .init(
@@ -460,16 +460,25 @@ private actor TestOutputStore: WorktreeAnnotationOutputServiceAccess {
         _ = now
         await recorder.append("repeat")
         let source = try requiredOutput(sourceAttemptID)
-        let output = preparedOutput(
-            .init(
-                attemptID: repeatedAttemptID,
+        let output = WorktreeAnnotationSQLiteRepository.PreparedOutput(
+            attempt: .init(
+                id: repeatedAttemptID,
+                sessionID: source.attempt.sessionID,
                 outputKind: source.attempt.outputKind,
-                snapshot: source.canonicalSnapshot,
+                state: .prepared,
+                formatVersion: source.attempt.formatVersion,
+                contentType: source.attempt.contentType,
                 exactBytes: source.attempt.exactBytes,
                 destinationPath: destinationPath,
                 repeatedFromAttemptID: sourceAttemptID,
-                state: .prepared
-            )
+                effectError: nil,
+                cleanupError: nil,
+                createdAt: now,
+                updatedAt: now
+            ),
+            canonicalSnapshot: source.canonicalSnapshot,
+            memberships: source.memberships,
+            event: nil
         )
         outputsByAttemptID[repeatedAttemptID] = output
         return output
@@ -540,7 +549,7 @@ private actor TestOutputStore: WorktreeAnnotationOutputServiceAccess {
     func installRepeatSource(
         attemptID: WorktreeAnnotationOutputAttemptID,
         outputKind: WorktreeAnnotationOutputKind = .clipboardMarkdown,
-        snapshot: WorktreeAnnotationBatchSnapshot,
+        snapshot: WorktreeAnnotationBatchSnapshotV2,
         exactBytes: Data,
         destinationPath: String? = nil
     ) {
@@ -603,7 +612,7 @@ private actor TestOutputEffect: WorktreeAnnotationOutputEffect {
 private struct PreparedOutputProps {
     let attemptID: WorktreeAnnotationOutputAttemptID
     let outputKind: WorktreeAnnotationOutputKind
-    let snapshot: WorktreeAnnotationBatchSnapshot
+    let snapshot: WorktreeAnnotationBatchSnapshotV2
     let exactBytes: Data
     let destinationPath: String?
     let repeatedFromAttemptID: WorktreeAnnotationOutputAttemptID?
@@ -629,7 +638,7 @@ private func preparedOutput(_ props: PreparedOutputProps) -> WorktreeAnnotationS
             createdAt: Date(timeIntervalSince1970: 10),
             updatedAt: Date(timeIntervalSince1970: 10)
         ),
-        canonicalSnapshot: props.snapshot,
+        canonicalSnapshot: .v2(props.snapshot),
         memberships: props.snapshot.entries.map {
             .init(
                 messageID: $0.messageID,

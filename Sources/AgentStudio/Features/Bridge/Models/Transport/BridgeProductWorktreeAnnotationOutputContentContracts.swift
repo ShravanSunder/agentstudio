@@ -147,7 +147,7 @@ struct BridgeProductAnnotationOutputContentDescriptor: Codable, Equatable, Senda
         )
         try BridgeProductContractDecoding.validateIdentifier(descriptorID, codingPath: codingPath)
         try BridgeProductContractDecoding.validateSHA256(expectedSHA256, codingPath: codingPath)
-        guard formatVersion == WorktreeAnnotationBatchSnapshot.currentFormatVersion else {
+        guard WorktreeAnnotationBatchFormatVersion.supported.contains(formatVersion) else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Unsupported worktree annotation output format version",
                 codingPath: codingPath
@@ -228,7 +228,7 @@ struct BridgeProductAnnotationOutputContentIdentity: Codable, Equatable, Sendabl
             name: "maximumBytes",
             codingPath: decoder.codingPath
         )
-        guard formatVersion == WorktreeAnnotationBatchSnapshot.currentFormatVersion else {
+        guard WorktreeAnnotationBatchFormatVersion.supported.contains(formatVersion) else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Unsupported worktree annotation output format version",
                 codingPath: decoder.codingPath

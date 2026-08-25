@@ -217,7 +217,7 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
     }
 
     private struct MaterializedOutput: Sendable {
-        let snapshot: WorktreeAnnotationBatchSnapshot
+        let snapshot: WorktreeAnnotationBatchSnapshotV2
         let exactBytes: Data
         let contentType: String
         let markdownPresentation: WorktreeAnnotationMarkdownPresentationContext?

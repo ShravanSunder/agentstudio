@@ -7,7 +7,7 @@ struct WorktreeAnnotationMarkdownPresentationContext: Equatable, Sendable {
 
 enum WorktreeAnnotationMarkdownProjector {
     static func project(
-        _ snapshot: WorktreeAnnotationBatchSnapshot,
+        _ snapshot: WorktreeAnnotationBatchSnapshotV2,
         presentation: WorktreeAnnotationMarkdownPresentationContext
     ) -> Data {
         var markdown = "# Worktree annotation batch\n\n"
@@ -19,14 +19,15 @@ enum WorktreeAnnotationMarkdownProjector {
         for entry in snapshot.entries {
             markdown += "\n---\n\n"
             markdown += context(for: entry)
-            markdown += "\nRequest:\n\n"
+            markdown += "\nAuthor: \(authorLabel(entry.message.author.kind))\n"
+            markdown += "\nMessage:\n\n"
             markdown += entry.bodyMarkdown
             markdown += "\n"
         }
         return Data(markdown.utf8)
     }
 
-    private static func context(for entry: WorktreeAnnotationBatchSnapshot.Entry) -> String {
+    private static func context(for entry: WorktreeAnnotationBatchSnapshotV2.Entry) -> String {
         let currentCoordinate: WorktreeAnnotationBatchSnapshot.Coordinate? =
             switch entry.placement {
             case .exact(let coordinate), .relocated(let coordinate): coordinate
@@ -72,6 +73,13 @@ enum WorktreeAnnotationMarkdownProjector {
         lines.append("")
         lines.append(sourceFence(excerpt: entry.origin.excerpt, path: entry.origin.path))
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func authorLabel(_ kind: WorktreeAnnotationBatchSnapshotV2.MessageContext.Author.Kind) -> String {
+        switch kind {
+        case .human: "Human"
+        case .agent: "Agent"
+        }
     }
 
     private static func sourceFence(

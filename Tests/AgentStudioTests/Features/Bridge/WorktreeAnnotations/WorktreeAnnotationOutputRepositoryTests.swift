@@ -14,7 +14,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
 
         let prepared = try fixture.repository.prepareOutput(fixture.prepareProps())
 
-        #expect(prepared.canonicalSnapshot == fixture.snapshot)
+        #expect(prepared.canonicalSnapshot == .v2(fixture.snapshot))
         #expect(prepared.attempt.exactBytes == fixture.exactBytes)
         #expect(
             prepared.memberships == [
@@ -33,6 +33,97 @@ struct WorktreeAnnotationOutputRepositoryTests {
             )
         }
         #expect(storedSnapshotJSON.map { Data($0.utf8) } == fixture.snapshotJSON)
+        #expect(prepared.attempt.formatVersion == 2)
+    }
+
+    @Test("new preparation rejects any non-v2 format declaration")
+    func newPreparationRejectsV1FormatDeclaration() throws {
+        let fixture = try makeOutputRepositoryFixture()
+        let props = try fixture.prepareProps()
+
+        #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
+            try fixture.repository.prepareOutput(
+                .init(
+                    attemptID: props.attemptID,
+                    sessionID: props.sessionID,
+                    outputKind: props.outputKind,
+                    formatVersion: 1,
+                    contentType: props.contentType,
+                    canonicalSnapshot: props.canonicalSnapshot,
+                    exactBytes: props.exactBytes,
+                    markdownPresentation: props.markdownPresentation,
+                    destinationPath: props.destinationPath,
+                    repeatedFromAttemptID: nil,
+                    selectedMessages: props.selectedMessages,
+                    now: props.now
+                )
+            )
+        }
+    }
+
+    @Test("historical v1 inspection and repeat preserve exact stored document and effect bytes")
+    func historicalV1InspectionAndRepeatPreserveExactBytes() throws {
+        let fixture = try makeOutputRepositoryFixture()
+        let prepared = try fixture.repository.prepareOutput(fixture.prepareProps())
+        #expect(
+            try fixture.repository.markPreparedOutputAttemptsUnknown(
+                now: Date(timeIntervalSince1970: 4)
+            ) == 1
+        )
+        let v2SnapshotJSONString = try #require(String(data: fixture.snapshotJSON, encoding: .utf8))
+        let v1SnapshotJSONString = v2SnapshotJSONString.replacingOccurrences(
+            of: "\"formatVersion\":2",
+            with: "\"formatVersion\":1"
+        )
+        let v1SnapshotJSON = Data(v1SnapshotJSONString.utf8)
+        let historicalExactBytes = Data("historical v1 exact bytes".utf8)
+        try fixture.databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    UPDATE annotation_output_attempt
+                    SET format_version = 1, snapshot_json = ?, exact_bytes = ?
+                    WHERE id = ?
+                    """,
+                arguments: [
+                    v1SnapshotJSONString,
+                    historicalExactBytes,
+                    prepared.attempt.id.databaseValue,
+                ]
+            )
+        }
+
+        let inspected = try fixture.repository.inspectOutputAttempt(attemptID: prepared.attempt.id)
+        #expect(inspected.canonicalSnapshot.formatVersion == 1)
+        #expect(inspected.attempt.exactBytes == historicalExactBytes)
+
+        let repeatedAttemptID = WorktreeAnnotationOutputAttemptID(rawValue: testUUID(92))
+        let repeated = try fixture.repository.repeatOutputAttempt(
+            sourceAttemptID: prepared.attempt.id,
+            repeatedAttemptID: repeatedAttemptID,
+            destinationPath: nil,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        #expect(repeated.attempt.formatVersion == 1)
+        #expect(repeated.attempt.exactBytes == historicalExactBytes)
+
+        let storedRows = try fixture.databaseQueue.read { database in
+            try Row.fetchAll(
+                database,
+                sql: """
+                    SELECT id, format_version, snapshot_json, exact_bytes
+                    FROM annotation_output_attempt
+                    WHERE id IN (?, ?)
+                    ORDER BY id
+                    """,
+                arguments: [prepared.attempt.id.databaseValue, repeatedAttemptID.databaseValue]
+            )
+        }
+        #expect(storedRows.count == 2)
+        for row in storedRows {
+            #expect(row["format_version"] as Int == 1)
+            #expect(Data((row["snapshot_json"] as String).utf8) == v1SnapshotJSON)
+            #expect(row["exact_bytes"] as Data == historicalExactBytes)
+        }
     }
 
     @Test("inspection fails closed when persisted canonical semantics are malformed")
@@ -55,7 +146,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
     func prepareRejectsSnapshotWithFabricatedDurableSemantics() throws {
         let fixture = try makeOutputRepositoryFixture()
         let persistedEntry = try #require(fixture.snapshot.entries.first)
-        let fabricatedEntry = WorktreeAnnotationBatchSnapshot.Entry(
+        let fabricatedEntry = WorktreeAnnotationBatchSnapshotV2.Entry(
             batchOrdinal: persistedEntry.batchOrdinal,
             thread: .init(
                 threadID: persistedEntry.threadID,
@@ -66,11 +157,12 @@ struct WorktreeAnnotationOutputRepositoryTests {
             message: .init(
                 messageID: persistedEntry.messageID,
                 messageOrdinal: persistedEntry.messageOrdinal,
+                authorKind: .human,
                 savedRevision: persistedEntry.savedRevision,
                 bodyMarkdown: "Fabricated output body"
             )
         )
-        let fabricatedSnapshot = WorktreeAnnotationBatchSnapshot(
+        let fabricatedSnapshot = WorktreeAnnotationBatchSnapshotV2(
             batchID: fixture.snapshot.batchID,
             createdAt: fixture.snapshot.createdAt,
             session: fixture.snapshot.session,
@@ -320,7 +412,10 @@ struct WorktreeAnnotationOutputRepositoryTests {
                 arguments: [fixture.message.id.databaseValue]
             )
         }
-        let prepared = try fixture.repository.prepareOutput(fixture.prepareProps())
+        let agentDetail = try fixture.repository.fetchSessionDetail(sessionID: fixture.detail.session.id)
+        let prepared = try fixture.repository.prepareOutput(
+            fixture.prepareProps(sessionDetail: agentDetail)
+        )
 
         _ = try fixture.repository.finalizeOutputAttempt(
             attemptID: prepared.attempt.id,
@@ -377,24 +472,26 @@ private struct OutputRepositoryFixture {
     let message: WorktreeAnnotationMessage
     let savedRevision: Int
     let attemptID: WorktreeAnnotationOutputAttemptID
-    let snapshot: WorktreeAnnotationBatchSnapshot
+    let snapshot: WorktreeAnnotationBatchSnapshotV2
     let snapshotJSON: Data
     let exactBytes: Data
 
     func prepareProps(
         attemptID: WorktreeAnnotationOutputAttemptID? = nil,
         now: Date = Date(timeIntervalSince1970: 3),
-        canonicalSnapshot: WorktreeAnnotationBatchSnapshot? = nil,
+        sessionDetail: WorktreeAnnotationSessionDetail? = nil,
+        canonicalSnapshot: WorktreeAnnotationBatchSnapshotV2? = nil,
         exactBytes: Data? = nil
     ) throws -> WorktreeAnnotationSQLiteRepository.PrepareOutputProps {
         let selectedAttemptID = attemptID ?? self.attemptID
+        let selectedSessionDetail = sessionDetail ?? detail
         let selectedSnapshot =
             try canonicalSnapshot
             ?? WorktreeAnnotationBatchProjector.makeSnapshot(
                 .init(
                     batchID: selectedAttemptID,
                     createdAt: now,
-                    sessionDetail: detail,
+                    sessionDetail: selectedSessionDetail,
                     selectedMessages: [
                         .init(messageID: message.id, expectedSavedRevision: savedRevision)
                     ],
@@ -406,9 +503,9 @@ private struct OutputRepositoryFixture {
             )
         return .init(
             attemptID: selectedAttemptID,
-            sessionID: detail.session.id,
+            sessionID: selectedSessionDetail.session.id,
             outputKind: .clipboardMarkdown,
-            formatVersion: WorktreeAnnotationBatchSnapshot.currentFormatVersion,
+            formatVersion: WorktreeAnnotationBatchSnapshotV2.currentFormatVersion,
             contentType: "text/markdown; charset=utf-8",
             canonicalSnapshot: selectedSnapshot,
             exactBytes: exactBytes

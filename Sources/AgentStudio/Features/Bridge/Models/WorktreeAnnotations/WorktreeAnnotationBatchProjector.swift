@@ -31,7 +31,7 @@ enum WorktreeAnnotationBatchProjector {
         let savedRevision: Int
     }
 
-    static func makeSnapshot(_ input: Input) throws -> WorktreeAnnotationBatchSnapshot {
+    static func makeSnapshot(_ input: Input) throws -> WorktreeAnnotationBatchSnapshotV2 {
         guard !input.selectedMessages.isEmpty else {
             throw WorktreeAnnotationBatchProjectorError.emptySelection
         }
@@ -43,7 +43,7 @@ enum WorktreeAnnotationBatchProjector {
         let selectionByMessageID = Dictionary(
             uniqueKeysWithValues: input.selectedMessages.map { ($0.messageID, $0.expectedSavedRevision) }
         )
-        var entries: [WorktreeAnnotationBatchSnapshot.Entry] = []
+        var entries: [WorktreeAnnotationBatchSnapshotV2.Entry] = []
         for threadDetail in input.sessionDetail.threads {
             guard case .located(let locatedOrigin) = threadDetail.thread.origin else {
                 if threadDetail.messages.contains(where: { selectionByMessageID[$0.id] != nil }) {
@@ -81,6 +81,7 @@ enum WorktreeAnnotationBatchProjector {
                         message: .init(
                             messageID: message.id,
                             messageOrdinal: message.ordinal,
+                            authorKind: message.authorKind,
                             savedRevision: expectedSavedRevision,
                             bodyMarkdown: savedBody
                         )
@@ -93,13 +94,13 @@ enum WorktreeAnnotationBatchProjector {
         }
         entries.sort(by: entryPrecedes)
         entries = entries.enumerated().map { ordinal, entry in
-            WorktreeAnnotationBatchSnapshot.Entry(
+            WorktreeAnnotationBatchSnapshotV2.Entry(
                 batchOrdinal: ordinal,
                 thread: entry.thread,
                 message: entry.message
             )
         }
-        let snapshot = WorktreeAnnotationBatchSnapshot(
+        let snapshot = WorktreeAnnotationBatchSnapshotV2(
             batchID: input.batchID,
             createdAt: createdAtString(input.createdAt),
             session: .init(
@@ -117,22 +118,22 @@ enum WorktreeAnnotationBatchProjector {
     }
 
     static func markdownData(
-        for snapshot: WorktreeAnnotationBatchSnapshot,
+        for snapshot: WorktreeAnnotationBatchSnapshotV2,
         presentation: WorktreeAnnotationMarkdownPresentationContext
     ) -> Data {
         WorktreeAnnotationMarkdownProjector.project(snapshot, presentation: presentation)
     }
 
-    static func jsonData(for snapshot: WorktreeAnnotationBatchSnapshot) throws -> Data {
+    static func jsonData(for snapshot: WorktreeAnnotationBatchSnapshotV2) throws -> Data {
         try validate(snapshot)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return try encoder.encode(snapshot)
     }
 
-    static func decodeJSON(_ data: Data) throws -> WorktreeAnnotationBatchSnapshot {
+    static func decodeJSON(_ data: Data) throws -> WorktreeAnnotationBatchSnapshotV2 {
         let snapshot = try BridgeProductStrictJSON.decode(
-            WorktreeAnnotationBatchSnapshot.self,
+            WorktreeAnnotationBatchSnapshotV2.self,
             from: data,
             memberVocabulary: WorktreeAnnotationBatchJSON.memberVocabulary,
             maximumInputBytes: nil
@@ -141,11 +142,11 @@ enum WorktreeAnnotationBatchProjector {
         return snapshot
     }
 
-    static func validate(_ snapshot: WorktreeAnnotationBatchSnapshot) throws {
-        guard snapshot.schema == WorktreeAnnotationBatchSnapshot.schema else {
+    static func validate(_ snapshot: WorktreeAnnotationBatchSnapshotV2) throws {
+        guard snapshot.schema == WorktreeAnnotationBatchSnapshotV2.schema else {
             throw WorktreeAnnotationBatchProjectorError.invalidDocument
         }
-        guard snapshot.formatVersion == WorktreeAnnotationBatchSnapshot.currentFormatVersion else {
+        guard snapshot.formatVersion == WorktreeAnnotationBatchSnapshotV2.currentFormatVersion else {
             throw WorktreeAnnotationBatchProjectorError.unsupportedFormatVersion
         }
         guard isRFC3339UTC(snapshot.createdAt),
@@ -163,7 +164,51 @@ enum WorktreeAnnotationBatchProjector {
             throw WorktreeAnnotationBatchProjectorError.invalidDocument
         }
 
-        var contextByThreadID: [WorktreeAnnotationThreadID: WorktreeAnnotationBatchSnapshot.ThreadContext] = [:]
+        var contextByThreadID: [WorktreeAnnotationThreadID: WorktreeAnnotationBatchSnapshotV2.ThreadContext] = [:]
+        for entry in snapshot.entries {
+            guard entry.messageOrdinal >= 0, entry.savedRevision > 0 else {
+                throw WorktreeAnnotationBatchProjectorError.invalidDocument
+            }
+            _ = try WorktreeAnnotationMessagePolicy.validate(entry.bodyMarkdown)
+            try validate(origin: entry.origin)
+            try validate(placement: entry.placement)
+            if let priorContext = contextByThreadID[entry.threadID], priorContext != entry.thread {
+                throw WorktreeAnnotationBatchProjectorError.invalidDocument
+            }
+            contextByThreadID[entry.threadID] = entry.thread
+        }
+    }
+
+    static func jsonData(forV1 snapshot: WorktreeAnnotationBatchSnapshotV1) throws -> Data {
+        try validateV1(snapshot)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return try encoder.encode(snapshot)
+    }
+
+    static func validateV1(_ snapshot: WorktreeAnnotationBatchSnapshotV1) throws {
+        guard snapshot.schema == WorktreeAnnotationBatchSnapshotV1.schema else {
+            throw WorktreeAnnotationBatchProjectorError.invalidDocument
+        }
+        guard snapshot.formatVersion == WorktreeAnnotationBatchSnapshotV1.currentFormatVersion else {
+            throw WorktreeAnnotationBatchProjectorError.unsupportedFormatVersion
+        }
+        guard isRFC3339UTC(snapshot.createdAt),
+            isNonemptyContext(snapshot.session.label),
+            !snapshot.session.repositoryID.isEmpty,
+            !snapshot.session.worktreeID.isEmpty,
+            !snapshot.entries.isEmpty
+        else {
+            throw WorktreeAnnotationBatchProjectorError.invalidDocument
+        }
+        guard snapshot.entries.enumerated().allSatisfy({ $0.offset == $0.element.batchOrdinal }),
+            Set(snapshot.entries.map(\.messageID)).count == snapshot.entries.count,
+            snapshot.entries.elementsEqual(snapshot.entries.sorted(by: entryPrecedesV1))
+        else {
+            throw WorktreeAnnotationBatchProjectorError.invalidDocument
+        }
+
+        var contextByThreadID: [WorktreeAnnotationThreadID: WorktreeAnnotationBatchSnapshotV1.ThreadContext] = [:]
         for entry in snapshot.entries {
             guard entry.messageOrdinal >= 0, entry.savedRevision > 0 else {
                 throw WorktreeAnnotationBatchProjectorError.invalidDocument
@@ -188,12 +233,14 @@ enum WorktreeAnnotationBatchProjector {
             sourceIdentity: origin.sourceIdentity,
             fingerprint: fingerprint
         )
-        let excerptLines = sourceLines(origin.selectedExcerpt).enumerated().map { offset, text in
-            WorktreeAnnotationBatchSnapshot.ExcerptLine(
-                lineNumber: origin.startLine + offset,
-                text: text
-            )
-        }
+        let excerptLines = worktreeAnnotationSelectedExcerptLines(origin.selectedExcerpt)
+            .enumerated()
+            .map { offset, text in
+                WorktreeAnnotationBatchSnapshot.ExcerptLine(
+                    lineNumber: origin.startLine + offset,
+                    text: text
+                )
+            }
         return .init(
             path: origin.repositoryRelativePath,
             source: source,
@@ -426,8 +473,8 @@ enum WorktreeAnnotationBatchProjector {
     }
 
     private static func entryPrecedes(
-        _ lhs: WorktreeAnnotationBatchSnapshot.Entry,
-        _ rhs: WorktreeAnnotationBatchSnapshot.Entry
+        _ lhs: WorktreeAnnotationBatchSnapshotV2.Entry,
+        _ rhs: WorktreeAnnotationBatchSnapshotV2.Entry
     ) -> Bool {
         let lhsKey = sortKey(lhs)
         let rhsKey = sortKey(rhs)
@@ -439,7 +486,7 @@ enum WorktreeAnnotationBatchProjector {
         return lhsKey.savedRevision < rhsKey.savedRevision
     }
 
-    private static func sortKey(_ entry: WorktreeAnnotationBatchSnapshot.Entry) -> EntrySortKey {
+    private static func sortKey(_ entry: WorktreeAnnotationBatchSnapshotV2.Entry) -> EntrySortKey {
         let currentCoordinate: WorktreeAnnotationBatchSnapshot.Coordinate? =
             switch entry.placement {
             case .exact(let coordinate), .relocated(let coordinate): coordinate
@@ -455,10 +502,34 @@ enum WorktreeAnnotationBatchProjector {
         )
     }
 
-    private static func sourceLines(_ source: String) -> [String] {
-        var lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if source.hasSuffix("\n") { lines.removeLast() }
-        return lines
+    private static func entryPrecedesV1(
+        _ lhs: WorktreeAnnotationBatchSnapshotV1.Entry,
+        _ rhs: WorktreeAnnotationBatchSnapshotV1.Entry
+    ) -> Bool {
+        let lhsKey = sortKeyV1(lhs)
+        let rhsKey = sortKeyV1(rhs)
+        if lhsKey.path != rhsKey.path { return lhsKey.path < rhsKey.path }
+        if lhsKey.line != rhsKey.line { return lhsKey.line < rhsKey.line }
+        if lhsKey.threadID != rhsKey.threadID { return lhsKey.threadID < rhsKey.threadID }
+        if lhsKey.messageOrdinal != rhsKey.messageOrdinal { return lhsKey.messageOrdinal < rhsKey.messageOrdinal }
+        if lhsKey.messageID != rhsKey.messageID { return lhsKey.messageID < rhsKey.messageID }
+        return lhsKey.savedRevision < rhsKey.savedRevision
+    }
+
+    private static func sortKeyV1(_ entry: WorktreeAnnotationBatchSnapshotV1.Entry) -> EntrySortKey {
+        let currentCoordinate: WorktreeAnnotationBatchSnapshotV1.Coordinate? =
+            switch entry.placement {
+            case .exact(let coordinate), .relocated(let coordinate): coordinate
+            case .outdated, .unavailable: nil
+            }
+        return .init(
+            path: currentCoordinate?.path ?? entry.origin.path,
+            line: currentCoordinate?.startLine ?? entry.origin.startLine,
+            threadID: entry.threadID.rawValue.uuidString,
+            messageOrdinal: entry.messageOrdinal,
+            messageID: entry.messageID.rawValue.uuidString,
+            savedRevision: entry.savedRevision
+        )
     }
 
     static func createdAtString(_ date: Date) -> String {
@@ -476,7 +547,7 @@ enum WorktreeAnnotationBatchProjector {
     }
 }
 
-private enum WorktreeAnnotationBatchJSON {
+enum WorktreeAnnotationBatchJSON {
     static let memberVocabulary = BridgeProductStrictJSONMemberVocabulary(
         Set([
             "author", "baseOID", "baseRole", "basis", "batchId", "batchOrdinal",

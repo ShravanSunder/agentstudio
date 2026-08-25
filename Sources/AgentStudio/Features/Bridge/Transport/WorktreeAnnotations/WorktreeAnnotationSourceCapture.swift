@@ -18,10 +18,7 @@ enum WorktreeAnnotationSourceCapture {
         guard let source = String(bytes: props.data, encoding: .utf8) else {
             throw WorktreeAnnotationSourceResolutionError.unavailable
         }
-        var lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if source.hasSuffix("\n") {
-            lines.removeLast()
-        }
+        let lines = worktreeAnnotationSourceFileLines(source)
         guard props.startLine > 0, props.endLine >= props.startLine, props.endLine <= lines.count else {
             throw WorktreeAnnotationSourceResolutionError.invalidSource
         }

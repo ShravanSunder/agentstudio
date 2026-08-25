@@ -290,6 +290,16 @@ struct WorktreeAnnotationSessionDetail: Equatable, Sendable {
     let threads: [WorktreeAnnotationThreadDetail]
 }
 
+func worktreeAnnotationSourceFileLines(_ source: String) -> [String] {
+    var lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    if source.hasSuffix("\n") { lines.removeLast() }
+    return lines
+}
+
+func worktreeAnnotationSelectedExcerptLines(_ selectedExcerpt: String) -> [String] {
+    selectedExcerpt.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+}
+
 struct WorktreeAnnotationOutputAttempt: Equatable, Sendable {
     let id: WorktreeAnnotationOutputAttemptID
     let sessionID: WorktreeAnnotationSessionID

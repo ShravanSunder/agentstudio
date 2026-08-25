@@ -139,6 +139,53 @@ struct WorktreeAnnotationSourceEvaluatorTests {
         #expect(result.placements[locatedThread.id]?.currentSourceIdentity == "file-source-2")
     }
 
+    @Test("exact placement preserves a selected trailing blank line")
+    func exactPlacementPreservesSelectedTrailingBlankLine() throws {
+        let session = makeSourceEvaluationSession()
+        let thread = makeLocatedEvaluationThread(
+            sessionID: session.id,
+            startLine: 2,
+            endLine: 3,
+            selectedExcerpt: "selected line\n",
+            contextBefore: "before",
+            contextAfter: "after"
+        )
+
+        let result = try WorktreeAnnotationSourceEvaluator.evaluate(
+            .init(
+                session: session,
+                threads: [thread],
+                surface: .file,
+                sourceEpoch: "file-epoch-trailing-blank",
+                currentFingerprint: .init(
+                    repositoryID: "repo-1",
+                    worktreeID: "worktree-1",
+                    fileSourceIdentity: "file-source-2",
+                    reviewComparisonOrigin: nil
+                ),
+                material: .available([
+                    .init(
+                        path: "Sources/Feature.swift",
+                        sourceRole: .file,
+                        sourceIdentity: "file-source-2",
+                        body: "before\nselected line\n\nafter\n"
+                    )
+                ])
+            )
+        )
+
+        #expect(
+            result.placements[thread.id]
+                == .init(
+                    placement: .exact,
+                    currentPath: "Sources/Feature.swift",
+                    currentStartLine: 2,
+                    currentEndLine: 3,
+                    currentSourceIdentity: "file-source-2"
+                )
+        )
+    }
+
     @Test("File surface never maps Review base origins onto working-tree material")
     func fileSurfaceDoesNotPlaceReviewBaseOriginAgainstCurrentFileMaterial() throws {
         let session = makeSourceEvaluationSession()
@@ -323,7 +370,12 @@ private func makeSourceEvaluationSession(
 private func makeLocatedEvaluationThread(
     sessionID: WorktreeAnnotationSessionID,
     sourceRole: WorktreeAnnotationSourceRole = .file,
-    diffSide: WorktreeAnnotationDiffSide? = nil
+    diffSide: WorktreeAnnotationDiffSide? = nil,
+    startLine: Int = 2,
+    endLine: Int = 2,
+    selectedExcerpt: String = "selected line",
+    contextBefore: String? = "before",
+    contextAfter: String? = "after"
 ) -> WorktreeAnnotationThread {
     WorktreeAnnotationThread(
         id: .generate(),
@@ -331,14 +383,14 @@ private func makeLocatedEvaluationThread(
         origin: .located(
             .init(
                 repositoryRelativePath: "Sources/Feature.swift",
-                startLine: 2,
-                endLine: 2,
+                startLine: startLine,
+                endLine: endLine,
                 sourceRole: sourceRole,
                 diffSide: diffSide,
                 sourceIdentity: "file-source-1",
-                selectedExcerpt: "selected line",
-                contextBefore: "before",
-                contextAfter: "after"
+                selectedExcerpt: selectedExcerpt,
+                contextBefore: contextBefore,
+                contextAfter: contextAfter
             )
         ),
         resolution: .open,

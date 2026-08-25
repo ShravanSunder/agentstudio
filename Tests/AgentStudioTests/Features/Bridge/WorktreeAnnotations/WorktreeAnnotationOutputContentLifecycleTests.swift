@@ -64,8 +64,8 @@ struct WorktreeAnnotationOutputContentLifecycleTests {
         #expect(newestBody.data == fixture.exactBytes)
     }
 
-    @Test("strict output content contracts reject invalid kind, content type, and version")
-    func strictOutputContentContractsRejectInvalidVocabulary() throws {
+    @Test("strict output content contracts accept exactly stored versions one and two")
+    func strictOutputContentContractsAcceptOnlySupportedVersions() throws {
         let descriptor: [String: Any] = [
             "attemptId": "00000000-0000-7000-8000-000000000015",
             "contentKind": "annotation.output",
@@ -80,10 +80,41 @@ struct WorktreeAnnotationOutputContentLifecycleTests {
             "surface": "file",
         ]
 
+        for supportedVersion in [1, 2] {
+            let request = try BridgeProductStrictJSON.decode(
+                BridgeProductContentRequest.self,
+                from: try JSONSerialization.data(withJSONObject: [
+                    "contentKind": "annotation.output",
+                    "contentRequestId": "annotation-output-content-supported-\(supportedVersion)",
+                    "descriptor": descriptor.merging(["formatVersion": supportedVersion]) { _, replacement in
+                        replacement
+                    },
+                    "kind": "content.open",
+                    "leaseId": "annotation-output-lease-supported",
+                    "operationCorrelationId": NSNull(),
+                    "paneSessionId": "pane-session-1",
+                    "wireVersion": 2,
+                    "workerDerivationEpoch": 0,
+                    "workerInstanceId": "worker-instance-1",
+                ])
+            )
+            guard case .annotationOutput(let decoded) = request else {
+                Issue.record("Expected annotation output content request")
+                continue
+            }
+            #expect(decoded.descriptor.formatVersion == supportedVersion)
+            guard case .annotationOutput(let identity) = decoded.admission.identity else {
+                Issue.record("Expected annotation output content identity")
+                continue
+            }
+            #expect(identity.formatVersion == supportedVersion)
+        }
+
         for mutation in [
             ["contentKind": "annotation.bytes"],
             ["contentType": "application/json; charset=utf-8"],
-            ["formatVersion": 2],
+            ["formatVersion": 0],
+            ["formatVersion": 3],
             ["unexpected": true],
         ] {
             #expect(throws: (any Error).self) {
@@ -406,7 +437,7 @@ private func prepareSavedOutput(
             attemptID: attemptID,
             sessionID: savedFixture.detail.session.id,
             outputKind: .clipboardMarkdown,
-            formatVersion: 1,
+            formatVersion: 2,
             contentType: "text/markdown; charset=utf-8",
             canonicalSnapshot: snapshot,
             exactBytes: exactBytes,
@@ -492,7 +523,7 @@ private func createSavedLocatedMessage(
 private func makeSavedOutputSnapshot(
     attemptID: WorktreeAnnotationOutputAttemptID,
     savedFixture: SavedLocatedMessageFixture
-) throws -> WorktreeAnnotationBatchSnapshot {
+) throws -> WorktreeAnnotationBatchSnapshotV2 {
     try WorktreeAnnotationBatchProjector.makeSnapshot(
         .init(
             batchID: attemptID,
