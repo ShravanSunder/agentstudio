@@ -59,7 +59,7 @@ export async function verifyAnnotationOutputCaptures(
 	});
 	const document: unknown = JSON.parse(await readFile(jsonPath, 'utf8'));
 	expect(document).toMatchObject({
-		formatVersion: 1,
+		formatVersion: 2,
 		schema: 'agentstudio.worktree-annotations.batch',
 	});
 	if (!isRecord(document) || !Array.isArray(document['entries'])) {
@@ -70,10 +70,11 @@ export async function verifyAnnotationOutputCaptures(
 	const messageIds: string[] = [];
 	const bodies: string[] = [];
 	for (const [entryIndex, entry] of entries.entries()) {
-		if (!isRecord(entry) || !isRecord(entry['message'])) {
+		if (!isRecord(entry) || !isRecord(entry['message']) || !isRecord(entry['message']['author'])) {
 			throw new Error(`Annotation JSON entry ${entryIndex} was malformed.`);
 		}
 		expect(entry['batchOrdinal']).toBe(entryIndex);
+		expect(entry['message']['author']['kind']).toBe('human');
 		const messageId = entry['message']['messageId'];
 		const body = entry['message']['bodyMarkdown'];
 		if (typeof messageId !== 'string' || typeof body !== 'string') {
