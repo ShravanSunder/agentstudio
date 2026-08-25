@@ -68,6 +68,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 	readonly #context: BridgeWorkerRenderFulfillmentRegistryContext;
 	readonly #createIdentifier: (purpose: BridgeWorkerRenderFulfillmentIdentifierPurpose) => string;
 	readonly #fulfillmentByItemId = new Map<string, BridgeWorkerRenderFulfillmentState>();
+	readonly #sourceChurnDispositionByItemId = new Map<string, 'retain' | 'retire'>();
 	readonly #sourceRevalidationItemIds = new Set<string>();
 	readonly #now: () => number;
 	readonly #receiptLeaseDurationMilliseconds: number;
@@ -186,7 +187,14 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		if (nextState === currentState) {
 			return Object.freeze({ state: currentState, status: 'duplicate' });
 		}
-		this.#fulfillmentByItemId.set(receipt.itemId, nextState);
+		const sourceChurnDisposition = this.#sourceChurnDispositionByItemId.get(receipt.itemId);
+		this.#sourceChurnDispositionByItemId.delete(receipt.itemId);
+		if (sourceChurnDisposition === 'retire') {
+			this.#fulfillmentByItemId.delete(receipt.itemId);
+			this.#sourceRevalidationItemIds.delete(receipt.itemId);
+		} else {
+			this.#fulfillmentByItemId.set(receipt.itemId, nextState);
+		}
 		return Object.freeze({ state: nextState, status: 'accepted' });
 	}
 
@@ -195,6 +203,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		for (const [itemId, currentState] of this.#fulfillmentByItemId) {
 			const activeAttempt = currentState.activeAttempt;
 			if (
+				this.#sourceChurnDispositionByItemId.has(itemId) ||
 				activeAttempt === null ||
 				activeAttempt.highestDisposition !== null ||
 				atMilliseconds < activeAttempt.receiptLeaseExpiresAtMilliseconds
@@ -228,6 +237,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		const requeuedItemIds: string[] = [];
 		for (const [itemId, currentState] of this.#fulfillmentByItemId) {
 			if (currentState.stage === 'painted') {
+				this.#sourceChurnDispositionByItemId.delete(itemId);
 				const desiredState = reduceBridgeWorkerRenderFulfillment(currentState, {
 					kind: 'source.revalidationRequested',
 				});
@@ -236,7 +246,18 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 				requeuedItemIds.push(itemId);
 				continue;
 			}
-			if (currentState.activeAttempt === null) continue;
+			if (
+				currentState.activeAttempt === null ||
+				currentState.activeAttempt.highestDisposition === null
+			) {
+				if (currentState.activeAttempt?.highestDisposition === null) {
+					if (this.#sourceChurnDispositionByItemId.get(itemId) !== 'retire') {
+						this.#sourceChurnDispositionByItemId.set(itemId, 'retain');
+					}
+				}
+				continue;
+			}
+			this.#sourceChurnDispositionByItemId.delete(itemId);
 			this.#sourceRevalidationItemIds.delete(itemId);
 			const retryState = reduceBridgeWorkerRenderFulfillment(currentState, {
 				...activeBridgeWorkerRenderReceiptIdentity(currentState),
@@ -256,11 +277,27 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		return Object.freeze(requeuedItemIds);
 	}
 
+	retireRemovedItemsForSourceChurn(itemIds: readonly string[]): void {
+		for (const itemId of itemIds) {
+			const currentState = this.#fulfillmentByItemId.get(itemId);
+			if (currentState?.activeAttempt?.highestDisposition === null) {
+				this.#sourceChurnDispositionByItemId.set(itemId, 'retire');
+				continue;
+			}
+			this.#sourceChurnDispositionByItemId.delete(itemId);
+			this.#sourceRevalidationItemIds.delete(itemId);
+			this.#fulfillmentByItemId.delete(itemId);
+		}
+	}
+
 	nextLifecycleWakeAtMilliseconds(): number | null {
 		let nextWakeAtMilliseconds: number | null = null;
 		for (const currentState of this.#fulfillmentByItemId.values()) {
-			const candidateWakeAtMilliseconds =
-				currentState.stage === 'retry_wait'
+			const candidateWakeAtMilliseconds = this.#sourceChurnDispositionByItemId.has(
+				currentState.itemId,
+			)
+				? null
+				: currentState.stage === 'retry_wait'
 					? currentState.retryAtMilliseconds
 					: currentState.activeAttempt?.highestDisposition === null
 						? currentState.activeAttempt.receiptLeaseExpiresAtMilliseconds
@@ -282,6 +319,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 
 	resetPublications(): void {
 		this.#fulfillmentByItemId.clear();
+		this.#sourceChurnDispositionByItemId.clear();
 		this.#sourceRevalidationItemIds.clear();
 	}
 

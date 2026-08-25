@@ -202,6 +202,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const abortAllFileContentPreparations = (): void =>
 		abortAllBridgeCommWorkerFileContentPreparations(fileContentCancellation);
 	let activeFileWorkerDerivationEpoch: number | null = null;
+	let hasAcceptedFileSource = false;
 	let activeReviewWorkerDerivationEpoch: number | null = null;
 	let reviewMetadataApplicator: BridgeCommWorkerReviewMetadataApplicator | null = null;
 	const reviewOperationLifecycleTelemetry = new BridgeCommWorkerReviewOperationLifecycleTelemetry(
@@ -643,7 +644,13 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				publishUpdatingChrome();
 				const projection = fileMetadataProjection.apply(event);
 				if (event.eventKind === 'file.sourceAccepted') {
+					const replacesAcceptedSource = hasAcceptedFileSource;
+					hasAcceptedFileSource = true;
 					abortAllFileContentPreparations();
+					if (replacesAcceptedSource) {
+						cancelSelectedFileContentOperation();
+						selectedFileContentOperationStore = null;
+					}
 				} else if (event.eventKind === 'file.invalidated') {
 					if (event.fileId === null) {
 						abortAllFileContentPreparations();

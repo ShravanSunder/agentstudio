@@ -187,6 +187,9 @@ export function createBridgeCommWorkerCommandHandler(
 		const postCommitEffects: Array<() => void> = [];
 		if (application.reset) {
 			postCommitEffects.push((): void => {
+				reviewStore.renderFulfillmentRegistry.retireRemovedItemsForSourceChurn(
+					application.removedItemIds,
+				);
 				reviewStore.renderFulfillmentRegistry.requeuePublicationsForSourceChurn();
 			});
 		}

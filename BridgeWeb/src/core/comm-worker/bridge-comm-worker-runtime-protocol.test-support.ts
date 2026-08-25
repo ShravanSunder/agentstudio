@@ -194,10 +194,17 @@ export function createIdleWorktreeAnnotationSubscription<
 export interface BridgeCommWorkerReviewProductTestSource {
 	readonly close: () => void;
 	readonly productTransport: BridgeProductTransportSession;
-	readonly publishSource: (source: ReviewProductTestSourceInput, revision?: number) => void;
+	readonly publishReplacementSource: (
+		source: BridgeCommWorkerReviewProductTestSourceInput,
+		revision?: number,
+	) => void;
+	readonly publishSource: (
+		source: BridgeCommWorkerReviewProductTestSourceInput,
+		revision?: number,
+	) => void;
 }
 
-type ReviewProductTestSourceInput = Omit<
+export type BridgeCommWorkerReviewProductTestSourceInput = Omit<
 	BridgeCommWorkerReviewRuntimeSource,
 	'reviewPublicationIdentity'
 >;
@@ -278,13 +285,20 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 			events.close(true);
 		},
 		productTransport,
+		publishReplacementSource: (source, revision): void => {
+			const nextRevision = Math.max(currentRevision + 1, revision ?? currentRevision + 1);
+			const nextSnapshot = reviewProductSnapshotFromRuntimeSource(source, nextRevision);
+			events.push(nextSnapshot);
+			currentSnapshot = nextSnapshot;
+			currentRevision = nextRevision;
+		},
 		publishSource: (source, revision): void => {
 			publishReviewProductTestSource(source, revision);
 		},
 	};
 
 	function publishReviewProductTestSource(
-		source: ReviewProductTestSourceInput,
+		source: BridgeCommWorkerReviewProductTestSourceInput,
 		revision?: number,
 	): void {
 		const nextRevision = Math.max(currentRevision + 1, revision ?? currentRevision + 1);
@@ -305,7 +319,7 @@ type ReviewProductTestSnapshot = Extract<
 >;
 
 function reviewProductSnapshotFromRuntimeSource(
-	source: ReviewProductTestSourceInput,
+	source: BridgeCommWorkerReviewProductTestSourceInput,
 	revision: number,
 ): ReviewProductTestSnapshot {
 	const generation = 1;
@@ -586,13 +600,13 @@ function sameReviewProductTestValue(left: unknown, right: unknown): boolean {
 }
 
 function orderedReviewRuntimeRows(
-	source: ReviewProductTestSourceInput,
+	source: BridgeCommWorkerReviewProductTestSourceInput,
 ): BridgeCommWorkerReviewRuntimeSource['rows'] {
 	return source.rows.toSorted((left, right) => left.index - right.index);
 }
 
 function orderedReviewRuntimeContentItems(
-	source: ReviewProductTestSourceInput,
+	source: BridgeCommWorkerReviewProductTestSourceInput,
 ): BridgeCommWorkerReviewRuntimeSource['contentItems'] {
 	const contentItemsById = new Map(source.contentItems.map((item) => [item.itemId, item]));
 	const orderedItemIds = orderedReviewRuntimeRows(source).flatMap((row) =>
@@ -607,7 +621,10 @@ function orderedReviewRuntimeContentItems(
 	});
 }
 
-function reviewRuntimeRowDepth(source: ReviewProductTestSourceInput, rowId: string): number {
+function reviewRuntimeRowDepth(
+	source: BridgeCommWorkerReviewProductTestSourceInput,
+	rowId: string,
+): number {
 	const rowsById = new Map(source.rows.map((row) => [row.id, row]));
 	const visitedRowIds = new Set<string>();
 	let depth = 0;
