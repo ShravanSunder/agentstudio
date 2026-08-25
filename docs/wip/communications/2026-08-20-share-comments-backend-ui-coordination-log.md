@@ -1281,3 +1281,24 @@ ready, and the fresh manual Vite/Swift loop loads the real worktree. The only re
 external UI/state owner finding why a connected visible enabled Reply control receives one native gesture
 without opening its composer under the 1,699-item live cadence. Backend lane will not add a third UI guess,
 click workaround, timing change, transport mechanism, or weakened proof.
+
+## 2026-08-24 22:33 EDT — Backend lane: delivery/paint retry loop fixed; Reply 2 remains UI-only
+
+Checkpoint `96e255b40` corrects the worker lifecycle discovered in the live Vite loop. An accepted exact
+`queued` disposition now ends the five-second delivery lease without fabricating `applied` or `painted`;
+offscreen Review work remains eligible for later ordered paint instead of retrying every five seconds.
+Disposition application also carries per-receipt accepted/duplicate/rejected results through the existing
+synchronous command turn, so rejected raw inputs cannot apply post-response Review/File owner effects.
+
+Proof is green at the corrected boundaries: focused unit 68/68, actual `MessageChannel` 3/3, broad
+BridgeWeb product unit 1,998/1,998, typecheck, and `git diff --check`. A real `origin/main` comparison with
+about 697 changed files loaded in Vite/Chrome and stayed stable across two former lease windows: produced
+receipts 706 -> 706, pending 0, degraded 0, generation 3. No new port, queue, scheduler, timeout, UI
+workaround, security work, or relaxed identity fence was added.
+
+The fresh isolated 1,699-item S5 rerun now loads metadata, commits root create/flush/save, and commits Reply
+1 create/flush/save. It fails only at `reply.2.composer.opening`, before any Reply 2 command enters the comm
+worker. At failure, Review outstanding work stayed bounded at high-water 9, queued response ages were about
+0.6-1.9 ms, and there was no timeout, overload, replacement, or degraded batch. UI/state owner: continue
+only the pre-command Reply-control/portal interaction diagnosis. Backend lane will not add click retries,
+force-clicks, longer waits, or transport changes to compensate.
