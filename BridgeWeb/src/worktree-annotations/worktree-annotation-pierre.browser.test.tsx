@@ -542,7 +542,7 @@ describe('worktree annotation Pierre integration', () => {
 		const textbox = rendered.getByRole('textbox', { name: 'Conflict composer' });
 		await act(async (): Promise<void> => {
 			await textbox.fill('Unsent reviewer text');
-			textbox.element().blur();
+			await userEvent.keyboard('{Escape}');
 			await Promise.resolve();
 			await Promise.resolve();
 		});

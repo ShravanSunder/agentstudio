@@ -61,6 +61,23 @@ Date: 2026-08-25
      `focus-within` ring at the shared surface boundary.
    - Status: focused browser proof passes.
 
+5. **Clicking the active yellow thread background after Reply flickers the chronology**
+   - Actual: Reply opens an empty composer. Clicking the yellow active-thread
+     background removes the composer, briefly shows only the latest Draft
+     message, then reveals the earlier messages again over successive frames.
+     The code below the Pierre row jumps as the row height changes.
+   - Expected: a click anywhere inside the complete active thread changes no
+     editor, expansion, chronology, or row-height state. Only Escape or a click
+     outside the complete thread may exit/collapse it.
+   - Evidence: owner recording
+     `/Users/shravansunder/Downloads/[capture]/2026-08-25.0803.Brave Browser.Bridge.mp4`,
+     SHA-256
+     `15d6d117db6f2a125db9daa6bbd38afdf4152332236da2fe80956e2c36ad11b0`,
+     duration 4.475 s, 232 frames.
+   - Status: root cause confirmed and bounded browser fix implemented. Ordinary
+     Textarea blur no longer owns editor exit; Escape and complete-thread
+     outside click remain the explicit exit owners.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component
@@ -173,6 +190,27 @@ Prohibited fixes:
 
 ## Ranked hypotheses
 
+### H0 — Textarea blur still exits the editor inside the active thread
+
+The thread-level focus/blur owner was removed, but both composer Textareas
+still treat blur as an edit-state transition. The Reply composer explicitly
+calls `onCancel` when an empty editor blurs with no durable target. Clicking a
+non-focusable portion of the yellow active-thread background produces no
+`relatedTarget`, so the composer closes even though the click remains inside
+the thread and the document outside-click owner correctly does not collapse.
+
+The editor-to-null transition then re-enters the expanded chronology render;
+the current Collapsible/mask presentation briefly hides earlier messages before
+revealing them, producing the observed one-message → two-message → three-message
+stair-step and Pierre row-height jump.
+
+Smallest proof: open Reply, blur the empty Reply textarea while dispatching a
+click whose target is the same thread frame, and observe that the composer is
+removed even though `data-annotation-expanded` remains true. Then make blur
+presentation-only and prove the composer/chronology/row bounds remain stable;
+Escape and a true outside click must still exit through the registered editor
+exit owner.
+
 ### H1 — Activation mutates layout before the click completes
 
 `onFocusCapture`/range activation may synchronously update the active Pierre
@@ -276,3 +314,20 @@ in comparison refresh.
   files, 26 tests passed. Covered focus-inert activation, focus movement outside
   without collapse, Save focus retention, tooltip anchor/paint, and editor
   focus surface.
+- 2026-08-25: video parent inspection sampled the full clip at 4 fps and the
+  yellow-click window at 20 fps. The dense window shows the empty Reply composer
+  present, then absent immediately after the yellow-background click; the
+  expanded chronology transiently presents one, then two, then all three
+  messages while the code below moves with the Pierre row.
+- 2026-08-25: current source still gives Textarea `onBlur` mutation authority
+  in both `WorktreeAnnotationNewMessageComposer` and
+  `WorktreeAnnotationMessageEditor`. The Reply composer closes an empty
+  no-target editor on blur even when the click is within the active thread.
+- 2026-08-25: Luna independently inspected all 232 frames. It confirmed that
+  the click lands on the active thread header surface, the empty Reply composer
+  disappears immediately, the chronology briefly presents latest-only, then
+  the same three saved bodies return with no loading or refresh indicator.
+- 2026-08-25: failing-first browser proof reproduced the unwanted composer
+  removal from a same-thread summary click. Removing Textarea blur as a
+  lifecycle owner made the composer, expanded state, and exact root/latest DOM
+  nodes remain stable; the focused inline-shell suite passed 9/9.

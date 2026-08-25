@@ -62,7 +62,7 @@ export interface WorktreeAnnotationInteractionController {
 	readonly collapseThread: () => Promise<void>;
 	readonly exitThreadEditor: () => Promise<void>;
 	readonly expandThread: (threadId: string, invoker: HTMLElement) => void;
-	readonly finishThreadEditor: () => void;
+	readonly finishThreadEditor: (editToken: string) => void;
 	readonly openShareMode: () => void;
 	readonly pierreRangePresentation: WorktreeAnnotationPierreRangePresentation;
 	readonly registerThreadEditorExit: (exitEditor: () => Promise<void>) => () => void;
@@ -86,6 +86,8 @@ export function WorktreeAnnotationInteractionProvider(props: {
 	const [threadExpansion, setThreadExpansion] = useState<WorktreeAnnotationThreadExpansion>({
 		kind: 'closed',
 	});
+	const threadExpansionRef = useRef(threadExpansion);
+	threadExpansionRef.current = threadExpansion;
 	const [shareMode, setShareMode] = useState<WorktreeAnnotationShareMode>({ kind: 'closed' });
 	const threadEditorExitRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -166,17 +168,18 @@ export function WorktreeAnnotationInteractionProvider(props: {
 		);
 		queueMicrotask((): void => focusTarget?.focus());
 	}, [threadExpansion]);
-	const finishThreadEditor = useCallback((): void => {
+	const finishThreadEditor = useCallback((editToken: string): void => {
+		const currentExpansion = threadExpansionRef.current;
+		if (currentExpansion.kind === 'closed' || currentExpansion.editor?.editToken !== editToken) {
+			return;
+		}
 		threadEditorExitRef.current = null;
-		const focusTarget = focusTargetForThreadExpansion(threadExpansion);
-		setThreadExpansion(
-			(currentExpansion): WorktreeAnnotationThreadExpansion =>
-				currentExpansion.kind === 'closed'
-					? currentExpansion
-					: { ...currentExpansion, editor: null },
-		);
+		const focusTarget = focusTargetForThreadExpansion(currentExpansion);
+		const nextExpansion = { ...currentExpansion, editor: null } as const;
+		threadExpansionRef.current = nextExpansion;
+		setThreadExpansion(nextExpansion);
 		queueMicrotask((): void => focusTarget?.focus());
-	}, [threadExpansion]);
+	}, []);
 	const collapseThread = useCallback(async (): Promise<void> => {
 		const exitEditor = threadEditorExitRef.current;
 		if (exitEditor !== null) await exitEditor();

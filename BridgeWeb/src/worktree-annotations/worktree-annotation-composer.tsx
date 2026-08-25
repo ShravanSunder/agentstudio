@@ -447,27 +447,6 @@ export function WorktreeAnnotationNewMessageComposer(
 								placeholder={props.placeholder}
 								readOnly={savePhase !== 'idle'}
 								value={body}
-								onBlur={(event) => {
-									const surface = event.currentTarget.closest(
-										'[data-testid="worktree-annotation-message"]',
-									);
-									if (
-										event.relatedTarget instanceof Node &&
-										surface?.contains(event.relatedTarget) === true
-									) {
-										return;
-									}
-									if (body.trim().length === 0 && targetMessageIdRef.current === null) {
-										props.onCancel();
-										return;
-									}
-									void scheduler
-										.focusLost()
-										.then((): void => {
-											if (body.trim().length === 0) props.onCancel();
-										})
-										.catch((error: unknown) => setOperationError(annotationErrorMessage(error)));
-								}}
 								onChange={(event) => {
 									const nextBody = event.currentTarget.value;
 									hasLocalEditSinceMountRef.current = true;

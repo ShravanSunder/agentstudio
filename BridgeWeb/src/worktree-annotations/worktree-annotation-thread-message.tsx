@@ -375,21 +375,6 @@ export function WorktreeAnnotationMessageEditor(
 					className="min-h-16"
 					disabled={!editOwnershipReady}
 					value={body}
-					onBlur={(event) => {
-						const surface = event.currentTarget.closest(
-							'[data-testid="worktree-annotation-message"]',
-						);
-						if (
-							event.relatedTarget instanceof Node &&
-							surface?.contains(event.relatedTarget) === true
-						) {
-							return;
-						}
-						void scheduler
-							.focusLost()
-							.then(props.onFinishEdit)
-							.catch((error: unknown) => setOperationError(annotationErrorMessage(error)));
-					}}
 					onChange={(event) => {
 						const nextBody = event.currentTarget.value;
 						setBody(nextBody);

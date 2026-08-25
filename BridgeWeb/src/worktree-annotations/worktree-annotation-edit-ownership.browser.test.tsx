@@ -1,6 +1,7 @@
 import { act, type ReactElement } from 'react';
 import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
+import { userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
@@ -107,7 +108,7 @@ describe('worktree annotation browser edit ownership', () => {
 		await expect.element(editor).toBeEnabled();
 		await act(async (): Promise<void> => {
 			await editor.fill('Changed durable draft');
-			editor.element().blur();
+			await userEvent.keyboard('{Escape}');
 			await settleInteraction();
 		});
 		await waitForOperationKind(surface, 'draft.flush');

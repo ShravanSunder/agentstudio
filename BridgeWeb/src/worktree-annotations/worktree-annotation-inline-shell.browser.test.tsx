@@ -176,6 +176,60 @@ describe('worktree annotation inline shell', () => {
 		expect(thread.contains(composer.element())).toBe(true);
 	});
 
+	test('keeps Reply and expanded chronology stable when the active thread background is clicked', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderInlineShell(surface);
+		await publishTwoMessageThread(surface);
+
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
+		});
+		await settleThreadMotion(
+			rendered.getByTestId('worktree-annotation-thread-history').element(),
+			'Expected reply expansion motion to settle.',
+		);
+		const thread = rendered.getByTestId('worktree-annotation-thread').element();
+		const composer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
+		await expect.element(composer).toBeVisible();
+		await expect.element(rendered.getByText('Root message.')).toBeVisible();
+		const rootMessage = rendered
+			.getByText('Root message.')
+			.element()
+			.closest<HTMLElement>('[data-testid="worktree-annotation-message"]');
+		const latestMessage = rendered
+			.getByText('Latest message.')
+			.element()
+			.closest<HTMLElement>('[data-testid="worktree-annotation-message"]');
+		if (rootMessage === null || latestMessage === null) {
+			throw new Error('Expected stable root and latest message surfaces.');
+		}
+
+		await act(async (): Promise<void> => {
+			await rendered
+				.getByTestId('worktree-annotation-thread-summary')
+				.getByText('2 messages')
+				.click();
+			await Promise.resolve();
+		});
+
+		await expect.element(composer).toBeVisible();
+		expect(rendered.getByTestId('worktree-annotation-thread').element()).toBe(thread);
+		expect(thread.getAttribute('data-annotation-expanded')).toBe('true');
+		expect(
+			rendered
+				.getByText('Root message.')
+				.element()
+				.closest('[data-testid="worktree-annotation-message"]'),
+		).toBe(rootMessage);
+		expect(
+			rendered
+				.getByText('Latest message.')
+				.element()
+				.closest('[data-testid="worktree-annotation-message"]'),
+		).toBe(latestMessage);
+		await expect.element(rendered.getByText('Root message.')).toBeVisible();
+	});
+
 	test('reveals five-message history with one downward soft mask', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderInlineShell(surface);
@@ -239,7 +293,7 @@ describe('worktree annotation inline shell', () => {
 		await settleThreadMotion(historyPanel, 'Expected reversed soft mask motion to settle.');
 	});
 
-	test('keeps focus presentation-only and activates the compact thread on click', async () => {
+	test('activates the saved range on focus and expands the compact thread only on click', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderInlineShell(surface);
 		await publishTwoMessageThread(surface);
@@ -250,7 +304,7 @@ describe('worktree annotation inline shell', () => {
 			await Promise.resolve();
 		});
 		expect(document.body.textContent).not.toContain('Root message.');
-		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).not.toContain(
+		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
 			'bg-comment-active-surface',
 		);
 		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(

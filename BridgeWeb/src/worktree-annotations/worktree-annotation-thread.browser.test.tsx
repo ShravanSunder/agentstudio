@@ -564,6 +564,101 @@ describe('worktree annotation inline thread', () => {
 		await expect.element(rendered.getByRole('button', { name: 'Save annotation' })).toBeVisible();
 	});
 
+	test('opens a fresh second Reply before the first saved projection converges', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+		const rootMessage = makeSavedMessage({ body: 'Root body.', messageId: rootMessageId });
+		await publishThreadMessages(surface, [rootMessage]);
+
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
+			await rendered.getByRole('textbox', { name: 'Reply with Markdown' }).fill('Reply one');
+		});
+		await settleBrowserCondition(
+			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'reply.create'),
+			'Expected Reply one to create its durable draft.',
+		);
+		const firstReplyCreate = surface.sentOperations.find(
+			(operation) => operation.kind === 'reply.create',
+		);
+		if (firstReplyCreate?.kind !== 'reply.create') throw new Error('Expected reply.create.');
+
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommitted(annotationSessionId, 1);
+			surface.publishThreadMessages({
+				context: locatedContext,
+				messages: [
+					{ ...rootMessage, sessionRevision: 4 },
+					{
+						...annotationMessage({
+							messageId: secondRootMessageId,
+							ordinal: 1,
+							sessionRevision: 4,
+							threadId: annotationHeadThreadId,
+							threadRevision: 2,
+						}),
+						draft: {
+							activeEditToken: firstReplyCreate.editToken,
+							body: 'Reply one',
+							revision: 0,
+						},
+						savedBody: null,
+						savedRevision: null,
+					},
+				],
+			});
+			await Promise.resolve();
+		});
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Save annotation' }).click();
+		});
+		await settleBrowserCondition(
+			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'draft.save'),
+			'Expected Reply one Save to issue draft.save.',
+		);
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'draft.save');
+			await Promise.resolve();
+		});
+		await expect
+			.element(rendered.getByTestId('worktree-annotation-committed-pending-projection'))
+			.toBeVisible();
+
+		const latestReplyButton = rendered
+			.getByRole('button', { name: 'Reply to thread' })
+			.all()
+			.at(-1);
+		if (latestReplyButton === undefined) throw new Error('Expected the latest Reply control.');
+		await act(async (): Promise<void> => {
+			await latestReplyButton.click();
+		});
+		const secondReplyComposer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
+		await expect.element(secondReplyComposer).toBeVisible();
+
+		await act(async (): Promise<void> => {
+			surface.publishThreadMessages({
+				context: locatedContext,
+				messages: [
+					{ ...rootMessage, sessionRevision: 5 },
+					{
+						...annotationMessage({
+							messageId: secondRootMessageId,
+							ordinal: 1,
+							sessionRevision: 5,
+							threadId: annotationHeadThreadId,
+							threadRevision: 2,
+						}),
+						draft: null,
+						savedBody: 'Reply one',
+						savedRevision: 1,
+					},
+				],
+			});
+			await Promise.resolve();
+		});
+		await expect.element(secondReplyComposer).toBeVisible();
+	});
+
 	test('keeps an edit token active until every overlapping composer unregisters', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const editToken = 'annotation-edit-overlapping-portals';
@@ -701,7 +796,7 @@ describe('worktree annotation inline thread', () => {
 		expect(getComputedStyle(focusSurface).boxShadow).not.toBe('none');
 	});
 
-	test('persists an empty draft while editing an already saved message', async () => {
+	test('persists an empty saved-message draft when Escape exits editing', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
 		const savedMessage = makeSavedMessage({ body: 'Saved body.', messageId: rootMessageId });
@@ -710,14 +805,14 @@ describe('worktree annotation inline thread', () => {
 		await act(async (): Promise<void> => {
 			await rendered.getByText('Saved body.').click();
 			await rendered.getByRole('textbox', { name: 'Annotation Markdown' }).fill('');
-			rendered.getByRole('textbox', { name: 'Annotation Markdown' }).element().blur();
+			await userEvent.keyboard('{Escape}');
 		});
 		await settleBrowserCondition(
 			(): boolean =>
 				surface.sentOperations.some(
 					(operation) => operation.kind === 'draft.flush' && operation.body === '',
 				),
-			'Expected focus loss to persist the empty saved-message draft.',
+			'Expected Escape to persist the empty saved-message draft.',
 		);
 		const flushOperation = surface.sentOperations.find(
 			(operation) => operation.kind === 'draft.flush' && operation.body === '',
@@ -738,7 +833,7 @@ describe('worktree annotation inline thread', () => {
 		});
 		await settleBrowserCondition(
 			(): boolean => document.querySelector('[aria-label="Annotation Markdown"]') === null,
-			'Expected focus-loss persistence to close the saved-message editor.',
+			'Expected Escape persistence to close the saved-message editor.',
 		);
 		expect(flushOperation.body).toBe('');
 	});

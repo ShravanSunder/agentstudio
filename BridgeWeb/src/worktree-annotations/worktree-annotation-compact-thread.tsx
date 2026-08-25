@@ -209,7 +209,9 @@ export function WorktreeAnnotationThread(
 						? activateRange()
 						: interaction.startMessageEdit(threadId, message.messageId, invoker)
 				}
-				onFinishEdit={interaction.finishThreadEditor}
+				onFinishEdit={() => {
+					if (messageEditor !== null) interaction.finishThreadEditor(messageEditor.editToken);
+				}}
 				ordinal={message.ordinal + 1}
 				path={props.thread.context.path}
 				registerExitHandler={interaction.registerThreadEditorExit}
@@ -217,6 +219,7 @@ export function WorktreeAnnotationThread(
 			/>
 		);
 	};
+	const replyEditor = threadExpansion?.editor?.kind === 'reply' ? threadExpansion.editor : null;
 
 	return (
 		<WorktreeAnnotationConversationFrame
@@ -228,6 +231,7 @@ export function WorktreeAnnotationThread(
 			data-annotation-expanded={isExpanded ? 'true' : 'false'}
 			data-testid="worktree-annotation-thread"
 			onClickCapture={handleThreadClick}
+			onFocusCapture={activateRange}
 			onKeyDownCapture={(event) => {
 				if (
 					event.target instanceof Element &&
@@ -275,7 +279,7 @@ export function WorktreeAnnotationThread(
 						threadExpansion?.editor?.kind === 'reply',
 						!isExpanded && hasMultipleMessages,
 					)}
-					{threadExpansion?.editor?.kind !== 'reply' ? null : (
+					{replyEditor === null ? null : (
 						<div className="mt-1">
 							<WorktreeAnnotationNewMessageComposer
 								active
@@ -288,9 +292,10 @@ export function WorktreeAnnotationThread(
 									sessionId,
 									threadId,
 								})}
-								editToken={threadExpansion.editor.editToken}
-								onCancel={interaction.finishThreadEditor}
-								onSaved={interaction.finishThreadEditor}
+								editToken={replyEditor.editToken}
+								key={replyEditor.editToken}
+								onCancel={() => interaction.finishThreadEditor(replyEditor.editToken)}
+								onSaved={() => interaction.finishThreadEditor(replyEditor.editToken)}
 								placement="timeline"
 								placeholder="Reply with Markdown"
 								registerExitHandler={interaction.registerThreadEditorExit}
