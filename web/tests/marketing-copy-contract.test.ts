@@ -12,7 +12,7 @@ describe("marketing copy", () => {
       headlineSetupSecondAccent: "workspace.",
       headlinePayoff: "Stay oriented. Miss nothing.",
       description:
-        "Agent Studio is a native macOS workspace for coding agents, with your repositories and worktrees within reach. Your agents run in Ghostty terminals with files and diffs right beside them.",
+        "Agent Studio is a native macOS IDE for parallel coding agents, with your repositories and worktrees within reach. Your agents run in Ghostty terminals with files and diffs right beside them.",
     });
 
     expect(marketingCopy.hero.headlineSetupFirst).toBe("Run dozens of agents");
@@ -37,6 +37,13 @@ describe("marketing copy", () => {
       description: "Agent Studio watches your repos. Stay oriented across every repo and worktree.",
       phoneDescription:
         "Agent Studio watches your repos. You can easily create or view terminals in all your repos.",
+    });
+  });
+
+  it("closes with the approved native macOS positioning", () => {
+    expect(marketingCopy.finalCallToAction).toEqual({
+      description: "A native macOS IDE for parallel agents and all your work.",
+      traits: "Native macOS. Repo-aware. Terminal-first. Built on Ghostty.",
     });
   });
 });
