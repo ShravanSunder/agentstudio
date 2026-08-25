@@ -8,7 +8,7 @@ import {
 } from './worktree-annotation-interaction.js';
 
 describe('worktree annotation Share-mode state', () => {
-	test('opens on New, changes scope, and closes without reviving stale scope', async () => {
+	test('opens on Pending, changes scope, and closes without reviving stale scope', async () => {
 		const rendered = await render(
 			<WorktreeAnnotationInteractionProvider>
 				<ShareModeStateProbe />
@@ -19,7 +19,9 @@ describe('worktree annotation Share-mode state', () => {
 		await performBrowserAction(() =>
 			rendered.getByRole('button', { name: 'Open share mode' }).click(),
 		);
-		await expect.element(rendered.getByTestId('share-mode-state')).toHaveTextContent('open:new');
+		await expect
+			.element(rendered.getByTestId('share-mode-state'))
+			.toHaveTextContent('open:pending');
 		await performBrowserAction(() => rendered.getByRole('button', { name: 'Show all' }).click());
 		await expect.element(rendered.getByTestId('share-mode-state')).toHaveTextContent('open:all');
 		await performBrowserAction(() =>
@@ -31,7 +33,9 @@ describe('worktree annotation Share-mode state', () => {
 		await performBrowserAction(() =>
 			rendered.getByRole('button', { name: 'Open share mode' }).click(),
 		);
-		await expect.element(rendered.getByTestId('share-mode-state')).toHaveTextContent('open:new');
+		await expect
+			.element(rendered.getByTestId('share-mode-state'))
+			.toHaveTextContent('open:pending');
 	});
 });
 
