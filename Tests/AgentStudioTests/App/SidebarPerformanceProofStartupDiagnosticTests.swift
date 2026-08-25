@@ -346,6 +346,25 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(!diagnosticSource.contains("populateRealSizeTopology"))
     }
 
+    @Test("strict pane fixture registers native view slots before layout publication")
+    func strictPaneFixtureRegistersNativeViewSlots() throws {
+        let fixtureSource = try String(
+            contentsOfFile: "Sources/AgentStudio/App/Boot/SidebarPerformanceProofFixture+RealSize.swift",
+            encoding: .utf8
+        )
+        let diagnosticSource = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/App/Boot/AppDelegate+SidebarPerformanceProofStartupDiagnostics.swift",
+            encoding: .utf8
+        )
+
+        #expect(fixtureSource.contains("static func populateStrictPaneFleet("))
+        #expect(fixtureSource.contains("viewRegistry: ViewRegistry"))
+        #expect(fixtureSource.contains("viewRegistry.ensureSlot(for: pane.id)"))
+        #expect(diagnosticSource.contains("SidebarPerformanceProofFixture.populateStrictPaneFleet("))
+        #expect(diagnosticSource.contains("viewRegistry: viewRegistry"))
+    }
+
     @Test("strict policy is projected before scan and fixture readiness is separate")
     func strictPolicyPrecedesScanAndFixtureReadinessIsSeparate() throws {
         let source = try String(

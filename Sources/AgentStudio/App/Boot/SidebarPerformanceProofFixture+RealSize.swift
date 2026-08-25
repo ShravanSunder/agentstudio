@@ -26,7 +26,10 @@ import Foundation
         }
 
         @discardableResult
-        static func populateStrictPaneFleet(store: WorkspaceStore) -> Bool {
+        static func populateStrictPaneFleet(
+            store: WorkspaceStore,
+            viewRegistry: ViewRegistry
+        ) -> Bool {
             let requiredTabCount = AppPolicies.SidebarPerformanceProof.strictTabCount
             let requiredPaneCount = AppPolicies.SidebarPerformanceProof.strictPaneModelCount
             guard store.tabLayoutAtom.tabs.count <= requiredTabCount,
@@ -39,6 +42,7 @@ import Foundation
                     lifetime: .temporary,
                     zmxSessionID: .generateUUIDv7()
                 )
+                viewRegistry.ensureSlot(for: pane.id)
                 store.tabLayoutAtom.appendTab(Tab(paneId: pane.id, name: "Load Tab"))
             }
 
@@ -54,6 +58,7 @@ import Foundation
                     lifetime: .temporary,
                     zmxSessionID: .generateUUIDv7()
                 )
+                viewRegistry.ensureSlot(for: pane.id)
                 guard
                     store.tabLayoutAtom.insertPane(
                         pane.id,

@@ -219,7 +219,12 @@ import AppKit
                 }
             }
 
-            guard SidebarPerformanceProofFixture.populateStrictPaneFleet(store: store) else {
+            guard
+                SidebarPerformanceProofFixture.populateStrictPaneFleet(
+                    store: store,
+                    viewRegistry: viewRegistry
+                )
+            else {
                 recordBlockedSidebarPerformanceProofDiagnostic(
                     action: action,
                     reason: "pane_fleet_failed"
