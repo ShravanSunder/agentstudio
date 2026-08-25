@@ -7,6 +7,21 @@ import Testing
 @MainActor
 @Suite("Repo Explorer table materializer", .serialized)
 struct RepoExplorerTableMaterializerTests {
+    @Test("native table reveals the established sidebar chrome background")
+    func nativeTableRevealsSidebarChromeBackground() throws {
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: { _ in }
+        )
+        defer { materializer.detach() }
+
+        let scrollView = try #require(materializer.view as? NSScrollView)
+        let tableView = try #require(scrollView.documentView as? NSTableView)
+
+        #expect(!scrollView.drawsBackground)
+        #expect(tableView.backgroundColor == .clear)
+    }
+
     @Test("viewport coalesces the latest visible set and clears on detach")
     func viewportCoalescesAndClears() async throws {
         let firstWorktreeID = UUIDv7.generate()

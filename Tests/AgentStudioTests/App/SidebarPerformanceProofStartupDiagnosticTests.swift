@@ -233,11 +233,12 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(SidebarPerformanceProofActionTracker.matches(settled, action: action))
     }
 
-    @Test("shell accessibility readback uses the selected native grouping segment")
-    func shellAccessibilityReadbackUsesNativeSelection() {
+    @Test("shell accessibility readback uses the compact grouping button label")
+    func shellAccessibilityReadbackUsesCompactGroupingButtonLabel() {
         let rootView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
         let selectedSegment = SelectedSidebarGroupingAccessibilityButton(
-            identifier: "repoSidebarGroupingSegment.pane"
+            identifier: "repoSidebarGroupingButton",
+            label: "Group: All Panes"
         )
         selectedSegment.frame = NSRect(x: 0, y: 0, width: 80, height: 24)
         rootView.addSubview(selectedSegment)
@@ -450,9 +451,11 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
 @MainActor
 private final class SelectedSidebarGroupingAccessibilityButton: NSButton {
     private let fixedAccessibilityIdentifier: String
+    private let fixedAccessibilityLabel: String
 
-    init(identifier: String) {
+    init(identifier: String, label: String) {
         fixedAccessibilityIdentifier = identifier
+        fixedAccessibilityLabel = label
         super.init(frame: .zero)
     }
 
@@ -465,7 +468,7 @@ private final class SelectedSidebarGroupingAccessibilityButton: NSButton {
         fixedAccessibilityIdentifier
     }
 
-    override func isAccessibilitySelected() -> Bool {
-        true
+    override func accessibilityLabel() -> String? {
+        fixedAccessibilityLabel
     }
 }

@@ -104,7 +104,9 @@ final class RepoExplorerTableMaterializer: NSObject,
         view = scrollView
         super.init()
 
+        scrollView.drawsBackground = false
         tableView.headerView = nil
+        tableView.backgroundColor = .clear
         tableView.intercellSpacing = .zero
         tableView.usesAutomaticRowHeights = false
         tableView.addTableColumn(
