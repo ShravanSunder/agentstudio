@@ -76,12 +76,14 @@ describe('worktree annotation Share projection', () => {
 });
 
 interface MessageFixture {
+	readonly attentionState: 'new' | 'not_applicable' | 'viewed';
 	readonly authorKind: 'agent' | 'human';
 	readonly draft: { readonly body: string } | null;
 	readonly handled: boolean;
 	readonly messageId: string;
 	readonly messageRevision: number;
 	readonly savedBody: string | null;
+	readonly savedRevision: number | null;
 	readonly sessionId: string;
 	readonly sessionRevision: number;
 	readonly status: 'editable' | 'locked';
@@ -92,12 +94,14 @@ function messageFixture(
 	overrides: Partial<Omit<MessageFixture, 'messageId'>> = {},
 ): MessageFixture {
 	return {
+		attentionState: 'not_applicable',
 		authorKind: 'human',
 		draft: null,
 		handled: false,
 		messageId,
 		messageRevision: 1,
 		savedBody: `Saved body for ${messageId}`,
+		savedRevision: 1,
 		sessionId: 'session-1',
 		sessionRevision: 1,
 		status: 'editable',

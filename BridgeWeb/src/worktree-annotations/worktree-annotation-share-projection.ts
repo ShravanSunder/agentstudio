@@ -1,12 +1,15 @@
+import { deriveWorktreeAnnotationMessageState } from './worktree-annotation-message-state.js';
 import type { WorktreeAnnotationShareScope } from './worktree-annotation-share-mode.js';
 
 export interface WorktreeAnnotationShareMessageFacts {
+	readonly attentionState: 'new' | 'not_applicable' | 'viewed';
 	readonly authorKind: 'agent' | 'human';
 	readonly draft: object | null;
 	readonly handled: boolean;
 	readonly messageId: string;
 	readonly messageRevision: number;
 	readonly savedBody: string | null;
+	readonly savedRevision: number | null;
 	readonly sessionId: string;
 	readonly sessionRevision: number;
 }
@@ -52,12 +55,18 @@ export function deriveWorktreeAnnotationShareProjection<
 	const otherThreads: FilteredShareThread<TThread>[] = [];
 
 	for (const thread of props.threads) {
-		const currentSavedMessages = thread.messages.filter(isCurrentSavedWorktreeAnnotationMessage);
+		const currentSavedMessages = thread.messages.filter(
+			(message): boolean => deriveWorktreeAnnotationMessageState(message).isAllEligible,
+		);
 		allCount += currentSavedMessages.length;
-		newCount += currentSavedMessages.filter(isPendingWorktreeAnnotationMessage).length;
+		newCount += currentSavedMessages.filter(
+			(message): boolean => deriveWorktreeAnnotationMessageState(message).isPending,
+		).length;
 		const participatingMessages =
 			props.scope === 'new'
-				? currentSavedMessages.filter(isPendingWorktreeAnnotationMessage)
+				? currentSavedMessages.filter(
+						(message): boolean => deriveWorktreeAnnotationMessageState(message).isPending,
+					)
 				: currentSavedMessages;
 		if (participatingMessages.length === 0) continue;
 		const filteredThread: FilteredShareThread<TThread> = {
@@ -72,20 +81,4 @@ export function deriveWorktreeAnnotationShareProjection<
 	}
 
 	return { allCount, inlineThreads, newCount, otherThreads };
-}
-
-export function isCurrentSavedWorktreeAnnotationMessage(
-	message: WorktreeAnnotationShareMessageFacts,
-): boolean {
-	return message.savedBody !== null && message.draft === null;
-}
-
-export function isPendingWorktreeAnnotationMessage(
-	message: WorktreeAnnotationShareMessageFacts,
-): boolean {
-	return (
-		message.authorKind === 'human' &&
-		isCurrentSavedWorktreeAnnotationMessage(message) &&
-		!message.handled
-	);
 }

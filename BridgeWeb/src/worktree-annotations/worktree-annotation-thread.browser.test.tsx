@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { describe, expect, test } from 'vitest';
-import { userEvent } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 
 import { createBridgeMarkdownRenderWorkerClient } from '../app/markdown/worker/bridge-markdown-render-worker-client.js';
 import { buildBridgeMarkdownRenderWorkerSuccessResponse } from '../app/markdown/worker/bridge-markdown-render-worker-renderer.js';
@@ -43,9 +43,38 @@ describe('worktree annotation inline thread', () => {
 		await expect.element(rendered.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Reply to thread' })).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Resolve thread' })).toBeVisible();
+		await expect.element(rendered.getByLabelText('You')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('worktree-annotation-message-pending-status'))
+			.toHaveTextContent('Pending');
 		expect(document.querySelector('[aria-label="Expand 1 message"]')).toBeNull();
 		expect(rendered.getByRole('button', { name: 'More comment actions' }).all()).toHaveLength(0);
 		expect(document.querySelector('[aria-label^="Show source range"]')).toBeNull();
+	});
+
+	test('renders a one-message agent thread as New and read-only while retaining Reply', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+		const agentMessage = {
+			...makeSavedMessage({ body: 'Agent response.', messageId: rootMessageId }),
+			attentionState: 'new',
+			authorKind: 'agent',
+		} as const;
+
+		await publishThreadMessages(surface, [agentMessage]);
+
+		await expect.element(rendered.getByLabelText('Agent')).toBeVisible();
+		await expect.element(rendered.getByText('Agent response.')).toBeVisible();
+		const newStatus = rendered.getByTestId('worktree-annotation-message-new-status');
+		await expect.element(newStatus).toHaveTextContent('New');
+		expect(newStatus.element().className).toContain('text-primary');
+		expect(rendered.getByRole('button', { name: 'Edit annotation' }).all()).toHaveLength(0);
+		await expect.element(rendered.getByRole('button', { name: 'Reply to thread' })).toBeVisible();
+		await rendered.getByText('Agent response.').click();
+		expect(document.querySelector('[aria-label="Annotation Markdown"]')).toBeNull();
+		expect(
+			surface.sentOperations.some((operation) => operation.kind === 'draft.edit.acquire'),
+		).toBe(false);
 	});
 
 	test('renders summary plus latest collapsed and every message once when expanded inline', async () => {
@@ -95,6 +124,45 @@ describe('worktree annotation inline thread', () => {
 			await userEvent.keyboard('{Escape}');
 		});
 		expect(compactFrame.getAttribute('data-annotation-expanded')).toBe('true');
+	});
+
+	test('orders nonzero New and Pending counts and reveals their exact messages', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Human pending.', messageId: rootMessageId }),
+			{
+				...makeSavedMessage({
+					body: 'Agent new.',
+					messageId: replyMessageId,
+					ordinal: 1,
+				}),
+				attentionState: 'new',
+				authorKind: 'agent',
+			},
+		]);
+
+		const summaryText = rendered
+			.getByTestId('worktree-annotation-thread-summary')
+			.element().textContent;
+		const newIndex = summaryText?.indexOf('1 new') ?? -1;
+		const pendingIndex = summaryText?.indexOf('1 pending') ?? -1;
+		const messageIndex = summaryText?.indexOf('2 messages') ?? -1;
+		expect(newIndex).toBeGreaterThanOrEqual(0);
+		expect(pendingIndex).toBeGreaterThan(newIndex);
+		expect(messageIndex).toBeGreaterThan(pendingIndex);
+
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Expand 2 messages' }).click();
+		});
+		await expect.element(rendered.getByText('Human pending.')).toBeVisible();
+		await expect.element(rendered.getByText('Agent new.')).toBeVisible();
+		expect(rendered.getByTestId('worktree-annotation-message-pending-status').all()).toHaveLength(
+			1,
+		);
+		expect(rendered.getByTestId('worktree-annotation-message-new-status').all()).toHaveLength(1);
+		await page.screenshot({ path: '../../../tmp/bridgeweb-new-pending-thread.png' });
 	});
 
 	test('preserves the compact Markdown render while adding missing inline messages', async () => {

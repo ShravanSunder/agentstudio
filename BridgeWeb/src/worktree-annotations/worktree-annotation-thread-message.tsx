@@ -29,7 +29,7 @@ import {
 	messageCommandCursorFromProjection,
 	newestMessageCommandCursor,
 } from './worktree-annotation-message-command-cursor.js';
-import { isPendingWorktreeAnnotationMessage } from './worktree-annotation-share-projection.js';
+import { deriveWorktreeAnnotationMessageState } from './worktree-annotation-message-state.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationProjectionSnapshot,
@@ -77,11 +77,14 @@ export function WorktreeAnnotationThreadSummary(
 	return (
 		<WorktreeAnnotationInlineSurface
 			active={props.active}
+			authorKind={props.message.authorKind}
 			commands={props.commands}
 			draft={props.message.draft !== null}
 			metadata={
 				<>
-					<span className="font-medium text-comment-foreground">Latest · You</span>
+					<span className="font-medium text-comment-foreground">
+						Latest · {props.message.authorKind === 'agent' ? 'Agent' : 'You'}
+					</span>
 					<span aria-hidden="true">·</span>
 					<span>{annotationRelativeTime(props.message.createdAt)}</span>
 					<span aria-hidden="true">·</span>
@@ -132,7 +135,7 @@ export function WorktreeAnnotationMessageEditor(
 	};
 	const [body, setBody] = useState(initialBody);
 	const [operationError, setOperationError] = useState<string | null>(null);
-	const isPending = isPendingWorktreeAnnotationMessage(props.message);
+	const derivedState = deriveWorktreeAnnotationMessageState(props.message);
 	const inactiveEditTokenRef = useRef(createWorktreeAnnotationEditToken());
 	const editToken = props.editToken ?? inactiveEditTokenRef.current;
 	useWorktreeAnnotationEditSurfaceToken(props.isEditing ? editToken : null, 'message');
@@ -203,7 +206,8 @@ export function WorktreeAnnotationMessageEditor(
 		if (!canEdit && isEditing) onFinishEdit();
 	}, [canEdit, isEditing, onFinishEdit]);
 	const validation = validateWorktreeAnnotationMarkdown(body);
-	const messageCanBeginEditing = props.canEdit && props.message.status === 'editable';
+	const messageCanBeginEditing =
+		props.canEdit && props.message.authorKind === 'human' && props.message.status === 'editable';
 	const beginEditingFromBody = (event: ReactMouseEvent<HTMLDivElement>): void => {
 		if (!messageCanBeginEditing || props.isEditing) return;
 		if (
@@ -318,12 +322,15 @@ export function WorktreeAnnotationMessageEditor(
 		<WorktreeAnnotationInlineSurface
 			active={props.active}
 			appearance={props.appearance}
+			authorKind={props.message.authorKind}
 			commands={messageCommands}
 			continueTimeline={props.continueTimeline}
 			draft={props.message.draft !== null}
 			metadata={
 				<>
-					<span className="font-medium text-comment-foreground">You</span>
+					<span className="font-medium text-comment-foreground">
+						{props.message.authorKind === 'agent' ? 'Agent' : 'You'}
+					</span>
 					<span>{annotationMessageRoleLabel(props.ordinal)}</span>
 					<span aria-hidden="true">·</span>
 					<span>{annotationRelativeTime(props.message.createdAt)}</span>
@@ -336,7 +343,19 @@ export function WorktreeAnnotationMessageEditor(
 							{annotationMessageStateLabel(props.message)}
 						</span>
 					)}
-					{!isPending ? null : (
+					{!derivedState.isNew ? null : (
+						<>
+							<span aria-hidden="true">·</span>
+							<span
+								className="inline-flex items-center gap-1 font-medium text-primary"
+								data-testid="worktree-annotation-message-new-status"
+							>
+								<span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
+								New
+							</span>
+						</>
+					)}
+					{!derivedState.isPending ? null : (
 						<>
 							<span aria-hidden="true">·</span>
 							<span
@@ -367,7 +386,7 @@ export function WorktreeAnnotationMessageEditor(
 			}}
 			timelineActions={props.timelineActions}
 		>
-			{props.isEditing && props.canEdit && props.message.status === 'editable' ? (
+			{props.isEditing && messageCanBeginEditing ? (
 				<Textarea
 					appearance="embedded"
 					autoFocus

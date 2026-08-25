@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 export interface WorktreeAnnotationInlineSurfaceProps {
 	readonly active?: boolean | undefined;
 	readonly appearance?: 'card' | 'chronology' | undefined;
+	readonly authorKind?: 'agent' | 'human' | undefined;
 	readonly children: ReactNode;
 	readonly commands?: ReactNode | undefined;
 	readonly continueTimeline?: boolean | undefined;
@@ -23,6 +24,8 @@ export interface WorktreeAnnotationInlineSurfaceProps {
 export function WorktreeAnnotationInlineSurface(
 	props: WorktreeAnnotationInlineSurfaceProps,
 ): ReactElement {
+	const authorLabel = props.authorKind === 'agent' ? 'Agent' : 'You';
+	const authorInitial = props.authorKind === 'agent' ? 'A' : 'Y';
 	if (props.embedded === true) {
 		return (
 			<section
@@ -66,8 +69,8 @@ export function WorktreeAnnotationInlineSurface(
 			onKeyDownCapture={props.onKeyDownCapture}
 			tabIndex={0}
 		>
-			<Avatar aria-label="You">
-				<AvatarFallback>Y</AvatarFallback>
+			<Avatar aria-label={authorLabel}>
+				<AvatarFallback>{authorInitial}</AvatarFallback>
 			</Avatar>
 			<div className="flex min-w-0 items-center gap-1.5 self-center text-xs/relaxed text-comment-muted">
 				<div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{props.metadata}</div>
