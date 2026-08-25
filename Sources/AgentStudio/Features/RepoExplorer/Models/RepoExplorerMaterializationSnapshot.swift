@@ -119,7 +119,8 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
         let leadingInset: CGFloat
         let trailingInset: CGFloat
         let minimumLineCount: CGFloat
-        let fallbackLineCount: CGFloat
+        let fallbackMetadataLineCount: CGFloat
+        let fallbackChipLineCount: CGFloat
         let requiresVisibleWidthMeasurement: Bool
 
         switch presentation {
@@ -128,77 +129,113 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
             leadingInset = 0
             trailingInset = 0
             minimumLineCount = 1
-            fallbackLineCount = 1
+            fallbackMetadataLineCount = 0
+            fallbackChipLineCount = 0
             requiresVisibleWidthMeasurement = false
         case .loadingSectionHeader:
             rowClass = .loadingSectionHeader
             leadingInset = 0
             trailingInset = 0
             minimumLineCount = 1
-            fallbackLineCount = 1
+            fallbackMetadataLineCount = 0
+            fallbackChipLineCount = 0
             requiresVisibleWidthMeasurement = false
         case .loadingRepository(_, _, _, let isStatusUnavailable):
             rowClass = .loadingRepository
             leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset
             trailingInset = AppStyles.General.Spacing.loose
             minimumLineCount = 1
-            fallbackLineCount = isStatusUnavailable ? 2 : 1
+            fallbackMetadataLineCount = isStatusUnavailable ? 1 : 0
+            fallbackChipLineCount = 0
             requiresVisibleWidthMeasurement = false
         case .groupHeader:
             rowClass = .groupHeader
             leadingInset = 0
             trailingInset = 0
             minimumLineCount = 1
-            fallbackLineCount = 1
+            fallbackMetadataLineCount = 0
+            fallbackChipLineCount = 0
             requiresVisibleWidthMeasurement = false
-        case .worktree:
+        case .worktree(let worktree):
             rowClass = .worktree
             leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset
             trailingInset = 0
             minimumLineCount = 2
-            fallbackLineCount = 4
+            fallbackMetadataLineCount = worktree.placementText.isEmpty ? 1 : 2
+            fallbackChipLineCount =
+                SidebarGitStatusChips.hasContent(
+                    branchStatus: worktree.branchStatus
+                ) ? 1 : 0
             requiresVisibleWidthMeasurement = false
-        case .pane, .unassociatedPane:
+        case .pane(let pane):
             rowClass = .pane
             leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset
             trailingInset = 0
             minimumLineCount = 2
-            fallbackLineCount = 4
+            fallbackMetadataLineCount =
+                (pane.secondaryLine == nil ? 0 : 1)
+                + (pane.branchContextText == nil ? 0 : 1)
+            fallbackChipLineCount = 1
+            requiresVisibleWidthMeasurement = false
+        case .unassociatedPane(let pane):
+            rowClass = .pane
+            leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset
+            trailingInset = 0
+            minimumLineCount = 2
+            fallbackMetadataLineCount = pane.secondaryLine == nil ? 0 : 1
+            fallbackChipLineCount = 1
             requiresVisibleWidthMeasurement = false
         case .topologyFault, .unresolved:
             rowClass = .fault
             leadingInset = AppStyles.Shell.Sidebar.groupChildRowLeadingInset
             trailingInset = AppStyles.General.Spacing.standard
             minimumLineCount = 2
-            fallbackLineCount = 3
+            fallbackMetadataLineCount = 2
+            fallbackChipLineCount = 0
             requiresVisibleWidthMeasurement = true
         }
 
-        let primaryLineHeight = AppStyles.General.Typography.textBase
-        let metadataLineHeight = AppStyles.General.Typography.textSm
-        let contentSpacing = AppStyles.Shell.Sidebar.rowContentSpacing
-        let verticalInset = AppStyles.Shell.Sidebar.rowVerticalInset
-        let minimumHeight = primaryLineHeight * minimumLineCount + verticalInset * 2
-        let fallbackHeight =
-            primaryLineHeight
-            + metadataLineHeight * max(0, fallbackLineCount - 1)
-            + contentSpacing * max(0, fallbackLineCount - 1)
-            + verticalInset * 2
-
         return Self(
             rowClass: rowClass,
-            metrics: RepoExplorerRowLayoutMetrics(
-                primaryLineHeight: primaryLineHeight,
-                metadataLineHeight: metadataLineHeight,
-                chipLineHeight: AppStyles.Shell.Sidebar.chipLineHeight,
-                contentSpacing: contentSpacing,
-                verticalInset: verticalInset,
+            metrics: metrics(
                 leadingInset: leadingInset,
                 trailingInset: trailingInset,
-                minimumHeight: minimumHeight,
-                fallbackHeight: fallbackHeight
+                minimumLineCount: minimumLineCount,
+                fallbackMetadataLineCount: fallbackMetadataLineCount,
+                fallbackChipLineCount: fallbackChipLineCount
             ),
             requiresVisibleWidthMeasurement: requiresVisibleWidthMeasurement
+        )
+    }
+
+    private static func metrics(
+        leadingInset: CGFloat,
+        trailingInset: CGFloat,
+        minimumLineCount: CGFloat,
+        fallbackMetadataLineCount: CGFloat,
+        fallbackChipLineCount: CGFloat
+    ) -> RepoExplorerRowLayoutMetrics {
+        let primaryLineHeight = AppStyles.General.Typography.textBase
+        let metadataLineHeight = AppStyles.General.Typography.textSm
+        let chipLineHeight = AppStyles.Shell.Sidebar.chipLineHeight
+        let contentSpacing = AppStyles.Shell.Sidebar.rowContentSpacing
+        let verticalInset = AppStyles.Shell.Sidebar.rowVerticalInset
+        let fallbackChildSpacingCount = fallbackMetadataLineCount + fallbackChipLineCount
+
+        return RepoExplorerRowLayoutMetrics(
+            primaryLineHeight: primaryLineHeight,
+            metadataLineHeight: metadataLineHeight,
+            chipLineHeight: chipLineHeight,
+            contentSpacing: contentSpacing,
+            verticalInset: verticalInset,
+            leadingInset: leadingInset,
+            trailingInset: trailingInset,
+            minimumHeight: primaryLineHeight * minimumLineCount + verticalInset * 2,
+            fallbackHeight: primaryLineHeight
+                + metadataLineHeight * fallbackMetadataLineCount
+                + chipLineHeight * fallbackChipLineCount
+                + contentSpacing * fallbackChildSpacingCount
+                + verticalInset * 2
         )
     }
 }

@@ -95,6 +95,16 @@ struct RepoExplorerMaterializationSnapshotTests {
                 $0.layout.metrics.primaryLineHeight == AppStyles.General.Typography.textBase
             }
         )
+        let worktreeRow = try #require(
+            result.materializationSnapshot.rows.first { $0.layout.rowClass == .worktree }
+        )
+        #expect(
+            worktreeRow.layout.metrics.fallbackHeight
+                == expectedMetadataHeight(
+                    metadataLineCount: 1,
+                    metrics: worktreeRow.layout.metrics
+                )
+        )
 
         let fault = RepoExplorerTopologyFault.duplicateWorktreeIdentities([
             RepoExplorerDuplicateWorktreeIdentity(
@@ -191,6 +201,15 @@ struct RepoExplorerMaterializationSnapshotTests {
         let baselineRevision = RepoExplorerRowContentRevision(
             presentation: .pane(baseline)
         )
+        let baselineLayout = RepoExplorerRowLayout.make(for: .pane(baseline))
+
+        #expect(
+            baselineLayout.metrics.fallbackHeight
+                == expectedPaneHeight(
+                    metadataLineCount: 2,
+                    metrics: baselineLayout.metrics
+                )
+        )
 
         for changedRow in changedRows {
             #expect(
@@ -277,6 +296,62 @@ struct RepoExplorerMaterializationSnapshotTests {
         #expect(pane.branchStatus == nil)
         #expect(materializedRow.representedRepoID == nil)
         #expect(materializedRow.representedWorktreeID == nil)
+        #expect(
+            materializedRow.layout.metrics.fallbackHeight
+                == expectedPaneHeight(
+                    metadataLineCount: 1,
+                    metrics: materializedRow.layout.metrics
+                )
+        )
+    }
+
+    @Test("unassociated pane layout reserves only rendered lines")
+    func unassociatedPaneLayoutReservesOnlyRenderedLines() {
+        let destination = RepoExplorerUnassociatedPaneDestination(
+            paneId: UUIDv7.generate(),
+            tabId: UUIDv7.generate(),
+            tabIndex: 0,
+            paneIndexInTab: 0,
+            isActiveInTab: false
+        )
+        let presentation = RepoExplorerMaterializedRowPresentation.unassociatedPane(
+            RepoExplorerUnassociatedPanePresentation(
+                destination: destination,
+                primaryText: "Pane 1 · zsh",
+                secondaryLine: nil,
+                recencyText: "Now",
+                recencyTier: .strongBlue,
+                isActive: false,
+                isDrawerPane: false
+            )
+        )
+        let layout = RepoExplorerRowLayout.make(for: presentation)
+
+        #expect(
+            layout.metrics.fallbackHeight
+                == expectedPaneHeight(metadataLineCount: 0, metrics: layout.metrics)
+        )
+    }
+
+    private func expectedPaneHeight(
+        metadataLineCount: CGFloat,
+        metrics: RepoExplorerRowLayoutMetrics
+    ) -> CGFloat {
+        metrics.primaryLineHeight
+            + metrics.metadataLineHeight * metadataLineCount
+            + metrics.chipLineHeight
+            + metrics.contentSpacing * (metadataLineCount + 1)
+            + metrics.verticalInset * 2
+    }
+
+    private func expectedMetadataHeight(
+        metadataLineCount: CGFloat,
+        metrics: RepoExplorerRowLayoutMetrics
+    ) -> CGFloat {
+        metrics.primaryLineHeight
+            + metrics.metadataLineHeight * metadataLineCount
+            + metrics.contentSpacing * metadataLineCount
+            + metrics.verticalInset * 2
     }
 
     private func makeRepoRequest(

@@ -27,7 +27,7 @@ package struct SidebarGitStatusChips: View {
         self.octiconLoader = octiconLoader
     }
 
-    package static func diffDetail(
+    package nonisolated static func diffDetail(
         branchStatus: GitBranchStatus
     ) -> SidebarDiffChip.WorkingTreeDetail? {
         SidebarDiffChip.workingTreeDetail(
@@ -38,7 +38,7 @@ package struct SidebarGitStatusChips: View {
         )
     }
 
-    package static func showsSync(branchStatus: GitBranchStatus) -> Bool {
+    package nonisolated static func showsSync(branchStatus: GitBranchStatus) -> Bool {
         switch branchStatus.syncState {
         case .ahead(let count), .behind(let count): count > 0
         case .diverged(let ahead, let behind): ahead > 0 || behind > 0
@@ -46,14 +46,14 @@ package struct SidebarGitStatusChips: View {
         }
     }
 
-    package static func hasContent(branchStatus: GitBranchStatus) -> Bool {
+    package nonisolated static func hasContent(branchStatus: GitBranchStatus) -> Bool {
         showsPendingPullRequestFacts(branchStatus: branchStatus)
             || (branchStatus.prCount ?? 0) > 0 && !branchStatus.pullRequestDataUnavailable
             || diffDetail(branchStatus: branchStatus) != nil
             || showsSync(branchStatus: branchStatus)
     }
 
-    package static func showsPendingPullRequestFacts(branchStatus: GitBranchStatus) -> Bool {
+    package nonisolated static func showsPendingPullRequestFacts(branchStatus: GitBranchStatus) -> Bool {
         branchStatus.pullRequestIsLoading
             && !branchStatus.pullRequestDataUnavailable
     }
@@ -309,7 +309,7 @@ package struct SidebarDiffChip: View {
 
     /// Resolves the chip for a branch status, or `nil` when the checkout is clean and the row shows no
     /// diff chip at all.
-    package static func workingTreeDetail(
+    package nonisolated static func workingTreeDetail(
         isDirty: Bool,
         linesAdded: Int,
         linesDeleted: Int,
