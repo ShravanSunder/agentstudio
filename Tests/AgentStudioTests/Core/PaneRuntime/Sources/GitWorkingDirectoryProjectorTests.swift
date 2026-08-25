@@ -1646,7 +1646,11 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
 
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        let firstStripeDeadline = clock.now.advanced(by: .milliseconds(60))
+        #expect(
+            await waitUntil {
+                clock.pendingSleepDeadlines.contains(firstStripeDeadline)
+            })
         #expect(await observed.snapshotCount(for: firstStripeWorktreeId) == 0)
         #expect(await observed.snapshotCount(for: secondStripeWorktreeId) == 0)
 
@@ -1654,7 +1658,11 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(await waitUntil { await observed.snapshotCount(for: firstStripeWorktreeId) == 1 })
         #expect(await observed.snapshotCount(for: secondStripeWorktreeId) == 0)
 
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        let secondStripeDeadline = clock.now.advanced(by: .milliseconds(60))
+        #expect(
+            await waitUntil {
+                clock.pendingSleepDeadlines.contains(secondStripeDeadline)
+            })
         clock.advance(by: .milliseconds(60))
         #expect(
             await waitUntil(maxTurns: 100_000) {
