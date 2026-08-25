@@ -154,6 +154,19 @@ package enum WorkspaceLocalMigrations {
                     "ALTER TABLE annotation_message ADD COLUMN handled INTEGER NOT NULL DEFAULT 0 CHECK (handled IN (0, 1))"
             )
         }
+        migrator.registerMigration("008_add_worktree_annotation_message_viewed_revision") { database in
+            let messageColumnNames = try Set(
+                String.fetchAll(
+                    database,
+                    sql: "SELECT name FROM pragma_table_info('annotation_message')"
+                )
+            )
+            guard !messageColumnNames.contains("viewed_saved_revision") else { return }
+            try database.execute(
+                sql:
+                    "ALTER TABLE annotation_message ADD COLUMN viewed_saved_revision INTEGER CHECK (viewed_saved_revision >= 1)"
+            )
+        }
         return migrator
     }
 

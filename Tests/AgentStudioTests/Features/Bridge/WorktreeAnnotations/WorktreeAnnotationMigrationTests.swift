@@ -55,13 +55,88 @@ struct WorktreeAnnotationMigrationTests {
         #expect(messageColumns.contains("saved_revision"))
         #expect(messageColumns.contains("status"))
         #expect(messageColumns.contains("handled"))
+        #expect(messageColumns.contains("viewed_saved_revision"))
         let handledColumn = try #require(
             messageColumnRows.first { row in row["name"] as String == "handled" }
         )
         #expect(handledColumn["notnull"] as Int == 1)
         #expect(handledColumn["dflt_value"] as String? == "0")
+        let viewedSavedRevisionColumn = try #require(
+            messageColumnRows.first { row in row["name"] as String == "viewed_saved_revision" }
+        )
+        #expect(viewedSavedRevisionColumn["notnull"] as Int == 0)
+        #expect(viewedSavedRevisionColumn["dflt_value"] as String? == nil)
         #expect(membershipColumns.contains("expected_saved_revision"))
         #expect(!membershipColumns.contains("message_version_id"))
+    }
+
+    @Test("viewed revision migration preserves populated annotation rows")
+    func viewedRevisionMigrationPreservesPopulatedAnnotationRows() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "007_add_worktree_annotation_message_handled"
+        )
+        let fixture = try seedViewedRevisionMigrationFixture(in: databaseQueue)
+
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        let preservedRows = try databaseQueue.read { database in
+            try Row.fetchAll(
+                database,
+                sql: """
+                    SELECT id, author_kind, saved_body, saved_revision, status,
+                           semantic_revision, handled, viewed_saved_revision
+                    FROM annotation_message
+                    ORDER BY ordinal
+                    """
+            )
+        }
+        #expect(preservedRows.count == 2)
+        #expect(preservedRows[0]["id"] as String == fixture.pendingMessageId)
+        #expect(preservedRows[0]["author_kind"] as String == "human")
+        #expect(preservedRows[0]["saved_body"] as String == "pending")
+        #expect(preservedRows[0]["saved_revision"] as Int == 3)
+        #expect(preservedRows[0]["status"] as String == "editable")
+        #expect(preservedRows[0]["semantic_revision"] as Int == 4)
+        #expect(preservedRows[0]["handled"] as Bool == false)
+        #expect(preservedRows[0]["viewed_saved_revision"] as Int? == nil)
+        #expect(preservedRows[1]["id"] as String == fixture.handledMessageId)
+        #expect(preservedRows[1]["status"] as String == "locked")
+        #expect(preservedRows[1]["handled"] as Bool == true)
+        #expect(preservedRows[1]["viewed_saved_revision"] as Int? == nil)
+
+        let preservedDraftBody = try databaseQueue.read { database in
+            try String.fetchOne(
+                database,
+                sql: "SELECT body FROM annotation_message_draft WHERE message_id = ?",
+                arguments: [fixture.pendingMessageId]
+            )
+        }
+        #expect(preservedDraftBody == "draft")
+
+        #expect(throws: DatabaseError.self) {
+            try databaseQueue.write { database in
+                try database.execute(
+                    sql: "UPDATE annotation_message SET viewed_saved_revision = 0 WHERE id = ?",
+                    arguments: [fixture.pendingMessageId]
+                )
+            }
+        }
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: "UPDATE annotation_message SET viewed_saved_revision = 1 WHERE id = ?",
+                arguments: [fixture.pendingMessageId]
+            )
+        }
+        let positiveViewedSavedRevision = try databaseQueue.read { database in
+            try Int.fetchOne(
+                database,
+                sql: "SELECT viewed_saved_revision FROM annotation_message WHERE id = ?",
+                arguments: [fixture.pendingMessageId]
+            )
+        }
+        #expect(positiveViewedSavedRevision == 1)
     }
 
     @Test("SQLite accepts future annotation product enum strings")
@@ -144,8 +219,8 @@ struct WorktreeAnnotationMigrationTests {
         }
     }
 
-    @Test("handled migration preserves existing messages as New")
-    func handledMigrationPreservesExistingMessagesAsNew() throws {
+    @Test("handled migration preserves existing messages as Pending")
+    func handledMigrationPreservesExistingMessagesAsPending() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrator.migrate(
             databaseQueue,
@@ -230,4 +305,71 @@ struct WorktreeAnnotationMigrationTests {
         }
         #expect(outputAttemptColumns.contains("snapshot_json"))
     }
+}
+
+private struct ViewedRevisionMigrationFixture {
+    let pendingMessageId: String
+    let handledMessageId: String
+}
+
+private func seedViewedRevisionMigrationFixture(
+    in databaseQueue: DatabaseQueue
+) throws -> ViewedRevisionMigrationFixture {
+    let sessionId = UUIDv7.generate().uuidString
+    let threadId = UUIDv7.generate().uuidString
+    let pendingMessageId = UUIDv7.generate().uuidString
+    let handledMessageId = UUIDv7.generate().uuidString
+
+    try databaseQueue.write { database in
+        try database.execute(
+            sql: """
+                INSERT INTO annotation_session(
+                    id, repository_id, worktree_id, originating_workspace_id,
+                    lifecycle, source_relationship, accepted_source_fingerprint_json,
+                    semantic_revision, created_at, updated_at, completed_at
+                ) VALUES (?, 'repository', 'worktree', NULL, 'living',
+                    'applicable', '{}', 2, 1, 2, NULL)
+                """,
+            arguments: [sessionId]
+        )
+        try database.execute(
+            sql: """
+                INSERT INTO annotation_thread(
+                    id, session_id, scope, resolution, origin_json, created_ordinal,
+                    semantic_revision, created_at, updated_at, resolved_at
+                ) VALUES (?, ?, 'located', 'open', '{}', 0, 2, 1, 2, NULL)
+                """,
+            arguments: [threadId, sessionId]
+        )
+        try database.execute(
+            sql: """
+                INSERT INTO annotation_message(
+                    id, thread_id, ordinal, author_kind, saved_body,
+                    saved_body_utf8_bytes, saved_revision, status, semantic_revision,
+                    created_at, updated_at, handled
+                ) VALUES (?, ?, 0, 'human', 'pending', 7, 3, 'editable', 4, 1, 2, 0)
+                """,
+            arguments: [pendingMessageId, threadId]
+        )
+        try database.execute(
+            sql: """
+                INSERT INTO annotation_message_draft(
+                    message_id, active_edit_token, body, body_utf8_bytes,
+                    draft_revision, updated_at
+                ) VALUES (?, 'edit-token', 'draft', 5, 2, 2)
+                """,
+            arguments: [pendingMessageId]
+        )
+        try database.execute(
+            sql: """
+                INSERT INTO annotation_message(
+                    id, thread_id, ordinal, author_kind, saved_body,
+                    saved_body_utf8_bytes, saved_revision, status, semantic_revision,
+                    created_at, updated_at, handled
+                ) VALUES (?, ?, 1, 'human', 'handled', 7, 5, 'locked', 6, 1, 2, 1)
+                """,
+            arguments: [handledMessageId, threadId]
+        )
+    }
+    return .init(pendingMessageId: pendingMessageId, handledMessageId: handledMessageId)
 }
