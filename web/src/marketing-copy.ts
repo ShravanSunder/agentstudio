@@ -179,9 +179,13 @@ export const marketingCopy = {
       url: "https://x.com/shravansunder",
     },
   },
+  ghosttyUrl: "https://ghostty.org",
   finalCallToAction: {
     description: "A native macOS IDE for parallel agents and all your work.",
-    traits: "Native macOS. Repo-aware. Terminal-first. Built on Ghostty.",
+    traits: "Native macOS. Repo-aware. Terminal-first.",
+    technologyCredit: "👻 Built on Ghostty. ",
+    creatorPrefix: "🛠️ Made by ",
+    creatorName: "Shravan Sunder",
   },
   githubUrl: "https://github.com/ShravanSunder/agentstudio",
 } as const;

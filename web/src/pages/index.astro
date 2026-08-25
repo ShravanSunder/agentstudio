@@ -6,6 +6,7 @@ import { marketingCopy } from "@/marketing-copy";
 import InteractiveProductPlate from "@/product-plate/InteractiveProductPlate.astro";
 import { siteMetadata } from "@/site-metadata";
 import SiteShell from "@/site-shell/SiteShell.astro";
+import SiteFooter from "@/site-shell/SiteFooter.astro";
 ---
 
 <SiteShell title={siteMetadata.homeTitle} description={marketingCopy.hero.description}>
@@ -13,4 +14,5 @@ import SiteShell from "@/site-shell/SiteShell.astro";
   <InteractiveProductPlate />
   <SupportingFeatureRows />
   <FinalGitHubCallToAction />
+  <SiteFooter />
 </SiteShell>
