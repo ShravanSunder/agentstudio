@@ -134,7 +134,8 @@ AgentStudioBridge
 │
 └─ BridgeWeb worktree-annotations
      owns: local expansion/activation, command-confirmed viewed overlay,
-           New/Pending display, and Pending/All presentation
+           viewed-result output-readiness fence, New/Pending display,
+           and Pending/All presentation
      consumed by: File and Review Pierre adapters
 ```
 
@@ -277,6 +278,18 @@ durable truth. A complete projection reconciles it as follows:
 Pending and All membership never read the viewed overlay. New presentation
 never reads `handled`.
 
+Each surface also retains the greatest command-confirmed viewed
+`committedSessionRevision` per session as an output-readiness fence. The fence
+does not change or re-derive Pending or All membership. While the last complete
+projection for that session is older than the fence, the surface preserves the
+last complete membership for inspection but classifies output membership as
+unconfirmed and disables Copy and Export. A complete projection at the fenced
+or a newer session revision clears the fence and restores output readiness.
+Disposal clears the fence; reopening must obtain current SQLite-backed
+projection truth before output is ready. A lost response installs neither an
+overlay nor a fence, so the existing native revision fence remains the final
+authority and safely rejects a stale output request.
+
 ## Deliberate-view operation
 
 There is no current annotation viewed operation, so this is a proposed-only
@@ -290,12 +303,41 @@ method.
 ```text
 message.viewed.mark
   sessionId
-  items[1...bounded]
+  items[1...256]
     messageId
     expectedSavedRevision
 ```
 
-The result returns one exact disposition per requested pair:
+`256` is the shared Swift/Zod maximum for one viewed command. The strict body
+rejects an empty list, more than 256 items, or a duplicate
+`(messageId, expectedSavedRevision)` pair before service mutation. Request
+order is semantic: the result contains exactly one item per request item in the
+same order.
+
+The closed command outcome adds one status variant. Viewed commands never use
+the existing single-message receipt:
+
+```text
+command outcome
+  requestId
+  sessionId = requested session
+  receipt = null
+  status
+    kind = viewed
+    results[exactly request item count, same order]
+      viewed
+        messageId
+        savedRevision
+        committedSessionRevision
+        disposition = changed | already_viewed
+
+      not_viewed
+        messageId
+        expectedSavedRevision
+        disposition = stale | not_agent | not_found
+```
+
+The result therefore returns one exact disposition per requested pair:
 
 ```text
 viewed
@@ -309,6 +351,16 @@ not_viewed
   expectedSavedRevision
   disposition = stale | not_agent | not_found
 ```
+
+An Expand action with more than 256 currently New revisions partitions the
+projection-ordered unique pairs into consecutive groups of at most 256. The
+surface issues those groups sequentially with no retry and aggregates them as
+one user action. Exact successes install overlays as their results arrive;
+stale or rejected items remain New. A transport failure or unknown result for
+one group installs no overlay for that group, does not prevent later groups
+from being attempted, and produces one aggregate failure presentation after
+the bounded sequence. This preserves partial progress without truncation or a
+request larger than the product-command body budget.
 
 The repository evaluates the bounded item set in one SQLite transaction:
 
@@ -388,6 +440,12 @@ One surface client coalesces an identical in-flight
 from the same user gesture do not issue duplicate transport calls. Repository
 idempotency remains the authority if duplicates still arrive.
 
+The command partitioner owns projection order, de-duplication across one user
+action, the 256-item request bound, sequential dispatch, exact-result
+aggregation, and the single aggregate failure presentation. It is a pure
+feature-local helper consumed by the shared File/Review interaction owner; it
+does not own durable state or another queue.
+
 Human messages retain the existing edit/body behavior. Agent messages render
 read-only, use `Agent` as the author label, and never enter the draft/edit-token
 path. Reply remains a human-authored thread action and is not agent mutation.
@@ -444,19 +502,29 @@ scope from repository truth after validating displayed projection, session,
 and source-generation fences. The output coordinator still receives one exact
 ordered selection and uses the existing prepare/effect/finalize lifecycle.
 
-Successful finalization changes handling only for exact human membership:
+Successful finalization applies two distinct effects in the same exact
+transaction. Every matching included editable message becomes locked,
+regardless of author. Only matching human messages become handled:
 
 ```text
 UPDATE annotation_message
+SET status = 'locked', ...
+WHERE exact output membership matches current saved_revision
+  AND status = 'editable'
+
+UPDATE annotation_message
 SET handled = 1, ...
-WHERE author_kind = 'human'
-  AND exact output membership matches current saved_revision
+WHERE exact output membership matches current saved_revision
+  AND author_kind = 'human'
 ```
 
 Agent messages included under All retain `handled = false` and keep their
-existing read-only status. Output does not write `viewed_saved_revision` and
-does not alter New. `output.handled.clear` similarly targets matching current
-human revisions only.
+read-only author semantics while participating in the same durable lock
+boundary as every other included message. Unknown-outcome recovery and
+finalization-failed containment likewise lock every matching included editable
+message while leaving agent `handled = false`. Output does not write
+`viewed_saved_revision` and does not alter New. `output.handled.clear` targets
+matching current human revisions only and never unlocks any message.
 
 The existing failure behavior remains:
 
@@ -524,6 +592,7 @@ ordering, escaping, and Markdown-safety behavior remains unchanged.
 | one viewed batch contains current and stale items | current items commit; stale items remain New; exact per-item result controls the initiating overlay |
 | command commit succeeds but response is lost | no optimistic overlay; existing invalidation/projection eventually reveals durable viewed state |
 | command result succeeds but projection is delayed | exact viewed overlay hides only the matching saved revision; last complete projection remains otherwise intact |
+| viewed success advances the session beyond the last complete output projection | command-confirmed session fence makes Pending/All membership unconfirmed and disables Copy/Export until projection convergence; membership is not re-derived from the overlay |
 | successor projection contains a newer agent revision | old overlay is discarded; the successor's projected attention state controls New |
 | successor projection contradicts a committed same-revision view | retain committed overlay and expose convergence unavailable; do not silently resurrect New |
 | passive render produces repeated React effects | no view operation is owned by render/effect lifecycle; only explicit callbacks can call the command |
@@ -551,11 +620,13 @@ This is one hard product-contract cutover with four coordinated parts:
 | packaged/dev proof | Swift backend and embedded/Vite BridgeWeb must use the same contract; no mixed old/new wire operation is supported |
 
 The application ships Swift and embedded BridgeWeb together, so there is no
-runtime negotiation or compatibility shim. An older binary may read the added
-nullable SQLite column only while all stored messages remain human; once a
-separately authorized writer admits an agent row, rollback to the human-only
-decoder is unsupported. Historical output compatibility is different: v1
-documents remain deliberately supported for inspection and exact-byte Repeat.
+runtime negotiation or compatibility shim. The additive column preserves data
+through forward migration, but product rollback across the hard
+New/Pending/v2 cutover is unsupported even while every stored message remains
+human: an older binary would restore the retired New meaning and create new v1
+output. Historical output compatibility is different and belongs only to the
+new binary's read path: stored v1 documents remain deliberately supported for
+inspection and exact-byte Repeat.
 
 ## Trust, privacy, performance, and accessibility
 
@@ -599,6 +670,18 @@ Browser interaction proof may fake native only for deterministic UI states, but
 the composed development journey must use the real comm worker, Swift adapter,
 service, repository, and SQLite. Packaged proof remains required for WKWebView,
 clipboard, save panel, focus, and accessibility behavior.
+
+Because this slice intentionally adds no product agent-ingress operation, real
+agent-message proof begins from a proof-only pre-boot seed. A test-target
+fixture creates an isolated data root, runs the production migrations, and
+inserts a constraint-valid session, thread, and already-admitted agent message
+directly into that isolated `local.sqlite` before the backend starts. The
+unmodified production backend then owns every query, viewed transition,
+invalidation, output, reload, and restart step. The fixture is unavailable to
+product targets and adds no debug route, repository API, transport operation,
+or production authoring capability. Proof inspects SQLite before launch and
+after each material transition, and source/contract scans verify that no agent
+ingress exists in the production command surface.
 
 ## Requirement realization
 
