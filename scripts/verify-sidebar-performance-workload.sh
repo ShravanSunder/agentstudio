@@ -3001,7 +3001,7 @@ fi
   echo "marker_w=$TRACE_MARKER_W"
   echo "marker_k=$TRACE_MARKER_K"
   echo "marker_i=$TRACE_MARKER_I"
-  echo "repo_explorer_key_mutation_phase=rendered_repo_favorite,rendered_worktree_fact,relevant_key,unrelated_tab_arrangement_pane,observed_tab_title_informational,unrendered_attendance,unread_facet_change,missing_key_insertion"
+  echo "repo_explorer_key_mutation_phase=rendered_repo_favorite,rendered_worktree_fact,relevant_key,unrelated_tab_arrangement_pane,observed_tab_title_informational,unrendered_attendance,pane_activity_facet_change,missing_key_insertion"
   echo "interaction_phase=command_bar_open,command_bar_close,tab_move_program_instrument_gap,cmd_r_program_instrument_gap,divider_program_instrument_gap"
   echo "divider_frame=program_instrument_gap"
   if [ "$mode" = "baseline" ] || [ "$mode" = "compare" ]; then

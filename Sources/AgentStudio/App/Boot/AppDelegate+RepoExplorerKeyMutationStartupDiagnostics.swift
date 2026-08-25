@@ -1,5 +1,4 @@
 import AgentStudioCore
-import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import AppKit
@@ -89,11 +88,11 @@ import Foundation
             ) { await self.runAttendanceMutations(paneId: UUIDv7.generate()) }
             await runRepoExplorerKeyMutationPhase(
                 action: action,
-                phase: "unread_facet_change",
+                phase: "pane_activity_facet_change",
                 keyClass: "relevant",
-                facet: "unread",
+                facet: "activity",
                 rowRelation: "owning"
-            ) { await self.runUnreadFacetMutations(paneId: fixture.paneId, tabId: fixture.tabId) }
+            ) { await self.runPaneActivityFacetMutations(paneId: fixture.paneId) }
             await runRepoExplorerKeyMutationPhase(
                 action: action,
                 phase: "missing_key_insertion",
@@ -332,19 +331,16 @@ import Foundation
             }
         }
 
-        private func runUnreadFacetMutations(paneId: UUID, tabId: UUID) async {
-            for _ in 0..<100 {
-                atomStore.inboxNotification.append(
-                    InboxNotification(
-                        id: UUIDv7.generate(),
-                        timestamp: Date(),
-                        kind: .unseenActivity,
-                        title: "Diagnostic activity",
-                        body: nil,
-                        source: .pane(.init(paneId: paneId, tabId: tabId)),
-                        isRead: false,
-                        isDismissedFromPaneInbox: false
-                    ))
+        private func runPaneActivityFacetMutations(paneId: UUID) async {
+            for mutationIndex in 0..<100 {
+                if mutationIndex.isMultiple(of: 2) {
+                    atomStore.core.paneActivityStatus.recordSettledActivity(
+                        paneId: paneId,
+                        lastOutputLine: "Diagnostic activity \(mutationIndex)"
+                    )
+                } else {
+                    atomStore.core.paneActivityStatus.clear(paneId: paneId)
+                }
                 recordRepoExplorerAtomSlotMutation()
                 await Task.yield()
             }

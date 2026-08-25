@@ -91,23 +91,34 @@ struct InboxRetirementArchitectureTests {
 
     @Test("performance diagnostics and Repo Explorer contain no retained Inbox execution seams")
     func performanceDiagnosticsAndRepoExplorerContainNoInboxExecutionSeams() throws {
-        let startupDiagnostics = try sourceFile(
-            "Sources/AgentStudio/App/Boot/AppDelegate+StartupDiagnostics.swift"
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appBootRoot = projectRoot.appending(path: "Sources/AgentStudio/App/Boot")
+        let startupDiagnosticSources = try FileManager.default.contentsOfDirectory(
+            at: appBootRoot,
+            includingPropertiesForKeys: nil
         )
+        .filter {
+            $0.pathExtension == "swift"
+                && $0.lastPathComponent.contains("StartupDiagnostic")
+        }
+        .map { try String(contentsOf: $0, encoding: .utf8) }
         let repoExplorerView = try sourceFile(
             "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"
         )
         let worktreeRow = try sourceFile(
             "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift"
         )
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let retiredProjectionPath = projectRoot.appending(
             path: "Sources/AgentStudio/App/Panes/WorkspaceNotificationCountProjection.swift"
         )
 
-        #expect(!startupDiagnostics.contains("runInboxSidebarProjectionProof"))
-        #expect(!startupDiagnostics.contains("atomStore.inboxNotification"))
-        #expect(!startupDiagnostics.contains("InboxNotificationListProjectionWorker"))
+        for startupDiagnosticSource in startupDiagnosticSources {
+            #expect(!startupDiagnosticSource.contains("AgentStudioInboxNotification"))
+            #expect(!startupDiagnosticSource.contains("runInboxSidebarProjectionProof"))
+            #expect(!startupDiagnosticSource.contains("atomStore.inboxNotification"))
+            #expect(!startupDiagnosticSource.contains("InboxNotification("))
+            #expect(!startupDiagnosticSource.contains("InboxNotificationListProjectionWorker"))
+        }
         #expect(!repoExplorerView.contains("onShowNotificationsForWorktree"))
         #expect(!repoExplorerView.contains("unreadCount"))
         #expect(!worktreeRow.contains("onUnreadPillTap"))
