@@ -209,6 +209,19 @@ Review/File demand owner
   -> existing drain publishes more work into worker-to-main FIFO        [=]
 
 Main render owner
+  -> accepts and binds the exact final Pierre item                       [=]
+  -> submits the item to the existing store/courier                     [=]
+  -> an exact Pierre post-render callback may arrive synchronously
+     while the fulfillment entry is still accepted                     [+]
+  -> coordinator retains only that latest exact readback on the
+     already-bounded pending publication                               [+]
+  -> courier submission returns and Main marks the publication queued  [=]
+  -> coordinator emits queued before consuming the retained readback   [+]
+  -> when Pierre retains content-correct DOM without a DOM-committing
+     update, existing reconciliation may supply the same exact applied
+     evidence from the current connected readable rendered item        [+]
+  -> exact current/connected readback emits applied and schedules the
+     existing next-frame exact paint validation                        [+]
   -> per-surface admission queues dispositions                          [=]
   -> one ordered batch crosses main-to-worker FIFO                      [=]
   -> worker applies batch through fulfillment registry                  [=]
@@ -325,6 +338,42 @@ the port before an urgent action already present at Main admission.
 - One disposition batch contains one surface and current worker lifetime.
 - Positive receipts retain queued -> applied -> painted order per attempt;
   rejection and supersession remain terminal; exact duplicates are idempotent.
+- Store/courier submission may synchronously commit the exact final Pierre
+  item and invoke `onPostRender` before Main records that submission as
+  queued. The Main fulfillment coordinator retains at most one latest exact
+  post-render readback on that already-bounded pending publication. Recording
+  queued first emits queued, then revalidates and consumes that readback to
+  advance applied and schedule the existing next-frame paint validation. It
+  never emits applied before queued and never treats one publication's
+  readback as evidence for another.
+- Rebinding, supersession, rejection, worker retirement, or disposal clears
+  any retained pre-queued readback with the pending publication. Frame-time
+  validation still requires the exact current item, exact connected rendered
+  element, and matching attempt before painted; retaining the early readback
+  does not fabricate visual residency.
+- Pierre may retain an already-mounted content-correct item without a
+  DOM-committing update and therefore without another `onPostRender` callback.
+  Existing reconciliation may establish applied evidence only when its public
+  readback resolves the exact current publication item to the exact connected
+  rendered element and verifies readable content matches that item. Painted
+  still requires the unchanged next-frame exact revalidation.
+- If a Pierre post-render callback's presentation object no longer resolves
+  to exact worker lineage, Main does not trust that callback object. The
+  adapter accepts a callback item directly only when the fulfillment
+  coordinator already binds that exact final item. Otherwise, a
+  fingerprint-equivalent presentation object may be re-anchored only when it
+  is Pierre's current item, its rendered record carries the same object and
+  callback element, the element is connected, and an existing selected or
+  visible source item authorizes the lineage. The handle supplies observation;
+  the callback object does not nominate its own source. This fallback is
+  bounded by existing selected/visible demand and creates no new demand, scan
+  of the full Review, retry, or settlement identity.
+- Annotation and other presentation clones validate that they preserve their
+  immediate source presentation's nested Bridge metadata and File/Review
+  payload references, then inherit that presentation's already-proven exact
+  publication lineage. They do not compare their nested references directly to
+  a later content-equivalent publication, and they cannot change payload while
+  inheriting its lineage.
 - The receipt lease applies while an attempt awaits its first exact
   disposition. Accepted queued ends the delivery lease without fabricating
   applied or painted residency. Queued/applied work has no lease-expiry wake.
@@ -473,6 +522,13 @@ comm worker, the actual product `MessageChannel`, Swift development backend, a
 real Git worktree, and SQLite. A direct handler call or fake dispatcher cannot
 prove FIFO ordering.
 
+The disposable fixture derives expected base and head bodies from the same
+deterministic source generator that writes them, while the product journey
+still verifies those bytes through real Git-backed content. It does not launch
+one Git subprocess per Review item merely to reconstruct already-known fixture
+bytes; proof setup must not exhaust host process or file-descriptor capacity
+before the product workload begins.
+
 The comparison records exact code state, comparison identity, item count,
 worker lifetime, semantic-class command counts, both FIFO directions, receipt
 and publication lifecycles, annotation stages, product-control duration, and
@@ -570,6 +626,23 @@ semantics. Current evidence does not justify either expansion.
 - A queued offscreen Review publication crosses its former lease deadline
   without lease expiry, retry, or a second publication; later visibility may
   still advance it through applied and painted.
+- An exact post-render callback that synchronously arrives after final-item
+  binding but before queued is retained once; queued is emitted first, the
+  exact readback then advances applied, and only the existing frame-time exact
+  revalidation advances painted. Stale, disconnected, mismatched, rebound, or
+  retired readback cannot advance the publication.
+- A queued publication whose already-mounted Pierre item needs no
+  DOM-committing update advances from exact connected readable reconciliation,
+  while stale, disconnected, mismatched, or unreadable reconciliation remains
+  ineligible.
+- A post-render callback with stale presentation-object lineage cannot settle
+  from that object; an exact bound final or a current-rendered connected
+  fingerprint-equivalent object authorized by selected/visible source may
+  settle the matching publication, while foreign or missing current lineage
+  remains ineligible.
+- A presentation clone made after content-equivalent re-anchoring preserves
+  its immediate presentation payload and inherits the exact successor lineage;
+  changing the immediate metadata or File/Review payload remains rejected.
 - A mixed batch's rejected input produces no post-response Review/File owner
   effect, while accepted and exact-idempotent duplicate inputs retain their
   lifecycle-eligible effects.

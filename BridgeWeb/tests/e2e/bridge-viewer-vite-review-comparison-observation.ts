@@ -18,6 +18,7 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 	const failedRequests: string[] = [];
 	const pageErrors: string[] = [];
 	const productResponses: string[] = [];
+	const productRequestPaths: string[] = [];
 	const responseBodyReads: Promise<void>[] = [];
 	page.on('console', (message: ConsoleMessage): void => {
 		if (message.type() === 'error') consoleErrors.push(message.text());
@@ -29,6 +30,10 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 		failedRequests.push(
 			`${request.method()} ${request.url()}: ${request.failure()?.errorText ?? 'unknown'}`,
 		);
+	});
+	page.on('request', (request: Request): void => {
+		const path = new URL(request.url()).pathname;
+		if (path.startsWith('/__bridge-product/')) productRequestPaths.push(path);
 	});
 	page.on('response', (response: Response): void => {
 		const path = new URL(response.url()).pathname;
@@ -53,6 +58,35 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 	return {
 		describe: async (): Promise<string> => {
 			await Promise.allSettled(responseBodyReads);
+			const productBootstrapResponses = productResponses
+				.filter((response): boolean => response.includes(' /__bridge-product/bootstrap '))
+				.slice(-4)
+				.map((response): string => response.slice(0, 3_000));
+			const productErrorResponses = productResponses
+				.filter((response): boolean => /^[45]\d\d /u.test(response))
+				.slice(-8)
+				.map((response): string => response.slice(0, 3_000));
+			const reviewComparison = await page.evaluate(() => {
+				const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+				return {
+					comparisonStatus:
+						document.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ??
+						null,
+					comparisonTrigger:
+						document.querySelector('[data-testid="bridge-review-comparison-trigger"]')
+							?.textContent ?? null,
+					packageId: reviewShell?.getAttribute('data-review-metadata-id') ?? null,
+					resolvedTargetOID:
+						document
+							.querySelector('[data-testid="bridge-review-comparison-current-state"]')
+							?.getAttribute('data-resolved-target-oid') ?? null,
+					reviewGeneration: reviewShell?.getAttribute('data-review-metadata-generation') ?? null,
+					revision: reviewShell?.getAttribute('data-review-metadata-revision') ?? null,
+					updateReadyCount: [...document.querySelectorAll('*')].filter(
+						(element): boolean => element.textContent?.trim() === 'Update ready',
+					).length,
+				};
+			});
 			return JSON.stringify({
 				bodyText: (
 					await page
@@ -60,10 +94,21 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 						.textContent()
 						.catch((): null => null)
 				)?.slice(0, 2_000),
-				consoleErrors,
-				failedRequests,
-				pageErrors,
-				productResponses,
+				consoleErrorCount: consoleErrors.length,
+				consoleErrors: consoleErrors.slice(-8),
+				failedRequestCount: failedRequests.length,
+				failedRequests: failedRequests.slice(-8),
+				pageErrorCount: pageErrors.length,
+				pageErrors: pageErrors.slice(-8),
+				productRequestCount: productRequestPaths.length,
+				productRequestPaths: productRequestPaths.slice(-16),
+				productBootstrapResponses,
+				productErrorResponses,
+				productResponseCount: productResponses.length,
+				productResponses: productResponses
+					.slice(-8)
+					.map((response): string => response.slice(0, 500)),
+				reviewComparison,
 				url: page.url(),
 			});
 		},

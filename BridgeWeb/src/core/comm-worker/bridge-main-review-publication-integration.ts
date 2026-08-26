@@ -72,7 +72,11 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 	readonly pierreCourier: BridgeWorkerPierreCourier;
 	readonly renderFulfillmentCoordinator: Pick<
 		BridgeMainRenderFulfillmentCoordinator,
-		'acceptPublication' | 'bindPublicationItem' | 'markPublicationQueued' | 'rejectPublication'
+		| 'acceptPublication'
+		| 'bindPublicationItem'
+		| 'isBoundFinalItem'
+		| 'markPublicationQueued'
+		| 'rejectPublication'
 	>;
 	readonly store: BridgeMainRenderSnapshotStore;
 	readonly telemetryRecorderRef?: { readonly current: BridgeTelemetryRecorder } | undefined;
@@ -333,6 +337,9 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 		const preparedItem = prepareBridgeMainPierreItemForPresentation({
 			currentItem,
 			presentationItem: publicationItem,
+			reuseCurrentItemWhenFingerprintMatches:
+				currentItem !== undefined &&
+				props.renderFulfillmentCoordinator.isBoundFinalItem(currentItem),
 		});
 		props.renderFulfillmentCoordinator.bindPublicationItem({
 			finalItem: preparedItem.item,

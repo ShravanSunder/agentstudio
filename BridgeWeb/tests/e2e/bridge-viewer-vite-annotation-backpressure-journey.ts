@@ -17,11 +17,16 @@ import {
 	bridgeViewerViteProductFileUrl,
 	bridgeViewerViteProductReviewUrl,
 } from './bridge-viewer-vite-product-url.ts';
+import {
+	observeBrowserRuntimeDiagnostics,
+	type BrowserRuntimeDiagnostics,
+} from './bridge-viewer-vite-review-comparison-observation.ts';
 
 const stressReviewItemCount = 1_699;
 const stressJourneyTimeoutMilliseconds = 600_000;
 const stressExecutionCeilingMilliseconds = 540_000;
 const stressOperationTimeoutMilliseconds = 120_000;
+const stressDiagnosticTimeoutMilliseconds = stressOperationTimeoutMilliseconds - 1_000;
 const annotationCommandTimeoutMilliseconds = 30_000;
 const cleanupOperationTimeoutMilliseconds = 30_000;
 const renderReceiptLeaseMilliseconds = 5_000;
@@ -124,7 +129,7 @@ class AnnotationBackpressureMilestones {
 			currentElapsedMilliseconds: Math.round(performance.now() - this.currentMilestoneStartedAt),
 			currentMilestone: this.currentMilestone,
 			errorKind: error instanceof Error ? error.name : typeof error,
-			errorMessage: error instanceof Error ? error.message.slice(0, 1_000) : String(error),
+			errorMessage: error instanceof Error ? error.message.slice(0, 8_000) : String(error),
 			recentMilestones: this.completedMilestones.slice(-16),
 			...(this.telemetryDiagnostic === null ? {} : { telemetry: this.telemetryDiagnostic }),
 		};
@@ -325,6 +330,7 @@ async function runAnnotationBackpressureJourney(props: {
 	try {
 		const createdPage = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		page = createdPage;
+		const runtimeDiagnostics = observeBrowserRuntimeDiagnostics(createdPage);
 		await runMilestone({
 			after: 'file.ready.waiting',
 			before: 'file.loading',
@@ -369,7 +375,13 @@ async function runAnnotationBackpressureJourney(props: {
 			after: 'review.item-count.ready',
 			before: 'review.item-count.waiting',
 			milestones: props.milestones,
-			operation: async () => waitForReviewItemCount(createdPage, stressReviewItemCount),
+			operation: async () =>
+				waitForReviewItemCount({
+					diagnostics: runtimeDiagnostics,
+					expectedItemCount: stressReviewItemCount,
+					failureContext: (): string => props.server.diagnostics(),
+					page: createdPage,
+				}),
 		});
 		const reviewFile = props.oracle.reviewFiles[0];
 		if (reviewFile === undefined) throw new Error('Stress Review fixture has no changed file.');
@@ -453,7 +465,13 @@ async function runAnnotationBackpressureJourney(props: {
 			after: 'review.item-count.ready',
 			before: 'review.item-count.waiting',
 			milestones: props.milestones,
-			operation: async () => waitForReviewItemCount(createdPage, stressReviewItemCount),
+			operation: async () =>
+				waitForReviewItemCount({
+					diagnostics: runtimeDiagnostics,
+					expectedItemCount: stressReviewItemCount,
+					failureContext: (): string => props.server.diagnostics(),
+					page: createdPage,
+				}),
 		});
 		await runMilestone({
 			after: 'review.selected.ready',
@@ -527,19 +545,31 @@ async function runAnnotationBackpressureJourney(props: {
 	}
 }
 
-async function waitForReviewItemCount(page: Page, expectedItemCount: number): Promise<void> {
-	await page.waitForFunction(
-		(count: number): boolean => {
-			const shell = document.querySelector('[data-testid="review-viewer-shell"]');
-			const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
-			return (
-				Number(shell?.getAttribute('data-review-metadata-item-count')) === count &&
-				Number(panel?.getAttribute('data-code-view-item-count')) === count
-			);
-		},
-		expectedItemCount,
-		{ timeout: stressJourneyTimeoutMilliseconds },
-	);
+async function waitForReviewItemCount(props: {
+	readonly diagnostics: BrowserRuntimeDiagnostics;
+	readonly expectedItemCount: number;
+	readonly failureContext: () => string;
+	readonly page: Page;
+}): Promise<void> {
+	try {
+		await props.page.waitForFunction(
+			(count: number): boolean => {
+				const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+				const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+				return (
+					Number(shell?.getAttribute('data-review-metadata-item-count')) === count &&
+					Number(panel?.getAttribute('data-code-view-item-count')) === count
+				);
+			},
+			props.expectedItemCount,
+			{ timeout: stressDiagnosticTimeoutMilliseconds },
+		);
+	} catch (error: unknown) {
+		throw new Error(
+			`Review item count did not settle: browser=${await props.diagnostics.describe()} server=${props.failureContext()}`,
+			{ cause: error },
+		);
+	}
 }
 
 async function createAndSaveRoot(props: {

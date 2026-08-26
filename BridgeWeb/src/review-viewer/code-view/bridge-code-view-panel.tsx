@@ -236,6 +236,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		codeViewHandleRef,
 		publishVisibleItemIdsFromCurrentHandle,
 		renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
+		visibleCodeViewItems: props.visibleCodeViewItems,
 	});
 	const scheduleCodeViewRecoveryRender = useCallback((): void => {
 		if (pendingRecoveryRenderFrameRef.current !== null) {

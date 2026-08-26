@@ -1302,3 +1302,372 @@ worker. At failure, Review outstanding work stayed bounded at high-water 9, queu
 0.6-1.9 ms, and there was no timeout, overload, replacement, or degraded batch. UI/state owner: continue
 only the pre-command Reply-control/portal interaction diagnosis. Backend lane will not add click retries,
 force-clicks, longer waits, or transport changes to compensate.
+
+## 2026-08-25 06:30 EDT — Backend lane: Reply 2 commands now commit; presentation convergence fails
+
+Checkpoint `4d1062472` fixes the independently reviewed source-replacement ownership race. Review retains
+an outstanding first-disposition identity until its exact receipt releases the old position, removed items
+retire after that receipt, and later accepted File sources cancel the prior source-bound selected operation
+before the existing fulfillment reset. First-source File discovery remains uninterrupted. RED reproduced
+twelve stranded Review positions and File operation-identity reuse. GREEN proof: focused 42/42,
+comm-worker 953/953, full BridgeWeb unit 2,001/2,001, actual `MessageChannel` 3/3, BridgeWeb check/typecheck,
+scoped format/lint, and diff check.
+
+The post-checkpoint 1,699-item S5 run advances materially beyond the prior UI blocker: Reply 2 composer
+opens, and Reply 2 create/flush/save all return exact committed outcomes. It then fails within 472 ms at
+`reply.2.body.waiting`, after the composer closes, while locating the exact saved body. The harness now
+records the bounded error message on the next run so duplicate/replaced/missing presentation can be
+distinguished without `.first()`, retries, or weakened assertions. Backend HTTP/SQLite root-plus-five
+restart proof remains green; this new failure is post-command presentation convergence.
+
+Fresh shared OTel for the user-reported persistent `Loading comparison with origin/main...` banner shows
+generation 236 reached candidate-ready, automatic install requested, and `review_refresh_install_terminal`
+with `result=success` in about 266 ms. If the banner remains after that terminal, its loading chrome failed
+to clear despite successful backend/main installation. UI/state owner: investigate banner and saved-body
+projection/presentation only. Backend lane will not change Share data models, UI state, add retries, or
+weaken the S5 oracle.
+
+## 2026-08-25 06:33 EDT — Backend lane: clean transport rerun isolates Reply 2 UI flake
+
+The diagnostic S5 rerun failed again at `reply.2.composer.opening` after the complete 30-second bound,
+before any Reply 2 command. Its comm-worker telemetry was clean: 1,717 Review receipts produced for the
+1,699-item Review plus interaction work, pending 0, every recent batch terminal `acked`, outstanding
+high-water 7, and recent publication release ages about 0.5-1.4 ms. There was no receipt retry
+amplification or admission backlog. Root and Reply 1 create/flush/save committed and their exact bodies
+were visible.
+
+Together the two post-checkpoint runs prove nondeterministic presentation ownership: run A opened Reply 2
+and committed its create/flush/save before saved-body presentation failed; run B never opened Reply 2 while
+transport stayed quiescent. UI/state owner should reproduce both the portal/click and post-save body
+presentation branches. Backend lane will not add a click retry, `.first()` locator, force-click, optimistic
+body injection, timeout increase, or transport workaround.
+
+## 2026-08-25 06:42 EDT — Backend lane: UI focus checkpoint does not clear S5 blocker
+
+The S5 journey was rerun after UI checkpoint `6af20a6a0` landed and with current HEAD `15ead25e7`. It still
+timed out after 30 seconds at `reply.2.composer.opening`, before any Reply 2 command. Root and Reply 1
+create/flush/save committed and their exact bodies were visible. Comm-worker telemetry remained fully
+healthy: 1,717 Review receipts produced, pending 0, every recent batch terminal `acked`, Review outstanding
+high-water 7, and recent queued/release ages under 1 ms. Cleanup stopped the owned server and disposed the
+fixture without force.
+
+Therefore `6af20a6a0` does not resolve the 1,699-item Reply 2 interaction blocker. UI/state owner must reopen
+the exact real-Pierre/portal interaction path; backend and comm-worker require no compensating change.
+Do not weaken S5 with a click retry, force-click, `.first()` locator, longer timeout, optimistic body state,
+or transport expansion.
+
+## 2026-08-25 07:10 EDT — UI checkpoint introduces two current-head browser gate failures
+
+Current-head regression proof after `6af20a6a0`: Node integration passes 22/22. Browser integration passes
+281 with five skips but fails two saved-range activation tests in
+`worktree-annotation-saved-range.browser.test.tsx`: saved File focus never activates its thread, and saved
+Review focus never publishes the complete saved range. Both failures are at the focus/interaction owner
+changed by `6af20a6a0` and align with the unchanged S5 Reply 2 composer failure.
+
+UI/state owner must make these two focused browser tests green before another S5 attempt. Backend lane will
+not modify focus state, Pierre portals, tooltip behavior, selectors, click timing, or the test assertions.
+
+## 2026-08-25 07:15 EDT — Read-only diagnosis: unkeyed composer identity races saved projection
+
+The strongest current-head hypothesis is a deterministic composer-identity/convergence race, not worker
+transport or missing native click dispatch. After Reply 1 `draft.save` commits,
+`WorktreeAnnotationNewMessageComposer` records its committed cursor, renders committed preview, and
+unregisters its edit token before the saved projection arrives. The still-current draft projection can
+continue exposing Reply 1 as the latest visible message and Reply button.
+
+When Reply 2 starts, interaction state installs a new edit token, but compact-thread renders the same
+unkeyed Composer in the same React position. React may reuse Reply 1's committed-preview component, whose
+`editTokenRef` and committed cursor remain frozen to Reply 1, so no Reply 2 textbox appears. A later Reply 1
+saved-projection callback can also call unqualified `finishThreadEditor`, clearing whichever editor is now
+current—including Reply 2. This explains both observed S5 branches: click wins and no composer opens, or
+projection wins and Reply 2 mounts/commits before later presentation convergence fails.
+
+Required UI RED: save Reply 1, withhold its saved projection while the draft projection remains visible,
+click latest Reply, and require a fresh Reply 2 textarea; then publish Reply 1's saved projection and require
+Reply 2 to remain open. Smallest existing-owner correction: key the reply composer by edit token and make
+finish/cancel/saved completion token-scoped so an old token cannot clear a newer editor. Separately restore
+the two saved-range focus browser contracts broken by `6af20a6a0`. No new protocol, state owner, retry,
+force-click, timeout, or backend change is justified.
+
+## 2026-08-25 07:24 EDT — Ownership correction and exact UI/type unblock
+
+The user reasserted ownership: UI, data models, and types belong to their other agents; this lane owns Bridge
+transport, comm-worker, backend, and efficient update behavior. A mistakenly dispatched UI sidekick was
+stopped. It left four uncommitted UI/test files for the UI owner to inspect, keep, or replace:
+`worktree-annotation-compact-thread.tsx`, `worktree-annotation-interaction.tsx`,
+`worktree-annotation-thread.browser.test.tsx`, and
+`worktree-annotation-inline-shell.browser.test.tsx`. Backend lane will not stage, commit, revert, format, or
+otherwise modify them.
+
+The interrupted UI work reports deterministic RED then focused GREEN for token-keyed/token-fenced Reply
+composer convergence, 58/58 adjacent browser tests, and 55/55 annotation units. However current typecheck
+still fails at `worktree-annotation-compact-thread.tsx:296-297` because
+`threadExpansion.editor` is possibly null. Those two external type errors block the official `mise run
+test:swift` prerequisite BridgeWeb build before Swift starts. UI/type owner must resolve and prove that lane.
+
+Current-head Bridge-only proof remains green: comm-worker 953/953, actual `MessageChannel` 3/3, Node
+integration 22/22, and Bridge-owned diff check. After the UI/type checkpoint lands, backend lane will rerun
+the official Swift root-plus-five HTTP/SQLite durability test, full browser integration, unchanged S5,
+aggregate `mise run test`, and packaged proof.
+
+## 2026-08-25 07:40 EDT — UI checkpoint clears type blocker; live Save still fails at transport
+
+UI/type checkpoint `f64dce3f5` accepted and completed the token-keyed/token-fenced Reply convergence work,
+removed Textarea blur as editor-lifecycle authority, and fixed the nullable Reply-editor capture. Focused
+browser proof is green: 34/34 interaction tests plus 2/2 saved-range tests; scoped type-aware lint, full
+BridgeWeb TypeScript, and diff check pass. Computer Use then confirmed that the thread summary and visible
+gray/yellow padding retain the Reply composer and expanded chronology, while a true outside-code click exits
+and collapses. The UI/type lane no longer blocks the backend's official Swift or S5 reruns.
+
+One backend failure remains visible in the populated Vite surface. Cmd+Enter changed the draft to
+`Saving draft…`, then after roughly ten seconds displayed
+`Bridge comm worker failed to forward review.annotations.command.` The draft remained present and unsaved.
+The UI lane will not add retry, timeout, optimistic Save, or transport compensation. Backend lane should
+reproduce from current HEAD and classify the command-forwarding failure before the next S5 run.
+
+New/Pending design and planning are now separately ready: reviewed Program Design remediation is
+`baf01aaae`, and the canonical one-PR plan is
+`tmp/plan-workflows/2026-08-25-worktree-annotation-new-pending.md`. UI/data-model/type work owns presentation,
+closed domain/browser contracts, and pure state. Backend continues to own repository/service/transport,
+comm-worker correlation, output finalization/effects, and composed Swift/SQLite proof. The exact viewed
+operation contract is `message.viewed.mark` with 1...256 unique exact revision pairs and same-order item
+results; do not implement an alternate envelope or agent-ingress path.
+
+## 2026-08-25 08:33 EDT — New/Pending UI and closed projection contract ready; backend S2/S4 required
+
+UI/data-model/type checkpoints are now landed on the shared branch:
+
+- `ff012a1bc` — additive nullable positive `viewed_saved_revision` migration with populated-state proof;
+- `7aaa3f963` — closed human/agent domain, exact New/Pending/All derivation, and fail-closed invariants;
+- `534ab9cff` — strict Swift/Zod `authorKind + attentionState` projection parity;
+- `31b71961a` — shared File/Review New/Pending presentation, Human/Agent identity, and agent read-only UI;
+- `66f095537` — browser proof split restoring the full BridgeWeb architecture/check gate.
+
+Owned proof is green: migration 7/7, domain 4/4 plus existing policy 5/5, projection Swift 2/2 and affected
+BridgeWeb 34/34, New/Pending pure+Share 11/11, Browser presentation 15/15, full BridgeWeb check, TypeScript,
+product-contract, formatting, and lint. Visual proof shows `1 new · 1 pending · 2 messages`, exact Agent/New
+and You/Pending rows, and no agent Edit/draft-acquire path.
+
+The UI lane is now intentionally stopped at the backend boundary. Please implement canonical-plan S2 and
+the backend-owned S4 portion from
+`tmp/plan-workflows/2026-08-25-worktree-annotation-new-pending.md`: repository loading of typed author/viewed
+state, exact `message.viewed.mark` transaction/service/transport/comm-worker result, native
+`pending | all` scope authority, mixed-author lock versus human-only handled finalization, and v2 output
+effect/history wiring. Do not add agent ingress, identity, retry, another event/port, optimistic viewed state,
+or an old-`new` compatibility alias. Once the exact viewed result and native Pending scope compile on the
+shared branch, UI will wire deliberate viewing, overlays/readiness fence, and the Pending/All Share label in
+one hard cutover.
+
+## 2026-08-25 12:05 EDT — UI/output checkpoints green; aggregate blocked in concurrent E2E lane
+
+Application/UI checkpoints now on the shared branch locally:
+
+- `b023fd5fe` — one stable in-flow Share layout owner; File/Review History no longer overlaps commands;
+- `0972f1307` — author-aware v2 current output, strict byte-stable v1 historical dispatch, mixed-author
+  locking with human-only handled state, and selected trailing-blank preservation;
+- `009163d1b` — stale Share-state browser oracle cut from New to Pending;
+- `360ab539f` — product E2E output oracle expects v2 and Human author identity.
+
+Current application/UI proof is green: live Chrome File and Review hit testing, pointer Copy and Export for
+two comments, default handled state, Pending zero-state, All enablement, durable-history undo, 11/11 focused
+Share browser tests, 150 Swift annotation tests across 26 suites, build, format, SwiftLint, architecture
+lint, 2,014 BridgeWeb unit tests, 22 Node integration tests, and 290 browser tests. The focused cold-restart
+File/Review annotation E2E now passes after the v2 oracle correction.
+
+Aggregate `mise run test` remains red in the composed E2E lane. The remaining failures cover File/Review
+selected-source readiness, the 1,699-item root-plus-five journey, and promoted Review update installation.
+Those failures occur while concurrently modified E2E/transport files are present, including
+`bridge-viewer-vite-product-fixture.ts`, `bridge-viewer-vite-product.e2e.test.tsx`, and
+`bridge-viewer-vite-annotation-backpressure-journey.ts`. UI/output will not modify Main↔worker,
+worker↔Main, comm-worker↔Swift, correlation, batching, backpressure, retry, or physical routing to force the
+aggregate green. Transport owner should rerun and close those composed E2E failures, then request one final
+aggregate gate. The four local checkpoints are intentionally not pushed while that required gate is red.
+
+## 2026-08-25 12:15 EDT — Focused proof separates harness interference from one transport terminal
+
+All five non-stress aggregate failures pass when run alone: the dedicated File and Review Save journeys,
+File and Review projection-gated visibility, cold File/Review restart, and promoted Review Apply/focus-leave.
+Their aggregate failures are therefore not application regressions. The current Product E2E topology keeps
+one shared fixture/Vite/Swift server alive for its entire describe while registering self-contained Save,
+stress, restart, and promoted-refresh journeys that launch additional servers. Save is also duplicated in
+the dedicated Annotation E2E. The smallest harness correction is to remove annotation journey registration
+from Product E2E and give Save, stress, and system/restart journeys sole dedicated entry files under existing
+`fileParallelism: false`. Do not add retries, sleeps, timeouts, or transport serialization.
+
+The focused 1,699-item journey also proves the application path: root plus five replies commit; each exact
+body becomes visible; reload restores item count and selection; expanding the thread verifies all six exact
+bodies. It fails only at `review.telemetry.waiting`. Final evidence is 1,717 Review receipts produced and
+acked, pending `0`, high-water `6`, followed by one
+`render_publication_outstanding current=1 outcome=published` event with no terminal queued/release event.
+That final settlement belongs to the worker render-publication/backpressure lane. UI/data-model/output will
+not modify it. Transport owner should close the terminal outstanding publication, then own the harness split
+in its currently dirty E2E files and rerun aggregate `mise run test`.
+
+## 2026-08-25 20:02 EDT — Transport lane: S5 and complete BridgeWeb gate green
+
+The apparent final `current=1` transport leak was a proof-harness misclassification. After isolating the
+self-owned Save, stress, and system/restart journeys into dedicated E2E entry files, every recent Review
+publication completed `published -> queued -> released`, final outstanding count was zero, receipt pending
+was zero, produced count was nonzero and stable after demand stopped, and failure count was zero.
+
+The telemetry gate still waited because it required `agentstudio.bridge.review.item_count=1699`, but that
+attribute is emitted only by projection-coordinator telemetry and has no runtime caller on the Vite product
+path. Workload identity is already proven directly by the fixture oracle plus Review shell and CodeView DOM
+item-count attributes before and after reload. Two further assertions were also non-normative: Review
+high-water had to equal twelve instead of remain within the existing 3+9 ceiling, and every one of 1,699
+items had to produce queued/applied/painted even though offscreen delivery may correctly stop at queued.
+
+The corrected S5 keeps the actual contract: root plus five exact outcomes, six durable bodies after reload,
+nonzero settlement traffic, Review high-water 1...12, bounded receipt/publication/worker queue age, pending
+and outstanding zero, no timeout/overload/replacement, response-before-owner-effect, and stable produced
+count after demand stops. It passes 1/1 in 63.8 seconds on final harness code.
+
+Full proof is green: BridgeWeb check/typecheck/format/lint; 2,014/2,014 unit; 22/22 Node integration;
+290 browser passed with five skipped; 9/9 prepared E2E; and the isolated S5 1/1. No product transport,
+UI/data model, timeout, retry, port, queue, scheduler, or security behavior changed in this harness slice.
+
+## 2026-08-25 20:20 EDT — Aggregate transport green; remaining blocker is Product/Pierre hydration
+
+Checkpoint `18a8e3cbe` owns the corrected E2E topology and permanent 1,699-item transport proof. Aggregate
+`mise run test` is green through lint/architecture/release checks, BridgeWeb check, 2,014 unit, 22 Node
+integration, and 290 browser tests. Its E2E stage still fails one separately existing Product/Pierre
+hydration contract.
+
+The failing Product journey has the selected Review item and six visible items fully hydrated and painted,
+no failed HTTP responses, and no unfinished content requests. Two viewport-edge items are hydrated but have
+no `data-bridge-painted-*` identity, so `REVIEW_FRESH_ROUTE_HYDRATION_WINDOW_TIMEOUT` fires. The same failure
+persists with a fresh Vitest process and a fresh fixture/server per Product test. A separate deep File paint
+failure cleared under per-test ownership, but the Review edge-item failure did not.
+
+Process-per-file and per-test Product server experiments were backed out because they do not fix the root
+Review contract and would add unrelated harness complexity. Product/Pierre owner must determine whether
+partially visible edge items must be immediately painted or whether the verifier incorrectly equates DOM
+intersection/hydration with demanded paint. Transport/backpressure must not add retries, sleeps, timeouts,
+ports, queues, or scheduler changes to compensate.
+
+## 2026-08-25 20:27 EDT — Current-head transport and prepared E2E proof green
+
+Rechecked exact HEAD `18a8e3cbe2b3c7e8063e783391b0394a205372e9`. All five transport checkpoints are
+linear ancestors, and the rejected process-per-file/per-test-server experiments leave no source diff.
+Current uncommitted state contains only this append-only coordination log plus four protected/unrelated
+untracked research/review documents; BridgeWeb, Swift, fixture, and transport source are clean.
+
+Fresh current-head proof:
+
+- focused real Vite/Swift/Chrome product journey: 1/1 passed in 9.44 seconds;
+- complete prepared E2E: 4 files, 9/9 passed in 120.42 seconds;
+- comm-worker unit scope: 147 files, 954/954 passed;
+- actual `MessageChannel` duplex backpressure integration: 1 file, 3/3 passed;
+- BridgeWeb check, including type-aware lint, architecture check, format check, TypeScript, and product
+  contract typecheck: exit 0;
+- `git diff --check`: exit 0.
+
+The earlier `REVIEW_FRESH_ROUTE_HYDRATION_WINDOW_TIMEOUT` did not reproduce in the focused journey or the
+complete prepared E2E run. Its verifier currently requires paint identity for every geometrically
+intersecting `diffs-container`, including viewport-edge items. There remains no evidence that receipt
+admission, Review 3+9 ownership, File ownership, source replacement, correlated response ordering, or
+transport quiescence needs another product change. Do not add transport retries, sleeps, timeout increases,
+ports, queues, schedulers, or UI compensation. Repository aggregate and packaged WKWebView remain separate
+PR-readiness gates.
+
+## 2026-08-25 20:43 EDT — Aggregate remains red on non-repeatable system settlement waits
+
+Two unchanged `mise run test` executions were run after the current-head focused transport and prepared E2E
+proof. Both passed format, SwiftLint with zero violations across 2,198 files, architecture lint, BridgeWeb
+check, 2,014 unit tests, 22 Node integration tests, and 290 browser tests with five skipped. Each then failed
+one of the two annotation-system E2E journeys, but at different boundaries:
+
+1. First aggregate: the cold-restart journey timed out during its initial File setup before any annotation
+   command or restart. File source generation 1, projection query, File content HTTP 200, and annotation
+   projection content all completed; the five-leaf DOM readiness/paint conjunction did not settle.
+2. Second aggregate: cold restart passed, but promoted Review Apply-now timed out with the comparison label
+   still `HEAD · Updating` after the exact `review.publication.applied` response completed.
+
+Immediately after the first aggregate failure, the exact cold-restart journey passed focused 1/1 in 19.05
+seconds. Earlier in the same turn the complete prepared E2E suite passed 9/9. This is therefore not a proven
+transport/backpressure regression and not one repeatable File defect. The current failure payloads do not
+identify the exact stale-currentness, Main admission, refresh-presentation, or Pierre paint leaf, so no
+runtime change is admitted from them.
+
+Transport remains green at the focused layers: comm-worker 954/954, actual `MessageChannel` 3/3, complete
+prepared E2E 9/9, and the isolated 1,699-item durability journey from checkpoint `18a8e3cbe`. Do not add
+retries, sleeps, timeout increases, ports, queues, schedulers, or release-owner changes. The next correction
+is diagnostic-only at the existing two E2E timeout boundaries, unless another owner already has stronger
+runtime evidence. Aggregate and packaged WKWebView remain unproved; do not claim PR readiness.
+
+## 2026-08-25 21:01 EDT — Paint-evidence contract break proven; runtime change awaits concurrence
+
+Diagnostic-only capture was added at the existing File readiness and Review comparison failure boundaries.
+Focused proof passed: diagnostics contract 1/1, TypeScript exit 0, scoped type-aware lint without errors,
+focused annotation-system E2E 2/2. A following full aggregate passed lint, architecture, 2,015 unit, 22 Node,
+and 290 browser tests, then exposed three E2E failures in three different files.
+
+The failures now share one exact terminal. The cold-restart File was fully ready with the exact selected and
+rendered path, exact 128 rendered lines, and correct content, but `observedCorrelations` was empty. The Product
+Review route had six hydrated/painted items and two geometrically intersecting hydrated edge items with null
+paint identity. The 1,699-item journey also stopped at initial File paint readiness.
+
+Assumption: Pierre `onPostRender` reliably precedes every required exact paint settlement. Reality: exact
+connected readable items are present in Pierre `getRenderedItems()` without the coordinator observing that
+callback, and Pierre's public docs do not guarantee per-item callback delivery for every already-mounted or
+partially visible virtualized item. Existing `reconcilePublication` can read exact connected content but is
+currently forbidden from advancing unless the callback already fired, so it cannot recover this gap.
+
+Proposed correction, awaiting owner concurrence: existing reconciliation may treat exact current + exact
+connected readable rendered-item readback as applied evidence, while preserving the existing next-frame exact
+readback before painted/stamping. This adds no synthetic callback, polling, retry, timeout, queue, port,
+scheduler, transport identity, UI behavior, or data-model behavior. Transport batching/backpressure remains
+green and is not the correction owner. Aggregate and packaged proof remain red/unrun respectively.
+
+## 2026-08-25 23:01 EDT — Backend/transport lane: Product/Pierre paint model break, speculative hooks removed
+
+The active PR-readiness goal recovered the exact current diff and reran fresh proof. Coordinator units,
+existing-owner File/Review tests, typecheck, and adjacent Chrome fulfillment remain green. The exact Product
+Vite/Swift real-worktree journey now repeatedly fails with one to four hydrated visible Review items missing
+`data-bridge-painted-*` identity while surrounding items are painted and finite product requests are complete.
+
+File terminal rejection is not the cause: current fulfillment lifecycle already re-admits still-current File
+demand exactly once from the authoritative File store. A direct `onFileOperationSettled` retry would duplicate
+that owner and was rejected without implementation.
+
+Three bounded Main/Pierre reconciliation triggers were tested and removed after the exact Product journey
+remained red: the existing recovery frame, the existing visible-window callback, and the existing header-slot
+layout-effect visibility reporter. No new port, queue, scheduler, retry, timeout, polling, proxy, verifier
+weakening, UI compensation, or security work remains. The working-tree source diff is restored to the
+pre-experiment candidate, typecheck and `git diff --check` pass.
+
+This is now a model break: missing DOM paint identity does not tell us whether the exact publication is still
+pending, terminally retired with usable retained DOM, or previously painted evidence was lost on Pierre element
+replacement. Do not add another timing hook. The next design decision must state whether every geometrically
+visible hydrated host must continuously carry current exact publication identity, then admit one per-item
+lifecycle witness at the existing proof boundary. Aggregate and packaged proof remain unproved.
+
+## 2026-08-26 00:56 EDT — Backend/transport lane: Product paint, comments durability, and cold BridgeWeb gate green
+
+The Product/Pierre failure is corrected at the existing Main settlement boundary. Pierre 1.2.10 retains
+records by id/version, so callback object identity is not authoritative. Equal-fingerprint reuse now occurs
+only when the fulfillment coordinator retains painted evidence; otherwise Main mints a new version. A bound
+final callback may self-authorize. An unbound equivalent callback must be Pierre-current, rendered by the same
+connected element, and authorized by selected/visible source. Presentation clones validate their immediate
+payload source and inherit its already-proven exact publication lineage. Raw and arbitrary wrong-context
+callbacks remain inert.
+
+The complete browser matrix exposed and the focused RED reproduced a follow-up annotation-clone crash after
+successor re-anchoring. The strict source fence was preserved: clone C now validates against immediate
+presentation A, then inherits A's exact successor B lineage. Changing A's nested metadata or File/Review
+payload still throws. Product Vite/Swift/real-worktree paint passed 3/3; adjacent fulfillment is 10/10; full
+Chrome is 293 passed with five intentional skips.
+
+Cold aggregate runs then proved a separate proof-fixture resource defect. The 1,699-item fixture launched
+1,699 concurrent `git show` processes to read deterministic base bodies it had just written, and Review
+replacement bootstrap returned HTTP 500 under cold resource pressure. The pinned `agentstudio-git` status
+path is already read-only (`GIT_STATUS_OPT_NO_REFRESH`) and Bridge Git reads are already bounded; neither was
+changed. The fixture now derives expected base bodies from the same deterministic generator while the product
+still verifies actual Git-backed bytes.
+
+Fresh repository-owned `mise run test:bridge-web` is green in 195.11 seconds: quality/check, 2,018 unit,
+22 Node/Swift integration, 293 browser with five skips, cold 1,699-item root-plus-five durability 1/1 in
+54.91 seconds, and ordinary File/Review Save/reload, Product, cold restart, and promoted-refresh E2E 8/8.
+Transport finished with bounded Review 3+9/File-one ownership, pending/outstanding drain, exact outcomes,
+and no new port, queue, scheduler, timeout, retry, security, or UI workaround. Full repository aggregate,
+checkpoint commit, packaged WKWebView, and fresh independent review remain pending.

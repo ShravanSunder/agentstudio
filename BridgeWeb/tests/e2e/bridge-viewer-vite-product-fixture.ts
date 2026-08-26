@@ -197,9 +197,16 @@ export async function createBridgeViewerViteProductFixture(
 		if (observedLargeFileContent !== largeFileContent) {
 			throw new Error('Disposable live-worktree oracle did not preserve the complete large file.');
 		}
+		const fixtureFileIndexByPath = new Map(
+			nestedPaths.map((path, fileIndex): readonly [string, number] => [path, fileIndex]),
+		);
 		const reviewFiles = await Promise.all(
 			changedPaths.map(async (path): Promise<BridgeViewerViteProductReviewFileOracle> => {
-				const baseBody = await runFixtureGit(worktreeRoot, ['show', `${baseRef}:${path}`]);
+				const fileIndex = fixtureFileIndexByPath.get(path);
+				if (fileIndex === undefined) {
+					throw new Error(`Disposable live-worktree oracle has no source index for ${path}.`);
+				}
+				const baseBody = reviewFixtureBody({ fileIndex, phase: 'base' });
 				const headBody = await readFile(join(worktreeRoot, path), 'utf8');
 				return {
 					base: reviewRoleOracle('base', baseBody),
@@ -559,14 +566,7 @@ async function writeFixtureFiles(props: {
 		// oxlint-disable-next-line no-await-in-loop -- Fixture paths must exist before their deterministic writes.
 		await mkdir(join(absolutePath, '..'), { recursive: true });
 		// oxlint-disable-next-line no-await-in-loop -- Stable fixture order makes source identity reproducible.
-		await writeFile(
-			absolutePath,
-			[
-				`export const fixtureValue${fileIndex + 1} = '${props.phase}-${fileIndex + 1}-bridge-vite-product-source-correlation';`,
-				`export const fixtureDescription${fileIndex + 1} = 'deterministic-provider-worker-pierre-disposition-journey';`,
-				'',
-			].join('\n'),
-		);
+		await writeFile(absolutePath, reviewFixtureBody({ fileIndex, phase: props.phase }));
 	}
 	for (const [fileIndex, relativePath] of props.fileTreeOnlyPaths.entries()) {
 		const absolutePath = join(props.worktreeRoot, relativePath);
@@ -575,6 +575,18 @@ async function writeFixtureFiles(props: {
 		// oxlint-disable-next-line no-await-in-loop -- Stable fixture order makes the deep tree reproducible.
 		await writeFile(absolutePath, `unchanged-tree-entry-${fileIndex + 1}\n`);
 	}
+}
+
+function reviewFixtureBody(props: {
+	readonly fileIndex: number;
+	readonly phase: 'base' | 'head';
+}): string {
+	const fixtureOrdinal = props.fileIndex + 1;
+	return [
+		`export const fixtureValue${fixtureOrdinal} = '${props.phase}-${fixtureOrdinal}-bridge-vite-product-source-correlation';`,
+		`export const fixtureDescription${fixtureOrdinal} = 'deterministic-provider-worker-pierre-disposition-journey';`,
+		'',
+	].join('\n');
 }
 
 function fileContentOracle(props: {

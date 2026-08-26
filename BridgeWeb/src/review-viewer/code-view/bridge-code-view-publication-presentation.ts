@@ -2,8 +2,10 @@ import type { CodeViewHandle } from '@pierre/diffs/react';
 
 import { prepareBridgeMainPierreItemForPresentation } from '../../core/comm-worker/bridge-main-pierre-item-adapter.js';
 import type { BridgeCodeViewItem } from './bridge-code-view-materialization.js';
+import { isBridgeCodeViewItem } from './bridge-code-view-panel-support.js';
 import {
 	bridgeCodeViewReanchorBoundFinalItem,
+	bridgeCodeViewReanchorContentEquivalentPresentationItem,
 	reconcileBridgeCodeViewRenderFulfillment,
 	type BridgeCodeViewRenderFulfillmentCoordinator,
 } from './bridge-code-view-render-fulfillment.js';
@@ -28,6 +30,24 @@ export function prepareBridgeCodeViewPublicationPresentationItem(props: {
 	});
 	bridgeCodeViewReanchorBoundFinalItem(preparedItem.item);
 	if (preparedItem.residency === 'reusedPainted') {
+		const codeViewHandle = props.getCodeViewHandle();
+		const currentHandlePresentationItem = codeViewHandle?.getItem(preparedItem.item.id);
+		if (isBridgeCodeViewItem(currentHandlePresentationItem)) {
+			bridgeCodeViewReanchorContentEquivalentPresentationItem({
+				presentationItem: currentHandlePresentationItem,
+				sourceItem: preparedItem.item,
+			});
+		}
+		const renderedPresentationItem = codeViewHandle
+			?.getInstance()
+			?.getRenderedItems()
+			.find((renderedItem): boolean => renderedItem.id === preparedItem.item.id)?.item;
+		if (isBridgeCodeViewItem(renderedPresentationItem)) {
+			bridgeCodeViewReanchorContentEquivalentPresentationItem({
+				presentationItem: renderedPresentationItem,
+				sourceItem: preparedItem.item,
+			});
+		}
 		reconcileBridgeCodeViewRenderFulfillment({
 			exactPresentationItem: preparedItem.item,
 			getCodeViewHandle: props.getCodeViewHandle,

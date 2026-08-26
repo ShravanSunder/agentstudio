@@ -1,3 +1,4 @@
+import type { CodeViewHandle } from '@pierre/diffs/react';
 import { describe, expect, test } from 'vitest';
 
 import { createBridgeMainRenderFulfillmentCoordinator } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
@@ -7,11 +8,62 @@ import type { BridgeWorkerRenderDispositionReceipt } from '../../core/comm-worke
 import { prepareBridgeCodeViewPublicationPresentationItem } from './bridge-code-view-publication-presentation.js';
 import {
 	bridgeCodeViewPresentationItemWithExactSource,
+	bridgeCodeViewReanchorContentEquivalentPresentationItem,
 	observeBridgeCodeViewRenderFulfillment,
 } from './bridge-code-view-render-fulfillment.js';
 import { bridgeCodeViewItemFromWorkerPreparedItem } from './bridge-code-view-worker-prepared-items.js';
 
 describe('Bridge CodeView post-render readback', () => {
+	test('preserves immediate presentation payload while inheriting reanchored exact lineage', () => {
+		// Arrange
+		const firstPublication = makeReviewPublication({
+			itemId: 'reanchored-annotation-lineage',
+			publicationSequence: 10,
+		});
+		const firstItem = bridgeCodeViewItemFromWorkerPreparedItem(firstPublication.job.payload.item);
+		if (firstItem?.type !== 'diff') throw new Error('Expected a Review diff item.');
+		const currentPresentationItem = bridgeCodeViewPresentationItemWithExactSource({
+			presentationItem: { ...firstItem, annotations: [] },
+			sourceItem: firstItem,
+		});
+		const successorPublication = makeReviewPublication({
+			itemId: firstPublication.job.itemId,
+			publicationSequence: 11,
+		});
+		const successorItem = bridgeCodeViewItemFromWorkerPreparedItem(
+			successorPublication.job.payload.item,
+		);
+		if (successorItem?.type !== 'diff') throw new Error('Expected a successor Review diff item.');
+		Object.assign(successorItem.bridgeMetadata, firstItem.bridgeMetadata);
+		Object.assign(successorItem.fileDiff, firstItem.fileDiff);
+		expect(
+			bridgeCodeViewReanchorContentEquivalentPresentationItem({
+				presentationItem: currentPresentationItem,
+				sourceItem: successorItem,
+			}),
+		).toBe(true);
+
+		// Act
+		const annotateCurrentPresentation = (): unknown =>
+			bridgeCodeViewPresentationItemWithExactSource({
+				presentationItem: { ...currentPresentationItem, annotations: [] },
+				sourceItem: currentPresentationItem,
+			});
+
+		// Assert
+		expect(annotateCurrentPresentation).not.toThrow();
+		expect(() =>
+			bridgeCodeViewPresentationItemWithExactSource({
+				presentationItem: {
+					...currentPresentationItem,
+					annotations: [],
+					fileDiff: { ...currentPresentationItem.fileDiff },
+				},
+				sourceItem: currentPresentationItem,
+			}),
+		).toThrowError('Bridge CodeView presentation item changed its exact worker source payload.');
+	});
+
 	test('accepts a presentation-only annotation clone with the exact worker source payload', async () => {
 		// Arrange
 		const dispositions: BridgeWorkerRenderDispositionReceipt[] = [];
@@ -177,6 +229,182 @@ describe('Bridge CodeView post-render readback', () => {
 			expect(dispositions.map((receipt) => receipt.disposition)).toEqual(['queued', 'applied']);
 			expect(pendingAnimationFrames).toHaveLength(1);
 			pendingAnimationFrames[0]?.(1_001);
+			expect(dispositions.map((receipt) => receipt.disposition)).toEqual([
+				'queued',
+				'applied',
+				'painted',
+			]);
+		} finally {
+			renderedElement.remove();
+			renderFulfillmentCoordinator.dispose();
+		}
+	});
+
+	test('reconciles authoritative visible lineage when callback context is no longer mapped', () => {
+		// Arrange
+		const dispositions: BridgeWorkerRenderDispositionReceipt[] = [];
+		const pendingAnimationFrames: FrameRequestCallback[] = [];
+		const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
+			cancelAnimationFrame: (): void => {},
+			nowMilliseconds: (): number => 2_000,
+			requestAnimationFrame: (callback): number => {
+				pendingAnimationFrames.push(callback);
+				return 1;
+			},
+			sendDisposition: (receipt): void => {
+				dispositions.push(receipt);
+			},
+		});
+		const publication = makeReviewPublication({
+			itemId: 'fallback-visible-lineage',
+			publicationSequence: 3,
+		});
+		const publicationItem = publication.job.payload.item;
+		const exactItem = bridgeCodeViewItemFromWorkerPreparedItem(publicationItem);
+		if (exactItem?.type !== 'diff') throw new Error('Expected a main-readable Review diff item.');
+		Object.assign(exactItem.bridgeMetadata, { lineCount: 0 });
+		Object.assign(exactItem.fileDiff, { additionLines: [], deletionLines: [] });
+		const presentationItem = bridgeCodeViewPresentationItemWithExactSource({
+			presentationItem: { ...exactItem, annotations: [] },
+			sourceItem: exactItem,
+		});
+		const unmappedCallbackItem = { ...presentationItem, annotations: [] };
+		const renderedElement = document.createElement('div');
+		document.body.append(renderedElement);
+		const codeViewHandle = {
+			getInstance: () => ({
+				getRenderedItems: () => [
+					{
+						element: renderedElement,
+						id: unmappedCallbackItem.id,
+						item: unmappedCallbackItem,
+						type: unmappedCallbackItem.type,
+						version: unmappedCallbackItem.version ?? 0,
+					},
+				],
+			}),
+			getItem: () => unmappedCallbackItem,
+		} as unknown as CodeViewHandle<undefined>;
+		renderFulfillmentCoordinator.acceptPublication(publication);
+		renderFulfillmentCoordinator.bindPublicationItem({
+			finalItem: exactItem,
+			publicationItem,
+			residency: 'replaced',
+		});
+		renderFulfillmentCoordinator.markPublicationQueued(publication);
+
+		try {
+			// Act
+			observeBridgeCodeViewRenderFulfillment({
+				contextItem: unmappedCallbackItem,
+				getCodeViewHandle: () => codeViewHandle,
+				itemId: unmappedCallbackItem.id,
+				phase: 'update',
+				renderedElement,
+				renderFulfillmentCoordinator,
+				selectedCodeViewItem: exactItem,
+				visibleCodeViewItems: [exactItem],
+			});
+
+			// Assert
+			expect(dispositions.map((receipt) => receipt.disposition)).toEqual(['queued', 'applied']);
+			expect(pendingAnimationFrames).toHaveLength(1);
+			pendingAnimationFrames[0]?.(2_001);
+			expect(dispositions.map((receipt) => receipt.disposition)).toEqual([
+				'queued',
+				'applied',
+				'painted',
+			]);
+		} finally {
+			renderedElement.remove();
+			renderFulfillmentCoordinator.dispose();
+		}
+	});
+
+	test('reanchors a content-equal rendered presentation object to the retry publication', () => {
+		// Arrange
+		const dispositions: BridgeWorkerRenderDispositionReceipt[] = [];
+		const pendingAnimationFrames: FrameRequestCallback[] = [];
+		const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
+			cancelAnimationFrame: (): void => {},
+			nowMilliseconds: (): number => 3_000,
+			requestAnimationFrame: (callback): number => {
+				pendingAnimationFrames.push(callback);
+				return 1;
+			},
+			sendDisposition: (receipt): void => {
+				dispositions.push(receipt);
+			},
+		});
+		const priorPublication = makeReviewPublication({
+			itemId: 'content-equal-retry-lineage',
+			publicationSequence: 4,
+		});
+		const priorExactItem = bridgeCodeViewItemFromWorkerPreparedItem(
+			priorPublication.job.payload.item,
+		);
+		if (priorExactItem?.type !== 'diff') {
+			throw new Error('Expected a main-readable Review diff item.');
+		}
+		Object.assign(priorExactItem.bridgeMetadata, { lineCount: 0 });
+		Object.assign(priorExactItem.fileDiff, { additionLines: [], deletionLines: [] });
+		const renderedPresentationItem = {
+			...priorExactItem,
+			annotations: [],
+			bridgeMetadata: { ...priorExactItem.bridgeMetadata },
+			fileDiff: { ...priorExactItem.fileDiff },
+		};
+		const currentPresentationItem = bridgeCodeViewPresentationItemWithExactSource({
+			presentationItem: { ...priorExactItem, annotations: [] },
+			sourceItem: priorExactItem,
+		});
+		const currentHandlePresentationItem = {
+			...currentPresentationItem,
+			bridgeMetadata: { ...currentPresentationItem.bridgeMetadata },
+			fileDiff: { ...currentPresentationItem.fileDiff },
+		};
+		const renderedElement = document.createElement('div');
+		document.body.append(renderedElement);
+		const codeViewHandle = {
+			getInstance: () => ({
+				getRenderedItems: () => [
+					{
+						element: renderedElement,
+						id: renderedPresentationItem.id,
+						item: renderedPresentationItem,
+						type: renderedPresentationItem.type,
+						version: renderedPresentationItem.version ?? 0,
+					},
+				],
+			}),
+			getItem: () => currentHandlePresentationItem,
+		} as unknown as CodeViewHandle<undefined>;
+		const retryPublication = makeReviewPublication({
+			itemId: priorExactItem.id,
+			publicationSequence: 5,
+		});
+		const retryItem = bridgeCodeViewItemFromWorkerPreparedItem(retryPublication.job.payload.item);
+		if (retryItem?.type !== 'diff') {
+			throw new Error('Expected a main-readable retry Review diff item.');
+		}
+		Object.assign(retryItem.bridgeMetadata, priorExactItem.bridgeMetadata);
+		Object.assign(retryItem.fileDiff, priorExactItem.fileDiff);
+		renderFulfillmentCoordinator.acceptPublication(retryPublication);
+
+		try {
+			// Act
+			prepareBridgeCodeViewPublicationPresentationItem({
+				currentItem: currentPresentationItem,
+				getCodeViewHandle: () => codeViewHandle,
+				metadataItem: retryItem,
+				renderFulfillmentCoordinator,
+			});
+			renderFulfillmentCoordinator.markPublicationQueued(retryPublication);
+
+			// Assert
+			expect(dispositions.map((receipt) => receipt.disposition)).toEqual(['queued', 'applied']);
+			expect(pendingAnimationFrames).toHaveLength(1);
+			pendingAnimationFrames[0]?.(3_001);
 			expect(dispositions.map((receipt) => receipt.disposition)).toEqual([
 				'queued',
 				'applied',

@@ -310,6 +310,20 @@ export async function runAnnotationSaveJourney(props: {
 				diagnostics,
 				`projection-ui:${JSON.stringify(await annotationProjectionUiDiagnostic(page))}`,
 			);
+			if (props.surface === 'file') {
+				recordAnnotationDiagnostic(
+					diagnostics,
+					`file-readiness:${JSON.stringify(
+						await selectedFileReadinessDiagnostic({ oracle: props.oracle, page }),
+					)}`,
+				);
+				recordAnnotationDiagnostic(
+					diagnostics,
+					`file-render-telemetry:${JSON.stringify(
+						await selectedFileRenderTelemetryDiagnostic(page),
+					)}`,
+				);
+			}
 		}
 		throw new Error(
 			`Annotation Save journey failed: browser=${JSON.stringify(diagnostics)} server=${props.server.diagnostics()}`,
@@ -874,4 +888,98 @@ export async function waitForSelectedFileReady(props: {
 		},
 		{ timeout: annotationSaveJourneyTimeoutMilliseconds },
 	);
+}
+
+async function selectedFileReadinessDiagnostic(props: {
+	readonly oracle: BridgeViewerViteProductFixtureOracle;
+	readonly page: Page;
+}): Promise<Readonly<Record<string, unknown>>> {
+	return await props.page.evaluate(
+		({ expectedLineCount, expectedSha256, path }): Readonly<Record<string, unknown>> => {
+			const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+			const painted = canvas?.querySelector(
+				'diffs-container[data-bridge-painted-source-correlations]',
+			);
+			const encodedCorrelations =
+				painted?.getAttribute('data-bridge-painted-source-correlations') ?? '[]';
+			let correlations: unknown = null;
+			try {
+				correlations = JSON.parse(encodedCorrelations);
+			} catch {
+				correlations = { invalidJSON: encodedCorrelations.slice(0, 1_000) };
+			}
+			return {
+				canvasPresent: canvas !== null,
+				expectedLineCount,
+				expectedPath: path,
+				expectedSha256,
+				observedCorrelations: correlations,
+				observedLineCount: canvas?.getAttribute('data-worktree-rendered-line-count') ?? null,
+				observedOpenPath: canvas?.getAttribute('data-worktree-open-file-path') ?? null,
+				observedOpenState: canvas?.getAttribute('data-worktree-open-file-state') ?? null,
+				observedRenderedPath: canvas?.getAttribute('data-worktree-rendered-file-path') ?? null,
+			};
+		},
+		{
+			expectedLineCount: props.oracle.fileContent.lineCount,
+			expectedSha256: props.oracle.fileContent.sha256,
+			path: props.oracle.largeFilePath,
+		},
+	);
+}
+
+async function selectedFileRenderTelemetryDiagnostic(
+	page: Page,
+): Promise<readonly Readonly<Record<string, unknown>>[]> {
+	return await page.evaluate(async (): Promise<readonly Readonly<Record<string, unknown>>[]> => {
+		const response = await fetch('/__bridge-dev-telemetry/status');
+		if (!response.ok) return [{ status: response.status }];
+		const body: unknown = await response.json();
+		if (typeof body !== 'object' || body === null) return [{ status: 'invalid-body' }];
+		const recentSamples = Reflect.get(body, 'recentSamples');
+		if (!Array.isArray(recentSamples)) return [{ status: 'missing-samples' }];
+		return recentSamples
+			.filter((sample): boolean => {
+				if (typeof sample !== 'object' || sample === null) return false;
+				const stringAttributes = Reflect.get(sample, 'stringAttributes');
+				if (typeof stringAttributes !== 'object' || stringAttributes === null) return false;
+				return (
+					Reflect.get(stringAttributes, 'agentstudio.bridge.viewer') === 'file' &&
+					(Reflect.get(sample, 'name') === 'performance.bridge.web.render_disposition_admission' ||
+						Reflect.get(sample, 'name') ===
+							'performance.bridge.worker.render_publication_outstanding')
+				);
+			})
+			.slice(-16)
+			.map((sample): Readonly<Record<string, unknown>> => {
+				const numericAttributes = Reflect.get(sample, 'numericAttributes');
+				const stringAttributes = Reflect.get(sample, 'stringAttributes');
+				return {
+					current:
+						typeof numericAttributes === 'object' && numericAttributes !== null
+							? Reflect.get(
+									numericAttributes,
+									'agentstudio.bridge.render_publication.current_count',
+								)
+							: null,
+					event: Reflect.get(sample, 'name'),
+					outcome:
+						typeof stringAttributes === 'object' && stringAttributes !== null
+							? (Reflect.get(stringAttributes, 'agentstudio.bridge.render_publication.outcome') ??
+								Reflect.get(stringAttributes, 'agentstudio.bridge.render_disposition.outcome'))
+							: null,
+					pending:
+						typeof numericAttributes === 'object' && numericAttributes !== null
+							? Reflect.get(
+									numericAttributes,
+									'agentstudio.bridge.render_disposition.pending_count',
+								)
+							: null,
+					phase:
+						typeof stringAttributes === 'object' && stringAttributes !== null
+							? Reflect.get(stringAttributes, 'agentstudio.bridge.phase')
+							: null,
+				};
+			});
+	});
 }

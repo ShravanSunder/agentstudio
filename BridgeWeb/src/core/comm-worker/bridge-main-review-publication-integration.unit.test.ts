@@ -569,6 +569,7 @@ function createHarness(
 		renderFulfillmentCoordinator: {
 			acceptPublication: (): 'accepted' => 'accepted',
 			bindPublicationItem: vi.fn(),
+			isBoundFinalItem: (): boolean => false,
 			markPublicationQueued: vi.fn(),
 			rejectPublication: (publication): void => {
 				rejectedItemIds.push(publication.job.itemId);

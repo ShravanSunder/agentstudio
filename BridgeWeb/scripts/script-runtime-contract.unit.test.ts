@@ -30,6 +30,28 @@ describe('script runtime contract', () => {
 		expect(scripts['benchmark:viewer']).toBe('vitest --config vitest.benchmark.config.ts run');
 	});
 
+	test('keeps the required stress E2E isolated from ordinary product journeys', async () => {
+		// Arrange
+		const scripts = await readPackageScripts();
+
+		// Act
+		const preparedE2E = scripts['test:e2e:prepared'];
+		const ordinaryE2E = scripts['test:e2e:prepared:ordinary'];
+		const stressE2E = scripts['test:e2e:prepared:stress'];
+
+		// Assert
+		expect(scripts['test:e2e']).toBe(
+			'pnpm run build:swift-dev-server && pnpm run test:e2e:prepared',
+		);
+		expect(preparedE2E).toBe(
+			'pnpm run test:e2e:prepared:stress && pnpm run test:e2e:prepared:ordinary',
+		);
+		expect(stressE2E).toContain('bridge-viewer-vite-annotation-backpressure.e2e.test.ts');
+		expect(ordinaryE2E).toContain(
+			'--exclude tests/e2e/bridge-viewer-vite-annotation-backpressure.e2e.test.ts',
+		);
+	});
+
 	test('loads the Bridge app Tailwind stylesheet from the WebKit entrypoint', async () => {
 		const bootstrapSource = await readFile(
 			new URL('src/app/bridge-app-bootstrap.tsx', packageRootPath),

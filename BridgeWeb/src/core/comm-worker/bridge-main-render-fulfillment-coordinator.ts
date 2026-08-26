@@ -99,6 +99,7 @@ interface BridgeMainPendingRenderPublication {
 	readonly publicationItem: BridgeMainRenderPublicationItem;
 	animationFrameHandle: number | null;
 	finalItemBound: boolean;
+	latestPostRenderReadback: BridgeMainRenderReadback | null;
 	postRenderObserved: boolean;
 	queuedSubmissionObserved: boolean;
 	residency: BridgeMainPierreItemResidency;
@@ -263,6 +264,7 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 	): void => {
 		const renderedItem = matchingRenderedItemForEntry(entry, readback);
 		if (renderedItem === null) return;
+		if (renderedItem.readableContentMatchesItem) entry.postRenderObserved = true;
 		clearPaintedSourceCorrelation(renderedItem);
 		if (entry.stage === 'accepted') return;
 		if (entry.residency !== 'reusedPainted' && !entry.postRenderObserved) return;
@@ -271,6 +273,13 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 			entry.stage = 'applied';
 		}
 		schedulePaintValidation(entry, readback);
+	};
+
+	const reconcileRetainedPostRenderAfterQueued = (
+		entry: BridgeMainPendingRenderPublication,
+	): void => {
+		if (entry.stage !== 'queued' || entry.latestPostRenderReadback === null) return;
+		reconcileEntry(entry, entry.latestPostRenderReadback);
 	};
 
 	return {
@@ -295,6 +304,7 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 				finalItemBound: false,
 				identityKey,
 				item: publication.job.payload.item,
+				latestPostRenderReadback: null,
 				logicalItemId,
 				pierreItemId,
 				postRenderObserved: false,
@@ -327,9 +337,11 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 			retainedPaintedEvidenceByFinalItem.delete(bindProps.finalItem);
 			entry.item = bindProps.finalItem;
 			entry.finalItemBound = true;
+			entry.latestPostRenderReadback = null;
 			entry.postRenderObserved = bindProps.residency === 'reusedPainted';
 			entry.residency = bindProps.residency;
 			publishQueuedDispositionWhenReady(entry);
+			reconcileRetainedPostRenderAfterQueued(entry);
 		},
 		dispose: (): void => {
 			if (isDisposed) return;
@@ -366,6 +378,7 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 			}
 			entry.queuedSubmissionObserved = true;
 			publishQueuedDispositionWhenReady(entry);
+			reconcileRetainedPostRenderAfterQueued(entry);
 		},
 		retireWorkerInstance: (): void => {
 			if (isDisposed) return;
@@ -394,6 +407,7 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 				}
 				return;
 			}
+			entry.latestPostRenderReadback = observeProps;
 			entry.postRenderObserved = true;
 			reconcileEntry(entry, observeProps);
 		},
@@ -415,6 +429,7 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 				}
 				return;
 			}
+			entry.latestPostRenderReadback = reconcileProps;
 			reconcileEntry(entry, reconcileProps);
 		},
 		rejectPublication: (publication, reason): void => {

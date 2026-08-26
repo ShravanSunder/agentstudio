@@ -19,7 +19,10 @@ import {
 	bridgeViewerViteProductFileUrl,
 	bridgeViewerViteProductReviewUrl,
 } from './bridge-viewer-vite-product-url.ts';
-import { waitForSettledReviewComparison } from './bridge-viewer-vite-review-comparison-observation.ts';
+import {
+	observeBrowserRuntimeDiagnostics,
+	waitForSettledReviewComparisonWithDiagnostics,
+} from './bridge-viewer-vite-review-comparison-observation.ts';
 
 const annotationRestartJourneyTimeoutMilliseconds = 120_000;
 const annotationComposedConvergenceTimeoutMilliseconds = 30_000;
@@ -131,6 +134,7 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			browser = await chromium.launch({ channel: 'chrome', headless: true });
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+			const runtimeDiagnostics = observeBrowserRuntimeDiagnostics(page);
 			await page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
 				timeout: annotationRestartJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
@@ -197,9 +201,11 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			});
 			await page.getByRole('button', { name: 'Apply now' }).press('Enter');
 			await requireCompletedReviewPublicationAppliedResponse(await appliedReceiptResponse);
-			const appliedComparison = await waitForSettledReviewComparison({
+			const appliedComparison = await waitForSettledReviewComparisonWithDiagnostics({
+				diagnostics: runtimeDiagnostics,
 				expectedTargetLabel: 'HEAD',
 				expectedTargetOID: firstAdvance.finalHeadOID,
+				failureContext: (): string => server?.diagnostics() ?? 'server unavailable',
 				page,
 				timeoutMilliseconds: annotationRestartJourneyTimeoutMilliseconds,
 			});
@@ -237,9 +243,11 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			});
 			await selectReviewFile({ page, path: unaffectedFile.path });
 			await waitForSelectedReviewReady({ itemId: unaffectedFile.itemId, page });
-			const automaticallyInstalledComparison = await waitForSettledReviewComparison({
+			const automaticallyInstalledComparison = await waitForSettledReviewComparisonWithDiagnostics({
+				diagnostics: runtimeDiagnostics,
 				expectedTargetLabel: 'HEAD',
 				expectedTargetOID: secondAdvance.finalHeadOID,
+				failureContext: (): string => server?.diagnostics() ?? 'server unavailable',
 				page,
 				timeoutMilliseconds: annotationRestartJourneyTimeoutMilliseconds,
 			});
