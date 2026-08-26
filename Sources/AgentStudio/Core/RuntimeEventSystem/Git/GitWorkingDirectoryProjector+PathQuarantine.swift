@@ -17,24 +17,27 @@ extension GitWorkingDirectoryProjector {
         FileManager.default.fileExists(atPath: rootPath.path)
     }
 
-    /// Quarantines any pending worktree whose root path no longer exists. Runs at
-    /// the top of the admission cycle so dead worktrees never reach a drain task.
-    /// Already-quarantined worktrees are excluded from the candidate set, so they
-    /// incur no repeated stat calls; each dead worktree is stat-checked exactly
-    /// once per admission it would otherwise have been eligible for.
-    func quarantineDeadPathPendingWorktrees() {
-        // Materialize candidates before mutating `pendingByWorktreeId` to avoid
-        // mutating the dictionary while iterating its keys.
-        let candidateWorktreeIds = pendingByWorktreeId.keys.filter { worktreeId in
-            worktreeTasks[worktreeId] == nil
-                && !suppressedWorktreeIds.contains(worktreeId)
-                && !quarantinedWorktreeIds.contains(worktreeId)
+    /// Checks one worktree only after projector task capacity, demand, tier
+    /// capacity, and process pacing have otherwise selected it. Shared physical
+    /// capacity is acquired later by the provider; a capacity-only rejection keeps
+    /// this exact-root validation for retry. A missing root is quarantined without
+    /// consuming the projector slot so selection can continue.
+    func admitPendingWorktreeAfterPathCheck(worktreeId: UUID) -> Bool {
+        guard let rootPath = pendingByWorktreeId[worktreeId]?.rootPath else { return false }
+        guard !quarantinedWorktreeIds.contains(worktreeId) else { return false }
+        if validatedRootPathByWorktreeId[worktreeId] == rootPath {
+            return true
         }
-        for worktreeId in candidateWorktreeIds {
-            guard let rootPath = pendingByWorktreeId[worktreeId]?.rootPath else { continue }
-            guard !pathExistenceProbe(rootPath) else { continue }
+        guard pathExistenceProbe(rootPath) else {
             quarantineWorktreePath(worktreeId: worktreeId)
+            return false
         }
+        validatedRootPathByWorktreeId[worktreeId] = rootPath
+        return true
+    }
+
+    func clearValidatedRootPath(worktreeId: UUID) {
+        validatedRootPathByWorktreeId.removeValue(forKey: worktreeId)
     }
 
     /// Marks a worktree quarantined: drops its pending refresh so the pending map
@@ -42,6 +45,7 @@ extension GitWorkingDirectoryProjector {
     /// a single open fact.
     private func quarantineWorktreePath(worktreeId: UUID) {
         guard quarantinedWorktreeIds.insert(worktreeId).inserted else { return }
+        clearValidatedRootPath(worktreeId: worktreeId)
         pendingByWorktreeId.removeValue(forKey: worktreeId)
         clearImmediateRefreshIntent(worktreeId: worktreeId)
         scheduleQuarantineRecheck(worktreeId: worktreeId)

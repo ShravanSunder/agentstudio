@@ -36,7 +36,7 @@ extension GitWorkingDirectoryProjector {
 
     func admitPendingWorktrees() {
         guard !isShuttingDown else { return }
-        quarantineDeadPathPendingWorktrees()
+        guard capacityRetryWorktreeIds.isEmpty else { return }
         let availableSlots = refreshPolicy.maxConcurrentStatusComputes - worktreeTasks.count
         guard availableSlots > 0 else { return }
 
@@ -73,6 +73,7 @@ extension GitWorkingDirectoryProjector {
         for worktreeId in eligibleWorktreeIds.sorted(by: sortPendingWorktreeByPriority) {
             guard admittedWorktreeIds.count < availableSlots else { break }
             if explicitRefreshWorktreeIds.contains(worktreeId) {
+                guard admitPendingWorktreeAfterPathCheck(worktreeId: worktreeId) else { continue }
                 admittedWorktreeIds.append(worktreeId)
                 continue
             }
@@ -83,7 +84,8 @@ extension GitWorkingDirectoryProjector {
             if tier != .activePane {
                 guard availableLowerTierSlots > 0 else { continue }
             }
-            if requiresAutomaticStartPacing(worktreeId: worktreeId, isExplicit: false) {
+            let requiresStartPacing = requiresAutomaticStartPacing(worktreeId: worktreeId, isExplicit: false)
+            if requiresStartPacing {
                 if selectedPacedAutomaticStart || deadlineClock.now < nextAutomaticStartAt {
                     if !scheduledGovernorWake {
                         setRefreshDeadline(
@@ -95,6 +97,9 @@ extension GitWorkingDirectoryProjector {
                     }
                     continue
                 }
+            }
+            guard admitPendingWorktreeAfterPathCheck(worktreeId: worktreeId) else { continue }
+            if requiresStartPacing {
                 selectedPacedAutomaticStart = true
                 nextGovernorDeadline = max(
                     nextAutomaticStartAt,

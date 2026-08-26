@@ -93,6 +93,10 @@ package actor GitWorkingDirectoryProjector {
     /// until an event-driven re-arm clears the mark
     /// (see `GitWorkingDirectoryProjector+PathQuarantine`).
     var quarantinedWorktreeIds: Set<UUID> = []
+    /// Exact root paths already validated for work currently crossing physical
+    /// provider admission. Capacity-only rejection retains the validation for its
+    /// retry; every other completion or lifecycle replacement clears it.
+    var validatedRootPathByWorktreeId: [UUID: URL] = [:]
     var unchangedStatusResultCountByWorktreeId: [UUID: Int] = [:]
     var nextEnvelopeSequence: UInt64 = 0
     var lastRecordedLogicalDebtSnapshot: GitLogicalDebtSnapshot?
@@ -219,6 +223,7 @@ package actor GitWorkingDirectoryProjector {
         deadlineQueue = GitRefreshDeadlineQueue()
         deferredStatusBackoffChangesetByWorktreeId.removeAll(keepingCapacity: false)
         quarantinedWorktreeIds.removeAll(keepingCapacity: false)
+        validatedRootPathByWorktreeId.removeAll(keepingCapacity: false)
         unchangedStatusResultCountByWorktreeId.removeAll(keepingCapacity: false)
         automaticRefreshDeadlineByWorktreeId.removeAll(keepingCapacity: false)
         lastAutomaticStartAtByWorktreeId.removeAll(keepingCapacity: false)
@@ -493,6 +498,7 @@ package actor GitWorkingDirectoryProjector {
             clearCapacityRetryState(worktreeId: worktreeId)
             clearStatusBackoffState(worktreeId: worktreeId)
             clearQuarantineState(worktreeId: worktreeId)
+            clearValidatedRootPath(worktreeId: worktreeId)
             resetAdaptiveCadence(worktreeId: worktreeId)
             worktreeTasks.removeValue(forKey: worktreeId)?.cancel()
             worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
@@ -554,6 +560,7 @@ package actor GitWorkingDirectoryProjector {
         clearCapacityRetryState(worktreeId: worktreeId)
         clearStatusBackoffState(worktreeId: worktreeId)
         clearQuarantineState(worktreeId: worktreeId)
+        clearValidatedRootPath(worktreeId: worktreeId)
         resetAdaptiveCadence(worktreeId: worktreeId)
         nextPeriodicBatchSeqByWorktreeId.removeValue(forKey: worktreeId)
         if !repoIdByWorktreeId.values.contains(repoId) {
@@ -594,6 +601,9 @@ package actor GitWorkingDirectoryProjector {
                 worktreeTasks.removeValue(forKey: worktreeId)
                 worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
                 admittedDemandTierByWorktreeId.removeValue(forKey: worktreeId)
+                if !capacityRetryWorktreeIds.contains(worktreeId) {
+                    clearValidatedRootPath(worktreeId: worktreeId)
+                }
                 admitPendingWorktrees()
                 recordLogicalDebtSnapshotIfChanged()
             }
