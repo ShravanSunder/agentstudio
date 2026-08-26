@@ -460,6 +460,59 @@ struct RemoteReferenceRefreshActorTests {
         #expect(await fixture.provider.stageCount == 1)
         await actor.shutdown()
     }
+
+    @Test("expired currentness retry is consumed while fetch capacity remains occupied")
+    func expiredCurrentnessRetryIsConsumedWhileCapacityRemainsOccupied() async {
+        let fixture = RemoteReferenceRefreshFixture(suspendStaging: true)
+        let clock = TestPushClock()
+        let monotonicNow = RemoteReferenceMonotonicNow()
+        let actor = RemoteReferenceRefreshActor(
+            provider: fixture.provider,
+            maximumConcurrentFetches: 1,
+            monotonicNow: { monotonicNow.value },
+            sleepClock: clock
+        )
+        let orderedRepoIds = [UUIDv7.generate(), UUIDv7.generate()].sorted {
+            $0.uuidString < $1.uuidString
+        }
+        let obsoleteRepoId = orderedRepoIds[0]
+        let capacityRepoId = orderedRepoIds[1]
+        let obsoleteWorktreeId = UUIDv7.generate()
+        let capacityWorktreeId = UUIDv7.generate()
+
+        await actor.register(
+            repoId: obsoleteRepoId,
+            worktreeId: obsoleteWorktreeId,
+            repositoryPath: fixture.repositoryPath.appending(path: "obsolete"),
+            remoteName: "origin",
+            expectedOrigin: fixture.originB
+        )
+        await actor.register(
+            repoId: capacityRepoId,
+            worktreeId: capacityWorktreeId,
+            repositoryPath: fixture.repositoryPath.appending(path: "capacity"),
+            remoteName: "origin",
+            expectedOrigin: fixture.originA
+        )
+        await actor.setDemand(repositoryIds: [obsoleteRepoId, capacityRepoId])
+        await fixture.provider.waitUntilStageSuspended()
+        await clock.waitForPendingSleepCount(exactly: 1)
+        let scheduledSleepGeneration = clock.scheduledSleepGeneration
+
+        let retryDelay = AppPolicies.RemoteReferenceRefresh.capacityRecheckDelay
+        monotonicNow.advance(by: retryDelay)
+        clock.advance(by: retryDelay)
+        for _ in 0..<1000 where clock.scheduledSleepGeneration == scheduledSleepGeneration {
+            await Task.yield()
+        }
+
+        #expect(clock.scheduledSleepGeneration == scheduledSleepGeneration)
+        #expect(clock.pendingSleepCount == 0)
+
+        await fixture.provider.releaseStage()
+        await actor.waitUntilIdle()
+        await actor.shutdown()
+    }
 }
 
 private final class RemoteReferencePerformanceRecorderSpy:

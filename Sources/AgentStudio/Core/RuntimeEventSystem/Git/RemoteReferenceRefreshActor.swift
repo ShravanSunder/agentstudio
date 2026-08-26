@@ -802,6 +802,10 @@ package actor RemoteReferenceRefreshActor {
         guard generation == deadlineGeneration, !isShuttingDown else { return }
         deadlineTask = nil
         let now = monotonicNow()
+        for repoId in currentnessRetryAtByRepoId.keys
+        where currentnessRetryAtByRepoId[repoId].map({ $0 <= now }) == true {
+            currentnessRetryAtByRepoId.removeValue(forKey: repoId)
+        }
         for repoId in cleanupRetryAtByRepoId.keys.sorted(by: { $0.uuidString < $1.uuidString })
         where cleanupRetryAtByRepoId[repoId].map({ $0 <= now }) == true {
             await retryCleanupDebt(repoId: repoId)
