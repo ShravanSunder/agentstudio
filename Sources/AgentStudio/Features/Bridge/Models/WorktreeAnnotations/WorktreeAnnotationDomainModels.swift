@@ -112,6 +112,86 @@ struct WorktreeAnnotationSourceFingerprint: Codable, Equatable, Sendable {
     let reviewComparisonOrigin: WorktreeAnnotationReviewComparisonOrigin?
 }
 
+enum WorktreeAnnotationSubjectEvidenceError: Error, Equatable, Sendable {
+    case emptyEvidence
+    case emptyBranchName
+    case invalidReviewedHeadOID
+}
+
+struct WorktreeAnnotationReviewedSubjectEvidence: Codable, Equatable, Sendable {
+    let branchName: String?
+    let reviewedHeadOID: String?
+
+    private struct CodingKey: Swift.CodingKey, Hashable {
+        let stringValue: String
+        let intValue: Int? = nil
+
+        init(stringValue: String) {
+            self.stringValue = stringValue
+        }
+
+        init?(intValue: Int) {
+            nil
+        }
+
+        static let branchName = Self(stringValue: "branchName")
+        static let reviewedHeadOID = Self(stringValue: "reviewedHeadOID")
+    }
+
+    init(branchName: String?, reviewedHeadOID: String?) throws {
+        if let branchName, branchName.isEmpty {
+            throw WorktreeAnnotationSubjectEvidenceError.emptyBranchName
+        }
+        if let reviewedHeadOID, !Self.isFullCommitOID(reviewedHeadOID) {
+            throw WorktreeAnnotationSubjectEvidenceError.invalidReviewedHeadOID
+        }
+        guard branchName != nil || reviewedHeadOID != nil else {
+            throw WorktreeAnnotationSubjectEvidenceError.emptyEvidence
+        }
+        self.branchName = branchName
+        self.reviewedHeadOID = reviewedHeadOID
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKey.self)
+        let allowedKeys: Set<CodingKey> = [.branchName, .reviewedHeadOID]
+        guard Set(container.allKeys).isSubset(of: allowedKeys) else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Reviewed subject evidence contains unexpected fields"
+                )
+            )
+        }
+        do {
+            try self.init(
+                branchName: container.decodeIfPresent(String.self, forKey: .branchName),
+                reviewedHeadOID: container.decodeIfPresent(String.self, forKey: .reviewedHeadOID)
+            )
+        } catch {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Reviewed subject evidence is invalid",
+                    underlyingError: error
+                )
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        _ = try Self(branchName: branchName, reviewedHeadOID: reviewedHeadOID)
+        var container = encoder.container(keyedBy: CodingKey.self)
+        try container.encodeIfPresent(branchName, forKey: .branchName)
+        try container.encodeIfPresent(reviewedHeadOID, forKey: .reviewedHeadOID)
+    }
+
+    private static func isFullCommitOID(_ value: String) -> Bool {
+        guard value.count == 40 || value.count == 64 else { return false }
+        return value.allSatisfy(\.isHexDigit)
+    }
+}
+
 struct WorktreeAnnotationReviewComparisonOrigin: Codable, Equatable, Sendable {
     let symbolicTarget: String
     let resolvedTargetOID: String
@@ -157,10 +237,39 @@ struct WorktreeAnnotationSession: Equatable, Sendable {
     let lifecycle: WorktreeAnnotationSessionLifecycle
     let sourceRelationship: WorktreeAnnotationSourceRelationship
     let acceptedSourceFingerprint: WorktreeAnnotationSourceFingerprint
+    let acceptedReviewedSubject: WorktreeAnnotationReviewedSubjectEvidence?
     let semanticRevision: Int
     let createdAt: Date
     let updatedAt: Date
     let completedAt: Date?
+
+    init(
+        id: WorktreeAnnotationSessionID,
+        repositoryID: String,
+        worktreeID: String,
+        originatingWorkspaceID: String?,
+        lifecycle: WorktreeAnnotationSessionLifecycle,
+        sourceRelationship: WorktreeAnnotationSourceRelationship,
+        acceptedSourceFingerprint: WorktreeAnnotationSourceFingerprint,
+        acceptedReviewedSubject: WorktreeAnnotationReviewedSubjectEvidence? = nil,
+        semanticRevision: Int,
+        createdAt: Date,
+        updatedAt: Date,
+        completedAt: Date?
+    ) {
+        self.id = id
+        self.repositoryID = repositoryID
+        self.worktreeID = worktreeID
+        self.originatingWorkspaceID = originatingWorkspaceID
+        self.lifecycle = lifecycle
+        self.sourceRelationship = sourceRelationship
+        self.acceptedSourceFingerprint = acceptedSourceFingerprint
+        self.acceptedReviewedSubject = acceptedReviewedSubject
+        self.semanticRevision = semanticRevision
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.completedAt = completedAt
+    }
 }
 
 struct WorktreeAnnotationThread: Equatable, Sendable {

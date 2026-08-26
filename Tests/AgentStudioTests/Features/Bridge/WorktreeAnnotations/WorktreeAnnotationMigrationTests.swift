@@ -293,6 +293,48 @@ struct WorktreeAnnotationMigrationTests {
         #expect(!indexColumns.contains("originating_workspace_id"))
     }
 
+    @Test("review subject migration preserves populated annotations and seeds only the reviewed HEAD witness")
+    func reviewSubjectMigrationPreservesPopulatedAnnotations() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "008_add_worktree_annotation_message_viewed_revision"
+        )
+        let fixture = try seedReviewSubjectMigrationFixture(in: databaseQueue)
+        let rowsBeforeMigration = try annotationRows(in: databaseQueue)
+
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        let rowsAfterMigration = try annotationRows(in: databaseQueue)
+        let reviewedSubjectJSONBySessionID = try databaseQueue.read { database in
+            try Dictionary(
+                uniqueKeysWithValues: Row.fetchAll(
+                    database,
+                    sql: "SELECT id, accepted_reviewed_subject_json FROM annotation_session"
+                ).map { row in
+                    (
+                        row["id"] as String,
+                        (row["accepted_reviewed_subject_json"] as String?) ?? "<NULL>"
+                    )
+                }
+            )
+        }
+        let repositoryIndexColumns = try databaseQueue.read { database in
+            try Row.fetchAll(
+                database,
+                sql: "PRAGMA index_info(idx_annotation_session_repository_lifecycle_relationship)"
+            ).map { row in row["name"] as String }
+        }
+
+        #expect(rowsAfterMigration == rowsBeforeMigration)
+        #expect(
+            reviewedSubjectJSONBySessionID[fixture.reviewSessionID]
+                == #"{"reviewedHeadOID":"1111111111111111111111111111111111111111"}"#
+        )
+        #expect(reviewedSubjectJSONBySessionID[fixture.fileSessionID] == "<NULL>")
+        #expect(repositoryIndexColumns == ["repository_id", "lifecycle", "source_relationship"])
+    }
+
     @Test("output attempts persist canonical batch semantics beside materialized bytes")
     func outputAttemptsPersistCanonicalBatchSemantics() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
@@ -304,6 +346,121 @@ struct WorktreeAnnotationMigrationTests {
                 .map { row in row["name"] as String }
         }
         #expect(outputAttemptColumns.contains("snapshot_json"))
+    }
+}
+
+private struct ReviewSubjectMigrationFixture {
+    let reviewSessionID: String
+    let fileSessionID: String
+}
+
+private func seedReviewSubjectMigrationFixture(
+    in databaseQueue: DatabaseQueue
+) throws -> ReviewSubjectMigrationFixture {
+    let reviewSessionID = UUIDv7.generate().uuidString
+    let fileSessionID = UUIDv7.generate().uuidString
+    let threadID = UUIDv7.generate().uuidString
+    let messageID = UUIDv7.generate().uuidString
+    let outputAttemptID = UUIDv7.generate().uuidString
+    let outputEventID = UUIDv7.generate().uuidString
+    let reviewFingerprint =
+        #"{"fileSourceIdentity":"file-source","repositoryID":"repository","reviewComparisonOrigin":{"baseOID":"base","baseRole":"merge_base","resolvedTargetOID":"target","reviewedHeadOID":"1111111111111111111111111111111111111111","symbolicTarget":"presentation-target"},"worktreeID":"worktree-a"}"#
+    let fileFingerprint =
+        #"{"fileSourceIdentity":"file-only","repositoryID":"repository","worktreeID":"worktree-b"}"#
+
+    try databaseQueue.write { database in
+        try database.execute(
+            sql: """
+                INSERT INTO annotation_session(
+                    id, repository_id, worktree_id, originating_workspace_id, lifecycle,
+                    source_relationship, accepted_source_fingerprint_json, semantic_revision,
+                    created_at, updated_at, completed_at
+                ) VALUES
+                    (?, 'repository', 'worktree-a', 'workspace', 'living', 'applicable', ?, 7, 1, 2, NULL),
+                    (?, 'repository', 'worktree-b', NULL, 'living', 'uncertain', ?, 3, 3, 4, NULL)
+                """,
+            arguments: [reviewSessionID, reviewFingerprint, fileSessionID, fileFingerprint]
+        )
+        try database.execute(
+            sql: """
+                INSERT INTO annotation_thread(
+                    id, session_id, scope, resolution, origin_json, created_ordinal,
+                    semantic_revision, created_at, updated_at, resolved_at
+                ) VALUES (?, ?, 'located', 'open', '{"origin":"bytes"}', 0, 5, 1, 2, NULL)
+                """,
+            arguments: [threadID, reviewSessionID]
+        )
+        try database.execute(
+            sql: """
+                INSERT INTO annotation_message(
+                    id, thread_id, ordinal, author_kind, saved_body, saved_body_utf8_bytes,
+                    saved_revision, status, semantic_revision, created_at, updated_at, handled,
+                    viewed_saved_revision
+                ) VALUES (?, ?, 0, 'human', 'saved body', 10, 4, 'editable', 6, 1, 2, 1, NULL)
+                """,
+            arguments: [messageID, threadID]
+        )
+        try database.execute(
+            sql: """
+                INSERT INTO annotation_message_draft(
+                    message_id, active_edit_token, body, body_utf8_bytes, draft_revision, updated_at
+                ) VALUES (?, 'token', 'draft body', 10, 8, 2)
+                """,
+            arguments: [messageID]
+        )
+        try database.execute(
+            sql: """
+                INSERT INTO annotation_output_attempt(
+                    id, session_id, output_kind, state, format_version, content_type,
+                    snapshot_json, exact_bytes, destination_path, repeated_from_attempt_id,
+                    effect_error, cleanup_error, created_at, updated_at
+                ) VALUES (?, ?, 'clipboard_markdown', 'succeeded', 1, 'text/markdown',
+                    '{"snapshot":"bytes"}', X'010203', NULL, NULL, NULL, NULL, 1, 2)
+                """,
+            arguments: [outputAttemptID, reviewSessionID]
+        )
+        try database.execute(
+            sql: """
+                INSERT INTO annotation_output_attempt_message(
+                    attempt_id, message_id, expected_saved_revision, batch_ordinal
+                ) VALUES (?, ?, 4, 0)
+                """,
+            arguments: [outputAttemptID, messageID]
+        )
+        try database.execute(
+            sql: """
+                INSERT INTO annotation_output_event(id, attempt_id, event_kind, created_at)
+                VALUES (?, ?, 'copied', 2)
+                """,
+            arguments: [outputEventID, outputAttemptID]
+        )
+    }
+    return .init(reviewSessionID: reviewSessionID, fileSessionID: fileSessionID)
+}
+
+private func annotationRows(in databaseQueue: DatabaseQueue) throws -> [String: [[DatabaseValue]]] {
+    try databaseQueue.read { database in
+        let tables = [
+            "annotation_session",
+            "annotation_thread",
+            "annotation_message",
+            "annotation_message_draft",
+            "annotation_output_attempt",
+            "annotation_output_attempt_message",
+            "annotation_output_event",
+        ]
+        return try Dictionary(
+            uniqueKeysWithValues: tables.map { table in
+                let columns = try Row.fetchAll(database, sql: "PRAGMA table_info(\(table))")
+                    .map { row in row["name"] as String }
+                    .filter { $0 != "accepted_reviewed_subject_json" }
+                let projection = columns.map { "\"\($0)\"" }.joined(separator: ", ")
+                let rows = try Row.fetchAll(
+                    database,
+                    sql: "SELECT \(projection) FROM \(table) ORDER BY rowid"
+                )
+                return (table, rows.map { row in Array(row.databaseValues) })
+            })
     }
 }
 

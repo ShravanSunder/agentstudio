@@ -167,6 +167,49 @@ package enum WorkspaceLocalMigrations {
                     "ALTER TABLE annotation_message ADD COLUMN viewed_saved_revision INTEGER CHECK (viewed_saved_revision >= 1)"
             )
         }
+        migrator.registerMigration("009_add_worktree_annotation_reviewed_subject_evidence") { database in
+            let sessionColumnNames = try Set(
+                String.fetchAll(
+                    database,
+                    sql: "SELECT name FROM pragma_table_info('annotation_session')"
+                )
+            )
+            if !sessionColumnNames.contains("accepted_reviewed_subject_json") {
+                try database.execute(
+                    sql: "ALTER TABLE annotation_session ADD COLUMN accepted_reviewed_subject_json TEXT"
+                )
+                try database.execute(
+                    sql: """
+                        UPDATE annotation_session
+                        SET accepted_reviewed_subject_json = json_object(
+                            'reviewedHeadOID',
+                            json_extract(
+                                accepted_source_fingerprint_json,
+                                '$.reviewComparisonOrigin.reviewedHeadOID'
+                            )
+                        )
+                        WHERE json_type(
+                            accepted_source_fingerprint_json,
+                            '$.reviewComparisonOrigin.reviewedHeadOID'
+                        ) = 'text'
+                          AND length(json_extract(
+                            accepted_source_fingerprint_json,
+                            '$.reviewComparisonOrigin.reviewedHeadOID'
+                          )) IN (40, 64)
+                          AND json_extract(
+                            accepted_source_fingerprint_json,
+                            '$.reviewComparisonOrigin.reviewedHeadOID'
+                          ) NOT GLOB '*[^0-9A-Fa-f]*'
+                        """
+                )
+            }
+            try database.execute(
+                sql: """
+                    CREATE INDEX IF NOT EXISTS idx_annotation_session_repository_lifecycle_relationship
+                    ON annotation_session(repository_id, lifecycle, source_relationship)
+                    """
+            )
+        }
         return migrator
     }
 
