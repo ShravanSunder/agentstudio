@@ -155,6 +155,72 @@ struct InboxRetirementArchitectureTests {
         }
     }
 
+    @Test("authoritative architecture contracts contain no active Inbox ownership claims")
+    func authoritativeArchitectureContractsContainNoActiveInboxOwnershipClaims() throws {
+        let contracts:
+            [(
+                path: String,
+                requiredRetirementStatements: [String],
+                forbiddenActiveClaims: [String]
+            )] = [
+                (
+                    "docs/architecture/state/workspace_data_architecture.md",
+                    [
+                        "There is no active Inbox presentation, command/query, router/store,",
+                        "Retained Inbox atom/source code is dormant and has no active App reader.",
+                    ],
+                    [
+                        "Notification unread counts → `InboxNotificationAtom.unreadCount",
+                        "derived from InboxNotificationAtom.unreadCount",
+                        "The bell pill reads directly from the atom",
+                        "InboxNotificationAtom.unreadCount(forWorktreeId:) → notification bells",
+                        "pane-placement, unread, zoom",
+                    ]
+                ),
+                (
+                    "docs/architecture/commands/command_specs.md",
+                    [
+                        "Retained Inbox command identities are historical compatibility source, not",
+                        "no bell control, pane",
+                    ],
+                    [
+                        "`toggleSidebar`, `showInboxNotifications`, `showWorktreeSidebar`",
+                        "`openPaneLocationInFinder`, `showPaneInboxNotifications`",
+                        "`showPaneInboxNotifications` is pane-scoped",
+                        "It must stay enabled for a focused",
+                    ]
+                ),
+                (
+                    "docs/architecture/state/atom_persistence_boundaries.md",
+                    [
+                        "All retained Inbox atom,",
+                        "historical examples, not live owners",
+                    ],
+                    [
+                        "`InboxNotificationAtom` exists because",
+                        "the sidebar observes the list",
+                        "`WorkspacePaneGraphAtom` pane slots, `InboxNotificationAtom` unread counts",
+                    ]
+                ),
+            ]
+
+        for contract in contracts {
+            let source = try sourceFile(contract.path)
+            for requiredStatement in contract.requiredRetirementStatements {
+                #expect(
+                    source.contains(requiredStatement),
+                    "Missing explicit Inbox retirement statement in \(contract.path): \(requiredStatement)"
+                )
+            }
+            for forbiddenActiveClaim in contract.forbiddenActiveClaims {
+                #expect(
+                    !source.contains(forbiddenActiveClaim),
+                    "Stale active Inbox claim in \(contract.path): \(forbiddenActiveClaim)"
+                )
+            }
+        }
+    }
+
     private func sourceFile(_ relativePath: String) throws -> String {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         return try String(

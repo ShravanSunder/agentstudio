@@ -24,7 +24,9 @@ core GRDB migrations remain so valid older core databases can open;
 Inbox source, schema, preference rows, and history rows are retained but
 dormant. Normal boot does not load, observe, route, promote, present, or write
 them. Unrelated settings saves must leave every retained row and timestamp
-unchanged; reconnecting this lane requires a new product decision.
+unchanged. There is no active Inbox presentation, command/query, router/store,
+settings, or notification-count read lane. Reconnecting any of those edges
+requires a new product decision.
 
 ---
 
@@ -106,7 +108,8 @@ struct Worktree: Codable, Identifiable, Hashable {
 - `organizationName`, `origin`, `upstream` → `RepoEnrichment`
 - `branch`, git snapshot → `WorktreeEnrichment`
 - PR counts → `RepoEnrichmentCacheAtom` dictionaries
-- Notification unread counts → `InboxNotificationAtom.unreadCount(forWorktreeId:)` (per LUNA-361; moved out of `RepoCacheAtom`)
+- Retained Inbox unread-count code is dormant historical source. No active
+  sidebar, pane chrome, command, query, or projection reads it.
 
 ### Identity Semantics
 
@@ -174,10 +177,8 @@ struct WorkspaceCacheState: Codable {
     var worktreeEnrichment: [UUID: WorktreeEnrichment]    // keyed by CanonicalWorktree.id
     // Live PR lane is RepoCacheAtom.pullRequestFacts(for:) keyed by RepoBranchKey,
     // not a worktree-id Int map named pullRequestCounts.
-    // notificationCounts removed per LUNA-361: unread counts are now
-    // derived from InboxNotificationAtom.unreadCount(forWorktreeId:)
-    // in Features/InboxNotification/State/MainActor/Atoms/, not stored
-    // in the cache tier. The bell pill reads directly from the atom.
+    // Historical notificationCounts remain absent from this cache shape.
+    // Retained Inbox atom/source code is dormant and has no active App reader.
 }
 ```
 
@@ -521,8 +522,6 @@ RepositoryTopologyAtom             → canonical global repo/worktree structure 
 RepoCacheAtom.repoEnrichmentByRepoId           → org name, display name, groupKey
 RepoCacheAtom.worktreeEnrichmentByWorktreeId   → branch, git status
 RepoCacheAtom.pullRequestFacts(for:)           → PR badges (facts by RepoBranchKey)
-InboxNotificationAtom.unreadCount(forWorktreeId:) → notification bells
-                                 (per LUNA-361; moved from RepoCacheAtom)
 WorkspaceSidebarState          → filter and sidebar shell composition
                                  (collapsed / surface / runtime focus)
 
@@ -530,7 +529,7 @@ ZERO imperative fetches. ZERO mutations. Pure @Observable binding.
 ```
 
 Repo Explorer captures only the declared repo/worktree membership and keyed
-topology, cache, pane-placement, unread, zoom, capability, and Bridge-attendance
+topology, cache, pane-placement, zoom, capability, and Bridge-attendance
 facts needed by its rendered rows. The immutable capture is admitted to the
 existing `EagerDerivedAtomFamily`; `RepoExplorerProjectionWorker` builds the
 projection, branch maps, and immutable `RepoExplorerRowIndex` off MainActor.
