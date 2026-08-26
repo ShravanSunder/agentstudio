@@ -25,6 +25,32 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(recorder.recordedAttributes(for: .gitLogicalDebt).isEmpty)
     }
 
+    @Test("logical debt trace suppresses countdown-only changes")
+    func logicalDebtTraceSuppressesCountdownOnlyChanges() async {
+        let recorder = GitProjectorTraceRecorderSpy()
+        let clock = TestPushClock()
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            performanceTraceRecorder: recorder
+        )
+        let worktreeId = UUIDv7.generate()
+
+        await actor.setRefreshDeadline(.seconds(60), kind: .automatic, worktreeId: worktreeId)
+        await actor.recordLogicalDebtSnapshotIfChanged()
+        clock.advance(by: .milliseconds(1))
+        await actor.recordLogicalDebtSnapshotIfChanged()
+
+        #expect(recorder.recordedAttributes(for: .gitLogicalDebt).count == 1)
+
+        await actor.setRefreshDeadline(.seconds(30), kind: .automatic, worktreeId: worktreeId)
+        await actor.recordLogicalDebtSnapshotIfChanged()
+
+        #expect(recorder.recordedAttributes(for: .gitLogicalDebt).count == 2)
+    }
+
     @Test("logical debt trace records failure backoff dequeue and re-admission transitions")
     func logicalDebtTraceRecordsFailureBackoffTransitions() async throws {
         let traceRuntime = makeGitLogicalDebtTraceRuntime()

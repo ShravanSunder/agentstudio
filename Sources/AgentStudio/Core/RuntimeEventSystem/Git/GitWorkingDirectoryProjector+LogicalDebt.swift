@@ -12,8 +12,25 @@ struct GitLogicalDebtSnapshot: Equatable, Sendable {
     let activeFollowUpCount: Int
     let unclassifiedPendingCount: Int
     let overdueDeadlineCount: Int
+    let oldestPreparationTimestamp: ContinuousClock.Instant?
+    let nextDeadline: Duration?
     let oldestPreparationMilliseconds: Double
     let nextDeadlineMilliseconds: Double
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.queuedChangesetCount == rhs.queuedChangesetCount
+            && lhs.retryPendingCount == rhs.retryPendingCount
+            && lhs.logicalRunningCount == rhs.logicalRunningCount
+            && lhs.futureAutomaticCount == rhs.futureAutomaticCount
+            && lhs.futureFailureCount == rhs.futureFailureCount
+            && lhs.readyPendingCount == rhs.readyPendingCount
+            && lhs.capacityPendingCount == rhs.capacityPendingCount
+            && lhs.activeFollowUpCount == rhs.activeFollowUpCount
+            && lhs.unclassifiedPendingCount == rhs.unclassifiedPendingCount
+            && lhs.overdueDeadlineCount == rhs.overdueDeadlineCount
+            && lhs.oldestPreparationTimestamp == rhs.oldestPreparationTimestamp
+            && lhs.nextDeadline == rhs.nextDeadline
+    }
 
     var logicalPendingCount: Int {
         queuedChangesetCount + retryPendingCount
@@ -88,10 +105,11 @@ extension GitWorkingDirectoryProjector {
             statusFailureDeadlineByWorktreeId.values,
             capacityFallbackDeadlineByWorktreeId.values,
         ].flatMap { $0 }.filter { $0 > deadlineNow }.min()
+        let oldestPreparationTimestamp = pendingByWorktreeId.values.map(\.timestamp).min()
         let oldestPreparationAge =
-            pendingByWorktreeId.values.map { changeset in
-                max(.zero, changeset.timestamp.duration(to: envelopeClock.now))
-            }.max() ?? .zero
+            oldestPreparationTimestamp.map {
+                max(.zero, $0.duration(to: envelopeClock.now))
+            } ?? .zero
 
         return GitLogicalDebtSnapshot(
             queuedChangesetCount: queuedLogicalDebtCount,
@@ -104,6 +122,8 @@ extension GitWorkingDirectoryProjector {
             activeFollowUpCount: activeFollowUpCount,
             unclassifiedPendingCount: unclassifiedPendingCount,
             overdueDeadlineCount: overdueDeadlineCount,
+            oldestPreparationTimestamp: oldestPreparationTimestamp,
+            nextDeadline: nextDeadline,
             oldestPreparationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
                 from: oldestPreparationAge),
             nextDeadlineMilliseconds: nextDeadline.map {
