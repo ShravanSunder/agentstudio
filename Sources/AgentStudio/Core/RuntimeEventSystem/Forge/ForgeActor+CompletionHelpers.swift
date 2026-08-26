@@ -43,7 +43,7 @@ extension ForgeActor {
             lhs.uuidString < rhs.uuidString
         }
         for repoId in deferredRepoIds {
-            guard providerTasksByRequestId.count < maximumConcurrentProviderRequests,
+            guard providerCapacityOccupancyCount < maximumConcurrentProviderRequests,
                 let state = refreshStateByRepoId[repoId],
                 state.activeRequestId == nil,
                 state.pendingFollowUp

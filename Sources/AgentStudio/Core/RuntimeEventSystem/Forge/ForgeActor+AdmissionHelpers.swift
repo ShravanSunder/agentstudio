@@ -2,6 +2,22 @@ import AgentStudioInfrastructure
 import Foundation
 
 extension ForgeActor {
+    var providerCapacityOccupancyCount: Int {
+        var capacityOccupyingRequestIds = Set(providerTasksByRequestId.keys)
+        capacityOccupyingRequestIds.formUnion(
+            refreshStateByRepoId.values.compactMap(\.activeRequestId)
+        )
+        return capacityOccupyingRequestIds.count
+    }
+
+    var providerCapacityOccupyingRepoIds: Set<UUID> {
+        var capacityOccupyingRepoIds = Set(providerRepoIdByRequestId.values)
+        for (repoId, state) in refreshStateByRepoId where state.activeRequestId != nil {
+            capacityOccupyingRepoIds.insert(repoId)
+        }
+        return capacityOccupyingRepoIds
+    }
+
     func coalesceRefreshWhileProviderActive(
         repoId: UUID,
         trigger: RefreshTrigger,
@@ -31,7 +47,7 @@ extension ForgeActor {
     func currentSettlementSnapshot() -> ForgePerformanceSnapshot.Settlement {
         let now = monotonicNow()
         let demandedRepositoryIds = demandedRepoIds()
-        let physicallyActiveRepositoryIds = Set(providerRepoIdByRequestId.values)
+        let capacityOccupyingRepositoryIds = providerCapacityOccupyingRepoIds
         var pendingFuture = 0
         var pendingReady = 0
         var pendingCapacity = 0
@@ -43,7 +59,7 @@ extension ForgeActor {
                 pendingUnclassified += 1
                 continue
             }
-            if physicallyActiveRepositoryIds.contains(repoId) {
+            if capacityOccupyingRepositoryIds.contains(repoId) {
                 pendingActiveFollowUp += 1
             } else if nextEligibleRefreshAt(
                 state: state,
@@ -52,7 +68,7 @@ extension ForgeActor {
                 pendingFuture += 1
             } else if state.pendingFollowUpEligibleAt.map({ $0 > now }) == true {
                 pendingCapacity += 1
-            } else if providerTasksByRequestId.count >= maximumConcurrentProviderRequests {
+            } else if providerCapacityOccupancyCount >= maximumConcurrentProviderRequests {
                 pendingCapacity += 1
             } else {
                 pendingReady += 1
@@ -101,7 +117,7 @@ extension ForgeActor {
         let admissionOutcome: ForgePerformanceAdmissionOutcome
         if providerRepoIdByRequestId.values.contains(repoId) {
             admissionOutcome = .activeRequestCoalesced
-        } else if providerTasksByRequestId.count >= maximumConcurrentProviderRequests {
+        } else if providerCapacityOccupancyCount >= maximumConcurrentProviderRequests {
             admissionOutcome = .capacityLimited
         } else {
             return false

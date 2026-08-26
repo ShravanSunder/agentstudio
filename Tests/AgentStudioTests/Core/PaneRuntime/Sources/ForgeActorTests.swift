@@ -616,6 +616,8 @@ struct ForgeActorFixture {
     let observationTask: Task<Void, Never>
     static func make(
         performanceTraceRecorder: (any ForgePerformanceRecording)? = nil,
+        maximumConcurrentProviderRequests: Int =
+            AppPolicies.ForgeRefresh.maximumConcurrentProviderRequests,
         beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)? = nil
     ) async -> Self {
         let bus = EventBus<RuntimeEnvelope>()
@@ -629,6 +631,7 @@ struct ForgeActorFixture {
             providerName: "stub",
             monotonicNow: { monotonicNow.value },
             sleepClock: clock,
+            maximumConcurrentProviderRequests: maximumConcurrentProviderRequests,
             performanceTraceRecorder: performanceTraceRecorder,
             beforeEventEmission: beforeEventEmission
         )
@@ -672,6 +675,7 @@ struct ForgeActorFixture {
         await observationTask.value
     }
 }
+
 final class ManualForgeMonotonicNow: @unchecked Sendable {
     private let lock = NSLock()
     private var elapsed = Duration.zero
