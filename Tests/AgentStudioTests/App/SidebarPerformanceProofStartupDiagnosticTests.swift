@@ -428,13 +428,22 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         let foregroundActivation = try #require(
             source.range(of: "NSApp.activate(ignoringOtherApps: true)")
         )
+        let idempotentSidebarExpansion = try #require(
+            source.range(
+                of: "mainWindowController.expandSidebar()",
+                range: foregroundActivation.upperBound..<source.endIndex
+            )
+        )
         let sessionRun = try #require(source.range(of: "let succeeded = await session.run()"))
 
         #expect(policyProjection.lowerBound < fixturePreparation.lowerBound)
         #expect(fixturePreparation.lowerBound < fixtureReady.lowerBound)
         #expect(fixtureReady.lowerBound < foregroundActivation.lowerBound)
+        #expect(foregroundActivation.lowerBound < idempotentSidebarExpansion.lowerBound)
+        #expect(idempotentSidebarExpansion.lowerBound < sessionRun.lowerBound)
         #expect(foregroundActivation.lowerBound < sessionRun.lowerBound)
         #expect(source.contains("window.makeKeyAndOrderFront(nil)"))
+        #expect(!source.contains("AppCommandDispatcher.shared.dispatch(.showWorktreeSidebar)"))
         #expect(source.contains("await commands.refreshWatchedFolders"))
         for attribute in [
             "open_source_root_present", "project_dev_root_present",

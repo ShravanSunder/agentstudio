@@ -149,7 +149,7 @@ import AppKit
             )
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
-            AppCommandDispatcher.shared.dispatch(.showWorktreeSidebar)
+            mainWindowController.expandSidebar()
             AppCommandDispatcher.shared.dispatch(.setRepoSidebarGroupingRepo)
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.command_exercised",
