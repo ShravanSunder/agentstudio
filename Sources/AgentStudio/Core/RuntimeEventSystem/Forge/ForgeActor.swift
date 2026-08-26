@@ -9,87 +9,6 @@ package actor ForgeActor {
         var branch: String?
     }
 
-    struct RepositoryRefreshState {
-        var origin: String?
-        var generation: UInt64 = 0
-        var lastSuccessfulRefreshAt: Duration?
-        var lastAttemptAt: Duration?
-        var backoffUntil: Duration?
-        var activeRequestId: UInt64?
-        var pendingFollowUp = false
-        var pendingFollowUpRequiresRefresh = false
-        var pendingFollowUpEligibleAt: Duration?
-        var consecutiveFailureCount = 0
-        var stablePresentation: PullRequestStablePresentation = .unknown
-        var acceptedProjection: PullRequestRepositoryProjection = .stable(.unknown)
-        /// Consecutive non-`.complete` provider outcomes (truncated, rate
-        /// limited, or failed), independent of `consecutiveFailureCount`
-        /// which drives `.failed`-specific backoff timing. Crossing
-        /// `AppPolicies.Forge.consecutiveFailureHonestyThreshold` resolves
-        /// this repository to terminal-unavailable.
-        var consecutiveUnsuccessfulAttempts = 0
-        /// True once the terminal unavailable projection has been accepted
-        /// for the repository's current origin generation. Cleared whenever
-        /// a fresh origin arrives or a query succeeds.
-        var hasEmittedUnavailable = false
-    }
-
-    struct ProviderRequest: Sendable {
-        let id: UInt64
-        let repoId: UUID
-        let origin: String
-        let generation: UInt64
-        let demandedBranches: Set<String>
-        let trigger: RefreshTrigger
-        let correlationId: UUID?
-
-        var signature: ProviderRequestSignature {
-            ProviderRequestSignature(origin: origin, demandedBranches: demandedBranches)
-        }
-    }
-
-    struct ProviderRequestSignature: Equatable, Sendable {
-        let origin: String
-        let demandedBranches: Set<String>
-    }
-
-    enum RefreshTrigger {
-        case automatic
-        case manual
-        case manualFollowUp
-        case scopeChanged
-        case followUp
-
-        var bypassesFreshness: Bool {
-            switch self {
-            case .automatic, .followUp: false
-            case .manual, .manualFollowUp, .scopeChanged: true
-            }
-        }
-
-        var requiresFollowUpRefresh: Bool {
-            switch self {
-            case .manual: true
-            case .automatic, .manualFollowUp, .scopeChanged, .followUp: false
-            }
-        }
-
-        var performanceInput: ForgePerformanceInput {
-            switch self {
-            case .automatic: .automatic
-            case .manual: .manual
-            case .manualFollowUp, .scopeChanged, .followUp: .followUp
-            }
-        }
-
-        var usesAutomaticFailureFloor: Bool {
-            switch self {
-            case .automatic, .scopeChanged, .followUp: true
-            case .manual, .manualFollowUp: false
-            }
-        }
-    }
-
     private static let logger = Logger(subsystem: "com.agentstudio", category: "ForgeActor")
 
     private let runtimeBus: EventBus<RuntimeEnvelope>
@@ -231,6 +150,7 @@ package actor ForgeActor {
         state.activeRequestId = nil
         state.pendingFollowUp = false
         state.pendingFollowUpRequiresRefresh = false
+        state.pendingFollowUpHasUnconfirmedScopeChange = false
         state.pendingFollowUpEligibleAt = nil
         state.consecutiveFailureCount = 0
         state.consecutiveUnsuccessfulAttempts = 0
@@ -285,6 +205,11 @@ package actor ForgeActor {
         guard demandedWorktreeIds != worktreeIds else { return }
         defer { flushPerformanceSnapshot() }
         let previouslyDemandedRepoIds = demandedRepoIds()
+        let previouslyDemandedBranchesByRepoId = Dictionary(
+            uniqueKeysWithValues: previouslyDemandedRepoIds.map { repoId in
+                (repoId, demandedBranches(repoId: repoId))
+            }
+        )
         demandedWorktreeIds = worktreeIds
         let currentlyDemandedRepoIds = demandedRepoIds()
 
@@ -293,6 +218,7 @@ package actor ForgeActor {
             if var state = refreshStateByRepoId[repoId] {
                 state.pendingFollowUp = false
                 state.pendingFollowUpRequiresRefresh = false
+                state.pendingFollowUpHasUnconfirmedScopeChange = false
                 state.pendingFollowUpEligibleAt = nil
                 let restoredProjection = PullRequestRepositoryProjection.stable(
                     state.stablePresentation
@@ -314,7 +240,21 @@ package actor ForgeActor {
             }
         }
         for repoId in currentlyDemandedRepoIds {
-            await requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
+            let currentDemandedBranches = demandedBranches(repoId: repoId)
+            let previouslyDemandedBranches = previouslyDemandedBranchesByRepoId[repoId] ?? []
+            let confirmedBranches: Set<String>
+            if let confirmedFacts = ForgePresentationFacts.confirmedFacts(
+                in: refreshStateByRepoId[repoId]?.stablePresentation ?? .unknown
+            ) {
+                confirmedBranches = Set(confirmedFacts.keys)
+            } else {
+                confirmedBranches = []
+            }
+            let trigger: RefreshTrigger =
+                previouslyDemandedBranches != currentDemandedBranches
+                    && !currentDemandedBranches.isSubset(of: confirmedBranches)
+                ? .scopeChanged : .automatic
+            await requestRefreshIfDemanded(repoId: repoId, trigger: trigger, correlationId: nil)
         }
         rescheduleDeadline()
     }
@@ -468,6 +408,7 @@ package actor ForgeActor {
         state.activeRequestId = nil
         state.pendingFollowUp = false
         state.pendingFollowUpRequiresRefresh = false
+        state.pendingFollowUpHasUnconfirmedScopeChange = false
         state.pendingFollowUpEligibleAt = nil
         state.consecutiveFailureCount = 0
         state.consecutiveUnsuccessfulAttempts = 0
@@ -562,6 +503,7 @@ package actor ForgeActor {
             if var state = refreshStateByRepoId[repoId] {
                 state.pendingFollowUp = false
                 state.pendingFollowUpRequiresRefresh = false
+                state.pendingFollowUpHasUnconfirmedScopeChange = false
                 state.pendingFollowUpEligibleAt = nil
                 refreshStateByRepoId[repoId] = state
             }
@@ -572,12 +514,7 @@ package actor ForgeActor {
             return
         }
 
-        if state.activeRequestId != nil {
-            performanceAccumulator.recordAdmission(.activeRequestCoalesced)
-            state.pendingFollowUp = true
-            state.pendingFollowUpRequiresRefresh =
-                state.pendingFollowUpRequiresRefresh || trigger.requiresFollowUpRefresh
-            refreshStateByRepoId[repoId] = state
+        if coalesceRefreshWhileProviderActive(repoId: repoId, trigger: trigger, state: &state) {
             return
         }
 
@@ -591,6 +528,10 @@ package actor ForgeActor {
                 performanceAccumulator.recordAdmission(.freshnessDeferred)
             }
             state.pendingFollowUp = true
+            state.pendingFollowUpRequiresRefresh =
+                state.pendingFollowUpRequiresRefresh || trigger.requiresFollowUpRefresh
+            state.pendingFollowUpHasUnconfirmedScopeChange =
+                state.pendingFollowUpHasUnconfirmedScopeChange || trigger.hasUnconfirmedScopeChange
             state.pendingFollowUpEligibleAt = max(
                 state.pendingFollowUpEligibleAt ?? .zero,
                 nextEligibleAt
@@ -615,6 +556,7 @@ package actor ForgeActor {
         state.lastAttemptAt = now
         state.pendingFollowUp = false
         state.pendingFollowUpRequiresRefresh = false
+        state.pendingFollowUpHasUnconfirmedScopeChange = false
         state.pendingFollowUpEligibleAt = nil
         let loadingProjection = PullRequestRepositoryProjection.loading(
             baseline: state.stablePresentation,
@@ -784,14 +726,11 @@ package actor ForgeActor {
         deadlineTask = nil
         let repoIds = demandedRepoIds()
         for repoId in repoIds {
-            if let state = refreshStateByRepoId[repoId],
-                let pendingFollowUpEligibleAt = state.pendingFollowUpEligibleAt,
-                pendingFollowUpEligibleAt <= monotonicNow()
-            {
-                await requestRefreshIfDemanded(repoId: repoId, trigger: .followUp, correlationId: nil)
-            } else {
-                await requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
-            }
+            let trigger =
+                refreshStateByRepoId[repoId].map { state in
+                    state.pendingFollowUp ? pendingFollowUpTrigger(for: state) : .automatic
+                } ?? .automatic
+            await requestRefreshIfDemanded(repoId: repoId, trigger: trigger, correlationId: nil)
         }
         rescheduleDeadline()
         flushPerformanceSnapshot()
@@ -808,6 +747,7 @@ package actor ForgeActor {
             state.activeRequestId = nil
             state.pendingFollowUp = false
             state.pendingFollowUpRequiresRefresh = false
+            state.pendingFollowUpHasUnconfirmedScopeChange = false
             state.pendingFollowUpEligibleAt = nil
             refreshStateByRepoId[repoId] = state
         }

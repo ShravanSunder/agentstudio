@@ -2,6 +2,22 @@ import AgentStudioInfrastructure
 import Foundation
 
 extension ForgeActor {
+    func coalesceRefreshWhileProviderActive(
+        repoId: UUID,
+        trigger: RefreshTrigger,
+        state: inout RepositoryRefreshState
+    ) -> Bool {
+        guard state.activeRequestId != nil else { return false }
+        performanceAccumulator.recordAdmission(.activeRequestCoalesced)
+        state.pendingFollowUp = true
+        state.pendingFollowUpRequiresRefresh =
+            state.pendingFollowUpRequiresRefresh || trigger.requiresFollowUpRefresh
+        state.pendingFollowUpHasUnconfirmedScopeChange =
+            state.pendingFollowUpHasUnconfirmedScopeChange || trigger.hasUnconfirmedScopeChange
+        refreshStateByRepoId[repoId] = state
+        return true
+    }
+
     package func flushPerformanceSnapshot() {
         let settlementSnapshot = currentSettlementSnapshot()
         let changedSettlementSnapshot =
@@ -29,7 +45,10 @@ extension ForgeActor {
             }
             if physicallyActiveRepositoryIds.contains(repoId) {
                 pendingActiveFollowUp += 1
-            } else if nextEligibleRefreshAt(state: state, bypassFreshness: false).map({ $0 > now }) == true {
+            } else if nextEligibleRefreshAt(
+                state: state,
+                bypassFreshness: pendingFollowUpTrigger(for: state).bypassesFreshness
+            ).map({ $0 > now }) == true {
                 pendingFuture += 1
             } else if state.pendingFollowUpEligibleAt.map({ $0 > now }) == true {
                 pendingCapacity += 1
@@ -65,7 +84,11 @@ extension ForgeActor {
                 state.activeRequestId == nil
             else { return nil }
             return state.pendingFollowUpEligibleAt
-                ?? nextEligibleRefreshAt(state: state, bypassFreshness: false)
+                ?? nextEligibleRefreshAt(
+                    state: state,
+                    bypassFreshness: state.pendingFollowUp
+                        ? pendingFollowUpTrigger(for: state).bypassesFreshness : false
+                )
         }
     }
 
@@ -88,6 +111,8 @@ extension ForgeActor {
         state.pendingFollowUp = true
         state.pendingFollowUpRequiresRefresh =
             state.pendingFollowUpRequiresRefresh || trigger.requiresFollowUpRefresh
+        state.pendingFollowUpHasUnconfirmedScopeChange =
+            state.pendingFollowUpHasUnconfirmedScopeChange || trigger.hasUnconfirmedScopeChange
         state.pendingFollowUpEligibleAt = min(
             state.pendingFollowUpEligibleAt
                 ?? now + AppPolicies.ForgeRefresh.capacityRecheckDelay,
@@ -96,6 +121,12 @@ extension ForgeActor {
         refreshStateByRepoId[repoId] = state
         recordPhysicalPerformanceState()
         return true
+    }
+
+    func pendingFollowUpTrigger(for state: RepositoryRefreshState) -> RefreshTrigger {
+        if state.pendingFollowUpRequiresRefresh { return .manualFollowUp }
+        if state.pendingFollowUpHasUnconfirmedScopeChange { return .scopeChanged }
+        return .followUp
     }
 
     func recordPhysicalPerformanceState() {

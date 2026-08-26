@@ -17,15 +17,20 @@ extension ForgeActor {
         if state.pendingFollowUpRequiresRefresh {
             state.pendingFollowUp = false
             state.pendingFollowUpRequiresRefresh = false
+            state.pendingFollowUpHasUnconfirmedScopeChange = false
             state.pendingFollowUpEligibleAt = nil
             return .manualFollowUp
         }
         if currentSignature != request.signature {
             state.pendingFollowUp = false
+            state.pendingFollowUpRequiresRefresh = false
+            state.pendingFollowUpHasUnconfirmedScopeChange = false
             state.pendingFollowUpEligibleAt = nil
             return .scopeChanged
         }
 
+        state.pendingFollowUpRequiresRefresh = false
+        state.pendingFollowUpHasUnconfirmedScopeChange = false
         state.pendingFollowUpEligibleAt =
             completionTime + AppPolicies.ForgeRefresh.pendingFollowUpDelay
         performanceAccumulator.recordAdmission(.freshnessDeferred)
@@ -43,9 +48,7 @@ extension ForgeActor {
                 state.activeRequestId == nil,
                 state.pendingFollowUp
             else { continue }
-            let trigger: RefreshTrigger =
-                state.pendingFollowUpRequiresRefresh
-                ? .manualFollowUp : .followUp
+            let trigger = pendingFollowUpTrigger(for: state)
             await requestRefreshIfDemanded(
                 repoId: repoId,
                 trigger: trigger,
