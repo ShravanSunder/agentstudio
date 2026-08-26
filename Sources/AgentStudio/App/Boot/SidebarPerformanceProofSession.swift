@@ -4,6 +4,7 @@ import AgentStudioRepoExplorer
 import AppKit
 import Foundation
 import Observation
+import Synchronization
 
 struct SidebarPerformanceProofTabReadback: Equatable, Sendable {
     let orderedTabIDs: [UUID]
@@ -175,6 +176,24 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
 
     @MainActor
     final class SidebarPerformanceProofSession {
+        private struct WindowAttendanceEdgeLatchState {
+            var armedObservationGeneration: UInt64?
+            var observedEdge = false
+
+            mutating func arm(observationGeneration: UInt64) {
+                armedObservationGeneration = observationGeneration
+            }
+
+            mutating func observeEdge(observationGeneration: UInt64) {
+                guard armedObservationGeneration == observationGeneration else { return }
+                observedEdge = true
+            }
+
+            mutating func disarm() {
+                armedObservationGeneration = nil
+            }
+        }
+
         private let population: SidebarPerformanceProofPopulation
         private let window: NSWindow
         private let recorder: AgentStudioStartupTraceRecorder
@@ -185,13 +204,17 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
         private let readShell: @MainActor () -> SidebarPerformanceProofShellReadback?
         private let readbackStream: AsyncStream<SidebarPerformanceProofReadback>
         private let readbackContinuation: AsyncStream<SidebarPerformanceProofReadback>.Continuation
+        nonisolated private let windowAttendanceEdgeLatch = Mutex(
+            WindowAttendanceEdgeLatchState())
         private var latestRepoExplorerReadback: RepoExplorerPerformanceProofReadback?
         private var latestReadback: SidebarPerformanceProofReadback?
         private var actionTracker = SidebarPerformanceProofActionTracker()
         private var observesShellState = false
         private var observesWindowAttendance = false
+        private var windowAttendanceObservationGeneration: UInt64 = 0
         private var didEnterReadyPopulation = false
         private var firstUnattendedReadback: SidebarPerformanceProofWindowAttendance?
+        private var didRecordWindowAttendanceFailure = false
         private var workloadBaseline: SidebarPerformanceTerminalWorkloadSnapshot?
         private var didCompleteWorkloadProof = false
 
@@ -254,10 +277,14 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 return false
             }
             didEnterReadyPopulation = true
-            acceptWindowAttendance(readAttendance())
-            guard firstUnattendedReadback == nil else {
+            guard let readinessAttendance = observeWindowAttendance(armingEdgeLatch: true) else {
                 return false
             }
+            recordWindowAttendanceEdgeFailureIfNeeded(currentAttendance: readinessAttendance)
+            guard firstUnattendedReadback == nil,
+                !windowAttendanceEdgeWasObserved(),
+                readinessAttendance.isAttended
+            else { return false }
             let workloadBaseline = performanceRecorder.beginSidebarPerformanceWorkloadProof()
             self.workloadBaseline = workloadBaseline
             record(
@@ -483,16 +510,41 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 && readAttendance().isAttended
         }
 
-        private func observeWindowAttendance() {
-            guard observesWindowAttendance else { return }
-            let attendance = withObservationTracking {
-                readAttendance()
-            } onChange: {
-                Task { @MainActor [weak self] in
-                    self?.observeWindowAttendance()
+        @discardableResult
+        private func observeWindowAttendance(
+            afterChangeFrom previousGeneration: UInt64? = nil,
+            armingEdgeLatch: Bool = false
+        ) -> SidebarPerformanceProofWindowAttendance? {
+            guard observesWindowAttendance else { return nil }
+            if let previousGeneration,
+                previousGeneration != windowAttendanceObservationGeneration
+            {
+                return nil
+            }
+            windowAttendanceObservationGeneration &+= 1
+            let observationGeneration = windowAttendanceObservationGeneration
+            if armingEdgeLatch {
+                windowAttendanceEdgeLatch.withLock {
+                    $0.arm(observationGeneration: observationGeneration)
                 }
             }
+            let attendance = withObservationTracking {
+                readAttendance()
+            } onChange: { [weak self] in
+                self?.windowAttendanceDidChange(observationGeneration: observationGeneration)
+            }
             acceptWindowAttendance(attendance)
+            recordWindowAttendanceEdgeFailureIfNeeded(currentAttendance: attendance)
+            return attendance
+        }
+
+        nonisolated private func windowAttendanceDidChange(observationGeneration: UInt64) {
+            windowAttendanceEdgeLatch.withLock {
+                $0.observeEdge(observationGeneration: observationGeneration)
+            }
+            Task { @MainActor [weak self] in
+                self?.observeWindowAttendance(afterChangeFrom: observationGeneration)
+            }
         }
 
         func acceptWindowAttendance(_ attendance: SidebarPerformanceProofWindowAttendance) {
@@ -501,6 +553,21 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 !attendance.isAttended
             else { return }
             firstUnattendedReadback = attendance
+            recordWindowAttendanceFailure(attendance)
+        }
+
+        private func recordWindowAttendanceEdgeFailureIfNeeded(
+            currentAttendance: SidebarPerformanceProofWindowAttendance
+        ) {
+            guard windowAttendanceEdgeWasObserved() else { return }
+            recordWindowAttendanceFailure(currentAttendance)
+        }
+
+        private func recordWindowAttendanceFailure(
+            _ attendance: SidebarPerformanceProofWindowAttendance
+        ) {
+            guard !didRecordWindowAttendanceFailure else { return }
+            didRecordWindowAttendanceFailure = true
             record(
                 "performance.sidebar.proof_action.failed",
                 sequence: 0,
@@ -510,9 +577,14 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             )
         }
 
+        private func windowAttendanceEdgeWasObserved() -> Bool {
+            windowAttendanceEdgeLatch.withLock { $0.observedEdge }
+        }
+
         private func stopObservingProofState() {
             observesShellState = false
             observesWindowAttendance = false
+            windowAttendanceEdgeLatch.withLock { $0.disarm() }
             readbackContinuation.finish()
         }
 
@@ -627,7 +699,9 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 let workloadBaseline
             else { return false }
             didCompleteWorkloadProof = true
-            acceptWindowAttendance(readAttendance())
+            let completionAttendance = readAttendance()
+            acceptWindowAttendance(completionAttendance)
+            recordWindowAttendanceEdgeFailureIfNeeded(currentAttendance: completionAttendance)
             let workloadCompletion = performanceRecorder.completeSidebarPerformanceWorkloadProof()
             let completionAttributes = workloadAttributes(
                 workloadCompletion,
@@ -644,7 +718,11 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 )
                 return false
             }
-            guard firstUnattendedReadback == nil, readAttendance().isAttended else {
+            guard firstUnattendedReadback == nil,
+                !windowAttendanceEdgeWasObserved(),
+                completionAttendance.isAttended
+            else {
+                stopObservingProofState()
                 return false
             }
             record(

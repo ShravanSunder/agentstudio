@@ -4,11 +4,66 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 @testable import AgentStudioRepoExplorer
 
 @MainActor
 @Suite("Sidebar performance proof startup diagnostics", .serialized)
 struct SidebarPerformanceProofStartupDiagnosticTests {
+    @Test("idle proof permanently latches a synchronous attendance lapse and recovery")
+    func idleProofLatchesSynchronousAttendanceLapseBeforeObservationReregistration() async throws {
+        let appLifecycleStore = AppLifecycleAtom()
+        appLifecycleStore.setActive(true)
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidebar-idle-attendance-edge-tests", isDirectory: true)
+            .appendingPathComponent(UUIDv7.generate().uuidString, isDirectory: true)
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_TAGS": "app.startup",
+            ]),
+            processIdentifier: 921,
+            timeUnixNano: { 909 }
+        )
+        let recorder = AgentStudioStartupTraceRecorder(traceRuntime: traceRuntime)
+        let performanceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: nil)
+        let attendedReadback = makeReadback(
+            semanticGeneration: 7,
+            acknowledgedRevision: 11,
+            visibleGeneration: 13,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo
+        )
+        let session = SidebarPerformanceProofSession(
+            population: .zeroPTYIdle,
+            window: NSWindow(),
+            recorder: recorder,
+            performanceRecorder: performanceRecorder,
+            readAttendance: {
+                self.makeWindowAttendance(applicationIsActive: appLifecycleStore.isActive)
+            },
+            readShell: { attendedReadback.shell }
+        )
+        session.receive(attendedReadback.repoExplorer)
+
+        #expect(await session.run())
+        appLifecycleStore.setActive(false)
+        appLifecycleStore.setActive(true)
+        #expect(!session.completeIdlePopulationForTermination())
+
+        try await recorder.drain()
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let traceContents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(traceContents.contains("performance.sidebar.proof_population.ready"))
+        #expect(traceContents.contains("performance.sidebar.proof_action.failed"))
+        #expect(
+            traceContents.components(separatedBy: "window_attendance_lost").count - 1 == 1
+        )
+        #expect(traceContents.contains("attendance_lost.app_active"))
+        #expect(!traceContents.contains("performance.sidebar.proof_population.completed"))
+    }
+
     @Test("idle proof latches every attendance lapse after population readiness")
     func idleProofRejectsEveryPostReadyAttendanceLapse() async throws {
         let unattendedCases: [(String, SidebarPerformanceProofWindowAttendance)] = [
@@ -429,14 +484,20 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         let attendanceLatchAuthority = try #require(
             sessionSource.range(of: "didEnterReadyPopulation = true")
         )
+        let armedAttendanceObservation = try #require(
+            sessionSource.range(of: "observeWindowAttendance(armingEdgeLatch: true)")
+        )
         let currentAttendanceBarrier = try #require(
-            sessionSource.range(of: "acceptWindowAttendance(readAttendance())")
+            sessionSource.range(of: "readinessAttendance.isAttended")
         )
         #expect(initialDemandSettlement.lowerBound < visibleReadback.lowerBound)
         #expect(visibleReadback.lowerBound < populationReady.lowerBound)
         #expect(visibleReadback.lowerBound < attendanceLatchAuthority.lowerBound)
-        #expect(attendanceLatchAuthority.lowerBound < currentAttendanceBarrier.lowerBound)
+        #expect(attendanceLatchAuthority.lowerBound < armedAttendanceObservation.lowerBound)
+        #expect(armedAttendanceObservation.lowerBound < currentAttendanceBarrier.lowerBound)
         #expect(currentAttendanceBarrier.lowerBound < populationReady.lowerBound)
+        #expect(sessionSource.contains("windowAttendanceDidChange"))
+        #expect(sessionSource.contains("windowAttendanceEdgeWasObserved"))
         #expect(
             sessionSource.contains(
                 "SidebarPerformanceProofActionTracker.visibleSidebarIsSettled"
