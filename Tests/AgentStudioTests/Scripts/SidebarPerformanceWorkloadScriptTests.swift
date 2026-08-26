@@ -150,10 +150,13 @@ struct SidebarPerformanceWorkloadScriptTests {
 
         #expect(quiescenceSource.contains("monotonic_deadline_ms"))
         #expect(quiescenceSource.contains("monotonic_now_ms"))
+        #expect(quiescenceSource.contains("STRICT_WAIT_MONOTONIC_DEADLINE_MS"))
         #expect(!quiescenceSource.contains("maximum_attempts"))
         #expect(settlementSource.contains("monotonic_deadline_ms"))
         #expect(settlementSource.contains("monotonic_now_ms"))
+        #expect(settlementSource.contains("STRICT_WAIT_MONOTONIC_DEADLINE_MS"))
         #expect(!settlementSource.contains("maximum_attempts"))
+        #expect(source.contains("metric read exceeded strict wait deadline"))
     }
 
     @Test("strict metric observation parser binds values to one requested timestamp")

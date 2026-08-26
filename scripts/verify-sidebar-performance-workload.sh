@@ -1117,7 +1117,8 @@ wait_for_strict_git_physical_settlement() {
   local observation_time vector_json
   while [ "$(monotonic_now_ms)" -lt "$monotonic_deadline_ms" ]; do
     observation_time="$(/usr/bin/python3 -c 'import time; print(f"{time.time():.6f}")')"
-    vector_json="$(strict_sidebar_quiescence_vector_json \
+    vector_json="$(STRICT_WAIT_MONOTONIC_DEADLINE_MS="$monotonic_deadline_ms" \
+      strict_sidebar_quiescence_vector_json \
       "$marker" "$observation_time" 2>/dev/null || true)"
     if [ -n "$vector_json" ] \
       && strict_final_git_settlement_from_json "$vector_json" >/dev/null 2>&1
@@ -1149,6 +1150,11 @@ PY
 metric_value_at_observation() {
   local query="${1:?missing metric query}"
   local observation_time="${2:?missing observation time}"
+  if [ -n "${STRICT_WAIT_MONOTONIC_DEADLINE_MS:-}" ] \
+    && [ "$(monotonic_now_ms)" -ge "$STRICT_WAIT_MONOTONIC_DEADLINE_MS" ]; then
+    echo "metric read exceeded strict wait deadline" >&2
+    return 124
+  fi
   local response
   response="$(query_victoria_metrics "$query" "$observation_time")" || return 1
   /usr/bin/python3 - "$response" "$observation_time" <<'PY'
@@ -1359,7 +1365,8 @@ wait_for_positive_quiescence() {
   while [ "$elapsed_ms" -lt "$STRICT_POLICY_QUIESCENCE_MS" ] \
     && [ "$(monotonic_now_ms)" -lt "$monotonic_deadline_ms" ]; do
     observation_time="$(/usr/bin/python3 -c 'import time; print(f"{time.time():.6f}")')"
-    vector_json="$(strict_sidebar_quiescence_vector_json \
+    vector_json="$(STRICT_WAIT_MONOTONIC_DEADLINE_MS="$monotonic_deadline_ms" \
+      strict_sidebar_quiescence_vector_json \
       "$marker" "$observation_time" 2>/dev/null || true)"
     if [ -n "$vector_json" ]; then
       state="$(strict_quiescence_transition \
