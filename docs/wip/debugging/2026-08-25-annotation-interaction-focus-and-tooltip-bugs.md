@@ -163,8 +163,14 @@ Date: 2026-08-25
       one-by-one, decorative fade-only reveal, and a chunk that simply pops in.
     - Owner preference: the compared B prototype felt better; reproduce that
       exact option before changing the durable animation again.
-    - Status: visual direction selected provisionally; final live acceptance
-      remains.
+    - Current implementation: the Collapsible animates row height over
+      `--motion-fast` (120 ms) while one grouped history container moves a
+      downward mask with zero per-message delay; collapse reverses that mask.
+    - Proof: the owned five-message browser witness asserts one four-message
+      history group, 120 ms height and mask motion, no per-message history
+      wrappers, zero delay, and reverse keyframes. The complete inline-shell
+      geometry/motion suite passes 9/9.
+    - Status: implemented and automatically verified; final owner feel remains.
 
 12. **Thread surface hit area, corners, and breathing room need one anatomy**
     - Clicking the non-interactive thread surface should activate and expand the
@@ -174,8 +180,15 @@ Date: 2026-08-25
     - Settled command-rail spacing: 8 px between controls, 8 px from the edge,
       and 8 px between message content and the control rail. The retained outer
       yellow-background breathing room is 36 px on the right and bottom.
-    - Status: spacing evidence is recorded below; final shared Tailwind/shadcn
-      anatomy and live visual proof remain.
+    - Current implementation: the shared rounded conversation frame owns the
+      active yellow background; standalone placement uses 36 px right/bottom
+      reserve. The message surface uses a 40 px right reserve around a 24 px
+      command rail, while the rail uses 8 px edge offsets and 8 px gaps.
+      Non-control thread-surface click activates and expands.
+    - Proof: owned browser geometry assertions plus the passing 9/9 inline-shell
+      suite.
+    - Status: implemented and automatically verified; final owner visual
+      acceptance remains.
 
 13. **Share output behavior must remain consistent while the toolbar is redesigned**
     - Pending copies/exports every Pending saved revision; All copies/exports
