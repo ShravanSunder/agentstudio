@@ -448,17 +448,17 @@ function bridgeMainReviewDisplayItemsShareRenderIdentity(
 	});
 }
 
-export interface BridgeMainReviewRenderCopyPathReconciliation {
+export interface BridgeMainReviewRenderCopyMetadataReconciliation {
 	readonly changed: boolean;
 	readonly codeViewItemIds: readonly string[];
 	readonly snapshot: MutableBridgeMainRenderSnapshot;
 }
 
-export function reconcileBridgeMainReviewRenderCopyPaths(props: {
+export function reconcileBridgeMainReviewRenderCopyMetadata(props: {
 	readonly currentItemsById: Readonly<Record<string, BridgeWorkerReviewDisplayItem>>;
 	readonly previousItemsById: ReadonlyMap<string, BridgeWorkerReviewDisplayItem>;
 	readonly snapshot: MutableBridgeMainRenderSnapshot;
-}): BridgeMainReviewRenderCopyPathReconciliation {
+}): BridgeMainReviewRenderCopyMetadataReconciliation {
 	let codeViewItemsById: Record<string, BridgeMainCodeViewItem> | null = null;
 	const codeViewItemIds: string[] = [];
 	for (const [itemId, previousDisplayItem] of props.previousItemsById) {
@@ -468,11 +468,11 @@ export function reconcileBridgeMainReviewRenderCopyPaths(props: {
 			currentDisplayItem === undefined ||
 			currentCodeViewItem === undefined ||
 			!bridgeMainReviewDisplayItemsShareRenderIdentity(previousDisplayItem, currentDisplayItem) ||
-			bridgeMainReviewDisplayItemsSharePaths(previousDisplayItem, currentDisplayItem)
+			bridgeMainReviewDisplayItemsShareReconciledMetadata(previousDisplayItem, currentDisplayItem)
 		) {
 			continue;
 		}
-		const reconciledCodeViewItem = bridgeMainReviewCodeViewItemForDisplayPaths({
+		const reconciledCodeViewItem = bridgeMainReviewCodeViewItemForDisplayMetadata({
 			codeViewItem: currentCodeViewItem,
 			displayItem: currentDisplayItem,
 		});
@@ -491,22 +491,18 @@ export function reconcileBridgeMainReviewRenderCopyPaths(props: {
 	};
 }
 
-function bridgeMainReviewDisplayItemsSharePaths(
-	previousItem: BridgeWorkerReviewDisplayItem,
-	currentItem: BridgeWorkerReviewDisplayItem,
-): boolean {
-	return (
-		previousItem.metadata.basePath === currentItem.metadata.basePath &&
-		previousItem.metadata.headPath === currentItem.metadata.headPath
-	);
-}
-
-function bridgeMainReviewCodeViewItemForDisplayPaths(props: {
+function bridgeMainReviewCodeViewItemForDisplayMetadata(props: {
 	readonly codeViewItem: BridgeMainCodeViewItem;
 	readonly displayItem: BridgeWorkerReviewDisplayItem;
 }): BridgeMainCodeViewItem {
 	const metadata = props.displayItem.metadata;
 	const displayPath = metadata.headPath ?? metadata.basePath ?? metadata.itemId;
+	const sourceDescriptorIdsByRole = {
+		base: metadata.contentDescriptorIdsByRole.base ?? null,
+		diff: metadata.contentDescriptorIdsByRole.diff ?? null,
+		file: metadata.contentDescriptorIdsByRole.file ?? null,
+		head: metadata.contentDescriptorIdsByRole.head ?? null,
+	};
 	const nextVersion = (props.codeViewItem.version ?? 0) + 1;
 	if (!Number.isSafeInteger(nextVersion)) {
 		throw new Error('Bridge main Review CodeView item version exhausted its safe integer range.');
@@ -514,10 +510,15 @@ function bridgeMainReviewCodeViewItemForDisplayPaths(props: {
 	const bridgeMetadata = {
 		...props.codeViewItem.bridgeMetadata,
 		displayPath,
+		sourceDescriptorIdsByRole,
 	};
 	if (props.codeViewItem.type === 'file') {
 		if (
 			props.codeViewItem.bridgeMetadata.displayPath === displayPath &&
+			bridgeMainReviewSourceDescriptorIdsMatch(
+				props.codeViewItem.bridgeMetadata.sourceDescriptorIdsByRole,
+				sourceDescriptorIdsByRole,
+			) &&
 			props.codeViewItem.file.name === displayPath
 		) {
 			return props.codeViewItem;
@@ -535,6 +536,10 @@ function bridgeMainReviewCodeViewItemForDisplayPaths(props: {
 			: undefined;
 	if (
 		props.codeViewItem.bridgeMetadata.displayPath === displayPath &&
+		bridgeMainReviewSourceDescriptorIdsMatch(
+			props.codeViewItem.bridgeMetadata.sourceDescriptorIdsByRole,
+			sourceDescriptorIdsByRole,
+		) &&
 		props.codeViewItem.fileDiff.name === displayPath &&
 		(previousPath === undefined || props.codeViewItem.fileDiff.prevName === previousPath)
 	) {
@@ -550,6 +555,34 @@ function bridgeMainReviewCodeViewItemForDisplayPaths(props: {
 		},
 		version: nextVersion,
 	};
+}
+
+function bridgeMainReviewDisplayItemsShareReconciledMetadata(
+	previousItem: BridgeWorkerReviewDisplayItem,
+	currentItem: BridgeWorkerReviewDisplayItem,
+): boolean {
+	const previousDescriptors = previousItem.metadata.contentDescriptorIdsByRole;
+	const currentDescriptors = currentItem.metadata.contentDescriptorIdsByRole;
+	return (
+		previousItem.metadata.basePath === currentItem.metadata.basePath &&
+		previousItem.metadata.headPath === currentItem.metadata.headPath &&
+		(previousDescriptors.base ?? null) === (currentDescriptors.base ?? null) &&
+		(previousDescriptors.diff ?? null) === (currentDescriptors.diff ?? null) &&
+		(previousDescriptors.file ?? null) === (currentDescriptors.file ?? null) &&
+		(previousDescriptors.head ?? null) === (currentDescriptors.head ?? null)
+	);
+}
+
+function bridgeMainReviewSourceDescriptorIdsMatch(
+	current: BridgeMainCodeViewItem['bridgeMetadata']['sourceDescriptorIdsByRole'] | undefined,
+	next: NonNullable<BridgeMainCodeViewItem['bridgeMetadata']['sourceDescriptorIdsByRole']>,
+): boolean {
+	return (
+		(current?.base ?? null) === next.base &&
+		(current?.diff ?? null) === next.diff &&
+		(current?.file ?? null) === next.file &&
+		(current?.head ?? null) === next.head
+	);
 }
 
 function stringArraysEqual(first: readonly string[], second: readonly string[]): boolean {

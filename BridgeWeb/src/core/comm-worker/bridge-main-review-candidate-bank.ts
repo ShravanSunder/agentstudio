@@ -11,7 +11,7 @@ import {
 	applyReviewDisplayPatchEventInPlace,
 	bridgeMainReviewRenderCopyInvalidationItemIds,
 	invalidateBridgeMainReviewRenderCopies,
-	reconcileBridgeMainReviewRenderCopyPaths,
+	reconcileBridgeMainReviewRenderCopyMetadata,
 	type MutableBridgeMainRenderSnapshot,
 } from './bridge-main-review-display-state.js';
 import type {
@@ -130,7 +130,7 @@ export class BridgeMainReviewCandidateBankOwner {
 			}),
 			snapshot: candidate.snapshot,
 		});
-		candidate.snapshot = reconcileBridgeMainReviewRenderCopyPaths({
+		candidate.snapshot = reconcileBridgeMainReviewRenderCopyMetadata({
 			currentItemsById: candidate.snapshot.reviewItemById,
 			previousItemsById: effect.previousItemsById,
 			snapshot: invalidation.snapshot,

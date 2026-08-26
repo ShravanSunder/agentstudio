@@ -602,6 +602,7 @@ describe('Bridge main render snapshot store', () => {
 			],
 			metadata: {
 				...initialCatalogItem.metadata,
+				contentDescriptorIdsByRole: { file: 'descriptor-item-1-a' },
 				contentRoles: ['file'],
 			},
 		};
@@ -627,7 +628,18 @@ describe('Bridge main render snapshot store', () => {
 				},
 			],
 		});
-		const retainedCodeViewItem = makeBridgeMainCodeViewItem('item-1');
+		const retainedCodeViewItem: BridgeMainCodeViewItem = {
+			...makeBridgeMainCodeViewItem('item-1'),
+			bridgeMetadata: {
+				...makeBridgeMainCodeViewItem('item-1').bridgeMetadata,
+				sourceDescriptorIdsByRole: {
+					base: null,
+					diff: null,
+					file: 'descriptor-item-1-a',
+					head: null,
+				},
+			},
+		};
 		const removedCodeViewItem = makeBridgeMainCodeViewItem('item-removed');
 		const retainedRowPaint = {
 			contentCacheKey: 'pierre-content:item-1',
@@ -716,6 +728,41 @@ describe('Bridge main render snapshot store', () => {
 		expect(snapshot.contentAvailabilityById['item-removed']).toBeUndefined();
 		expect(snapshot.rowPaintById['item-removed']).toBeUndefined();
 
+		// Act: identical content retained under a successor descriptor must carry successor
+		// source authority before a newly opened annotation composer captures its origin.
+		const successorDescriptorCatalogItem: BridgeWorkerReviewDisplayItem = {
+			...retainedCatalogItem,
+			metadata: {
+				...retainedCatalogItem.metadata,
+				contentDescriptorIdsByRole: { file: 'descriptor-item-1-b' },
+			},
+			metadataWindowIdentity: 'metadata-window-item-1-successor-r13',
+		};
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				{
+					...initialItemPatch,
+					payload: {
+						...initialItemPatch.payload,
+						items: [successorDescriptorCatalogItem, addedCatalogItem],
+					},
+				},
+			],
+			projectionRevision: initialEvent.projectionRevision + 2,
+			sequence: initialEvent.sequence + 2,
+		});
+
+		// Assert
+		const successorDescriptorCodeViewItem = store.getSnapshot().codeViewItemsById['item-1'];
+		expect(successorDescriptorCodeViewItem).not.toBe(retainedCodeViewItem);
+		expect(successorDescriptorCodeViewItem?.bridgeMetadata.sourceDescriptorIdsByRole).toEqual({
+			base: null,
+			diff: null,
+			file: 'descriptor-item-1-b',
+			head: null,
+		});
+
 		// Act: unchanged complete content is retained while its same-epoch display path changes.
 		const renamedRetainedCatalogItem: BridgeWorkerReviewDisplayItem = {
 			...retainedCatalogItem,
@@ -737,8 +784,8 @@ describe('Bridge main render snapshot store', () => {
 					},
 				},
 			],
-			projectionRevision: initialEvent.projectionRevision + 2,
-			sequence: initialEvent.sequence + 2,
+			projectionRevision: initialEvent.projectionRevision + 3,
+			sequence: initialEvent.sequence + 3,
 		});
 
 		// Assert
@@ -778,8 +825,8 @@ describe('Bridge main render snapshot store', () => {
 					},
 				},
 			],
-			projectionRevision: initialEvent.projectionRevision + 3,
-			sequence: initialEvent.sequence + 3,
+			projectionRevision: initialEvent.projectionRevision + 4,
+			sequence: initialEvent.sequence + 4,
 		});
 
 		// Assert

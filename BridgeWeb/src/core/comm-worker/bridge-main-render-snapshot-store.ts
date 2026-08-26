@@ -20,7 +20,7 @@ import {
 	emptyBridgeMainReviewDisplayState,
 	invalidateBridgeMainReviewRenderCopies,
 	readBridgeMainReviewCatalogChangesAfter,
-	reconcileBridgeMainReviewRenderCopyPaths,
+	reconcileBridgeMainReviewRenderCopyMetadata,
 	type MutableBridgeMainRenderSnapshot,
 } from './bridge-main-review-display-state.js';
 import type {
@@ -643,12 +643,12 @@ export function createBridgeMainRenderSnapshotStore(
 				}),
 				snapshot,
 			});
-			const renderCopyPathReconciliation = reconcileBridgeMainReviewRenderCopyPaths({
+			const renderCopyMetadataReconciliation = reconcileBridgeMainReviewRenderCopyMetadata({
 				currentItemsById: snapshot.reviewItemById,
 				previousItemsById: effect.previousItemsById,
 				snapshot: renderCopyInvalidation.snapshot,
 			});
-			snapshot = renderCopyPathReconciliation.snapshot;
+			snapshot = renderCopyMetadataReconciliation.snapshot;
 			reviewCatalogChangeCursor += 1;
 			const catalogChange: BridgeMainReviewCatalogChange = {
 				cursor: reviewCatalogChangeCursor,
@@ -676,7 +676,7 @@ export function createBridgeMainRenderSnapshotStore(
 				shouldPublishInitialRootSnapshot ||
 				effect.comparisonChanged ||
 				renderCopyInvalidation.changed ||
-				renderCopyPathReconciliation.changed
+				renderCopyMetadataReconciliation.changed
 			) {
 				publish({ ...snapshot });
 			}
@@ -692,7 +692,7 @@ export function createBridgeMainRenderSnapshotStore(
 			for (const itemId of renderCopyInvalidation.codeViewItemIds) {
 				reviewCodeViewItemListeners.publish(itemId);
 			}
-			for (const itemId of renderCopyPathReconciliation.codeViewItemIds) {
+			for (const itemId of renderCopyMetadataReconciliation.codeViewItemIds) {
 				reviewCodeViewItemListeners.publish(itemId);
 			}
 			publishBridgeMainListeners(reviewCatalogListeners);
