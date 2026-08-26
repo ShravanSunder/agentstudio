@@ -903,7 +903,7 @@ required = (
     "forge_pending_future", "forge_pending_ready", "forge_pending_capacity",
     "forge_pending_active_follow_up", "forge_pending_unclassified",
     "forge_overdue_deadline", "forge_next_deadline_ms", "forge_physical_limit",
-    "git_maximum_settlement_ms", "export_backlog",
+    "git_maximum_settlement_ms", "export_backlog", "proof_failure_count",
 )
 clock_relative_fields = {
     "git_oldest_preparation_ms",
@@ -940,6 +940,8 @@ for name in required:
         normalized.append(f"{name}={value:g}")
 if float(vector["git_overdue_deadline_count"]) != 0:
     raise SystemExit("quiescence Git deadline is overdue")
+if float(vector["proof_failure_count"]) != 0:
+    raise SystemExit("quiescence native proof has failed")
 if float(vector["git_ready_pending_count"]) != 0:
     raise SystemExit("quiescence Git ready work remains pending")
 if float(vector["git_capacity_pending_count"]) != 0:
@@ -1224,7 +1226,8 @@ source_settlement_metric_value_at_observation() {
 strict_sidebar_quiescence_vector_json() {
   local marker="${1:?missing marker}"
   local observation_time="${2:?missing observation time}"
-  local marker_selector capture execution publication binding visible_update git_logical_debt
+  local marker_selector capture execution publication binding visible_update proof_failure_count
+  local git_logical_debt
   local git_future_automatic_count git_future_failure_count git_ready_pending_count
   local git_capacity_pending_count git_active_follow_up_count git_unclassified_pending_count
   local git_overdue_deadline_count git_running_count git_oldest_preparation_ms git_next_deadline_ms
@@ -1251,6 +1254,9 @@ strict_sidebar_quiescence_vector_json() {
     "$observation_time")"
   visible_update="$(metric_value_at_observation \
     "sum(agentstudio_performance_events_total{agent.proof.marker=\"$marker_selector\",event=\"performance.repo_explorer.stage_snapshot\",stage=\"materialize\",outcome=\"materialized\"})" \
+    "$observation_time")"
+  proof_failure_count="$(metric_value_at_observation \
+    "sum(agentstudio_performance_events_total{agent.proof.marker=\"$marker_selector\",event=\"performance.sidebar.proof_action.failed\"}) or vector(0)" \
     "$observation_time")"
   git_logical_debt="$(metric_value_at_observation \
     "max(agentstudio_performance_git_logical_debt_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
@@ -1347,7 +1353,7 @@ strict_sidebar_quiescence_vector_json() {
     "$forge_pending_ready" "$forge_pending_capacity" "$forge_pending_active_follow_up" \
     "$forge_pending_unclassified" "$forge_overdue_deadline" "$forge_next_deadline_ms" \
     "$STRICT_POLICY_FORGE_PHYSICAL_LIMIT" "$STRICT_POLICY_GIT_MAXIMUM_SETTLEMENT_MS" \
-    "$export_backlog" "$observation_time" "$export_sample_time" \
+    "$export_backlog" "$proof_failure_count" "$observation_time" "$export_sample_time" \
     "$remote_sample_time" "$forge_sample_time" <<'PY'
 import json
 import sys
@@ -1365,7 +1371,7 @@ names = (
     "forge_pending_future", "forge_pending_ready", "forge_pending_capacity",
     "forge_pending_active_follow_up", "forge_pending_unclassified", "forge_overdue_deadline",
     "forge_next_deadline_ms", "forge_physical_limit", "git_maximum_settlement_ms",
-    "export_backlog", "observation_time", "export_sample_time", "remote_sample_time",
+    "export_backlog", "proof_failure_count", "observation_time", "export_sample_time", "remote_sample_time",
     "forge_sample_time",
 )
 print(json.dumps(dict(zip(names, sys.argv[1:]))))

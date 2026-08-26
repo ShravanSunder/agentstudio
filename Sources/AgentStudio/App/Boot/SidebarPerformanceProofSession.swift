@@ -437,7 +437,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 }
                 group.addTask { [delay] in
                     do {
-                        try await delay.wait(AppPolicies.SidebarPerformanceProof.actionReadbackTimeout)
+                        try await delay.wait(AppPolicies.SidebarPerformanceProof.fixturePreparationTimeout)
                     } catch {}
                     return false
                 }

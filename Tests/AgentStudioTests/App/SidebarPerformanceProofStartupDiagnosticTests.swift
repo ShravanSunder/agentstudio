@@ -299,6 +299,20 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                 "SidebarPerformanceProofActionTracker.visibleSidebarIsSettled"
             )
         )
+        let initialVisibleWaitStart = try #require(
+            sessionSource.range(of: "private func waitForInitialVisibleReadback()")
+        )
+        let initialVisibleWaitEnd = try #require(
+            sessionSource.range(
+                of: "private func observeShellState()",
+                range: initialVisibleWaitStart.upperBound..<sessionSource.endIndex
+            )
+        )
+        let initialVisibleWait = sessionSource[
+            initialVisibleWaitStart.lowerBound..<initialVisibleWaitEnd.lowerBound
+        ]
+        #expect(initialVisibleWait.contains("fixturePreparationTimeout"))
+        #expect(!initialVisibleWait.contains("actionReadbackTimeout"))
         #expect(sessionSource.contains("await settleRepositoryFactDemandAdmission()"))
         #expect(!sessionSource.contains("socket"))
         #expect(!sessionSource.contains("FIFO"))
