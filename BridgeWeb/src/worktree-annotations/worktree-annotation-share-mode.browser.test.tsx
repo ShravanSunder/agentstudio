@@ -47,6 +47,21 @@ describe('worktree annotation Share comments presentation', () => {
 		);
 		const shareMode = rendered.getByRole('region', { name: 'Share comments' });
 		await expect.element(shareMode).toBeVisible();
+		expect(shareMode.element().textContent).toContain('Share');
+		expect(shareMode.element().textContent).not.toContain('Share comments');
+		expect(shareMode.element().textContent).toContain('Copy');
+		expect(shareMode.element().textContent).not.toContain('Copy Markdown');
+		expect(shareMode.element().textContent).toContain('Export');
+		expect(shareMode.element().textContent).not.toContain('Export JSON');
+		expect(shareMode.element().querySelector('.lucide-share-2')).not.toBeNull();
+		expect(shareMode.element().querySelector('.lucide-copy')).not.toBeNull();
+		expect(
+			rendered.getByRole('button', { name: 'Export JSON' }).element().querySelector('svg'),
+		).not.toBeNull();
+		expect(shareMode.element().querySelector('.lucide-x')).not.toBeNull();
+		await expect
+			.element(rendered.getByRole('button', { name: 'Close Share comments' }))
+			.toBeVisible();
 		await expect
 			.element(rendered.getByRole('button', { name: 'Pending comments, 4' }))
 			.toHaveAttribute('aria-pressed', 'true');
@@ -89,7 +104,9 @@ describe('worktree annotation Share comments presentation', () => {
 		);
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
 		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
-		await performBrowserAction(() => rendered.getByRole('button', { name: 'Done' }).click());
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Close Share comments' }).click(),
+		);
 		await expect
 			.element(rendered.getByRole('region', { name: 'Share comments' }))
 			.not.toBeInTheDocument();

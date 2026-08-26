@@ -98,17 +98,22 @@ Date: 2026-08-25
      with History collapsed and expanded. Live Chrome pointer Copy succeeded
      for two comments, and durable-history undo restored both to Pending.
 
-7. **Share command toolbar redesign is incomplete**
-   - Actual: the temporary Share row now matches the loading status surface and
-     no longer renders `Other saved comments`, but it still repeats the long
-     `Share comments` title and uses text-only `Copy Markdown`, `Export JSON`,
-     and `Done` actions.
+7. **Share command toolbar redesign**
+   - Previous actual: the temporary Share row matched the loading status
+     surface but repeated the long `Share comments` title and used text-only
+     `Copy Markdown`, `Export JSON`, and `Done` actions.
    - Expected: a compact left `Share2 + Share` identity, mixed icon plus short
      labels for Copy and Export, icon-only Close, and the agreed Pending/All
      semantic color treatment.
    - Evidence: live Vite Review screenshot after commit `f3bec167c`.
-   - Status: partial. Surface color and removal of the ad-hoc unavailable-comment
-     block are committed; iconography, labels, hierarchy, and shortcuts remain.
+   - Fix: the row now uses `Share2 + Share`, neutral Pending/All chrome with an
+     amber Pending status dot, tinted Copy with a Copy icon, Export with a
+     File-JSON icon, and icon-only Close. Precise action meaning remains in
+     accessibility names and shared anchored tooltips. `Other saved comments`
+     remains absent.
+   - Proof: 15/15 focused browser tests across the isolated Share control and
+     integrated File/Review surfaces, plus generated visual inspection.
+   - Status: visual redesign fixed. Additional keyboard bindings remain item 10.
 
 8. **The live Vite journey opened the wrong comparison base**
    - Actual: `scenario=current-worktree` opened with target `HEAD`, so Review

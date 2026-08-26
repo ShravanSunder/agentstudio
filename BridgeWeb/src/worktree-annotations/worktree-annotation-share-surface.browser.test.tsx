@@ -66,8 +66,8 @@ describe('worktree annotation Share comments integrated surface', () => {
 			rendered.getByRole('button', { name: 'Share comments' }).click(),
 		);
 		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
-		await expect.element(rendered.getByText('Pending (—)')).toBeVisible();
-		await expect.element(rendered.getByText('All (—)')).toBeVisible();
+		await expect.element(rendered.getByText('Pending —')).toBeVisible();
+		await expect.element(rendered.getByText('All —')).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
 		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
 	});
