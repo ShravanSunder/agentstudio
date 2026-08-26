@@ -9,6 +9,77 @@ import Testing
 @MainActor
 @Suite("Sidebar performance proof startup diagnostics", .serialized)
 struct SidebarPerformanceProofStartupDiagnosticTests {
+    @Test("idle proof latches every attendance lapse after population readiness")
+    func idleProofRejectsEveryPostReadyAttendanceLapse() async throws {
+        let unattendedCases: [(String, SidebarPerformanceProofWindowAttendance)] = [
+            ("inactive", makeWindowAttendance(applicationIsActive: false)),
+            ("hidden", makeWindowAttendance(applicationIsHidden: true)),
+            ("invisible", makeWindowAttendance(windowIsVisible: false)),
+            ("non_key", makeWindowAttendance(windowIsKey: false)),
+            ("miniaturized", makeWindowAttendance(windowIsMiniaturized: true)),
+            ("off_active_space", makeWindowAttendance(windowIsOnActiveSpace: false)),
+            ("occluded", makeWindowAttendance(windowOcclusionIsVisible: false)),
+        ]
+
+        for (caseName, unattended) in unattendedCases {
+            let traceDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sidebar-idle-attendance-tests", isDirectory: true)
+                .appendingPathComponent(UUIDv7.generate().uuidString, isDirectory: true)
+            let traceRuntime = AgentStudioTraceRuntime(
+                configuration: AgentStudioTraceConfiguration.from(environment: [
+                    "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                    "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                    "AGENTSTUDIO_TRACE_TAGS": "app.startup",
+                ]),
+                processIdentifier: 921,
+                timeUnixNano: { 909 }
+            )
+            let recorder = AgentStudioStartupTraceRecorder(traceRuntime: traceRuntime)
+            let performanceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: nil)
+            let attendedReadback = makeReadback(
+                semanticGeneration: 7,
+                acknowledgedRevision: 11,
+                visibleGeneration: 13,
+                groupingMode: .repo,
+                nativeGroupingMode: .repo
+            )
+            let session = SidebarPerformanceProofSession(
+                population: .zeroPTYIdle,
+                window: NSWindow(),
+                recorder: recorder,
+                performanceRecorder: performanceRecorder,
+                readAttendance: { self.makeWindowAttendance() },
+                readShell: { attendedReadback.shell }
+            )
+            session.receive(attendedReadback.repoExplorer)
+
+            let becameReady = await session.run()
+            #expect(becameReady, Comment(rawValue: caseName))
+            session.acceptWindowAttendance(unattended)
+            #expect(!session.completeIdlePopulationForTermination(), Comment(rawValue: caseName))
+
+            try await recorder.drain()
+            let outputFileURL = try #require(traceRuntime.outputFileURL)
+            let traceContents = try String(contentsOf: outputFileURL, encoding: .utf8)
+            #expect(
+                traceContents.contains("performance.sidebar.proof_population.ready"),
+                Comment(rawValue: caseName)
+            )
+            #expect(
+                traceContents.contains("performance.sidebar.proof_action.failed"),
+                Comment(rawValue: caseName)
+            )
+            #expect(
+                traceContents.contains("window_attendance_lost"),
+                Comment(rawValue: caseName)
+            )
+            #expect(
+                !traceContents.contains("performance.sidebar.proof_population.completed"),
+                Comment(rawValue: caseName)
+            )
+        }
+    }
+
     @Test("strict window attendance distinguishes attended timeout and cancellation")
     func strictWindowAttendanceDispositionIsFailClosed() {
         let attended = makeWindowAttendance()
@@ -355,14 +426,16 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         let populationReady = try #require(
             sessionSource.range(of: "performance.sidebar.proof_population.ready")
         )
+        let attendanceLatchAuthority = try #require(
+            sessionSource.range(of: "didEnterReadyPopulation = true")
+        )
         let currentAttendanceBarrier = try #require(
-            sessionSource.range(
-                of: "guard SidebarPerformanceProofWindowAttendance.capture(window: window).isAttended"
-            )
+            sessionSource.range(of: "acceptWindowAttendance(readAttendance())")
         )
         #expect(initialDemandSettlement.lowerBound < visibleReadback.lowerBound)
         #expect(visibleReadback.lowerBound < populationReady.lowerBound)
-        #expect(visibleReadback.lowerBound < currentAttendanceBarrier.lowerBound)
+        #expect(visibleReadback.lowerBound < attendanceLatchAuthority.lowerBound)
+        #expect(attendanceLatchAuthority.lowerBound < currentAttendanceBarrier.lowerBound)
         #expect(currentAttendanceBarrier.lowerBound < populationReady.lowerBound)
         #expect(
             sessionSource.contains(
@@ -396,6 +469,8 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(sessionSource.contains("window_on_active_space"))
         #expect(sessionSource.contains("window_occlusion_visible"))
         #expect(sessionSource.contains("native_row_count"))
+        #expect(sessionSource.contains("retainsObservationAfterRun = true"))
+        #expect(sessionSource.contains("firstUnattendedReadback == nil"))
         #expect(sessionSource.contains("await settleRepositoryFactDemandAdmission()"))
         #expect(!sessionSource.contains("socket"))
         #expect(!sessionSource.contains("FIFO"))
@@ -522,6 +597,9 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(idempotentSidebarExpansion.lowerBound < sessionRun.lowerBound)
         #expect(foregroundActivation.lowerBound < sessionRun.lowerBound)
         #expect(source.contains("window.makeKeyAndOrderFront(nil)"))
+        #expect(source.contains("_ = appLifecycleStore.isActive"))
+        #expect(source.contains("windowLifecycleStore.preferredWorkspaceWindowId"))
+        #expect(source.contains("windowLifecycleStore.presentationFacts(for: preferredWindowID)"))
         #expect(!source.contains("AppCommandDispatcher.shared.dispatch(.showWorktreeSidebar)"))
         #expect(source.contains("await commands.refreshWatchedFolders"))
         for attribute in [

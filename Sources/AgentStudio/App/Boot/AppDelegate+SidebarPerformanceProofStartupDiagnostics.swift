@@ -145,6 +145,10 @@ import AppKit
                     await workspaceSurfaceCoordinator?
                         .settleRepositoryFactDemandAdmissionForPerformanceProof()
                 },
+                readAttendance: { [weak self] in
+                    self?.readStrictSidebarWindowAttendance(window: window)
+                        ?? SidebarPerformanceProofWindowAttendance.capture(window: window)
+                },
                 readShell: { [weak mainWindowController] in
                     mainWindowController?.sidebarPerformanceProofShellReadback()
                 }
@@ -213,6 +217,17 @@ import AppKit
                 action: action,
                 outcome: succeeded ? "succeeded" : "failed"
             )
+        }
+
+        private func readStrictSidebarWindowAttendance(
+            window: NSWindow
+        ) -> SidebarPerformanceProofWindowAttendance {
+            _ = appLifecycleStore.isActive
+            _ = windowLifecycleStore.keyWindowId
+            if let preferredWindowID = windowLifecycleStore.preferredWorkspaceWindowId {
+                _ = windowLifecycleStore.presentationFacts(for: preferredWindowID)
+            }
+            return SidebarPerformanceProofWindowAttendance.capture(window: window)
         }
 
         private func waitForStrictSidebarWindowAttendance(
