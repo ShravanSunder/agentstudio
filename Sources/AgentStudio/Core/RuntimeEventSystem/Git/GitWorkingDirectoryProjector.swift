@@ -54,6 +54,7 @@ package actor GitWorkingDirectoryProjector {
     var pendingByWorktreeId: [UUID: FileChangeset] = [:]
     var refreshAttribution = GitRefreshAttributionState()
     var capacityRetryWorktreeIds: Set<UUID> = []
+    var capacityRetryReasonByWorktreeId: [UUID: GitWorkingTreeStatusUnavailableReason] = [:]
     var capacityFallbackDeadlineByWorktreeId: [UUID: Duration] = [:]
     var suppressedWorktreeIds: Set<UUID> = []
     private var suppressedWorktreeOrder: [UUID] = []
@@ -216,6 +217,7 @@ package actor GitWorkingDirectoryProjector {
         }
         flushAggregatePerformanceSnapshot()
         capacityRetryWorktreeIds.removeAll(keepingCapacity: false)
+        capacityRetryReasonByWorktreeId.removeAll(keepingCapacity: false)
         capacityFallbackDeadlineByWorktreeId.removeAll(keepingCapacity: false)
         statusBackoffFailureCountByWorktreeId.removeAll(keepingCapacity: false)
         openStatusBackoffWorktreeIds.removeAll(keepingCapacity: false)
@@ -479,6 +481,7 @@ package actor GitWorkingDirectoryProjector {
         timestamp: ContinuousClock.Instant
     ) {
         let previousContext = registeredContext(for: worktreeId)
+        var endedGlobalCapacityPause = false
         guard previousContext != context else {
             removeSuppressedWorktree(worktreeId)
             return
@@ -495,13 +498,13 @@ package actor GitWorkingDirectoryProjector {
             lastAutomaticCompletionAtByWorktreeId.removeValue(forKey: worktreeId)
             lastAutomaticDutyByWorktreeId.removeValue(forKey: worktreeId)
             consecutiveStatusFailureCountByWorktreeId.removeValue(forKey: worktreeId)
-            clearCapacityRetryState(worktreeId: worktreeId)
+            worktreeTasks.removeValue(forKey: worktreeId)?.cancel()
+            worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
+            endedGlobalCapacityPause = clearCapacityRetryState(worktreeId: worktreeId)
             clearStatusBackoffState(worktreeId: worktreeId)
             clearQuarantineState(worktreeId: worktreeId)
             clearValidatedRootPath(worktreeId: worktreeId)
             resetAdaptiveCadence(worktreeId: worktreeId)
-            worktreeTasks.removeValue(forKey: worktreeId)?.cancel()
-            worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
             immediateRefreshWorktreeIds.remove(worktreeId)
             coalescingWorktreeIds.remove(worktreeId)
         }
@@ -526,6 +529,9 @@ package actor GitWorkingDirectoryProjector {
             missingBaseline: true,
             allowsPromptMissingBaseline: demandTier(for: worktreeId) != .background
         )
+        if endedGlobalCapacityPause {
+            admitPendingWorktrees()
+        }
     }
 
     private func applyUnregistration(worktreeId: UUID, repoId: UUID) {
@@ -557,7 +563,6 @@ package actor GitWorkingDirectoryProjector {
         lastAutomaticCompletionAtByWorktreeId.removeValue(forKey: worktreeId)
         lastAutomaticDutyByWorktreeId.removeValue(forKey: worktreeId)
         consecutiveStatusFailureCountByWorktreeId.removeValue(forKey: worktreeId)
-        clearCapacityRetryState(worktreeId: worktreeId)
         clearStatusBackoffState(worktreeId: worktreeId)
         clearQuarantineState(worktreeId: worktreeId)
         clearValidatedRootPath(worktreeId: worktreeId)
@@ -572,6 +577,10 @@ package actor GitWorkingDirectoryProjector {
             task.cancel()
         }
         worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
+        let endedGlobalCapacityPause = clearCapacityRetryState(worktreeId: worktreeId)
+        if endedGlobalCapacityPause {
+            admitPendingWorktrees()
+        }
         rescheduleDeadlineTask()
         recordLogicalDebtSnapshotIfChanged()
     }
@@ -748,6 +757,7 @@ package actor GitWorkingDirectoryProjector {
             admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
             scheduleCapacityRetry(
                 for: changeset,
+                reason: unavailable.reason,
                 afterPhysicalCompletionGeneration: physicalCompletionGeneration
             )
             return

@@ -36,7 +36,7 @@ extension GitWorkingDirectoryProjector {
 
     func admitPendingWorktrees() {
         guard !isShuttingDown else { return }
-        guard capacityRetryWorktreeIds.isEmpty else { return }
+        guard !hasGlobalCapacityRetryPause else { return }
         let availableSlots = refreshPolicy.maxConcurrentStatusComputes - worktreeTasks.count
         guard availableSlots > 0 else { return }
 

@@ -7,6 +7,10 @@ import Foundation
 /// into one deferred refresh at expiry. Split from the projector actor body
 /// to keep it under the type/file length caps.
 extension GitWorkingDirectoryProjector {
+    var hasGlobalCapacityRetryPause: Bool {
+        capacityRetryReasonByWorktreeId.values.contains(.readCapacityExceeded)
+    }
+
     func deferChangesetIfStatusBackoffOpen(_ changeset: FileChangeset) -> Bool {
         guard openStatusBackoffWorktreeIds.contains(changeset.worktreeId) else { return false }
         coalesceDeferredStatusBackoffChangeset(changeset)
@@ -97,11 +101,14 @@ extension GitWorkingDirectoryProjector {
 
     func scheduleCapacityRetry(
         for changeset: FileChangeset,
+        reason: GitWorkingTreeStatusUnavailableReason,
         afterPhysicalCompletionGeneration completionGeneration: UInt64?
     ) {
         guard !isShuttingDown else { return }
+        guard reason == .readCapacityExceeded || reason == .readAlreadyInFlight else { return }
         let worktreeId = changeset.worktreeId
         capacityRetryWorktreeIds.insert(worktreeId)
+        capacityRetryReasonByWorktreeId[worktreeId] = reason
         coalesceCapacityRetryChangeset(changeset)
         refreshAttribution.triggerSourceByWorktreeId[worktreeId] = .retry
         if refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] == "explicit" {
@@ -135,6 +142,7 @@ extension GitWorkingDirectoryProjector {
         capacityCompletionTask = nil
         let deferredWorktreeIds = capacityRetryWorktreeIds
         capacityRetryWorktreeIds.removeAll(keepingCapacity: true)
+        capacityRetryReasonByWorktreeId.removeAll(keepingCapacity: true)
         for worktreeId in deferredWorktreeIds {
             capacityFallbackDeadlineByWorktreeId.removeValue(forKey: worktreeId)
         }
@@ -145,6 +153,7 @@ extension GitWorkingDirectoryProjector {
     func expireCapacityRetry(worktreeId: UUID) {
         capacityFallbackDeadlineByWorktreeId.removeValue(forKey: worktreeId)
         guard capacityRetryWorktreeIds.remove(worktreeId) != nil else { return }
+        capacityRetryReasonByWorktreeId.removeValue(forKey: worktreeId)
         guard !isShuttingDown else {
             pendingByWorktreeId.removeValue(forKey: worktreeId)
             return
@@ -162,14 +171,18 @@ extension GitWorkingDirectoryProjector {
         rescheduleDeadlineTask()
     }
 
-    func clearCapacityRetryState(worktreeId: UUID) {
+    @discardableResult
+    func clearCapacityRetryState(worktreeId: UUID) -> Bool {
+        let hadGlobalCapacityRetryPause = hasGlobalCapacityRetryPause
         capacityRetryWorktreeIds.remove(worktreeId)
+        capacityRetryReasonByWorktreeId.removeValue(forKey: worktreeId)
         capacityFallbackDeadlineByWorktreeId.removeValue(forKey: worktreeId)
         if capacityRetryWorktreeIds.isEmpty {
             capacityCompletionTask?.cancel()
             capacityCompletionTask = nil
         }
         rescheduleDeadlineTask()
+        return hadGlobalCapacityRetryPause && !hasGlobalCapacityRetryPause
     }
 
     private func coalesceCapacityRetryChangeset(_ changeset: FileChangeset) {

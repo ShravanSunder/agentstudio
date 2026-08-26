@@ -8,6 +8,226 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector admission")
 struct GitWorkingDirectoryProjectorAdmissionTests {
+    @Test("same-root contention does not pause admission for a distinct active root")
+    func sameRootContentionDoesNotPauseDistinctActiveRoot() async {
+        let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 4)
+        let blockingReadStarted = AdmissionAsyncReceipt()
+        let blockingReadGate = AdmissionAsyncGate()
+        let statusSnapshot = admissionCompleteStatusSnapshot()
+        let contendedWorktreeId = UUIDv7.generate()
+        let activeWorktreeId = UUIDv7.generate()
+        let contendedRootPath = URL(fileURLWithPath: "/tmp/admission-same-root-\(contendedWorktreeId)")
+        let activeRootPath = URL(fileURLWithPath: "/tmp/admission-distinct-active-\(activeWorktreeId)")
+        let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
+        ) { _, _ in
+            await blockingReadStarted.signal()
+            await blockingReadGate.waitUntilOpen()
+            return statusSnapshot
+        }
+        let projectorStatusCalls = StatusCallRecorder()
+        let projectorProvider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
+        ) { rootPath, _ in
+            await projectorStatusCalls.record(rootPath)
+            return statusSnapshot
+        }
+        let pathProbe = RootPathProbeRecorder()
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: projectorProvider,
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy(
+                maxConcurrentStatusComputes: 2,
+                activePaneMaxConcurrent: 1,
+                openPaneMaxConcurrent: 1
+            ),
+            pathExistenceProbe: { rootPath in
+                pathProbe.recordExistence(rootPath)
+            }
+        )
+
+        let blockingRead = Task {
+            await blockingProvider.statusResult(for: contendedRootPath)
+        }
+        await blockingReadStarted.wait()
+
+        await actor.setActivity(worktreeId: contendedWorktreeId, isActiveInApp: true)
+        await actor.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: 1,
+                contextsByWorktreeId: [
+                    contendedWorktreeId: WorktreeFilesystemContext(
+                        repoId: contendedWorktreeId,
+                        rootPath: contendedRootPath
+                    )
+                ]
+            )
+        )
+        #expect(
+            await admissionWaitUntil {
+                await actor.capacityRetryWorktreeIds == Set([contendedWorktreeId])
+            }
+        )
+        #expect(
+            await actor.capacityRetryReasonByWorktreeId[contendedWorktreeId]
+                == .readAlreadyInFlight
+        )
+
+        await actor.setActivePaneWorktree(worktreeId: activeWorktreeId)
+        await actor.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: 2,
+                contextsByWorktreeId: [
+                    contendedWorktreeId: WorktreeFilesystemContext(
+                        repoId: contendedWorktreeId,
+                        rootPath: contendedRootPath
+                    ),
+                    activeWorktreeId: WorktreeFilesystemContext(
+                        repoId: activeWorktreeId,
+                        rootPath: activeRootPath
+                    ),
+                ]
+            )
+        )
+
+        #expect(
+            await admissionWaitUntil {
+                await projectorStatusCalls.rootPaths == [activeRootPath]
+            }
+        )
+        #expect(await actor.capacityRetryWorktreeIds == Set([contendedWorktreeId]))
+        #expect(pathProbe.recordedRootPaths.filter { $0 == contendedRootPath }.count == 1)
+
+        await blockingReadGate.open()
+        _ = await blockingRead.value
+        #expect(
+            await admissionWaitUntil {
+                await actor.lastAcceptedStatusAtByWorktreeId.count == 2
+            }
+        )
+        #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
+        let recordedStatusRootPaths = await projectorStatusCalls.rootPaths
+        #expect(Set(recordedStatusRootPaths) == Set([contendedRootPath, activeRootPath]))
+        #expect(pathProbe.recordedRootPaths.count == 2)
+        #expect(Set(pathProbe.recordedRootPaths) == Set([contendedRootPath, activeRootPath]))
+
+        await actor.shutdown()
+    }
+
+    @Test("removing the final capacity pause owner re-admits unrelated pending work")
+    func removingFinalCapacityPauseOwnerReadmitsPendingWork() async {
+        let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
+        let blockingReadStarted = AdmissionAsyncReceipt()
+        let blockingReadGate = AdmissionAsyncGate()
+        let statusSnapshot = admissionCompleteStatusSnapshot()
+        let capacityWorktreeId = UUIDv7.generate()
+        let pendingWorktreeId = UUIDv7.generate()
+        let blockerRootPath = URL(fileURLWithPath: "/tmp/admission-capacity-owner-blocker-\(UUIDv7.generate())")
+        let capacityRootPath = URL(fileURLWithPath: "/tmp/admission-capacity-owner-\(capacityWorktreeId)")
+        let pendingRootPath = URL(fileURLWithPath: "/tmp/admission-capacity-pending-\(pendingWorktreeId)")
+        let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
+        ) { _, _ in
+            await blockingReadStarted.signal()
+            await blockingReadGate.waitUntilOpen()
+            return statusSnapshot
+        }
+        let projectorStatusCalls = StatusCallRecorder()
+        let projectorProvider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
+        ) { rootPath, _ in
+            await projectorStatusCalls.record(rootPath)
+            return statusSnapshot
+        }
+        let pathProbe = RootPathProbeRecorder()
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: projectorProvider,
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy(
+                maxConcurrentStatusComputes: 1,
+                activePaneMaxConcurrent: 1,
+                openPaneMaxConcurrent: 1
+            ),
+            pathExistenceProbe: { rootPath in
+                pathProbe.recordExistence(rootPath)
+            }
+        )
+
+        let blockingRead = Task {
+            await blockingProvider.statusResult(for: blockerRootPath)
+        }
+        await blockingReadStarted.wait()
+
+        await actor.setActivity(worktreeId: capacityWorktreeId, isActiveInApp: true)
+        await actor.assertTopology(
+            admissionTopologyAssertion(
+                generation: 1,
+                rootPathsByWorktreeId: [capacityWorktreeId: capacityRootPath]
+            )
+        )
+        #expect(
+            await admissionWaitUntil {
+                await actor.capacityRetryWorktreeIds == Set([capacityWorktreeId])
+            }
+        )
+        let capacityRetryReason = await actor.capacityRetryReasonByWorktreeId[capacityWorktreeId]
+        #expect(capacityRetryReason == .readCapacityExceeded)
+
+        await actor.setActivePaneWorktree(worktreeId: pendingWorktreeId)
+        await actor.assertTopology(
+            admissionTopologyAssertion(
+                generation: 2,
+                rootPathsByWorktreeId: [
+                    capacityWorktreeId: capacityRootPath,
+                    pendingWorktreeId: pendingRootPath,
+                ]
+            )
+        )
+        await actor.enqueueImmediateRefreshIfRegistered(
+            worktreeId: pendingWorktreeId,
+            isExplicit: true
+        )
+        #expect(await actor.pendingByWorktreeId[pendingWorktreeId] != nil)
+
+        await actor.assertTopology(
+            admissionTopologyAssertion(
+                generation: 3,
+                rootPathsByWorktreeId: [pendingWorktreeId: pendingRootPath]
+            )
+        )
+
+        #expect(
+            await admissionWaitUntil {
+                await actor.capacityRetryWorktreeIds == Set([pendingWorktreeId])
+            }
+        )
+        let pendingRetryReason = await actor.capacityRetryReasonByWorktreeId[pendingWorktreeId]
+        #expect(pendingRetryReason == .readCapacityExceeded)
+        #expect(await projectorStatusCalls.rootPaths.isEmpty)
+        #expect(pathProbe.recordedRootPaths.count == 2)
+        #expect(Set(pathProbe.recordedRootPaths) == Set([capacityRootPath, pendingRootPath]))
+
+        await blockingReadGate.open()
+        _ = await blockingRead.value
+        #expect(
+            await admissionWaitUntil {
+                await projectorStatusCalls.rootPaths == [pendingRootPath]
+            }
+        )
+        #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
+        #expect(await actor.capacityRetryWorktreeIds.isEmpty)
+        #expect(await actor.capacityRetryReasonByWorktreeId.isEmpty)
+        #expect(pathProbe.recordedRootPaths.filter { $0 == pendingRootPath }.count == 1)
+
+        await actor.shutdown()
+    }
+
     @Test("shared physical capacity rejection retains validation and pauses later admission")
     func sharedPhysicalCapacityRejectionRetainsValidationAndPausesLaterAdmission() async {
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
@@ -380,6 +600,23 @@ private func admissionRegistrationEnvelope(
                     rootPath: rootPath
                 )
             )
+        )
+    )
+}
+
+private func admissionTopologyAssertion(
+    generation: UInt64,
+    rootPathsByWorktreeId: [UUID: URL]
+) -> FilesystemTopologyAssertion {
+    FilesystemTopologyAssertion(
+        generation: generation,
+        contextsByWorktreeId: Dictionary(
+            uniqueKeysWithValues: rootPathsByWorktreeId.map { worktreeId, rootPath in
+                (
+                    worktreeId,
+                    WorktreeFilesystemContext(repoId: worktreeId, rootPath: rootPath)
+                )
+            }
         )
     )
 }
