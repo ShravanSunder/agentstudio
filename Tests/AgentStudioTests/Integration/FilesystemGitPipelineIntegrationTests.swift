@@ -857,7 +857,7 @@ private final class SilentFSEventStreamClient: FSEventStreamClient, @unchecked S
         stream
     }
 
-    func consumeCoarseRefreshDebt() -> Set<UUID> {
+    func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] {
         []
     }
 

@@ -29,7 +29,7 @@ struct FilesystemActorTests {
         )
         _ = try #require(await iterator.next())
 
-        streamClient.sendCoarseRefreshDebt(worktreeId: worktreeId)
+        streamClient.sendOverflowRecovery(worktreeId: worktreeId)
         streamClient.send(FSEventBatch(worktreeId: worktreeId, paths: ["Sources/Fine.swift"]))
 
         let envelope = try #require(await iterator.next())

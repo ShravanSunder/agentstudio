@@ -6,16 +6,24 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private let eventsStream: AsyncStream<FSEventBatch>
     private let eventsContinuation: AsyncStream<FSEventBatch>.Continuation
-    private var coarseRefreshDebt = Set<UUID>()
+    private let maximumRetainedOverflowPathsPerRegistration: Int
+    private var overflowRecoveryByWorktreeId: [UUID: FSEventOverflowRecovery] = [:]
 
-    package init(capacity: Int) {
+    package init(
+        capacity: Int,
+        maximumRetainedOverflowPathsPerRegistration: Int =
+            AppPolicies.FilesystemIngress.maximumRetainedOverflowPathsPerRegistration
+    ) {
         precondition(capacity > 0)
+        precondition(maximumRetainedOverflowPathsPerRegistration > 0)
         let (stream, continuation) = AsyncStream.makeStream(
             of: FSEventBatch.self,
             bufferingPolicy: .bufferingOldest(capacity)
         )
         eventsStream = stream
         eventsContinuation = continuation
+        self.maximumRetainedOverflowPathsPerRegistration =
+            maximumRetainedOverflowPathsPerRegistration
     }
 
     package func events() -> AsyncStream<FSEventBatch> {
@@ -28,20 +36,45 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
             case .enqueued:
                 break
             case .dropped(let droppedBatch):
-                coarseRefreshDebt.insert(droppedBatch.worktreeId)
+                retainOverflowRecovery(droppedBatch)
             case .terminated:
                 break
             @unknown default:
-                coarseRefreshDebt.insert(batch.worktreeId)
+                retainOverflowRecovery(batch)
             }
         }
     }
 
-    package func consumeCoarseRefreshDebt() -> Set<UUID> {
+    package func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] {
         lock.withLock {
-            defer { coarseRefreshDebt.removeAll(keepingCapacity: true) }
-            return coarseRefreshDebt
+            defer { overflowRecoveryByWorktreeId.removeAll(keepingCapacity: true) }
+            return overflowRecoveryByWorktreeId.values.sorted {
+                $0.worktreeId.uuidString < $1.worktreeId.uuidString
+            }
         }
+    }
+
+    private func retainOverflowRecovery(_ batch: FSEventBatch) {
+        if let existing = overflowRecoveryByWorktreeId[batch.worktreeId], existing.paths == nil {
+            return
+        }
+        var retainedPaths = overflowRecoveryByWorktreeId[batch.worktreeId]?.paths ?? Set<String>()
+        for path in batch.paths {
+            if retainedPaths.count >= maximumRetainedOverflowPathsPerRegistration,
+                !retainedPaths.contains(path)
+            {
+                overflowRecoveryByWorktreeId[batch.worktreeId] = FSEventOverflowRecovery(
+                    worktreeId: batch.worktreeId,
+                    paths: nil
+                )
+                return
+            }
+            retainedPaths.insert(path)
+        }
+        overflowRecoveryByWorktreeId[batch.worktreeId] = FSEventOverflowRecovery(
+            worktreeId: batch.worktreeId,
+            paths: retainedPaths
+        )
     }
 
     package func finish() {
@@ -113,8 +146,8 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
         ingressBuffer.events()
     }
 
-    package func consumeCoarseRefreshDebt() -> Set<UUID> {
-        ingressBuffer.consumeCoarseRefreshDebt()
+    package func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] {
+        ingressBuffer.consumeOverflowRecoveries()
     }
 
     package func register(worktreeId: UUID, repoId _: UUID, rootPath: URL) {

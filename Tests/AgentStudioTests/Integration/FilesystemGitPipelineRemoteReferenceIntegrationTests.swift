@@ -268,7 +268,7 @@ private final class PipelineSilentFSEventStreamClient: FSEventStreamClient, @unc
     }
 
     func events() -> AsyncStream<FSEventBatch> { stream }
-    func consumeCoarseRefreshDebt() -> Set<UUID> { [] }
+    func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] { [] }
     func register(worktreeId _: UUID, repoId _: UUID, rootPath _: URL) {}
     func unregister(worktreeId _: UUID) {}
     func shutdown() { continuation.finish() }

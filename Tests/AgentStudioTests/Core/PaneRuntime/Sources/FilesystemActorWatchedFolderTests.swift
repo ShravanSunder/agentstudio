@@ -357,6 +357,19 @@ struct FilesystemActorWatchedFolderTests {
         await boundedYields()
         #expect(await fixture.scanner.startedQuantumCount() == scanCountBeforeCallbacks)
 
+        fixture.fseventClient.sendOverflowRecovery(
+            worktreeId: callbackRoutingID,
+            paths: [fixture.watchedFolder.appending(path: "repo/Sources/Dropped.swift").path]
+        )
+        fixture.fseventClient.send(
+            FSEventBatch(
+                worktreeId: callbackRoutingID,
+                paths: [fixture.watchedFolder.appending(path: "repo/Sources/Trigger.swift").path]
+            )
+        )
+        await boundedYields()
+        #expect(await fixture.scanner.startedQuantumCount() == scanCountBeforeCallbacks)
+
         fixture.fseventClient.send(
             FSEventBatch(
                 worktreeId: callbackRoutingID,
@@ -368,6 +381,21 @@ struct FilesystemActorWatchedFolderTests {
         #expect(callbackStart.request.sourceID.rootID == fixture.watchedPath.id)
         await fixture.scanner.finish(callbackStart, with: completeResult(entries: []))
         try await fixture.waitForStartedQuantumCount(scanCountBeforeCallbacks + 1)
+
+        fixture.fseventClient.sendOverflowRecovery(
+            worktreeId: callbackRoutingID,
+            paths: [fixture.watchedFolder.appending(path: "repo/.git/refs/heads/main").path]
+        )
+        fixture.fseventClient.send(
+            FSEventBatch(
+                worktreeId: callbackRoutingID,
+                paths: [fixture.watchedFolder.appending(path: "repo/Sources/Trigger.swift").path]
+            )
+        )
+        let overflowRecoveryStart = await fixture.scanner.nextStart()
+        #expect(overflowRecoveryStart.request.cause == .callback)
+        await fixture.scanner.finish(overflowRecoveryStart, with: completeResult(entries: []))
+        try await fixture.waitForStartedQuantumCount(scanCountBeforeCallbacks + 2)
         await fixture.actor.shutdown()
     }
 

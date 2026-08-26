@@ -9,7 +9,7 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
     private var unregisteredIds: [UUID] = []
     private var continuation: AsyncStream<FSEventBatch>.Continuation?
     private var stream: AsyncStream<FSEventBatch>?
-    private var coarseRefreshDebt = Set<UUID>()
+    private var overflowRecoveryByWorktreeId: [UUID: FSEventOverflowRecovery] = [:]
 
     package init() {
         let (stream, continuation) = AsyncStream<FSEventBatch>.makeStream(
@@ -31,15 +31,28 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
         lock.withLock { stream! }
     }
 
-    package func consumeCoarseRefreshDebt() -> Set<UUID> {
+    package func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] {
         lock.withLock {
-            defer { coarseRefreshDebt.removeAll(keepingCapacity: true) }
-            return coarseRefreshDebt
+            defer { overflowRecoveryByWorktreeId.removeAll(keepingCapacity: true) }
+            return overflowRecoveryByWorktreeId.values.sorted {
+                $0.worktreeId.uuidString < $1.worktreeId.uuidString
+            }
         }
     }
 
-    package func sendCoarseRefreshDebt(worktreeId: UUID) {
-        lock.withLock { coarseRefreshDebt.insert(worktreeId) }
+    package func sendOverflowRecovery(worktreeId: UUID, paths: Set<String>? = nil) {
+        lock.withLock {
+            if let existing = overflowRecoveryByWorktreeId[worktreeId], existing.paths == nil {
+                return
+            }
+            let mergedPaths = paths.map {
+                (overflowRecoveryByWorktreeId[worktreeId]?.paths ?? []).union($0)
+            }
+            overflowRecoveryByWorktreeId[worktreeId] = FSEventOverflowRecovery(
+                worktreeId: worktreeId,
+                paths: mergedPaths
+            )
+        }
     }
 
     package func register(worktreeId: UUID, repoId: UUID, rootPath: URL) {

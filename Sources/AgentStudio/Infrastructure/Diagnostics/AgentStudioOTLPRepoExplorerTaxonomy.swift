@@ -307,9 +307,9 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         case "agentstudio.performance.repo_explorer.visible_row_count_bucket":
             ["zero", "1_8", "9_16", "17_32", "33_plus"].contains(value)
         case "agentstudio.performance.filesystem.stage":
-            ["affected_key_apply", "coarse_refresh_debt"].contains(value)
+            ["affected_key_apply", "overflow_recovery"].contains(value)
         case "agentstudio.performance.filesystem.outcome":
-            ["applied", "rejected", "overflow_coarse"].contains(value)
+            ["applied", "rejected", "overflow_coarse", "overflow_scoped"].contains(value)
         case "agentstudio.performance.forge.stage":
             ["follow_up", "facts_publication"].contains(value)
         case "agentstudio.performance.forge.outcome":

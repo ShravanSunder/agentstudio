@@ -349,29 +349,42 @@ package actor FilesystemActor {
                 } else {
                     await self.enqueueRawPaths(worktreeId: batch.worktreeId, paths: batch.paths)
                 }
-                await self.consumeCoarseRefreshDebt()
+                await self.consumeOverflowRecoveries()
             }
         }
     }
 
-    private func consumeCoarseRefreshDebt() async {
-        for worktreeId in fseventStreamClient.consumeCoarseRefreshDebt() {
+    private func consumeOverflowRecoveries() async {
+        for recovery in fseventStreamClient.consumeOverflowRecoveries() {
             performanceTraceRecorder?.record(
                 .filesystemStageOutcome,
                 attributes: [
-                    "agentstudio.performance.filesystem.stage": .string("coarse_refresh_debt"),
-                    "agentstudio.performance.filesystem.outcome": .string("overflow_coarse"),
+                    "agentstudio.performance.filesystem.stage": .string("overflow_recovery"),
+                    "agentstudio.performance.filesystem.outcome": .string(
+                        recovery.paths == nil ? "overflow_coarse" : "overflow_scoped"),
                 ]
             )
-            if isWatchedFolderBatch(worktreeId) {
-                await handleCoarseWatchedFolderFSEvent(worktreeId: worktreeId)
+            if let paths = recovery.paths {
+                let batch = FSEventBatch(
+                    worktreeId: recovery.worktreeId,
+                    paths: paths.sorted()
+                )
+                if isWatchedFolderBatch(recovery.worktreeId) {
+                    await handleWatchedFolderFSEvent(batch)
+                } else {
+                    await enqueueRawPaths(worktreeId: recovery.worktreeId, paths: batch.paths)
+                }
                 continue
             }
-            guard pendingChangesByWorktreeId[worktreeId] != nil else { continue }
-            var pendingChanges = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
+            if isWatchedFolderBatch(recovery.worktreeId) {
+                await handleCoarseWatchedFolderFSEvent(worktreeId: recovery.worktreeId)
+                continue
+            }
+            guard pendingChangesByWorktreeId[recovery.worktreeId] != nil else { continue }
+            var pendingChanges = pendingChangesByWorktreeId[recovery.worktreeId] ?? PendingWorktreeChanges()
             pendingChanges.projectedPaths.insert(".")
             pendingChanges.recordPendingChange(at: schedulingClock.now())
-            pendingChangesByWorktreeId[worktreeId] = pendingChanges
+            pendingChangesByWorktreeId[recovery.worktreeId] = pendingChanges
             scheduleDrainIfNeeded()
         }
         await recordLogicalDebtSnapshotIfChanged()

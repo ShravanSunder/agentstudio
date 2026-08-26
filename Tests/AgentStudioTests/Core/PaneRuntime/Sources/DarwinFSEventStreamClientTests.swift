@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite("DarwinFSEventStreamClient")
 struct DarwinFSEventStreamClientTests {
@@ -20,7 +21,7 @@ struct DarwinFSEventStreamClientTests {
         }
 
         #expect(retainedBatches.count <= 2)
-        #expect(ingressBuffer.consumeCoarseRefreshDebt() == [worktreeId])
+        #expect(ingressBuffer.consumeOverflowRecoveries().map(\.worktreeId) == [worktreeId])
     }
 
     @Test("overflow debt coalesces per affected worktree and stays isolated")
@@ -35,11 +36,54 @@ struct DarwinFSEventStreamClientTests {
         ingressBuffer.yield(FSEventBatch(worktreeId: overflowedWorktreeId, paths: ["second"]))
         ingressBuffer.yield(FSEventBatch(worktreeId: otherOverflowedWorktreeId, paths: ["other"]))
 
-        #expect(
-            ingressBuffer.consumeCoarseRefreshDebt()
-                == [overflowedWorktreeId, otherOverflowedWorktreeId]
+        let recoveries = ingressBuffer.consumeOverflowRecoveries()
+        #expect(Set(recoveries.map(\.worktreeId)) == [overflowedWorktreeId, otherOverflowedWorktreeId])
+        #expect(recoveries.first { $0.worktreeId == overflowedWorktreeId }?.paths == ["first", "second"])
+        #expect(recoveries.first { $0.worktreeId == otherOverflowedWorktreeId }?.paths == ["other"])
+        #expect(ingressBuffer.consumeOverflowRecoveries().isEmpty)
+        ingressBuffer.finish()
+    }
+
+    @Test("overflow recovery preserves known path scope")
+    func overflowRecoveryPreservesKnownPathScope() throws {
+        let ingressBuffer = DarwinFSEventIngressBuffer(capacity: 1)
+        let retainedWorktreeId = UUIDv7.generate()
+        let overflowedWorktreeId = UUIDv7.generate()
+
+        ingressBuffer.yield(FSEventBatch(worktreeId: retainedWorktreeId, paths: ["retained"]))
+        ingressBuffer.yield(
+            FSEventBatch(
+                worktreeId: overflowedWorktreeId,
+                paths: ["Sources/First.swift", "Sources/Second.swift"]
+            )
         )
-        #expect(ingressBuffer.consumeCoarseRefreshDebt().isEmpty)
+
+        let recovery = try #require(ingressBuffer.consumeOverflowRecoveries().first)
+        #expect(recovery.worktreeId == overflowedWorktreeId)
+        #expect(recovery.paths == ["Sources/First.swift", "Sources/Second.swift"])
+        ingressBuffer.finish()
+    }
+
+    @Test("overflow recovery becomes coarse when retained path scope exceeds its bound")
+    func overflowRecoveryBecomesCoarseWhenScopeExceedsBound() throws {
+        let ingressBuffer = DarwinFSEventIngressBuffer(
+            capacity: 1,
+            maximumRetainedOverflowPathsPerRegistration: 2
+        )
+        let retainedWorktreeId = UUIDv7.generate()
+        let overflowedWorktreeId = UUIDv7.generate()
+        ingressBuffer.yield(FSEventBatch(worktreeId: retainedWorktreeId, paths: ["retained"]))
+        ingressBuffer.yield(
+            FSEventBatch(
+                worktreeId: overflowedWorktreeId,
+                paths: ["one", "two", "three"]
+            )
+        )
+        ingressBuffer.yield(FSEventBatch(worktreeId: overflowedWorktreeId, paths: ["later"]))
+
+        let recovery = try #require(ingressBuffer.consumeOverflowRecoveries().first)
+        #expect(recovery.worktreeId == overflowedWorktreeId)
+        #expect(recovery.paths == nil)
         ingressBuffer.finish()
     }
 
@@ -50,7 +94,7 @@ struct DarwinFSEventStreamClientTests {
 
         ingressBuffer.yield(FSEventBatch(worktreeId: UUID(), paths: ["post-shutdown"]))
 
-        #expect(ingressBuffer.consumeCoarseRefreshDebt().isEmpty)
+        #expect(ingressBuffer.consumeOverflowRecoveries().isEmpty)
     }
 
     @Test("conforms to FSEventStreamClient protocol")
