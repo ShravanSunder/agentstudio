@@ -294,7 +294,7 @@ struct VendorConsumerWiringScriptTests {
         let readme = try String(contentsOfFile: "README.md", encoding: .utf8)
         #expect(agentInstructions.contains("Agents must use plain `mise run setup` by default."))
         #expect(agentInstructions.contains("`mise run setup --use-local-vendors`"))
-        #expect(agentInstructions.contains("normally unhydrated in linked worktrees"))
+        #expect(agentInstructions.contains("reuses those prepared inputs from linked worktrees"))
         #expect(
             readme.contains(
                 "git clone https://github.com/ShravanSunder/agentstudio.git agent-studio\ncd agent-studio"))
