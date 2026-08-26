@@ -80,6 +80,7 @@ struct WorkspaceLocalMigrationTests {
                     "005_move_repo_grouping_to_window_sidebar_memory",
                     "006_create_worktree_annotation_schema",
                     "007_add_worktree_annotation_message_handled",
+                    "008_add_worktree_annotation_message_viewed_revision",
                 ]
         )
     }

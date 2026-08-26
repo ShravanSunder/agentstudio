@@ -17,7 +17,7 @@ struct BridgeProductPackagedShareJourneyProof: Sendable {
     let fileOtherSavedCommentsVisible: Bool
     let hostWidth: Double
     let reviewHistoryCount: Int
-    let reviewNewCount: Int
+    let reviewPendingCount: Int
 }
 
 extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
@@ -25,7 +25,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
     func packagedFileAndReviewSharePerformsExactEffectsAndUnhandle() async throws {
         let proof = try await BridgeProductPackagedShareJourneyTestSupport.run(self)
 
-        #expect(proof.reviewNewCount == 1)
+        #expect(proof.reviewPendingCount == 1)
         #expect(proof.reviewHistoryCount == 1)
         #expect(proof.fileOtherSavedCommentsVisible)
         #expect(proof.fileHistoryCount == 2)
@@ -54,7 +54,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
     private struct ShareDOMSnapshot: Decodable {
         let allCount: Int
         let historyCount: Int
-        let newCount: Int
+        let pendingCount: Int
         let otherSavedCommentsVisible: Bool
         let shareVisible: Bool
     }
@@ -78,8 +78,8 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             )
             try await requireEnabledButton(hostedController.page, label: "Share comments")
             try await clickButton(hostedController.page, label: "Share comments")
-            _ = try await requireShareSnapshot(hostedController.page, stage: "review-new") {
-                $0.shareVisible && $0.newCount == 1
+            _ = try await requireShareSnapshot(hostedController.page, stage: "review-pending") {
+                $0.shareVisible && $0.pendingCount == 1
             }
             try await clickButton(hostedController.page, label: "Copy Markdown")
             _ = try await requireShareSnapshot(hostedController.page, stage: "review-copy-dismiss") {
@@ -97,7 +97,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                 hostedController.page,
                 stage: "review-unhandle"
             ) {
-                $0.newCount == 1
+                $0.pendingCount == 1
             }
             try await clickButton(hostedController.page, label: "Done")
 
@@ -112,7 +112,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                 fileOtherSavedCommentsVisible: fileProof.beforeExport.otherSavedCommentsVisible,
                 hostWidth: 640,
                 reviewHistoryCount: reviewAfterUnhandle.historyCount,
-                reviewNewCount: reviewAfterUnhandle.newCount
+                reviewPendingCount: reviewAfterUnhandle.pendingCount
             )
         }.value
     }
@@ -398,7 +398,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             return JSON.stringify({
               allCount: integerIn(textForPrefix('All')),
               historyCount: integerIn(textForPrefix('History (')),
-              newCount: integerIn(textForPrefix('New')),
+              pendingCount: integerIn(textForPrefix('Pending')),
               otherSavedCommentsVisible:
                 document.querySelector('[aria-label="Other saved comments"]') !== null,
               shareVisible: document.querySelector('[aria-label="Share comments"]') !== null

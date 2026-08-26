@@ -265,6 +265,7 @@ struct AgentStudioOTLPBridgeSidebarMetricTests {
             AgentStudioOTLPPerformanceMetricDimension(name: "priority", value: "hot"),
             AgentStudioOTLPPerformanceMetricDimension(name: "slice", value: "content_fetch"),
             AgentStudioOTLPPerformanceMetricDimension(name: "variant", value: "cold"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "viewer", value: "file"),
         ]
 
         #expect(metricEvent.dimensions == expectedDimensions)

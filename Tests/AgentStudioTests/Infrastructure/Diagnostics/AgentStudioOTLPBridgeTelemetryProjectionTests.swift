@@ -446,6 +446,7 @@ struct AgentStudioOTLPBridgeTelemetryProjectionTests {
                 "agentstudio.bridge.worker.patch_count": .int(2),
                 "agentstudio.bridge.worker.payload_class": .string("inline"),
                 "agentstudio.bridge.worker.queue_wait_ms": .double(4.25),
+                "agentstudio.bridge.worker.semantic_class": .string("demand"),
                 "agentstudio.bridge.worker.source_epoch": .int(7),
                 "agentstudio.bridge.worker.task_kind": .string("store_action"),
                 "agentstudio.bridge.worker.touched_key_count": .int(5),
@@ -467,6 +468,7 @@ struct AgentStudioOTLPBridgeTelemetryProjectionTests {
         #expect(projection.attributes["agentstudio.bridge.worker.patch_count"] == .int(2))
         #expect(projection.attributes["agentstudio.bridge.worker.payload_class"] == .string("inline"))
         #expect(projection.attributes["agentstudio.bridge.worker.queue_wait_ms"] == .double(4.25))
+        #expect(projection.attributes["agentstudio.bridge.worker.semantic_class"] == .string("demand"))
         #expect(projection.attributes["agentstudio.bridge.worker.source_epoch"] == .int(7))
         #expect(projection.attributes["agentstudio.bridge.worker.task_kind"] == .string("store_action"))
         #expect(projection.attributes["agentstudio.bridge.worker.touched_key_count"] == .int(5))

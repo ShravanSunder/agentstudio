@@ -826,6 +826,7 @@ extension BridgeTelemetryWireSchema {
             "annotationProjectionRetry",
             "fileDisplayResync",
             "fileQueryUpdate",
+            "fileRefreshRetry",
             "fileSourceDiscovery",
             "hover",
             "markFileViewed",

@@ -220,7 +220,12 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
 
         // Act
         try "initial\nupdated\n".write(to: trackedFile, atomically: false, encoding: .utf8)
-        #expect(await probe.waitForFileChangesetCount(1, timeout: .seconds(5)))
+        let changeset = try #require(
+            await probe.waitForFileChangeset(
+                paths: ["tracked.txt"],
+                timeout: .seconds(5)
+            )
+        )
         #expect(
             await probe.waitForStatusCount(
                 statusCountBeforeEdit + 1,
@@ -229,7 +234,6 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
         )
 
         // Assert
-        let changeset = try #require(await probe.fileChangesets.last)
         #expect(changeset.paths == ["tracked.txt"])
         let status = try #require(await probe.statuses.last)
         #expect(status.summary.changed == 1)
@@ -292,8 +296,12 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
 
             // Act deletion as the only post-start filesystem mutation.
             try FileManager.default.removeItem(at: trackedFile)
-            #expect(await probe.waitForFileChangesetCount(1, timeout: .seconds(5)))
-            let deletionChangeset = try #require(await probe.fileChangesets.last)
+            let deletionChangeset = try #require(
+                await probe.waitForFileChangeset(
+                    paths: ["tracked.txt"],
+                    timeout: .seconds(5)
+                )
+            )
             #expect(deletionChangeset.paths == ["tracked.txt"])
             #expect(
                 await waitForCommittedReviewGeneration(
@@ -456,6 +464,20 @@ private actor BridgeDevelopmentObservationProbe {
             await Task.yield()
         }
         return false
+    }
+
+    func waitForFileChangeset(
+        paths expectedPaths: [String],
+        timeout: Duration
+    ) async -> FileChangeset? {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if let matchingChangeset = fileChangesets.last(where: { $0.paths == expectedPaths }) {
+                return matchingChangeset
+            }
+            await Task.yield()
+        }
+        return nil
     }
 
     func waitForStatusCount(
