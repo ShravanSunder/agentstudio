@@ -22,7 +22,10 @@ enum AgentStudioOTLPAttributionProjectionKeys {
         case "agentstudio.performance.git.demand_class":
             return ["active_pane", "visible_sidebar", "open_pane", "explicit", "background"].contains(value)
         case "agentstudio.performance.git.trigger_source":
-            return ["registration", "filesystem_change", "periodic", "visibility_change", "retry"].contains(value)
+            return [
+                "registration", "filesystem_change", "periodic", "visibility_change",
+                "remote_reference_refresh", "retry",
+            ].contains(value)
         case "agentstudio.performance.git.cadence_tier":
             return ["active_pane", "visible_sidebar", "open_pane", "background"].contains(value)
         case "agentstudio.performance.git.visibility_admission.outcome":
