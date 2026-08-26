@@ -391,6 +391,16 @@ final class RepoExplorerTableMaterializer: NSObject,
         tableView.insertRows(at: indexes, withAnimation: [])
     }
 
+    func reloadData() {
+        pendingReloadRows.removeAll()
+        pendingHeightRows.removeAll()
+        tableView.reloadData()
+        updateTableFrame()
+        scrollView.layoutSubtreeIfNeeded()
+        tableView.layoutSubtreeIfNeeded()
+        rebindRepresentedCells()
+    }
+
     func reloadRows(_ indexes: IndexSet) {
         pendingReloadRows.formUnion(indexes)
     }

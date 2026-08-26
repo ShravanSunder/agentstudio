@@ -129,17 +129,9 @@ struct RepoExplorerNativeUpdatePlanTests {
             Issue.record("Expected membership plan")
             return
         }
-        #expect(membership.removeRowsInOldSpace == IndexSet(integer: 2))
-        #expect(membership.insertRowsInNewSpace == IndexSet(integer: 1))
-        #expect(
-            membership.movesFromOldToNewSpace == [
-                RepoExplorerNativeRowMove(
-                    rowID: .group(groupID: "A"),
-                    oldIndex: 0,
-                    newIndex: 3
-                )
-            ]
-        )
+        #expect(membership.removeRowsInOldSpace == IndexSet([0, 2]))
+        #expect(membership.insertRowsInNewSpace == IndexSet([1, 3]))
+        #expect(membership.movesFromOldToNewSpace.isEmpty)
         #expect(membership.reloadRowsInNewSpace == IndexSet(integer: 0))
         #expect(membership.heightReloadRowsInNewSpace.isEmpty)
         #expect(membership.oldCount == 4)

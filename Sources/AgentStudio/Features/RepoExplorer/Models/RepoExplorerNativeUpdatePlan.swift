@@ -405,9 +405,9 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
         let oldIndexByID = Dictionary(uniqueKeysWithValues: oldIDs.enumerated().map { ($1, $0) })
         let newIndexByID = Dictionary(uniqueKeysWithValues: newIDs.enumerated().map { ($1, $0) })
         let commonSubsequence = Set(longestCommonSubsequence(oldIDs, newIDs))
-        let removed = IndexSet(oldIDs.indices.filter { newIndexByID[oldIDs[$0]] == nil })
-        let inserted = IndexSet(newIDs.indices.filter { oldIndexByID[newIDs[$0]] == nil })
-        let moves = oldIDs.compactMap { rowID -> RepoExplorerNativeRowMove? in
+        let removedMembership = IndexSet(oldIDs.indices.filter { newIndexByID[oldIDs[$0]] == nil })
+        let insertedMembership = IndexSet(newIDs.indices.filter { oldIndexByID[newIDs[$0]] == nil })
+        let displacedRows = oldIDs.compactMap { rowID -> RepoExplorerNativeRowMove? in
             guard let oldIndex = oldIndexByID[rowID],
                 let newIndex = newIndexByID[rowID],
                 !commonSubsequence.contains(rowID)
@@ -421,6 +421,17 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
             )
         }
         .sorted { lhs, rhs in lhs.oldIndex < rhs.oldIndex }
+        let hasMembershipInsertionsOrRemovals =
+            !removedMembership.isEmpty || !insertedMembership.isEmpty
+        let removed =
+            hasMembershipInsertionsOrRemovals
+            ? removedMembership.union(IndexSet(displacedRows.map(\.oldIndex)))
+            : removedMembership
+        let inserted =
+            hasMembershipInsertionsOrRemovals
+            ? insertedMembership.union(IndexSet(displacedRows.map(\.newIndex)))
+            : insertedMembership
+        let moves = hasMembershipInsertionsOrRemovals ? [] : displacedRows
         let anchorFallbacks = makeAnchorFallbacks(oldIDs: oldIDs, newIDs: newIDs)
 
         return .membership(
@@ -575,12 +586,14 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
         }
 
         let removedIDs = Set(plan.removeRowsInOldSpace.map { oldSnapshot.rows[$0].id })
+        let candidateIDs = Set(newSnapshot.rows.map(\.id))
+        let semanticallyRemovedIDs = removedIDs.subtracting(candidateIDs)
         let expectedAnchorFallbacks = makeAnchorFallbacks(
             oldIDs: oldSnapshot.rows.map(\.id),
             newIDs: newSnapshot.rows.map(\.id)
         )
         guard plan.anchorFallbacks == expectedAnchorFallbacks,
-            Set(plan.anchorFallbacks.entries.map(\.removedRowID)) == removedIDs
+            Set(plan.anchorFallbacks.entries.map(\.removedRowID)) == semanticallyRemovedIDs
         else {
             return false
         }

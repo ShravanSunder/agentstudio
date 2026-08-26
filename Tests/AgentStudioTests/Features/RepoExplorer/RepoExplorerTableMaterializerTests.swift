@@ -323,6 +323,44 @@ struct RepoExplorerTableMaterializerTests {
         #expect(materializer.nativeTransactionApplyCount == 2)
     }
 
+    @Test("membership apply accepts combined removals moves and insertions")
+    func membershipApplyAcceptsCombinedStructuralChanges() throws {
+        let initialSnapshot = nativePlanSnapshot(["A", "B", "C", "D"])
+        let nextSnapshot = nativePlanSnapshot(["D", "A", "E"])
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: { _ in }
+        )
+        let window = makeMaterializerWindow(materializer)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+                snapshot: initialSnapshot,
+                requestGeneration: 1
+            )
+        ) { _ in }
+        var disposition: RepoExplorerMaterializationChildDisposition?
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanBaseline(
+                    snapshot: initialSnapshot,
+                    revision: 1,
+                    visibleGeneration: 1
+                ),
+                snapshot: nextSnapshot,
+                requestGeneration: 2
+            )
+        ) { disposition = $0 }
+
+        #expect(disposition == .accepted)
+        #expect(materializer.numberOfRows == nextSnapshot.rows.count)
+    }
+
     @Test("removed row anchor restores its worker-derived successor")
     func removedAnchorUsesPlanFallback() throws {
         let initialSnapshot = nativePlanSnapshot(["A", "B", "C", "D", "E", "F"])

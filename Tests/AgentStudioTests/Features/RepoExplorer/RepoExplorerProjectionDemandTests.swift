@@ -1,6 +1,7 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
+import AppKit
 import Foundation
 import Observation
 import Testing
@@ -36,6 +37,95 @@ private final class RepoExplorerProjectionExecutionRecorder: @unchecked Sendable
             }
         }
     }
+}
+
+@MainActor
+private final class RepoExplorerRealMaterializationHostFixture {
+    private final class MaterializerBox {
+        var value: RepoExplorerTableMaterializer?
+    }
+
+    let host: RepoExplorerMaterializationHost
+    let window: NSWindow
+    private let materializerBox: MaterializerBox
+
+    var materializer: RepoExplorerTableMaterializer? { materializerBox.value }
+
+    init(adapter: RepoExplorerProjectionAdapter) {
+        let hostLifetimeID = RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate())
+        let materializerBox = MaterializerBox()
+        self.materializerBox = materializerBox
+        host = RepoExplorerMaterializationHost(
+            lifetimeID: hostLifetimeID,
+            initialDemandEpoch: adapter.materializationDemandEpoch,
+            initialPresentation: .noRepositories,
+            makeContentChild: {
+                let materializer = RepoExplorerTableMaterializer(
+                    materializationHostLifetimeID: hostLifetimeID,
+                    octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                    onVisibleWorktreeSnapshotChange: { _ in }
+                )
+                materializerBox.value = materializer
+                return materializer
+            },
+            onFeedback: adapter.receiveMaterializationFeedback
+        )
+        window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.layoutIfNeeded()
+    }
+
+    func stop(adapter: RepoExplorerProjectionAdapter) {
+        host.detach()
+        adapter.stop()
+        window.close()
+    }
+}
+
+@MainActor
+private func makeProjectionPreferences(atoms: CoreAtoms) -> RepoExplorerSidebarPrefsAtom {
+    RepoExplorerSidebarPrefsAtom(sidebarState: atoms.workspaceSidebarState)
+}
+
+@MainActor
+private func expectVisibleMaterialization(
+    fixture: RepoExplorerRealMaterializationHostFixture,
+    adapter: RepoExplorerProjectionAdapter
+) throws {
+    let materializer = try #require(fixture.materializer)
+    #expect(materializer.numberOfRows == adapter.publishedResult?.rowIndex.entries.count)
+    let scrollView = try #require(materializer.view as? NSScrollView)
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    #expect(tableView.view(atColumn: 0, row: 0, makeIfNecessary: true) != nil)
+}
+
+@MainActor
+private func expectScopedTabRename(
+    store: WorkspaceStore,
+    tab: Tab,
+    capture: RepoExplorerProjectionInputCapture,
+    adapter: RepoExplorerProjectionAdapter
+) async {
+    let fullCaptureCount = capture.fullCaptureCount
+    let scopedCaptureCount = capture.scopedCaptureCount
+    let publishedRevision = adapter.publishedRevision
+    store.tabLayoutAtom.renameTab(tab.id, name: "Renamed")
+    for _ in 0..<300
+    where adapter.publishedRevision == publishedRevision
+        || adapter.publishedResult?.tabGroupFactsByTabId[tab.id]?.displayTitle != "Renamed"
+    {
+        await Task.yield()
+    }
+    #expect(capture.fullCaptureCount == fullCaptureCount)
+    #expect(capture.scopedCaptureCount == scopedCaptureCount + 1)
+    #expect(adapter.publishedRevision == publishedRevision + 1)
+    #expect(adapter.publishedResult?.projectionDuration == .zero)
 }
 
 @Suite("RepoExplorer projection demand")
@@ -118,7 +208,7 @@ struct RepoExplorerProjectionDemandTests {
                     updatedAt: Date()
                 )
             )
-            let preferences = RepoExplorerSidebarPrefsAtom()
+            let preferences = makeProjectionPreferences(atoms: atoms)
             preferences.setGroupingMode(.repo)
             let capture = RepoExplorerProjectionInputCapture(
                 store: store,
@@ -289,8 +379,9 @@ struct RepoExplorerProjectionDemandTests {
                 latestPaneMessageSnapshot: { _ in nil }
             )
             let adapter = RepoExplorerProjectionAdapter(inputCapture: capture)
-            let host = registerProjectionTestMaterializationHost(adapter: adapter)
-            defer { stopProjectionTestMaterializationHost(host, adapter: adapter) }
+            let hostFixture = RepoExplorerRealMaterializationHostFixture(adapter: adapter)
+            #expect(adapter.registerMaterializationHost(hostFixture.host))
+            defer { hostFixture.stop(adapter: adapter) }
 
             adapter.updateDemand(isVisible: true, query: "")
             for _ in 0..<200 where adapter.publishedRevision < 1 { await Task.yield() }
@@ -338,21 +429,9 @@ struct RepoExplorerProjectionDemandTests {
             #expect(adapter.observationRegistration.paneIDs == [pane.id])
             #expect(adapter.observationRegistration.tabIDs == [tab.id])
             #expect(adapter.publishedResult?.snapshot.groupingMode == .tab)
+            try expectVisibleMaterialization(fixture: hostFixture, adapter: adapter)
 
-            let fullCaptureCountBeforeTabRename = capture.fullCaptureCount
-            let scopedCaptureCountBeforeTabRename = capture.scopedCaptureCount
-            let publishedRevisionBeforeTabRename = adapter.publishedRevision
-            store.tabLayoutAtom.renameTab(tab.id, name: "Renamed")
-            for _ in 0..<300
-            where adapter.publishedRevision == publishedRevisionBeforeTabRename
-                || adapter.publishedResult?.tabGroupFactsByTabId[tab.id]?.displayTitle != "Renamed"
-            {
-                await Task.yield()
-            }
-            #expect(capture.fullCaptureCount == fullCaptureCountBeforeTabRename)
-            #expect(capture.scopedCaptureCount == scopedCaptureCountBeforeTabRename + 1)
-            #expect(adapter.publishedRevision == publishedRevisionBeforeTabRename + 1)
-            #expect(adapter.publishedResult?.projectionDuration == .zero)
+            await expectScopedTabRename(store: store, tab: tab, capture: capture, adapter: adapter)
 
             let captureCountBeforeHiding = capture.fullCaptureCount + capture.scopedCaptureCount
             adapter.updateDemand(isVisible: false, query: "")
