@@ -171,9 +171,9 @@ function WorktreeAnnotationShareActionButton(props: {
 				render={
 					<BridgeViewerButton
 						ariaLabel={props.ariaLabel}
-						className={props.className}
 						disabled={props.disabled}
 						onClick={props.onClick}
+						{...(props.className === undefined ? {} : { className: props.className })}
 					/>
 				}
 			>
