@@ -138,8 +138,16 @@ Date: 2026-08-25
      semantic color rather than borrowing the blue New treatment.
    - Share exposes only Pending and All. It does not expose New as an output
      scope and does not ask the reviewer to select individual messages.
-   - Status: domain/program design exists; live File and Review behavior still
-     requires final owner verification against the current frontend.
+   - Proof: unit derivation covers independent New/Pending combinations; browser
+     thread proof covers agent New, `message.viewed.mark`, projection
+     convergence, mixed New/Pending ordering, blue New, and amber Pending.
+     Live Review shows the saved human message as Pending.
+   - Blocker: the current live Files mode opens `.gitignore` with `Content
+     unavailable`, `Source pending`, and an empty tree, so it cannot provide an
+     honest final Files visual witness until the concurrent source/publication
+     lane converges.
+   - Status: automated behavior verified and live Review verified; live Files
+     owner acceptance remains blocked by current source availability.
 
 10. **Annotation keyboard shortcuts are not settled or implemented as one system**
     - Confirmed: Command-Enter saves root, reply, and message-edit composers;
