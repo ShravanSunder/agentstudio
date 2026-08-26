@@ -268,6 +268,49 @@ final class ProcessExecutorTests {
     }
 
     @Test
+    func test_execute_cancellationBeforeLaunchStartsNoChild() async throws {
+        // Arrange
+        let processIdentifierURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-process-\(UUIDv7.generate().uuidString).pid")
+        defer { try? FileManager.default.removeItem(at: processIdentifierURL) }
+        let launchBarrier = ProcessLaunchBarrier()
+        let cancellationExecutor = DefaultProcessExecutor(
+            timeout: 20,
+            beforeLaunch: launchBarrier.pauseBeforeLaunch
+        )
+        let task = Task {
+            try await cancellationExecutor.execute(
+                command: "sh",
+                args: [
+                    "-c",
+                    "printf '%s' \"$$\" > \"$1\"",
+                    "agentstudio-process-executor-test",
+                    processIdentifierURL.path,
+                ],
+                cwd: nil,
+                environment: nil
+            )
+        }
+        defer { launchBarrier.resumeLaunchDecision() }
+        try await launchBarrier.waitUntilPaused()
+
+        // Act
+        task.cancel()
+        launchBarrier.resumeLaunchDecision()
+
+        // Assert
+        do {
+            _ = try await task.value
+            Issue.record("Expected CancellationError to be thrown")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            Issue.record("Expected CancellationError, got: \(error)")
+        }
+        #expect(!FileManager.default.fileExists(atPath: processIdentifierURL.path))
+    }
+
+    @Test
     func test_execute_cancellationReturnsOnlyAfterChildExit() async throws {
         // Arrange
         let processIdentifierURL = FileManager.default.temporaryDirectory
@@ -345,4 +388,40 @@ final class ProcessExecutorTests {
 
 private enum ProcessExecutorTestError: Error {
     case processIdentifierNotPublished
+    case launchBarrierNotReached
+}
+
+private final class ProcessLaunchBarrier: @unchecked Sendable {
+    private let lock = NSLock()
+    private let resumeSemaphore = DispatchSemaphore(value: 0)
+    private var isPaused = false
+
+    func pauseBeforeLaunch() {
+        lock.lock()
+        isPaused = true
+        lock.unlock()
+        resumeSemaphore.wait()
+    }
+
+    func waitUntilPaused() async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(3))
+        while clock.now < deadline {
+            if pausedState() {
+                return
+            }
+            await Task.yield()
+        }
+        throw ProcessExecutorTestError.launchBarrierNotReached
+    }
+
+    func resumeLaunchDecision() {
+        resumeSemaphore.signal()
+    }
+
+    private func pausedState() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return isPaused
+    }
 }
