@@ -213,7 +213,27 @@ Date: 2026-08-25
     - Proof: failing-first browser witness reproduced the inactive transition;
       the corrected Command-Enter journey plus thread/Pierre regressions pass
       23/23 across three browser files. Scoped lint and formatting pass.
-    - Status: fixed in code; live owner acceptance remains.
+    - Live proof: on the origin/main Vite journey, Command-Enter closed the
+      composer, rendered the saved body, and retained exactly one active thread.
+    - Status: fixed; owner acceptance remains.
+
+16. **Clicking outside a one-message saved thread does not clear yellow**
+    - Actual: the document outside-click listener exists only while
+      `threadExpansion.kind === 'open'`. A one-message saved thread can be
+      active/yellow while expansion remains closed, so it never receives an
+      outside-dismissal owner. Its Escape guard also treats the absent editor as
+      different from `null`, making Escape inert.
+    - Expected: an inside click retains the thread; an explicit Collapse only
+      collapses history and retains yellow; a complete-thread outside click or
+      second-stage Escape leaves the thread and clears yellow.
+    - Fix: `leaveThread` is now separate from `collapseThread`. Outside
+      dismissal follows either an expanded thread or a saved active range, and
+      Escape handles a closed one-message thread without requiring expansion.
+    - Proof: failing-first located browser witness, then 24/24 focused browser
+      tests across thread lifecycle, Command-Enter root Save, and Pierre. Live
+      Vite proof observed one active thread after activating the saved message
+      and zero after clicking outside it.
+    - Status: fixed; owner acceptance remains.
 
 ## Scope classification
 

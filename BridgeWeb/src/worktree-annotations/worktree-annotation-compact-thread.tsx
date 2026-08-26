@@ -272,10 +272,10 @@ export function WorktreeAnnotationThread(
 					event.target.closest('[data-worktree-annotation-preserve-expansion]') !== null
 				)
 					return;
-				if (event.key !== 'Escape' || threadExpansion?.editor !== null) return;
+				if (event.key !== 'Escape' || (threadExpansion?.editor ?? null) !== null) return;
 				event.preventDefault();
 				const focusTarget = interaction.resolveThreadFocus();
-				void interaction.collapseThread().then((): void => focusTarget?.focus());
+				void interaction.leaveThread().then((): void => focusTarget?.focus());
 			}}
 		>
 			<Collapsible open={isExpanded}>

@@ -63,6 +63,7 @@ export interface WorktreeAnnotationInteractionController {
 	readonly exitThreadEditor: () => Promise<void>;
 	readonly expandThread: (threadId: string, invoker: HTMLElement) => void;
 	readonly finishThreadEditor: (editToken: string) => void;
+	readonly leaveThread: () => Promise<void>;
 	readonly openShareMode: () => void;
 	readonly pierreRangePresentation: WorktreeAnnotationPierreRangePresentation;
 	readonly registerThreadEditorExit: (exitEditor: () => Promise<void>) => () => void;
@@ -189,6 +190,10 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			return { kind: 'closed' };
 		});
 	}, []);
+	const leaveThread = useCallback(async (): Promise<void> => {
+		await collapseThread();
+		clearRangePresentation();
+	}, [clearRangePresentation, collapseThread]);
 	const resolveThreadFocus = useCallback((): HTMLElement | null => {
 		if (threadExpansion.kind === 'closed') return null;
 		const sameThreadTarget = focusTargetForThreadExpansion(threadExpansion);
@@ -201,22 +206,28 @@ export function WorktreeAnnotationInteractionProvider(props: {
 		return nearestElementToPoint(survivingControls, threadExpansion.returnFocusPoint);
 	}, [threadExpansion]);
 	useEffect((): (() => void) | undefined => {
-		if (threadExpansion.kind !== 'open') return undefined;
+		const dismissibleThreadId =
+			threadExpansion.kind === 'open'
+				? threadExpansion.threadId
+				: pierreRangePresentation.kind === 'savedThread'
+					? pierreRangePresentation.threadId
+					: null;
+		if (dismissibleThreadId === null) return undefined;
 		const handleDocumentClick = (event: globalThis.MouseEvent): void => {
 			if (!(event.target instanceof Element)) return;
 			const currentThread = event.target.closest(
-				`[data-annotation-thread-id="${CSS.escape(threadExpansion.threadId)}"]`,
+				`[data-annotation-thread-id="${CSS.escape(dismissibleThreadId)}"]`,
 			);
 			if (
 				currentThread !== null ||
 				event.target.closest('[data-worktree-annotation-preserve-expansion]') !== null
 			)
 				return;
-			void collapseThread();
+			void leaveThread();
 		};
 		document.addEventListener('click', handleDocumentClick, true);
 		return (): void => document.removeEventListener('click', handleDocumentClick, true);
-	}, [collapseThread, threadExpansion]);
+	}, [leaveThread, pierreRangePresentation, threadExpansion]);
 	const controller = useMemo<WorktreeAnnotationInteractionController>(
 		() => ({
 			activeThreadId:
@@ -232,6 +243,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			exitThreadEditor,
 			expandThread,
 			finishThreadEditor,
+			leaveThread,
 			openShareMode,
 			pierreRangePresentation,
 			registerThreadEditorExit,
@@ -251,6 +263,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			exitThreadEditor,
 			expandThread,
 			finishThreadEditor,
+			leaveThread,
 			openShareMode,
 			pierreRangePresentation,
 			registerThreadEditorExit,

@@ -1,5 +1,6 @@
-import { act } from 'react';
+import { act, type ReactElement } from 'react';
 import { describe, expect, test } from 'vitest';
+import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 
 import { createBridgeMarkdownRenderWorkerClient } from '../app/markdown/worker/bridge-markdown-render-worker-client.js';
@@ -16,6 +17,10 @@ import {
 } from './worktree-annotation-browser-test-support.js';
 import type { WorktreeAnnotationMessageEntry } from './worktree-annotation-surface-client.js';
 import {
+	useWorktreeAnnotationProjection,
+	WorktreeAnnotationSurfaceProvider,
+} from './worktree-annotation-surface-provider.js';
+import {
 	createDeferred,
 	locatedContext,
 	makeSavedMessage,
@@ -30,6 +35,7 @@ import {
 	settleThreadMotion,
 	thirdReplyMessageId,
 } from './worktree-annotation-thread.browser.test-support.js';
+import { WorktreeAnnotationThread } from './worktree-annotation-thread.js';
 
 describe('worktree annotation inline thread', () => {
 	test('renders one message directly with the exact compact controls', async () => {
@@ -664,6 +670,39 @@ describe('worktree annotation inline thread', () => {
 		expect(document.activeElement).toBe(latestReplyButton.element());
 	});
 
+	test('leaves an active one-message thread on outside click or Escape', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderLocatedAnnotationProjection(surface);
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'One active message.', messageId: rootMessageId }),
+		]);
+		const thread = rendered.getByTestId('worktree-annotation-thread').element();
+		const activeSurface = (): HTMLElement | null =>
+			thread.querySelector('[data-worktree-annotation-interaction][data-annotation-active="true"]');
+
+		await act(async (): Promise<void> => {
+			thread.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await Promise.resolve();
+		});
+		expect(activeSurface()).not.toBeNull();
+		await act(async (): Promise<void> => {
+			document.body.click();
+			await Promise.resolve();
+		});
+		expect(activeSurface()).toBeNull();
+
+		await act(async (): Promise<void> => {
+			thread.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await Promise.resolve();
+		});
+		expect(activeSurface()).not.toBeNull();
+		await act(async (): Promise<void> => {
+			thread.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
+			await Promise.resolve();
+		});
+		expect(activeSurface()).toBeNull();
+	});
+
 	test('flushes the active editor before outside press collapses the inline thread', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
@@ -689,3 +728,28 @@ describe('worktree annotation inline thread', () => {
 		);
 	});
 });
+
+function LocatedAnnotationProjection(): ReactElement | null {
+	const projection = useWorktreeAnnotationProjection();
+	return projection.threads.length === 0 ? null : (
+		<>
+			{projection.threads.map((thread) => (
+				<WorktreeAnnotationThread
+					key={thread.context.threadId}
+					rangeIdentity={{ itemId: 'file:item-source', range: { end: 7, start: 7 } }}
+					thread={thread}
+				/>
+			))}
+		</>
+	);
+}
+
+async function renderLocatedAnnotationProjection(
+	surface: RecordingAnnotationBrowserSurface,
+): Promise<Awaited<ReturnType<typeof render>>> {
+	return await render(
+		<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+			<LocatedAnnotationProjection />
+		</WorktreeAnnotationSurfaceProvider>,
+	);
+}
