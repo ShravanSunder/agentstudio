@@ -3,6 +3,45 @@ import AgentStudioInfrastructure
 import AppKit
 
 #if DEBUG
+    struct SidebarPerformanceProofWindowAttendance: Equatable, Sendable {
+        let applicationIsActive: Bool
+        let applicationIsHidden: Bool
+        let windowIsVisible: Bool
+        let windowIsKey: Bool
+        let windowIsMiniaturized: Bool
+        let windowIsOnActiveSpace: Bool
+        let windowOcclusionIsVisible: Bool
+
+        var isAttended: Bool {
+            applicationIsActive
+                && !applicationIsHidden
+                && windowIsVisible
+                && windowIsKey
+                && !windowIsMiniaturized
+                && windowIsOnActiveSpace
+                && windowOcclusionIsVisible
+        }
+
+        @MainActor
+        static func capture(window: NSWindow) -> Self {
+            Self(
+                applicationIsActive: NSApp.isActive,
+                applicationIsHidden: NSApp.isHidden,
+                windowIsVisible: window.isVisible,
+                windowIsKey: window.isKeyWindow,
+                windowIsMiniaturized: window.isMiniaturized,
+                windowIsOnActiveSpace: window.isOnActiveSpace,
+                windowOcclusionIsVisible: window.occlusionState.contains(.visible)
+            )
+        }
+    }
+
+    enum StrictSidebarWindowAttendanceDisposition: String, Equatable, Sendable {
+        case attended
+        case timedOut = "timed_out"
+        case cancelled
+    }
+
     private struct StrictSidebarPerformanceFixtureEvidence {
         let repositoryCount: Int
         let worktreeCount: Int
@@ -150,7 +189,15 @@ import AppKit
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
-            await waitForStrictSidebarWindowAttendance(window)
+            let attendanceDisposition = await waitForStrictSidebarWindowAttendance(window)
+            guard attendanceDisposition == .attended else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "window_attendance_\(attendanceDisposition.rawValue)"
+                )
+                recordStrictSidebarPopulationResult(action: action, outcome: "failed")
+                return
+            }
             mainWindowController.expandSidebar()
             AppCommandDispatcher.shared.dispatch(.setRepoSidebarGroupingRepo)
             startupTraceRecorder.recordAppStartup(
@@ -168,28 +215,39 @@ import AppKit
             )
         }
 
-        private func waitForStrictSidebarWindowAttendance(_ window: NSWindow) async {
+        private func waitForStrictSidebarWindowAttendance(
+            _ window: NSWindow
+        ) async -> StrictSidebarWindowAttendanceDisposition {
             let clock = ContinuousClock()
             let start = clock.now
-            while !Self.strictSidebarWindowIsAttended(window)
-                && !Task.isCancelled
-                && start.duration(to: clock.now)
-                    < AppPolicies.SidebarPerformanceProof.actionReadbackTimeout
-            {
+            while true {
+                let attendance = SidebarPerformanceProofWindowAttendance.capture(window: window)
+                if let disposition = Self.strictSidebarWindowAttendanceDisposition(
+                    for: attendance,
+                    taskIsCancelled: Task.isCancelled,
+                    deadlineReached: start.duration(to: clock.now)
+                        >= AppPolicies.SidebarPerformanceProof.actionReadbackTimeout
+                ) {
+                    return disposition
+                }
                 do {
                     try await AsyncDelay.taskSleep.wait(
                         AppPolicies.SidebarPerformanceProof.fixtureStateObservationInterval)
                 } catch {
-                    return
+                    return .cancelled
                 }
             }
         }
 
-        private static func strictSidebarWindowIsAttended(_ window: NSWindow) -> Bool {
-            window.isVisible
-                && !window.isMiniaturized
-                && window.isOnActiveSpace
-                && window.occlusionState.contains(.visible)
+        static func strictSidebarWindowAttendanceDisposition(
+            for attendance: SidebarPerformanceProofWindowAttendance,
+            taskIsCancelled: Bool,
+            deadlineReached: Bool
+        ) -> StrictSidebarWindowAttendanceDisposition? {
+            if taskIsCancelled { return .cancelled }
+            if attendance.isAttended { return .attended }
+            if deadlineReached { return .timedOut }
+            return nil
         }
 
         private func prepareStrictSidebarPerformanceProofFixture(

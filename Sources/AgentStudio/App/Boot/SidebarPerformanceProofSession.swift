@@ -30,6 +30,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
     struct SidebarPerformanceProofReadback: Equatable, Sendable {
         let repoExplorer: RepoExplorerPerformanceProofReadback
         let shell: SidebarPerformanceProofShellReadback
+        let windowAttendance: SidebarPerformanceProofWindowAttendance
     }
 
     enum SidebarPerformanceProofExpectedOutcome: Equatable, Sendable {
@@ -112,6 +113,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                     && shell.nativeSidebarAccessibilityIsReady == !isCollapsed
                     && (isCollapsed || shell.nativePresentedRowCount == repoExplorer.representedRowCount)
                     && shell.tab.nativeActivePaneHasFocus
+                    && readback.windowAttendance.isAttended
             case .tabSelection(let tabID, let paneID):
                 return shell.tab.activeTabID == tabID
                     && shell.tab.activePaneID == paneID
@@ -144,6 +146,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 && shell.nativeSidebarGeometryIsVisible
                 && shell.nativeSidebarAccessibilityIsReady
                 && shell.nativePresentedRowCount == repoExplorer.representedRowCount
+                && readback.windowAttendance.isAttended
         }
     }
 
@@ -235,6 +238,10 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             }
             guard let performanceRecorder else {
                 record("performance.sidebar.proof_action.failed", sequence: 0, outcome: "missing_workload_recorder")
+                return false
+            }
+            guard SidebarPerformanceProofWindowAttendance.capture(window: window).isAttended else {
+                record("performance.sidebar.proof_action.failed", sequence: 0, outcome: "window_unattended")
                 return false
             }
             let workloadBaseline = performanceRecorder.beginSidebarPerformanceWorkloadProof()
@@ -421,7 +428,9 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                     return result
                 }
             }
-            guard readbackSettled else { return false }
+            guard readbackSettled,
+                SidebarPerformanceProofWindowAttendance.capture(window: window).isAttended
+            else { return false }
             await settleRepositoryFactDemandAdmission()
             return true
         }
@@ -430,9 +439,9 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             if let latestReadback,
                 SidebarPerformanceProofActionTracker.visibleSidebarIsSettled(latestReadback)
             {
-                return true
+                return SidebarPerformanceProofWindowAttendance.capture(window: window).isAttended
             }
-            return await withTaskGroup(of: Bool.self) { group in
+            let readbackSettled = await withTaskGroup(of: Bool.self) { group in
                 group.addTask { [readbackStream] in
                     for await readback in readbackStream {
                         if SidebarPerformanceProofActionTracker.visibleSidebarIsSettled(readback) {
@@ -451,6 +460,8 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 group.cancelAll()
                 return result
             }
+            return readbackSettled
+                && SidebarPerformanceProofWindowAttendance.capture(window: window).isAttended
         }
 
         private func observeShellState() {
@@ -471,7 +482,8 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             guard let latestRepoExplorerReadback, let shell = readShell() else { return }
             let readback = SidebarPerformanceProofReadback(
                 repoExplorer: latestRepoExplorerReadback,
-                shell: shell
+                shell: shell,
+                windowAttendance: .capture(window: window)
             )
             latestReadback = readback
             readbackContinuation.yield(readback)
@@ -479,16 +491,16 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
 
         private func visibleReadbackFailureAttributes() -> [String: AgentStudioTraceValue] {
             let prefix = "agentstudio.performance.sidebar.proof.initial_readback."
+            let attendance = SidebarPerformanceProofWindowAttendance.capture(window: window)
             var attributes: [String: AgentStudioTraceValue] = [
                 prefix + "present": .bool(latestReadback != nil),
-                prefix + "app_hidden": .bool(NSApp.isHidden),
-                prefix + "app_active": .bool(NSApp.isActive),
-                prefix + "window_visible": .bool(window.isVisible),
-                prefix + "window_key": .bool(window.isKeyWindow),
-                prefix + "window_miniaturized": .bool(window.isMiniaturized),
-                prefix + "window_on_active_space": .bool(window.isOnActiveSpace),
-                prefix + "window_occlusion_visible": .bool(
-                    window.occlusionState.contains(.visible)),
+                prefix + "app_hidden": .bool(attendance.applicationIsHidden),
+                prefix + "app_active": .bool(attendance.applicationIsActive),
+                prefix + "window_visible": .bool(attendance.windowIsVisible),
+                prefix + "window_key": .bool(attendance.windowIsKey),
+                prefix + "window_miniaturized": .bool(attendance.windowIsMiniaturized),
+                prefix + "window_on_active_space": .bool(attendance.windowIsOnActiveSpace),
+                prefix + "window_occlusion_visible": .bool(attendance.windowOcclusionIsVisible),
             ]
             guard let latestReadback else { return attributes }
             let repoExplorer = latestReadback.repoExplorer

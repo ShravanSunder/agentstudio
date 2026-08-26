@@ -9,6 +9,65 @@ import Testing
 @MainActor
 @Suite("Sidebar performance proof startup diagnostics", .serialized)
 struct SidebarPerformanceProofStartupDiagnosticTests {
+    @Test("strict window attendance distinguishes attended timeout and cancellation")
+    func strictWindowAttendanceDispositionIsFailClosed() {
+        let attended = makeWindowAttendance()
+        #expect(attended.isAttended)
+        #expect(
+            AppDelegate.strictSidebarWindowAttendanceDisposition(
+                for: attended,
+                taskIsCancelled: false,
+                deadlineReached: false
+            ) == .attended
+        )
+
+        let partiallyAttended = makeWindowAttendance(windowIsKey: false)
+        #expect(!partiallyAttended.isAttended)
+        #expect(
+            AppDelegate.strictSidebarWindowAttendanceDisposition(
+                for: partiallyAttended,
+                taskIsCancelled: false,
+                deadlineReached: false
+            ) == nil
+        )
+        #expect(
+            AppDelegate.strictSidebarWindowAttendanceDisposition(
+                for: partiallyAttended,
+                taskIsCancelled: false,
+                deadlineReached: true
+            ) == .timedOut
+        )
+        #expect(
+            AppDelegate.strictSidebarWindowAttendanceDisposition(
+                for: attended,
+                taskIsCancelled: true,
+                deadlineReached: false
+            ) == .cancelled
+        )
+    }
+
+    @Test("visible sidebar settlement requires complete proof window attendance")
+    func visibleSidebarSettlementRequiresProofWindowAttendance() {
+        let attendedReadback = makeReadback(
+            semanticGeneration: 7,
+            acknowledgedRevision: 11,
+            visibleGeneration: 13,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo
+        )
+        #expect(SidebarPerformanceProofActionTracker.visibleSidebarIsSettled(attendedReadback))
+
+        let unattendedReadback = makeReadback(
+            semanticGeneration: 7,
+            acknowledgedRevision: 11,
+            visibleGeneration: 13,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo,
+            windowAttendance: makeWindowAttendance(applicationIsActive: false)
+        )
+        #expect(!SidebarPerformanceProofActionTracker.visibleSidebarIsSettled(unattendedReadback))
+    }
+
     @Test("action tracker rejects overlap and mismatched or stale grouping readback")
     func actionTrackerRejectsOverlapAndMismatchedOrStaleReadback() throws {
         let baseline = makeReadback(
@@ -296,8 +355,15 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         let populationReady = try #require(
             sessionSource.range(of: "performance.sidebar.proof_population.ready")
         )
+        let currentAttendanceBarrier = try #require(
+            sessionSource.range(
+                of: "guard SidebarPerformanceProofWindowAttendance.capture(window: window).isAttended"
+            )
+        )
         #expect(initialDemandSettlement.lowerBound < visibleReadback.lowerBound)
         #expect(visibleReadback.lowerBound < populationReady.lowerBound)
+        #expect(visibleReadback.lowerBound < currentAttendanceBarrier.lowerBound)
+        #expect(currentAttendanceBarrier.lowerBound < populationReady.lowerBound)
         #expect(
             sessionSource.contains(
                 "SidebarPerformanceProofActionTracker.visibleSidebarIsSettled"
@@ -500,7 +566,8 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         activeTabID: UUID? = nil,
         activePaneID: UUID? = nil,
         activePaneIDByTabID: [UUID: UUID] = [:],
-        nativeActivePaneHasFocus: Bool = true
+        nativeActivePaneHasFocus: Bool = true,
+        windowAttendance: SidebarPerformanceProofWindowAttendance? = nil
     ) -> SidebarPerformanceProofReadback {
         SidebarPerformanceProofReadback(
             repoExplorer: RepoExplorerPerformanceProofReadback(
@@ -532,7 +599,28 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                     nativeActivePaneIsVisible: true,
                     nativeActivePaneHasFocus: nativeActivePaneHasFocus
                 )
-            )
+            ),
+            windowAttendance: windowAttendance ?? makeWindowAttendance()
+        )
+    }
+
+    private func makeWindowAttendance(
+        applicationIsActive: Bool = true,
+        applicationIsHidden: Bool = false,
+        windowIsVisible: Bool = true,
+        windowIsKey: Bool = true,
+        windowIsMiniaturized: Bool = false,
+        windowIsOnActiveSpace: Bool = true,
+        windowOcclusionIsVisible: Bool = true
+    ) -> SidebarPerformanceProofWindowAttendance {
+        SidebarPerformanceProofWindowAttendance(
+            applicationIsActive: applicationIsActive,
+            applicationIsHidden: applicationIsHidden,
+            windowIsVisible: windowIsVisible,
+            windowIsKey: windowIsKey,
+            windowIsMiniaturized: windowIsMiniaturized,
+            windowIsOnActiveSpace: windowIsOnActiveSpace,
+            windowOcclusionIsVisible: windowOcclusionIsVisible
         )
     }
 }
