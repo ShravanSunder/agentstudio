@@ -155,6 +155,8 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(quiescenceSource.contains("monotonic_deadline_ms"))
         #expect(quiescenceSource.contains("monotonic_now_ms"))
         #expect(quiescenceSource.contains("STRICT_WAIT_MONOTONIC_DEADLINE_MS"))
+        #expect(quiescenceSource.contains("strict_sidebar_proof_has_failed"))
+        #expect(quiescenceSource.contains("native sidebar proof failed before quiescence"))
         #expect(quiescenceSource.contains("export STRICT_WAIT_MONOTONIC_DEADLINE_MS"))
         #expect(quiescenceSource.contains("unset STRICT_WAIT_MONOTONIC_DEADLINE_MS"))
         #expect(quiescenceSource.contains("STRICT_POLICY_GIT_MAXIMUM_SETTLEMENT_MS"))
@@ -167,6 +169,7 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(settlementSource.contains("unset STRICT_WAIT_MONOTONIC_DEADLINE_MS"))
         #expect(!settlementSource.contains("maximum_attempts"))
         #expect(source.contains("metric read exceeded strict wait deadline"))
+        #expect(source.contains("_msg:performance.sidebar.proof_action.failed"))
         #expect(source.contains("Time::HiRes=clock_gettime,CLOCK_MONOTONIC"))
         #expect(!source.contains("time.monotonic_ns()"))
     }

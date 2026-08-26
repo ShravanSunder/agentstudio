@@ -147,6 +147,8 @@ import AppKit
                         fixtureEvidence.expectedSessionCount),
                 ]) { _, newValue in newValue }
             )
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
             AppCommandDispatcher.shared.dispatch(.showWorktreeSidebar)
             AppCommandDispatcher.shared.dispatch(.setRepoSidebarGroupingRepo)
             startupTraceRecorder.recordAppStartup(

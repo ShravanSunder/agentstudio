@@ -1378,6 +1378,15 @@ print(json.dumps(dict(zip(names, sys.argv[1:]))))
 PY
 }
 
+strict_sidebar_proof_has_failed() {
+  local marker="${1:?missing marker}"
+  local query response
+  query='{service.name="AgentStudio",dev.runtime.flavor="debug"} agent.proof.marker:"'"$marker"'" _msg:performance.sidebar.proof_action.failed | fields _msg | limit 1'
+  response="$(curl --fail --silent --show-error --max-time 5 \
+    "$LOGS_QUERY_URL" --data-urlencode "query=$query" 2>/dev/null || true)"
+  [ -n "$response" ]
+}
+
 wait_for_positive_quiescence() {
   local marker="${1:?missing marker}"
   local timeout_ms=$((STRICT_POLICY_GIT_MAXIMUM_SETTLEMENT_MS \
@@ -1387,6 +1396,10 @@ wait_for_positive_quiescence() {
   local baseline_time="" last_time="" elapsed_ms=0 state
   while [ "$elapsed_ms" -lt "$STRICT_POLICY_QUIESCENCE_MS" ] \
     && [ "$(monotonic_now_ms)" -lt "$monotonic_deadline_ms" ]; do
+    if strict_sidebar_proof_has_failed "$marker"; then
+      echo "native sidebar proof failed before quiescence" >&2
+      return 1
+    fi
     observation_time="$(/usr/bin/python3 -c 'import time; print(f"{time.time():.6f}")')"
     STRICT_WAIT_MONOTONIC_DEADLINE_MS="$monotonic_deadline_ms"
     export STRICT_WAIT_MONOTONIC_DEADLINE_MS

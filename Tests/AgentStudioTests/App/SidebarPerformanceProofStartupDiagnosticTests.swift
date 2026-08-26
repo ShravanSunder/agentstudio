@@ -313,6 +313,14 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         ]
         #expect(initialVisibleWait.contains("fixturePreparationTimeout"))
         #expect(!initialVisibleWait.contains("actionReadbackTimeout"))
+        #expect(
+            sessionSource.contains(
+                "agentstudio.performance.sidebar.proof.initial_readback."
+            )
+        )
+        #expect(sessionSource.contains("repo_demanded"))
+        #expect(sessionSource.contains("native_accessibility_ready"))
+        #expect(sessionSource.contains("native_row_count"))
         #expect(sessionSource.contains("await settleRepositoryFactDemandAdmission()"))
         #expect(!sessionSource.contains("socket"))
         #expect(!sessionSource.contains("FIFO"))
@@ -412,9 +420,16 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         let fixtureReady = try #require(
             source.range(of: "app.startup_diagnostic.sidebar_proof.fixture_ready")
         )
+        let foregroundActivation = try #require(
+            source.range(of: "NSApp.activate(ignoringOtherApps: true)")
+        )
+        let sessionRun = try #require(source.range(of: "let succeeded = await session.run()"))
 
         #expect(policyProjection.lowerBound < fixturePreparation.lowerBound)
         #expect(fixturePreparation.lowerBound < fixtureReady.lowerBound)
+        #expect(fixtureReady.lowerBound < foregroundActivation.lowerBound)
+        #expect(foregroundActivation.lowerBound < sessionRun.lowerBound)
+        #expect(source.contains("window.makeKeyAndOrderFront(nil)"))
         #expect(source.contains("await commands.refreshWatchedFolders"))
         for attribute in [
             "open_source_root_present", "project_dev_root_present",

@@ -223,7 +223,12 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 readbackContinuation.finish()
             }
             guard await waitForInitialVisibleReadback() else {
-                record("performance.sidebar.proof_action.failed", sequence: 0, outcome: "missing_visible_readback")
+                record(
+                    "performance.sidebar.proof_action.failed",
+                    sequence: 0,
+                    outcome: "missing_visible_readback",
+                    additionalAttributes: visibleReadbackFailureAttributes()
+                )
                 return false
             }
             await settleRepositoryFactDemandAdmission()
@@ -469,6 +474,29 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             )
             latestReadback = readback
             readbackContinuation.yield(readback)
+        }
+
+        private func visibleReadbackFailureAttributes() -> [String: AgentStudioTraceValue] {
+            let prefix = "agentstudio.performance.sidebar.proof.initial_readback."
+            guard let latestReadback else {
+                return [prefix + "present": .bool(false)]
+            }
+            let repoExplorer = latestReadback.repoExplorer
+            let shell = latestReadback.shell
+            return [
+                prefix + "present": .bool(true),
+                prefix + "repo_demanded": .bool(repoExplorer.isDemanded),
+                prefix + "repo_presentation_ready": .bool(repoExplorer.presentationIsReady),
+                prefix + "repo_accessibility": .string(
+                    repoExplorer.accessibilityDisposition.rawValue),
+                prefix + "semantic_collapsed": .bool(shell.semanticSidebarIsCollapsed),
+                prefix + "native_collapsed": .bool(shell.nativeSidebarIsCollapsed),
+                prefix + "native_geometry_visible": .bool(shell.nativeSidebarGeometryIsVisible),
+                prefix + "native_accessibility_ready": .bool(
+                    shell.nativeSidebarAccessibilityIsReady),
+                prefix + "represented_row_count": .int(repoExplorer.representedRowCount),
+                prefix + "native_row_count": .int(shell.nativePresentedRowCount ?? -1),
+            ]
         }
 
         private func waitForSamplerBoundary() async {
