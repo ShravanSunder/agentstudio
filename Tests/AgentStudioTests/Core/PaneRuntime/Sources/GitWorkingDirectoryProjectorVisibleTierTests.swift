@@ -7,6 +7,67 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector visible tier")
 struct GitWorkingDirectoryProjectorVisibleTierTests {
+    @Test("automatic registration wave waits for process start pacing")
+    func automaticRegistrationWaveWaitsForProcessStartPacing() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = VisibleTierCallRecorder()
+        let policy = AppPolicies.GitRefresh.Policy(
+            activePaneCadence: .milliseconds(20),
+            visibleSidebarCadence: .milliseconds(40),
+            openPaneCadence: .milliseconds(80),
+            backgroundCadence: .milliseconds(100),
+            backgroundStripeCount: 1,
+            maxConcurrentStatusComputes: 4,
+            backgroundMaxConcurrent: 4,
+            minimumAutomaticStartInterval: .milliseconds(10)
+        )
+        let provider = StubGitWorkingTreeStatusProvider { rootPath in
+            _ = await calls.record(rootPath.lastPathComponent)
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                branch: "main",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: policy
+        )
+        await actor.start()
+
+        for offset in 0..<3 {
+            let worktreeID = UUID(
+                uuidString: String(format: "00000000-0000-0000-0000-%012X", offset + 1)
+            )!
+            await bus.post(
+                visibleTierRegistrationEnvelope(
+                    seq: UInt64(offset + 1),
+                    worktreeId: worktreeID,
+                    rootPath: URL(fileURLWithPath: "/tmp/paced-registration-\(offset)")
+                )
+            )
+        }
+        #expect(await visibleTierWaitUntil { await actor.rootPathByWorktreeId.count == 3 })
+
+        clock.advance(by: policy.backgroundCadence)
+        #expect(await visibleTierWaitUntil { await calls.count == 1 })
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        clock.advance(by: .milliseconds(9))
+        #expect(await calls.count == 1)
+
+        clock.advance(by: .milliseconds(1))
+        #expect(await visibleTierWaitUntil { await calls.count == 2 })
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        clock.advance(by: .milliseconds(10))
+        #expect(await visibleTierWaitUntil { await calls.count == 3 })
+
+        await actor.shutdown()
+    }
+
     @Test("large hidden registration fleet owns one phased deadline waiter")
     func largeHiddenRegistrationFleetOwnsOneDeadlineWaiter() async throws {
         let bus = EventBus<RuntimeEnvelope>()

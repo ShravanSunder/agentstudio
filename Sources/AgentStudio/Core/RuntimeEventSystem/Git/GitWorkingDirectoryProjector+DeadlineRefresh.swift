@@ -264,7 +264,14 @@ extension GitWorkingDirectoryProjector {
     func recordAutomaticAdmission(worktreeId: UUID, isExplicit: Bool) {
         automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
         guard !isExplicit else { return }
-        lastAutomaticStartAtByWorktreeId[worktreeId] = deadlineClock.now
+        let start = deadlineClock.now
+        lastAutomaticStartAtByWorktreeId[worktreeId] = start
+        if requiresAutomaticStartPacing(worktreeId: worktreeId, isExplicit: false) {
+            nextAutomaticStartAt = max(
+                nextAutomaticStartAt,
+                start + refreshPolicy.minimumAutomaticStartInterval
+            )
+        }
     }
 
     func recordAutomaticCompletion(worktreeId: UUID, duty: Duration) {
@@ -272,7 +279,33 @@ extension GitWorkingDirectoryProjector {
         lastAcceptedStatusAtByWorktreeId[worktreeId] = completion
         lastAutomaticCompletionAtByWorktreeId[worktreeId] = completion
         lastAutomaticDutyByWorktreeId[worktreeId] = duty
+        if isPacedAutomaticTrigger(
+            refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId]
+        ) {
+            nextAutomaticStartAt = max(
+                nextAutomaticStartAt,
+                completion + refreshPolicy.automaticDutyGap(for: duty)
+            )
+        }
         scheduleAutomaticRefresh(worktreeId: worktreeId)
+    }
+
+    func requiresAutomaticStartPacing(worktreeId: UUID, isExplicit: Bool) -> Bool {
+        guard !isExplicit, refreshPolicy.minimumAutomaticStartInterval > .zero else {
+            return false
+        }
+        return isPacedAutomaticTrigger(
+            refreshAttribution.triggerSourceByWorktreeId[worktreeId]
+        )
+    }
+
+    private func isPacedAutomaticTrigger(_ triggerSource: GitRefreshTriggerSource?) -> Bool {
+        switch triggerSource ?? .registration {
+        case .registration, .periodic, .visibilityChange, .retry:
+            true
+        case .filesystemChange, .remoteReferenceRefresh:
+            false
+        }
     }
 
     func resetAdaptiveCadence(worktreeId: UUID) {

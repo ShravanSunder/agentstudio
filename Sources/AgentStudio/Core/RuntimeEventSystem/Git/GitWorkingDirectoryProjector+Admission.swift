@@ -66,6 +66,9 @@ extension GitWorkingDirectoryProjector {
                 - reservedActivePaneSlotCount
                 - runningLowerTierCount
         )
+        var selectedPacedAutomaticStart = false
+        var scheduledGovernorWake = false
+        var nextGovernorDeadline = nextAutomaticStartAt
 
         for worktreeId in eligibleWorktreeIds.sorted(by: sortPendingWorktreeByPriority) {
             guard admittedWorktreeIds.count < availableSlots else { break }
@@ -79,6 +82,26 @@ extension GitWorkingDirectoryProjector {
             guard runningTierCount < tier.maximumConcurrent(in: refreshPolicy) else { continue }
             if tier != .activePane {
                 guard availableLowerTierSlots > 0 else { continue }
+            }
+            if requiresAutomaticStartPacing(worktreeId: worktreeId, isExplicit: false) {
+                if selectedPacedAutomaticStart || deadlineClock.now < nextAutomaticStartAt {
+                    if !scheduledGovernorWake {
+                        setRefreshDeadline(
+                            nextGovernorDeadline,
+                            kind: .automatic,
+                            worktreeId: worktreeId
+                        )
+                        scheduledGovernorWake = true
+                    }
+                    continue
+                }
+                selectedPacedAutomaticStart = true
+                nextGovernorDeadline = max(
+                    nextAutomaticStartAt,
+                    deadlineClock.now + refreshPolicy.minimumAutomaticStartInterval
+                )
+            }
+            if tier != .activePane {
                 availableLowerTierSlots -= 1
             }
             admittedWorktreeIds.append(worktreeId)
@@ -103,6 +126,9 @@ extension GitWorkingDirectoryProjector {
             explicitRefreshWorktreeIds.remove(worktreeId)
             tierEligibleWorktreeIds.remove(worktreeId)
             startDrainTask(worktreeId: worktreeId)
+        }
+        if scheduledGovernorWake {
+            rescheduleDeadlineTask()
         }
         guard !admittedWorktreeIds.isEmpty else { return }
         recordGitAdmissionTelemetry(

@@ -25,6 +25,7 @@ struct AppPoliciesGitRefreshTests {
         #expect(policy.visibleSidebarStripeSize == 8)
         #expect(policy.suppressedWorktreeTombstoneLimit == 1024)
         #expect(policy.lineDetailFreshnessInterval == .seconds(960))
+        #expect(policy.minimumAutomaticStartInterval == .milliseconds(300))
         #expect(AppPolicies.GitRefresh.defaultStatusReadTimeout == .seconds(1))
         #expect(AppPolicies.GitRefresh.defaultDiscoveryReadTimeout == .seconds(2))
         #expect(AppPolicies.GitRefresh.defaultDetachedStatusReadLimit == 4)

@@ -81,6 +81,7 @@ package actor GitWorkingDirectoryProjector {
     var lastAutomaticStartAtByWorktreeId: [UUID: Duration] = [:]
     var lastAutomaticCompletionAtByWorktreeId: [UUID: Duration] = [:]
     var lastAutomaticDutyByWorktreeId: [UUID: Duration] = [:]
+    var nextAutomaticStartAt: Duration = .zero
     var nextPeriodicBatchSeqByWorktreeId: [UUID: UInt64] = [:]
     var statusBackoffFailureCountByWorktreeId: [UUID: Int] = [:]
     var openStatusBackoffWorktreeIds: Set<UUID> = []

@@ -217,7 +217,9 @@ package enum AppPolicies {
 
     package enum GitRefresh {
         package static let statusUnavailableConsecutiveFailureThreshold: Int = 2
-        package static let defaultPolicy = Policy()
+        package static let defaultPolicy = Policy(
+            minimumAutomaticStartInterval: .milliseconds(300)
+        )
         package static let defaultStatusReadTimeout: Duration = .seconds(1)
         package static let defaultDiscoveryReadTimeout: Duration = .seconds(2)
         package static let defaultDetachedStatusReadLimit: Int = 4
@@ -261,6 +263,10 @@ package enum AppPolicies {
             /// remain equal. A due detail is refreshed without discarding the last
             /// complete accepted candidate.
             package let lineDetailFreshnessInterval: Duration
+            /// Process-wide spacing between automatic local-status starts. A
+            /// 300ms production interval spreads 148 visible eligibility slots
+            /// across 44.4 seconds, leaving duty-gap headroom inside 60 seconds.
+            package let minimumAutomaticStartInterval: Duration
             /// Multiplier applied to completed physical duty before another
             /// automatic start may run. Freshness cadence remains the primary
             /// floor; this prevents slow reads from creating continuous duty.
@@ -291,7 +297,8 @@ package enum AppPolicies {
                 maxScopedStatusPathspecCount: Int = 128,
                 lineDetailFreshnessInterval: Duration = .seconds(960),
                 automaticDutyGapMultiplier: Int = 4,
-                unchangedStatusCadenceMultipliers: [Int] = [1, 2, 4]
+                unchangedStatusCadenceMultipliers: [Int] = [1, 2, 4],
+                minimumAutomaticStartInterval: Duration = .zero
             ) {
                 precondition(activePaneCadence > .zero)
                 precondition(visibleSidebarCadence >= activePaneCadence)
@@ -312,6 +319,7 @@ package enum AppPolicies {
                 precondition(capacityRetryJitterMaxDelay >= .zero)
                 precondition(maxScopedStatusPathspecCount > 0)
                 precondition(lineDetailFreshnessInterval > .zero)
+                precondition(minimumAutomaticStartInterval >= .zero)
                 precondition(automaticDutyGapMultiplier >= 1)
                 precondition(unchangedStatusCadenceMultipliers.first == 1)
                 precondition(
@@ -339,6 +347,7 @@ package enum AppPolicies {
                 self.capacityRetryJitterMaxDelay = capacityRetryJitterMaxDelay
                 self.maxScopedStatusPathspecCount = maxScopedStatusPathspecCount
                 self.lineDetailFreshnessInterval = lineDetailFreshnessInterval
+                self.minimumAutomaticStartInterval = minimumAutomaticStartInterval
                 self.automaticDutyGapMultiplier = automaticDutyGapMultiplier
                 self.unchangedStatusCadenceMultipliers = unchangedStatusCadenceMultipliers
             }
