@@ -158,6 +158,50 @@ extension BridgeGitReviewSourceProviderTests {
         #expect(await fixture.gitClient.recordedDiffRequests().isEmpty)
     }
 
+    @Test("AgentStudioGit adapter keeps the correlated reviewed branch separate from the comparison target")
+    func agentStudioGitAdapterCapturesCorrelatedReviewedBranch() async throws {
+        let fixture = makeContributionAdapterFixture(reviewedHeadShortName: "feature/x")
+
+        let capture = try await fixture.provider.captureContributionComparison(
+            BridgeContributionComparisonRequest(
+                symbolicTarget: .originDefaultBranch(
+                    remoteName: "origin",
+                    branchName: "main",
+                    basis: .commonCommit
+                ),
+                baseEndpoint: fixture.baseEndpoint,
+                headEndpoint: fixture.headEndpoint,
+                reviewGenerationValue: 12
+            )
+        )
+
+        #expect(capture.reviewedSubjectBranchName == "feature/x")
+        #expect(
+            await fixture.gitClient.recordedContributionDiffRequests().last?.target
+                == .named("refs/remotes/origin/main")
+        )
+    }
+
+    @Test("AgentStudioGit adapter records no reviewed branch for detached HEAD")
+    func agentStudioGitAdapterCapturesDetachedReviewedHead() async throws {
+        let fixture = makeContributionAdapterFixture(reviewedHeadShortName: nil)
+
+        let capture = try await fixture.provider.captureContributionComparison(
+            BridgeContributionComparisonRequest(
+                symbolicTarget: .originDefaultBranch(
+                    remoteName: "origin",
+                    branchName: "main",
+                    basis: .commonCommit
+                ),
+                baseEndpoint: fixture.baseEndpoint,
+                headEndpoint: fixture.headEndpoint,
+                reviewGenerationValue: 12
+            )
+        )
+
+        #expect(capture.reviewedSubjectBranchName == nil)
+    }
+
     @Test("AgentStudioGit adapter qualifies moving contribution branch refs")
     func agentStudioGitAdapterQualifiesMovingContributionBranchRefs() async throws {
         let fixture = makeContributionAdapterFixture()
@@ -267,7 +311,9 @@ private struct ContributionAdapterFixture {
     let headEndpoint: BridgeSourceEndpoint
 }
 
-private func makeContributionAdapterFixture() -> ContributionAdapterFixture {
+private func makeContributionAdapterFixture(
+    reviewedHeadShortName: String? = "feature"
+) -> ContributionAdapterFixture {
     let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-contribution-test")
     let filePath = "Sources/App/View.swift"
     let baseContent = "base content"
@@ -276,7 +322,7 @@ private func makeContributionAdapterFixture() -> ContributionAdapterFixture {
     let worktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
     let snapshot = GitContributionDiffSnapshot(
         resolvedTarget: GitResolvedRevision(oid: "target-oid", shortName: "integration"),
-        reviewedHead: GitResolvedRevision(oid: "head-oid", shortName: "feature"),
+        reviewedHead: GitResolvedRevision(oid: "head-oid", shortName: reviewedHeadShortName),
         contributionBase: GitResolvedRevision(oid: "base-oid", shortName: nil),
         diff: GitDiffSnapshot(
             files: [
@@ -300,7 +346,7 @@ private func makeContributionAdapterFixture() -> ContributionAdapterFixture {
     )
     let directReviewComparisonSnapshot = GitDirectReviewComparisonSnapshot(
         resolvedTarget: GitResolvedRevision(oid: "target-oid", shortName: nil),
-        reviewedHead: GitResolvedRevision(oid: "head-oid", shortName: "feature"),
+        reviewedHead: GitResolvedRevision(oid: "head-oid", shortName: reviewedHeadShortName),
         diff: snapshot.diff
     )
     let gitClient = AgentStudioGitLocalClientFake(

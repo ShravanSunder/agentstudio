@@ -264,6 +264,7 @@ struct BridgeReviewPipelineTests {
             capture: BridgeContributionComparisonCapture(
                 resolvedTargetOID: "target-oid",
                 reviewedHeadOID: "head-oid",
+                reviewedSubjectBranchName: "feature/x",
                 baseRole: .commonCommit,
                 baseOID: "base-oid",
                 comparison: preparedComparison
@@ -291,6 +292,7 @@ struct BridgeReviewPipelineTests {
                         symbolicTarget: .branch(name: "integration"),
                         resolvedTargetOID: "target-oid",
                         reviewedHeadOID: "head-oid",
+                        reviewedSubjectBranchName: "feature/x",
                         baseRole: .commonCommit,
                         baseOID: "base-oid"
                     )

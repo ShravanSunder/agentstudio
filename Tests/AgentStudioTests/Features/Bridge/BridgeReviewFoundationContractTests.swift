@@ -21,6 +21,7 @@ struct BridgeReviewFoundationContractTests {
                         symbolicTarget: .branch(name: "main"),
                         resolvedTargetOID: "target-oid",
                         reviewedHeadOID: "head-oid",
+                        reviewedSubjectBranchName: "feature/x",
                         baseRole: .commonCommit,
                         baseOID: "base-oid"
                     )
@@ -40,6 +41,7 @@ struct BridgeReviewFoundationContractTests {
             #expect(object["kind"] as? String == testCase.expectedKind)
             #expect(object["baseRole"] as? String == testCase.expectedBaseRole)
             #expect(object["comparedRole"] as? String == testCase.expectedComparedRole)
+            #expect(object["reviewedSubjectBranchName"] as? String == "feature/x")
             #expect(try JSONDecoder().decode(BridgeReviewComparisonOrigin.self, from: data) == testCase.origin)
         }
     }
