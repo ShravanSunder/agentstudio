@@ -9,7 +9,6 @@ func makeCreateRootDraftProps() -> WorktreeAnnotationSQLiteRepository.CreateRoot
         admission: .implicitOrSingle,
         repositoryID: "repo-1",
         worktreeID: "worktree-1",
-        originatingWorkspaceID: "workspace-1",
         sourceFingerprint: .init(
             repositoryID: "repo-1",
             worktreeID: "worktree-1",
@@ -28,7 +27,6 @@ func makeLocatedRootDraftProps() -> WorktreeAnnotationSQLiteRepository.CreateRoo
         admission: .implicitOrSingle,
         repositoryID: "repo-1",
         worktreeID: "worktree-1",
-        originatingWorkspaceID: "workspace-1",
         sourceFingerprint: makeSourceFingerprint(identity: "source-original"),
         origin: .located(
             .init(
@@ -72,7 +70,6 @@ func makeSourceUpdatedDetail(
             id: detail.session.id,
             repositoryID: detail.session.repositoryID,
             worktreeID: detail.session.worktreeID,
-            originatingWorkspaceID: detail.session.originatingWorkspaceID,
             lifecycle: detail.session.lifecycle,
             sourceRelationship: .applicable,
             acceptedSourceFingerprint: fingerprint,

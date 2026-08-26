@@ -230,7 +230,6 @@ private func addSavedRootSession(
             admission: .newSession,
             repositoryID: "repo-1",
             worktreeID: "worktree-1",
-            originatingWorkspaceID: "workspace-1",
             sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
             origin: .session,
             body: body,

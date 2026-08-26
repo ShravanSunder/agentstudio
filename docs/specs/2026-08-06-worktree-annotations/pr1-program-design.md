@@ -286,9 +286,10 @@ constraints. Swift strict decoding and domain policy own product vocabulary;
 SQLite retains keys, relations, nonnegative revisions, and byte-length
 integrity.
 
-Workspace identity is provenance only. Session discovery and applicability are
-worktree-lineage scoped. The first annotation creates a session when none is
-applicable; explicit choice is required only when several apply.
+Workspace identity is not retained by the annotation session. Session discovery
+and applicability are worktree-lineage scoped. The first annotation creates a
+session when none is applicable; explicit choice is required only when several
+apply.
 
 ## Command request/response boundary
 

@@ -301,7 +301,6 @@ private func makeCoordinatorSessionDetail(
             id: sessionID,
             repositoryID: "repository-1",
             worktreeID: "worktree-1",
-            originatingWorkspaceID: "workspace-1",
             lifecycle: .living,
             sourceRelationship: .applicable,
             acceptedSourceFingerprint: .init(

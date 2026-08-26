@@ -250,7 +250,6 @@ private func makeProjectionCapture(messageBodies: [String]) -> BridgeProductAnno
         id: sessionID,
         repositoryID: "repository-1",
         worktreeID: "worktree-1",
-        originatingWorkspaceID: nil,
         lifecycle: .living,
         sourceRelationship: .applicable,
         acceptedSourceFingerprint: .init(

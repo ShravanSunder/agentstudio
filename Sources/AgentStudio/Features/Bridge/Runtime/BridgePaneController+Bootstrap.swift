@@ -34,7 +34,6 @@ struct BridgeProductSessionDependencyInput {
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator?
     let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
     let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
-    let originatingWorkspaceID: String?
     let reviewContentLoaderCache: BridgeReviewContentLoaderCache
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
@@ -719,7 +718,6 @@ extension BridgePaneController {
             contextID: input.paneSessionId,
             repositoryID: repositoryID,
             worktreeID: worktreeID,
-            originatingWorkspaceID: input.originatingWorkspaceID,
             sourceResolver: sourceResolver,
             outputCoordinator: input.worktreeAnnotationOutputCoordinator,
             outputLabels: .init(

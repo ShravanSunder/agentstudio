@@ -286,7 +286,6 @@ private func makeGitSourceSession() -> WorktreeAnnotationSession {
         id: .generate(),
         repositoryID: "repo-1",
         worktreeID: "worktree-1",
-        originatingWorkspaceID: nil,
         lifecycle: .living,
         sourceRelationship: .applicable,
         acceptedSourceFingerprint: makeGitSourceFingerprint(),

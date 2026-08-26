@@ -533,7 +533,6 @@ private func makeOutputRepositoryFixture() throws -> OutputRepositoryFixture {
             admission: .implicitOrSingle,
             repositoryID: "repository-1",
             worktreeID: "worktree-1",
-            originatingWorkspaceID: "workspace-1",
             sourceFingerprint: .init(
                 repositoryID: "repository-1",
                 worktreeID: "worktree-1",

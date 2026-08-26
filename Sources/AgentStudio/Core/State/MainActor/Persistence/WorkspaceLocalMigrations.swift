@@ -210,6 +210,18 @@ package enum WorkspaceLocalMigrations {
                     """
             )
         }
+        migrator.registerMigration("010_remove_worktree_annotation_workspace_provenance") { database in
+            let sessionColumnNames = try Set(
+                String.fetchAll(
+                    database,
+                    sql: "SELECT name FROM pragma_table_info('annotation_session')"
+                )
+            )
+            guard sessionColumnNames.contains("originating_workspace_id") else { return }
+            try database.execute(
+                sql: "ALTER TABLE annotation_session DROP COLUMN originating_workspace_id"
+            )
+        }
         return migrator
     }
 

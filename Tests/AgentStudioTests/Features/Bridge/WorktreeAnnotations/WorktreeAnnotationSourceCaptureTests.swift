@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -378,6 +379,84 @@ struct WorktreeAnnotationSourceCaptureTests {
         #expect(await provider.recordedContentRequestsCount(handleId: duplicateHandle.handleId) == 1)
     }
 
+    @Test("Review refresh prefers the original path when a retired handle exceeds relocation bounds")
+    func reviewRefreshPrefersOriginalPathWhenRetiredHandleExceedsRelocationBounds() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let publication = makeReviewPackage(
+            itemCount: AppPolicies.Bridge.worktreeAnnotationMaximumSourceCandidateCount + 1,
+            comparisonOrigin: .contribution(
+                BridgeReviewContributionOrigin(
+                    symbolicTarget: .branch(name: "main"),
+                    resolvedTargetOID: "resolved-target-oid",
+                    reviewedHeadOID: "committed-head-oid",
+                    baseRole: .commonCommit,
+                    baseOID: "base-oid"
+                )
+            )
+        )
+        let requiredItem = try #require(publication.itemsById[publication.orderedItemIds[0]])
+        let requiredHandle = try #require(requiredItem.contentRoles.head)
+        let requiredPath = try #require(requiredItem.headPath)
+        let sourceBody = "content"
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: publication.baseEndpoint,
+                headEndpoint: publication.headEndpoint,
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                requiredHandle.handleId: makeContentResult(handle: requiredHandle, data: sourceBody)
+            ]
+        )
+        let contentLoaderCache = BridgeReviewContentLoaderCache(provider: provider)
+        let publicationCoordinator = BridgeReviewPublicationCoordinator()
+        let identity = try await commit(
+            package: publication,
+            coordinator: publicationCoordinator,
+            productAdmission: productAdmission.context
+        )
+
+        let capture = try await WorktreeAnnotationSourceCapture.reviewRefresh(
+            identity: identity,
+            publicationCoordinator: publicationCoordinator,
+            contentLoaderCache: contentLoaderCache,
+            requirements: [
+                WorktreeAnnotationSourceRefreshRequirement(
+                    threadID: WorktreeAnnotationThreadID(
+                        rawValue: UUID(uuidString: "66666666-6666-7666-8666-666666666666")!
+                    ),
+                    origin: .located(
+                        WorktreeAnnotationLocatedOrigin(
+                            repositoryRelativePath: requiredPath,
+                            startLine: 1,
+                            endLine: 1,
+                            sourceRole: .reviewHead,
+                            diffSide: .additions,
+                            sourceIdentity: "retired-head-handle",
+                            selectedExcerpt: sourceBody,
+                            contextBefore: nil,
+                            contextAfter: nil
+                        )
+                    )
+                )
+            ],
+            productAdmission: productAdmission.context
+        )
+
+        #expect(
+            capture.material
+                == .available([
+                    WorktreeAnnotationCurrentSourceFile(
+                        path: requiredPath,
+                        sourceRole: .reviewHead,
+                        sourceIdentity: requiredHandle.handleId,
+                        body: sourceBody
+                    )
+                ])
+        )
+        #expect(await provider.recordedContentRequestsCount(handleId: requiredHandle.handleId) == 1)
+    }
+
     private func commit(
         package: BridgeReviewPackage,
         coordinator: BridgeReviewPublicationCoordinator,
@@ -460,7 +539,6 @@ struct WorktreeAnnotationSourceCaptureTests {
                 admission: .implicitOrSingle,
                 repositoryID: fingerprint.repositoryID,
                 worktreeID: fingerprint.worktreeID,
-                originatingWorkspaceID: nil,
                 sourceFingerprint: fingerprint,
                 origin: .located(origin),
                 body: "Review this relocation",

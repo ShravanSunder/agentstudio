@@ -4,7 +4,6 @@ import Foundation
 
 struct BridgeDevelopmentProductProviderPreparationInput {
     let gitReadContext: BridgeGitReadContext
-    let originatingWorkspaceID: String?
     let reviewInitialization: BridgeDevelopmentProductReviewInitialization
     let reviewProvider: any BridgeReviewSourceProvider
     let source: BridgeDevelopmentProductSource
@@ -164,7 +163,6 @@ extension BridgeDevelopmentProductHost {
         .init(
             store: input.worktreeAnnotationStore,
             outputCoordinator: input.worktreeAnnotationOutputCoordinator,
-            originatingWorkspaceID: input.originatingWorkspaceID,
             source: input.source,
             fileMetadataSource: fileMetadataSource,
             reviewPublicationCoordinator: reviewPublicationCoordinator,

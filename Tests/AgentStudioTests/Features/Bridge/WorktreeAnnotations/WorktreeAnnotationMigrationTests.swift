@@ -155,10 +155,10 @@ struct WorktreeAnnotationMigrationTests {
             try database.execute(
                 sql: """
                     INSERT INTO annotation_session(
-                        id, repository_id, worktree_id, originating_workspace_id,
+                        id, repository_id, worktree_id,
                         lifecycle, source_relationship, accepted_source_fingerprint_json,
                         semantic_revision, created_at, updated_at, completed_at
-                    ) VALUES (?, 'repository', 'worktree', NULL, 'future_lifecycle',
+                    ) VALUES (?, 'repository', 'worktree', 'future_lifecycle',
                         'future_relationship', '{}', 0, 1, 1, NULL)
                     """,
                 arguments: [sessionId]
@@ -288,9 +288,8 @@ struct WorktreeAnnotationMigrationTests {
             try Row.fetchAll(database, sql: "PRAGMA index_info(idx_annotation_session_worktree)")
                 .map { row in row["name"] as String }
         }
-        #expect(sessionColumns.contains("originating_workspace_id"))
+        #expect(!sessionColumns.contains("originating_workspace_id"))
         #expect(indexColumns == ["worktree_id", "lifecycle", "source_relationship"])
-        #expect(!indexColumns.contains("originating_workspace_id"))
     }
 
     @Test("review subject migration preserves populated annotations and seeds only the reviewed HEAD witness")
@@ -453,7 +452,10 @@ private func annotationRows(in databaseQueue: DatabaseQueue) throws -> [String: 
             uniqueKeysWithValues: tables.map { table in
                 let columns = try Row.fetchAll(database, sql: "PRAGMA table_info(\(table))")
                     .map { row in row["name"] as String }
-                    .filter { $0 != "accepted_reviewed_subject_json" }
+                    .filter {
+                        $0 != "accepted_reviewed_subject_json"
+                            && $0 != "originating_workspace_id"
+                    }
                 let projection = columns.map { "\"\($0)\"" }.joined(separator: ", ")
                 let rows = try Row.fetchAll(
                     database,

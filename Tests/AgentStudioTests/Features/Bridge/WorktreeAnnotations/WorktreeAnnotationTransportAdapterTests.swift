@@ -920,7 +920,6 @@ private func makeTransportAdapterHarness(
             contextID: "pane-test",
             repositoryID: fingerprint.repositoryID,
             worktreeID: fingerprint.worktreeID,
-            originatingWorkspaceID: nil,
             sourceResolver: sourceResolver,
             now: { Date(timeIntervalSince1970: 100) },
             outputCoordinator: outputCoordinator,

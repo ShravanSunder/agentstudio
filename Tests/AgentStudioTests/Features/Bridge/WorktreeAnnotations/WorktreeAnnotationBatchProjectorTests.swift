@@ -208,7 +208,6 @@ private func makeBatchFixture(trailingBlankLineInFirstOrigin: Bool = false) -> B
         id: sessionID,
         repositoryID: "repository-1",
         worktreeID: "worktree-1",
-        originatingWorkspaceID: nil,
         lifecycle: .living,
         sourceRelationship: .applicable,
         acceptedSourceFingerprint: .init(

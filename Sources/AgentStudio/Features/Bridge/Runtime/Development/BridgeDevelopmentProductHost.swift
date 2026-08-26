@@ -47,7 +47,6 @@ package actor BridgeDevelopmentProductHost {
         source: BridgeDevelopmentProductSource,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
-        originatingWorkspaceID: String? = nil,
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
             BridgePaneStateMutationResult
@@ -56,7 +55,6 @@ package actor BridgeDevelopmentProductHost {
             source: source,
             worktreeAnnotationStore: worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
-            originatingWorkspaceID: originatingWorkspaceID,
             contributionTargetCommit: contributionTargetCommit,
             makeReviewProvider: { repositoryPath, gitReadContext in
                 BridgeReviewSourceProviderFactory.gitProvider(
@@ -71,7 +69,6 @@ package actor BridgeDevelopmentProductHost {
         source: BridgeDevelopmentProductSource,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
-        originatingWorkspaceID: String? = nil,
         reviewSharedContentRootURL: URL,
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
@@ -81,7 +78,6 @@ package actor BridgeDevelopmentProductHost {
             source: source,
             worktreeAnnotationStore: worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
-            originatingWorkspaceID: originatingWorkspaceID,
             contributionTargetCommit: contributionTargetCommit,
             makeReviewProvider: { repositoryPath, gitReadContext in
                 BridgeReviewSourceProviderFactory.gitProvider(
@@ -97,7 +93,6 @@ package actor BridgeDevelopmentProductHost {
         source: BridgeDevelopmentProductSource,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
-        originatingWorkspaceID: String? = nil,
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
             BridgePaneStateMutationResult,
@@ -121,7 +116,6 @@ package actor BridgeDevelopmentProductHost {
         let productPreparation = try await Self.makeProductProviderPreparation(
             .init(
                 gitReadContext: gitReadContext,
-                originatingWorkspaceID: originatingWorkspaceID,
                 reviewInitialization: reviewInitialization,
                 reviewProvider: reviewProvider,
                 source: source,

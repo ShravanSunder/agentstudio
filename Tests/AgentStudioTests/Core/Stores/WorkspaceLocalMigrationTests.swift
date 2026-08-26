@@ -82,6 +82,7 @@ struct WorkspaceLocalMigrationTests {
                     "007_add_worktree_annotation_message_handled",
                     "008_add_worktree_annotation_message_viewed_revision",
                     "009_add_worktree_annotation_reviewed_subject_evidence",
+                    "010_remove_worktree_annotation_workspace_provenance",
                 ]
         )
     }

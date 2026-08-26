@@ -98,7 +98,6 @@ private func projectionEntry(
         id: .generate(),
         repositoryID: "repository",
         worktreeID: "worktree",
-        originatingWorkspaceID: nil,
         lifecycle: .living,
         sourceRelationship: .applicable,
         acceptedSourceFingerprint: .init(

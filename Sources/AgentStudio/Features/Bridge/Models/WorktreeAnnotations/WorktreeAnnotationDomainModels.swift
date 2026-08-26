@@ -233,7 +233,6 @@ struct WorktreeAnnotationSession: Equatable, Sendable {
     let id: WorktreeAnnotationSessionID
     let repositoryID: String
     let worktreeID: String
-    let originatingWorkspaceID: String?
     let lifecycle: WorktreeAnnotationSessionLifecycle
     let sourceRelationship: WorktreeAnnotationSourceRelationship
     let acceptedSourceFingerprint: WorktreeAnnotationSourceFingerprint
@@ -247,7 +246,6 @@ struct WorktreeAnnotationSession: Equatable, Sendable {
         id: WorktreeAnnotationSessionID,
         repositoryID: String,
         worktreeID: String,
-        originatingWorkspaceID: String?,
         lifecycle: WorktreeAnnotationSessionLifecycle,
         sourceRelationship: WorktreeAnnotationSourceRelationship,
         acceptedSourceFingerprint: WorktreeAnnotationSourceFingerprint,
@@ -260,7 +258,6 @@ struct WorktreeAnnotationSession: Equatable, Sendable {
         self.id = id
         self.repositoryID = repositoryID
         self.worktreeID = worktreeID
-        self.originatingWorkspaceID = originatingWorkspaceID
         self.lifecycle = lifecycle
         self.sourceRelationship = sourceRelationship
         self.acceptedSourceFingerprint = acceptedSourceFingerprint

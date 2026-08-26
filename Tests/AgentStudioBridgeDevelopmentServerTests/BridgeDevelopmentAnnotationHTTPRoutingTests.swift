@@ -318,7 +318,6 @@ private func makeSiblingHTTPDevelopmentProductRuntime(
             source: source,
             worktreeAnnotationStore: composition.worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator: composition.worktreeAnnotationOutputCoordinator,
-            originatingWorkspaceID: composition.originatingWorkspaceID,
             contributionTargetCommit: { target in
                 composition.applyContributionTarget(target)
             }

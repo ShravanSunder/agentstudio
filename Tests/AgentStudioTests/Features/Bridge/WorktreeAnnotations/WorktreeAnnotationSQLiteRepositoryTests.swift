@@ -130,7 +130,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 admission: .implicitOrSingle,
                 repositoryID: "repo-1",
                 worktreeID: "worktree-1",
-                originatingWorkspaceID: "workspace-a",
                 sourceFingerprint: sourceFingerprint,
                 origin: .session,
                 body: "First draft",
@@ -138,16 +137,14 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 now: Date(timeIntervalSince1970: 10)
             )
         )
-        let crossWorkspaceDiscovery = try repository.discoverSessions(worktreeID: "worktree-1")
-        #expect(crossWorkspaceDiscovery.map(\.id) == [first.session.id])
-        #expect(crossWorkspaceDiscovery.first?.originatingWorkspaceID == "workspace-a")
+        let discovery = try repository.discoverSessions(worktreeID: "worktree-1")
+        #expect(discovery.map(\.id) == [first.session.id])
 
         let second = try repository.createRootDraft(
             .init(
                 admission: .newSession,
                 repositoryID: "repo-1",
                 worktreeID: "worktree-1",
-                originatingWorkspaceID: "workspace-b",
                 sourceFingerprint: sourceFingerprint,
                 origin: .session,
                 body: "Second session",
@@ -171,7 +168,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                     admission: .implicitOrSingle,
                     repositoryID: "repo-1",
                     worktreeID: "worktree-1",
-                    originatingWorkspaceID: nil,
                     sourceFingerprint: sourceFingerprint,
                     origin: .session,
                     body: "Ambiguous",
@@ -186,7 +182,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 admission: .selected(first.session.id),
                 repositoryID: "repo-1",
                 worktreeID: "worktree-1",
-                originatingWorkspaceID: "workspace-c",
                 sourceFingerprint: sourceFingerprint,
                 origin: .session,
                 body: "Explicit continuation",
@@ -207,7 +202,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 admission: .newSession,
                 repositoryID: "repo-1",
                 worktreeID: "worktree-1",
-                originatingWorkspaceID: nil,
                 sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
                 origin: .session,
                 body: "Second session",
@@ -248,7 +242,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 admission: .implicitOrSingle,
                 repositoryID: "repo-1",
                 worktreeID: "worktree-1",
-                originatingWorkspaceID: "workspace-1",
                 sourceFingerprint: .init(
                     repositoryID: "repo-1",
                     worktreeID: "worktree-1",
@@ -279,7 +272,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 admission: .selected(reviewDetail.session.id),
                 repositoryID: "repo-1",
                 worktreeID: "worktree-1",
-                originatingWorkspaceID: "workspace-2",
                 sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
                 origin: .located(
                     .init(
@@ -334,7 +326,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                     admission: .implicitOrSingle,
                     repositoryID: "repo-1",
                     worktreeID: "worktree-1",
-                    originatingWorkspaceID: nil,
                     sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
                     origin: .session,
                     body: "Must choose continuity first",
@@ -705,7 +696,6 @@ private func assertCompletedSessionRejectsAuthoring(
                 admission: .selected(detail.session.id),
                 repositoryID: "repo-1",
                 worktreeID: "worktree-1",
-                originatingWorkspaceID: nil,
                 sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
                 origin: .session,
                 body: "Must reopen first",
@@ -912,7 +902,6 @@ func makeRootDraft(repository: WorktreeAnnotationSQLiteRepository) throws -> Wor
             admission: .implicitOrSingle,
             repositoryID: "repo-1",
             worktreeID: "worktree-1",
-            originatingWorkspaceID: "workspace-1",
             sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
             origin: .located(
                 .init(

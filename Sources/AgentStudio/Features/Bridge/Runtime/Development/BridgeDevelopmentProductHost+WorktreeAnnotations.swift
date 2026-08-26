@@ -4,7 +4,6 @@ extension BridgeDevelopmentProductHost {
     struct WorktreeAnnotationCommandHandlerDependencies {
         let store: WorktreeAnnotationServiceActor?
         let outputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
-        let originatingWorkspaceID: String?
         let source: BridgeDevelopmentProductSource
         let fileMetadataSource: BridgePaneProductFileMetadataSource
         let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
@@ -61,7 +60,6 @@ extension BridgeDevelopmentProductHost {
             contextID: dependencies.source.paneID.uuidString.lowercased(),
             repositoryID: dependencies.source.repoID.uuidString.lowercased(),
             worktreeID: dependencies.source.worktreeID.uuidString.lowercased(),
-            originatingWorkspaceID: dependencies.originatingWorkspaceID,
             sourceResolver: sourceResolver,
             outputCoordinator: dependencies.outputCoordinator,
             outputLabels: .init(

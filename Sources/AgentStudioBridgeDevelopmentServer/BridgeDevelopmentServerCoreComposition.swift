@@ -20,7 +20,6 @@ final class BridgeDevelopmentServerCoreComposition {
     let productSource: BridgeDevelopmentProductSource
     let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor
     let worktreeAnnotationStore: WorktreeAnnotationServiceActor
-    let originatingWorkspaceID: String
 
     private let atoms: CoreAtoms
     private let repositoryTopologyStore: RepositoryTopologyStore
@@ -41,7 +40,6 @@ final class BridgeDevelopmentServerCoreComposition {
         self.workspaceStore = workspaceStore
         self.worktreeAnnotationOutputCoordinator = worktreeAnnotationOutputCoordinator
         self.worktreeAnnotationStore = worktreeAnnotationStore
-        self.originatingWorkspaceID = workspaceStore.identityAtom.workspaceId.uuidString.lowercased()
     }
 
     static func prepare(

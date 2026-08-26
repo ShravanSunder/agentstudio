@@ -123,7 +123,6 @@ private struct WorktreeAnnotationAppliedCommand {
 final class WorktreeAnnotationTransportAdapter {
     let now: @Sendable () -> Date
     let contextID: String
-    private let originatingWorkspaceID: String?
     let outputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
     let outputLabels: WorktreeAnnotationOutputLabels?
     private let repositoryID: String
@@ -137,7 +136,6 @@ final class WorktreeAnnotationTransportAdapter {
         contextID: String,
         repositoryID: String,
         worktreeID: String,
-        originatingWorkspaceID: String?,
         sourceResolver: WorktreeAnnotationSourceResolver,
         now: @escaping @Sendable () -> Date = Date.init,
         outputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
@@ -147,7 +145,6 @@ final class WorktreeAnnotationTransportAdapter {
         self.contextID = contextID
         self.repositoryID = repositoryID
         self.worktreeID = worktreeID
-        self.originatingWorkspaceID = originatingWorkspaceID
         self.sourceResolver = sourceResolver
         self.now = now
         self.outputCoordinator = outputCoordinator
@@ -438,7 +435,6 @@ final class WorktreeAnnotationTransportAdapter {
                 admission: Self.sessionAdmission(input.admission),
                 repositoryID: repositoryID,
                 worktreeID: worktreeID,
-                originatingWorkspaceID: originatingWorkspaceID,
                 sourceFingerprint: capturedSource.fingerprint,
                 origin: capturedSource.origin,
                 body: input.body,

@@ -31,7 +31,6 @@ struct WorktreeAnnotationSQLiteRepositoryConcurrencyTests {
                 admission: .selected(detail.session.id),
                 repositoryID: detail.session.repositoryID,
                 worktreeID: detail.session.worktreeID,
-                originatingWorkspaceID: nil,
                 sourceFingerprint: makeSourceFingerprint(worktreeID: detail.session.worktreeID),
                 origin: .session,
                 body: "Second independent draft",

@@ -427,7 +427,6 @@ private func makeHTTPDevelopmentServerHarness(
         source: composition.productSource,
         worktreeAnnotationStore: composition.worktreeAnnotationStore,
         worktreeAnnotationOutputCoordinator: composition.worktreeAnnotationOutputCoordinator,
-        originatingWorkspaceID: composition.originatingWorkspaceID,
         reviewSharedContentRootURL: configuration.reviewSharedContentRootURL,
         contributionTargetCommit: { target in
             composition.applyContributionTarget(target)

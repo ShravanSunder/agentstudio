@@ -282,7 +282,6 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                 admission: .implicitOrSingle,
                 repositoryID: fingerprint.repositoryID,
                 worktreeID: fingerprint.worktreeID,
-                originatingWorkspaceID: nil,
                 sourceFingerprint: fingerprint,
                 origin: .located(
                     .init(

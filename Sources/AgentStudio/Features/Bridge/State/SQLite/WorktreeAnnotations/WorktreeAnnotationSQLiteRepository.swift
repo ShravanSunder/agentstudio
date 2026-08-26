@@ -12,7 +12,6 @@ struct WorktreeAnnotationSQLiteRepository {
         let admission: SessionAdmission
         let repositoryID: String
         let worktreeID: String
-        let originatingWorkspaceID: String?
         let sourceFingerprint: WorktreeAnnotationSourceFingerprint
         let origin: WorktreeAnnotationThreadOrigin
         let body: String

@@ -23,7 +23,6 @@ extension WorkspaceSurfaceCoordinator {
             worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
             worktreeAnnotationStore: worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
-            originatingWorkspaceID: store.identityAtom.workspaceId.uuidString.lowercased(),
             traceRuntime: traceRuntime,
             initialPaneActivity: .dormant,
             initialContributionTargetCommit: initialContributionTargetCommit

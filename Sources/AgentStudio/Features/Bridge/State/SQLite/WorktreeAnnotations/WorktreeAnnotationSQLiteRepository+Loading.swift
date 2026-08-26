@@ -99,16 +99,15 @@ extension WorktreeAnnotationSQLiteRepository {
         try database.execute(
             sql: """
                 INSERT INTO annotation_session(
-                    id, repository_id, worktree_id, originating_workspace_id,
+                    id, repository_id, worktree_id,
                     lifecycle, source_relationship, accepted_source_fingerprint_json,
                     semantic_revision, created_at, updated_at, completed_at
-                ) VALUES (?, ?, ?, ?, 'living', 'applicable', ?, 1, ?, ?, NULL)
+                ) VALUES (?, ?, ?, 'living', 'applicable', ?, 1, ?, ?, NULL)
                 """,
             arguments: [
                 sessionID.databaseValue,
                 props.repositoryID,
                 props.worktreeID,
-                props.originatingWorkspaceID,
                 fingerprintJSON,
                 props.now.timeIntervalSince1970,
                 props.now.timeIntervalSince1970,
@@ -449,7 +448,6 @@ extension WorktreeAnnotationSQLiteRepository {
             id: decodeIdentity(row["id"] as String),
             repositoryID: row["repository_id"],
             worktreeID: row["worktree_id"],
-            originatingWorkspaceID: row["originating_workspace_id"],
             lifecycle: decodeRawValue(row["lifecycle"] as String),
             sourceRelationship: decodeRawValue(row["source_relationship"] as String),
             acceptedSourceFingerprint: Self.jsonDecoder.decode(

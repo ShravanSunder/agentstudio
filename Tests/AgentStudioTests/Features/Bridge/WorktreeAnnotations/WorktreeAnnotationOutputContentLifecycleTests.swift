@@ -475,7 +475,6 @@ private func createSavedLocatedMessage(
             admission: .implicitOrSingle,
             repositoryID: "repo-1",
             worktreeID: "worktree-1",
-            originatingWorkspaceID: workspaceID.uuidString,
             sourceFingerprint: .init(
                 repositoryID: "repo-1",
                 worktreeID: "worktree-1",

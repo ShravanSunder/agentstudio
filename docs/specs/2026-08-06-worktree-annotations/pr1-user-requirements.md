@@ -121,8 +121,8 @@ PR1 human boundary
 - Need: One identifiable annotation session represents a living review round in
   one selected repository worktree and spans File View and Review View. The
   session is owned by the worktree lineage: opening the same worktree from any
-  workspace resumes the same living round, with workspace recorded as
-  provenance at most.
+  workspace resumes the same living round. Workspace identity is neither
+  session identity nor retained annotation-session provenance.
 - Why: Plans, specifications, files, and diffs may belong to one coherent body
   of review work; panes, viewer instances, workspaces, and ordinary worktree
   changes must not fragment it.

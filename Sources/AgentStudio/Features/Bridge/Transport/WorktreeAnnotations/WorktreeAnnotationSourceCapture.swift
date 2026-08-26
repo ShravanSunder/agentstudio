@@ -144,6 +144,7 @@ enum WorktreeAnnotationSourceCapture {
     }
 
     private struct ReviewRefreshRequirement {
+        let fallbackPath: String?
         let sourceRole: WorktreeAnnotationSourceRole
         let sourceIdentity: String?
         let exactHandleID: String?
@@ -193,7 +194,16 @@ enum WorktreeAnnotationSourceCapture {
                     )
                 ) ? sourceIdentity : nil
             }
+            let fallbackPath: String? = requirement.fallbackPath.flatMap { fallbackPath in
+                guard exactHandleID == nil,
+                    orderedItems.contains(where: { item in
+                        reviewRefreshCandidate(for: requirement, item: item)?.path == fallbackPath
+                    })
+                else { return nil }
+                return fallbackPath
+            }
             return ReviewRefreshRequirement(
+                fallbackPath: fallbackPath,
                 sourceRole: requirement.sourceRole,
                 sourceIdentity: requirement.sourceIdentity,
                 exactHandleID: exactHandleID
@@ -222,9 +232,10 @@ enum WorktreeAnnotationSourceCapture {
         switch origin {
         case .session:
             return nil
-        case .wholeFile(_, let sourceRole):
+        case .wholeFile(let path, let sourceRole):
             guard sourceRole == .reviewBase || sourceRole == .reviewHead else { return nil }
             return ReviewRefreshRequirement(
+                fallbackPath: path,
                 sourceRole: sourceRole,
                 sourceIdentity: nil,
                 exactHandleID: nil
@@ -234,6 +245,7 @@ enum WorktreeAnnotationSourceCapture {
                 return nil
             }
             return ReviewRefreshRequirement(
+                fallbackPath: origin.repositoryRelativePath,
                 sourceRole: origin.sourceRole,
                 sourceIdentity: origin.sourceIdentity,
                 exactHandleID: nil
@@ -260,6 +272,8 @@ enum WorktreeAnnotationSourceCapture {
         guard let currentPath, let handle else { return nil }
         if let exactHandleID = requirement.exactHandleID {
             guard handle.handleId == exactHandleID else { return nil }
+        } else if let fallbackPath = requirement.fallbackPath {
+            guard currentPath == fallbackPath else { return nil }
         }
         return ReviewRefreshCandidate(
             path: currentPath,
