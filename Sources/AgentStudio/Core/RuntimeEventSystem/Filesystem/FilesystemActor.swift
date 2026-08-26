@@ -88,7 +88,7 @@ package actor FilesystemActor {
     private var drainTask: Task<Void, Never>?
     var lastRecordedLogicalDebtSnapshot: FilesystemLogicalDebtSnapshot?
     var logicalDebtSnapshotPublicationRevision: UInt64 = 0
-    private var hasShutdown = false
+    private var hasBegunShutdown = false
 
     package init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -131,12 +131,13 @@ package actor FilesystemActor {
         watchedFolderScanState.resultDrainState.task?.cancel()
         watchedFolderScanState.fallbackTask?.cancel()
         watchedFolderScanState.manualRefreshState.task?.cancel()
-        if !hasShutdown {
+        if !hasBegunShutdown {
             Self.logger.warning("FilesystemActor deinitialized without explicit shutdown()")
         }
     }
 
     package func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
+        guard !hasBegunShutdown else { return }
         startIngressTaskIfNeeded()
 
         let canonicalRootPath = FilesystemRootOwnership.canonicalRootPath(for: rootPath)
@@ -237,7 +238,8 @@ package actor FilesystemActor {
     }
 
     package func shutdown() async {
-        guard !hasShutdown else { return }
+        guard !hasBegunShutdown else { return }
+        hasBegunShutdown = true
         watchedFolderScanState.isShuttingDown = true
         let activeIngressTask = ingressTask
         let activeDrainTask = drainTask
@@ -280,10 +282,14 @@ package actor FilesystemActor {
         watchedFolderScanState.isShuttingDown = true
         activePaneWorktreeId = nil
         fseventStreamClient.shutdown()
-        hasShutdown = true
     }
 
-    private func ingestRawPaths(worktreeId: UUID, paths: [String]) async {
+    private func ingestRawPaths(
+        worktreeId: UUID,
+        paths: [String],
+        shouldScheduleAndRecord: Bool = true
+    ) async {
+        guard !hasBegunShutdown else { return }
         guard roots[worktreeId] != nil else {
             Self.logger.debug(
                 "Dropped filesystem path batch for unregistered worktree \(worktreeId.uuidString, privacy: .public)"
@@ -308,6 +314,7 @@ package actor FilesystemActor {
 
             if Self.isGitIgnoreReloadPath(rawPath: rawPath, relativePath: ownedPath.relativePath) {
                 let pathFilter = await FilesystemPathFilter.loadOffExecutor(forRootPath: root.rootPath)
+                guard !hasBegunShutdown else { return }
                 guard var latestRoot = roots[ownedPath.worktreeId] else { continue }
                 latestRoot.pathFilter = pathFilter
                 roots[ownedPath.worktreeId] = latestRoot
@@ -333,11 +340,14 @@ package actor FilesystemActor {
             pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
         }
 
-        scheduleDrainIfNeeded()
-        await recordLogicalDebtSnapshotIfChanged()
+        if shouldScheduleAndRecord {
+            scheduleDrainIfNeeded()
+            await recordLogicalDebtSnapshotIfChanged()
+        }
     }
 
     func startIngressTaskIfNeeded() {
+        guard !hasBegunShutdown else { return }
         guard ingressTask == nil else { return }
         let stream = fseventStreamClient.events()
         ingressTask = Task { [weak self] in
@@ -347,21 +357,38 @@ package actor FilesystemActor {
                 if await self.isWatchedFolderBatch(batch.worktreeId) {
                     await self.handleWatchedFolderFSEvent(batch)
                 } else {
-                    await self.enqueueRawPaths(worktreeId: batch.worktreeId, paths: batch.paths)
+                    await self.ingestRawPaths(
+                        worktreeId: batch.worktreeId,
+                        paths: batch.paths,
+                        shouldScheduleAndRecord: false
+                    )
                 }
+                guard !Task.isCancelled else { break }
+                guard await self.acceptsIngressWork else { break }
                 await self.consumeOverflowRecoveries()
             }
         }
     }
 
+    private var acceptsIngressWork: Bool {
+        !hasBegunShutdown
+    }
+
     private func consumeOverflowRecoveries() async {
+        guard !hasBegunShutdown else { return }
         for recovery in fseventStreamClient.consumeOverflowRecoveries() {
+            guard !hasBegunShutdown else { break }
+            let isWatchedFolderRecovery = isWatchedFolderBatch(recovery.worktreeId)
+            let preservesWatchedFolderScope =
+                isWatchedFolderRecovery
+                && recovery.containsGitTopologyPath == false
             performanceTraceRecorder?.record(
                 .filesystemStageOutcome,
                 attributes: [
                     "agentstudio.performance.filesystem.stage": .string("overflow_recovery"),
                     "agentstudio.performance.filesystem.outcome": .string(
-                        recovery.paths == nil ? "overflow_coarse" : "overflow_scoped"),
+                        recovery.paths == nil && !preservesWatchedFolderScope
+                            ? "overflow_coarse" : "overflow_scoped"),
                 ]
             )
             if let paths = recovery.paths {
@@ -369,15 +396,26 @@ package actor FilesystemActor {
                     worktreeId: recovery.worktreeId,
                     paths: paths.sorted()
                 )
-                if isWatchedFolderBatch(recovery.worktreeId) {
-                    await handleWatchedFolderFSEvent(batch)
+                if isWatchedFolderRecovery {
+                    await handleWatchedFolderFSEvent(
+                        batch,
+                        shouldRecordLogicalDebt: false
+                    )
                 } else {
-                    await enqueueRawPaths(worktreeId: recovery.worktreeId, paths: batch.paths)
+                    await ingestRawPaths(
+                        worktreeId: recovery.worktreeId,
+                        paths: batch.paths,
+                        shouldScheduleAndRecord: false
+                    )
                 }
                 continue
             }
-            if isWatchedFolderBatch(recovery.worktreeId) {
-                await handleCoarseWatchedFolderFSEvent(worktreeId: recovery.worktreeId)
+            if isWatchedFolderRecovery {
+                guard recovery.containsGitTopologyPath else { continue }
+                await handleCoarseWatchedFolderFSEvent(
+                    worktreeId: recovery.worktreeId,
+                    shouldRecordLogicalDebt: false
+                )
                 continue
             }
             guard pendingChangesByWorktreeId[recovery.worktreeId] != nil else { continue }
@@ -385,12 +423,14 @@ package actor FilesystemActor {
             pendingChanges.projectedPaths.insert(".")
             pendingChanges.recordPendingChange(at: schedulingClock.now())
             pendingChangesByWorktreeId[recovery.worktreeId] = pendingChanges
-            scheduleDrainIfNeeded()
         }
+        guard !hasBegunShutdown else { return }
+        scheduleDrainIfNeeded()
         await recordLogicalDebtSnapshotIfChanged()
     }
 
     private func scheduleDrainIfNeeded() {
+        guard !hasBegunShutdown else { return }
         guard drainTask == nil else { return }
         guard hasPendingPaths else { return }
 

@@ -7,6 +7,90 @@ import Testing
 
 @Suite(.serialized)
 struct FilesystemActorTests {
+    @Test("logical debt trace identity suppresses internal custody-only transitions")
+    func logicalDebtTraceIdentitySuppressesInternalCustodyTransitions() {
+        let activeQuantum = FilesystemLogicalDebtSnapshot(
+            pendingWorktreeCount: 0,
+            drainTaskCount: 0,
+            watchedFolderReadyCount: 0,
+            watchedFolderActiveQuantumCount: 1,
+            watchedFolderAwaitingValidationCount: 0,
+            watchedFolderPendingResultCount: 0,
+            watchedFolderLeasedResultCount: 0,
+            watchedFolderDirtyFollowUpCount: 0
+        )
+        let pendingResult = FilesystemLogicalDebtSnapshot(
+            pendingWorktreeCount: 0,
+            drainTaskCount: 0,
+            watchedFolderReadyCount: 0,
+            watchedFolderActiveQuantumCount: 0,
+            watchedFolderAwaitingValidationCount: 0,
+            watchedFolderPendingResultCount: 1,
+            watchedFolderLeasedResultCount: 0,
+            watchedFolderDirtyFollowUpCount: 0
+        )
+
+        #expect(activeQuantum != pendingResult)
+        #expect(activeQuantum.traceIdentity == pendingResult.traceIdentity)
+    }
+
+    @Test("one ingress batch publishes overflow debt once after aggregate admission")
+    func ingressBatchPublishesAggregateOverflowDebtOnce() async throws {
+        let traceRuntime = makeFilesystemLogicalDebtTraceRuntime()
+        let recorder = AgentStudioPerformanceTraceRecorder(
+            traceRuntime: traceRuntime,
+            processMemorySampleWait: { false }
+        )
+        let streamClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: EventBus<RuntimeEnvelope>(),
+            fseventStreamClient: streamClient,
+            sleepClock: TestPushClock(),
+            debounceWindow: .seconds(60),
+            maxFlushLatency: .seconds(120),
+            performanceTraceRecorder: recorder
+        )
+        let worktreeIDs = (0..<3).map { _ in UUIDv7.generate() }
+        for (index, worktreeID) in worktreeIDs.enumerated() {
+            await actor.register(
+                worktreeId: worktreeID,
+                repoId: UUIDv7.generate(),
+                rootPath: URL(fileURLWithPath: "/tmp/aggregate-overflow-debt-\(index)")
+            )
+            streamClient.sendOverflowRecovery(
+                worktreeId: worktreeID,
+                paths: ["Sources/Recovered\(index).swift"]
+            )
+        }
+        let baselineRevision = await actor.logicalDebtSnapshotPublicationRevision
+
+        streamClient.send(
+            FSEventBatch(worktreeId: worktreeIDs[0], paths: ["Sources/Trigger.swift"])
+        )
+
+        let aggregateSnapshotRecorded = await waitUntil {
+            await actor.lastRecordedLogicalDebtSnapshot?.pendingWorktreeCount == 3
+        }
+        #expect(aggregateSnapshotRecorded)
+        #expect(await actor.logicalDebtSnapshotPublicationRevision == baselineRevision + 1)
+
+        await actor.shutdown()
+        try await recorder.drain()
+    }
+
+    private func waitUntil(
+        maxTurns: Int = 10_000,
+        condition: @escaping @Sendable () async -> Bool
+    ) async -> Bool {
+        for _ in 0..<maxTurns {
+            if await condition() {
+                return true
+            }
+            await Task.yield()
+        }
+        return await condition()
+    }
+
     @Test("overflow debt widens the affected worktree to a root-scoped change")
     func overflowDebtWidensAffectedWorktreeToRootScope() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -613,6 +697,41 @@ struct FilesystemActorTests {
         clock.advance(by: .milliseconds(300))
         await Task.yield()
         #expect(await observed.filesChangedCount(for: worktreeId) == 0)
+    }
+
+    @Test("shutdown closes filesystem admission before asynchronous cleanup")
+    func shutdownClosesFilesystemAdmission() async {
+        let clock = TestPushClock()
+        let streamClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: EventBus<RuntimeEnvelope>(),
+            fseventStreamClient: streamClient,
+            sleepClock: clock,
+            debounceWindow: .milliseconds(200),
+            maxFlushLatency: .seconds(1)
+        )
+        let worktreeID = UUIDv7.generate()
+        await actor.register(
+            worktreeId: worktreeID,
+            repoId: worktreeID,
+            rootPath: URL(fileURLWithPath: "/tmp/shutdown-admission-\(UUIDv7.generate())")
+        )
+
+        await actor.shutdown()
+        let revisionAfterShutdown = await actor.logicalDebtSnapshotPublicationRevision
+        let postShutdownWorktreeID = UUIDv7.generate()
+        await actor.register(
+            worktreeId: postShutdownWorktreeID,
+            repoId: postShutdownWorktreeID,
+            rootPath: URL(fileURLWithPath: "/tmp/post-shutdown-registration")
+        )
+        await actor.enqueueRawPaths(worktreeId: worktreeID, paths: ["Sources/PostShutdown.swift"])
+        clock.advance(by: .seconds(1))
+        await Task.yield()
+
+        #expect(await actor.logicalDebtSnapshotPublicationRevision == revisionAfterShutdown)
+        #expect(await actor.logicalDebtSnapshot().logicalDebtCount == 0)
+        #expect(streamClient.registeredWorktreeIds == [worktreeID])
     }
 
     @Test("unregister during debounce window prevents stale filesChanged emission")

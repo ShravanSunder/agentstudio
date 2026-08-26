@@ -55,17 +55,29 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
     }
 
     private func retainOverflowRecovery(_ batch: FSEventBatch) {
+        let batchContainsGitTopologyPath = batch.paths.contains(where: Self.isGitTopologyPath)
         if let existing = overflowRecoveryByWorktreeId[batch.worktreeId], existing.paths == nil {
+            overflowRecoveryByWorktreeId[batch.worktreeId] = FSEventOverflowRecovery(
+                worktreeId: batch.worktreeId,
+                paths: nil,
+                containsGitTopologyPath: existing.containsGitTopologyPath
+                    || batchContainsGitTopologyPath
+            )
             return
         }
-        var retainedPaths = overflowRecoveryByWorktreeId[batch.worktreeId]?.paths ?? Set<String>()
+        let existing = overflowRecoveryByWorktreeId[batch.worktreeId]
+        var retainedPaths = existing?.paths ?? Set<String>()
+        let containsGitTopologyPath =
+            existing?.containsGitTopologyPath == true
+            || batchContainsGitTopologyPath
         for path in batch.paths {
             if retainedPaths.count >= maximumRetainedOverflowPathsPerRegistration,
                 !retainedPaths.contains(path)
             {
                 overflowRecoveryByWorktreeId[batch.worktreeId] = FSEventOverflowRecovery(
                     worktreeId: batch.worktreeId,
-                    paths: nil
+                    paths: nil,
+                    containsGitTopologyPath: containsGitTopologyPath
                 )
                 return
             }
@@ -73,8 +85,13 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         }
         overflowRecoveryByWorktreeId[batch.worktreeId] = FSEventOverflowRecovery(
             worktreeId: batch.worktreeId,
-            paths: retainedPaths
+            paths: retainedPaths,
+            containsGitTopologyPath: containsGitTopologyPath
         )
+    }
+
+    private static func isGitTopologyPath(_ path: String) -> Bool {
+        path.contains("/.git/") || path.hasSuffix("/.git")
     }
 
     package func finish() {

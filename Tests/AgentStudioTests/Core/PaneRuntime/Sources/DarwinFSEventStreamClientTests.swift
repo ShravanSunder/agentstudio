@@ -84,6 +84,51 @@ struct DarwinFSEventStreamClientTests {
         let recovery = try #require(ingressBuffer.consumeOverflowRecoveries().first)
         #expect(recovery.worktreeId == overflowedWorktreeId)
         #expect(recovery.paths == nil)
+        #expect(recovery.containsGitTopologyPath == false)
+        ingressBuffer.finish()
+    }
+
+    @Test("coarse overflow recovery retains git topology classification")
+    func coarseOverflowRecoveryRetainsGitTopologyClassification() throws {
+        let ingressBuffer = DarwinFSEventIngressBuffer(
+            capacity: 1,
+            maximumRetainedOverflowPathsPerRegistration: 2
+        )
+        let retainedWorktreeId = UUIDv7.generate()
+        let overflowedWorktreeId = UUIDv7.generate()
+        ingressBuffer.yield(FSEventBatch(worktreeId: retainedWorktreeId, paths: ["retained"]))
+        ingressBuffer.yield(
+            FSEventBatch(
+                worktreeId: overflowedWorktreeId,
+                paths: ["one", "two", "three", "repo/.git/HEAD"]
+            )
+        )
+
+        let recovery = try #require(ingressBuffer.consumeOverflowRecoveries().first)
+        #expect(recovery.paths == nil)
+        #expect(recovery.containsGitTopologyPath)
+        ingressBuffer.finish()
+    }
+
+    @Test("already-coarse overflow recovery upgrades when a later batch contains git topology")
+    func coarseOverflowRecoveryUpgradesForLaterGitTopologyBatch() throws {
+        let ingressBuffer = DarwinFSEventIngressBuffer(
+            capacity: 1,
+            maximumRetainedOverflowPathsPerRegistration: 2
+        )
+        let retainedWorktreeId = UUIDv7.generate()
+        let overflowedWorktreeId = UUIDv7.generate()
+        ingressBuffer.yield(FSEventBatch(worktreeId: retainedWorktreeId, paths: ["retained"]))
+        ingressBuffer.yield(
+            FSEventBatch(worktreeId: overflowedWorktreeId, paths: ["one", "two", "three"])
+        )
+        ingressBuffer.yield(
+            FSEventBatch(worktreeId: overflowedWorktreeId, paths: ["repo/.git/HEAD"])
+        )
+
+        let recovery = try #require(ingressBuffer.consumeOverflowRecoveries().first)
+        #expect(recovery.paths == nil)
+        #expect(recovery.containsGitTopologyPath)
         ingressBuffer.finish()
     }
 

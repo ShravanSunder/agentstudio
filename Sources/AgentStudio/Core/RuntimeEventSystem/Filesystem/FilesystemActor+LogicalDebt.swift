@@ -1,6 +1,14 @@
 import AgentStudioInfrastructure
 import Foundation
 
+struct FilesystemLogicalDebtTraceIdentity: Equatable, Sendable {
+    let pendingWorktreeCount: Int
+    let drainTaskCount: Int
+    let watchedFolderReadyCount: Int
+    let watchedFolderActiveCount: Int
+    let watchedFolderDirtyFollowUpCount: Int
+}
+
 struct FilesystemLogicalDebtSnapshot: Equatable, Sendable {
     let pendingWorktreeCount: Int
     let drainTaskCount: Int
@@ -24,6 +32,16 @@ struct FilesystemLogicalDebtSnapshot: Equatable, Sendable {
             + watchedFolderReadyCount
             + watchedFolderActiveCount
             + watchedFolderDirtyFollowUpCount
+    }
+
+    var traceIdentity: FilesystemLogicalDebtTraceIdentity {
+        FilesystemLogicalDebtTraceIdentity(
+            pendingWorktreeCount: pendingWorktreeCount,
+            drainTaskCount: drainTaskCount,
+            watchedFolderReadyCount: watchedFolderReadyCount,
+            watchedFolderActiveCount: watchedFolderActiveCount,
+            watchedFolderDirtyFollowUpCount: watchedFolderDirtyFollowUpCount
+        )
     }
 
     var traceAttributes: [String: AgentStudioTraceValue] {
@@ -75,7 +93,7 @@ extension FilesystemActor {
             pendingWorktreeCount: pendingWorktreeCount,
             drainTaskCount: drainTaskCount
         )
-        guard snapshot != lastRecordedLogicalDebtSnapshot else { return }
+        guard snapshot.traceIdentity != lastRecordedLogicalDebtSnapshot?.traceIdentity else { return }
         lastRecordedLogicalDebtSnapshot = snapshot
         performanceTraceRecorder?.record(
             .filesystemLogicalDebt,

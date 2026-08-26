@@ -40,17 +40,21 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
         }
     }
 
-    package func sendOverflowRecovery(worktreeId: UUID, paths: Set<String>? = nil) {
+    package func sendOverflowRecovery(
+        worktreeId: UUID,
+        paths: Set<String>? = nil,
+        containsGitTopologyPath: Bool = false
+    ) {
         lock.withLock {
-            if let existing = overflowRecoveryByWorktreeId[worktreeId], existing.paths == nil {
-                return
-            }
+            let existing = overflowRecoveryByWorktreeId[worktreeId]
             let mergedPaths = paths.map {
-                (overflowRecoveryByWorktreeId[worktreeId]?.paths ?? []).union($0)
+                (existing?.paths ?? []).union($0)
             }
             overflowRecoveryByWorktreeId[worktreeId] = FSEventOverflowRecovery(
                 worktreeId: worktreeId,
-                paths: mergedPaths
+                paths: existing?.paths == nil && existing != nil ? nil : mergedPaths,
+                containsGitTopologyPath: existing?.containsGitTopologyPath == true
+                    || containsGitTopologyPath
             )
         }
     }

@@ -8,10 +8,16 @@ package struct FSEventBatch: Sendable {
 package struct FSEventOverflowRecovery: Equatable, Sendable {
     package let worktreeId: UUID
     package let paths: Set<String>?
+    package let containsGitTopologyPath: Bool
 
-    package init(worktreeId: UUID, paths: Set<String>?) {
+    package init(
+        worktreeId: UUID,
+        paths: Set<String>?,
+        containsGitTopologyPath: Bool = false
+    ) {
         self.worktreeId = worktreeId
         self.paths = paths
+        self.containsGitTopologyPath = containsGitTopologyPath
     }
 }
 
