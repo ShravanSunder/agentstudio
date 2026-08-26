@@ -105,6 +105,27 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("refusing to reset a non-idle debug root"))
     }
 
+    @Test("strict CPU samples use exact process time deltas at the projected interval")
+    func strictCPUSamplesUseExactProcessTimeDeltas() throws {
+        let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        let samplerStart = try #require(source.range(of: "sample_strict_process_cpu() {"))
+        let samplerEnd = try #require(
+            source.range(
+                of: "record_strict_cpu_sample() {",
+                range: samplerStart.upperBound..<source.endIndex
+            )
+        )
+        let sampler = source[samplerStart.lowerBound..<samplerEnd.lowerBound]
+
+        #expect(sampler.contains("PROC_PIDTASKINFO = 4"))
+        #expect(sampler.contains("pti_total_user"))
+        #expect(sampler.contains("pti_total_system"))
+        #expect(sampler.contains("cpu_delta_ns / wall_delta_ns"))
+        #expect(sampler.contains("time.sleep"))
+        #expect(sampler.contains("$APP_PID"))
+        #expect(!sampler.contains("/usr/bin/top"))
+    }
+
     @Test("strict quiescence rejects missing and empty stage vectors")
     func strictQuiescenceRejectsMissingAndEmptyStageVectors() async throws {
         let missingObservations = (0...5).map { timestamp in
@@ -171,7 +192,8 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("metric read exceeded strict wait deadline"))
         #expect(source.contains("_msg:performance.sidebar.proof_action.failed"))
         #expect(source.contains("Time::HiRes=clock_gettime,CLOCK_MONOTONIC"))
-        #expect(!source.contains("time.monotonic_ns()"))
+        #expect(!quiescenceSource.contains("time.monotonic_ns()"))
+        #expect(!settlementSource.contains("time.monotonic_ns()"))
     }
 
     @Test("strict metric observation parser binds values to one requested timestamp")

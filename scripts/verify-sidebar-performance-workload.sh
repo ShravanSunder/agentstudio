@@ -811,22 +811,88 @@ stop_strict_zmx_monitor() {
   [ "$monitor_failed" = "0" ]
 }
 
+sample_strict_process_cpu() {
+  local sample_interval_seconds
+  sample_interval_seconds="$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
+    "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
+  /usr/bin/python3 - "$APP_PID" "$sample_interval_seconds" <<'PY'
+import ctypes
+import math
+import sys
+import time
+
+PROC_PIDTASKINFO = 4
+
+class ProcTaskInfo(ctypes.Structure):
+    _fields_ = [
+        ("pti_virtual_size", ctypes.c_uint64),
+        ("pti_resident_size", ctypes.c_uint64),
+        ("pti_total_user", ctypes.c_uint64),
+        ("pti_total_system", ctypes.c_uint64),
+        ("pti_threads_user", ctypes.c_uint64),
+        ("pti_threads_system", ctypes.c_uint64),
+        ("pti_policy", ctypes.c_int32),
+        ("pti_faults", ctypes.c_int32),
+        ("pti_pageins", ctypes.c_int32),
+        ("pti_cow_faults", ctypes.c_int32),
+        ("pti_messages_sent", ctypes.c_int32),
+        ("pti_messages_received", ctypes.c_int32),
+        ("pti_syscalls_mach", ctypes.c_int32),
+        ("pti_syscalls_unix", ctypes.c_int32),
+        ("pti_csw", ctypes.c_int32),
+        ("pti_threadnum", ctypes.c_int32),
+        ("pti_numrunning", ctypes.c_int32),
+        ("pti_priority", ctypes.c_int32),
+    ]
+
+pid = int(sys.argv[1])
+interval_seconds = float(sys.argv[2])
+if pid <= 0 or not math.isfinite(interval_seconds) or interval_seconds <= 0:
+    raise SystemExit("invalid exact-process CPU sample input")
+
+libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+libproc.proc_pidinfo.argtypes = [
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_uint64,
+    ctypes.c_void_p,
+    ctypes.c_int,
+]
+libproc.proc_pidinfo.restype = ctypes.c_int
+
+def total_process_cpu_nanoseconds():
+    info = ProcTaskInfo()
+    size = ctypes.sizeof(info)
+    result = libproc.proc_pidinfo(pid, PROC_PIDTASKINFO, 0, ctypes.byref(info), size)
+    if result != size:
+        raise SystemExit("exact debug process task info is unavailable")
+    return int(info.pti_total_user + info.pti_total_system)
+
+started_ns = time.monotonic_ns()
+before_cpu_ns = total_process_cpu_nanoseconds()
+time.sleep(interval_seconds)
+after_cpu_ns = total_process_cpu_nanoseconds()
+ended_ns = time.monotonic_ns()
+wall_delta_ns = ended_ns - started_ns
+cpu_delta_ns = after_cpu_ns - before_cpu_ns
+if wall_delta_ns <= 0 or cpu_delta_ns < 0:
+    raise SystemExit("invalid exact-process CPU time delta")
+cpu_percent = cpu_delta_ns / wall_delta_ns * 100.0
+print(f"{started_ns} {ended_ns} {cpu_percent:.6f}")
+PY
+}
+
 record_strict_cpu_sample() {
   local samples="${1:?missing samples file}"
   local inventory_receipts="$samples.owned-processes.jsonl"
-  local sample_interval_seconds cpu_value started_ns ended_ns
+  local sample
   validate_current_candidate
-  sample_interval_seconds="$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
-    "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
-  started_ns="$(monotonic_now_ns)"
   record_debug_owned_process_inventory "$inventory_receipts" "before"
-  cpu_value="$(/usr/bin/top -l 2 -s "$sample_interval_seconds" -pid "$APP_PID" -stats pid,cpu \
-    | awk -v pid="$APP_PID" '$1 == pid { value=$2 } END { if (value != "") print value }')"
-  [ -n "$cpu_value" ] || return 1
+  sample="$(sample_strict_process_cpu)"
+  [ -n "$sample" ] || return 1
   record_debug_owned_process_inventory "$inventory_receipts" "after"
   validate_current_candidate
-  ended_ns="$(monotonic_now_ns)"
-  printf '%s %s %s\n' "$started_ns" "$ended_ns" "$cpu_value" >>"$samples"
+  printf '%s\n' "$sample" >>"$samples"
 }
 
 validate_strict_sampler_gaps() {
