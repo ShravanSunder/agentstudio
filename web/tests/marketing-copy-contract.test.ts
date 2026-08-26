@@ -3,18 +3,23 @@ import { describe, expect, it } from "vitest";
 import { marketingCopy } from "../src/marketing-copy";
 
 describe("marketing copy", () => {
-  it("keeps the approved hero message and two-line headline", () => {
+  it("keeps the approved hero message and headline accent boundary", () => {
     expect(marketingCopy.hero).toMatchObject({
       eyebrow: "Native macOS. Repo-aware. Terminal-first.",
-      headline: "Run dozens of agents. Know where each one is working.",
-      headlineSetup: "Run dozens of agents.",
-      headlinePayoff: "Know where each one is working.",
+      headline: "Run dozens of agents in one workspace. Stay oriented. Miss nothing.",
+      headlineSetupFirst: "Run dozens of agents",
+      headlineSetupSecondBeforeAccent: "in one ",
+      headlineSetupSecondAccent: "workspace.",
+      headlinePayoff: "Stay oriented. Miss nothing.",
       description:
-        "Agent Studio is a native macOS IDE for parallel coding agents. It keeps each agent's terminal, files, and diffs with its repo and worktree.",
+        "Agent Studio is a native macOS IDE for parallel coding agents, with your repositories and worktrees within reach. Your agents run in Ghostty terminals with files and diffs right beside them.",
     });
 
-    expect(marketingCopy.hero.headlineSetup).toBe("Run dozens of agents.");
-    expect(marketingCopy.hero.headlinePayoff).toBe("Know where each one is working.");
+    expect(marketingCopy.hero.headlineSetupFirst).toBe("Run dozens of agents");
+    expect(
+      `${marketingCopy.hero.headlineSetupSecondBeforeAccent}${marketingCopy.hero.headlineSetupSecondAccent}`,
+    ).toBe("in one workspace.");
+    expect(marketingCopy.hero.headlinePayoff).toBe("Stay oriented. Miss nothing.");
     expect("headlinePayoffAccent" in marketingCopy.hero).toBe(false);
   });
 
@@ -37,7 +42,7 @@ describe("marketing copy", () => {
 
   it("closes with the approved native macOS positioning", () => {
     expect(marketingCopy.finalCallToAction).toEqual({
-      description: "Keep every agent tied to the repo and worktree it belongs to.",
+      description: "A native macOS IDE for parallel agents and all your work.",
       traits: "Native macOS. Repo-aware. Terminal-first.",
       technologyCredit: "👻 Built on Ghostty. ",
       creatorPrefix: "🛠️ Made by ",

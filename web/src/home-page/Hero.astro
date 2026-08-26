@@ -17,7 +17,12 @@ import InstallCommand from "./InstallCommand.astro";
       class="mt-6 mb-7.5 max-w-hero font-display text-hero font-extrabold"
       aria-label={marketingCopy.hero.headline}
     >
-      <span class="block whitespace-nowrap">{marketingCopy.hero.headlineSetup}</span>
+      <span class="block whitespace-nowrap">{marketingCopy.hero.headlineSetupFirst}</span>
+      <span class="block whitespace-nowrap">
+        {marketingCopy.hero.headlineSetupSecondBeforeAccent}<span
+          >{marketingCopy.hero.headlineSetupSecondAccent}</span
+        >
+      </span>
       <span class="mt-[0.5em] block whitespace-nowrap text-hero-payoff text-primary"
         >{marketingCopy.hero.headlinePayoff}</span
       >
