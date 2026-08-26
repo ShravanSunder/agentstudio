@@ -45,4 +45,3 @@ U3 needs surviving Inbox composition and persistence boundaries to state that pr
 - Preserve all Inbox source files, atom types, persistence schema, and existing database rows.
 - Do not add a rollout feature flag, alternate Inbox implementation, data migration, placeholder notification UI, or compatibility presentation path.
 - Full source/schema deletion and data disposition are deferred to a separate owner-authorized change.
-

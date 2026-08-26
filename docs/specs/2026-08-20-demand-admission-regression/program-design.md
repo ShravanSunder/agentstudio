@@ -13,7 +13,7 @@ Ghostty callback
   -> TerminalLocalActionAccumulator / projector    fixed-key contraction
   -> PaneActivityStatusAtom                        keyed latest fact + deferred latest
                                                      |
-RepositoryTopologyAtom -- materialized keys --------+ 
+RepositoryTopologyAtom -- materialized keys --------+
 RepoCacheAtom ---------- keyed Git/PR facts --------+--> RepoExplorerProjectionAdapter
 workspace focus/recency - keyed demanded facts -----+      demand + invalidation owner
                                                             semantic baseline owner +

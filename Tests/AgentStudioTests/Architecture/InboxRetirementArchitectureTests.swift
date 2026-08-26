@@ -202,8 +202,63 @@ struct InboxRetirementArchitectureTests {
                         "`WorkspacePaneGraphAtom` pane slots, `InboxNotificationAtom` unread counts",
                     ]
                 ),
+                (
+                    "docs/architecture/structure/directory_structure.md",
+                    [
+                        "`AgentStudioInboxNotification` is a retained dormant module dependency",
+                        "Active workspace settings persistence covers editor and Repo Explorer",
+                        "Do not reconnect the retained Inbox module",
+                        "without a new product decision.",
+                    ],
+                    [
+                        "Notification inbox state, persistence, and UI",
+                        "`InboxNotificationAtom` exists because\n  the sidebar observes the list",
+                        "`WorkspaceSettingsStore` co-persists editor, repo-explorer, and\ninbox preferences",
+                    ]
+                ),
+                (
+                    "docs/architecture/runtime/pane_runtime_eventbus_design.md",
+                    [
+                        "Retained `InboxNotificationRouter` source is dormant and historical.",
+                        "Do not reconnect it to App or runtime-bus composition",
+                        "without a new product decision.",
+                    ],
+                    [
+                        "Inbox promotion consumes `PaneRuntimeEvent.terminal(.bellRang)`"
+                    ]
+                ),
+                (
+                    "docs/architecture/runtime/pane_runtime_architecture.md",
+                    [
+                        "Inbox classification is not an active runtime contract.",
+                        "Retained Inbox reducer and router source is dormant historical implementation",
+                    ],
+                    [
+                        "disposition and Inbox classification must stay exhaustive without silent defaults"
+                    ]
+                ),
+                (
+                    "docs/architecture/structure/architecture_lint_inventory.md",
+                    [
+                        "The retained `InboxNotificationRouter` source is dormant historical implementation",
+                        "must not be reconnected without a new product decision.",
+                    ],
+                    [
+                        "`InboxNotificationRouter`\nindependently uses exhaustive top-level and nested owned-event switches"
+                    ]
+                ),
             ]
 
+        try assertRetiredInboxArchitectureContracts(contracts)
+    }
+
+    private func assertRetiredInboxArchitectureContracts(
+        _ contracts: [(
+            path: String,
+            requiredRetirementStatements: [String],
+            forbiddenActiveClaims: [String]
+        )]
+    ) throws {
         for contract in contracts {
             let source = try sourceFile(contract.path)
             for requiredStatement in contract.requiredRetirementStatements {

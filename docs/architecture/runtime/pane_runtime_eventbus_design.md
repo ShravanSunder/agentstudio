@@ -28,7 +28,7 @@ exhaustive decision. Normative Terminal source contract:
 | [`FilesystemActor.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemActor.swift) | FSEvents ingress, batching, topology facts |
 | [`GitWorkingDirectoryProjector`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Git/) | Git snapshot/branch/origin facts from filesystem |
 | [`ForgeActor.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Forge/ForgeActor.swift) | Demand-driven PR/forge facts |
-| [`NotificationReducer.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Reduction/NotificationReducer.swift) | Critical vs lossy/frame-coalesced EventBus scheduling (not Inbox kind mapping) |
+| [`NotificationReducer.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Reduction/NotificationReducer.swift) | Retained historical name for active critical vs lossy/frame-coalesced EventBus scheduling; no active Inbox classification or promotion |
 | App coordinators under [`App/Coordination/`](../../../Sources/AgentStudio/App/Coordination) | Bus → cache/topology/surface sequencing |
 
 ## Why This Exists
@@ -55,9 +55,11 @@ Workspace work does **not** route through `AppEventBus`; it uses
 AppKit/macOS lifecycle ingress uses `ApplicationLifecycleMonitor` plus
 `AppLifecycleAtom` / `WindowLifecycleAtom`, not either bus.
 
-Inbox promotion consumes `PaneRuntimeEvent.terminal(.bellRang)` from
-`PaneRuntimeEventBus` after Contract 7 admission. It does not depend on
-`AppEventBus.worktreeBellRang` and must not ingest raw `GhosttyEvent`.
+Retained `InboxNotificationRouter` source is dormant and historical. Its former
+promotion path consumed admitted `PaneRuntimeEvent.terminal(.bellRang)` facts,
+but App does not construct or start that router and no Inbox promotion runs.
+Do not reconnect it to App or runtime-bus composition.
+Do not do so without a new product decision.
 
 ## Commands never on the bus
 

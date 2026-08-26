@@ -103,7 +103,7 @@ Sources/AgentStudio/
 │   ├── CodeViewer/                   # Native code-viewer pane mount view
 │   ├── CommandBar/                   # ⌘P command palette
 │   ├── EditorChooser/                # Editor discovery and feature-owned chooser state
-│   ├── InboxNotification/            # Notification inbox state, persistence, and UI
+│   ├── InboxNotification/            # Dormant retained Inbox source and schema
 │   ├── RepoExplorer/                 # (renamed from Features/Sidebar/ in LUNA-361; the repo
 │   │                                 #   explorer feature. The sidebar itself is composition
 │   │                                 #   in App/, not a feature)
@@ -190,6 +190,15 @@ executable also depend on `GhosttyKit`. Keeping one coarse `AgentStudioCore`
 target is intentional for this graph: further Core decomposition is deferred
 until a separate design identifies a stable boundary worth its additional API
 and build complexity.
+
+`AgentStudioInboxNotification` is a retained dormant module dependency, not an
+active feature composition edge. Its source and persisted rows remain only for
+a later data-safe removal. App does not load, observe, route, present, or write
+through the module.
+
+Do not reconnect the retained Inbox module, source, atoms, repositories, stores,
+or schema to App, command, toolbar, shortcut, IPC, or runtime-bus composition
+without a new product decision.
 
 SwiftPM target boundaries make access control meaningful. Use `internal` for
 module-local implementation and `package` for declarations intentionally shared
@@ -346,14 +355,16 @@ There are two kinds of state. They live in different places:
 - **Feature state** — domain data owned by one feature. Observed shared UI
   facts live in feature atoms inside the feature slice. CRUD, query, coalesce,
   and retention with no subscriber live in a feature repository, not an atom.
-  Example: the inbox log is a repository; `InboxNotificationAtom` exists because
-  the sidebar observes the list. Never leak feature types into Core.
+  The retained Inbox repository and `InboxNotificationAtom` are historical
+  examples only: no active App reader loads or observes them. Never leak
+  feature types into Core.
 
-Feature ownership does not require one persistence file per atom. Until those
-stores split, `WorkspaceSettingsStore` co-persists editor, repo-explorer, and
-inbox preferences in the workspace settings payload. It imports recognized
-repo-explorer preferences from the legacy sidebar-cache sidecar once, then the
-workspace settings payload is canonical.
+Feature ownership does not require one persistence file per atom.
+Active workspace settings persistence covers editor and Repo Explorer preferences only.
+`WorkspaceSettingsStore` imports recognized Repo Explorer preferences from the
+legacy sidebar-cache sidecar once, then the workspace settings payload is
+canonical. Retained Inbox preference source, schema, and rows are not loaded,
+observed, snapshotted, or saved.
 
 If you are tempted to add a feature-specific property to the sidebar composition atoms, that property belongs in a feature atom instead. If you are tempted to add a feature type to [`Core/Models/`](../../../Sources/AgentStudio/Core/Models), test it: does *multiple features* and *cross-cutting composition* consume it? If only one feature uses it, it belongs in that feature.
 
