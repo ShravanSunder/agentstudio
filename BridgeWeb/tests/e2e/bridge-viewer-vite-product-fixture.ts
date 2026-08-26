@@ -100,7 +100,9 @@ export interface BridgeViewerOwnedViteShutdownDependencies {
 	) => Promise<BridgeViewerOwnedViteProcessExit | null>;
 }
 
-export async function createBridgeViewerViteProductFixture(): Promise<{
+export async function createBridgeViewerViteProductFixture(
+	options: { readonly reviewChangedFileCount?: number } = {},
+): Promise<{
 	readonly advanceComparisonTarget: () => Promise<string>;
 	readonly advanceReviewedHeadByCommitCount: (
 		commitCount: number,
@@ -115,7 +117,10 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 	const paneId = randomUUID();
 	let reviewedHeadAdvanceSequence = 0;
 	const largeFilePath = 'zz-large-complete-file.txt';
-	const reviewChangedFileCount = 16;
+	const reviewChangedFileCount = options.reviewChangedFileCount ?? 16;
+	if (!Number.isSafeInteger(reviewChangedFileCount) || reviewChangedFileCount <= 0) {
+		throw new Error('Vite product fixture Review file count must be a positive safe integer.');
+	}
 	const routineCompleteFileLineCount = 128;
 	const routineCompleteFileMiddleLineIndex = 63;
 	const routineCompleteFileFinalLineIndex = 127;
