@@ -222,6 +222,8 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 observesShellState = false
                 readbackContinuation.finish()
             }
+            await Task.yield()
+            await settleRepositoryFactDemandAdmission()
             guard await waitForInitialVisibleReadback() else {
                 record(
                     "performance.sidebar.proof_action.failed",
@@ -231,7 +233,6 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 )
                 return false
             }
-            await settleRepositoryFactDemandAdmission()
             guard let performanceRecorder else {
                 record("performance.sidebar.proof_action.failed", sequence: 0, outcome: "missing_workload_recorder")
                 return false

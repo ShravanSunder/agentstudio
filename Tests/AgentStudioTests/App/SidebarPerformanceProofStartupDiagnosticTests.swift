@@ -290,9 +290,13 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         let visibleReadback = try #require(
             sessionSource.range(of: "guard await waitForInitialVisibleReadback()")
         )
+        let initialDemandSettlement = try #require(
+            sessionSource.range(of: "await settleRepositoryFactDemandAdmission()")
+        )
         let populationReady = try #require(
             sessionSource.range(of: "performance.sidebar.proof_population.ready")
         )
+        #expect(initialDemandSettlement.lowerBound < visibleReadback.lowerBound)
         #expect(visibleReadback.lowerBound < populationReady.lowerBound)
         #expect(
             sessionSource.contains(
