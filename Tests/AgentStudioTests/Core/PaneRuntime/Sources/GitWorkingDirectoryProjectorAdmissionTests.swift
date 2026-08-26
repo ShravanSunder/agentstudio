@@ -218,11 +218,8 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             )
         )
 
-        #expect(
-            await admissionWaitUntil {
-                await projectorStatusCalls.rootPaths == [activeRootPath]
-            }
-        )
+        let activeStatusRootPaths = await projectorStatusCalls.waitForCallCount(1)
+        #expect(activeStatusRootPaths == [activeRootPath])
         #expect(await actor.capacityRetryWorktreeIds == Set([contendedWorktreeId]))
         #expect(pathProbe.recordedRootPaths.filter { $0 == contendedRootPath }.count == 1)
 
@@ -340,11 +337,8 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
         await blockingReadGate.open()
         _ = await blockingRead.value
-        #expect(
-            await admissionWaitUntil {
-                await projectorStatusCalls.rootPaths == [pendingRootPath]
-            }
-        )
+        let pendingStatusRootPaths = await projectorStatusCalls.waitForCallCount(1)
+        #expect(pendingStatusRootPaths == [pendingRootPath])
         #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
         #expect(await actor.capacityRetryWorktreeIds.isEmpty)
         #expect(await actor.capacityRetryReasonByWorktreeId.isEmpty)
@@ -615,9 +609,27 @@ private final class RootPathProbeRecorder: @unchecked Sendable {
 
 private actor StatusCallRecorder {
     private(set) var rootPaths: [URL] = []
+    private var callCountWaiter:
+        (
+            minimumCallCount: Int,
+            continuation: CheckedContinuation<[URL], Never>
+        )?
 
     func record(_ rootPath: URL) {
         rootPaths.append(rootPath)
+        guard let callCountWaiter, rootPaths.count >= callCountWaiter.minimumCallCount else {
+            return
+        }
+        self.callCountWaiter = nil
+        callCountWaiter.continuation.resume(returning: rootPaths)
+    }
+
+    func waitForCallCount(_ minimumCallCount: Int) async -> [URL] {
+        guard rootPaths.count < minimumCallCount else { return rootPaths }
+        return await withCheckedContinuation { continuation in
+            precondition(callCountWaiter == nil)
+            callCountWaiter = (minimumCallCount, continuation)
+        }
     }
 }
 

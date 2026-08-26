@@ -103,17 +103,30 @@ struct FilesystemActorHotPathArchitectureTests {
         )
         let ingressBody = try #require(
             filesystemActorSource.slice(
-                from: "private func ingestRawPaths(worktreeId: UUID, paths: [String]) async",
+                from: "private func ingestRawPaths(",
+                to: "private func rebuildRootOwnership()"
+            )
+        )
+        let rebuildRootOwnershipBody = try #require(
+            filesystemActorSource.slice(
+                from: "private func rebuildRootOwnership()",
                 to: "func startIngressTaskIfNeeded()"
             )
         )
 
+        #expect(ingressBody.contains("rootOwnership.route(sourceWorktreeId: worktreeId, rawPath: rawPath)"))
+        #expect(!ingressBody.contains("roots.mapValues"))
+        #expect(!ingressBody.contains("canonicalRootsByWorktree:"))
         #expect(
-            ingressBody.contains(
+            rebuildRootOwnershipBody.contains(
                 "canonicalRootsByWorktree: roots.mapValues(\\.canonicalRootPath)"
             )
         )
-        #expect(!ingressBody.contains("rootsByWorktree: roots.mapValues(\\.rootPath)"))
+        #expect(
+            filesystemActorSource.components(
+                separatedBy: "canonicalRootsByWorktree: roots.mapValues(\\.canonicalRootPath)"
+            ).count == 2
+        )
     }
 
     @Test("git snapshot projection skips workspace topology root lookup")
