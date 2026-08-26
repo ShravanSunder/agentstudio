@@ -15,7 +15,6 @@ private final class NativePlanTransportRecordingTarget:
         operations.append("move:\(oldIndex)->\(newIndex)")
     }
     func insertRows(_ indexes: IndexSet) { operations.append("insert:\(Array(indexes))") }
-    func reloadData() { operations.append("reloadData") }
     func reloadRows(_ indexes: IndexSet) { operations.append("reload:\(Array(indexes))") }
     func noteHeightChanges(_ indexes: IndexSet) { operations.append("height:\(Array(indexes))") }
     func endUpdates() { operations.append("end") }

@@ -6,7 +6,6 @@ protocol RepoExplorerNativeTableTransactionTarget: AnyObject {
     func removeRows(_ indexes: IndexSet)
     func moveRow(from oldIndex: Int, to newIndex: Int)
     func insertRows(_ indexes: IndexSet)
-    func reloadData()
     func reloadRows(_ indexes: IndexSet)
     func noteHeightChanges(_ indexes: IndexSet)
     func endUpdates()
@@ -29,14 +28,6 @@ enum RepoExplorerNativeTransactionApplier {
         tablePlan: RepoExplorerNativeTableUpdatePlan,
         to target: RepoExplorerNativeTableTransactionTarget
     ) -> Bool {
-
-        if case .membership(let membership) = tablePlan,
-            !membership.removeRowsInOldSpace.isEmpty,
-            !membership.insertRowsInNewSpace.isEmpty
-        {
-            target.reloadData()
-            return true
-        }
 
         target.beginUpdates()
         switch tablePlan {
@@ -128,10 +119,6 @@ private final class RepoExplorerNativeTableViewTransactionTarget:
 
     func insertRows(_ indexes: IndexSet) {
         tableView.insertRows(at: indexes, withAnimation: [])
-    }
-
-    func reloadData() {
-        tableView.reloadData()
     }
 
     func reloadRows(_ indexes: IndexSet) {

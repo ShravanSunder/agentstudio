@@ -13,7 +13,6 @@ private final class NativeTransactionRecordingTarget: RepoExplorerNativeTableTra
         operations.append("move:\(oldIndex)->\(newIndex)")
     }
     func insertRows(_ indexes: IndexSet) { operations.append("insert:\(Array(indexes))") }
-    func reloadData() { operations.append("reloadData") }
     func reloadRows(_ indexes: IndexSet) { operations.append("reload:\(Array(indexes))") }
     func noteHeightChanges(_ indexes: IndexSet) { operations.append("height:\(Array(indexes))") }
     func endUpdates() { operations.append("end") }
@@ -46,7 +45,13 @@ struct RepoExplorerNativeTransactionApplierTests {
 
         #expect(RepoExplorerNativeTransactionApplier.apply(plan: plan, to: target))
         #expect(
-            target.operations == ["reloadData"])
+            target.operations == [
+                "begin",
+                "remove:[0, 2]",
+                "insert:[1, 3]",
+                "reload:[0]",
+                "end",
+            ])
     }
 
     @Test("equal plan performs zero table work")
@@ -87,7 +92,12 @@ struct RepoExplorerNativeTransactionApplierTests {
             )
         )
         #expect(
-            target.operations == ["reloadData"]
+            target.operations == [
+                "begin",
+                "remove:[1, 2]",
+                "insert:[0, 1]",
+                "end",
+            ]
         )
     }
 
