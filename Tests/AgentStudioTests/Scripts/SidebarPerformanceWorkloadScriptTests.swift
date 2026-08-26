@@ -53,6 +53,8 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("cpu.raw.samples"))
         #expect(source.contains("classify_strict_action_samples"))
         #expect(source.contains("query_strict_action_records"))
+        #expect(source.contains("/usr/bin/pgrep -P \"$APP_PID\""))
+        #expect(!source.contains("/bin/ps -axo"))
         #expect(source.contains("duplicate action record"))
         #expect(source.contains("overlaps or is non-monotonic"))
         #expect(source.contains("strict_required_record_loss"))
@@ -161,6 +163,8 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(settlementSource.contains("unset STRICT_WAIT_MONOTONIC_DEADLINE_MS"))
         #expect(!settlementSource.contains("maximum_attempts"))
         #expect(source.contains("metric read exceeded strict wait deadline"))
+        #expect(source.contains("Time::HiRes=clock_gettime,CLOCK_MONOTONIC"))
+        #expect(!source.contains("time.monotonic_ns()"))
     }
 
     @Test("strict metric observation parser binds values to one requested timestamp")

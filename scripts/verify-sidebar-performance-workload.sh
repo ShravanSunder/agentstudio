@@ -267,30 +267,26 @@ print("debug_owned_helper_contract=passed")
 PY
 }
 
-debug_owned_process_records_json() {
-  /bin/ps -axo pid=,ppid=,%cpu=,command= | /usr/bin/python3 -c '
-import json, sys
-records = []
-for line in sys.stdin:
-    fields = line.strip().split(maxsplit=3)
-    if len(fields) == 4 and fields[0].isdigit() and fields[1].isdigit():
-        records.append({"pid": int(fields[0]), "ppid": int(fields[1]), "cpu": fields[2], "command": fields[3]})
-print(json.dumps(records, separators=(",", ":")))
-'
-}
-
 record_debug_owned_process_inventory() {
   local receipt_file="${1:?missing inventory receipt file}"
   local phase="${2:?missing inventory phase}"
-  local records_json inventory_json
-  records_json="$(debug_owned_process_records_json)"
-  validate_no_debug_owned_helpers_json "$records_json" "$APP_PID" >/dev/null
-  inventory_json="$(/usr/bin/python3 - "$records_json" "$APP_PID" "$phase" <<'PY'
+  local descendant_pids first_descendant_pid first_descendant_command inventory_json pgrep_status=0
+  descendant_pids="$(/usr/bin/pgrep -P "$APP_PID" . 2>/dev/null)" || pgrep_status=$?
+  if [ "$pgrep_status" -gt 1 ]; then
+    echo "failed to inspect exact debug app descendants" >&2
+    return 1
+  fi
+  if [ -n "$descendant_pids" ]; then
+    first_descendant_pid="$(printf '%s\n' "$descendant_pids" | head -1)"
+    first_descendant_command="$(/bin/ps -p "$first_descendant_pid" -o command= 2>/dev/null || true)"
+    echo "debug-owned helper remains active: $first_descendant_pid $first_descendant_command" >&2
+    return 1
+  fi
+  inventory_json="$(/usr/bin/python3 - "$APP_PID" "$phase" <<'PY'
 import json
 import sys
-records = json.loads(sys.argv[1])
-app_pid = int(sys.argv[2])
-phase = sys.argv[3]
+app_pid = int(sys.argv[1])
+phase = sys.argv[2]
 print(json.dumps({"phase": phase, "app_pid": app_pid, "owned_pids": [app_pid], "descendant_count": 0}, separators=(",", ":")))
 PY
   )"
@@ -501,7 +497,13 @@ positive_quiescence() {
 }
 
 monotonic_now_ms() {
-  /usr/bin/python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)'
+  /usr/bin/perl -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC \
+    -e 'printf "%d\n", clock_gettime(CLOCK_MONOTONIC) * 1000'
+}
+
+monotonic_now_ns() {
+  /usr/bin/perl -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC \
+    -e 'printf "%.0f\n", clock_gettime(CLOCK_MONOTONIC) * 1000000000'
 }
 
 parse_strict_sidebar_policy() {
@@ -816,14 +818,14 @@ record_strict_cpu_sample() {
   validate_current_candidate
   sample_interval_seconds="$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
     "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
-  started_ns="$(/usr/bin/python3 -c 'import time; print(time.monotonic_ns())')"
+  started_ns="$(monotonic_now_ns)"
   record_debug_owned_process_inventory "$inventory_receipts" "before"
   cpu_value="$(/usr/bin/top -l 2 -s "$sample_interval_seconds" -pid "$APP_PID" -stats pid,cpu \
     | awk -v pid="$APP_PID" '$1 == pid { value=$2 } END { if (value != "") print value }')"
   [ -n "$cpu_value" ] || return 1
   record_debug_owned_process_inventory "$inventory_receipts" "after"
   validate_current_candidate
-  ended_ns="$(/usr/bin/python3 -c 'import time; print(time.monotonic_ns())')"
+  ended_ns="$(monotonic_now_ns)"
   printf '%s %s %s\n' "$started_ns" "$ended_ns" "$cpu_value" >>"$samples"
 }
 
