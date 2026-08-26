@@ -331,10 +331,12 @@ export class BridgeCommWorkerProductController {
 					itemId: command.params.fileId,
 				});
 			case 'review.comparison.update':
+				this.#ensureReviewMetadataForInteractiveControl();
 				return await this.#productTransport.call('review.comparison.update', {
 					target: command.params.target,
 				});
 			case 'review.comparisonTargets.query':
+				this.#ensureReviewMetadataForInteractiveControl();
 				return await this.#productTransport.call('review.comparisonTargets.query', {});
 			case 'review.publication.install.admit':
 				return await this.#productTransport.call(
@@ -352,6 +354,14 @@ export class BridgeCommWorkerProductController {
 				});
 			default:
 				return assertNeverBridgeProductControlCommand(command);
+		}
+	}
+
+	#ensureReviewMetadataForInteractiveControl(): void {
+		try {
+			this.ensureReviewMetadata();
+		} catch {
+			// Exact control success remains independent of metadata-stream recovery.
 		}
 	}
 
