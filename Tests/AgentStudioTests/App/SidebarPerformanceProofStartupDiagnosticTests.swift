@@ -432,6 +432,12 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         let foregroundActivation = try #require(
             source.range(of: "NSApp.activate(ignoringOtherApps: true)")
         )
+        let unconditionalWindowOrdering = try #require(
+            source.range(of: "window.orderFrontRegardless()")
+        )
+        let attendedWindowBarrier = try #require(
+            source.range(of: "await waitForStrictSidebarWindowAttendance(window)")
+        )
         let idempotentSidebarExpansion = try #require(
             source.range(
                 of: "mainWindowController.expandSidebar()",
@@ -443,6 +449,9 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(policyProjection.lowerBound < fixturePreparation.lowerBound)
         #expect(fixturePreparation.lowerBound < fixtureReady.lowerBound)
         #expect(fixtureReady.lowerBound < foregroundActivation.lowerBound)
+        #expect(foregroundActivation.lowerBound < unconditionalWindowOrdering.lowerBound)
+        #expect(unconditionalWindowOrdering.lowerBound < attendedWindowBarrier.lowerBound)
+        #expect(attendedWindowBarrier.lowerBound < idempotentSidebarExpansion.lowerBound)
         #expect(foregroundActivation.lowerBound < idempotentSidebarExpansion.lowerBound)
         #expect(idempotentSidebarExpansion.lowerBound < sessionRun.lowerBound)
         #expect(foregroundActivation.lowerBound < sessionRun.lowerBound)

@@ -149,6 +149,8 @@ import AppKit
             )
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            await waitForStrictSidebarWindowAttendance(window)
             mainWindowController.expandSidebar()
             AppCommandDispatcher.shared.dispatch(.setRepoSidebarGroupingRepo)
             startupTraceRecorder.recordAppStartup(
@@ -164,6 +166,30 @@ import AppKit
                 action: action,
                 outcome: succeeded ? "succeeded" : "failed"
             )
+        }
+
+        private func waitForStrictSidebarWindowAttendance(_ window: NSWindow) async {
+            let clock = ContinuousClock()
+            let start = clock.now
+            while !Self.strictSidebarWindowIsAttended(window)
+                && !Task.isCancelled
+                && start.duration(to: clock.now)
+                    < AppPolicies.SidebarPerformanceProof.actionReadbackTimeout
+            {
+                do {
+                    try await AsyncDelay.taskSleep.wait(
+                        AppPolicies.SidebarPerformanceProof.fixtureStateObservationInterval)
+                } catch {
+                    return
+                }
+            }
+        }
+
+        private static func strictSidebarWindowIsAttended(_ window: NSWindow) -> Bool {
+            window.isVisible
+                && !window.isMiniaturized
+                && window.isOnActiveSpace
+                && window.occlusionState.contains(.visible)
         }
 
         private func prepareStrictSidebarPerformanceProofFixture(
