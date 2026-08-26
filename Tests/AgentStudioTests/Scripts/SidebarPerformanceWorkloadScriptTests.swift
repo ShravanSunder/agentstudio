@@ -126,6 +126,36 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(empty.stderr.contains("quiescence vector empty execution"))
     }
 
+    @Test("strict settlement waits enforce the projected timeout as monotonic wall time")
+    func strictSettlementWaitsUseMonotonicWallDeadlines() throws {
+        let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        let quiescenceStart = try #require(source.range(of: "wait_for_positive_quiescence() {"))
+        let quiescenceEnd = try #require(
+            source.range(
+                of: "begin_strict_population() {",
+                range: quiescenceStart.upperBound..<source.endIndex
+            )
+        )
+        let quiescenceSource = source[quiescenceStart.lowerBound..<quiescenceEnd.lowerBound]
+        let settlementStart = try #require(
+            source.range(of: "wait_for_strict_git_physical_settlement() {")
+        )
+        let settlementEnd = try #require(
+            source.range(
+                of: "validate_strict_periodic_completion_delta() {",
+                range: settlementStart.upperBound..<source.endIndex
+            )
+        )
+        let settlementSource = source[settlementStart.lowerBound..<settlementEnd.lowerBound]
+
+        #expect(quiescenceSource.contains("monotonic_deadline_ms"))
+        #expect(quiescenceSource.contains("monotonic_now_ms"))
+        #expect(!quiescenceSource.contains("maximum_attempts"))
+        #expect(settlementSource.contains("monotonic_deadline_ms"))
+        #expect(settlementSource.contains("monotonic_now_ms"))
+        #expect(!settlementSource.contains("maximum_attempts"))
+    }
+
     @Test("strict metric observation parser binds values to one requested timestamp")
     func strictMetricObservationParserBindsValuesToRequestedTimestamp() async throws {
         let accepted = try await runMetricObservationContract(

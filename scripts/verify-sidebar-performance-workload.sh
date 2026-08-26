@@ -500,6 +500,10 @@ positive_quiescence() {
   [ "$unchanged_seconds" -ge 5 ]
 }
 
+monotonic_now_ms() {
+  /usr/bin/python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)'
+}
+
 parse_strict_sidebar_policy() {
   local policy_file="${1:?missing policy file}"
   local environment_file="${2:?missing policy environment file}"
@@ -1107,11 +1111,11 @@ PY
 
 wait_for_strict_git_physical_settlement() {
   local marker="${1:?missing marker}"
-  local maximum_attempts=$((STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS \
-    / STRICT_POLICY_SAMPLE_INTERVAL_MS + 2))
-  local attempts=0 observation_time vector_json
-  while [ "$attempts" -lt "$maximum_attempts" ]; do
-    attempts=$((attempts + 1))
+  local monotonic_deadline_ms=$(( \
+    $(monotonic_now_ms) + STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS \
+  ))
+  local observation_time vector_json
+  while [ "$(monotonic_now_ms)" -lt "$monotonic_deadline_ms" ]; do
     observation_time="$(/usr/bin/python3 -c 'import time; print(f"{time.time():.6f}")')"
     vector_json="$(strict_sidebar_quiescence_vector_json \
       "$marker" "$observation_time" 2>/dev/null || true)"
@@ -1121,8 +1125,10 @@ wait_for_strict_git_physical_settlement() {
       printf '%s\n' "final_git_physical_settlement=complete"
       return 0
     fi
-    /bin/sleep "$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
-      "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
+    if [ "$(monotonic_now_ms)" -lt "$monotonic_deadline_ms" ]; then
+      /bin/sleep "$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
+        "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
+    fi
   done
   echo "final Git physical settlement did not complete" >&2
   return 1
@@ -1345,14 +1351,13 @@ PY
 
 wait_for_positive_quiescence() {
   local marker="${1:?missing marker}"
-  local maximum_attempts=$(((STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS \
-    + STRICT_POLICY_QUIESCENCE_MS + STRICT_POLICY_READBACK_TIMEOUT_MS) \
-    / STRICT_POLICY_SAMPLE_INTERVAL_MS + 2))
-  local prior="" unchanged=0 attempts=0 vector_json observation_time
+  local timeout_ms=$((STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS \
+    + STRICT_POLICY_QUIESCENCE_MS + STRICT_POLICY_READBACK_TIMEOUT_MS))
+  local monotonic_deadline_ms=$(( $(monotonic_now_ms) + timeout_ms ))
+  local prior="" unchanged=0 vector_json observation_time
   local baseline_time="" last_time="" elapsed_ms=0 state
   while [ "$elapsed_ms" -lt "$STRICT_POLICY_QUIESCENCE_MS" ] \
-    && [ "$attempts" -lt "$maximum_attempts" ]; do
-    attempts=$((attempts + 1))
+    && [ "$(monotonic_now_ms)" -lt "$monotonic_deadline_ms" ]; do
     observation_time="$(/usr/bin/python3 -c 'import time; print(f"{time.time():.6f}")')"
     vector_json="$(strict_sidebar_quiescence_vector_json \
       "$marker" "$observation_time" 2>/dev/null || true)"
@@ -1372,7 +1377,8 @@ wait_for_positive_quiescence() {
       last_time=""
       elapsed_ms=0
     fi
-    if [ "$elapsed_ms" -lt "$STRICT_POLICY_QUIESCENCE_MS" ]; then
+    if [ "$elapsed_ms" -lt "$STRICT_POLICY_QUIESCENCE_MS" ] \
+      && [ "$(monotonic_now_ms)" -lt "$monotonic_deadline_ms" ]; then
       /bin/sleep "$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
         "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
     fi
