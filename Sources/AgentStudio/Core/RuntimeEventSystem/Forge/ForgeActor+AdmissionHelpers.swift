@@ -94,19 +94,42 @@ extension ForgeActor {
     }
 
     func deadlineCandidates() -> [Duration] {
-        demandedRepoIds().compactMap { repoId -> Duration? in
-            guard let state = refreshStateByRepoId[repoId],
-                state.origin != nil,
-                state.activeRequestId == nil,
-                !demandedBranches(repoId: repoId).isEmpty
-            else { return nil }
+        demandedRepoIds().compactMap(deadlineCandidate(repoId:))
+    }
+
+    func deadlineCandidate(repoId: UUID) -> Duration? {
+        guard let state = refreshStateByRepoId[repoId],
+            state.origin != nil,
+            state.activeRequestId == nil,
+            !demandedBranches(repoId: repoId).isEmpty
+        else { return nil }
+        if state.pendingFollowUp {
             return state.pendingFollowUpEligibleAt
-                ?? nextEligibleRefreshAt(
-                    state: state,
-                    bypassFreshness: state.pendingFollowUp
-                        ? pendingFollowUpTrigger(for: state).bypassesFreshness : false
-                )
         }
+        return nextEligibleRefreshAt(state: state, bypassFreshness: false)
+    }
+
+    func consumeCapacityFallbacksDue(at now: Duration) -> Bool {
+        guard providerCapacityOccupancyCount >= maximumConcurrentProviderRequests else {
+            return false
+        }
+
+        var consumedFallback = false
+        for repoId in demandedRepoIds() {
+            guard let deadline = deadlineCandidate(repoId: repoId),
+                deadline <= now,
+                var state = refreshStateByRepoId[repoId]
+            else { continue }
+            state.pendingFollowUp = true
+            state.pendingFollowUpEligibleAt = nil
+            refreshStateByRepoId[repoId] = state
+            performanceAccumulator.recordAdmission(.capacityLimited)
+            consumedFallback = true
+        }
+        if consumedFallback {
+            recordPhysicalPerformanceState()
+        }
+        return consumedFallback
     }
 
     func deferStartIfPhysicallyBlocked(

@@ -724,7 +724,15 @@ package actor ForgeActor {
         guard generation == nextDeadlineGeneration else { return }
         performanceAccumulator.recordDeadline(.fired)
         deadlineTask = nil
+        let now = monotonicNow()
+        if consumeCapacityFallbacksDue(at: now) {
+            rescheduleDeadline()
+            flushPerformanceSnapshot()
+            return
+        }
         let repoIds = demandedRepoIds()
+            .filter { deadlineCandidate(repoId: $0).map { $0 <= now } == true }
+            .sorted { $0.uuidString < $1.uuidString }
         for repoId in repoIds {
             let trigger =
                 refreshStateByRepoId[repoId].map { state in

@@ -61,9 +61,13 @@ struct ForgeActorCapacityReservationTests {
         await fixture.stopObserving()
     }
 
-    @Test("expired capacity retry waits for provider completion instead of spinning")
-    func expiredCapacityRetryWaitsForProviderCompletion() async {
-        let fixture = await ForgeActorFixture.make(maximumConcurrentProviderRequests: 1)
+    @Test("capacity fallback is consumed until provider completion")
+    func capacityFallbackIsConsumedUntilProviderCompletion() async {
+        let performanceRecorder = ForgeCapacityPerformanceRecorder()
+        let fixture = await ForgeActorFixture.make(
+            performanceTraceRecorder: performanceRecorder,
+            maximumConcurrentProviderRequests: 1
+        )
         let orderedRepoIds = [UUIDv7.generate(), UUIDv7.generate()].sorted {
             $0.uuidString < $1.uuidString
         }
@@ -81,12 +85,14 @@ struct ForgeActorCapacityReservationTests {
 
         let retryDelay = AppPolicies.ForgeRefresh.capacityRecheckDelay
         fixture.advance(by: retryDelay)
-        for _ in 0..<1000 where fixture.clock.scheduledSleepGeneration == scheduledSleepGeneration {
+        for _ in 0..<1000
+        where performanceRecorder.snapshots.reduce(0, { $0 + $1.deadline.fired }) == 0 {
             await Task.yield()
         }
 
-        #expect(fixture.clock.scheduledSleepGeneration == scheduledSleepGeneration + 1)
-        #expect(fixture.clock.pendingSleepCount == 1)
+        #expect(performanceRecorder.snapshots.reduce(0) { $0 + $1.deadline.fired } == 1)
+        #expect(fixture.clock.scheduledSleepGeneration == scheduledSleepGeneration)
+        #expect(fixture.clock.pendingSleepCount == 0)
 
         await fixture.provider.resolve(callAt: 0, with: .complete([]))
         #expect(await fixture.provider.waitForCallCount(2))
