@@ -131,7 +131,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 && candidate.visibleGeneration > baseline.visibleGeneration
         }
 
-        private nonisolated static func visibleSidebarIsSettled(
+        nonisolated static func visibleSidebarIsSettled(
             _ readback: SidebarPerformanceProofReadback
         ) -> Bool {
             let repoExplorer = readback.repoExplorer
@@ -222,10 +222,11 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 observesShellState = false
                 readbackContinuation.finish()
             }
-            guard await waitForInitialReadback() else {
-                record("performance.sidebar.proof_action.failed", sequence: 0, outcome: "missing_initial_readback")
+            guard await waitForInitialVisibleReadback() else {
+                record("performance.sidebar.proof_action.failed", sequence: 0, outcome: "missing_visible_readback")
                 return false
             }
+            await settleRepositoryFactDemandAdmission()
             guard let performanceRecorder else {
                 record("performance.sidebar.proof_action.failed", sequence: 0, outcome: "missing_workload_recorder")
                 return false
@@ -419,11 +420,19 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             return true
         }
 
-        private func waitForInitialReadback() async -> Bool {
-            if latestReadback != nil { return true }
+        private func waitForInitialVisibleReadback() async -> Bool {
+            if let latestReadback,
+                SidebarPerformanceProofActionTracker.visibleSidebarIsSettled(latestReadback)
+            {
+                return true
+            }
             return await withTaskGroup(of: Bool.self) { group in
                 group.addTask { [readbackStream] in
-                    for await _ in readbackStream { return true }
+                    for await readback in readbackStream {
+                        if SidebarPerformanceProofActionTracker.visibleSidebarIsSettled(readback) {
+                            return true
+                        }
+                    }
                     return false
                 }
                 group.addTask { [delay] in

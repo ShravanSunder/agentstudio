@@ -44,10 +44,31 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
 
     @Test("strict quiescence accepts classified future remote eligibility")
     func strictQuiescenceAcceptsFutureRemoteEligibility() async throws {
-        let sequence = reasonedGitSettlementSequence()
-            .replacingOccurrences(of: "\"remote_pending_total\":0", with: "\"remote_pending_total\":1")
-            .replacingOccurrences(of: "\"remote_pending_future\":0", with: "\"remote_pending_future\":1")
-            .replacingOccurrences(of: "\"remote_next_deadline_ms\":0", with: "\"remote_next_deadline_ms\":180000")
+        let baseSequence = reasonedGitSettlementSequence()
+        let sequence = try mutateSettlementSequence(baseSequence) { timestamp, observation in
+            observation["remote_pending_total"] = 1
+            observation["remote_pending_future"] = 1
+            observation["remote_next_deadline_ms"] = 180_000 - (timestamp * 1000)
+            observation["forge_pending_total"] = 1
+            observation["forge_pending_future"] = 1
+            observation["forge_next_deadline_ms"] = 180_000 - (timestamp * 1000)
+        }
+        let result = try await runQuiescenceContract(sequence: sequence)
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+    }
+
+    @Test("strict quiescence accepts bounded running custody with advancing preparation age")
+    func strictQuiescenceAcceptsBoundedRunningCustody() async throws {
+        let sequence = try mutateSettlementSequence(
+            reasonedGitSettlementSequence(
+                gitLogicalDebt: 1,
+                activeFollowUpCount: 1,
+                runningCount: 1
+            )
+        ) { timestamp, observation in
+            observation["git_oldest_preparation_ms"] = timestamp * 1000
+        }
         let result = try await runQuiescenceContract(sequence: sequence)
 
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
@@ -79,16 +100,27 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
         #expect(result.stderr.contains("quiescence remote physical count exceeds its limit"))
     }
 
-    @Test("strict quiescence rejects stale remote settlement samples")
-    func strictQuiescenceRejectsStaleRemoteSettlementSamples() async throws {
+    @Test("strict quiescence accepts unchanged change-only source settlement samples")
+    func strictQuiescenceAcceptsUnchangedSourceSettlementSamples() async throws {
         let sequence = reasonedGitSettlementSequence().replacingOccurrences(
             of: "\"export_sample_time\":",
             with: "\"remote_sample_time\":0,\"forge_sample_time\":0,\"export_sample_time\":"
         )
         let result = try await runQuiescenceContract(sequence: sequence)
 
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+    }
+
+    @Test("strict quiescence rejects source settlement samples from the future")
+    func strictQuiescenceRejectsFutureSourceSettlementSamples() async throws {
+        let sequence = reasonedGitSettlementSequence().replacingOccurrences(
+            of: "\"export_sample_time\":",
+            with: "\"remote_sample_time\":10,\"forge_sample_time\":10,\"export_sample_time\":"
+        )
+        let result = try await runQuiescenceContract(sequence: sequence)
+
         #expect(result.exitCode == 1)
-        #expect(result.stderr.contains("remote settlement sample is stale"))
+        #expect(result.stderr.contains("remote settlement sample is from the future"))
     }
 
     @Test("strict CPU proof rejects any exact-debug descendant even at zero CPU")
@@ -164,9 +196,13 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
         maximumSettlementMilliseconds: Int = 960_000
     ) -> String {
         let observations = (0...5).map { timestamp in
-            """
-            {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":\(gitLogicalDebt),"git_future_automatic_count":\(futureAutomaticCount),"git_future_failure_count":\(futureFailureCount),"git_ready_pending_count":\(readyPendingCount),"git_capacity_pending_count":\(capacityPendingCount),"git_active_follow_up_count":\(activeFollowUpCount),"git_unclassified_pending_count":\(unclassifiedPendingCount),"git_overdue_deadline_count":\(overdueDeadlineCount),"git_running_count":\(runningCount),"git_physical_limit":\(physicalLimit),"git_oldest_preparation_ms":\(oldestPreparationMilliseconds),"git_next_deadline_ms":\(nextDeadlineMilliseconds),"remote_physical_active":0,"remote_pending_total":0,"remote_pending_future":0,"remote_pending_ready":0,"remote_pending_capacity":0,"remote_pending_active_follow_up":0,"remote_pending_unclassified":0,"remote_overdue_deadline":0,"remote_next_deadline_ms":0,"remote_physical_limit":1,"forge_physical_active":0,"forge_pending_total":0,"forge_pending_future":0,"forge_pending_ready":0,"forge_pending_capacity":0,"forge_pending_active_follow_up":0,"forge_pending_unclassified":0,"forge_overdue_deadline":0,"forge_next_deadline_ms":0,"forge_physical_limit":2,"git_maximum_settlement_ms":\(maximumSettlementMilliseconds),"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
-            """
+            let observedNextDeadlineMilliseconds =
+                nextDeadlineMilliseconds > 0
+                ? nextDeadlineMilliseconds - (timestamp * 1000)
+                : 0
+            return """
+                {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":\(gitLogicalDebt),"git_future_automatic_count":\(futureAutomaticCount),"git_future_failure_count":\(futureFailureCount),"git_ready_pending_count":\(readyPendingCount),"git_capacity_pending_count":\(capacityPendingCount),"git_active_follow_up_count":\(activeFollowUpCount),"git_unclassified_pending_count":\(unclassifiedPendingCount),"git_overdue_deadline_count":\(overdueDeadlineCount),"git_running_count":\(runningCount),"git_physical_limit":\(physicalLimit),"git_oldest_preparation_ms":\(oldestPreparationMilliseconds),"git_next_deadline_ms":\(observedNextDeadlineMilliseconds),"remote_physical_active":0,"remote_pending_total":0,"remote_pending_future":0,"remote_pending_ready":0,"remote_pending_capacity":0,"remote_pending_active_follow_up":0,"remote_pending_unclassified":0,"remote_overdue_deadline":0,"remote_next_deadline_ms":0,"remote_physical_limit":1,"forge_physical_active":0,"forge_pending_total":0,"forge_pending_future":0,"forge_pending_ready":0,"forge_pending_capacity":0,"forge_pending_active_follow_up":0,"forge_pending_unclassified":0,"forge_overdue_deadline":0,"forge_next_deadline_ms":0,"forge_physical_limit":2,"git_maximum_settlement_ms":\(maximumSettlementMilliseconds),"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
+                """
         }
         return "[" + observations.joined(separator: ",") + "]"
     }
@@ -182,6 +218,21 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
                 "STRICT_POLICY_SAMPLE_INTERVAL_MS": "1000",
             ]
         )
+    }
+
+    private func mutateSettlementSequence(
+        _ sequence: String,
+        mutation: (Int, inout [String: Any]) -> Void
+    ) throws -> String {
+        let data = try #require(sequence.data(using: .utf8))
+        var observations = try #require(
+            JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        )
+        for index in observations.indices {
+            mutation(index, &observations[index])
+        }
+        let mutatedData = try JSONSerialization.data(withJSONObject: observations)
+        return try #require(String(data: mutatedData, encoding: .utf8))
     }
 
     private func runPeriodicCompletionContract(baseline: Int, final: Int) async throws -> ProcessResult {

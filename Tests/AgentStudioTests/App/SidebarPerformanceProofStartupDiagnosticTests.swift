@@ -287,6 +287,18 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(sessionSource.contains("performance.sidebar.proof_action.started"))
         #expect(sessionSource.contains("performance.sidebar.proof_action.settled"))
         #expect(sessionSource.contains("performance.sidebar.proof_action.failed"))
+        let visibleReadback = try #require(
+            sessionSource.range(of: "guard await waitForInitialVisibleReadback()")
+        )
+        let populationReady = try #require(
+            sessionSource.range(of: "performance.sidebar.proof_population.ready")
+        )
+        #expect(visibleReadback.lowerBound < populationReady.lowerBound)
+        #expect(
+            sessionSource.contains(
+                "SidebarPerformanceProofActionTracker.visibleSidebarIsSettled"
+            )
+        )
         #expect(sessionSource.contains("await settleRepositoryFactDemandAdmission()"))
         #expect(!sessionSource.contains("socket"))
         #expect(!sessionSource.contains("FIFO"))

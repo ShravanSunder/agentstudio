@@ -905,6 +905,12 @@ required = (
     "forge_overdue_deadline", "forge_next_deadline_ms", "forge_physical_limit",
     "git_maximum_settlement_ms", "export_backlog",
 )
+clock_relative_fields = {
+    "git_oldest_preparation_ms",
+    "git_next_deadline_ms",
+    "remote_next_deadline_ms",
+    "forge_next_deadline_ms",
+}
 try:
     vector = json.loads(sys.argv[1])
 except json.JSONDecodeError as error:
@@ -928,7 +934,10 @@ for name in required:
         raise SystemExit(f"quiescence vector nonpositive {name}: {raw_value}")
     if name == "export_backlog" and value != 0:
         raise SystemExit("quiescence export backlog must remain zero")
-    normalized.append(f"{name}={value:g}")
+    # Countdown and elapsed-age gauges are validated against policy below,
+    # but their expected wall-clock movement is not a semantic state change.
+    if name not in clock_relative_fields:
+        normalized.append(f"{name}={value:g}")
 if float(vector["git_overdue_deadline_count"]) != 0:
     raise SystemExit("quiescence Git deadline is overdue")
 if float(vector["git_ready_pending_count"]) != 0:
@@ -1058,17 +1067,21 @@ try:
     forge_sample_time = float(vector.get("forge_sample_time", export_sample_time))
 except (KeyError, TypeError, ValueError):
     raise SystemExit("quiescence vector has missing or invalid observation time") from None
-if not math.isfinite(observation_time) or not math.isfinite(export_sample_time):
+if not all(
+    math.isfinite(value)
+    for value in (observation_time, export_sample_time, remote_sample_time, forge_sample_time)
+):
     raise SystemExit("quiescence vector has nonfinite observation time")
 maximum_export_age = float(raw_maximum_age) / 1000
+export_sample_age = observation_time - export_sample_time
+if export_sample_age < -0.001 or export_sample_age > maximum_export_age:
+    raise SystemExit("quiescence export backlog sample is stale")
 for sample_name, sample_time in (
-    ("export backlog", export_sample_time),
     ("remote settlement", remote_sample_time),
     ("forge settlement", forge_sample_time),
 ):
-    sample_age = observation_time - sample_time
-    if sample_age < -0.001 or sample_age > maximum_export_age:
-        raise SystemExit(f"quiescence {sample_name} sample is stale")
+    if observation_time - sample_time < -0.001:
+        raise SystemExit(f"quiescence {sample_name} sample is from the future")
 if raw_last and observation_time <= float(raw_last):
     raise SystemExit("quiescence observation time is not monotonic")
 if prior_signature == signature and raw_baseline:
@@ -1361,7 +1374,7 @@ PY
 
 wait_for_positive_quiescence() {
   local marker="${1:?missing marker}"
-  local timeout_ms=$((STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS \
+  local timeout_ms=$((STRICT_POLICY_GIT_MAXIMUM_SETTLEMENT_MS \
     + STRICT_POLICY_QUIESCENCE_MS + STRICT_POLICY_READBACK_TIMEOUT_MS))
   local monotonic_deadline_ms=$(( $(monotonic_now_ms) + timeout_ms ))
   local prior="" unchanged=0 vector_json observation_time
@@ -1408,6 +1421,7 @@ begin_strict_population() {
   local trace_tags="${3:-$WORKLOAD_TRACE_TAGS}"
   local population_artifact="$ARTIFACT/populations/$population"
   local fixture_environment="$population_artifact/fixture.env"
+  local activation_mode
   mkdir -p "$population_artifact"
   reset_disposable_debug_root
   TRACE_MARKER="$(opaque_trace_marker "${TRACE_NAME}-${population}" "$(/usr/bin/uuidgen)")"
@@ -1415,6 +1429,7 @@ begin_strict_population() {
   : >"$population_artifact/zmx-lifecycle.jsonl"
   strict_zmx_inventory_json ready >>"$population_artifact/zmx-lifecycle.jsonl"
   env AGENTSTUDIO_TRACE_FLUSH=immediate \
+    AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE=1 \
     AGENTSTUDIO_TRACE_TAGS="$trace_tags" \
     AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
     AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION="$selector" \
@@ -1423,6 +1438,11 @@ begin_strict_population() {
   for _ in $(seq 1 60); do [ -s "$STATE_FILE" ] && break; /bin/sleep 1; done
   [ -s "$STATE_FILE" ] || return 1
   APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
+  activation_mode="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE)"
+  if [ "$activation_mode" != "foreground" ]; then
+    echo "strict sidebar population requires foreground LaunchServices activation mode: ${activation_mode:-<missing>}" >&2
+    return 1
+  fi
   validate_current_candidate
   load_and_bind_strict_sidebar_policy "$population_artifact"
   load_strict_sidebar_fixture_ready "$population_artifact/fixture-ready.jsonl"
