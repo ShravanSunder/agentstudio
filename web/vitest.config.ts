@@ -1,6 +1,7 @@
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
+import { verifySiteFooterResponsiveLayout } from "./tests/site-footer-browser-command.ts";
 import { verifySiteHeaderScrollStability } from "./tests/site-header-browser-command.ts";
 
 export default defineConfig({
@@ -18,7 +19,7 @@ export default defineConfig({
           name: "browser",
           include: ["tests/**/*.browser.test.ts"],
           browser: {
-            commands: { verifySiteHeaderScrollStability },
+            commands: { verifySiteFooterResponsiveLayout, verifySiteHeaderScrollStability },
             enabled: true,
             provider: playwright({ launchOptions: { channel: "chrome" } }),
             headless: true,
