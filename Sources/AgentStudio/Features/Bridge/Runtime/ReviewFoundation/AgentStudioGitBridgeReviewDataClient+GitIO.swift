@@ -1,4 +1,5 @@
 import AgentStudioGit
+import AgentStudioInfrastructure
 import CryptoKit
 import Foundation
 
@@ -435,6 +436,65 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeReviewRefreshImpactDataCli
         try await loadGitDiffImpactSummary(
             request,
             freshnessKey: gitReadFreshnessKey(for: candidateGeneration)
+        )
+    }
+}
+
+extension AgentStudioGitBridgeReviewDataClient: WorktreeAnnotationGitEvidenceSource {
+    func currentWorktreeAnnotationReviewedSubjectEvidence(
+        sourceGeneration: Int
+    ) async throws -> WorktreeAnnotationReviewedSubjectEvidence? {
+        do {
+            let revision = try await loadGitResolvedRevision(
+                GitRevisionResolutionRequest(repositoryPath: repositoryPath, target: .named("HEAD")),
+                unavailableEndpointId: "worktree-annotation-head",
+                freshnessKey: worktreeAnnotationFreshnessKey(sourceGeneration: sourceGeneration)
+            )
+            return try WorktreeAnnotationReviewedSubjectEvidence(
+                branchName: revision.shortName,
+                reviewedHeadOID: revision.oid
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return nil
+        }
+    }
+
+    func worktreeAnnotationAncestryDisposition(
+        acceptedReviewedHeadOID: String,
+        currentReviewedHeadOID: String,
+        sourceGeneration: Int
+    ) async throws -> WorktreeAnnotationAncestryDisposition {
+        do {
+            let result = try await loadGitCommitRangeCount(
+                GitCommitRangeCountRequest(
+                    repositoryPath: repositoryPath,
+                    base: .named(acceptedReviewedHeadOID),
+                    candidate: .named(currentReviewedHeadOID),
+                    maximumCount: AppPolicies.Bridge.worktreeAnnotationContinuityMaximumCommitCount,
+                    maximumTraversalCount: AppPolicies.Bridge.worktreeAnnotationContinuityMaximumTraversalCount
+                ),
+                freshnessKey: worktreeAnnotationFreshnessKey(sourceGeneration: sourceGeneration)
+            )
+            return switch result {
+            case .exact: .exact
+            case .atLeastLimit: .atLeastLimit
+            case .traversalLimitReached: .traversalLimitReached
+            case .unrelated: .unrelated
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return .readFailure
+        }
+    }
+
+    private func worktreeAnnotationFreshnessKey(
+        sourceGeneration: Int
+    ) -> BridgeGitReadFreshnessKey {
+        BridgeGitReadFreshnessKey(
+            token: "\(gitReadContext.scopeKey.token):worktree-annotation-source-\(sourceGeneration)"
         )
     }
 }

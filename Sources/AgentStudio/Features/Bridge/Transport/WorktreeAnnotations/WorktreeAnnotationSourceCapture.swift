@@ -41,7 +41,8 @@ enum WorktreeAnnotationSourceCapture {
     static func resolver(
         fileMetadataSource: any BridgePaneProductFileMetadataProducing,
         reviewPublicationCoordinator: BridgeReviewPublicationCoordinator,
-        reviewContentLoaderCache: BridgeReviewContentLoaderCache
+        reviewContentLoaderCache: BridgeReviewContentLoaderCache,
+        gitEvidenceSource: (any WorktreeAnnotationGitEvidenceSource)? = nil
     ) -> WorktreeAnnotationSourceResolver {
         WorktreeAnnotationSourceResolver(
             capture: { origin, surface, reviewPublicationIdentity, productAdmission in
@@ -106,6 +107,35 @@ enum WorktreeAnnotationSourceCapture {
                     )
                     return publication.package.reviewGeneration.rawValue
                 }
+            },
+            currentReviewedSubjectEvidence: { surface, reviewPublicationIdentity, productAdmission in
+                switch surface {
+                case .file:
+                    guard let gitEvidenceSource else {
+                        throw WorktreeAnnotationSourceResolutionError.unavailable
+                    }
+                    let sourceGeneration =
+                        try await fileMetadataSource
+                        .currentWorktreeAnnotationSourceGeneration(productAdmission: productAdmission)
+                    return try await gitEvidenceSource.currentWorktreeAnnotationReviewedSubjectEvidence(
+                        sourceGeneration: sourceGeneration
+                    )
+                case .review:
+                    let publication = try await retainedReviewPublication(
+                        identity: try requireReviewIdentity(reviewPublicationIdentity),
+                        publicationCoordinator: reviewPublicationCoordinator,
+                        productAdmission: productAdmission
+                    )
+                    return try reviewedSubjectEvidence(for: publication.package)
+                }
+            },
+            ancestryDisposition: { acceptedOID, currentOID, sourceGeneration in
+                guard let gitEvidenceSource else { return .readFailure }
+                return try await gitEvidenceSource.worktreeAnnotationAncestryDisposition(
+                    acceptedReviewedHeadOID: acceptedOID,
+                    currentReviewedHeadOID: currentOID,
+                    sourceGeneration: sourceGeneration
+                )
             }
         )
     }
@@ -380,6 +410,18 @@ enum WorktreeAnnotationSourceCapture {
             productAdmission: productAdmission
         )
         return try reviewFingerprint(for: publication.package)
+    }
+
+    private static func reviewedSubjectEvidence(
+        for package: BridgeReviewPackage
+    ) throws -> WorktreeAnnotationReviewedSubjectEvidence? {
+        guard case .contribution(let comparisonOrigin)? = package.comparisonOrigin else {
+            return nil
+        }
+        return try WorktreeAnnotationReviewedSubjectEvidence(
+            branchName: comparisonOrigin.reviewedSubjectBranchName,
+            reviewedHeadOID: comparisonOrigin.reviewedHeadOID
+        )
     }
 
     private static func retainedReviewPublication(

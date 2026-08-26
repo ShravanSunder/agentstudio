@@ -16,6 +16,20 @@ struct WorktreeAnnotationSourceRefreshCapture: Equatable, Sendable {
     let material: WorktreeAnnotationSourceMaterial
 }
 
+protocol WorktreeAnnotationGitEvidenceSource: Sendable {
+    func currentWorktreeAnnotationReviewedSubjectEvidence(
+        sourceGeneration: Int
+    ) async throws -> WorktreeAnnotationReviewedSubjectEvidence?
+    func worktreeAnnotationAncestryDisposition(
+        acceptedReviewedHeadOID: String,
+        currentReviewedHeadOID: String,
+        sourceGeneration: Int
+    ) async throws -> WorktreeAnnotationAncestryDisposition
+}
+
+typealias WorktreeAnnotationAncestryResolver =
+    @Sendable (String, String, Int) async throws -> WorktreeAnnotationAncestryDisposition
+
 struct WorktreeAnnotationSourceResolver: Sendable {
     let capture:
         @Sendable (
@@ -43,6 +57,13 @@ struct WorktreeAnnotationSourceResolver: Sendable {
             BridgeProductReviewAnnotationPublicationIdentity?,
             BridgeProductAdmissionContext
         ) async throws -> Int
+    let currentReviewedSubjectEvidence:
+        @Sendable (
+            BridgeProductSurface,
+            BridgeProductReviewAnnotationPublicationIdentity?,
+            BridgeProductAdmissionContext
+        ) async throws -> WorktreeAnnotationReviewedSubjectEvidence?
+    let ancestryDisposition: WorktreeAnnotationAncestryResolver
 
     init(
         capture:
@@ -72,12 +93,21 @@ struct WorktreeAnnotationSourceResolver: Sendable {
                 BridgeProductAdmissionContext
             ) async throws -> Int = { _, _, _ in
                 throw WorktreeAnnotationSourceResolutionError.unavailable
-            }
+            },
+        currentReviewedSubjectEvidence:
+            @escaping @Sendable (
+                BridgeProductSurface,
+                BridgeProductReviewAnnotationPublicationIdentity?,
+                BridgeProductAdmissionContext
+            ) async throws -> WorktreeAnnotationReviewedSubjectEvidence? = { _, _, _ in nil },
+        ancestryDisposition: @escaping WorktreeAnnotationAncestryResolver = { _, _, _ in .notEvaluated }
     ) {
         self.capture = capture
         self.currentFingerprint = currentFingerprint
         self.refresh = refresh
         self.currentSourceGeneration = currentSourceGeneration
+        self.currentReviewedSubjectEvidence = currentReviewedSubjectEvidence
+        self.ancestryDisposition = ancestryDisposition
     }
 
     static let unavailable = Self(

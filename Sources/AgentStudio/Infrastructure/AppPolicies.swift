@@ -80,6 +80,8 @@ package enum AppPolicies {
         package static let worktreeAnnotationMaximumDiscoverySessions: Int = 128
         package static let worktreeAnnotationMaximumSourceCandidateCount: Int = 256
         package static let worktreeAnnotationMaximumSourceFileByteCount: Int = 1 * 1024 * 1024
+        package static let worktreeAnnotationContinuityMaximumCommitCount: Int = 10
+        package static let worktreeAnnotationContinuityMaximumTraversalCount: Int = 256
         package static let reviewComparisonTargetRecencyWindow: Duration = .seconds(30 * 24 * 60 * 60)
         package static let reviewComparisonTargetMaximumRows: Int = 2000
         package static let reviewComparisonTargetMaximumEncodedBytes: Int = 1 * 1024 * 1024

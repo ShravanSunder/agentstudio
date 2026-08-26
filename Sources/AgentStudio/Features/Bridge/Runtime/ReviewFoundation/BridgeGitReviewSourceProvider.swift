@@ -140,6 +140,34 @@ extension BridgeGitReviewSourceProvider: BridgeReviewRefreshImpactSourceProvider
     }
 }
 
+extension BridgeGitReviewSourceProvider: WorktreeAnnotationGitEvidenceSource {
+    func currentWorktreeAnnotationReviewedSubjectEvidence(
+        sourceGeneration: Int
+    ) async throws -> WorktreeAnnotationReviewedSubjectEvidence? {
+        guard let evidenceSource = client as? any WorktreeAnnotationGitEvidenceSource else {
+            return nil
+        }
+        return try await evidenceSource.currentWorktreeAnnotationReviewedSubjectEvidence(
+            sourceGeneration: sourceGeneration
+        )
+    }
+
+    func worktreeAnnotationAncestryDisposition(
+        acceptedReviewedHeadOID: String,
+        currentReviewedHeadOID: String,
+        sourceGeneration: Int
+    ) async throws -> WorktreeAnnotationAncestryDisposition {
+        guard let evidenceSource = client as? any WorktreeAnnotationGitEvidenceSource else {
+            return .readFailure
+        }
+        return try await evidenceSource.worktreeAnnotationAncestryDisposition(
+            acceptedReviewedHeadOID: acceptedReviewedHeadOID,
+            currentReviewedHeadOID: currentReviewedHeadOID,
+            sourceGeneration: sourceGeneration
+        )
+    }
+}
+
 extension BridgeGitReviewSourceProvider: BridgeSharedReviewConstructionSourceProvider {
     func resolveEndpoint(
         _ request: BridgeEndpointResolutionRequest,

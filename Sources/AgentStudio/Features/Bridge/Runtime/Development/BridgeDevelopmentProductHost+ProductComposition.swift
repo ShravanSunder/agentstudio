@@ -89,7 +89,8 @@ extension BridgeDevelopmentProductHost {
             input: input,
             fileMetadataSource: fileMetadataSource,
             reviewPublicationCoordinator: reviewPublicationCoordinator,
-            reviewContentLoaderCache: reviewContentLoaderCache
+            reviewContentLoaderCache: reviewContentLoaderCache,
+            reviewSourceProvider: input.reviewProvider
         )
         let annotationCommandHandler = await MainActor.run {
             makeWorktreeAnnotationCommandHandler(annotationHandlerDependencies)
@@ -158,7 +159,8 @@ extension BridgeDevelopmentProductHost {
         input: BridgeDevelopmentProductProviderPreparationInput,
         fileMetadataSource: BridgePaneProductFileMetadataSource,
         reviewPublicationCoordinator: BridgeReviewPublicationCoordinator,
-        reviewContentLoaderCache: BridgeReviewContentLoaderCache
+        reviewContentLoaderCache: BridgeReviewContentLoaderCache,
+        reviewSourceProvider: any BridgeReviewSourceProvider
     ) -> WorktreeAnnotationCommandHandlerDependencies {
         .init(
             store: input.worktreeAnnotationStore,
@@ -166,7 +168,8 @@ extension BridgeDevelopmentProductHost {
             source: input.source,
             fileMetadataSource: fileMetadataSource,
             reviewPublicationCoordinator: reviewPublicationCoordinator,
-            reviewContentLoaderCache: reviewContentLoaderCache
+            reviewContentLoaderCache: reviewContentLoaderCache,
+            reviewSourceProvider: reviewSourceProvider
         )
     }
 

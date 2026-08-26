@@ -8,6 +8,7 @@ extension BridgeDevelopmentProductHost {
         let fileMetadataSource: BridgePaneProductFileMetadataSource
         let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
         let reviewContentLoaderCache: BridgeReviewContentLoaderCache
+        let reviewSourceProvider: any BridgeReviewSourceProvider
     }
 
     static func makeWorktreeAnnotationProjectionSource(
@@ -17,7 +18,8 @@ extension BridgeDevelopmentProductHost {
         let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
             fileMetadataSource: dependencies.fileMetadataSource,
             reviewPublicationCoordinator: dependencies.reviewPublicationCoordinator,
-            reviewContentLoaderCache: dependencies.reviewContentLoaderCache
+            reviewContentLoaderCache: dependencies.reviewContentLoaderCache,
+            gitEvidenceSource: dependencies.reviewSourceProvider as? any WorktreeAnnotationGitEvidenceSource
         )
         return BridgeAnnotationProjectionSource(
             service: service,
@@ -53,7 +55,8 @@ extension BridgeDevelopmentProductHost {
         let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
             fileMetadataSource: dependencies.fileMetadataSource,
             reviewPublicationCoordinator: dependencies.reviewPublicationCoordinator,
-            reviewContentLoaderCache: dependencies.reviewContentLoaderCache
+            reviewContentLoaderCache: dependencies.reviewContentLoaderCache,
+            gitEvidenceSource: dependencies.reviewSourceProvider as? any WorktreeAnnotationGitEvidenceSource
         )
         let adapter = WorktreeAnnotationTransportAdapter(
             store: store,

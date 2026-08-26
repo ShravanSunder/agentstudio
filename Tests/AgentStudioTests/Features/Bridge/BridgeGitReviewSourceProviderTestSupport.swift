@@ -324,6 +324,10 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         contributionDiffRequests
     }
 
+    func recordedCommitRangeCountRequests() -> [GitCommitRangeCountRequest] {
+        commitRangeCountRequests
+    }
+
     func replaceDiffSnapshot(_ snapshot: GitDiffSnapshot) {
         diffSnapshot = snapshot
     }

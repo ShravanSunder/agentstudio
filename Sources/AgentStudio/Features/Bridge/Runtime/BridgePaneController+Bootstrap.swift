@@ -672,7 +672,8 @@ extension BridgePaneController {
         let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
             fileMetadataSource: fileMetadataSource,
             reviewPublicationCoordinator: input.reviewPublicationCoordinator,
-            reviewContentLoaderCache: input.reviewContentLoaderCache
+            reviewContentLoaderCache: input.reviewContentLoaderCache,
+            gitEvidenceSource: input.reviewSourceProvider as? any WorktreeAnnotationGitEvidenceSource
         )
         return BridgeAnnotationProjectionSource(
             service: service,
@@ -711,7 +712,8 @@ extension BridgePaneController {
         let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
             fileMetadataSource: fileMetadataSource,
             reviewPublicationCoordinator: input.reviewPublicationCoordinator,
-            reviewContentLoaderCache: input.reviewContentLoaderCache
+            reviewContentLoaderCache: input.reviewContentLoaderCache,
+            gitEvidenceSource: input.reviewSourceProvider as? any WorktreeAnnotationGitEvidenceSource
         )
         let adapter = WorktreeAnnotationTransportAdapter(
             store: store,

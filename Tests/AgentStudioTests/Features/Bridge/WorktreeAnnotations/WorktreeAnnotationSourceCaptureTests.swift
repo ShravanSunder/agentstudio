@@ -7,6 +7,61 @@ import Testing
 @MainActor
 @Suite("Worktree annotation source capture")
 struct WorktreeAnnotationSourceCaptureTests {
+    @Test("Review evidence comes from the retained publication without a Git HEAD read")
+    func reviewEvidenceComesFromRetainedPublication() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let publication = makeReviewPackage(
+            itemCount: 1,
+            comparisonOrigin: .contribution(
+                BridgeReviewContributionOrigin(
+                    symbolicTarget: .originDefaultBranch(
+                        remoteName: "origin",
+                        branchName: "main"
+                    ),
+                    resolvedTargetOID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    reviewedHeadOID: "1111111111111111111111111111111111111111",
+                    reviewedSubjectBranchName: "feature/x",
+                    baseRole: .commonCommit,
+                    baseOID: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                )
+            )
+        )
+        let publicationCoordinator = BridgeReviewPublicationCoordinator()
+        let identity = try await commit(
+            package: publication,
+            coordinator: publicationCoordinator,
+            productAdmission: productAdmission.context
+        )
+        let evidenceSource = WorktreeAnnotationGitEvidenceSourceFake()
+        let resolver = WorktreeAnnotationSourceCapture.resolver(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewPublicationCoordinator: publicationCoordinator,
+            reviewContentLoaderCache: BridgeReviewContentLoaderCache(
+                provider: BridgeReviewSourceProviderFake(
+                    comparison: BridgeEndpointComparison(
+                        baseEndpoint: publication.baseEndpoint,
+                        headEndpoint: publication.headEndpoint,
+                        changedFiles: []
+                    ),
+                    contentByHandleId: [:]
+                )
+            ),
+            gitEvidenceSource: evidenceSource
+        )
+
+        let evidence = try await resolver.currentReviewedSubjectEvidence(
+            .review,
+            identity,
+            productAdmission.context
+        )
+
+        let expectedEvidence = try WorktreeAnnotationReviewedSubjectEvidence(
+            branchName: "feature/x",
+            reviewedHeadOID: "1111111111111111111111111111111111111111"
+        )
+        #expect(evidence == expectedEvidence)
+        #expect(await evidenceSource.currentEvidenceCallCount() == 0)
+    }
     @Test("Review refresh loads its exact head handle and ignores File-only origins")
     func reviewRefreshLoadsExactPublishedHeadHandleAndIgnoresFileOrigins() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
@@ -559,4 +614,25 @@ struct WorktreeAnnotationSourceCaptureTests {
         let threadID = try #require(detail.threads.first?.thread.id)
         return evaluation.placements[threadID]?.placement
     }
+}
+
+private actor WorktreeAnnotationGitEvidenceSourceFake: WorktreeAnnotationGitEvidenceSource {
+    private var evidenceCalls = 0
+
+    func currentWorktreeAnnotationReviewedSubjectEvidence(
+        sourceGeneration _: Int
+    ) -> WorktreeAnnotationReviewedSubjectEvidence? {
+        evidenceCalls += 1
+        return nil
+    }
+
+    func worktreeAnnotationAncestryDisposition(
+        acceptedReviewedHeadOID _: String,
+        currentReviewedHeadOID _: String,
+        sourceGeneration _: Int
+    ) -> WorktreeAnnotationAncestryDisposition {
+        .notEvaluated
+    }
+
+    func currentEvidenceCallCount() -> Int { evidenceCalls }
 }
