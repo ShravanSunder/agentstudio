@@ -1671,3 +1671,46 @@ Fresh repository-owned `mise run test:bridge-web` is green in 195.11 seconds: qu
 Transport finished with bounded Review 3+9/File-one ownership, pending/outstanding drain, exact outcomes,
 and no new port, queue, scheduler, timeout, retry, security, or UI workaround. Full repository aggregate,
 checkpoint commit, packaged WKWebView, and fresh independent review remain pending.
+
+## 2026-08-26 09:56 EDT — Backend/transport lane: selected Review recovery gap and UI handoff
+
+Current-head native Computer Use reproduced a real Review target update that committed and settled in Swift
+but remained `Updating` in BridgeWeb. Marker telemetry proves the comm worker handled
+`reviewComparisonUpdate` with a 9 ms queue wait, native generation 3 settled, and pane-presentation revision
+12 was skipped only because the physical metadata stream was already absent. Later successful refreshes also
+reported `no_active_stream`; application deactivation was not the initiating cause.
+
+The existing transport can open a fresh physical stream and native installation already replays the latest
+retained pane presentation. The missing existing-owner edge was that later interactive Review controls did
+not invoke `ensureReviewMetadata()` after an earlier stream failure. A focused RED failed 2/2, then the narrow
+comm-worker correction made target catalog query and target update best-effort reopen Review metadata before
+their exact control call while keeping control success independent of recovery. Focused controller/transport
+proof is 28/28; scoped type-aware lint, format, and TypeScript pass.
+
+UI owner handoff: the current dirty comparison-control latch clears only when a changed native presentation
+contains the exact requested target. It does not clear on the exact RPC degraded/timeout/replacement terminal,
+so a failed recovery still leaves the picker disabled forever. Please bind the local acknowledgement to the
+existing request lifecycle terminal and preserve retry/unknown behavior; do not add a timeout, proxy, queue,
+port, or second target state owner. The backend lane will not edit those UI-owned files.
+
+The full BridgeWeb unit/check gates are presently blocked outside this slice by the concurrently modified
+`bridge-main-render-snapshot-store.unit.test.ts` reaching 1,025 lines over the repository's 1,000-line cap.
+That file is not part of this recovery correction and was not modified here.
+
+## 2026-08-26 10:24 EDT — Backend/transport checkpoint and exact UI-owned red gates
+
+Transport checkpoint `d329c9f27` is committed with 36/36 focused tests plus scoped lint/format/typecheck green.
+It contains only Review metadata recovery on later target interaction and the missing strict
+`reviewedSubjectBranchName` TypeScript field introduced by Swift checkpoint `32966f140`.
+
+The real Vite/Swift stress journey passes 1/1. Ordinary E2E passes 7/8; the remaining failure reports native
+`Update ready` while the dirty control remains `HEAD · Updating` for 127.8 seconds with 250 aborted command
+observations. This is the previously handed-off local pending-latch defect, not a transport terminal. Please
+clear the latch from the exact request lifecycle terminal and cover degraded/timeout/replacement without a
+new timer or target state owner.
+
+Other current UI-lane gates: the full unit/check gate rejects
+`bridge-main-render-snapshot-store.unit.test.ts` at 1,025 lines; browser integration fails the new Pierre
+publication-continuity expectation (successor expected, predecessor received) and React `act(...)` guards in
+that test plus comparison-control UX. Swift/Node integration is 22/22. These files remain unstaged by the
+backend lane.
