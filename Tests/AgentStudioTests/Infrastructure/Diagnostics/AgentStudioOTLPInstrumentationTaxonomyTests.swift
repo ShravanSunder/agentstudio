@@ -57,6 +57,42 @@ struct AgentStudioOTLPInstrumentationTaxonomyTests {
     }
 
     @Test
+    func strictSidebarInitialReadbackProjectsOnlyBoundedFailureFacets() {
+        let prefix = "agentstudio.performance.sidebar.proof.initial_readback."
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 6,
+                severityText: .info,
+                body: "performance.sidebar.proof_action.failed",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                attributes: [
+                    prefix + "present": .bool(true),
+                    prefix + "repo_demanded": .bool(false),
+                    prefix + "repo_presentation_ready": .bool(true),
+                    prefix + "repo_accessibility": .string("ready"),
+                    prefix + "native_accessibility_ready": .bool(false),
+                    prefix + "window_visible": .bool(true),
+                    prefix + "window_key": .bool(true),
+                    prefix + "window_occlusion_visible": .bool(false),
+                    prefix + "represented_row_count": .int(148),
+                    prefix + "native_row_count": .int(148),
+                    prefix + "private_title": .string("secret"),
+                ]
+            )
+        )
+
+        #expect(projection.attributes[prefix + "repo_demanded"] == .bool(false))
+        #expect(projection.attributes[prefix + "repo_accessibility"] == .string("ready"))
+        #expect(projection.attributes[prefix + "window_occlusion_visible"] == .bool(false))
+        #expect(projection.attributes[prefix + "native_row_count"] == .int(148))
+        #expect(projection.attributes[prefix + "private_title"] == nil)
+    }
+
+    @Test
     func nativeTablePilotProjectsOnlyBoundedPolicyAndAggregateValues() {
         let projection = AgentStudioOTLPTraceProjection.project(
             AgentStudioTraceRecord(

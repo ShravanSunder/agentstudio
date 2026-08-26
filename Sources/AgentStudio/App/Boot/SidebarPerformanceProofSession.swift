@@ -495,6 +495,10 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 prefix + "native_geometry_visible": .bool(shell.nativeSidebarGeometryIsVisible),
                 prefix + "native_accessibility_ready": .bool(
                     shell.nativeSidebarAccessibilityIsReady),
+                prefix + "window_visible": .bool(window.isVisible),
+                prefix + "window_key": .bool(window.isKeyWindow),
+                prefix + "window_occlusion_visible": .bool(
+                    window.occlusionState.contains(.visible)),
                 prefix + "represented_row_count": .int(repoExplorer.representedRowCount),
                 prefix + "native_row_count": .int(shell.nativePresentedRowCount ?? -1),
             ]

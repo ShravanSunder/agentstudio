@@ -324,6 +324,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         )
         #expect(sessionSource.contains("repo_demanded"))
         #expect(sessionSource.contains("native_accessibility_ready"))
+        #expect(sessionSource.contains("window_occlusion_visible"))
         #expect(sessionSource.contains("native_row_count"))
         #expect(sessionSource.contains("await settleRepositoryFactDemandAdmission()"))
         #expect(!sessionSource.contains("socket"))

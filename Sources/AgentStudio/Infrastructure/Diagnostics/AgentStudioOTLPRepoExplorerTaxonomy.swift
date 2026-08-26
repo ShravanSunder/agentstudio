@@ -51,6 +51,8 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.sidebar.proof.terminal_input_completion",
         "agentstudio.performance.sidebar.proof.terminal_output_completion",
         "agentstudio.performance.sidebar.proof.ordered_command_completion",
+        "agentstudio.performance.sidebar.proof.initial_readback.represented_row_count",
+        "agentstudio.performance.sidebar.proof.initial_readback.native_row_count",
         "agentstudio.performance.sidebar.proof.terminal_input.count",
         "agentstudio.performance.sidebar.proof.terminal_output.count",
         "agentstudio.performance.sidebar.proof.ordered_command.count",
@@ -187,6 +189,7 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.sidebar.readback.accessibility_disposition",
         "agentstudio.performance.sidebar.proof.population",
         "agentstudio.performance.sidebar.proof.workload.kind",
+        "agentstudio.performance.sidebar.proof.initial_readback.repo_accessibility",
         "agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags",
         "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags",
         "agentstudio.startup_diagnostic.sidebar_proof.idle_populations",
@@ -214,6 +217,19 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.forge.outcome",
     ]
 
+    static let booleanAttributeKeys: Set<String> = [
+        "agentstudio.performance.sidebar.proof.initial_readback.present",
+        "agentstudio.performance.sidebar.proof.initial_readback.repo_demanded",
+        "agentstudio.performance.sidebar.proof.initial_readback.repo_presentation_ready",
+        "agentstudio.performance.sidebar.proof.initial_readback.semantic_collapsed",
+        "agentstudio.performance.sidebar.proof.initial_readback.native_collapsed",
+        "agentstudio.performance.sidebar.proof.initial_readback.native_geometry_visible",
+        "agentstudio.performance.sidebar.proof.initial_readback.native_accessibility_ready",
+        "agentstudio.performance.sidebar.proof.initial_readback.window_visible",
+        "agentstudio.performance.sidebar.proof.initial_readback.window_key",
+        "agentstudio.performance.sidebar.proof.initial_readback.window_occlusion_visible",
+    ]
+
     static let structuredStringAttributeKeys: Set<String> = [
         "agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags",
         "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags",
@@ -226,6 +242,8 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
             return result
         }
         return switch key {
+        case "agentstudio.performance.sidebar.proof.initial_readback.repo_accessibility":
+            ["ready", "unavailable"].contains(value)
         case "agentstudio.startup_diagnostic.native_table_pilot.failure_reason":
             [
                 "none", "completion_timeout", "fixture_invalid", "transaction_invalid",

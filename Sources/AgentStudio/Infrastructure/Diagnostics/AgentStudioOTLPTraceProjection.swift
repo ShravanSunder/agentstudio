@@ -791,7 +791,8 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.is_agent_settled_candidate",
         "terminal.activity.is_inferred",
         "terminal.activity.is_pinned_to_bottom",
-    ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
+    ]).union(AgentStudioOTLPRepoExplorerTaxonomy.booleanAttributeKeys)
+        .union(BridgeProductStreamProjectionKeys.booleanKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.booleanAttributeKeys)
         .union(BridgeProductPaintProjectionKeys.booleanKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.booleanAttributeKeys)
