@@ -12,7 +12,7 @@ struct FilesystemRootOwnership: Sendable {
         let comparisonPath: String
     }
 
-    private let roots: [Root]
+    private let ownerByComparisonPath: [String: Root]
     private let sourceRootByWorktreeId: [UUID: Root]
 
     init(rootsByWorktree: [UUID: URL]) {
@@ -29,7 +29,14 @@ struct FilesystemRootOwnership: Sendable {
                 comparisonPath: Self.normalizedComparisonKey(canonicalPath)
             )
         }
-        self.roots = resolvedRoots
+        self.ownerByComparisonPath = resolvedRoots.reduce(into: [:]) { owners, root in
+            if let existing = owners[root.comparisonPath],
+                existing.worktreeId.uuidString > root.worktreeId.uuidString
+            {
+                return
+            }
+            owners[root.comparisonPath] = root
+        }
         self.sourceRootByWorktreeId = Dictionary(uniqueKeysWithValues: resolvedRoots.map { ($0.worktreeId, $0) })
     }
 
@@ -54,28 +61,19 @@ struct FilesystemRootOwnership: Sendable {
     }
 
     private func owningRoot(forCanonicalPath canonicalPath: String) -> Root? {
-        let pathKey = Self.normalizedComparisonKey(canonicalPath)
-        return
-            roots
-            .filter { root in
-                Self.isDescendantPath(pathKey, of: root.comparisonPath)
+        var candidatePath = Self.normalizedComparisonKey(canonicalPath)
+        while true {
+            if let owner = ownerByComparisonPath[candidatePath] {
+                return owner
             }
-            .max { lhs, rhs in
-                if lhs.comparisonPath.count != rhs.comparisonPath.count {
-                    return lhs.comparisonPath.count < rhs.comparisonPath.count
-                }
-                return lhs.worktreeId.uuidString < rhs.worktreeId.uuidString
+            guard candidatePath != "/", let separator = candidatePath.lastIndex(of: "/") else {
+                return nil
             }
-    }
-
-    private static func isDescendantPath(_ path: String, of rootPath: String) -> Bool {
-        if path == rootPath {
-            return true
+            candidatePath =
+                separator == candidatePath.startIndex
+                ? "/"
+                : String(candidatePath[..<separator])
         }
-        if rootPath == "/" {
-            return path.hasPrefix("/")
-        }
-        return path.hasPrefix(rootPath + "/")
     }
 
     private static func canonicalize(rawPath: String, sourceRootPath: String) -> String {

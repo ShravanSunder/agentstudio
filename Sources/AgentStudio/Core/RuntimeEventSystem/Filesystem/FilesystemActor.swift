@@ -78,6 +78,8 @@ package actor FilesystemActor {
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
 
     private var roots: [UUID: RootState] = [:]
+    private var rootOwnership = FilesystemRootOwnership(canonicalRootsByWorktree: [:])
+    var rootOwnershipRevision: UInt64 = 0
     private var pendingChangesByWorktreeId: [UUID: PendingWorktreeChanges] = [:]
     private var activePaneWorktreeId: UUID?
     var nextEnvelopeSequence: UInt64 = 0
@@ -152,6 +154,9 @@ package actor FilesystemActor {
             nextBatchSeq: existing?.nextBatchSeq ?? 0,
             pathFilter: pathFilter
         )
+        if existing?.canonicalRootPath != canonicalRootPath {
+            rebuildRootOwnership()
+        }
         pendingChangesByWorktreeId[worktreeId] = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
         fseventStreamClient.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await emitFilesystemEvent(
@@ -171,6 +176,7 @@ package actor FilesystemActor {
         }
         fseventStreamClient.unregister(worktreeId: worktreeId)
         guard let removedRoot else { return }
+        rebuildRootOwnership()
         await emitFilesystemEvent(
             worktreeId: worktreeId,
             repoId: removedRoot.repoId,
@@ -277,6 +283,7 @@ package actor FilesystemActor {
         }
 
         roots.removeAll(keepingCapacity: false)
+        rootOwnership = FilesystemRootOwnership(canonicalRootsByWorktree: [:])
         pendingChangesByWorktreeId.removeAll(keepingCapacity: false)
         watchedFolderScanState = FilesystemWatchedFolderScanState()
         watchedFolderScanState.isShuttingDown = true
@@ -298,12 +305,9 @@ package actor FilesystemActor {
         }
         guard !paths.isEmpty else { return }
 
-        let ownership = FilesystemRootOwnership(
-            canonicalRootsByWorktree: roots.mapValues(\.canonicalRootPath)
-        )
-
         for rawPath in paths {
-            guard let ownedPath = ownership.route(sourceWorktreeId: worktreeId, rawPath: rawPath) else {
+            guard let ownedPath = rootOwnership.route(sourceWorktreeId: worktreeId, rawPath: rawPath)
+            else {
                 Self.logger.debug(
                     "Dropped unroutable filesystem path for source worktree \(worktreeId.uuidString, privacy: .public): \(rawPath, privacy: .public)"
                 )
@@ -344,6 +348,13 @@ package actor FilesystemActor {
             scheduleDrainIfNeeded()
             await recordLogicalDebtSnapshotIfChanged()
         }
+    }
+
+    private func rebuildRootOwnership() {
+        rootOwnership = FilesystemRootOwnership(
+            canonicalRootsByWorktree: roots.mapValues(\.canonicalRootPath)
+        )
+        rootOwnershipRevision &+= 1
     }
 
     func startIngressTaskIfNeeded() {
