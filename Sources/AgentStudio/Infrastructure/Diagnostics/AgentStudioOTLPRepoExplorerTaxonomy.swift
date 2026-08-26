@@ -225,8 +225,12 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.sidebar.proof.initial_readback.native_collapsed",
         "agentstudio.performance.sidebar.proof.initial_readback.native_geometry_visible",
         "agentstudio.performance.sidebar.proof.initial_readback.native_accessibility_ready",
+        "agentstudio.performance.sidebar.proof.initial_readback.app_hidden",
+        "agentstudio.performance.sidebar.proof.initial_readback.app_active",
         "agentstudio.performance.sidebar.proof.initial_readback.window_visible",
         "agentstudio.performance.sidebar.proof.initial_readback.window_key",
+        "agentstudio.performance.sidebar.proof.initial_readback.window_miniaturized",
+        "agentstudio.performance.sidebar.proof.initial_readback.window_on_active_space",
         "agentstudio.performance.sidebar.proof.initial_readback.window_occlusion_visible",
     ]
 

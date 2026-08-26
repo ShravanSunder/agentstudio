@@ -479,13 +479,21 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
 
         private func visibleReadbackFailureAttributes() -> [String: AgentStudioTraceValue] {
             let prefix = "agentstudio.performance.sidebar.proof.initial_readback."
-            guard let latestReadback else {
-                return [prefix + "present": .bool(false)]
-            }
+            var attributes: [String: AgentStudioTraceValue] = [
+                prefix + "present": .bool(latestReadback != nil),
+                prefix + "app_hidden": .bool(NSApp.isHidden),
+                prefix + "app_active": .bool(NSApp.isActive),
+                prefix + "window_visible": .bool(window.isVisible),
+                prefix + "window_key": .bool(window.isKeyWindow),
+                prefix + "window_miniaturized": .bool(window.isMiniaturized),
+                prefix + "window_on_active_space": .bool(window.isOnActiveSpace),
+                prefix + "window_occlusion_visible": .bool(
+                    window.occlusionState.contains(.visible)),
+            ]
+            guard let latestReadback else { return attributes }
             let repoExplorer = latestReadback.repoExplorer
             let shell = latestReadback.shell
-            return [
-                prefix + "present": .bool(true),
+            attributes.merge([
                 prefix + "repo_demanded": .bool(repoExplorer.isDemanded),
                 prefix + "repo_presentation_ready": .bool(repoExplorer.presentationIsReady),
                 prefix + "repo_accessibility": .string(
@@ -495,13 +503,10 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 prefix + "native_geometry_visible": .bool(shell.nativeSidebarGeometryIsVisible),
                 prefix + "native_accessibility_ready": .bool(
                     shell.nativeSidebarAccessibilityIsReady),
-                prefix + "window_visible": .bool(window.isVisible),
-                prefix + "window_key": .bool(window.isKeyWindow),
-                prefix + "window_occlusion_visible": .bool(
-                    window.occlusionState.contains(.visible)),
                 prefix + "represented_row_count": .int(repoExplorer.representedRowCount),
                 prefix + "native_row_count": .int(shell.nativePresentedRowCount ?? -1),
-            ]
+            ]) { _, newValue in newValue }
+            return attributes
         }
 
         private func waitForSamplerBoundary() async {

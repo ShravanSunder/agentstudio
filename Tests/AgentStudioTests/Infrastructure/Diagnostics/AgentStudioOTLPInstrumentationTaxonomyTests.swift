@@ -74,9 +74,16 @@ struct AgentStudioOTLPInstrumentationTaxonomyTests {
                     prefix + "repo_demanded": .bool(false),
                     prefix + "repo_presentation_ready": .bool(true),
                     prefix + "repo_accessibility": .string("ready"),
+                    prefix + "semantic_collapsed": .bool(false),
+                    prefix + "native_collapsed": .bool(false),
+                    prefix + "native_geometry_visible": .bool(true),
                     prefix + "native_accessibility_ready": .bool(false),
+                    prefix + "app_hidden": .bool(false),
+                    prefix + "app_active": .bool(true),
                     prefix + "window_visible": .bool(true),
                     prefix + "window_key": .bool(true),
+                    prefix + "window_miniaturized": .bool(false),
+                    prefix + "window_on_active_space": .bool(true),
                     prefix + "window_occlusion_visible": .bool(false),
                     prefix + "represented_row_count": .int(148),
                     prefix + "native_row_count": .int(148),
@@ -87,9 +94,35 @@ struct AgentStudioOTLPInstrumentationTaxonomyTests {
 
         #expect(projection.attributes[prefix + "repo_demanded"] == .bool(false))
         #expect(projection.attributes[prefix + "repo_accessibility"] == .string("ready"))
+        #expect(projection.attributes[prefix + "semantic_collapsed"] == .bool(false))
+        #expect(projection.attributes[prefix + "native_collapsed"] == .bool(false))
+        #expect(projection.attributes[prefix + "native_geometry_visible"] == .bool(true))
+        #expect(projection.attributes[prefix + "native_accessibility_ready"] == .bool(false))
+        #expect(projection.attributes[prefix + "app_hidden"] == .bool(false))
+        #expect(projection.attributes[prefix + "app_active"] == .bool(true))
+        #expect(projection.attributes[prefix + "window_visible"] == .bool(true))
+        #expect(projection.attributes[prefix + "window_key"] == .bool(true))
+        #expect(projection.attributes[prefix + "window_miniaturized"] == .bool(false))
+        #expect(projection.attributes[prefix + "window_on_active_space"] == .bool(true))
         #expect(projection.attributes[prefix + "window_occlusion_visible"] == .bool(false))
+        #expect(projection.attributes[prefix + "represented_row_count"] == .int(148))
         #expect(projection.attributes[prefix + "native_row_count"] == .int(148))
         #expect(projection.attributes[prefix + "private_title"] == nil)
+
+        let rejectedControlledText = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 7,
+                severityText: .info,
+                body: "performance.sidebar.proof_action.failed",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                attributes: [prefix + "repo_accessibility": .string("secret")]
+            )
+        )
+        #expect(rejectedControlledText.attributes[prefix + "repo_accessibility"] == nil)
     }
 
     @Test
