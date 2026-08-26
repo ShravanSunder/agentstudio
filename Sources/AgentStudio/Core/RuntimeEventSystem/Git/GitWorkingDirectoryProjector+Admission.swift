@@ -78,13 +78,15 @@ extension GitWorkingDirectoryProjector {
                 continue
             }
 
-            let tier = demandTier(for: worktreeId)
+            let tier = pendingAdmissionDemandTier(for: worktreeId)
             let runningTierCount = runningCountByTier[tier, default: 0]
             guard runningTierCount < tier.maximumConcurrent(in: refreshPolicy) else { continue }
             if tier != .activePane {
                 guard availableLowerTierSlots > 0 else { continue }
             }
-            let requiresStartPacing = requiresAutomaticStartPacing(worktreeId: worktreeId, isExplicit: false)
+            let requiresStartPacing =
+                !capacityRearmedWorktreeIds.contains(worktreeId)
+                && requiresAutomaticStartPacing(worktreeId: worktreeId, isExplicit: false)
             if requiresStartPacing {
                 if selectedPacedAutomaticStart || deadlineClock.now < nextAutomaticStartAt {
                     if !scheduledGovernorWake {
@@ -114,23 +116,7 @@ extension GitWorkingDirectoryProjector {
         }
 
         for worktreeId in admittedWorktreeIds {
-            refreshAttribution.nextRequestSequence &+= 1
-            refreshAttribution.requestSequenceByWorktreeId[worktreeId] = refreshAttribution.nextRequestSequence
-            admissionStartedAtByWorktreeId[worktreeId] = envelopeClock.now
-            let isExplicit = explicitRefreshWorktreeIds.contains(worktreeId)
-            let admittedTier = demandTier(for: worktreeId)
-            refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] =
-                isExplicit ? "explicit" : admittedTier.rawValue
-            refreshAttribution.admittedCadenceTierByWorktreeId[worktreeId] = admittedTier.rawValue
-            let admittedTriggerSource = refreshAttribution.triggerSourceByWorktreeId[worktreeId] ?? .registration
-            refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId] = admittedTriggerSource
-            if !isExplicit {
-                admittedDemandTierByWorktreeId[worktreeId] = admittedTier
-            }
-            recordAutomaticAdmission(worktreeId: worktreeId, isExplicit: isExplicit)
-            explicitRefreshWorktreeIds.remove(worktreeId)
-            tierEligibleWorktreeIds.remove(worktreeId)
-            startDrainTask(worktreeId: worktreeId)
+            startAdmittedWorktree(worktreeId: worktreeId)
         }
         if scheduledGovernorWake {
             rescheduleDeadlineTask()
@@ -140,6 +126,32 @@ extension GitWorkingDirectoryProjector {
             admittedWorktreeIds: admittedWorktreeIds,
             availableSlots: availableSlots
         )
+    }
+
+    private func startAdmittedWorktree(worktreeId: UUID) {
+        let isCapacityRearmed = capacityRearmedWorktreeIds.remove(worktreeId) != nil
+        let isExplicit: Bool
+        let admittedTier: GitDemandTier
+        if isCapacityRearmed {
+            isExplicit = refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] == "explicit"
+            admittedTier = admittedDemandTierByWorktreeId[worktreeId] ?? demandTier(for: worktreeId)
+        } else {
+            refreshAttribution.nextRequestSequence &+= 1
+            refreshAttribution.requestSequenceByWorktreeId[worktreeId] = refreshAttribution.nextRequestSequence
+            admissionStartedAtByWorktreeId[worktreeId] = envelopeClock.now
+            isExplicit = explicitRefreshWorktreeIds.contains(worktreeId)
+            admittedTier = demandTier(for: worktreeId)
+            refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] =
+                isExplicit ? "explicit" : admittedTier.rawValue
+            refreshAttribution.admittedCadenceTierByWorktreeId[worktreeId] = admittedTier.rawValue
+            let admittedTriggerSource = refreshAttribution.triggerSourceByWorktreeId[worktreeId] ?? .registration
+            refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId] = admittedTriggerSource
+            recordAutomaticAdmission(worktreeId: worktreeId, isExplicit: isExplicit)
+        }
+        admittedDemandTierByWorktreeId[worktreeId] = admittedTier
+        explicitRefreshWorktreeIds.remove(worktreeId)
+        tierEligibleWorktreeIds.remove(worktreeId)
+        startDrainTask(worktreeId: worktreeId)
     }
 
     private func sortPendingWorktreeByPriority(_ lhs: UUID, _ rhs: UUID) -> Bool {
@@ -161,12 +173,19 @@ extension GitWorkingDirectoryProjector {
 
     private func priorityKey(for worktreeId: UUID) -> Int {
         if explicitRefreshWorktreeIds.contains(worktreeId) { return -1 }
-        switch demandTier(for: worktreeId) {
+        switch pendingAdmissionDemandTier(for: worktreeId) {
         case .activePane: return 0
         case .visibleSidebar: return 1
         case .openPane: return 2
         case .background: return 3
         }
+    }
+
+    private func pendingAdmissionDemandTier(for worktreeId: UUID) -> GitDemandTier {
+        guard capacityRearmedWorktreeIds.contains(worktreeId) else {
+            return demandTier(for: worktreeId)
+        }
+        return admittedDemandTierByWorktreeId[worktreeId] ?? demandTier(for: worktreeId)
     }
 
     func demandTier(for worktreeId: UUID) -> GitDemandTier {

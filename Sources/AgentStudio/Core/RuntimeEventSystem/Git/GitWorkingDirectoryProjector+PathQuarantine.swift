@@ -45,6 +45,7 @@ extension GitWorkingDirectoryProjector {
     /// a single open fact.
     private func quarantineWorktreePath(worktreeId: UUID) {
         guard quarantinedWorktreeIds.insert(worktreeId).inserted else { return }
+        capacityRearmedWorktreeIds.remove(worktreeId)
         clearValidatedRootPath(worktreeId: worktreeId)
         pendingByWorktreeId.removeValue(forKey: worktreeId)
         clearImmediateRefreshIntent(worktreeId: worktreeId)

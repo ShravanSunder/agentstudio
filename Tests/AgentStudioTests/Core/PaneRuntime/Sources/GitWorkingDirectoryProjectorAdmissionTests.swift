@@ -8,6 +8,131 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector admission")
 struct GitWorkingDirectoryProjectorAdmissionTests {
+    @Test("quarantine discards orphaned capacity rearm state")
+    func quarantineDiscardsOrphanedCapacityRearmState() async {
+        let worktreeId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/admission-rearm-quarantine-\(worktreeId)")
+        let pathProbe = RootPathProbeRecorder(missingRootPaths: [rootPath])
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            coalescingWindow: .zero,
+            pathExistenceProbe: { probedRootPath in
+                pathProbe.recordExistence(probedRootPath)
+            }
+        )
+        await actor.scheduleCapacityRetry(
+            for: admissionFilesystemChangeset(worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1),
+            reason: .readCapacityExceeded,
+            afterPhysicalCompletionGeneration: nil
+        )
+        #expect(await actor.capacityRearmedWorktreeIds == Set([worktreeId]))
+
+        await actor.expireCapacityRetry(worktreeId: worktreeId)
+
+        #expect(await actor.quarantinedWorktreeIds == Set([worktreeId]))
+        #expect(await actor.capacityRearmedWorktreeIds.isEmpty)
+        #expect(await actor.pendingByWorktreeId[worktreeId] == nil)
+        #expect(pathProbe.recordedRootPaths == [rootPath])
+
+        await actor.shutdown()
+    }
+
+    @Test("capacity completion resumes the paid attempt and paces the next invalidation")
+    func capacityCompletionResumesPaidAttemptAndPacesNextInvalidation() async {
+        let clock = TestPushClock()
+        let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
+        let blockingReadStarted = AdmissionAsyncReceipt()
+        let blockingReadGate = AdmissionAsyncGate()
+        let statusSnapshot = admissionCompleteStatusSnapshot()
+        let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
+        ) { _, _ in
+            await blockingReadStarted.signal()
+            await blockingReadGate.waitUntilOpen()
+            return statusSnapshot
+        }
+        let projectorProvider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
+            physicalGate: physicalGate
+        ) { _, _ in statusSnapshot }
+        let policy = AppPolicies.GitRefresh.Policy(
+            maxConcurrentStatusComputes: 1,
+            backgroundMaxConcurrent: 1,
+            capacityRetryJitterMaxDelay: .zero,
+            minimumAutomaticStartInterval: .milliseconds(300)
+        )
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: projectorProvider,
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: policy
+        )
+        await actor.start()
+
+        let blockingRead = Task {
+            await blockingProvider.statusResult(
+                for: URL(fileURLWithPath: "/tmp/admission-capacity-pacing-blocker")
+            )
+        }
+        await blockingReadStarted.wait()
+
+        let worktreeId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/admission-capacity-pacing-\(worktreeId)")
+        await actor.enqueueImmediateRefresh(
+            admissionFilesystemChangeset(worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1),
+            triggerSource: .filesystemChange
+        )
+        #expect(
+            await admissionWaitUntil {
+                await actor.capacityRetryWorktreeIds == Set([worktreeId])
+            }
+        )
+        let originalRequestSequence = await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId]
+        #expect(originalRequestSequence != nil)
+        #expect(await actor.refreshAttribution.triggerSourceByWorktreeId[worktreeId] == .filesystemChange)
+        #expect(await actor.refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId] == .filesystemChange)
+        #expect(await actor.refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] == "background")
+        #expect(await actor.refreshAttribution.admittedCadenceTierByWorktreeId[worktreeId] == "background")
+        #expect(await actor.admittedDemandTierByWorktreeId[worktreeId] == .background)
+
+        await blockingReadGate.open()
+        _ = await blockingRead.value
+        let completedWithoutGovernorAdvance = await admissionWaitUntil {
+            await actor.lastAcceptedStatusAtByWorktreeId[worktreeId] != nil
+        }
+        #expect(completedWithoutGovernorAdvance)
+        guard completedWithoutGovernorAdvance, let originalRequestSequence else {
+            await actor.shutdown()
+            return
+        }
+        #expect(await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId] == originalRequestSequence)
+        #expect(await actor.capacityRearmedWorktreeIds.isEmpty)
+        #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
+
+        let sleepGeneration = clock.scheduledSleepGeneration
+        await actor.enqueueImmediateRefresh(
+            admissionFilesystemChangeset(worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2),
+            triggerSource: .filesystemChange
+        )
+        #expect(await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId] == originalRequestSequence)
+        await clock.waitForPendingSleepCount(atLeast: 1, fromGeneration: sleepGeneration)
+        clock.advance(by: policy.minimumAutomaticStartInterval - .milliseconds(1))
+        #expect(await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId] == originalRequestSequence)
+        clock.advance(by: .milliseconds(1))
+        #expect(
+            await admissionWaitUntil {
+                await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId]
+                    == originalRequestSequence + 1
+            }
+        )
+        #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
+
+        await actor.shutdown()
+    }
+
     @Test("same-root contention does not pause admission for a distinct active root")
     func sameRootContentionDoesNotPauseDistinctActiveRoot() async {
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 4)
@@ -618,6 +743,20 @@ private func admissionTopologyAssertion(
                 )
             }
         )
+    )
+}
+
+private func admissionFilesystemChangeset(
+    worktreeId: UUID,
+    rootPath: URL,
+    batchSeq: UInt64
+) -> FileChangeset {
+    FileChangeset(
+        worktreeId: worktreeId,
+        rootPath: rootPath,
+        paths: ["tracked-\(batchSeq).txt"],
+        timestamp: ContinuousClock().now,
+        batchSeq: batchSeq
     )
 }
 

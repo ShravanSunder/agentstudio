@@ -109,8 +109,8 @@ extension GitWorkingDirectoryProjector {
         let worktreeId = changeset.worktreeId
         capacityRetryWorktreeIds.insert(worktreeId)
         capacityRetryReasonByWorktreeId[worktreeId] = reason
+        capacityRearmedWorktreeIds.insert(worktreeId)
         coalesceCapacityRetryChangeset(changeset)
-        refreshAttribution.triggerSourceByWorktreeId[worktreeId] = .retry
         if refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] == "explicit" {
             explicitRefreshWorktreeIds.insert(worktreeId)
         } else {
@@ -155,15 +155,21 @@ extension GitWorkingDirectoryProjector {
         guard capacityRetryWorktreeIds.remove(worktreeId) != nil else { return }
         capacityRetryReasonByWorktreeId.removeValue(forKey: worktreeId)
         guard !isShuttingDown else {
+            capacityRearmedWorktreeIds.remove(worktreeId)
             pendingByWorktreeId.removeValue(forKey: worktreeId)
             return
         }
         guard !suppressedWorktreeIds.contains(worktreeId) else {
+            capacityRearmedWorktreeIds.remove(worktreeId)
             pendingByWorktreeId.removeValue(forKey: worktreeId)
             return
         }
-        guard let pendingChangeset = pendingByWorktreeId[worktreeId] else { return }
+        guard let pendingChangeset = pendingByWorktreeId[worktreeId] else {
+            capacityRearmedWorktreeIds.remove(worktreeId)
+            return
+        }
         guard isCurrent(pendingChangeset) else {
+            capacityRearmedWorktreeIds.remove(worktreeId)
             pendingByWorktreeId.removeValue(forKey: worktreeId)
             return
         }
@@ -176,6 +182,7 @@ extension GitWorkingDirectoryProjector {
         let hadGlobalCapacityRetryPause = hasGlobalCapacityRetryPause
         capacityRetryWorktreeIds.remove(worktreeId)
         capacityRetryReasonByWorktreeId.removeValue(forKey: worktreeId)
+        capacityRearmedWorktreeIds.remove(worktreeId)
         capacityFallbackDeadlineByWorktreeId.removeValue(forKey: worktreeId)
         if capacityRetryWorktreeIds.isEmpty {
             capacityCompletionTask?.cancel()

@@ -55,6 +55,9 @@ package actor GitWorkingDirectoryProjector {
     var refreshAttribution = GitRefreshAttributionState()
     var capacityRetryWorktreeIds: Set<UUID> = []
     var capacityRetryReasonByWorktreeId: [UUID: GitWorkingTreeStatusUnavailableReason] = [:]
+    /// Capacity-deferred attempts whose automatic start spacing was already paid.
+    /// Admission consumes membership only when resuming that exact retained attempt.
+    var capacityRearmedWorktreeIds: Set<UUID> = []
     var capacityFallbackDeadlineByWorktreeId: [UUID: Duration] = [:]
     var suppressedWorktreeIds: Set<UUID> = []
     private var suppressedWorktreeOrder: [UUID] = []
@@ -218,6 +221,7 @@ package actor GitWorkingDirectoryProjector {
         flushAggregatePerformanceSnapshot()
         capacityRetryWorktreeIds.removeAll(keepingCapacity: false)
         capacityRetryReasonByWorktreeId.removeAll(keepingCapacity: false)
+        capacityRearmedWorktreeIds.removeAll(keepingCapacity: false)
         capacityFallbackDeadlineByWorktreeId.removeAll(keepingCapacity: false)
         statusBackoffFailureCountByWorktreeId.removeAll(keepingCapacity: false)
         openStatusBackoffWorktreeIds.removeAll(keepingCapacity: false)
@@ -609,8 +613,8 @@ package actor GitWorkingDirectoryProjector {
             if worktreeTaskGenerationByWorktreeId[worktreeId] == taskGeneration {
                 worktreeTasks.removeValue(forKey: worktreeId)
                 worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
-                admittedDemandTierByWorktreeId.removeValue(forKey: worktreeId)
                 if !capacityRetryWorktreeIds.contains(worktreeId) {
+                    admittedDemandTierByWorktreeId.removeValue(forKey: worktreeId)
                     clearValidatedRootPath(worktreeId: worktreeId)
                 }
                 admitPendingWorktrees()
@@ -754,7 +758,6 @@ package actor GitWorkingDirectoryProjector {
         guard isCurrentForPublication(changeset) else { return }
         guard case .unavailable(let unavailable) = statusResult else { return }
         if unavailable.reason == .readCapacityExceeded || unavailable.reason == .readAlreadyInFlight {
-            admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
             scheduleCapacityRetry(
                 for: changeset,
                 reason: unavailable.reason,
