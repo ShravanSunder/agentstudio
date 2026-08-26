@@ -165,6 +165,7 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
             facts.trailingInset = AppStyles.General.Spacing.loose
             facts.metadataLineHeight = AppStyles.Shell.Sidebar.nativeLoadingCaptionLineHeight
             facts.metadataLineCount = isStatusUnavailable ? 1 : 0
+            facts.verticalInset = AppStyles.Shell.Sidebar.nativeRowVerticalInset
             return facts
         case .groupHeader:
             var facts = Facts(

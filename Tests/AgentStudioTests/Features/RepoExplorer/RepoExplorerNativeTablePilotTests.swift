@@ -103,6 +103,38 @@ struct RepoExplorerNativeTablePilotTests {
         #expect(supportSource.split(separator: "\n").count < 600)
     }
 
+    @Test("pilot replay measures mixed membership and displaced survivors")
+    func pilotReplayMeasuresCorrectedMembershipPath() async {
+        let sourceSnapshot = nativePlanSnapshot((0..<40).map { "row-\($0)" })
+        let source = nativePlanContent(sourceSnapshot)
+        let scenarioResult = await PilotReplayScenario.prepare(source: source)
+        guard case .success(let scenario) = scenarioResult else {
+            Issue.record("Expected pilot replay preparation")
+            return
+        }
+        let baseline = nativePlanBaseline(snapshot: sourceSnapshot, revision: 1)
+        let candidateResult = scenario.templates.forward.instantiate(
+            baseline: baseline,
+            candidateID: RepoExplorerMaterializationCandidateID(rawValue: 1),
+            requestGeneration: 11,
+            visibleGeneration: 11
+        )
+        guard case .success(let candidate) = candidateResult else {
+            Issue.record("Expected pilot template instantiation")
+            return
+        }
+        guard case .changed(let changed) = candidate.nativeUpdatePlan.kind,
+            case .contentToContent(.membership(let membership)) = changed.presentation
+        else {
+            Issue.record("Expected a mixed membership pilot transaction")
+            return
+        }
+
+        #expect(membership.removeRowsInOldSpace.count > 2)
+        #expect(membership.insertRowsInNewSpace.count > 2)
+        #expect(membership.movesFromOldToNewSpace.isEmpty)
+    }
+
     @Test("recorded synchronous facade timeout is rejected evidence")
     func recordedSynchronousFalsifierRemainsRejected() {
         let elapsedSeconds = 30.004

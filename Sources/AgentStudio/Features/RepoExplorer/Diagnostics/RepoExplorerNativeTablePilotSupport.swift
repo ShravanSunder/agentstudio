@@ -162,13 +162,32 @@ struct PilotReplayScenario: Sendable {
         source: RepoExplorerMaterializationPresentation
     ) async -> Result<Self, RepoExplorerNativeTablePilotResult.FailureReason> {
         guard case .content(let sourceSnapshot, _) = source,
-            sourceSnapshot.rows.count > 1
+            sourceSnapshot.rows.count > 4
         else {
             return .failure(.fixtureInvalid)
         }
         var targetRows = sourceSnapshot.rows
-        let movedRow = targetRows.removeLast()
-        targetRows.insert(movedRow, at: 0)
+        let removedRow = targetRows.removeLast()
+        let displacedRowCount = max(1, targetRows.count / 4)
+        let displacedRows = Array(targetRows.suffix(displacedRowCount))
+        targetRows.removeLast(displacedRowCount)
+        targetRows.insert(contentsOf: displacedRows, at: 0)
+        let insertedRowID = RepoExplorerRowID.group(
+            groupID: "pilot-inserted-\(sourceSnapshot.rows.count)"
+        )
+        let insertedPresentation = RepoExplorerMaterializedRowPresentation.unresolved(insertedRowID)
+        targetRows.insert(
+            RepoExplorerMaterializedRow(
+                id: insertedRowID,
+                contentRevision: RepoExplorerRowContentRevision(
+                    presentation: insertedPresentation
+                ),
+                layout: RepoExplorerRowLayout.make(for: insertedPresentation),
+                representedRepoID: removedRow.representedRepoID,
+                representedWorktreeID: nil
+            ),
+            at: displacedRowCount
+        )
         let targetSnapshot = RepoExplorerMaterializationSnapshot(rows: targetRows)
         let target = RepoExplorerMaterializationPresentation.content(
             snapshot: targetSnapshot,

@@ -129,6 +129,24 @@ struct RepoExplorerMaterializationSnapshotTests {
                 + AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding
         )
 
+        let loadingRepositoryLayout = RepoExplorerRowLayout.make(
+            for: .loadingRepository(
+                section: .repositories,
+                repoID: repoID,
+                name: "Loading repository",
+                isStatusUnavailable: false
+            )
+        )
+        #expect(
+            loadingRepositoryLayout.metrics.verticalInset
+                == AppStyles.Shell.Sidebar.nativeRowVerticalInset
+        )
+        #expect(
+            loadingRepositoryLayout.metrics.fallbackHeight
+                == AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+                + AppStyles.Shell.Sidebar.nativeItemSpacing
+        )
+
         let fault = RepoExplorerTopologyFault.duplicateWorktreeIdentities([
             RepoExplorerDuplicateWorktreeIdentity(
                 worktreeId: worktreeID,
