@@ -1,8 +1,6 @@
 import { useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
 
-import { bridgeViewerActionToolbarSurfaceClassName } from '../app/bridge-viewer-action-toolbar.js';
-import { WorktreeAnnotationMessageBody } from './worktree-annotation-message-body.js';
 import { clearWorktreeAnnotationOutputHandled } from './worktree-annotation-output-handled-clear.js';
 import { WorktreeAnnotationOutputHistoryControl } from './worktree-annotation-output-history-control.js';
 import { annotationOutputFeedback } from './worktree-annotation-output-presentation.js';
@@ -165,7 +163,6 @@ function WorktreeAnnotationShareSurfaceContent(): ReactElement | null {
 				onScopeChange={interaction.setShareScope}
 				scope={interaction.shareMode.scope}
 			/>
-			<WorktreeAnnotationOtherSavedComments threads={shared.otherThreads} />
 			<WorktreeAnnotationOutputHistoryControl />
 		</>
 	);
@@ -173,40 +170,4 @@ function WorktreeAnnotationShareSurfaceContent(): ReactElement | null {
 
 function ignoreUnknownOutput(): undefined {
 	return undefined;
-}
-
-function WorktreeAnnotationOtherSavedComments(props: {
-	readonly threads: ReturnType<typeof deriveWorktreeAnnotationShareProjection>['otherThreads'];
-}): ReactElement | null {
-	if (props.threads.length === 0) return null;
-	return (
-		<section
-			aria-label="Other saved comments"
-			className={bridgeViewerActionToolbarSurfaceClassName}
-		>
-			<p className="text-[11px] font-medium text-[var(--bridge-text-primary)]">
-				Other saved comments
-			</p>
-			{props.threads.map((thread) => (
-				<div
-					className="mt-1 text-[11px] text-[var(--bridge-text-secondary)]"
-					key={thread.context.threadId}
-				>
-					{thread.context.path}:{thread.context.startLine} · {thread.context.placement}
-					{thread.messages.map((message) => (
-						<div className="text-[var(--bridge-text-primary)]" key={message.messageId}>
-							<WorktreeAnnotationMessageBody
-								body={message.savedBody ?? ''}
-								messageId={message.messageId}
-								messageRevision={message.messageRevision}
-								path={thread.context.path}
-								sessionId={message.sessionId}
-								sessionRevision={message.sessionRevision}
-							/>
-						</div>
-					))}
-				</div>
-			))}
-		</section>
-	);
 }

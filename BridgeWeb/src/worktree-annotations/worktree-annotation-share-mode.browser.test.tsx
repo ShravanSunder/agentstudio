@@ -5,6 +5,7 @@ import { page } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
+import { Alert } from '../components/ui/alert.js';
 import {
 	WorktreeAnnotationShareModeRow,
 	WorktreeAnnotationShareTrigger,
@@ -12,6 +13,30 @@ import {
 } from './worktree-annotation-share-mode.js';
 
 describe('worktree annotation Share comments presentation', () => {
+	test('uses the same secondary surface color as the loading status row', async () => {
+		const rendered = await render(
+			<div>
+				<Alert data-testid="loading-status-surface">Loading comparison…</Alert>
+				<WorktreeAnnotationShareModeRow
+					error={null}
+					isOutputPending={false}
+					membership={{ allCount: 11, kind: 'ready', pendingCount: 4 }}
+					onCopy={vi.fn()}
+					onDone={vi.fn()}
+					onExport={vi.fn()}
+					onScopeChange={vi.fn()}
+					scope="pending"
+				/>
+			</div>,
+		);
+
+		const loadingSurface = rendered.getByTestId('loading-status-surface').element();
+		const shareSurface = rendered.getByRole('region', { name: 'Share comments' }).element();
+		expect(getComputedStyle(shareSurface).backgroundColor).toBe(
+			getComputedStyle(loadingSurface).backgroundColor,
+		);
+	});
+
 	test('opens one in-flow Pending/All row without selection or floating UI', async () => {
 		const onCopy = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
 		const onExport = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
