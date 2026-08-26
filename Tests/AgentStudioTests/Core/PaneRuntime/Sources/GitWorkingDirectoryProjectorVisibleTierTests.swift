@@ -59,9 +59,13 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         clock.advance(by: .milliseconds(9))
         #expect(await calls.count == 1)
 
+        let thirdStartSleepGeneration = clock.scheduledSleepGeneration
         clock.advance(by: .milliseconds(1))
         #expect(await visibleTierWaitUntil { await calls.count == 2 })
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(
+            atLeast: 1,
+            fromGeneration: thirdStartSleepGeneration
+        )
         clock.advance(by: .milliseconds(10))
         #expect(await visibleTierWaitUntil { await calls.count == 3 })
 

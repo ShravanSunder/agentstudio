@@ -280,7 +280,8 @@ extension GitWorkingDirectoryProjector {
         lastAutomaticCompletionAtByWorktreeId[worktreeId] = completion
         lastAutomaticDutyByWorktreeId[worktreeId] = duty
         if isPacedAutomaticTrigger(
-            refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId]
+            refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId],
+            tier: admittedDemandTierByWorktreeId[worktreeId] ?? demandTier(for: worktreeId)
         ) {
             nextAutomaticStartAt = max(
                 nextAutomaticStartAt,
@@ -295,16 +296,20 @@ extension GitWorkingDirectoryProjector {
             return false
         }
         return isPacedAutomaticTrigger(
-            refreshAttribution.triggerSourceByWorktreeId[worktreeId]
+            refreshAttribution.triggerSourceByWorktreeId[worktreeId],
+            tier: demandTier(for: worktreeId)
         )
     }
 
-    private func isPacedAutomaticTrigger(_ triggerSource: GitRefreshTriggerSource?) -> Bool {
+    private func isPacedAutomaticTrigger(
+        _ triggerSource: GitRefreshTriggerSource?,
+        tier: GitDemandTier
+    ) -> Bool {
         switch triggerSource ?? .registration {
         case .registration, .periodic, .visibilityChange, .retry:
             true
         case .filesystemChange, .remoteReferenceRefresh:
-            false
+            tier != .activePane
         }
     }
 
