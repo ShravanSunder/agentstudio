@@ -97,7 +97,8 @@ extension ForgeActor {
         demandedRepoIds().compactMap { repoId -> Duration? in
             guard let state = refreshStateByRepoId[repoId],
                 state.origin != nil,
-                state.activeRequestId == nil
+                state.activeRequestId == nil,
+                !demandedBranches(repoId: repoId).isEmpty
             else { return nil }
             return state.pendingFollowUpEligibleAt
                 ?? nextEligibleRefreshAt(
@@ -129,7 +130,7 @@ extension ForgeActor {
             state.pendingFollowUpRequiresRefresh || trigger.requiresFollowUpRefresh
         state.pendingFollowUpHasUnconfirmedScopeChange =
             state.pendingFollowUpHasUnconfirmedScopeChange || trigger.hasUnconfirmedScopeChange
-        state.pendingFollowUpEligibleAt = min(
+        state.pendingFollowUpEligibleAt = max(
             state.pendingFollowUpEligibleAt
                 ?? now + AppPolicies.ForgeRefresh.capacityRecheckDelay,
             now + AppPolicies.ForgeRefresh.capacityRecheckDelay

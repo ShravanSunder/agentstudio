@@ -155,6 +155,61 @@ struct ForgeActorAdmissionEdgeTests {
         await fixture.stopObserving()
     }
 
+    @Test("losing the final demanded branch consumes the existing freshness deadline")
+    func losingFinalDemandedBranchConsumesFreshnessDeadline() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/acme-detached-after-success")
+
+        await fixture.actor.register(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath,
+            branch: "main"
+        )
+        await fixture.actor.setOrigin(repo: repoId, remote: "git@github.com:acme/studio.git")
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        await fixture.provider.resolve(callAt: 0, with: .complete([]))
+        await fixture.clock.waitForPendingSleepCount(exactly: 1)
+
+        _ = await fixture.bus.post(
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .snapshotChanged(
+                            snapshot: GitWorkingTreeSnapshot(
+                                worktreeId: worktreeId,
+                                repoId: repoId,
+                                rootPath: rootPath,
+                                summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                                branch: nil
+                            )
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                )
+            )
+        )
+        await Task.yield()
+        let scheduledSleepGeneration = fixture.clock.scheduledSleepGeneration
+
+        fixture.advance(by: AppPolicies.Forge.automaticRefreshMinimumInterval)
+        for _ in 0..<1000 where fixture.clock.scheduledSleepGeneration == scheduledSleepGeneration {
+            await Task.yield()
+        }
+
+        #expect(fixture.clock.scheduledSleepGeneration == scheduledSleepGeneration)
+        #expect(fixture.clock.pendingSleepCount == 0)
+        #expect(await fixture.provider.callCount == 1)
+
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
     @Test("registration schedules the freshness deadline when demand arrived before membership")
     func registrationSchedulesDeadlineForPreexistingDemand() async {
         let fixture = await ForgeActorFixture.make()
