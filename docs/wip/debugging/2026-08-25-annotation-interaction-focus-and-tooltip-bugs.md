@@ -98,6 +98,123 @@ Date: 2026-08-25
      with History collapsed and expanded. Live Chrome pointer Copy succeeded
      for two comments, and durable-history undo restored both to Pending.
 
+7. **Share command toolbar redesign is incomplete**
+   - Actual: the temporary Share row now matches the loading status surface and
+     no longer renders `Other saved comments`, but it still repeats the long
+     `Share comments` title and uses text-only `Copy Markdown`, `Export JSON`,
+     and `Done` actions.
+   - Expected: a compact left `Share2 + Share` identity, mixed icon plus short
+     labels for Copy and Export, icon-only Close, and the agreed Pending/All
+     semantic color treatment.
+   - Evidence: live Vite Review screenshot after commit `f3bec167c`.
+   - Status: partial. Surface color and removal of the ad-hoc unavailable-comment
+     block are committed; iconography, labels, hierarchy, and shortcuts remain.
+
+8. **The live Vite journey opened the wrong comparison base**
+   - Actual: `scenario=current-worktree` opened with target `HEAD`, so Review
+     showed only the five tracked uncommitted files instead of the branch's full
+     change set.
+   - Expected for this inspection: compare the current branch against
+     `origin/main` so the complete branch change set is visible.
+   - Evidence: the Vite supervisor hard-codes `initialTarget: 'HEAD'`; current
+     Git evidence is 239 commits and 722 changed files from `origin/main` to
+     `HEAD`, versus five tracked files from `HEAD` to the working tree.
+   - Status: root cause proven. Switch the live selector to `origin/main` for
+     this inspection; any default-target product change requires separate
+   design because `HEAD` may still be correct for an uncommitted-worktree
+   journey.
+
+9. **New and Pending are separate user states**
+   - New identifies unseen agent-authored messages and must clear when the
+     reviewer views those messages. It remains visible at the thread summary so
+     agent replies are discoverable.
+   - Pending identifies saved revisions that have not been handled by a
+     successful acknowledged output. It does not mean unseen and needs its own
+     semantic color rather than borrowing the blue New treatment.
+   - Share exposes only Pending and All. It does not expose New as an output
+     scope and does not ask the reviewer to select individual messages.
+   - Status: domain/program design exists; live File and Review behavior still
+     requires final owner verification against the current frontend.
+
+10. **Annotation keyboard shortcuts are not settled or implemented as one system**
+    - Confirmed: Command-Enter saves root, reply, and message-edit composers;
+      plain Enter remains a newline while editing.
+    - Confirmed interaction sequence: first Escape exits the editor while
+      preserving the active thread; the next Escape leaves the thread,
+      collapses history, and clears the yellow Pierre range.
+    - Existing native activation remains: Enter on a focused editable message
+      edits it; Enter or Space on a focused button activates that button.
+    - Open decision: whether Reply, Edit, Resolve, and Reopen receive additional
+      feature-local shortcuts or remain button-only.
+    - Contract: labels, icons, tooltip copy, and displayed shortcut glyphs must
+      share one typed local command descriptor rather than hard-coded strings.
+    - Status: design discussion open; no new shortcuts implemented.
+
+11. **Expanded-thread animation must reveal one grouped sheet**
+    - Expected: the row geometry opens over the app's 120 ms fast motion, then
+      the chronology travels downward as one coherent group. Collapse performs
+      the reverse upward motion.
+    - Rejected: staircase/cascade entry, per-message delay, content appearing
+      one-by-one, decorative fade-only reveal, and a chunk that simply pops in.
+    - Owner preference: the compared B prototype felt better; reproduce that
+      exact option before changing the durable animation again.
+    - Status: visual direction selected provisionally; final live acceptance
+      remains.
+
+12. **Thread surface hit area, corners, and breathing room need one anatomy**
+    - Clicking the non-interactive thread surface should activate and expand the
+      thread; it must not require the small expansion control exclusively.
+    - The yellow active background must follow the rounded message geometry and
+      retain breathing room instead of painting a square block around it.
+    - Settled command-rail spacing: 8 px between controls, 8 px from the edge,
+      and 8 px between message content and the control rail. The retained outer
+      yellow-background breathing room is 36 px on the right and bottom.
+    - Status: spacing evidence is recorded below; final shared Tailwind/shadcn
+      anatomy and live visual proof remain.
+
+13. **Share output behavior must remain consistent while the toolbar is redesigned**
+    - Pending copies/exports every Pending saved revision; All copies/exports
+      every eligible saved revision. There is no manual checklist.
+    - Draft text is never output. Copy and Export consume the same exact saved
+      bodies and successful output marks them handled by default.
+    - Copy/Export success closes Share and shows a toast with a reversible
+      `Mark as not handled` action. Failure or cancellation retains Share and
+      advances no handled boundary.
+    - The same interaction and presentation must hold in File and Review.
+    - Status: behavior is implemented and focused proof passed before the
+      toolbar redesign; it must not regress when item 7 lands.
+
+14. **The Vite development loop needs one honest startup journey**
+    - `pnpm --dir BridgeWeb run dev` already owns the supervised Swift backend;
+      manually building and launching another backend duplicates work.
+    - The supervised journey currently hard-codes `HEAD`, which is suitable for
+      uncommitted-worktree inspection but not for reviewing this branch against
+      `origin/main`.
+    - For the current live review, run one backend seeded with `origin/main` and
+      point Vite at it through `BRIDGE_WEB_DEV_BACKEND_ORIGIN`.
+    - Status: the corrected origin/main live journey is running. Any product or
+      default-dev-target change remains a separate design decision.
+
+15. **Command-Enter on the first message clears the active thread**
+    - Actual: saving a root composer with only one message removes the pending
+      composer and clears the yellow Pierre range instead of leaving the new
+      one-message thread active.
+    - Expected: Command-Enter saves, replaces the composer with the exact saved
+      thread, and keeps that thread active/yellow. Focus may leave the textarea,
+      but the interaction remains active until Escape or a complete-thread
+      outside click.
+    - Root cause: File and Review handled root `onSaved` by calling
+      `admitSelectedRange(null, ...)`, which cleared the pending range without
+      promoting it to the saved thread. Re-discovering the thread from the
+      filtered rendered projection is also racy at this transition.
+    - Fix: the committed Save receipt now supplies exact `messageId + threadId`
+      identity to the root completion callback; File and Review clear the
+      pending composer and immediately activate that exact saved thread.
+    - Proof: failing-first browser witness reproduced the inactive transition;
+      the corrected Command-Enter journey plus thread/Pierre regressions pass
+      23/23 across three browser files. Scoped lint and formatting pass.
+    - Status: fixed in code; live owner acceptance remains.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component

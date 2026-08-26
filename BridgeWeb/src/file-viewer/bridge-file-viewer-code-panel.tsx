@@ -425,7 +425,15 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 													: currentComposer,
 											)
 										}
-										onSaved={() => admitSelectedRange(null, '')}
+										onSaved={(savedMessage) => {
+											const savedThreadIdentity = {
+												itemId: item.id,
+												range: metadata.range,
+												threadId: savedMessage.threadId,
+											};
+											admitSelectedRange(null, '');
+											annotationInteraction.activateSavedThread(savedThreadIdentity);
+										}}
 										placeholder="Write an annotation in Markdown"
 									/>
 								);

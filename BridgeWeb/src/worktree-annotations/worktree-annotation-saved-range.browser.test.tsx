@@ -1,5 +1,5 @@
-import { CodeView, parseDiffFromFile } from '@pierre/diffs';
-import { act } from 'react';
+import { CodeView, parseDiffFromFile, type CodeViewOptions } from '@pierre/diffs';
+import { act, type ReactElement } from 'react';
 import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 
@@ -20,9 +20,140 @@ import {
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import type { WorktreeAnnotationThreadContext } from './worktree-annotation-surface-client.js';
-import { WorktreeAnnotationSurfaceProvider } from './worktree-annotation-surface-provider.js';
+import {
+	useWorktreeAnnotationInteraction,
+	WorktreeAnnotationSurfaceProvider,
+} from './worktree-annotation-surface-provider.js';
 
 describe.sequential('saved annotation range activation', () => {
+	test('keeps a newly saved one-message File thread active after Save', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const appliedOptions: CodeViewOptions<undefined>[] = [];
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetOptions = CodeView.prototype.setOptions;
+		CodeView.prototype.setOptions = function captureOptions(
+			options: CodeViewOptions<undefined> | undefined,
+		): void {
+			if (options !== undefined) appliedOptions.push(options);
+			originalSetOptions.call(this, options);
+		};
+		const selectedCodeViewItem = makeFileItem();
+
+		try {
+			const rendered = await render(
+				<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+					<InteractionStateProbe />
+					<BridgeFileViewerCodePanel
+						codeViewWorkerPoolEnabled={false}
+						openFileState={{
+							displayItem: null,
+							fileId: 'file-1',
+							path: 'Sources/App/View.swift',
+							status: 'ready',
+						}}
+						renderFulfillmentCoordinator={{
+							observePostRender: (): void => {},
+							reconcilePublication: (): void => {},
+						}}
+						selectedCodeViewItem={selectedCodeViewItem}
+						totalHeightPixels={null}
+					/>
+				</WorktreeAnnotationSurfaceProvider>,
+			);
+			await settleBrowserCondition(
+				(): boolean => appliedOptions.at(-1)?.onGutterUtilityClick !== undefined,
+				'Expected File Pierre gutter callback.',
+			);
+			await act(async (): Promise<void> => {
+				invokeGutterAdmission(
+					requireCodeViewOptions(appliedOptions.at(-1)),
+					{ end: 7, start: 4 },
+					selectedCodeViewItem,
+				);
+				await Promise.resolve();
+			});
+			const composer = rendered.getByRole('textbox', {
+				name: 'Write an annotation in Markdown',
+			});
+			await act(async (): Promise<void> => {
+				await composer.fill('One saved root comment');
+			});
+			await settleBrowserCondition(
+				(): boolean => surface.sentOperations.some((operation) => operation.kind === 'root.create'),
+				'Expected root.create before Save.',
+			);
+			const rootCreate = surface.sentOperations.find(
+				(operation) => operation.kind === 'root.create',
+			);
+			if (rootCreate?.kind !== 'root.create') throw new Error('Expected root.create operation.');
+			await act(async (): Promise<void> => {
+				surface.settleMostRecentCommitted(annotationSessionId, 1);
+				surface.publishThread({
+					context: fileRangeContext,
+					message: {
+						...annotationMessage({
+							messageId: savedRootMessageId,
+							threadId: annotationHeadThreadId,
+						}),
+						draft: {
+							activeEditToken: rootCreate.editToken,
+							body: 'One saved root comment',
+							revision: 0,
+						},
+						savedBody: null,
+						savedRevision: null,
+					},
+				});
+				await Promise.resolve();
+			});
+			await act(async (): Promise<void> => {
+				composer.element().dispatchEvent(
+					new KeyboardEvent('keydown', {
+						bubbles: true,
+						key: 'Enter',
+						metaKey: true,
+					}),
+				);
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean => surface.sentOperations.some((operation) => operation.kind === 'draft.save'),
+				'Expected draft.save for the one-message root.',
+			);
+			await act(async (): Promise<void> => {
+				surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'draft.save');
+				surface.publishProjectionState({
+					expectedThreadCount: 1,
+					revision: 3,
+					sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
+				});
+				surface.publishThread({
+					context: fileRangeContext,
+					message: {
+						...annotationMessage({
+							messageId: savedRootMessageId,
+							sessionRevision: 3,
+							threadId: annotationHeadThreadId,
+						}),
+						draft: null,
+						messageRevision: 1,
+						savedBody: 'One saved root comment',
+						savedRevision: 1,
+					},
+				});
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean =>
+					document.querySelector('[data-testid="annotation-interaction-state"]')?.textContent ===
+					`savedThread:${annotationHeadThreadId}`,
+				'Expected the saved one-message thread to remain active after Save.',
+			);
+		} finally {
+			CodeView.prototype.setOptions = originalSetOptions;
+		}
+	});
+
 	test('focuses the saved File range without opening or scrolling', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const selectedLineCalls: Parameters<CodeView['setSelectedLines']>[0][] = [];
@@ -237,6 +368,8 @@ const reviewRangeContext: WorktreeAnnotationThreadContext = {
 	threadId: annotationHeadThreadId,
 };
 
+const savedRootMessageId = '00000000-0000-7000-8000-000000000031';
+
 function makeFileItem(): BridgeFileViewerSelectedCodeViewItem {
 	return {
 		bridgeMetadata: {
@@ -289,6 +422,39 @@ function makeReviewCodeViewItem(): BridgeMainCodeViewItem {
 		type: 'diff',
 		version: 1,
 	};
+}
+
+function invokeGutterAdmission(
+	options: CodeViewOptions<undefined>,
+	range: { readonly end: number; readonly start: number },
+	item: Readonly<{ id: string }>,
+): void {
+	const gutterCallback = options.onGutterUtilityClick;
+	const selectionEndCallback = options.onLineSelectionEnd;
+	if (gutterCallback === undefined || selectionEndCallback === undefined) {
+		throw new Error('Expected Pierre gutter and line-selection callbacks.');
+	}
+	Reflect.apply(gutterCallback, undefined, [range, { item }]);
+	Reflect.apply(selectionEndCallback, undefined, [range, { item }]);
+}
+
+function requireCodeViewOptions(
+	value: CodeViewOptions<undefined> | undefined,
+): CodeViewOptions<undefined> {
+	if (value === undefined) throw new Error('Expected current Pierre options.');
+	return value;
+}
+
+function InteractionStateProbe(): ReactElement {
+	const interaction = useWorktreeAnnotationInteraction();
+	const presentation = interaction.pierreRangePresentation;
+	return (
+		<span data-testid="annotation-interaction-state">
+			{presentation.kind === 'savedThread'
+				? `${presentation.kind}:${presentation.threadId}`
+				: presentation.kind}
+		</span>
+	);
 }
 
 async function settleBrowserCondition(

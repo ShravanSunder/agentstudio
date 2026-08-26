@@ -62,10 +62,15 @@ export interface WorktreeAnnotationNewMessageComposerProps {
 	readonly editSurfaceRegistrationOwner?: 'composer' | 'parent' | undefined;
 	readonly onCancel: () => void;
 	readonly onCommitted?: (() => void) | undefined;
-	readonly onSaved: () => void;
+	readonly onSaved: (identity: WorktreeAnnotationSavedMessageIdentity) => void;
 	readonly placement?: 'embedded' | 'standalone' | 'timeline' | undefined;
 	readonly placeholder: string;
 	readonly registerExitHandler?: ((handler: () => Promise<void>) => () => void) | undefined;
+}
+
+export interface WorktreeAnnotationSavedMessageIdentity {
+	readonly messageId: string;
+	readonly threadId: string;
 }
 
 type WorktreeAnnotationRootAdmission = Extract<
@@ -276,7 +281,10 @@ export function WorktreeAnnotationNewMessageComposer(
 		) {
 			return;
 		}
-		props.onSaved();
+		props.onSaved({
+			messageId: projectedCommittedMessage.messageId,
+			threadId: committedCursor.threadId,
+		});
 	}, [committedCursor, projectedCommittedMessage, props]);
 	useLayoutEffect((): void => {
 		if (committedCursor === null) return;

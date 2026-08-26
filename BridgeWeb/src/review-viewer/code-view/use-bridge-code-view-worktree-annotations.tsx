@@ -351,7 +351,15 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 									: currentComposer,
 							)
 						}
-						onSaved={() => admitSelectedRange(null, null)}
+						onSaved={(savedMessage) => {
+							const savedThreadIdentity = {
+								itemId: item.id,
+								range: metadata.range,
+								threadId: savedMessage.threadId,
+							};
+							admitSelectedRange(null, null);
+							interaction.activateSavedThread(savedThreadIdentity);
+						}}
 						placeholder="Write an annotation in Markdown"
 					/>
 				);
@@ -368,6 +376,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 		[
 			activeThreads,
 			admitSelectedRange,
+			interaction,
 			pendingComposer,
 			props.reviewPackage.itemsById,
 			sessionSelection.rootAdmission,
