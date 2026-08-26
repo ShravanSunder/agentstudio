@@ -39,10 +39,14 @@ extension GitWorkingDirectoryProjector {
         admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
         clearCapacityRetryState(worktreeId: changeset.worktreeId)
         resetStatusBackoff(worktreeId: changeset.worktreeId)
+        let previousAcceptedFacts = lastAcceptedStatusFactsByWorktreeId[changeset.worktreeId]
+        let previousAcceptedDetail = lastAcceptedLineDetailByWorktreeId[changeset.worktreeId]
+        let currentAcceptedFacts = GitWorkingTreeStatusFacts(status: currentStatusSnapshot)
+        let completeStatusChanged =
+            previousAcceptedFacts != currentAcceptedFacts
+            || previousAcceptedDetail != materialized.detail
         lastStatusEntriesByWorktreeId[changeset.worktreeId] = currentStatusSnapshot.entries
-        lastAcceptedStatusFactsByWorktreeId[changeset.worktreeId] = GitWorkingTreeStatusFacts(
-            status: currentStatusSnapshot
-        )
+        lastAcceptedStatusFactsByWorktreeId[changeset.worktreeId] = currentAcceptedFacts
         if let detail = materialized.detail {
             lastAcceptedLineDetailByWorktreeId[changeset.worktreeId] = detail
             if materialized.refreshedDetail {
@@ -59,15 +63,18 @@ extension GitWorkingDirectoryProjector {
         )
         let previousSnapshot = lastEmittedSnapshotByWorktreeId[changeset.worktreeId]
         let snapshotChanged = previousSnapshot != nextSnapshot
-        if snapshotChanged {
-            lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
+        if completeStatusChanged {
             resetAdaptiveCadence(worktreeId: changeset.worktreeId)
         } else {
-            aggregatePerformance.increment(\.snapshotEqual)
-            flushAggregatePerformanceSnapshotIfNeeded()
             if pendingByWorktreeId[changeset.worktreeId] == nil {
                 unchangedStatusResultCountByWorktreeId[changeset.worktreeId, default: 0] += 1
             }
+        }
+        if snapshotChanged {
+            lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
+        } else {
+            aggregatePerformance.increment(\.snapshotEqual)
+            flushAggregatePerformanceSnapshotIfNeeded()
         }
         recordAutomaticCompletion(worktreeId: changeset.worktreeId, duty: statusDuration)
 

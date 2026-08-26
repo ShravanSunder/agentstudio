@@ -289,7 +289,6 @@ package actor GitWorkingDirectoryProjector {
             }
             guard admitFileChangeAfterQuarantine(worktreeId: worktreeId, rootPath: changeset.rootPath) else { return }
             repoIdByWorktreeId[worktreeId] = changeset.repoId
-            resetAdaptiveCadence(worktreeId: worktreeId)
             guard !deferChangesetIfStatusBackoffOpen(changeset) else { return }
             guard !deferChangesetIfCapacityRetryPending(changeset) else { return }
             if !immediateRefreshWorktreeIds.contains(worktreeId) {
