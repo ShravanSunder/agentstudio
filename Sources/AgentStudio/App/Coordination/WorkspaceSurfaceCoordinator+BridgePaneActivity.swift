@@ -104,7 +104,6 @@ extension WorkspaceSurfaceCoordinator {
             bridgePaneActivityOwningWindowId
             .flatMap(windowLifecycleStore.presentationFacts(for:))
             ?? .hidden
-        let isApplicationActive = appLifecycleStore.isActive && !appLifecycleStore.isTerminating
 
         let durableInputs = bridgePaneFacts.map { paneFacts in
             let workspaceFacts = workspaceActivityFacts(for: paneFacts)
@@ -128,7 +127,6 @@ extension WorkspaceSurfaceCoordinator {
                     isOwningWindowVisible: windowPresentationFacts.isVisible,
                     isOwningWindowMiniaturized: windowPresentationFacts.isMiniaturized,
                     isOwningWindowOccluded: windowPresentationFacts.isOccluded,
-                    isApplicationActive: isApplicationActive,
                     isAuthorityClosed: false
                 )
             )
@@ -167,7 +165,6 @@ extension WorkspaceSurfaceCoordinator {
                         isOwningWindowVisible: windowPresentationFacts.isVisible,
                         isOwningWindowMiniaturized: windowPresentationFacts.isMiniaturized,
                         isOwningWindowOccluded: windowPresentationFacts.isOccluded,
-                        isApplicationActive: isApplicationActive,
                         isAuthorityClosed: false
                     )
                 )

@@ -26,7 +26,6 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct WorkspaceBridgePaneActivityIntegrationTests {
         enum ActivityHidingMutation: CaseIterable, CustomTestStringConvertible {
-            case applicationInactive
             case owningWindowHidden
             case owningWindowMiniaturized
             case owningWindowOccluded
@@ -38,8 +37,6 @@ extension WebKitSerializedTests {
 
             var testDescription: String {
                 switch self {
-                case .applicationInactive:
-                    "application inactive"
                 case .owningWindowHidden:
                     "owning window hidden"
                 case .owningWindowMiniaturized:
@@ -175,7 +172,7 @@ extension WebKitSerializedTests {
             await harness.finish()
         }
 
-        @Test("installed Bridge pane is foreground only through exact app, window, and workspace facts")
+        @Test("installed Bridge pane is foreground through exact window and workspace facts")
         func installedBridgePaneBecomesForegroundFromExactNativeFacts() async throws {
             let harness = makeBridgePaneActivityTestHarness()
 
@@ -184,6 +181,23 @@ extension WebKitSerializedTests {
             #expect(harness.coordinator.bridgePaneActivity(for: harness.bridgePane.id) == .foreground)
             #expect(harness.viewRegistry.allBridgeViews[harness.bridgePane.id] != nil)
 
+            await harness.finish()
+        }
+
+        @Test("application deactivation leaves the foreground Bridge tab working")
+        func applicationDeactivationLeavesForegroundBridgeTabWorking() async throws {
+            let harness = makeBridgePaneActivityTestHarness()
+            try await installBridgeControllerAndEnterForeground(harness)
+
+            harness.appLifecycleStore.setActive(false)
+
+            await expectBridgePaneActivity(
+                .foreground,
+                for: harness.bridgePane.id,
+                in: harness.coordinator,
+                because: "application activation is not Bridge tab activity"
+            )
+            #expect(harness.viewRegistry.allBridgeViews[harness.bridgePane.id] != nil)
             await harness.finish()
         }
 
@@ -388,8 +402,6 @@ extension WebKitSerializedTests {
 
         private func apply(_ mutation: ActivityHidingMutation, to harness: BridgePaneActivityTestHarness) {
             switch mutation {
-            case .applicationInactive:
-                harness.appLifecycleStore.setActive(false)
             case .owningWindowHidden:
                 harness.windowLifecycleStore.recordWindowVisibility(false, for: harness.owningWindowId)
             case .owningWindowMiniaturized:

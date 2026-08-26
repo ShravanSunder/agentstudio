@@ -1832,8 +1832,8 @@ Candidate B is invisible to pane presentation and worker render slices until its
 
 | Activity | Concrete native facts | Package/presentation and admitted work |
 | --- | --- | --- |
-| `foreground` | active residency; controller installed; pane visible in the active tab/arrangement or expanded drawer; not minimized or zoom-excluded; owning window visible, unminiaturized, and unoccluded; app active | retain both surface positions; admit interactive demand plus one latest refresh; key/focus affects rank, not state |
-| `loadedHidden` | controller installed and admission open, but any foreground visibility/activity fact is false, including inactive tab/arrangement/drawer, minimized/zoom-excluded pane, hidden/miniaturized/occluded window, inactive app, or backgrounded residency | retain bounded package/cache and both positions; admit no body/prefetch/refresh; collapse invalidations to one dirty fact |
+| `foreground` | active residency; controller installed; pane visible in the active tab/arrangement or expanded drawer; not minimized or zoom-excluded; owning window visible, unminiaturized, and unoccluded; application activation is irrelevant | retain both surface positions; admit interactive demand plus one latest refresh; key/focus and application activation affect neither state nor admission |
+| `loadedHidden` | controller installed and admission open, but any pane visibility/activity fact is false, including inactive tab/arrangement/drawer, minimized/zoom-excluded pane, hidden/miniaturized/occluded window, or backgrounded residency | retain bounded package/cache and both positions; admit no body/prefetch/refresh; collapse invalidations to one dirty fact |
 | `dormant` | pane record can be activated, but no Bridge controller, gate, worker, package, or presentation store has been created in this app lifetime | no work and no position owner; first activation creates authority and starts File/Review at canonical defaults |
 | `closed` | close/teardown has begun or pane authority was explicitly revoked | reject synchronously; cancel/drain existing work; undo/reopen creates fresh authority |
 

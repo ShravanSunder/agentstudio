@@ -130,22 +130,12 @@ struct BridgePaneActivityCoordinatorTests {
         #expect(attemptedReopenActivity == .closed)
     }
 
-    @Test("loaded hidden state can return to foreground when all facts recover")
-    func loadedHiddenCanReturnToForeground() {
+    @Test("application activation does not pause a foreground Bridge tab")
+    func applicationActivationDoesNotPauseForegroundTab() {
         // Arrange
         let coordinator = BridgePaneActivityCoordinator()
         #expect(coordinator.update(from: .foreground) == .foreground)
-        #expect(
-            coordinator.update(
-                from: BridgePaneActivityFacts.foreground.replacing(isApplicationActive: false)
-            ) == .loadedHidden
-        )
-
-        // Act
-        let recoveredActivity = coordinator.update(from: .foreground)
-
-        // Assert
-        #expect(recoveredActivity == .foreground)
+        #expect(coordinator.update(from: .foreground) == .foreground)
     }
 }
 
@@ -159,7 +149,6 @@ enum BridgePaneActivityFactMutation: String, CaseIterable, CustomTestStringConve
     case hiddenWindow
     case miniaturizedWindow
     case occludedWindow
-    case inactiveApplication
 
     static let allForegroundDemotions = Array(allCases)
 
@@ -185,8 +174,6 @@ enum BridgePaneActivityFactMutation: String, CaseIterable, CustomTestStringConve
             return facts.replacing(isOwningWindowMiniaturized: true)
         case .occludedWindow:
             return facts.replacing(isOwningWindowOccluded: true)
-        case .inactiveApplication:
-            return facts.replacing(isApplicationActive: false)
         }
     }
 }
@@ -203,7 +190,6 @@ extension BridgePaneActivityFacts {
         isOwningWindowVisible: true,
         isOwningWindowMiniaturized: false,
         isOwningWindowOccluded: false,
-        isApplicationActive: true,
         isAuthorityClosed: false
     )
 
@@ -218,7 +204,6 @@ extension BridgePaneActivityFacts {
         isOwningWindowVisible: Bool? = nil,
         isOwningWindowMiniaturized: Bool? = nil,
         isOwningWindowOccluded: Bool? = nil,
-        isApplicationActive: Bool? = nil,
         isAuthorityClosed: Bool? = nil
     ) -> Self {
         Self(
@@ -232,7 +217,6 @@ extension BridgePaneActivityFacts {
             isOwningWindowVisible: isOwningWindowVisible ?? self.isOwningWindowVisible,
             isOwningWindowMiniaturized: isOwningWindowMiniaturized ?? self.isOwningWindowMiniaturized,
             isOwningWindowOccluded: isOwningWindowOccluded ?? self.isOwningWindowOccluded,
-            isApplicationActive: isApplicationActive ?? self.isApplicationActive,
             isAuthorityClosed: isAuthorityClosed ?? self.isAuthorityClosed
         )
     }
