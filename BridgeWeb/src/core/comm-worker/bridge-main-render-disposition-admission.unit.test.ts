@@ -25,15 +25,22 @@ describe('Bridge main render disposition admission', () => {
 		).toEqual([['item-1'], ['item-2', 'item-3']]);
 	});
 
-	test('admits one recovery probe after timeout and stalls after a second timeout', () => {
-		const harness = createAdmissionHarness({ maximumBatchSize: 1 });
+	test('requests existing worker replacement once after the recovery probe times out', () => {
+		// Arrange
+		const requestWorkerReplacement = vi.fn();
+		const harness = createAdmissionHarness({ maximumBatchSize: 1, requestWorkerReplacement });
 		for (let index = 1; index <= 4; index += 1) harness.admission.enqueue(makeQueuedReceipt(index));
 
+		// Act
 		harness.timeout('batch-1');
 		expect(harness.dispatched).toHaveLength(2);
 		harness.timeout('batch-2');
+		harness.timeout('batch-2');
+
+		// Assert
 		expect(harness.dispatched).toHaveLength(2);
 		expect(harness.admission.snapshot().deliveryState).toBe('stalled');
+		expect(requestWorkerReplacement).toHaveBeenCalledOnce();
 	});
 
 	test('clears unknown debt when the FIFO recovery probe reaches a worker terminal', () => {

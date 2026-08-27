@@ -48,15 +48,52 @@ describe('worktree annotation inline thread', () => {
 
 		await expect.element(rendered.getByText('Keep the refresh asynchronous.')).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
-		await expect.element(rendered.getByRole('button', { name: 'Reply to thread' })).toBeVisible();
-		await expect.element(rendered.getByRole('button', { name: 'Resolve thread' })).toBeVisible();
+		await expect
+			.element(rendered.getByRole('button', { name: 'Reply to annotation thread' }))
+			.toBeVisible();
+		await expect
+			.element(rendered.getByRole('button', { name: 'Resolve annotation thread' }))
+			.toBeVisible();
 		await expect.element(rendered.getByLabelText('You')).toBeVisible();
 		await expect
 			.element(rendered.getByTestId('worktree-annotation-message-pending-status'))
 			.toHaveTextContent('Pending');
-		expect(document.querySelector('[aria-label="Expand 1 message"]')).toBeNull();
+		expect(document.querySelector('[aria-label="Expand 1 annotation"]')).toBeNull();
 		expect(rendered.getByRole('button', { name: 'More comment actions' }).all()).toHaveLength(0);
 		expect(document.querySelector('[aria-label^="Show source range"]')).toBeNull();
+	});
+
+	test('uses quiet rounded action chrome and command-spec tooltip copy', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Action presentation.', messageId: rootMessageId }),
+		]);
+
+		const editButton = rendered.getByRole('button', { name: 'Edit annotation' });
+		const editCommands = editButton
+			.element()
+			.closest<HTMLElement>('[aria-label="Annotation commands"]');
+		if (editCommands === null) throw new Error('Expected annotation-local commands.');
+		expect(editButton.element().classList).not.toContain('rounded-full');
+		expect(getComputedStyle(editCommands).opacity).toBe('0');
+
+		await act(async (): Promise<void> => {
+			editButton.element().focus();
+			await Promise.resolve();
+		});
+		await settleBrowserCondition(
+			(): boolean => getComputedStyle(editCommands).opacity === '1',
+			'Expected keyboard focus to reveal the exact annotation Edit action.',
+		);
+		expect(getComputedStyle(editCommands).opacity).toBe('1');
+		expect(editButton.element().getAttribute('data-tooltip')).toBe('Edit annotation (E)');
+
+		const replyButton = rendered.getByRole('button', { name: 'Reply to annotation thread' });
+		expect(replyButton.element().getAttribute('data-tooltip')).toBe(
+			'Reply to annotation thread (R)',
+		);
+		await page.screenshot({ path: '../../../tmp/bridgeweb-annotation-action-ownership.png' });
 	});
 
 	test('renders a one-message agent thread as New and read-only while retaining Reply', async () => {
@@ -76,7 +113,9 @@ describe('worktree annotation inline thread', () => {
 		await expect.element(newStatus).toHaveTextContent('New');
 		expect(newStatus.element().className).toContain('text-primary');
 		expect(rendered.getByRole('button', { name: 'Edit annotation' }).all()).toHaveLength(0);
-		await expect.element(rendered.getByRole('button', { name: 'Reply to thread' })).toBeVisible();
+		await expect
+			.element(rendered.getByRole('button', { name: 'Reply to annotation thread' }))
+			.toBeVisible();
 		const agentMessageSurface = rendered.getByText('Agent response.').element();
 		agentMessageSurface.focus();
 		expect(
@@ -127,12 +166,14 @@ describe('worktree annotation inline thread', () => {
 		await expect.element(rendered.getByTestId('worktree-annotation-thread-summary')).toBeVisible();
 		expect(
 			rendered.getByTestId('worktree-annotation-thread-summary').element().textContent,
-		).toContain('2 messages');
-		await expect.element(rendered.getByRole('button', { name: 'Expand 2 messages' })).toBeVisible();
+		).toContain('2 annotations');
+		await expect
+			.element(rendered.getByRole('button', { name: 'Expand 2 annotations' }))
+			.toBeVisible();
 		const compactFrame = rendered.getByTestId('worktree-annotation-thread').element();
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Expand 2 messages' }).click();
+			await rendered.getByRole('button', { name: 'Expand 2 annotations' }).click();
 		});
 
 		await expect.element(rendered.getByText('Keep the refresh asynchronous.')).toBeVisible();
@@ -141,11 +182,11 @@ describe('worktree annotation inline thread', () => {
 			compactFrame.querySelectorAll('[data-testid="worktree-annotation-message"]'),
 		).toHaveLength(2);
 		await expect
-			.element(rendered.getByRole('button', { name: 'Collapse 2 messages' }))
+			.element(rendered.getByRole('button', { name: 'Collapse 2 annotations' }))
 			.toBeVisible();
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Edit annotation' }).click();
+			await rendered.getByRole('button', { name: 'Edit annotation' }).last().click();
 		});
 		expect(compactFrame.getAttribute('data-annotation-expanded')).toBe('true');
 		await act(async (): Promise<void> => {
@@ -153,6 +194,154 @@ describe('worktree annotation inline thread', () => {
 			await userEvent.keyboard('{Escape}');
 		});
 		expect(compactFrame.getAttribute('data-annotation-expanded')).toBe('true');
+	});
+
+	test('keeps thread actions singular and exposes Edit on every editable annotation', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Editable root.', messageId: rootMessageId }),
+			makeSavedMessage({ body: 'Editable reply.', messageId: replyMessageId, ordinal: 1 }),
+		]);
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Expand 2 annotations' }).click();
+		});
+		await settleThreadMotion(
+			rendered.getByTestId('worktree-annotation-thread-history').element(),
+			'Expected shortcut-test annotation expansion to settle.',
+		);
+
+		expect(rendered.getByRole('button', { name: 'Reply to annotation thread' }).all()).toHaveLength(
+			1,
+		);
+		expect(rendered.getByRole('button', { name: 'Resolve annotation thread' }).all()).toHaveLength(
+			1,
+		);
+		expect(rendered.getByRole('button', { name: 'Edit annotation' }).all()).toHaveLength(2);
+		expect(document.body.textContent).not.toContain('•••');
+	});
+
+	test.each([
+		{ expectedBody: 'Shortcut root.', keys: 'e', ordinal: 0 },
+		{ expectedBody: 'Shortcut reply.', keys: '{Control>}e{/Control}', ordinal: 1 },
+	])(
+		'routes $keys to the exact focused editable annotation',
+		async ({ expectedBody, keys, ordinal }) => {
+			const surface = new RecordingAnnotationBrowserSurface('fileView');
+			const rendered = await renderAnnotationProjection(surface);
+			await publishThreadMessages(surface, [
+				makeSavedMessage({ body: 'Shortcut root.', messageId: rootMessageId }),
+				makeSavedMessage({ body: 'Shortcut reply.', messageId: replyMessageId, ordinal: 1 }),
+			]);
+			await act(async (): Promise<void> => {
+				await rendered.getByRole('button', { name: 'Expand 2 annotations' }).click();
+			});
+			await settleThreadMotion(
+				rendered.getByTestId('worktree-annotation-thread-history').element(),
+				'Expected Edit-shortcut annotation expansion to settle.',
+			);
+			const targetAnnotation = rendered.getByTestId('worktree-annotation-message').all()[ordinal];
+			if (targetAnnotation === undefined)
+				throw new Error('Expected the shortcut annotation entry.');
+
+			await act(async (): Promise<void> => {
+				targetAnnotation.element().focus();
+				await userEvent.keyboard(keys);
+			});
+			await expect
+				.element(rendered.getByRole('textbox', { name: 'Annotation Markdown' }))
+				.toHaveValue(expectedBody);
+		},
+	);
+
+	test.each(['r', '{Control>}r{/Control}'])(
+		'routes %s to the active annotation thread',
+		async (keys) => {
+			const surface = new RecordingAnnotationBrowserSurface('fileView');
+			const rendered = await renderLocatedAnnotationProjection(surface);
+			await publishThreadMessages(surface, [
+				makeSavedMessage({ body: 'Reply shortcut target.', messageId: rootMessageId }),
+			]);
+			const targetAnnotation = rendered.getByTestId('worktree-annotation-message');
+
+			await act(async (): Promise<void> => {
+				targetAnnotation.element().focus();
+				await userEvent.keyboard(keys);
+			});
+			await expect
+				.element(rendered.getByRole('textbox', { name: 'Reply with Markdown' }))
+				.toBeVisible();
+		},
+	);
+
+	test('does not route annotation shortcuts while an editor owns text input', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderLocatedAnnotationProjection(surface);
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Text-input guard.', messageId: rootMessageId }),
+		]);
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Reply to annotation thread' }).click();
+		});
+		const composer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
+
+		await act(async (): Promise<void> => {
+			composer.element().focus();
+			await userEvent.keyboard('er{Control>}e{/Control}{Control>}r{/Control}');
+		});
+		await expect.element(composer).toHaveValue('er');
+		expect(rendered.getByRole('textbox', { name: 'Annotation Markdown' }).all()).toHaveLength(0);
+		expect(rendered.getByRole('textbox', { name: 'Reply with Markdown' }).all()).toHaveLength(1);
+	});
+
+	test('does not route annotation shortcuts while source text is selected', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderLocatedAnnotationProjection(surface);
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Selected annotation text.', messageId: rootMessageId }),
+		]);
+		const targetAnnotation = rendered.getByTestId('worktree-annotation-message');
+		const selectedText = rendered.getByText('Selected annotation text.').element();
+		const selectionRange = document.createRange();
+		selectionRange.selectNodeContents(selectedText);
+
+		await act(async (): Promise<void> => {
+			targetAnnotation.element().focus();
+			window.getSelection()?.removeAllRanges();
+			window.getSelection()?.addRange(selectionRange);
+			await userEvent.keyboard('er');
+		});
+		expect(rendered.getByRole('textbox', { name: 'Annotation Markdown' }).all()).toHaveLength(0);
+		expect(rendered.getByRole('textbox', { name: 'Reply with Markdown' }).all()).toHaveLength(0);
+		window.getSelection()?.removeAllRanges();
+	});
+
+	test('does not route annotation shortcuts from content-editable or menu owners', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderLocatedAnnotationProjection(surface);
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Owned shortcut targets.', messageId: rootMessageId }),
+		]);
+		const targetAnnotation = rendered.getByTestId('worktree-annotation-message').element();
+		const contentEditableTarget = document.createElement('div');
+		contentEditableTarget.contentEditable = 'true';
+		contentEditableTarget.tabIndex = 0;
+		const menuTarget = document.createElement('div');
+		menuTarget.role = 'menu';
+		menuTarget.tabIndex = 0;
+		targetAnnotation.append(contentEditableTarget, menuTarget);
+
+		for (const ownedTarget of [contentEditableTarget, menuTarget]) {
+			await act(async (): Promise<void> => {
+				ownedTarget.focus();
+				await userEvent.keyboard('er{Control>}e{/Control}{Control>}r{/Control}');
+			});
+		}
+		expect(rendered.getByRole('textbox', { name: 'Annotation Markdown' }).all()).toHaveLength(0);
+		expect(rendered.getByRole('textbox', { name: 'Reply with Markdown' }).all()).toHaveLength(0);
+		contentEditableTarget.remove();
+		menuTarget.remove();
 	});
 
 	test('orders nonzero New and Pending counts and reveals their exact messages', async () => {
@@ -177,13 +366,13 @@ describe('worktree annotation inline thread', () => {
 			.element().textContent;
 		const newIndex = summaryText?.indexOf('1 new') ?? -1;
 		const pendingIndex = summaryText?.indexOf('1 pending') ?? -1;
-		const messageIndex = summaryText?.indexOf('2 messages') ?? -1;
+		const messageIndex = summaryText?.indexOf('2 annotations') ?? -1;
 		expect(newIndex).toBeGreaterThanOrEqual(0);
 		expect(pendingIndex).toBeGreaterThan(newIndex);
 		expect(messageIndex).toBeGreaterThan(pendingIndex);
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Expand 2 messages' }).click();
+			await rendered.getByRole('button', { name: 'Expand 2 annotations' }).click();
 		});
 		await settleThreadMotion(
 			rendered.getByTestId('worktree-annotation-thread-history').element(),
@@ -242,7 +431,7 @@ describe('worktree annotation inline thread', () => {
 		);
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Expand 2 messages' }).click();
+			await rendered.getByRole('button', { name: 'Expand 2 annotations' }).click();
 		});
 		await settleBrowserCondition(
 			(): boolean => capturedRequests.length === 2,
@@ -304,7 +493,7 @@ describe('worktree annotation inline thread', () => {
 		const threads = rendered.getByTestId('worktree-annotation-thread').all();
 		expect(threads).toHaveLength(2);
 		await act(async (): Promise<void> => {
-			await threads[0]?.getByRole('button', { name: 'Expand 2 messages' }).click();
+			await threads[0]?.getByRole('button', { name: 'Expand 2 annotations' }).click();
 		});
 
 		await expect.element(rendered.getByText('Thread A root.')).toBeVisible();
@@ -352,7 +541,7 @@ describe('worktree annotation inline thread', () => {
 		);
 		if (thirdFrame === null) throw new Error('Expected the third compact thread.');
 		await act(async (): Promise<void> => {
-			thirdFrame.querySelector<HTMLButtonElement>('[aria-label="Expand 2 messages"]')?.click();
+			thirdFrame.querySelector<HTMLButtonElement>('[aria-label="Expand 2 annotations"]')?.click();
 			await Promise.resolve();
 		});
 		expect(thirdFrame.getAttribute('data-annotation-expanded')).toBe('true');
@@ -562,7 +751,7 @@ describe('worktree annotation inline thread', () => {
 			makeSavedMessage({ body: 'Tooltip body.', messageId: rootMessageId }),
 		]);
 
-		const replyButton = rendered.getByRole('button', { name: 'Reply to thread' });
+		const replyButton = rendered.getByRole('button', { name: 'Reply to annotation thread' });
 		expect(replyButton.element().getAttribute('data-slot')).toBe('tooltip-trigger');
 
 		await act(async (): Promise<void> => {
@@ -627,7 +816,7 @@ describe('worktree annotation inline thread', () => {
 			makeSavedMessage({ body: 'Latest body.', messageId: replyMessageId, ordinal: 1 }),
 		]);
 
-		const expand = rendered.getByRole('button', { name: 'Expand 2 messages' });
+		const expand = rendered.getByRole('button', { name: 'Expand 2 annotations' });
 		await act(async (): Promise<void> => {
 			expand.element().focus();
 			await userEvent.keyboard('{Enter}');
@@ -642,7 +831,7 @@ describe('worktree annotation inline thread', () => {
 
 		const replyButtons = rendered
 			.getByTestId('worktree-annotation-thread')
-			.getByRole('button', { name: 'Reply to thread' })
+			.getByRole('button', { name: 'Reply to annotation thread' })
 			.all();
 		const latestReplyButton = replyButtons.at(-1);
 		if (latestReplyButton === undefined) throw new Error('Expected the latest Reply control.');
@@ -712,7 +901,7 @@ describe('worktree annotation inline thread', () => {
 		]);
 		const replyButton = rendered
 			.getByTestId('worktree-annotation-thread')
-			.getByRole('button', { name: 'Reply to thread' });
+			.getByRole('button', { name: 'Reply to annotation thread' });
 		await act(async (): Promise<void> => {
 			await replyButton.click();
 		});

@@ -431,6 +431,19 @@ Resolve whole thread
   down and return on collapse; the thread adds no nested scrollbar. The summary
   is presentation, not another message. PR1 has no standalone comments and no
   agent-authored messages.
+  Interaction controls follow the state they change. Every thread, including a
+  one-annotation thread, has one stable header that owns Reply and
+  Resolve/Reopen; a multi-annotation thread also owns Expand/Collapse there.
+  Each editable human annotation owns one Edit affordance, revealed by hover,
+  keyboard focus, or active editing, while locked and agent-authored
+  annotations expose no Edit action. A direct-action ellipsis is not used.
+  Thread-header, annotation-local, and editor actions all use the quiet rounded
+  owned shadcn treatment rather than circular action chrome.
+  `R` and `Control-R` reply to the active thread. `E` and `Control-E` edit the
+  exact keyboard-focused editable annotation. These shortcuts never override
+  text input, text selection, menus, or system-modified shortcuts. Tooltips
+  show the canonical `R`, `E`, and `Command-Enter` bindings; Control variants
+  remain accepted aliases.
 - Why: Once output has exposed a message, its content must remain stable while
   later clarification remains possible without erasing history. A flat thread
   remains readable in both the product and its external outputs.

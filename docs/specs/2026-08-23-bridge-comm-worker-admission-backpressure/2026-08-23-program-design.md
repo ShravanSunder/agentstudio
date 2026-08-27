@@ -140,9 +140,11 @@ clock domain. `BridgeMainRenderFulfillmentCoordinator` stamps
 `receivedAtMilliseconds` and terminal `retryAtMilliseconds`, and
 `BridgeWorkerRenderFulfillmentRegistry` computes publication, lease-expiry, and
 retry deadlines using `readBridgeCommWorkerAbsoluteNowMilliseconds`
-(`performance.timeOrigin + performance.now()`). Injected proof clocks supply
-values in that same absolute domain. Realm-local `performance.now()` remains
-valid only for durations that are never compared across the product port.
+(`performance.timeOrigin + performance.now()`). The worker fulfillment
+lifecycle driver reads that same clock when comparing and scheduling registry
+deadlines. Injected proof clocks feed the registry and lifecycle driver together
+in that same domain. Realm-local `performance.now()` remains valid only for
+durations that are never compared across the product port.
 
 `dispatchBridgeCommWorkerRuntimeProductControl` synchronously posts the
 correlated response. Only after that call succeeds does the runtime apply any

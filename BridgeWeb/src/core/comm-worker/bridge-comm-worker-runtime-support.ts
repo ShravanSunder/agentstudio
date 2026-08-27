@@ -1,4 +1,4 @@
-import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-telemetry.js';
+import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-clock.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import type { BridgeWorkerHealthEvent } from './bridge-worker-contracts.js';
 

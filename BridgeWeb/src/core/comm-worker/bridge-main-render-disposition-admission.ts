@@ -177,10 +177,12 @@ export function createBridgeMainRenderDispositionAdmission(
 		inFlightBatch = null;
 		for (const key of settledBatch.receiptKeys) admittedReceiptKeys.delete(key);
 		const workerProgressed = request.state === 'acked' || request.state === 'failed';
+		let shouldRequestWorkerReplacement = false;
 		const outcome: BridgeRenderDispositionTerminalOutcome =
 			request.state === 'acked' ? 'acked' : request.state === 'failed' ? 'degraded' : 'timed_out';
 		if (settledBatch.kind === 'probe') {
 			deliveryState = workerProgressed ? 'ordinary' : 'stalled';
+			shouldRequestWorkerReplacement = !workerProgressed;
 		} else if (request.state === 'timed_out' || request.state === 'superseded') {
 			deliveryState = 'probe_available';
 		} else {
@@ -199,6 +201,10 @@ export function createBridgeMainRenderDispositionAdmission(
 			outcome,
 			phase: 'render_disposition_batch_terminal',
 		});
+		if (shouldRequestWorkerReplacement) {
+			props.requestWorkerReplacement();
+			return;
+		}
 		dispatchNextBatch();
 	};
 

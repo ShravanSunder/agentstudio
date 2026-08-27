@@ -1,3 +1,4 @@
+import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-clock.js';
 import type {
 	BridgeWorkerFilePierreRenderJobEvent,
 	BridgeWorkerReviewPierreRenderJobEvent,
@@ -111,7 +112,7 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 ): BridgeMainRenderFulfillmentCoordinator {
 	const cancelFrame =
 		props.cancelAnimationFrame ?? globalThis.cancelAnimationFrame.bind(globalThis);
-	const nowMilliseconds = props.nowMilliseconds ?? (() => performance.now());
+	const nowMilliseconds = props.nowMilliseconds ?? readBridgeCommWorkerAbsoluteNowMilliseconds;
 	const requestFrame =
 		props.requestAnimationFrame ?? globalThis.requestAnimationFrame.bind(globalThis);
 	const pendingByPierreItemId = new Map<string, BridgeMainPendingRenderPublication>();

@@ -42,7 +42,7 @@ describe('worktree annotation editor convergence', () => {
 
 		await publishThreadMessages(surface, [root, reply]);
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Reply to thread' }).last().click();
+			await rendered.getByRole('button', { name: 'Reply to annotation thread' }).last().click();
 			surface.publishRefreshing();
 			await Promise.resolve();
 		});
@@ -60,7 +60,7 @@ describe('worktree annotation editor convergence', () => {
 		await publishThreadMessages(surface, [root]);
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
+			await rendered.getByRole('button', { name: 'Reply to annotation thread' }).click();
 			await rendered
 				.getByRole('textbox', { name: 'Reply with Markdown' })
 				.fill('Single-owner reply');
@@ -113,7 +113,10 @@ describe('worktree annotation editor convergence', () => {
 		await expect
 			.element(rendered.getByTestId('worktree-annotation-committed-pending-projection'))
 			.toBeVisible();
-		expect(rendered.getByRole('button', { name: 'Reply to thread' }).all()).toHaveLength(1);
+		expect(rendered.getByRole('button', { name: 'Reply to annotation thread' }).all()).toHaveLength(
+			1,
+		);
+		expect(rendered.getByTestId('worktree-annotation-message').all()).toHaveLength(2);
 
 		await act(async (): Promise<void> => {
 			surface.publishProjectionState({
@@ -152,7 +155,10 @@ describe('worktree annotation editor convergence', () => {
 		expect(
 			document.querySelector('[data-testid="worktree-annotation-committed-pending-projection"]'),
 		).toBeNull();
-		expect(rendered.getByRole('button', { name: 'Reply to thread' }).all()).toHaveLength(2);
+		expect(rendered.getByRole('button', { name: 'Reply to annotation thread' }).all()).toHaveLength(
+			1,
+		);
+		expect(rendered.getByTestId('worktree-annotation-message').all()).toHaveLength(2);
 	});
 
 	test('reverts a durable reply draft instead of only hiding its composer', async () => {
@@ -162,7 +168,7 @@ describe('worktree annotation editor convergence', () => {
 
 		await publishThreadMessages(surface, [root]);
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
+			await rendered.getByRole('button', { name: 'Reply to annotation thread' }).click();
 			await rendered.getByRole('textbox', { name: 'Reply with Markdown' }).fill('Durable reply');
 		});
 		await settleBrowserCondition(
@@ -209,7 +215,7 @@ describe('worktree annotation editor convergence', () => {
 		await expect.element(rendered.getByText('saved locally')).toBeVisible();
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Revert draft' }).click();
+			await rendered.getByRole('button', { name: 'Revert annotation draft' }).click();
 		});
 		await settleBrowserCondition(
 			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'draft.revert'),
@@ -371,7 +377,7 @@ describe('worktree annotation editor convergence', () => {
 		await publishThreadMessages(surface, [rootMessage]);
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
+			await rendered.getByRole('button', { name: 'Reply to annotation thread' }).click();
 			await rendered.getByRole('textbox', { name: 'Reply with Markdown' }).fill('Reply one');
 		});
 		await settleBrowserCondition(
@@ -425,7 +431,7 @@ describe('worktree annotation editor convergence', () => {
 			.toBeVisible();
 
 		const latestReplyButton = rendered
-			.getByRole('button', { name: 'Reply to thread' })
+			.getByRole('button', { name: 'Reply to annotation thread' })
 			.all()
 			.at(-1);
 		if (latestReplyButton === undefined) throw new Error('Expected the latest Reply control.');

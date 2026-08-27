@@ -87,7 +87,7 @@ describe('worktree annotation recovery and rail history controls', () => {
 			await settleInteraction();
 		});
 		await expect.element(rendered.getByText('# Exact saved output')).toBeVisible();
-		expect(document.body.textContent).not.toContain('Root comment');
+		expect(document.body.textContent).not.toContain('Root annotation');
 		expect(document.body.textContent).not.toContain('Thread 1');
 
 		await act(async (): Promise<void> => {

@@ -2,11 +2,6 @@ import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-te
 import type { BridgeCommWorkerPanePresentationSnapshot } from './bridge-comm-worker-pane-presentation.js';
 import type { BridgeWorkerContentAvailabilityPatchPayload } from './bridge-worker-contracts.js';
 
-export interface BridgeCommWorkerPerformanceClock {
-	readonly timeOrigin: number;
-	readonly now: () => number;
-}
-
 export type BridgeCommWorkerTelemetryTaskKind =
 	| 'content_preparation'
 	| 'message_handler'
@@ -159,12 +154,6 @@ export type BridgeCommWorkerSelectedContentDropReason =
 	| 'stale_after_fetch'
 	| 'stale_before_fetch'
 	| 'stale_before_publish';
-
-export function readBridgeCommWorkerAbsoluteNowMilliseconds(
-	clock: BridgeCommWorkerPerformanceClock = performance,
-): number {
-	return clock.timeOrigin + clock.now();
-}
 
 export interface RecordBridgeCommWorkerTaskTelemetryProps {
 	readonly action?: BridgeCommWorkerTelemetryAction;

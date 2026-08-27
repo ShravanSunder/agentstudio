@@ -244,7 +244,7 @@ describe('worktree annotation Pierre integration', () => {
 		const scrollTopBeforeExpansion = codeViewScrollOwner.scrollTop;
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
+			await rendered.getByRole('button', { name: 'Reply to annotation thread' }).click();
 		});
 		expect(compactThread.isConnected).toBe(true);
 		const replyComposer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
@@ -487,12 +487,12 @@ describe('worktree annotation Pierre integration', () => {
 			(frame): boolean => frame.dataset['annotationThreadId'] === annotationHeadThreadId,
 		);
 		if (firstThreadFrame === undefined) throw new Error('Expected the multi-message File thread.');
-		expect(firstThreadFrame.textContent).toContain('2 messages');
+		expect(firstThreadFrame.textContent).toContain('2 annotations');
 		expect(firstThreadFrame.textContent).toContain('Comment 3');
 		expect(firstThreadFrame.textContent).not.toContain('Comment 1');
 		await act(async (): Promise<void> => {
 			firstThreadFrame
-				.querySelector<HTMLButtonElement>('[aria-label="Expand 2 messages"]')
+				.querySelector<HTMLButtonElement>('[aria-label="Expand 2 annotations"]')
 				?.click();
 			await Promise.resolve();
 		});

@@ -42,7 +42,7 @@ describe('worktree annotation inline shell', () => {
 		const followingDiffRow = rendered.getByTestId('following-diff-row').element();
 		const compactThreadHeight = compactThread.getBoundingClientRect().height;
 		const followingDiffRowTop = followingDiffRow.getBoundingClientRect().top;
-		const expandButton = rendered.getByRole('button', { name: 'Expand 2 messages' }).element();
+		const expandButton = rendered.getByRole('button', { name: 'Expand 2 annotations' }).element();
 		expect(expandButton.classList).not.toContain('rounded-full');
 		expect(expandButton.classList).not.toContain('border-comment-border');
 		expect(expandButton.classList).toContain('text-comment-muted');
@@ -52,7 +52,7 @@ describe('worktree annotation inline shell', () => {
 		expect(pendingStatus.querySelector('.bg-warning')).not.toBeNull();
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Expand 2 messages' }).click();
+			await rendered.getByRole('button', { name: 'Expand 2 annotations' }).click();
 		});
 		const historyPanel = rendered.getByTestId('worktree-annotation-thread-history').element();
 		await settleThreadMotion(historyPanel, 'Expected thread expansion motion to settle.');
@@ -79,7 +79,7 @@ describe('worktree annotation inline shell', () => {
 		}
 		expect(secondMessageBounds.top - firstMessageBounds.bottom).toBeCloseTo(4, 1);
 		const latestCommandRail = expandedMessages[1]?.querySelector<HTMLElement>(
-			'[aria-label="Comment commands"]',
+			'[aria-label="Annotation commands"]',
 		);
 		const latestCard = latestCommandRail?.parentElement;
 		if (
@@ -97,10 +97,9 @@ describe('worktree annotation inline shell', () => {
 			throw new Error('Expected the latest message card content inset owner.');
 		}
 		const commandButtons = [...latestCommandRail.querySelectorAll<HTMLElement>('button')];
-		const topCommandBounds = commandButtons[0]?.getBoundingClientRect();
-		const bottomCommandBounds = commandButtons[1]?.getBoundingClientRect();
-		if (topCommandBounds === undefined || bottomCommandBounds === undefined) {
-			throw new Error('Expected two stacked latest-message commands.');
+		const editCommandBounds = commandButtons[0]?.getBoundingClientRect();
+		if (editCommandBounds === undefined || commandButtons.length !== 1) {
+			throw new Error('Expected one annotation-local Edit command.');
 		}
 		const expandedThreadBounds = thread.getBoundingClientRect();
 		expect(latestCommandRailBounds.top).toBeGreaterThanOrEqual(latestCardBounds.top);
@@ -110,7 +109,7 @@ describe('worktree annotation inline shell', () => {
 		expect(latestCommandRail.classList).toContain('right-2');
 		expect(latestCommandRail.classList).toContain('bottom-2');
 		expect(latestCommandRail.classList).toContain('gap-2');
-		expect(bottomCommandBounds.top - topCommandBounds.bottom).toBeCloseTo(8, 1);
+		expect(commandButtons[0]?.getAttribute('aria-label')).toBe('Edit annotation');
 		expect(latestCardContent.classList).toContain('p-2');
 		expect(latestCardContent.classList).toContain('pr-10');
 		expect(expandedThreadBounds.right - latestCardBounds.right).toBeCloseTo(36, 1);
@@ -120,7 +119,7 @@ describe('worktree annotation inline shell', () => {
 		await page.screenshot({ path: '../../../tmp/bridgeweb-inline-thread-expanded.png' });
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Collapse 2 messages' }).click();
+			await rendered.getByRole('button', { name: 'Collapse 2 annotations' }).click();
 		});
 		await settleThreadMotion(historyPanel, 'Expected thread collapse motion to settle.');
 		await settleBrowserCondition(
@@ -138,7 +137,7 @@ describe('worktree annotation inline shell', () => {
 		await publishTwoMessageThread(surface);
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
+			await rendered.getByRole('button', { name: 'Reply to annotation thread' }).click();
 		});
 		await settleThreadMotion(
 			rendered.getByTestId('worktree-annotation-thread-history').element(),
@@ -182,7 +181,7 @@ describe('worktree annotation inline shell', () => {
 		await publishTwoMessageThread(surface);
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
+			await rendered.getByRole('button', { name: 'Reply to annotation thread' }).click();
 		});
 		await settleThreadMotion(
 			rendered.getByTestId('worktree-annotation-thread-history').element(),
@@ -207,7 +206,7 @@ describe('worktree annotation inline shell', () => {
 		await act(async (): Promise<void> => {
 			await rendered
 				.getByTestId('worktree-annotation-thread-summary')
-				.getByText('2 messages')
+				.getByText('2 annotations')
 				.click();
 			await Promise.resolve();
 		});
@@ -236,12 +235,12 @@ describe('worktree annotation inline shell', () => {
 		await publishFiveMessageThread(surface);
 		const summary = rendered.getByTestId('worktree-annotation-thread-summary').element();
 		expect(summary.textContent?.indexOf('5 pending')).toBeLessThan(
-			summary.textContent?.indexOf('5 messages') ?? -1,
+			summary.textContent?.indexOf('5 annotations') ?? -1,
 		);
 		expect(
 			rendered.getByTestId('worktree-annotation-pending-status').element().classList,
 		).toContain('text-warning');
-		const expandButton = rendered.getByRole('button', { name: 'Expand 5 messages' }).element();
+		const expandButton = rendered.getByRole('button', { name: 'Expand 5 annotations' }).element();
 		expect(expandButton.classList).not.toContain('rounded-full');
 		expect(expandButton.classList).not.toContain('border-comment-border');
 		expect(expandButton.classList).toContain('text-comment-muted');
@@ -250,7 +249,7 @@ describe('worktree annotation inline shell', () => {
 		expect(getComputedStyle(expansionChevron).transitionDuration).toBe('0.12s');
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Expand 5 messages' }).click();
+			await rendered.getByRole('button', { name: 'Expand 5 annotations' }).click();
 		});
 		const historyPanel = rendered.getByTestId('worktree-annotation-thread-history').element();
 		await settleBrowserCondition(
@@ -277,7 +276,7 @@ describe('worktree annotation inline shell', () => {
 		await page.screenshot({ path: '../../../tmp/bridgeweb-inline-five-message-expanded.png' });
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Collapse 5 messages' }).click();
+			await rendered.getByRole('button', { name: 'Collapse 5 annotations' }).click();
 		});
 		const reverseMaskKeyframes = historyGroup
 			.getAnimations()
@@ -321,7 +320,7 @@ describe('worktree annotation inline shell', () => {
 		await act(async (): Promise<void> => {
 			await rendered
 				.getByTestId('worktree-annotation-thread-summary')
-				.getByText('2 messages')
+				.getByText('2 annotations')
 				.click();
 			await Promise.resolve();
 		});
@@ -349,7 +348,7 @@ describe('worktree annotation inline shell', () => {
 		).toBe('true');
 		externalFocusTarget.remove();
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Collapse 2 messages' }).click();
+			await rendered.getByRole('button', { name: 'Collapse 2 annotations' }).click();
 		});
 		await settleThreadMotion(
 			rendered.getByTestId('worktree-annotation-thread-history').element(),
@@ -369,8 +368,10 @@ describe('worktree annotation inline shell', () => {
 
 		const thread = rendered.getByTestId('worktree-annotation-thread');
 		await expect.element(thread.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
-		await expect.element(thread.getByRole('button', { name: 'Reply to thread' })).toBeVisible();
-		const resolveButton = thread.getByRole('button', { name: 'Resolve thread' });
+		await expect
+			.element(thread.getByRole('button', { name: 'Reply to annotation thread' }))
+			.toBeVisible();
+		const resolveButton = thread.getByRole('button', { name: 'Resolve annotation thread' });
 		await expect.element(resolveButton).toBeVisible();
 		expect(resolveButton.element().className).toContain('bg-primary/15');
 
@@ -407,13 +408,19 @@ describe('worktree annotation inline shell', () => {
 		expect(editingMessage.getAttribute('data-annotation-editing')).toBe('true');
 		expect(editorSurface.classList).toContain('ring-inset');
 		expect(getComputedStyle(editorSurface).boxShadow).not.toBe('none');
-		const revert = rendered.getByRole('button', { name: 'Revert draft' });
+		const revert = rendered.getByRole('button', { name: 'Revert annotation draft' });
+		let commandFocusedBoxShadow = 'none';
 		await act(async (): Promise<void> => {
 			revert.element().focus();
-			await Promise.resolve();
+			await nextAnimationFrame();
+			await nextAnimationFrame();
+			commandFocusedBoxShadow = getComputedStyle(editorSurface).boxShadow;
+			editor.element().focus();
+			await nextAnimationFrame();
+			await nextAnimationFrame();
 		});
 		expect(editingMessage.getAttribute('data-annotation-editing')).toBe('true');
-		expect(getComputedStyle(editorSurface).boxShadow).not.toBe('none');
+		expect(commandFocusedBoxShadow).not.toBe('none');
 		await page.screenshot({ path: '../../../tmp/bridgeweb-annotation-explicit-editing.png' });
 
 		await act(async (): Promise<void> => {
@@ -508,6 +515,12 @@ async function renderInlineShell(
 			<InlineShellProjection />
 		</WorktreeAnnotationSurfaceProvider>,
 	);
+}
+
+function nextAnimationFrame(): Promise<void> {
+	return new Promise((resolve): void => {
+		requestAnimationFrame((): void => resolve());
+	});
 }
 
 async function publishTwoMessageThread(surface: RecordingAnnotationBrowserSurface): Promise<void> {

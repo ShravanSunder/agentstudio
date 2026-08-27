@@ -120,74 +120,75 @@ treatment does not require a visible text label.
 ### Saved one-message thread
 
 ```text
-  ◉── You · 2m · Saved · Open                        More
+  ◉── 1 annotation · Open                    Reply · Resolve
   │
   │  ╭──────────────────────────────────────────────╮
   │  │ Please keep source refresh separate.        │
-  │  │                                          ↩   │ Reply
-  │  │                                          ●   │ Resolve, primary tint
+  │  │                                          ✎   │ Edit
   │  ╰──────────────────────────────────────────────╯
 
   resolved state: same thread and history; Resolve becomes Reopen
 ```
 
 When the thread contains exactly one message, M1 is the inline body; there is
-no synthetic summary. The body is top-aligned and content-sized. The right
-command column contains exactly Reply and primary-tint Resolve/Reopen, and its
-height never sets the body height. Clicking non-interactive body content or
-pressing Enter on the focused message begins Edit; More also exposes Edit for
-discoverability. A one-message thread has no disclosure control; focus never
-implies expansion.
+no synthetic message summary. The stable thread header presents one annotation
+count, status, Reply, and primary-tint Resolve/Reopen. The body is top-aligned
+and content-sized. Its annotation-local command column contains only Edit when
+M1 is human-authored and editable, and its height never sets the body height.
+Clicking non-interactive body content or pressing Enter on the focused message
+begins Edit. A one-message thread has no disclosure control; focus never implies
+expansion.
 
 ### Compact multi-message thread
 
 ```text
-  ◉── 3 messages · latest 1m · Open              Expand   More
+  ◉── 3 annotations · latest 1m · Open     Expand · Reply · Resolve
   │
   │  ╭──────────────────────────────────────────────╮
-  │  │ M-summary: 3 messages · latest by You       │
+  │  │ M-summary: 3 annotations · latest by You    │
   │  │ M-last: Add coverage for the failure case…  │
-  │  │                                          ↩   │ Reply
-  │  │                                          ●   │ Resolve, primary tint
+  │  │                                          ✎   │ Edit latest
   │  ╰──────────────────────────────────────────────╯
 ```
 
 For two or more messages, the inline body contains exactly two projections:
-M-summary and M-last. M-summary deterministically presents message count, latest
+M-summary and M-last. M-summary deterministically presents annotation count, latest
 activity, resolution, and any hidden Draft, placement, or lock state
 needed to avoid a false compact representation. M-last presents a bounded view
 of the latest actual message. M-summary is not authored Markdown, not another
-message, and not independently selectable or output content. The right command
-column contains exactly Reply and primary-tint Resolve/Reopen. Body click,
-focused Enter, and More edit M-last when it is editable.
+message, and not independently selectable or output content. The thread header
+contains one Reply and one primary-tint Resolve/Reopen. The M-last
+annotation-local command column contains only Edit when it is human-authored
+and editable. Body click and focused Enter also edit M-last.
 
 ### Expanded inline complete thread
 
 ```text
-  ◉── 3 messages · latest 1m · Open      Collapse · More
+  ◉── 3 annotations · latest 1m · Open   Collapse · Reply · Resolve
   │
-  ◉── M1                                         ↩
+  ◉── M1                                         ✎
   │   First message
   │
-  ◉── M2                                         ↩
+  ◉── M2                                         ✎
   │   Intermediate message
   │
-  ◉── M-last                                     ↩  ●
+  ◉── M-last                                     ✎
   │   Latest message
   │
-  ◉── Draft reply                              ↶  ●
+  ◉── Draft reply                              ↶  ✓
       Reply with Markdown
 ```
 
-Expand, body/More Edit, or Reply expands the same inline annotation row; merely focusing
+Expand, body/Edit, or Reply expands the same inline annotation row; merely focusing
 an inline message or command does not. The expanded row displays M-summary and
 M1 through Mn exactly once in one flat timeline. The compact M-last DOM remains
 the same keyed message when expansion adds the missing earlier messages. Pierre
 remeasures the annotation row and remains the sole scroll owner, so later diff
-rows move down without a nested thread scrollbar. Each expanded message exposes
-Reply in its right command column and supports guarded body-click or focused
-Enter editing. Resolve/Reopen remains one primary-tint thread command, never an
-independent message state.
+rows move down without a nested thread scrollbar. Every expanded
+human-authored editable message exposes Edit in its annotation-local command
+column and supports guarded body-click or focused Enter editing. Reply and
+Resolve/Reopen remain singular thread-header commands, never independent
+message states.
 
 Reply and Edit authoring live at the end of the expanded inline timeline. Save
 or Revert exits edit mode and keeps the thread expanded so the chronology
@@ -203,51 +204,52 @@ controls are deferred until the basic inline chronology is visually accepted.
 ```text
   ◉── You · Draft · saved locally
   │  ╭──────────────────────────────────────────────╮
-  │  │ Add failure coverage…                        │ Click body or use More
+  │  │ Add failure coverage…                     ✎  │ Click body or use Edit
   │  ╰──────────────────────────────────────────────╯
 ```
 
 An empty composer disappears. A durable non-empty new-root draft may collapse,
-but its text summary, `Draft` label, author, and body/More Resume action remain visible in
-the same shell rather than moving to a separate panel. Reply and edit drafts
-remain part of their expanded-thread contract above.
+but its text summary, `Draft` label, author, and body/Edit Resume action remain
+visible in the same shell rather than moving to a separate panel. Reply and
+edit drafts remain part of their expanded-thread contract above.
 
 ### Command ownership
 
 ```text
-M1 right command column
-  Reply · Resolve/Reopen primary tint
+every thread header
+  status · Reply · Resolve/Reopen primary tint
+  Expand/Collapse only when multi-message
 
-multi-message compact right command column
-  Reply · Resolve/Reopen primary tint
+human editable annotation right command column
+  Edit
+
+locked or agent-authored annotation right command column
+  no Edit
 
 composer right command column
   Revert · Save primary
 
-timeline row
-  status · Expand/Collapse when multi-message · More
-  never Edit, Reply, or Resolve/Reopen
-
 expanded message right command column
-  Reply
-
-expanded thread level
-  Resolve/Reopen exactly once
+  Edit only when human-authored and editable
 
 output interaction
   File/Review header → Share comments → New | All · Copy Markdown · Export JSON
 
 edit interaction
-  guarded body click · focused Enter · More → Edit annotation
+  guarded body click · focused Enter · E / Control-E → Edit exact annotation
+
+reply interaction
+  thread-header Reply · R / Control-R → Reply to active thread
 ```
 
 The core right-column controls are icon-only owned shadcn controls with one
 canonical command identity, optical-size rule, tooltip, and accessible name per
-action. Save alone receives primary treatment. The timeline uses one Expand
-action immediately before More and never duplicates Edit or the other core
-commands. Resolve/Reopen never appears as a message mutation, and Copy/Export
-never appears as delivery or resolution. The exact glyph and component mapping
-may be refined without changing this command ownership or visible hierarchy.
+action. Save and Resolve/Reopen receive primary treatment. The stable thread
+header never duplicates Edit, and annotation-local rails never duplicate
+thread actions. Resolve/Reopen never appears as a message mutation, and
+Copy/Export never appears as delivery or resolution. The exact glyph and
+component mapping may be refined without changing this command ownership or
+visible hierarchy.
 
 ## Consumers and surfaces
 
@@ -1110,35 +1112,36 @@ projection of the actual latest message.
 
 The inline surface MUST own one rounded visual boundary composed from the
 product's owned shadcn primitives. Its message body MUST be top-aligned and
-content-sized; the vertically stacked right command column MUST NOT determine
-body height. The M1 and compact M-last right columns MUST contain exactly Reply
-and primary-tint Resolve/Reopen. Editable message bodies MUST begin Edit on a
-non-interactive body click or focused Enter, while links and non-collapsed text
-selection remain undisturbed. More MUST also expose Edit for M-last. Composer
-right columns MUST contain Revert and the primary-treated Save. These core
-controls MUST be icon-only controls with a canonical identity, tooltip, and
-accessible name. Message and composer command rails MUST use the visible
-circular treatment. The separate timeline row MUST own status, More, and—only
-for a multi-message thread—Expand or Collapse immediately before More. Copy and
-Export MUST remain owned by the File/Review header Share comments mode; thread
-More MUST remain local to actions such as Edit and MUST NOT open output. The
-timeline MUST NOT expose a permanent inclusion toggle. Timeline actions MUST
-use the quiet owned shadcn toolbar treatment rather than circular
-message-command chrome. The timeline row MUST NOT duplicate Edit, Reply, or
-Resolve/Reopen.
+content-sized; its annotation-local right command column MUST NOT determine
+body height. Every human-authored editable message MUST expose exactly Edit in
+that local column; locked and agent-authored messages MUST expose no Edit.
+Editable message bodies MUST also begin Edit on a non-interactive body click or
+focused Enter, while links and non-collapsed text selection remain undisturbed.
+Composer right columns MUST contain Revert and the primary-treated Save. These
+core controls MUST be icon-only controls with a canonical identity, tooltip,
+and accessible name. Thread-header, annotation-local, and composer commands
+MUST use the quiet rounded owned shadcn treatment rather than circular chrome.
 
-Explicit activation of Expand, body/More Edit, or Reply MUST expand the same Pierre
+Every thread MUST expose one stable thread header, including a one-message
+thread. That header MUST own status plus exactly one Reply and one
+primary-tint Resolve/Reopen. Only a multi-message thread MUST add Expand or
+Collapse in that header. PR1 MUST present no direct-action ellipsis or
+annotation-local More menu. Copy and Export
+MUST remain owned by the File/Review header Share comments mode. The annotation
+thread header MUST NOT expose output controls or a permanent inclusion toggle.
+
+Explicit activation of Expand, body/Edit, or Reply MUST expand the same Pierre
 annotation row; focus alone MUST NOT expand it. Focus on the compact surface or
 any of its controls MUST instead activate that thread and paint its complete
 stored range. The expanded row MUST keep the thread active and its range painted
 while focus moves within it. It MUST contain exactly one timeline: M-summary
 followed by M1 through Mn exactly once in flat chronological order. The existing
 M-last element MUST retain its keyed DOM identity while the missing earlier
-messages are added. Each expanded message's right column MUST expose Reply.
-Resolve/Reopen MUST remain one thread-level
-command and continue to affect the whole thread only. Threads MUST remain
-independently expandable and resolvable when several projections share one
-physical annotation row or source coordinate.
+messages are added. Each expanded human-authored editable message's right
+column MUST expose Edit. Reply and Resolve/Reopen MUST remain singular
+thread-level commands and continue to affect the whole thread only. Threads
+MUST remain independently expandable and resolvable when several projections
+share one physical annotation row or source coordinate.
 
 Pierre MUST remeasure the expanded annotation row and remain the sole scroll
 owner. Expansion therefore moves later diff rows down and collapse restores
@@ -1155,8 +1158,15 @@ Pierre's inherited selection hue so Pierre remains visible beneath it. The
 frame MUST cap at 48rem (`max-w-3xl`) while shrinking to the available row
 width, and MUST introduce no outer border or opacity on text and controls.
 
-Reply and Edit authoring MUST occur at the end of the expanded timeline. Save
-or Revert MUST exit editing while leaving the thread expanded. Escape during
+Reply and Edit authoring MUST occur at the end of the expanded timeline. `R`
+and `Control-R` MUST open Reply only for the active annotation thread. `E` and
+`Control-E` MUST edit only the exact keyboard-focused human-authored editable
+annotation. These shortcuts MUST NOT dispatch from text inputs, content-editable
+surfaces, menus, non-collapsed text selection, or modifier combinations other
+than the exact admitted `Control-R` and `Control-E` aliases.
+Tooltips MUST show only the canonical `R`, `E`, and `Command-Enter` bindings;
+the Control variants remain accepted aliases. Save or Revert MUST exit editing
+while leaving the thread expanded. Escape during
 editing MUST first flush the active draft, exit edit mode, and leave the thread
 expanded; a later Escape MUST collapse it. Outside click MUST safely flush an
 active draft and collapse the thread. Collapse MUST return focus to the exact
@@ -1298,7 +1308,7 @@ authorization to prebuild PR2 delivery machinery.
 | R-P1-012 | schema validation, encode/decode, malformed-input, and unsupported-version evidence |
 | R-P1-013 | automated Copy/Export success dismissal, default handled transition, toast/history Mark as not handled, failure/cancellation retention, partial-success behavior, actual file/clipboard effect inspection, and File/Review proof that reopening Share after toast expiry exposes in-flow History with exact inspection and explicit unknown-byte repetition |
 | R-P1-014 | real Vite + comm worker + Swift development-backend behavior for create, repeated flush, Save, exact command-confirmed presentation, invalidation, projection query/content completion, two different messages in one session, stream reset/retry, File/Review convergence, and restart with canonical SQLite/projection inspection; mocked browser and direct HTTP tests remain lower layers and cannot substitute for this boundary |
-| R-P1-016 | automated M1-only and collapsed M-summary-plus-M-last rendering, focus activation without expansion, expanded-thread active range, one inline M-summary-plus-M1-through-Mn chronology, Pierre row growth with stable row top/scroll anchor, exact command ownership, independent same-coordinate threads, inline authoring, Escape/outside-click/focus-return behavior, and collapsed-content accessibility exclusion plus manual File/Review, narrow-width, 200% text, reduced-motion, and packaged VoiceOver interaction |
+| R-P1-016 | automated M1-only and collapsed M-summary-plus-M-last rendering, focus activation without expansion, expanded-thread active range, one inline M-summary-plus-M1-through-Mn chronology, Pierre row growth with stable row top/scroll anchor, singular thread-header Reply/Resolve, annotation-local Edit eligibility, canonical tooltip copy, `R`/`Control-R` and exact-focused `E`/`Control-E` routing with text-input/selection guards, independent same-coordinate threads, inline authoring, Escape/outside-click/focus-return behavior, and collapsed-content accessibility exclusion plus manual File/Review, narrow-width, 200% text, reduced-motion, and packaged VoiceOver interaction |
 | R-P1-015 | dependency/surface inspection proving the complete journey without PR2 machinery |
 | Reliability obligations | corrupt-local-database recovery proving visible pre-acknowledgement degradation, rejected mutations, retained recovery witness, and retained quarantined files |
 
@@ -1308,7 +1318,8 @@ single-line gutter `+` admission, empty-composer dismissal, non-empty draft
 collapse/recovery, first Reply/Edit character continuity without editor remount,
 M1-only inline rendering, collapsed M-summary plus M-last rendering, inline
 M-summary plus M1-through-Mn chronology, independent same-coordinate thread
-expansion, keyboard Save/newline/expansion behavior, exact timeline/right-column commands,
+expansion, keyboard Save/newline/expansion behavior, exact thread-header and
+annotation-local commands,
 top-aligned content-sized bodies, and one rounded shared-shell visual quality.
 It MUST prove that focus activates but does not expand a compact comment, an
 an expanded thread retains its range, activity moves paint to another complete stored

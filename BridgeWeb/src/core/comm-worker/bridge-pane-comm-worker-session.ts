@@ -7,7 +7,7 @@ import type { BridgeTelemetryScope } from '../../foundation/telemetry/bridge-tel
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import { postBridgeCommTelemetryProducerInstall } from '../telemetry-worker/bridge-comm-telemetry-producer-install.js';
 // oxlint-disable unicorn/require-post-message-target-origin -- Worker and MessagePort postMessage do not accept target origins.
-import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-telemetry.js';
+import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-clock.js';
 import {
 	postBridgePaneCommWorkerInstall,
 	type BridgeProductSessionBootstrap,

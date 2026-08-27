@@ -1,3 +1,4 @@
+import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-clock.js';
 import type { BridgeProductSurface } from './bridge-product-contract-primitives.js';
 import type { BridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 import {
@@ -84,7 +85,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		this.#createIdentifier =
 			props.createIdentifier ??
 			((purpose): string => `${purpose}-${globalThis.crypto.randomUUID()}`);
-		this.#now = props.now ?? performance.now.bind(performance);
+		this.#now = props.now ?? readBridgeCommWorkerAbsoluteNowMilliseconds;
 		this.#receiptLeaseDurationMilliseconds = props.receiptLeaseDurationMilliseconds;
 		this.#retryBackoffMilliseconds = props.retryBackoffMilliseconds;
 	}

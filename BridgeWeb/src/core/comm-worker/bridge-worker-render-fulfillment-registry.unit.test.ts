@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-clock.js';
 import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 import type {
 	BridgeWorkerDemandRank,
@@ -31,6 +32,38 @@ describe('Bridge worker render fulfillment registry', () => {
 					retryBackoffMilliseconds: 5,
 				}),
 		).toThrow('Bridge render receipt lease duration must be finite and positive.');
+	});
+
+	test('compares receipt leases and retries across different realm time origins', () => {
+		// Arrange
+		let workerNowMilliseconds = readBridgeCommWorkerAbsoluteNowMilliseconds({
+			now: (): number => 100,
+			timeOrigin: 1_000,
+		});
+		const registry = createRegistry(reviewContext, (): number => workerNowMilliseconds);
+		const publication = registry.beginPublication({
+			job: makeRenderJob('replacement-worker-item'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+		const mainReceivedAtMilliseconds = readBridgeCommWorkerAbsoluteNowMilliseconds({
+			now: (): number => 220,
+			timeOrigin: 900,
+		});
+
+		// Act
+		const result = registry.applyDisposition(
+			disposition(publication.receiptIdentity, 'rejected', mainReceivedAtMilliseconds),
+		);
+		workerNowMilliseconds = mainReceivedAtMilliseconds + 4;
+		const beforeRetry = registry.releaseReadyRetries();
+		workerNowMilliseconds = mainReceivedAtMilliseconds + 5;
+		const atRetry = registry.releaseReadyRetries();
+
+		// Assert
+		expect(result).toMatchObject({ status: 'accepted' });
+		expect(beforeRetry).toEqual([]);
+		expect(atRetry).toEqual(['replacement-worker-item']);
 	});
 
 	test('mints one full publication identity and fulfills only after painted', () => {

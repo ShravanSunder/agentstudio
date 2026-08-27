@@ -236,7 +236,7 @@ export function createBridgeCommWorkerStore(
 				surface: props.surface,
 				workerInstanceId: 'worker-local-unbound-instance',
 			},
-			now,
+			...(props.now === undefined ? {} : { now: props.now }),
 			receiptLeaseDurationMilliseconds: 5000,
 			retryBackoffMilliseconds: 25,
 		});

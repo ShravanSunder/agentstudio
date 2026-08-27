@@ -190,4 +190,55 @@ describe('Bridge pane runtime render disposition admission', () => {
 		).toHaveLength(1);
 		runtime.dispose();
 	});
+
+	test('requests one pane worker replacement after the recovery probe times out', () => {
+		// Arrange
+		vi.useFakeTimers();
+		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
+		const requestWorkerReplacement = vi.fn();
+		const session: BridgePaneSessionPort = {
+			createDispatcher: (): BridgePaneCommWorkerDispatcher => ({
+				dispatch: (message): void => {
+					dispatchedMessages.push(message);
+				},
+				dispose: vi.fn(),
+			}),
+			dispose: vi.fn(),
+			installNativeBootstrap: vi.fn(),
+			requestWorkerReplacement,
+		};
+		const runtime = createBridgePaneRuntime({
+			sessionFactory: (): BridgePaneSessionPort => session,
+		});
+		const coordinator = runtime.surfaceClient('review').renderFulfillmentCoordinator;
+		for (let index = 1; index <= 2; index += 1) {
+			const publication = makeReviewPublication({
+				itemId: `review-probe-timeout-item-${index}`,
+				publicationSequence: index,
+			});
+			coordinator.acceptPublication(publication);
+			coordinator.markPublicationQueued(publication);
+			coordinator.bindPublicationItem({
+				finalItem: publication.job.payload.item,
+				publicationItem: publication.job.payload.item,
+				residency: 'replaced',
+			});
+		}
+
+		try {
+			// Act
+			vi.advanceTimersByTime(5_000);
+			vi.advanceTimersByTime(5_000);
+			vi.advanceTimersByTime(5_000);
+
+			// Assert
+			expect(
+				dispatchedMessages.filter((message) => message.command === 'renderDisposition'),
+			).toHaveLength(2);
+			expect(requestWorkerReplacement).toHaveBeenCalledOnce();
+		} finally {
+			runtime.dispose();
+			vi.useRealTimers();
+		}
+	});
 });

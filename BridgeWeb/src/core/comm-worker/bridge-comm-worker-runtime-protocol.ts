@@ -1,5 +1,6 @@
 import { recordWorktreeAnnotationLifecycleTelemetry } from '../../worktree-annotations/worktree-annotation-lifecycle-telemetry.js';
 import { bridgeCommWorkerAnnotationProjectionConvergenceEvent } from './bridge-comm-worker-annotation-runtime-events.js';
+import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-clock.js';
 import {
 	createBridgeCommWorkerCommandHandler,
 	type BridgeCommWorkerFileMetadataDemand,
@@ -491,7 +492,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		},
 		needsPreparationDrain: (): boolean =>
 			shouldRequestDrainAfterMessage || pump.getPendingWorkIds().length > 0,
-		now: props.now ?? performance.now.bind(performance),
+		now: props.now ?? readBridgeCommWorkerAbsoluteNowMilliseconds,
 		requestPreparationDrain,
 		scheduleWake: scheduleRenderFulfillmentWake,
 	});
