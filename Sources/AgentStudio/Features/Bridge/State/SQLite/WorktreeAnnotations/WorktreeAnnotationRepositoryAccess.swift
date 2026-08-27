@@ -3,6 +3,10 @@ import Foundation
 
 protocol WorktreeAnnotationRepositoryAccess: Sendable {
     func discoverSessions(worktreeID: String) async throws -> [WorktreeAnnotationSession]
+    func discoverForeignLivingSessionCandidates(
+        repositoryID: String,
+        excludingWorktreeID: String
+    ) async throws -> [WorktreeAnnotationSession]
     func fetchProjectionSnapshot(
         worktreeID: String,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
@@ -29,6 +33,9 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
         -> WorktreeAnnotationSessionDetail
     func setSourceRelationship(_ props: WorktreeAnnotationSQLiteRepository.SetSourceRelationshipProps) async throws
         -> WorktreeAnnotationSessionDetail
+    func acceptCurrentAssociation(
+        _ props: WorktreeAnnotationSQLiteRepository.AcceptCurrentAssociationProps
+    ) async throws -> WorktreeAnnotationSQLiteRepository.AssociationMutationResult
     func markMessagesViewed(_ props: WorktreeAnnotationSQLiteRepository.MarkMessagesViewedProps) async throws
         -> WorktreeAnnotationSQLiteRepository.ViewedMutationResult
     func prepareOutput(_ props: WorktreeAnnotationSQLiteRepository.PrepareOutputProps) async throws
@@ -77,6 +84,18 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
 }
 
 extension WorktreeAnnotationRepositoryAccess {
+    func discoverForeignLivingSessionCandidates(
+        repositoryID _: String,
+        excludingWorktreeID _: String
+    ) async throws -> [WorktreeAnnotationSession] { [] }
+
+    func acceptCurrentAssociation(
+        _ props: WorktreeAnnotationSQLiteRepository.AcceptCurrentAssociationProps
+    ) async throws -> WorktreeAnnotationSQLiteRepository.AssociationMutationResult {
+        _ = props
+        throw WorktreeAnnotationRepositoryError.invalidState
+    }
+
     func fetchProjectionSnapshot(
         worktreeID: String,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
@@ -176,6 +195,18 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
         try await restore { try $0.discoverSessions(worktreeID: worktreeID) }
     }
 
+    func discoverForeignLivingSessionCandidates(
+        repositoryID: String,
+        excludingWorktreeID: String
+    ) async throws -> [WorktreeAnnotationSession] {
+        try await restore {
+            try $0.discoverForeignLivingSessionCandidates(
+                repositoryID: repositoryID,
+                excludingWorktreeID: excludingWorktreeID
+            )
+        }
+    }
+
     func fetchProjectionSnapshot(
         worktreeID: String,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
@@ -252,6 +283,12 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
         -> WorktreeAnnotationSessionDetail
     {
         try await mutate { try $0.setSourceRelationship(props) }
+    }
+
+    func acceptCurrentAssociation(
+        _ props: WorktreeAnnotationSQLiteRepository.AcceptCurrentAssociationProps
+    ) async throws -> WorktreeAnnotationSQLiteRepository.AssociationMutationResult {
+        try await mutate { try $0.acceptCurrentAssociation(props) }
     }
 
     func markMessagesViewed(_ props: WorktreeAnnotationSQLiteRepository.MarkMessagesViewedProps) async throws

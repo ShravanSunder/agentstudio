@@ -140,6 +140,16 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         let discovery = try repository.discoverSessions(worktreeID: "worktree-1")
         #expect(discovery.map(\.id) == [first.session.id])
 
+        let completedFirst = try repository.setSessionLifecycle(
+            .init(
+                sessionID: first.session.id,
+                lifecycle: .completed,
+                expectedSessionRevision: first.session.semanticRevision,
+                expectedOpenThreadCount: 1,
+                confirmsUnresolvedWork: true,
+                now: Date(timeIntervalSince1970: 15)
+            )
+        )
         let second = try repository.createRootDraft(
             .init(
                 admission: .newSession,
@@ -150,6 +160,16 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 body: "Second session",
                 editToken: "editor-b",
                 now: Date(timeIntervalSince1970: 20)
+            )
+        )
+        _ = try repository.setSessionLifecycle(
+            .init(
+                sessionID: completedFirst.session.id,
+                lifecycle: .living,
+                expectedSessionRevision: completedFirst.session.semanticRevision,
+                expectedOpenThreadCount: 1,
+                confirmsUnresolvedWork: false,
+                now: Date(timeIntervalSince1970: 25)
             )
         )
         #expect(first.session.id != second.session.id)
@@ -197,6 +217,16 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
     func projectionSnapshotIsWorktreeBound() throws {
         let repository = try makeRepository()
         let first = try makeRootDraft(repository: repository)
+        let completedFirst = try repository.setSessionLifecycle(
+            .init(
+                sessionID: first.session.id,
+                lifecycle: .completed,
+                expectedSessionRevision: first.session.semanticRevision,
+                expectedOpenThreadCount: 1,
+                confirmsUnresolvedWork: true,
+                now: Date(timeIntervalSince1970: 1.5)
+            )
+        )
         let second = try repository.createRootDraft(
             .init(
                 admission: .newSession,
@@ -207,6 +237,16 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 body: "Second session",
                 editToken: "editor-second",
                 now: Date(timeIntervalSince1970: 2)
+            )
+        )
+        _ = try repository.setSessionLifecycle(
+            .init(
+                sessionID: completedFirst.session.id,
+                lifecycle: .living,
+                expectedSessionRevision: completedFirst.session.semanticRevision,
+                expectedOpenThreadCount: 1,
+                confirmsUnresolvedWork: false,
+                now: Date(timeIntervalSince1970: 2.5)
             )
         )
 
@@ -879,48 +919,6 @@ private func verifyLaterSuccessHandlesClearedRevision(
     let rehandledDetail = try repository.fetchSessionDetail(sessionID: clearedDetail.session.id)
     #expect(rehandledDetail.threads.first?.messages.first?.handled == true)
     return rehandledDetail
-}
-
-func makeRepository() throws -> WorktreeAnnotationSQLiteRepository {
-    let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
-    try WorkspaceLocalMigrations.migrate(databaseQueue)
-    return WorktreeAnnotationSQLiteRepository(databaseWriter: databaseQueue)
-}
-
-func makeSourceFingerprint(worktreeID: String) -> WorktreeAnnotationSourceFingerprint {
-    WorktreeAnnotationSourceFingerprint(
-        repositoryID: "repo-1",
-        worktreeID: worktreeID,
-        fileSourceIdentity: "file-source-1",
-        reviewComparisonOrigin: nil
-    )
-}
-
-func makeRootDraft(repository: WorktreeAnnotationSQLiteRepository) throws -> WorktreeAnnotationSessionDetail {
-    try repository.createRootDraft(
-        .init(
-            admission: .implicitOrSingle,
-            repositoryID: "repo-1",
-            worktreeID: "worktree-1",
-            sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
-            origin: .located(
-                .init(
-                    repositoryRelativePath: "Sources/Feature.swift",
-                    startLine: 1,
-                    endLine: 1,
-                    sourceRole: .file,
-                    diffSide: nil,
-                    sourceIdentity: "file-source-1",
-                    selectedExcerpt: "let value = 1",
-                    contextBefore: nil,
-                    contextAfter: nil
-                )
-            ),
-            body: "Root draft",
-            editToken: "editor-root",
-            now: Date(timeIntervalSince1970: 1)
-        )
-    )
 }
 
 private func makeOutputSnapshot(

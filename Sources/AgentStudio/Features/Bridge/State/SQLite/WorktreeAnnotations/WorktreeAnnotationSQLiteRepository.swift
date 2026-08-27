@@ -13,10 +13,33 @@ struct WorktreeAnnotationSQLiteRepository {
         let repositoryID: String
         let worktreeID: String
         let sourceFingerprint: WorktreeAnnotationSourceFingerprint
+        let acceptedReviewedSubject: WorktreeAnnotationReviewedSubjectEvidence?
         let origin: WorktreeAnnotationThreadOrigin
         let body: String
         let editToken: String
         let now: Date
+
+        init(
+            admission: SessionAdmission,
+            repositoryID: String,
+            worktreeID: String,
+            sourceFingerprint: WorktreeAnnotationSourceFingerprint,
+            acceptedReviewedSubject: WorktreeAnnotationReviewedSubjectEvidence? = nil,
+            origin: WorktreeAnnotationThreadOrigin,
+            body: String,
+            editToken: String,
+            now: Date
+        ) {
+            self.admission = admission
+            self.repositoryID = repositoryID
+            self.worktreeID = worktreeID
+            self.sourceFingerprint = sourceFingerprint
+            self.acceptedReviewedSubject = acceptedReviewedSubject
+            self.origin = origin
+            self.body = body
+            self.editToken = editToken
+            self.now = now
+        }
     }
 
     struct FlushDraftProps: Sendable {
@@ -100,11 +123,46 @@ struct WorktreeAnnotationSQLiteRepository {
         let now: Date
     }
 
+    struct AcceptCurrentAssociationProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let expectedSessionRevision: Int
+        let expectedRepositoryID: String
+        let previousWorktreeID: String
+        let currentWorktreeID: String
+        let acceptedReviewedSubject: WorktreeAnnotationReviewedSubjectEvidence
+        let acceptedSourceFingerprint: WorktreeAnnotationSourceFingerprint
+        let now: Date
+    }
+
+    struct AssociationMutationResult: Equatable, Sendable {
+        let detail: WorktreeAnnotationSessionDetail
+        let previousWorktreeID: String
+        let currentWorktreeID: String
+    }
+
     let databaseWriter: any DatabaseWriter
 
     func discoverSessions(worktreeID: String) throws -> [WorktreeAnnotationSession] {
         try databaseWriter.read { database in
             try loadSessions(database, worktreeID: worktreeID)
+        }
+    }
+
+    func discoverForeignLivingSessionCandidates(
+        repositoryID: String,
+        excludingWorktreeID: String
+    ) throws -> [WorktreeAnnotationSession] {
+        try databaseWriter.read { database in
+            try Row.fetchAll(
+                database,
+                sql: """
+                    SELECT * FROM annotation_session
+                    WHERE repository_id = ? AND worktree_id != ? AND lifecycle = 'living'
+                      AND source_relationship IN ('applicable', 'uncertain')
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                arguments: [repositoryID, excludingWorktreeID]
+            ).map(decodeSession)
         }
     }
 

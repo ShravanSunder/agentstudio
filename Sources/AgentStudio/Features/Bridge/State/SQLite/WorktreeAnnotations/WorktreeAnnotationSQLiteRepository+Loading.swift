@@ -48,7 +48,26 @@ extension WorktreeAnnotationSQLiteRepository {
         let sessionID: WorktreeAnnotationSessionID
         switch props.admission {
         case .newSession:
-            sessionID = try insertSession(database, props: props)
+            switch eligibleIDs.count {
+            case 0:
+                sessionID = try insertSession(database, props: props)
+            case 1:
+                sessionID = eligibleIDs[0]
+                try advanceSession(
+                    database,
+                    sessionID: sessionID,
+                    accepting: props.sourceFingerprint,
+                    acceptedReviewedSubject: props.acceptedReviewedSubject,
+                    now: props.now
+                )
+            default:
+                throw WorktreeAnnotationRepositoryError.sessionSelectionRequired(
+                    .init(
+                        reason: .applicableSessionChoice,
+                        candidateSessionIDs: eligibleIDs
+                    )
+                )
+            }
         case .selected(let selectedSessionID):
             try requireWritableSession(database, sessionID: selectedSessionID)
             sessionID = selectedSessionID
@@ -56,6 +75,7 @@ extension WorktreeAnnotationSQLiteRepository {
                 database,
                 sessionID: sessionID,
                 accepting: props.sourceFingerprint,
+                acceptedReviewedSubject: props.acceptedReviewedSubject,
                 now: props.now
             )
         case .implicitOrSingle:
@@ -76,6 +96,7 @@ extension WorktreeAnnotationSQLiteRepository {
                     database,
                     sessionID: sessionID,
                     accepting: props.sourceFingerprint,
+                    acceptedReviewedSubject: props.acceptedReviewedSubject,
                     now: props.now
                 )
             default:
@@ -96,19 +117,22 @@ extension WorktreeAnnotationSQLiteRepository {
     ) throws -> WorktreeAnnotationSessionID {
         let sessionID = WorktreeAnnotationSessionID.generate()
         let fingerprintJSON = try Self.encodeJSONString(props.sourceFingerprint)
+        let reviewedSubjectJSON = try props.acceptedReviewedSubject.map(Self.encodeJSONString)
         try database.execute(
             sql: """
                 INSERT INTO annotation_session(
                     id, repository_id, worktree_id,
                     lifecycle, source_relationship, accepted_source_fingerprint_json,
-                    semantic_revision, created_at, updated_at, completed_at
-                ) VALUES (?, ?, ?, 'living', 'applicable', ?, 1, ?, ?, NULL)
+                    accepted_reviewed_subject_json, semantic_revision,
+                    created_at, updated_at, completed_at
+                ) VALUES (?, ?, ?, 'living', 'applicable', ?, ?, 1, ?, ?, NULL)
                 """,
             arguments: [
                 sessionID.databaseValue,
                 props.repositoryID,
                 props.worktreeID,
                 fingerprintJSON,
+                reviewedSubjectJSON,
                 props.now.timeIntervalSince1970,
                 props.now.timeIntervalSince1970,
             ]
@@ -232,6 +256,7 @@ extension WorktreeAnnotationSQLiteRepository {
         _ database: Database,
         sessionID: WorktreeAnnotationSessionID,
         accepting sourceFingerprint: WorktreeAnnotationSourceFingerprint,
+        acceptedReviewedSubject: WorktreeAnnotationReviewedSubjectEvidence?,
         now: Date
     ) throws {
         guard
@@ -260,15 +285,18 @@ extension WorktreeAnnotationSQLiteRepository {
             reviewComparisonOrigin: sourceFingerprint.reviewComparisonOrigin
                 ?? acceptedFingerprint.reviewComparisonOrigin
         )
+        let acceptedReviewedSubjectJSON = try acceptedReviewedSubject.map(Self.encodeJSONString)
         try database.execute(
             sql: """
                 UPDATE annotation_session
                 SET accepted_source_fingerprint_json = ?, semantic_revision = semantic_revision + 1,
+                    accepted_reviewed_subject_json = COALESCE(?, accepted_reviewed_subject_json),
                     updated_at = ?
                 WHERE id = ?
                 """,
             arguments: [
                 try Self.encodeJSONString(mergedFingerprint),
+                acceptedReviewedSubjectJSON,
                 now.timeIntervalSince1970,
                 sessionID.databaseValue,
             ]
@@ -444,6 +472,7 @@ extension WorktreeAnnotationSQLiteRepository {
 
     func decodeSession(_ row: Row) throws -> WorktreeAnnotationSession {
         let fingerprintJSON: String = row["accepted_source_fingerprint_json"]
+        let reviewedSubjectJSON: String? = row["accepted_reviewed_subject_json"]
         return try WorktreeAnnotationSession(
             id: decodeIdentity(row["id"] as String),
             repositoryID: row["repository_id"],
@@ -454,6 +483,12 @@ extension WorktreeAnnotationSQLiteRepository {
                 WorktreeAnnotationSourceFingerprint.self,
                 from: Data(fingerprintJSON.utf8)
             ),
+            acceptedReviewedSubject: try reviewedSubjectJSON.map {
+                try Self.jsonDecoder.decode(
+                    WorktreeAnnotationReviewedSubjectEvidence.self,
+                    from: Data($0.utf8)
+                )
+            },
             semanticRevision: row["semantic_revision"],
             createdAt: Date(timeIntervalSince1970: row["created_at"]),
             updatedAt: Date(timeIntervalSince1970: row["updated_at"]),
