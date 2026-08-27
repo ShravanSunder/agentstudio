@@ -92,20 +92,37 @@ async function waitForScreenshot(props: {
 }
 
 async function stopBrowserProcess(browserProcess: ReturnType<typeof spawn>): Promise<void> {
-  if (browserProcess.exitCode !== null) {
+  if (browserProcess.exitCode !== null || browserProcess.signalCode !== null) {
     return;
   }
 
-  browserProcess.kill("SIGTERM");
   await new Promise<void>((resolveExit) => {
+    let settled = false;
+
+    const finish = (): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(forcedExitTimeout);
+      browserProcess.off("exit", finish);
+      resolveExit();
+    };
+
     const forcedExitTimeout = setTimeout((): void => {
       browserProcess.kill("SIGKILL");
+      finish();
     }, 5_000);
 
-    browserProcess.once("exit", (): void => {
-      clearTimeout(forcedExitTimeout);
-      resolveExit();
-    });
+    browserProcess.once("exit", finish);
+
+    if (browserProcess.exitCode !== null || browserProcess.signalCode !== null) {
+      finish();
+      return;
+    }
+
+    browserProcess.kill("SIGTERM");
   });
 }
 
