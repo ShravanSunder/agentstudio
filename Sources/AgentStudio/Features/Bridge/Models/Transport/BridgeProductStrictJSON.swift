@@ -60,6 +60,7 @@ enum BridgeProductStrictJSON {
             "body",
             "branchName",
             "branches",
+            "catalogRevision",
             "call",
             "canMarkNotHandled",
             "candidatePublicationId",
@@ -131,6 +132,8 @@ enum BridgeProductStrictJSON {
             "endsMidLine",
             "endsWithNewline",
             "endpointId",
+            "entries",
+            "entryCount",
             "estimatedContentHeightPixels",
             "effectError",
             "event",
@@ -141,6 +144,7 @@ enum BridgeProductStrictJSON {
             "excludedPathGlobs",
             "expectedSha256",
             "expectedDraftRevision",
+            "expectedEntryCount",
             "expectedDisplayedPublicationId",
             "expectedMessageCount",
             "expectedPageCount",
@@ -405,6 +409,8 @@ enum BridgeProductStrictJSON {
             "wireVersion",
             "workerDerivationEpoch",
             "workerInstanceId",
+            "windowCount",
+            "windowOrdinal",
             "worktreeId",
         ])
     )

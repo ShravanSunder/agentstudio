@@ -250,21 +250,10 @@ extension BridgeProductSession {
                             continuation.resume(returning: true)
                         case .rejected:
                             continuation.resume(returning: false)
-                        case .wait(let supersededWaiterToken):
-                            if let supersededWaiterToken {
-                                guard
-                                    let supersededWaiter = producerObservationPacingWaitersByLease[
-                                        lease
-                                    ], supersededWaiter.token == supersededWaiterToken
-                                else {
-                                    preconditionFailure(
-                                        "Bridge producer superseded pacing waiter identity diverged"
-                                    )
-                                }
-                                producerObservationPacingWaitersByLease.removeValue(forKey: lease)
-                                supersededWaiter.continuation.resume(returning: false)
-                            }
-                            producerObservationPacingWaitersByLease[lease] = .init(
+                        case .wait:
+                            producerObservationPacingWaitersByLease[lease, default: [:]][
+                                waiterToken
+                            ] = .init(
                                 continuation: continuation,
                                 token: waiterToken
                             )
@@ -468,16 +457,22 @@ extension BridgeProductSession {
         for receipt: BridgeProductProducerFrameReceipt
     ) {
         let lease = receipt.producerLease
-        guard
-            let waiterToken = producerRegistry.takeProducerObservationPacingResolution(
-                for: receipt
-            ), let waiter = producerObservationPacingWaitersByLease[lease],
-            waiter.token == waiterToken
-        else {
-            return
+        let waiterTokens = producerRegistry.takeProducerObservationPacingResolution(
+            for: receipt
+        )
+        for waiterToken in waiterTokens {
+            guard
+                let waiter = producerObservationPacingWaitersByLease[lease]?
+                    .removeValue(forKey: waiterToken),
+                waiter.token == waiterToken
+            else {
+                preconditionFailure("Bridge producer pacing waiter identity diverged")
+            }
+            waiter.continuation.resume(returning: true)
         }
-        producerObservationPacingWaitersByLease.removeValue(forKey: lease)
-        waiter.continuation.resume(returning: true)
+        if producerObservationPacingWaitersByLease[lease]?.isEmpty == true {
+            producerObservationPacingWaitersByLease.removeValue(forKey: lease)
+        }
     }
 
     private func cancelProducerObservationPacingWaiter(
@@ -488,26 +483,30 @@ extension BridgeProductSession {
             producerRegistry.cancelProducerObservationPacing(
                 for: lease,
                 waiterToken: waiterToken
-            ), let waiter = producerObservationPacingWaitersByLease[lease],
+            ),
+            let waiter = producerObservationPacingWaitersByLease[lease]?
+                .removeValue(forKey: waiterToken),
             waiter.token == waiterToken
         else {
             return
         }
-        producerObservationPacingWaitersByLease.removeValue(forKey: lease)
+        if producerObservationPacingWaitersByLease[lease]?.isEmpty == true {
+            producerObservationPacingWaitersByLease.removeValue(forKey: lease)
+        }
         waiter.continuation.resume(returning: false)
     }
 
     func resolveProducerObservationPacingCancellation(
         for lease: BridgeProductProducerLease
     ) {
-        let waiterToken = producerRegistry.abandonProducerObservationPacing(for: lease)
-        guard let waiter = producerObservationPacingWaitersByLease.removeValue(forKey: lease) else {
-            return
+        let waiterTokens = Set(producerRegistry.abandonProducerObservationPacing(for: lease))
+        let waiters = producerObservationPacingWaitersByLease.removeValue(forKey: lease) ?? [:]
+        guard waiterTokens == Set(waiters.keys) else {
+            preconditionFailure("Bridge producer pacing waiter identities diverged")
         }
-        guard waiterToken == nil || waiter.token == waiterToken else {
-            preconditionFailure("Bridge producer pacing waiter identity diverged")
+        for waiter in waiters.values {
+            waiter.continuation.resume(returning: false)
         }
-        waiter.continuation.resume(returning: false)
     }
 
     private func completeProducerRetirement(

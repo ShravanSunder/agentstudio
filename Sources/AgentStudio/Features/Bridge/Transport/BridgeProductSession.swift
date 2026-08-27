@@ -26,7 +26,8 @@ actor BridgeProductSession {
     var producerFrameObservationByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameObservation] =
         [:]
     var producerFrameWaitersByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameWaiter] = [:]
-    var producerObservationPacingWaitersByLease: [BridgeProductProducerLease: BridgeProductProducerPacingWaiter] = [:]
+    var producerObservationPacingWaitersByLease:
+        [BridgeProductProducerLease: [UUID: BridgeProductProducerPacingWaiter]] = [:]
     var producerRetirementStateByLease: [BridgeProductProducerLease: BridgeProductSessionProducerRetirementState] = [:]
     private var controlReplay: BridgeProductControlReplayCache
     private var lifecycle: BridgeProductSessionLifecycle = .awaitingOpen
