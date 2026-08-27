@@ -26,6 +26,9 @@ importers:
       astro:
         specifier: 7.2.2
         version: 7.2.2(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@26.1.1)(jiti@2.7.0)(yaml@2.9.0)
+      cf:
+        specifier: 0.6.0
+        version: 0.6.0
       oxfmt:
         specifier: 0.63.0
         version: 0.63.0
@@ -1673,6 +1676,11 @@ packages:
 
   ccount@2.0.1:
     resolution: {integrity: sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==}
+
+  cf@0.6.0:
+    resolution: {integrity: sha512-8Fn8HMteKoJEISxmdLBkkF+mnmIwRgYgvGyFbXZTCYYAmEJJDFRs1MAw0NQTxwkn+R3HtZbt1vnoEmeKT7rUEQ==}
+    engines: {node: '>=22'}
+    hasBin: true
 
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
@@ -4196,6 +4204,10 @@ snapshots:
   boolbase@1.0.0: {}
 
   ccount@2.0.1: {}
+
+  cf@0.6.0:
+    dependencies:
+      blake3-wasm: 2.1.5
 
   chai@6.2.2: {}
 
