@@ -122,25 +122,25 @@ package enum DarwinFSEventPathClassifier {
         ordinaryPaths: [String],
         rootPath: String,
         observationScopes: [AgentStudioGit.GitStatusObservationScope],
-        canonicalize: (String) -> String = canonicalPath
+        normalize: (String) -> String = lexicallyNormalizedAbsolutePath
     ) -> DarwinFSEventClassification {
-        var canonicalPathByRawPath: [String: String] = [:]
-        canonicalPathByRawPath.reserveCapacity(rawEvents.count)
+        var normalizedPathByRawPath: [String: String] = [:]
+        normalizedPathByRawPath.reserveCapacity(rawEvents.count)
 
-        func canonicalPath(for rawPath: String) -> String {
-            if let existing = canonicalPathByRawPath[rawPath] {
+        func normalizedPath(for rawPath: String) -> String {
+            if let existing = normalizedPathByRawPath[rawPath] {
                 return existing
             }
-            let canonicalPath = canonicalize(rawPath)
-            canonicalPathByRawPath[rawPath] = canonicalPath
-            return canonicalPath
+            let normalizedPath = normalize(rawPath)
+            normalizedPathByRawPath[rawPath] = normalizedPath
+            return normalizedPath
         }
 
         let canonicalScopes = observationScopes.map { scope in
             (kind: scope.kind, path: scope.path.path)
         }
         let classifiedRawEvents = rawEvents.map { event in
-            let candidate = canonicalPath(for: event.path)
+            let candidate = normalizedPath(for: event.path)
             let hasRelevantMutation = canonicalScopes.contains { scope in
                 switch scope.kind {
                 case .item:
@@ -156,7 +156,7 @@ package enum DarwinFSEventPathClassifier {
             )
         }
         let ordinaryWorktreePaths = ordinaryPaths.filter { path in
-            let candidate = canonicalPath(for: path)
+            let candidate = normalizedPath(for: path)
             return candidate == rootPath || candidate.hasPrefix(rootPath + "/")
         }
         return DarwinFSEventClassification(
@@ -165,8 +165,24 @@ package enum DarwinFSEventPathClassifier {
         )
     }
 
-    private static func canonicalPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+    private static func lexicallyNormalizedAbsolutePath(_ path: String) -> String {
+        guard path.hasPrefix("/") else { return path }
+
+        var normalizedComponents: [Substring] = []
+        for component in path.split(separator: "/", omittingEmptySubsequences: true) {
+            switch component {
+            case ".":
+                continue
+            case "..":
+                if !normalizedComponents.isEmpty {
+                    normalizedComponents.removeLast()
+                }
+            default:
+                normalizedComponents.append(component)
+            }
+        }
+        guard !normalizedComponents.isEmpty else { return "/" }
+        return "/" + normalizedComponents.joined(separator: "/")
     }
 }
 

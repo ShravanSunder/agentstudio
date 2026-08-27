@@ -8,12 +8,94 @@ import Testing
 
 @Suite("DarwinFSEventStreamClient")
 struct DarwinFSEventStreamClientTests {
-    @Test("event classification canonicalizes each unique callback path once")
-    func eventClassificationCanonicalizesEachUniqueCallbackPathOnce() {
+    @Test("event classification retains an in-root symlink object whose target is outside the root")
+    func eventClassificationRetainsInRootSymlinkObject() throws {
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "darwin-fsevent-classifier-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let rootPath = fixtureRoot.appending(path: "repo", directoryHint: .isDirectory)
+        let outsideTargetPath = fixtureRoot.appending(path: "outside-target")
+        let symlinkPath = rootPath.appending(path: "README.md")
+        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
+        try Data().write(to: outsideTargetPath)
+        try FileManager.default.createSymbolicLink(
+            at: symlinkPath,
+            withDestinationURL: outsideTargetPath
+        )
+
+        let classification = DarwinFSEventPathClassifier.classify(
+            rawEvents: [(path: symlinkPath.path, eventId: 40, flags: 0)],
+            ordinaryPaths: [symlinkPath.path],
+            rootPath: rootPath.path,
+            observationScopes: [
+                AgentStudioGit.GitStatusObservationScope(kind: .subtree, path: rootPath)
+            ]
+        )
+
+        #expect(classification.rawEvents.map(\.hasRelevantMutation) == [true])
+        #expect(classification.ordinaryPaths == [symlinkPath.path])
+    }
+
+    @Test("event classification normalizes lexical callback path spellings")
+    func eventClassificationNormalizesLexicalCallbackPathSpellings() {
+        let rootPath = "/tmp/repo"
+        let canonicalChangedPath = "/tmp/repo/Sources/Changed.swift"
+        let callbackPathSpellings = [
+            "/tmp//repo/Sources/Changed.swift",
+            "/tmp/repo/./Sources/Changed.swift",
+            "/tmp/repo/Generated/../Sources/Changed.swift",
+        ]
+
+        let classification = DarwinFSEventPathClassifier.classify(
+            rawEvents: callbackPathSpellings.enumerated().map { index, path in
+                (path: path, eventId: FSEventStreamEventId(index + 41), flags: 0)
+            },
+            ordinaryPaths: callbackPathSpellings,
+            rootPath: rootPath,
+            observationScopes: [
+                AgentStudioGit.GitStatusObservationScope(
+                    kind: .item,
+                    path: URL(fileURLWithPath: canonicalChangedPath)
+                )
+            ]
+        )
+
+        #expect(classification.rawEvents.map(\.hasRelevantMutation) == [true, true, true])
+        #expect(classification.ordinaryPaths == callbackPathSpellings)
+    }
+
+    @Test("event classification excludes sibling prefixes and the loss sentinel")
+    func eventClassificationExcludesSiblingPrefixesAndLossSentinel() {
+        let rootPath = "/tmp/repo"
+        let siblingPrefixPath = "/tmp/repository/Sources/Changed.swift"
+
+        let classification = DarwinFSEventPathClassifier.classify(
+            rawEvents: [
+                (path: siblingPrefixPath, eventId: 41, flags: 0),
+                (path: "/", eventId: 42, flags: 0),
+            ],
+            ordinaryPaths: [siblingPrefixPath, "/"],
+            rootPath: rootPath,
+            observationScopes: [
+                AgentStudioGit.GitStatusObservationScope(
+                    kind: .subtree,
+                    path: URL(fileURLWithPath: rootPath)
+                )
+            ]
+        )
+
+        #expect(classification.rawEvents.map(\.hasRelevantMutation) == [false, false])
+        #expect(classification.ordinaryPaths.isEmpty)
+    }
+
+    @Test("event classification normalizes each unique callback path once")
+    func eventClassificationNormalizesEachUniqueCallbackPathOnce() {
         let rootPath = "/tmp/repo"
         let changedPath = "/tmp/repo/Sources/Changed.swift"
         let ignoredPath = "/tmp/outside/Other.swift"
-        var canonicalizationCountByPath: [String: Int] = [:]
+        var normalizationCountByPath: [String: Int] = [:]
 
         let classification = DarwinFSEventPathClassifier.classify(
             rawEvents: [
@@ -28,13 +110,13 @@ struct DarwinFSEventStreamClientTests {
                     path: URL(fileURLWithPath: rootPath)
                 )
             ],
-            canonicalize: { path in
-                canonicalizationCountByPath[path, default: 0] += 1
+            normalize: { path in
+                normalizationCountByPath[path, default: 0] += 1
                 return path
             }
         )
 
-        #expect(canonicalizationCountByPath == [changedPath: 1, ignoredPath: 1])
+        #expect(normalizationCountByPath == [changedPath: 1, ignoredPath: 1])
         #expect(classification.rawEvents.map(\.hasRelevantMutation) == [true, false])
         #expect(classification.ordinaryPaths == [changedPath])
     }
