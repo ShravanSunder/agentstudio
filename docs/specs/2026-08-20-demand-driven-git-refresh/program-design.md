@@ -28,6 +28,8 @@ RepositoryFactDemandCoordinator (App)
               │                         AgentStudioGitWorkingTreeStatusProvider
               │                           ├─ agentstudio-git exact clean proof
               │                           └─ Darwin loss-aware continuity witness
+              │                              ├─ worktree-local subtree streams
+              │                              └─ shared exact-item parent observers
               │
               ├──────── demanded repositories ───────┐
               │                                       ▼
@@ -68,6 +70,9 @@ The structural crux is where “good enough” becomes a decision. Putting that 
 | Every finite checkpoint performs exact Git | Simple correctness story | One 0.6–3.8 second read can breach idle p99; complete attended demand produces continuous fleet waves | Reject |
 | Treat missing filesystem events as unchanged | Minimal implementation | Silent stale facts after drops, gaps, linked-worktree metadata mutation, or unsupported observation | Reject |
 | Exact-clean baseline plus loss-aware continuity | Keeps Git as truth while avoiding repeated unchanged traversals | Requires observer uncertainty/epoch semantics and package/app proof composition | Select |
+| Repeat every shared exact-item parent in every worktree stream | Reuses one stream shape | A shared config parent recursively wakes and classifies once per worktree for unrelated events | Reject |
+| Shared exact-item parent observers with selective subscriber fan-out | One recursive callback and one exact-path lookup for unrelated parent activity | Adds internal composite-binding and shared-observer lifecycle | Select |
+| Per-file vnode observers or metadata-only validation | Narrow apparent wake or simple checkpoint read | Replacement/re-arm ambiguity or loss of uninterrupted observation proof | Reject |
 | Process-isolated local status helper | Hard kill boundary | IPC, worker lifecycle, cost relocation, wider proof | Defer unless in-process design fails its falsifiers |
 
 The design reuses `RepoCacheAtom`, `AtomFamily`, `WorkspaceCacheCoordinator`, `GitWorkingDirectoryProjector`, `DarwinFSEventStreamClient`, `AgentStudioGitWorkingTreeStatusProvider`, `ForgeActor`, `PullRequestDemandProjection` semantics, the `agentstudio-git` remote process runner and parsing foundation, `EagerDerivedAtomFamily`, the EventBus, and the exact-debug proof path. New durable machinery is limited to the holistic demand snapshot, `RemoteReferenceRefreshActor`, process-wide source capacity owners, local status fact/detail, exact-clean proof, loss-aware continuity, and staged-fetch contracts, plus the deadline/governor state required to replace fixed polling. Exact-clean and continuity authority is runtime-only and never persisted.
@@ -172,6 +177,60 @@ The package observation plan records a complete dependency identity rather than 
 The existing `DarwinFSEventStreamClient` gains a narrow `GitCleanContinuityWitness` capability consumed directly by the local status provider. App composition creates exactly one process-scoped client and injects the same object into both `FilesystemActor` and `AgentStudioGitWorkingTreeStatusProvider`; production defaults cannot silently construct a second witness. It is not routed through `FilesystemActor` or EventBus, because those lossy presentation/invalidation paths cannot prove the absence of a mutation. This adds no atom, store, EventBus case, generic scheduler, helper process, persistence owner, or coordinator responsibility.
 
 For each admitted observation scope the witness retains registration generation, per-volume event cursor, mutation epoch, uncertainty epoch, stable barriers, and coverage state. Start and post-scan barriers flush the stream without holding the lifecycle lock, then revalidate every generation and epoch so delayed kernel delivery cannot create a false-clean interval. Relevant mutations advance the mutation epoch before ordinary filesystem delivery. FSEvent IDs and flags remain intact through classification. `MustScanSubDirs`, user/kernel drops, event-ID wrap, root change, mount/unmount discontinuity, stream-start failure, buffer overflow, registration replacement, and unsupported scope advance uncertainty and fail renewal closed. Git administrative mutations use the existing full-scope Git-internal invalidation semantics rather than a new EventBus fact. Shutdown first drains projector/provider renewal and retires all authorities, then shuts down the shared witness.
+
+#### Shared exact-item observation
+
+Package observation plans may contain exact item scopes outside repository-local subtrees, including resolved Git configuration origins and global ignore files. FSEvents watch roots are recursive directory hierarchies, so the witness must not realize an exact item by adding its parent directory independently to every worktree stream. That topology multiplies unrelated parent activity by the number of registered worktrees before exact-path classification and violates the process CPU contract.
+
+The witness partitions one worktree plan into two internal coverage classes without changing the package contract:
+
+```text
+subtree scope or exact item already covered by that subtree
+  -> worktree-local FSEvents registration
+  -> existing continuity classification and ordinary worktree ingress
+
+exact item not covered by a local subtree
+  -> SharedExactItemParentObserver keyed by canonical parent + volume
+  -> one FSEvents stream for that parent
+  -> canonical exact-path subscriber index
+       exact path -> dependent worktree registrations
+```
+
+`DarwinFSEventStreamClient` remains the one process-scoped owner. Each internal worktree continuity binding retains its root, observation identity, binding generation, local stream generation, local scopes, and participating shared-parent generations. Each shared parent observer retains its canonical parent and volume identity, stream generation, event cursor, coverage state, exact-path subscriber index, and subscriber references. This state is runtime-only. It adds no atom, store, coordinator, EventBus case, timer, persistence, or second Git-fact authority.
+
+The changed callback path is selective:
+
+```text
+current repeated-parent path
+  parent event -> N worktree callbacks -> N scope classifications -> N ledger candidates
+
+shared exact-item path
+  parent event -> one shared callback -> normalize once
+               -> unrelated exact-path miss -> no worktree ledger mutation
+               -> exact-path hit -> record mutation for indexed dependents
+                                 -> enqueue existing full-scope Git invalidation
+               -> ambiguous/loss event -> mark that parent's dependents uncertain
+```
+
+An actual shared-file mutation may invalidate many worktrees because those authorities genuinely depend on that file. For every exact-path hit, the shared callback first advances the dependent continuity-ledger mutation epochs and then submits one coalescible full-scope Git-internal invalidation per dependent through the existing filesystem ingress and debounce boundary. That scheduling disposition carries no fabricated filesystem path and introduces no EventBus case or second authority. Ingress overflow retains its full-scope disposition so a dropped presentation/invalidation batch cannot narrow the pending exact fallback. Unrelated activity under the same recursive parent touches neither worktree mutation epochs nor ordinary ingress.
+
+The shared observer tracks cursor regression, wrap, drop, root, mount, and coverage uncertainty even for events that miss the exact-path index; uncertainty fans out only to registrations dependent on that parent. Every local or shared FSEvents hierarchy stream participating in continuity uses `WatchRoot` in addition to file-level delivery. `RootChanged` advances uncertainty and retires the affected stream and binding generation before ordinary routing; no new authority may mint until complete rebinding and a current exact scan. An ancestor or coalesced event that cannot prove which indexed item changed likewise fails that parent's dependents closed rather than consulting metadata and claiming uninterrupted continuity.
+
+Binding and barriers form one composite coverage transaction. A shared parent stream must start and establish coverage before its subscriber is installed or any baseline barrier may begin. `prepare`, post-scan `commit`, and `renew` retain and flush the worktree-local stream plus every shared parent participating in the binding without holding the lifecycle lock, then revalidate the binding generation, observation identity, all contributing stream generations, mutation epoch, and uncertainty epoch before authority can mint or freshness can advance. Plan replacement, subscriber remapping, late callbacks from retired generations, shared-stream start failure, or a mutation during any barrier makes the affected registration require exact Git. There is no fallback that recreates one broad parent stream per worktree.
+
+Unregister performs one lifecycle-serialized retirement: it first advances the worktree binding generation and retires authority so no new barrier or renewal can begin, then removes exact-path subscriber references and tears down the local registration. A shared parent observer remains live while any subscriber depends on it and stops at zero references. Shutdown first forbids new bindings and drains witness consumers, then retires worktree and shared-parent generations and tears down both stream classes. The cutover is internal and runtime-only: existing authorities are invalid after a binding-topology change, and the next accepted exact scan may mint authority only through the complete new composite binding.
+
+The proof boundary must demonstrate selective ownership rather than only final Git correctness:
+
+- many worktree plans sharing one external exact-item parent create one shared parent stream, and no worktree-local stream retains that broad parent;
+- unrelated activity under the parent produces one callback/index miss, no ordinary worktree batch, and no dependent mutation epoch change;
+- an exact-item mutation advances each indexed dependent's ledger before one coalesced full-scope invalidation enters existing ingress; overflow preserves that scope and unrelated misses enqueue nothing;
+- loss, cursor, mount, or ambiguous coverage invalidates all dependents of that parent;
+- every continuity hierarchy stream requests root-change delivery; watched-parent or ancestor rename/deletion retires authority before routing and recovers only through rebinding plus exact Git;
+- delete, rename, atomic replacement, stream-start failure, plan replacement, late-generation callback, unregister/renew overlap, and mutation across every barrier fail authority closed;
+- local subtree delivery, deepest-owner routing, and ordinary filesystem debounce remain unchanged;
+- real disposable repositories sharing a disposable external config file prove both positive renewal and exact fallback without mutating user repositories or global Git configuration;
+- the complete real-root exact-PID workload proves that unrelated shared-parent activity no longer creates worktree-count callback fan-out and that idle and action CPU remain inside the declared budgets.
 
 ### RemoteReferenceRefreshActor
 
