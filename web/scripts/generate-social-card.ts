@@ -1,79 +1,168 @@
-import { mkdir } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import sharp from "sharp";
 
-const projectDirectory = process.cwd();
-const sourceScreenshotPath = resolve(projectDirectory, "src/assets/captures/parallel-agents.png");
+const scriptDirectory = dirname(fileURLToPath(import.meta.url));
+const projectDirectory = resolve(scriptDirectory, "..");
+const templatePath = resolve(scriptDirectory, "social-card-template.html");
 const sourceLogoPath = resolve(projectDirectory, "src/assets/brand/app-logo-transparent.svg");
 const outputPath = resolve(projectDirectory, "public/agent-studio-social-card.png");
+const screenshotWidth = 1_200;
+const screenshotHeight = 630;
 
-const screenshotWidth = 724;
-const screenshotHeight = 452;
-const screenshotRadius = 18;
+const chromeCandidates = [
+  process.env["CHROME_BIN"],
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+  "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+].filter((candidate): candidate is string => candidate !== undefined);
 
-const roundedScreenshotMask = Buffer.from(`
-  <svg width="${screenshotWidth}" height="${screenshotHeight}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="${screenshotWidth}" height="${screenshotHeight}" rx="${screenshotRadius}" fill="white" />
-  </svg>
-`);
+async function resolveChromeExecutable(): Promise<string> {
+  const resolvedCandidates = await Promise.all(
+    chromeCandidates.map(async (candidate): Promise<string | null> => {
+      try {
+        await access(candidate);
+        return candidate;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const chromeExecutable = resolvedCandidates.find(
+    (candidate): candidate is string => candidate !== null,
+  );
 
-const screenshot = await sharp(sourceScreenshotPath)
-  .extract({
-    left: 0,
-    top: 300,
-    width: 1920,
-    height: 1200,
-  })
-  .resize(screenshotWidth, screenshotHeight, {
-    fit: "cover",
-  })
-  .composite([{ input: roundedScreenshotMask, blend: "dest-in" }])
-  .png()
-  .toBuffer();
+  if (chromeExecutable !== undefined) {
+    return chromeExecutable;
+  }
 
-const logo = await sharp(sourceLogoPath).resize(82, 82).png().toBuffer();
+  throw new Error(
+    "Generating the social card requires Chrome or Brave. Set CHROME_BIN to a Chromium executable.",
+  );
+}
 
-const typography = Buffer.from(`
-  <svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
-    <style>
-      .product { fill: #ffffff; font: 800 64px -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; letter-spacing: -2px; }
-      .description { fill: #eaeaea; font: 650 31px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
-      .eyebrow { fill: #9ba1ad; font: 600 15px ui-monospace, "SF Mono", monospace; letter-spacing: 2px; }
-    </style>
-    <text class="eyebrow" x="72" y="194">AGENT-AGNOSTIC · REPO-AWARE</text>
-    <text class="product" x="72" y="276">Agent Studio</text>
-    <text class="description" x="72" y="342">Native macOS workspace</text>
-    <text class="description" x="72" y="382">for coding agents</text>
-    <rect x="72" y="440" width="134" height="6" rx="3" fill="#89b4fa" />
-    <rect x="216" y="440" width="74" height="6" rx="3" fill="#ef9f76" />
-  </svg>
-`);
+async function waitForScreenshot(props: {
+  readonly browserProcess: ReturnType<typeof spawn>;
+  readonly screenshotPath: string;
+}): Promise<void> {
+  await new Promise<void>((resolveScreenshot, rejectScreenshot) => {
+    let settled = false;
 
-await mkdir(dirname(outputPath), { recursive: true });
-await sharp({
-  create: {
-    width: 1200,
-    height: 630,
-    channels: 4,
-    background: "#2e3036",
-  },
-})
-  .composite([
-    {
-      input: Buffer.from(`
-        <svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
-          <rect x="548" y="64" width="724" height="502" rx="24" fill="#1e1e2e" stroke="#89b4fa" stroke-opacity="0.34" stroke-width="2" />
-          <rect x="516" y="88" width="724" height="478" rx="22" fill="#151520" stroke="#ef9f76" stroke-opacity="0.42" stroke-width="2" />
-        </svg>
-      `),
-    },
-    { input: screenshot, left: 500, top: 98 },
-    { input: logo, left: 72, top: 66 },
-    { input: typography },
-  ])
-  .withMetadata({ icc: "srgb" })
-  .png({ compressionLevel: 9 })
-  .toFile(outputPath);
+    const finish = (error?: Error): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearInterval(screenshotInterval);
+      clearTimeout(screenshotTimeout);
+
+      if (error === undefined) {
+        resolveScreenshot();
+      } else {
+        rejectScreenshot(error);
+      }
+    };
+
+    const inspectScreenshot = (): void => {
+      void stat(props.screenshotPath)
+        .then((screenshotStats): void => {
+          if (screenshotStats.size > 0) {
+            finish();
+          }
+        })
+        .catch((): void => {
+          // Chrome has not finished writing the screenshot yet.
+        });
+    };
+
+    const screenshotInterval = setInterval(inspectScreenshot, 50);
+    const screenshotTimeout = setTimeout(
+      (): void => finish(new Error("Chrome did not render the social card within 30 seconds.")),
+      30_000,
+    );
+
+    props.browserProcess.once("error", (error): void => finish(error));
+    inspectScreenshot();
+  });
+}
+
+async function stopBrowserProcess(browserProcess: ReturnType<typeof spawn>): Promise<void> {
+  if (browserProcess.exitCode !== null) {
+    return;
+  }
+
+  browserProcess.kill("SIGTERM");
+  await new Promise<void>((resolveExit) => {
+    const forcedExitTimeout = setTimeout((): void => {
+      browserProcess.kill("SIGKILL");
+    }, 5_000);
+
+    browserProcess.once("exit", (): void => {
+      clearTimeout(forcedExitTimeout);
+      resolveExit();
+    });
+  });
+}
+
+const temporaryDirectory = await mkdtemp(resolve(tmpdir(), "agent-studio-social-card-"));
+
+try {
+  const [template, sourceLogo] = await Promise.all([
+    readFile(templatePath, "utf8"),
+    readFile(sourceLogoPath),
+  ]);
+  const renderedTemplate = template.replace(
+    "__APP_LOGO_DATA_URI__",
+    `data:image/svg+xml;base64,${sourceLogo.toString("base64")}`,
+  );
+  const temporaryTemplatePath = resolve(temporaryDirectory, "social-card.html");
+  const rawScreenshotPath = resolve(temporaryDirectory, "social-card-browser.png");
+  const chromeProfileDirectory = resolve(temporaryDirectory, "chrome-profile");
+  await writeFile(temporaryTemplatePath, renderedTemplate, "utf8");
+
+  const chromeExecutable = await resolveChromeExecutable();
+  const browserProcess = spawn(
+    chromeExecutable,
+    [
+      "--headless=new",
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-gpu",
+      "--force-device-scale-factor=1",
+      "--hide-scrollbars",
+      "--no-first-run",
+      `--screenshot=${rawScreenshotPath}`,
+      `--user-data-dir=${chromeProfileDirectory}`,
+      `--window-size=${screenshotWidth},${screenshotHeight}`,
+      pathToFileURL(temporaryTemplatePath).href,
+    ],
+    { stdio: "ignore" },
+  );
+
+  try {
+    await waitForScreenshot({ browserProcess, screenshotPath: rawScreenshotPath });
+  } finally {
+    await stopBrowserProcess(browserProcess);
+  }
+
+  const rawMetadata = await sharp(rawScreenshotPath).metadata();
+  if (rawMetadata.width !== screenshotWidth || rawMetadata.height !== screenshotHeight) {
+    throw new Error(
+      `Chrome rendered ${rawMetadata.width ?? "unknown"}x${rawMetadata.height ?? "unknown"}; expected ${screenshotWidth}x${screenshotHeight}.`,
+    );
+  }
+
+  await sharp(rawScreenshotPath)
+    .withMetadata({ icc: "srgb" })
+    .png({ compressionLevel: 9 })
+    .toFile(outputPath);
+} finally {
+  await rm(temporaryDirectory, { force: true, recursive: true });
+}
 
 console.log(`generated: ${outputPath}`);
