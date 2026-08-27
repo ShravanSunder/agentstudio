@@ -514,7 +514,8 @@ struct PrimarySidebarPipelineIntegrationTests {
                     origin: "git@github.com:askluna/agent-studio.git"
                 )
             },
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
 
         return (forgeActor, coordinator, projector)

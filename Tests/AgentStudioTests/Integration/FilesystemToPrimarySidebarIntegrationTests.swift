@@ -166,7 +166,8 @@ struct FilesystemToPrimarySidebarIntegrationTests {
                     ),
                 ])
             },
-            gitCoalescingWindow: .zero
+            gitCoalescingWindow: .zero,
+            gitRefreshPolicy: AppPolicies.GitRefresh.Policy()
         )
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
