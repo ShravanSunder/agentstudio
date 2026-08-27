@@ -101,6 +101,66 @@ struct RepoExplorerTableRowCellTests {
         #expect(executionCount == 1)
     }
 
+    @Test("menu tracking retains one represented row binding and applies the latest update on close")
+    func menuTrackingRetainsRepresentedBindingUntilClose() {
+        let cell = RepoExplorerTableRowCell(
+            octiconLoader: makeRepoExplorerTestOcticonLoader()
+        )
+        let initialRow = hostedCellRow(id: "A", title: "Initial")
+        let updatedRow = hostedCellRow(id: "A", title: "Updated")
+        let initialSnapshot = RepoExplorerCommandPresentationSnapshot(generation: 3, results: [:])
+        let intermediateSnapshot = RepoExplorerCommandPresentationSnapshot(generation: 4, results: [:])
+        let latestSnapshot = RepoExplorerCommandPresentationSnapshot(generation: 5, results: [:])
+        let initialBinding = cell.bind(
+            row: initialRow,
+            visibleGeneration: 7,
+            commandPresentationSnapshot: initialSnapshot
+        )
+        let trackedMenu = NSMenu()
+        let trackedSubmenu = NSMenu()
+
+        NotificationCenter.default.post(
+            name: NSMenu.didBeginTrackingNotification,
+            object: trackedMenu
+        )
+        NotificationCenter.default.post(
+            name: NSMenu.didBeginTrackingNotification,
+            object: trackedSubmenu
+        )
+        _ = cell.bind(
+            row: updatedRow,
+            visibleGeneration: 8,
+            commandPresentationSnapshot: intermediateSnapshot
+        )
+        _ = cell.bind(
+            row: updatedRow,
+            visibleGeneration: 9,
+            commandPresentationSnapshot: latestSnapshot
+        )
+
+        #expect(cell.currentBindingIdentity == initialBinding)
+        #expect(cell.currentCommandGeneration == initialSnapshot.generation)
+        #expect(cell.accessibilityLabel() == "Initial")
+
+        NotificationCenter.default.post(
+            name: NSMenu.didEndTrackingNotification,
+            object: trackedSubmenu
+        )
+
+        #expect(cell.currentBindingIdentity == initialBinding)
+        #expect(cell.currentCommandGeneration == initialSnapshot.generation)
+        #expect(cell.accessibilityLabel() == "Initial")
+
+        NotificationCenter.default.post(
+            name: NSMenu.didEndTrackingNotification,
+            object: trackedMenu
+        )
+
+        #expect(cell.currentBindingIdentity?.visibleGeneration == 9)
+        #expect(cell.currentCommandGeneration == latestSnapshot.generation)
+        #expect(cell.accessibilityLabel() == "Updated")
+    }
+
     @Test("materialized section group and worktree rows expose current native labels")
     func materializedRowsExposeCurrentNativeLabels() throws {
         let result = try RepoExplorerProjectionWorker.project(

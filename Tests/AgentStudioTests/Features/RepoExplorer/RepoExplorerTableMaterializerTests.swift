@@ -361,6 +361,64 @@ struct RepoExplorerTableMaterializerTests {
         #expect(materializer.numberOfRows == nextSnapshot.rows.count)
     }
 
+    @Test("filtered membership restores heterogeneous row geometry")
+    func filteredMembershipRestoresHeterogeneousRowGeometry() throws {
+        let initialSnapshot = heterogeneousHeightSnapshot(
+            identitiesAndHeights: [
+                ("A", 34),
+                ("B", 96),
+                ("C", 42),
+                ("D", 118),
+                ("E", 50),
+            ]
+        )
+        let retainedRowIDs: [RepoExplorerRowID] = [
+            .group(groupID: "B"),
+            .group(groupID: "D"),
+        ]
+        let filteredSnapshot = RepoExplorerMaterializationSnapshot(
+            rows: retainedRowIDs.compactMap(initialSnapshot.row(id:))
+        )
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: { _ in }
+        )
+        let window = makeMaterializerWindow(materializer)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+                snapshot: initialSnapshot,
+                requestGeneration: 1
+            )
+        ) { _ in }
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanBaseline(
+                    snapshot: initialSnapshot,
+                    revision: 1,
+                    visibleGeneration: 1
+                ),
+                snapshot: filteredSnapshot,
+                requestGeneration: 2
+            )
+        ) { _ in }
+
+        let scrollView = try #require(materializer.view as? NSScrollView)
+        let tableView = try #require(scrollView.documentView as? NSTableView)
+        let firstRowRect = tableView.rect(ofRow: 0)
+        let secondRowRect = tableView.rect(ofRow: 1)
+        #expect(firstRowRect.minY == 0)
+        #expect(firstRowRect.height == 96)
+        #expect(secondRowRect.minY == firstRowRect.maxY)
+        #expect(secondRowRect.height == 118)
+        #expect(secondRowRect.maxY == filteredSnapshot.fallbackContentHeight)
+    }
+
     @Test("removed row anchor restores its worker-derived successor")
     func removedAnchorUsesPlanFallback() throws {
         let initialSnapshot = nativePlanSnapshot(["A", "B", "C", "D", "E", "F"])
@@ -466,6 +524,38 @@ struct RepoExplorerTableMaterializerTests {
                         rowClass: row.layout.rowClass,
                         metrics: row.layout.metrics,
                         requiresVisibleWidthMeasurement: true
+                    ),
+                    representedRepoID: nil,
+                    representedWorktreeID: nil
+                )
+            }
+        )
+    }
+
+    private func heterogeneousHeightSnapshot(
+        identitiesAndHeights: [(String, CGFloat)]
+    ) -> RepoExplorerMaterializationSnapshot {
+        let source = nativePlanSnapshot(identitiesAndHeights.map(\.0))
+        return RepoExplorerMaterializationSnapshot(
+            rows: zip(source.rows, identitiesAndHeights.map(\.1)).map { row, height in
+                let metrics = row.layout.metrics
+                return RepoExplorerMaterializedRow(
+                    id: row.id,
+                    contentRevision: row.contentRevision,
+                    layout: RepoExplorerRowLayout(
+                        rowClass: row.layout.rowClass,
+                        metrics: RepoExplorerRowLayoutMetrics(
+                            primaryLineHeight: metrics.primaryLineHeight,
+                            metadataLineHeight: metrics.metadataLineHeight,
+                            chipLineHeight: metrics.chipLineHeight,
+                            contentSpacing: metrics.contentSpacing,
+                            verticalInset: metrics.verticalInset,
+                            leadingInset: metrics.leadingInset,
+                            trailingInset: metrics.trailingInset,
+                            minimumHeight: height,
+                            fallbackHeight: height
+                        ),
+                        requiresVisibleWidthMeasurement: false
                     ),
                     representedRepoID: nil,
                     representedWorktreeID: nil

@@ -100,9 +100,18 @@ struct RepoExplorerTableRowHostingRoot: View {
 final class RepoExplorerTableRowCell: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("repo-explorer-hosted-row")
 
+    private struct DeferredBinding {
+        let row: RepoExplorerMaterializedRow
+        let visibleGeneration: UInt64
+        let commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
+    }
+
     let hostingView: NSHostingView<RepoExplorerTableRowHostingRoot>
     private let slot: RepoExplorerTableRowSlot
     private var reuseSequence: UInt64 = 0
+    private var trackedMenuIdentities: Set<ObjectIdentifier> = []
+    private var deferredBinding: DeferredBinding?
+    private var menuTrackingObservers: [NSObjectProtocol] = []
 
     var currentBindingIdentity: RepoExplorerTableRowBindingIdentity? {
         slot.binding?.identity
@@ -136,6 +145,11 @@ final class RepoExplorerTableRowCell: NSTableCellView {
             hostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         setAccessibilityRole(.row)
+        observeMenuTracking()
+    }
+
+    isolated deinit {
+        menuTrackingObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     @available(*, unavailable)
@@ -156,6 +170,29 @@ final class RepoExplorerTableRowCell: NSTableCellView {
         {
             return currentBinding.identity
         }
+        if let currentBinding = slot.binding,
+            !trackedMenuIdentities.isEmpty,
+            currentBinding.identity.rowID == row.id
+        {
+            deferredBinding = DeferredBinding(
+                row: row,
+                visibleGeneration: visibleGeneration,
+                commandPresentationSnapshot: commandPresentationSnapshot
+            )
+            return currentBinding.identity
+        }
+        return installBinding(
+            row: row,
+            visibleGeneration: visibleGeneration,
+            commandPresentationSnapshot: commandPresentationSnapshot
+        )
+    }
+
+    private func installBinding(
+        row: RepoExplorerMaterializedRow,
+        visibleGeneration: UInt64,
+        commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
+    ) -> RepoExplorerTableRowBindingIdentity {
         if let currentBinding = slot.binding,
             currentBinding.identity.visibleGeneration == visibleGeneration,
             currentBinding.row == row
@@ -188,8 +225,51 @@ final class RepoExplorerTableRowCell: NSTableCellView {
     }
 
     func clearBindingForReuse() {
+        deferredBinding = nil
         slot.clear()
         setAccessibilityLabel(nil)
+    }
+
+    private func observeMenuTracking() {
+        menuTrackingObservers = [
+            NotificationCenter.default.addObserver(
+                forName: NSMenu.didBeginTrackingNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let menu = notification.object as? NSMenu else { return }
+                let menuIdentity = ObjectIdentifier(menu)
+                MainActor.assumeIsolated {
+                    self?.menuDidBeginTracking(menuIdentity)
+                }
+            },
+            NotificationCenter.default.addObserver(
+                forName: NSMenu.didEndTrackingNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let menu = notification.object as? NSMenu else { return }
+                let menuIdentity = ObjectIdentifier(menu)
+                MainActor.assumeIsolated {
+                    self?.menuDidEndTracking(menuIdentity)
+                }
+            },
+        ]
+    }
+
+    private func menuDidBeginTracking(_ menuIdentity: ObjectIdentifier) {
+        trackedMenuIdentities.insert(menuIdentity)
+    }
+
+    private func menuDidEndTracking(_ menuIdentity: ObjectIdentifier) {
+        trackedMenuIdentities.remove(menuIdentity)
+        guard trackedMenuIdentities.isEmpty, let deferredBinding else { return }
+        self.deferredBinding = nil
+        _ = installBinding(
+            row: deferredBinding.row,
+            visibleGeneration: deferredBinding.visibleGeneration,
+            commandPresentationSnapshot: deferredBinding.commandPresentationSnapshot
+        )
     }
 
     @discardableResult
