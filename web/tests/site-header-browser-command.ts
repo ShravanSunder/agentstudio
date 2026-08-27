@@ -55,6 +55,7 @@ export const verifySiteHeaderScrollStability = defineBrowserCommand(
         };
 
         const elements = requiredHeaderElements();
+        pageDocument.documentElement.style.scrollBehavior = "auto";
         const anchorHeight = elements.anchor.getBoundingClientRect().height;
         let stateChangeCount = 0;
         const stateObserver = new MutationObserver((records): void => {
