@@ -532,7 +532,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
 
         let observed = ObservedGitEvents()
@@ -629,7 +630,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
 
         let observed = ObservedGitEvents()
@@ -747,7 +749,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
         let observed = ObservedGitEvents()
         let collectionTask = await startCollection(on: bus, observed: observed)
@@ -1071,7 +1074,8 @@ struct GitWorkingDirectoryProjectorTests {
             bus: bus,
             gitWorkingTreeProvider: provider,
             coalescingWindow: .milliseconds(500),
-            sleepClock: clock
+            sleepClock: clock,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
 
         await actor.start()
@@ -1966,7 +1970,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
 
         let observed = ObservedGitEvents()
@@ -2244,7 +2249,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
 
         let observed = ObservedGitEvents()
@@ -2290,7 +2296,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
 
         let observed = ObservedGitEvents()
@@ -2340,7 +2347,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
 
         let observed = ObservedGitEvents()
@@ -2461,7 +2469,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
 
         let observed = ObservedGitEvents()
@@ -2586,7 +2595,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
 
         let observed = ObservedGitEvents()
@@ -3273,7 +3283,12 @@ struct GitWorkingDirectoryProjectorTests {
                 )
             )
         })
-        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
+        )
         let observed = ObservedGitEvents()
         let collectionTask = await startCollection(on: bus, observed: observed)
         await actor.start()
@@ -3334,7 +3349,12 @@ struct GitWorkingDirectoryProjectorTests {
                 )
             )
         })
-        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
+        )
         let observed = ObservedGitEvents()
         let collectionTask = await startCollection(on: bus, observed: observed)
         await actor.start()
@@ -3385,7 +3405,12 @@ struct GitWorkingDirectoryProjectorTests {
                 )
             )
         })
-        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
+        )
         let observed = ObservedGitEvents()
         let collectionTask = await startCollection(on: bus, observed: observed)
         await actor.start()
@@ -3435,7 +3460,12 @@ struct GitWorkingDirectoryProjectorTests {
                 )
             )
         })
-        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
+        )
         let observed = ObservedGitEvents()
         let collectionTask = await startCollection(on: bus, observed: observed)
         await actor.start()
@@ -3512,7 +3542,12 @@ struct GitWorkingDirectoryProjectorTests {
                 )
             )
         })
-        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
+        )
         let observed = ObservedGitEvents()
         let collectionTask = await startCollection(on: bus, observed: observed)
         await actor.start()
@@ -3630,7 +3665,12 @@ struct GitWorkingDirectoryProjectorTests {
                 )
             )
         })
-        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
+        )
         let observed = ObservedGitEvents()
         let collectionTask = await startCollection(on: bus, observed: observed)
         await actor.start()
@@ -4010,6 +4050,7 @@ struct GitWorkingDirectoryProjectorTests {
             bus: bus,
             gitWorkingTreeProvider: provider,
             coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy(),
             performanceTraceRecorder: traceRecorder
         )
         let observed = ObservedGitEvents()

@@ -313,7 +313,12 @@ package actor GitWorkingDirectoryProjector {
             repoIdByWorktreeId[worktreeId] = changeset.repoId
             guard !deferChangesetIfStatusBackoffOpen(changeset) else { return }
             guard !deferChangesetIfCapacityRetryPending(changeset) else { return }
-            if !immediateRefreshWorktreeIds.contains(worktreeId) {
+            // A queued immediate full refresh covers changes observed before
+            // it starts. Once its task is running, retain one merged pending
+            // invalidation so later mutations cannot disappear behind it.
+            if !immediateRefreshWorktreeIds.contains(worktreeId)
+                || worktreeTasks[worktreeId] != nil
+            {
                 pendingByWorktreeId[worktreeId] = Self.mergeChangesets(
                     pendingByWorktreeId[worktreeId],
                     with: changeset
