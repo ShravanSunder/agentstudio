@@ -128,9 +128,9 @@ struct RepoExplorerPaneRowContent: View {
             )
             if isActive {
                 SidebarChip(
-                    icon: .system(.circleFill),
+                    icon: .system(.playCircleFill),
                     octiconLoader: octiconLoader,
-                    text: "Active",
+                    text: nil,
                     style: .accent(.accentColor)
                 )
             }

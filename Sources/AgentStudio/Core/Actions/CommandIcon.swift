@@ -58,6 +58,7 @@ package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case paintpaletteFill = "paintpalette.fill"
     case pencil = "pencil"
     case personBadgeKey = "person.badge.key"
+    case playCircleFill = "play.circle.fill"
     case plus = "plus"
     case plusCircle = "plus.circle"
     case plusMagnifyingglass = "plus.magnifyingglass"
