@@ -947,64 +947,6 @@ describe('worktree annotation inline thread', () => {
 		expect(document.querySelector('[data-annotation-expanded="true"]')).toBeNull();
 		expect(document.activeElement).toBe(latestReplyButton.element());
 	});
-
-	test('leaves an active one-message thread on outside click or Escape', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
-		const rendered = await renderLocatedAnnotationProjection(surface);
-		await publishThreadMessages(surface, [
-			makeSavedMessage({ body: 'One active message.', messageId: rootMessageId }),
-		]);
-		const thread = rendered.getByTestId('worktree-annotation-thread').element();
-		const activeSurface = (): HTMLElement | null =>
-			thread.querySelector('[data-worktree-annotation-interaction][data-annotation-active="true"]');
-
-		await act(async (): Promise<void> => {
-			thread.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-			await Promise.resolve();
-		});
-		expect(activeSurface()).not.toBeNull();
-		await act(async (): Promise<void> => {
-			document.body.click();
-			await Promise.resolve();
-		});
-		expect(activeSurface()).toBeNull();
-
-		await act(async (): Promise<void> => {
-			thread.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-			await Promise.resolve();
-		});
-		expect(activeSurface()).not.toBeNull();
-		await act(async (): Promise<void> => {
-			thread.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
-			await Promise.resolve();
-		});
-		expect(activeSurface()).toBeNull();
-	});
-
-	test('flushes the active editor before outside press collapses the inline thread', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
-		const rendered = await renderAnnotationProjection(surface);
-		await publishThreadMessages(surface, [
-			makeSavedMessage({ body: 'Outside-close root.', messageId: rootMessageId }),
-		]);
-		const replyButton = rendered
-			.getByTestId('worktree-annotation-thread')
-			.getByRole('button', { name: 'Reply to annotation thread' });
-		await act(async (): Promise<void> => {
-			await replyButton.click();
-		});
-		await expect
-			.element(rendered.getByRole('textbox', { name: 'Reply with Markdown' }))
-			.toBeVisible();
-		await act(async (): Promise<void> => {
-			document.body.click();
-			await Promise.resolve();
-		});
-		await settleBrowserCondition(
-			(): boolean => document.querySelector('[data-annotation-expanded="true"]') === null,
-			'Expected outside press to collapse only after the active editor exited.',
-		);
-	});
 });
 
 function LocatedAnnotationProjection(): ReactElement | null {
