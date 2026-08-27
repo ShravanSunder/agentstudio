@@ -15,6 +15,7 @@ interface RenderStaticMarketingAssetProps {
   readonly assetName: string;
   readonly height: number;
   readonly outputPath: string;
+  readonly renderScale?: number;
   readonly replacements: readonly StaticTemplateReplacement[];
   readonly templatePath: string;
   readonly temporaryDirectoryPrefix: string;
@@ -136,6 +137,10 @@ function applyTemplateReplacements(props: {
 export async function renderStaticMarketingAsset(
   props: RenderStaticMarketingAssetProps,
 ): Promise<void> {
+  const renderScale = props.renderScale ?? 1;
+  if (!Number.isInteger(renderScale) || renderScale < 1) {
+    throw new Error(`Invalid render scale for ${props.assetName}.`);
+  }
   const temporaryDirectory = await mkdtemp(resolve(tmpdir(), props.temporaryDirectoryPrefix));
 
   try {
@@ -157,7 +162,7 @@ export async function renderStaticMarketingAsset(
         "--disable-background-networking",
         "--disable-component-update",
         "--disable-gpu",
-        "--force-device-scale-factor=1",
+        `--force-device-scale-factor=${renderScale}`,
         "--hide-scrollbars",
         "--no-first-run",
         `--screenshot=${rawScreenshotPath}`,
@@ -179,13 +184,16 @@ export async function renderStaticMarketingAsset(
     }
 
     const rawMetadata = await sharp(rawScreenshotPath).metadata();
-    if (rawMetadata.width !== props.width || rawMetadata.height !== props.height) {
+    const expectedRawWidth = props.width * renderScale;
+    const expectedRawHeight = props.height * renderScale;
+    if (rawMetadata.width !== expectedRawWidth || rawMetadata.height !== expectedRawHeight) {
       throw new Error(
-        `Chrome rendered ${rawMetadata.width ?? "unknown"}x${rawMetadata.height ?? "unknown"}; expected ${props.width}x${props.height}.`,
+        `Chrome rendered ${rawMetadata.width ?? "unknown"}x${rawMetadata.height ?? "unknown"}; expected ${expectedRawWidth}x${expectedRawHeight}.`,
       );
     }
 
     await sharp(rawScreenshotPath)
+      .resize(props.width, props.height, { fit: "fill", kernel: "lanczos3" })
       .withMetadata({ icc: "srgb" })
       .png({ compressionLevel: 9 })
       .toFile(props.outputPath);

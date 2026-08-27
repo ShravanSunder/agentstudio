@@ -24,22 +24,15 @@
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
       }
 
-      .topology {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-      }
-
       .content {
         position: absolute;
-        top: 62px;
-        right: 90px;
+        top: 96px;
+        right: 70px;
         left: 330px;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 230px;
+        grid-template-columns: minmax(0, 1fr) 240px;
         align-items: center;
-        gap: 52px;
+        gap: 40px;
       }
 
       .copy {
@@ -71,13 +64,13 @@
 
       .brand {
         margin-top: 12px;
-        font-size: 34px;
+        font-size: 36px;
         letter-spacing: -0.04em;
       }
 
       .headline {
-        margin-top: 25px;
-        font-size: 56px;
+        margin-top: 22px;
+        font-size: 60px;
         line-height: 0.94;
         letter-spacing: -0.055em;
       }
@@ -87,35 +80,21 @@
       }
 
       .payoff {
-        margin-top: 20px;
+        margin-top: 18px;
         color: #89b4fa;
-        font-size: 42px;
+        font-size: 44px;
         line-height: 0.98;
         letter-spacing: -0.045em;
         white-space: nowrap;
       }
 
       .icon {
-        width: 230px;
-        height: 230px;
+        width: 240px;
+        height: 240px;
       }
     </style>
   </head>
   <body>
-    <svg class="topology" viewBox="0 0 1500 500" aria-hidden="true">
-      <path d="M0 438 H1500" fill="none" stroke="#89b4fa" stroke-width="2" stroke-opacity="0.55" />
-      <path
-        d="M250 438 V58 Q250 28 280 28 H1370 Q1400 28 1400 58 V438"
-        fill="none"
-        stroke="#ef9f76"
-        stroke-linecap="round"
-        stroke-width="2"
-        stroke-opacity="0.65"
-      />
-      <circle cx="250" cy="438" r="6" fill="#ef9f76" />
-      <circle cx="1400" cy="438" r="6" fill="#ef9f76" />
-    </svg>
-
     <main class="content">
       <div class="copy">
         <p class="eyebrow">Native macOS. Repo-aware. Terminal-first.</p>

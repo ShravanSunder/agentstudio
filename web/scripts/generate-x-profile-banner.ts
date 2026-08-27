@@ -14,6 +14,7 @@ await renderStaticMarketingAsset({
   assetName: "X profile banner",
   height: 500,
   outputPath: resolve(projectDirectory, "public/agent-studio-x-profile-banner.png"),
+  renderScale: 2,
   replacements: [
     {
       token: "__APP_LOGO_DATA_URI__",

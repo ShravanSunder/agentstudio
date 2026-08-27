@@ -24,13 +24,6 @@
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
       }
 
-      .topology {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-      }
-
       .safe-area {
         position: absolute;
         top: 508px;
@@ -38,9 +31,9 @@
         display: grid;
         width: 1546px;
         height: 423px;
-        grid-template-columns: minmax(0, 1fr) 320px;
+        grid-template-columns: minmax(0, 1fr) 240px;
         align-items: center;
-        gap: 72px;
+        gap: 64px;
         padding-inline: 48px;
       }
 
@@ -72,15 +65,15 @@
       }
 
       .brand {
-        margin-top: 18px;
-        font-size: 50px;
+        margin-top: 12px;
+        font-size: 44px;
         letter-spacing: -0.04em;
       }
 
       .headline {
-        margin-top: 34px;
-        font-size: 86px;
-        line-height: 0.92;
+        margin-top: 18px;
+        font-size: 70px;
+        line-height: 0.94;
         letter-spacing: -0.055em;
       }
 
@@ -89,34 +82,20 @@
       }
 
       .payoff {
-        margin-top: 26px;
+        margin-top: 14px;
         color: #89b4fa;
-        font-size: 58px;
+        font-size: 50px;
         line-height: 0.98;
         letter-spacing: -0.045em;
       }
 
       .icon {
-        width: 320px;
-        height: 320px;
+        width: 240px;
+        height: 240px;
       }
     </style>
   </head>
   <body>
-    <svg class="topology" viewBox="0 0 2560 1440" aria-hidden="true">
-      <path d="M0 360 H2560" fill="none" stroke="#89b4fa" stroke-width="4" stroke-opacity="0.55" />
-      <path
-        d="M360 360 C520 120 2040 120 2200 360"
-        fill="none"
-        stroke="#ef9f76"
-        stroke-linecap="round"
-        stroke-width="4"
-        stroke-opacity="0.65"
-      />
-      <circle cx="360" cy="360" r="10" fill="#ef9f76" />
-      <circle cx="2200" cy="360" r="10" fill="#ef9f76" />
-    </svg>
-
     <main class="safe-area">
       <div class="copy">
         <p class="eyebrow">Native macOS. Repo-aware. Terminal-first.</p>
