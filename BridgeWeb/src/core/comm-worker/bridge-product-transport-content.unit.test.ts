@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES } from './bridge-product-content-response-admission.js';
+import { bridgeProductReviewMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import {
 	createContentTransportHarness,
 	fileContentDescriptor,
@@ -116,7 +117,7 @@ describe('Bridge product content transport', () => {
 			new AbortController().signal,
 		);
 		await expect(second.terminal).resolves.toMatchObject({ kind: 'complete' });
-		harness.transport.subscribe('review.metadata', { interests: [] });
+		harness.transport.subscribe(bridgeProductReviewMetadataApplicationProtocol, { interests: [] });
 		await harness.server.waitForMetadataStream();
 		harness.server.emitMetadata(metadataAccepted(harness.server.requiredMetadataRequest()));
 		await waitForCondition(

@@ -8,6 +8,7 @@ import {
 	BridgeProductBoundedAsyncQueue,
 	createBridgeProductDeferred,
 } from './bridge-product-async-queue.js';
+import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
 import { bridgeProductReviewMetadataEventSchema } from './bridge-product-review-metadata-contracts.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type {
@@ -174,19 +175,23 @@ export async function flushBridgeWorkerRuntimeContinuations(): Promise<void> {
 	);
 }
 
-export function createIdleWorktreeAnnotationSubscription<
-	TSubscriptionKind extends 'file.annotations' | 'review.annotations',
->(subscriptionKind: TSubscriptionKind): BridgeProductSubscription<TSubscriptionKind> {
-	const events = new BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<TSubscriptionKind>
-	>(1);
+export function createIdleWorktreeAnnotationSubscription(
+	protocol: BridgeProductMetadataApplicationProtocolIdentity,
+): {
+	readonly events: AsyncIterable<never>;
+	readonly subscriptionId: string;
+	readonly subscriptionKind: string;
+	cancel(): Promise<void>;
+	update(): Promise<void>;
+} {
+	const events = new BridgeProductBoundedAsyncQueue<never>(1);
 	return {
 		cancel: async (): Promise<void> => {
 			events.close(true);
 		},
 		events,
-		subscriptionId: `${subscriptionKind}-idle-test-subscription`,
-		subscriptionKind,
+		subscriptionId: `${protocol.kind}-idle-test-subscription`,
+		subscriptionKind: protocol.kind,
 		update: async (): Promise<void> => {},
 	};
 }
@@ -267,10 +272,10 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 			});
 		},
 		subscribe: (...arguments_): never => {
-			const [subscriptionKind] = arguments_;
+			const [{ kind: subscriptionKind }] = arguments_;
 			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Generic transport fixtures close over the requested annotation subscription kind.
-				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
+				return createIdleWorktreeAnnotationSubscription(arguments_[0]) as never;
 			}
 			if (subscriptionKind !== 'review.metadata') {
 				throw new Error(`Unexpected product subscription ${subscriptionKind}.`);

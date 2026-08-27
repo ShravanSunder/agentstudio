@@ -20,12 +20,6 @@ import {
 	type BridgeProductSessionBootstrap,
 } from './bridge-product-session-contracts.js';
 import { parseBridgeProductStrictJSON } from './bridge-product-strict-json.js';
-import {
-	bridgeProductSurfaceForSubscriptionKind,
-	type BridgeProductSubscriptionInterestDeltaWire,
-	type BridgeProductSubscriptionKind,
-	type BridgeProductSubscriptionOpenWire,
-} from './bridge-product-subscription-contracts.js';
 
 export interface BridgeProductSessionAuthorityInstallInput {
 	readonly bootstrap: BridgeProductSessionBootstrap;
@@ -48,34 +42,24 @@ type BridgeProductControlResponseForKind<
 	TResponseKind extends BridgeProductControlResponse['kind'],
 > = Extract<BridgeProductControlResponse, { readonly kind: TResponseKind }>;
 
-type BridgeProductSubscriptionOpenForKind<TSubscriptionKind extends BridgeProductSubscriptionKind> =
-	Extract<BridgeProductSubscriptionOpenWire, { readonly subscriptionKind: TSubscriptionKind }>;
-
-type BridgeProductSubscriptionDeltaForKind<
-	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = Extract<
-	BridgeProductSubscriptionInterestDeltaWire,
-	{ readonly subscriptionKind: TSubscriptionKind }
->;
-
-export type BridgeProductSubscriptionOpenAccepted<
-	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = Omit<BridgeProductControlResponseForKind<'subscription.openAccepted'>, 'subscriptionKind'> & {
+export type BridgeProductSubscriptionOpenAccepted<TSubscriptionKind extends string> = Omit<
+	BridgeProductControlResponseForKind<'subscription.openAccepted'>,
+	'subscriptionKind'
+> & {
 	readonly subscriptionKind: TSubscriptionKind;
 };
 
-export type BridgeProductSubscriptionUpdateBatchAccepted<
-	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = Omit<
+export type BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionKind extends string> = Omit<
 	BridgeProductControlResponseForKind<'subscription.updateBatchAccepted'>,
 	'subscriptionKind'
 > & {
 	readonly subscriptionKind: TSubscriptionKind;
 };
 
-export type BridgeProductSubscriptionCancelAccepted<
-	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = Omit<BridgeProductControlResponseForKind<'subscription.cancelAccepted'>, 'subscriptionKind'> & {
+export type BridgeProductSubscriptionCancelAccepted<TSubscriptionKind extends string> = Omit<
+	BridgeProductControlResponseForKind<'subscription.cancelAccepted'>,
+	'subscriptionKind'
+> & {
 	readonly subscriptionKind: TSubscriptionKind;
 };
 
@@ -160,14 +144,16 @@ export class BridgeProductControlMux {
 		});
 	}
 
-	openSubscription<TSubscriptionKind extends BridgeProductSubscriptionKind>(props: {
+	openSubscription<TSubscriptionOpen extends { readonly subscriptionKind: string }>(props: {
 		readonly signal?: AbortSignal;
-		readonly subscription: BridgeProductSubscriptionOpenForKind<TSubscriptionKind>;
+		readonly subscription: TSubscriptionOpen;
 		readonly subscriptionId: string;
 		readonly workerDerivationEpoch: number;
-	}): Promise<BridgeProductSubscriptionOpenAccepted<TSubscriptionKind>> {
+	}): Promise<BridgeProductSubscriptionOpenAccepted<TSubscriptionOpen['subscriptionKind']>> {
 		return this.#admit({
-			acceptResponse: (response): BridgeProductSubscriptionOpenAccepted<TSubscriptionKind> => {
+			acceptResponse: (
+				response,
+			): BridgeProductSubscriptionOpenAccepted<TSubscriptionOpen['subscriptionKind']> => {
 				if (response.kind !== 'subscription.openAccepted') {
 					throw new Error(
 						'Bridge product subscription open did not return subscription.openAccepted.',
@@ -182,7 +168,6 @@ export class BridgeProductControlMux {
 				return { ...response, subscriptionKind: props.subscription.subscriptionKind };
 			},
 			buildRequest: (identity): BridgeProductControlRequest => {
-				bridgeProductSurfaceForSubscriptionKind(props.subscription.subscriptionKind);
 				return bridgeProductControlRequestSchema.parse({
 					...identity,
 					kind: 'subscription.open',
@@ -195,12 +180,12 @@ export class BridgeProductControlMux {
 		});
 	}
 
-	updateSubscriptionBatch<TSubscriptionKind extends BridgeProductSubscriptionKind>(props: {
+	updateSubscriptionBatch<TSubscriptionDelta extends { readonly subscriptionKind: string }>(props: {
 		readonly baseInterestRevision: number;
 		readonly baseInterestSha256: string;
 		readonly batchCount: number;
 		readonly batchIndex: number;
-		readonly delta: BridgeProductSubscriptionDeltaForKind<TSubscriptionKind>;
+		readonly delta: TSubscriptionDelta;
 		readonly signal?: AbortSignal;
 		readonly subscriptionId: string;
 		readonly targetInterestRevision: number;
@@ -208,11 +193,13 @@ export class BridgeProductControlMux {
 		readonly totalDeltaItemCount: number;
 		readonly updateId: string;
 		readonly workerDerivationEpoch: number;
-	}): Promise<BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionKind>> {
+	}): Promise<
+		BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionDelta['subscriptionKind']>
+	> {
 		return this.#admit({
 			acceptResponse: (
 				response,
-			): BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionKind> => {
+			): BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionDelta['subscriptionKind']> => {
 				if (response.kind !== 'subscription.updateBatchAccepted') {
 					throw new Error(
 						'Bridge product subscription update did not return subscription.updateBatchAccepted.',
@@ -234,7 +221,6 @@ export class BridgeProductControlMux {
 				return { ...response, subscriptionKind: props.delta.subscriptionKind };
 			},
 			buildRequest: (identity): BridgeProductControlRequest => {
-				bridgeProductSurfaceForSubscriptionKind(props.delta.subscriptionKind);
 				return bridgeProductControlRequestSchema.parse({
 					...identity,
 					baseInterestRevision: props.baseInterestRevision,
@@ -256,7 +242,7 @@ export class BridgeProductControlMux {
 		});
 	}
 
-	cancelSubscription<TSubscriptionKind extends BridgeProductSubscriptionKind>(props: {
+	cancelSubscription<TSubscriptionKind extends string>(props: {
 		readonly signal?: AbortSignal;
 		readonly subscriptionId: string;
 		readonly subscriptionKind: TSubscriptionKind;
@@ -278,7 +264,6 @@ export class BridgeProductControlMux {
 				return { ...response, subscriptionKind: props.subscriptionKind };
 			},
 			buildRequest: (identity): BridgeProductControlRequest => {
-				bridgeProductSurfaceForSubscriptionKind(props.subscriptionKind);
 				return bridgeProductControlRequestSchema.parse({
 					...identity,
 					kind: 'subscription.cancel',

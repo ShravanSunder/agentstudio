@@ -6,6 +6,7 @@ import {
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
+import { bridgeProductReviewMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import type {
 	BridgeProductSubscriptionEvent,
 	BridgeProductSubscriptionOptions,
@@ -70,11 +71,14 @@ function productTransportRecordingReviewBootstrap(props: {
 			throw new Error('Review bootstrap must not open content.');
 		},
 		subscribe: (...arguments_): never => {
-			const [kind, options] = arguments_;
-			if (kind !== 'review.metadata') {
-				throw new Error(`Unexpected product subscription ${kind}.`);
+			const [protocol, options] = arguments_;
+			if (protocol.kind !== bridgeProductReviewMetadataApplicationProtocol.kind) {
+				throw new Error(`Unexpected product subscription ${protocol.kind}.`);
 			}
-			props.subscriptions.push({ kind, options });
+			props.subscriptions.push({
+				kind: bridgeProductReviewMetadataApplicationProtocol.kind,
+				options: bridgeProductReviewMetadataApplicationProtocol.optionsSchema.parse(options),
+			});
 			return props.reviewSubscription as never;
 		},
 		workerDerivationEpoch: (surface): number => (surface === 'review' ? reviewEpoch : 0),

@@ -96,7 +96,7 @@ actor BridgePaneProductContentDemandAuthority {
     private func highestFileDemandLane(for path: String) -> BridgeProductDemandLane? {
         var highestLane: BridgeProductDemandLane?
         for subscription in committedSubscriptionById.values {
-            guard case .fileMetadata(let interests, _) = subscription.interestState else {
+            guard let interests = subscription.interestState.fileMetadataState?.interests else {
                 continue
             }
             for interest in interests where interest.paths.contains(path) {
@@ -109,7 +109,7 @@ actor BridgePaneProductContentDemandAuthority {
     private func highestReviewDemandLane(for itemId: String) -> BridgeProductDemandLane? {
         var highestLane: BridgeProductDemandLane?
         for subscription in committedSubscriptionById.values {
-            guard case .reviewMetadata(let interests) = subscription.interestState else {
+            guard let interests = subscription.interestState.reviewMetadataState?.interests else {
                 continue
             }
             for interest in interests where interest.itemIds.contains(itemId) {

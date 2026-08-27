@@ -95,7 +95,7 @@ struct BridgeWorktreeRefreshSessionTests {
         // Assert
         guard case .resynced(let resync) = resyncEffect,
             case .subscriptionData(let replayData) = replayFrame,
-            case .fileMetadata = replayData.data
+            replayData.data.subscriptionKind == .fileMetadata
         else {
             Issue.record("Expected resync reopening followed by retained File data")
             return

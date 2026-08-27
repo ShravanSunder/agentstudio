@@ -75,7 +75,7 @@ struct BridgeProductSubscriptionResyncResult: Equatable, Sendable {
 
 struct BridgeProductSubscriptionState: Sendable {
     private typealias ExactUTF8Identity = BridgeProductSubscriptionExactUTF8Identity
-    private typealias DeltaMemberIdentity = BridgeProductSubscriptionDeltaMemberIdentity
+    private typealias DeltaMemberIdentity = Data
 
     private struct StagedUpdateMetadata: Equatable, Sendable {
         let updateId: String
@@ -166,7 +166,7 @@ struct BridgeProductSubscriptionState: Sendable {
             throw BridgeProductSubscriptionStateError.subscriptionCapacityExceeded
         }
 
-        let interestState = Self.emptyInterestState(for: request.subscription.subscriptionKind)
+        let interestState = try request.subscription.initialInterestState()
         let interestSha256 = try interestState.sha256Hex()
         let record = SubscriptionRecord(
             subscription: request.subscription,
@@ -469,7 +469,7 @@ struct BridgeProductSubscriptionState: Sendable {
         guard greatestInterestRevision < BridgeProductWireContract.maximumSafeInteger else {
             throw BridgeProductSubscriptionStateError.interestRevisionExhausted
         }
-        let emptyInterestState = Self.emptyInterestState(for: record.subscriptionKind)
+        let emptyInterestState = try record.subscription.initialInterestState()
         let emptyInterestSHA256 = try emptyInterestState.sha256Hex()
         candidateRecord.interestRevision = greatestInterestRevision + 1
         candidateRecord.interestSha256 = emptyInterestSHA256
@@ -515,21 +515,6 @@ struct BridgeProductSubscriptionState: Sendable {
     mutating func revokeWorker() {
         recordsBySubscriptionId.removeAll(keepingCapacity: false)
         barrierIntents.removeAll(keepingCapacity: false)
-    }
-
-    static func emptyInterestState(
-        for subscriptionKind: BridgeProductSubscriptionKind
-    ) -> BridgeProductSubscriptionInterestState {
-        switch subscriptionKind {
-        case .fileAnnotations:
-            .fileAnnotations
-        case .fileMetadata:
-            .fileMetadata(interests: [], pathScope: [])
-        case .reviewAnnotations:
-            .reviewAnnotations
-        case .reviewMetadata:
-            .reviewMetadata(interests: [])
-        }
     }
 
     private static func snapshot(

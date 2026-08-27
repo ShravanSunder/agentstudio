@@ -18,6 +18,7 @@ import {
 	bridgeProductFrameAcknowledgementRequestSchema,
 	type BridgeProductFrameAcknowledgementRequest,
 } from '../bridge-product-frame-acknowledgement-contracts.js';
+import { bridgeProductMetadataApplicationRegistry } from '../bridge-product-metadata-application-registry.js';
 import { encodeBridgeProductMetadataFrame } from '../bridge-product-metadata-frame-codec.js';
 import {
 	BridgeProductControlMux,
@@ -78,6 +79,7 @@ export function createContentTransportHarness(
 			createIdentifier: purposeIdentifier(),
 			executeProductRequest: executeAgentStudioBridgeProductRequest,
 			initialWorkerDerivationEpochs: { file: fileEpoch, review: 0 },
+			metadataApplicationRegistry: bridgeProductMetadataApplicationRegistry,
 			...(maximumConcurrentContentResponses === undefined
 				? {}
 				: { maximumConcurrentContentResponses }),

@@ -6,6 +6,7 @@ import {
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
+import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type {
@@ -94,10 +95,11 @@ export function makeFileProductTestTransport(props: {
 			sink(makeFilePanePresentationFrame(1, 'foreground'));
 		},
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The fixture closes over the supported File/Review subscription variants.
-		subscribe: ((subscriptionKind: string): never => {
+		subscribe: ((protocol: BridgeProductMetadataApplicationProtocolIdentity): never => {
+			const subscriptionKind = protocol.kind;
 			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The branch closes over the requested annotation subscription kind.
-				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
+				return createIdleWorktreeAnnotationSubscription(protocol) as never;
 			}
 			if (subscriptionKind === 'review.metadata') {
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The branch closes over Review metadata.

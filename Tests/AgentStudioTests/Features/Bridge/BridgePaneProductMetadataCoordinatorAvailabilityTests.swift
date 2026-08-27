@@ -77,9 +77,9 @@ struct BridgeProductReviewAvailabilityTests {
         // Assert
         guard case .subscriptionAccepted(let accepted) = acceptedFrame,
             case .subscriptionData(let sourceAcceptedData) = sourceAcceptedFrame,
-            case .reviewMetadata(.sourceAccepted(let sourceAccepted)) = sourceAcceptedData.data,
+            case .sourceAccepted(let sourceAccepted)? = sourceAcceptedData.data.reviewMetadataEvent,
             case .subscriptionData(let snapshotData) = snapshotFrame,
-            case .reviewMetadata(.snapshot(let snapshot)) = snapshotData.data
+            case .snapshot(let snapshot)? = snapshotData.data.reviewMetadataEvent
         else {
             Issue.record("Expected Review accepted followed by sourceAccepted and snapshot after publication")
             return
@@ -485,7 +485,7 @@ struct BridgeProductReviewAvailabilityTests {
         }
         let sourceAccepted = try await pullAvailabilityMetadataFrame(from: pump)
         guard case .subscriptionData(let sourceAcceptedData) = sourceAccepted,
-            case .reviewMetadata(.sourceAccepted) = sourceAcceptedData.data
+            case .sourceAccepted? = sourceAcceptedData.data.reviewMetadataEvent
         else {
             Issue.record("Expected initial replay sourceAccepted")
             return

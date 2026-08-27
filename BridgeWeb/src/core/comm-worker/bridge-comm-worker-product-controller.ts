@@ -13,25 +13,32 @@ import {
 	type BridgeProductWorktreeAnnotationOperation,
 } from './bridge-product-call-contracts.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
+import type {
+	BridgeProductMetadataApplicationEvent,
+	BridgeProductMetadataApplicationOptions,
+} from './bridge-product-metadata-application-protocol.js';
 import {
-	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT,
-	type BridgeProductSubscriptionEvent,
-	type BridgeProductSubscriptionOptions,
-} from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+	bridgeProductFileMetadataApplicationProtocol,
+	bridgeProductReviewMetadataApplicationProtocol,
+} from './bridge-product-metadata-application-registry.js';
+import { BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT } from './bridge-product-subscription-contracts.js';
+import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import type { BridgeWorkerMetadataInterestRequest } from './bridge-worker-contracts.js';
 
-type FileMetadataSubscription = BridgeProductSubscription<'file.metadata'>;
-type FileMetadataEvent = BridgeProductSubscriptionEvent<'file.metadata'>;
+type FileMetadataProtocol = typeof bridgeProductFileMetadataApplicationProtocol;
+type FileMetadataSubscription = BridgeProductMetadataApplicationSubscription<FileMetadataProtocol>;
+type FileMetadataEvent = BridgeProductMetadataApplicationEvent<FileMetadataProtocol>;
 type FileMetadataEventHandler = (event: FileMetadataEvent, workerDerivationEpoch: number) => void;
 type FileMetadataFailureHandler = (error: unknown, workerDerivationEpoch: number) => void;
 type FileMetadataDemandFailureHandler = (error: unknown, workerDerivationEpoch: number) => void;
 type FileMetadataInterest = Parameters<FileMetadataSubscription['update']>[0]['interests'][number];
 type FileMetadataInterestLane = FileMetadataInterest['lane'];
 type FileSourceDiscoveryResult = BridgeProductCallResult<'file.source.current'>;
-type ReviewMetadataSubscription = BridgeProductSubscription<'review.metadata'>;
-type ReviewMetadataEvent = BridgeProductSubscriptionEvent<'review.metadata'>;
+type ReviewMetadataProtocol = typeof bridgeProductReviewMetadataApplicationProtocol;
+type ReviewMetadataSubscription =
+	BridgeProductMetadataApplicationSubscription<ReviewMetadataProtocol>;
+type ReviewMetadataEvent = BridgeProductMetadataApplicationEvent<ReviewMetadataProtocol>;
 type ReviewMetadataEventHandler = (
 	event: ReviewMetadataEvent,
 	workerDerivationEpoch: number,
@@ -84,10 +91,10 @@ export class BridgeCommWorkerProductController {
 	> = { file: null, review: null };
 	readonly #callCurrentFileSource: () => Promise<FileSourceDiscoveryResult>;
 	readonly #subscribeFile: (
-		options: BridgeProductSubscriptionOptions<'file.metadata'>,
+		options: BridgeProductMetadataApplicationOptions<FileMetadataProtocol>,
 	) => FileMetadataSubscription;
 	readonly #subscribeReview: (
-		options: BridgeProductSubscriptionOptions<'review.metadata'>,
+		options: BridgeProductMetadataApplicationOptions<ReviewMetadataProtocol>,
 	) => ReviewMetadataSubscription;
 	#fileSubscription: FileMetadataSubscription | null = null;
 	#fileSource: FileMetadataEvent['source'] | null = null;
@@ -122,10 +129,10 @@ export class BridgeCommWorkerProductController {
 		readonly productTransport: BridgeProductTransportSession;
 		readonly telemetryClient?: WorktreeAnnotationLifecycleTelemetryRecorder | undefined;
 		readonly subscribeFile?: (
-			options: BridgeProductSubscriptionOptions<'file.metadata'>,
+			options: BridgeProductMetadataApplicationOptions<FileMetadataProtocol>,
 		) => FileMetadataSubscription;
 		readonly subscribeReview?: (
-			options: BridgeProductSubscriptionOptions<'review.metadata'>,
+			options: BridgeProductMetadataApplicationOptions<ReviewMetadataProtocol>,
 		) => ReviewMetadataSubscription;
 	}) {
 		this.#onFileMetadataEvent = props.onFileMetadataEvent;
@@ -167,11 +174,11 @@ export class BridgeCommWorkerProductController {
 		this.#subscribeFile =
 			props.subscribeFile ??
 			((options): FileMetadataSubscription =>
-				this.#productTransport.subscribe('file.metadata', options));
+				this.#productTransport.subscribe(bridgeProductFileMetadataApplicationProtocol, options));
 		this.#subscribeReview =
 			props.subscribeReview ??
 			((options): ReviewMetadataSubscription =>
-				this.#productTransport.subscribe('review.metadata', options));
+				this.#productTransport.subscribe(bridgeProductReviewMetadataApplicationProtocol, options));
 	}
 
 	ensureAnnotationSubscriptions(): void {

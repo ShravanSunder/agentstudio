@@ -31,6 +31,10 @@ import {
 	bridgeProductFrameAcknowledgementRequestSchema,
 	type BridgeProductFrameAcknowledgementRequest,
 } from './bridge-product-frame-acknowledgement-contracts.js';
+import type {
+	BridgeProductMetadataApplicationProtocol,
+	BridgeProductMetadataApplicationRegistry,
+} from './bridge-product-metadata-application-protocol.js';
 import {
 	BridgeProductMetadataStreamDecoder,
 	type BridgeProductMetadataStreamDecoderDiagnostics,
@@ -47,18 +51,12 @@ import {
 	type BridgeProductMetadataStreamRequest,
 } from './bridge-product-session-contracts.js';
 import {
-	bridgeProductSurfaceForSubscriptionKind,
-	type BridgeProductSubscriptionKind,
-	type BridgeProductSubscriptionOptions,
-} from './bridge-product-subscription-contracts.js';
-import {
 	BridgeProductSubscriptionState,
 	type BridgeProductSubscriptionFrameSink,
 } from './bridge-product-subscription-state.js';
 import type {
 	BridgeProductCallOptions,
 	BridgeProductContentStream,
-	BridgeProductSubscription,
 	BridgeProductTransport,
 } from './bridge-product-transport-contract.js';
 
@@ -78,13 +76,6 @@ type BridgeProductCallArguments = {
 	];
 }[BridgeProductCallKind];
 
-type BridgeProductSubscriptionArguments = {
-	[TSubscriptionKind in BridgeProductSubscriptionKind]: readonly [
-		subscriptionKind: TSubscriptionKind,
-		options: BridgeProductSubscriptionOptions<TSubscriptionKind>,
-	];
-}[BridgeProductSubscriptionKind];
-
 export interface CreateBridgeProductTransportProps {
 	readonly authority: BridgeProductSessionAuthority;
 	readonly controlMux: Pick<
@@ -95,6 +86,7 @@ export interface CreateBridgeProductTransportProps {
 	readonly executeProductRequest: BridgeProductRequestExecutor;
 	readonly initialWorkerDerivationEpochs?: Readonly<Record<BridgeProductSurface, number>>;
 	readonly maximumConcurrentContentResponses?: number;
+	readonly metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
 }
 
 export interface BridgeProductTransportSession extends BridgeProductTransport {
@@ -173,6 +165,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	readonly #createIdentifier: (purpose: BridgeProductIdentifierPurpose) => string;
 	readonly #epochs: Record<BridgeProductSurface, number>;
 	readonly #executeProductRequest: BridgeProductRequestExecutor;
+	readonly #metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
 	#metadataReady: BridgeProductDeferred<void> | null = null;
 	#metadataStreamHealthDiagnostics: BridgeProductMetadataStreamHealthDiagnostics = {
 		acknowledgedFrameCount: 0,
@@ -212,6 +205,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			props.createIdentifier ??
 			((purpose): string => `${purpose}-${globalThis.crypto.randomUUID()}`);
 		this.#executeProductRequest = props.executeProductRequest;
+		this.#metadataApplicationRegistry = props.metadataApplicationRegistry;
 		this.#contentResponseAdmission = new BridgeProductContentResponseAdmission(
 			props.maximumConcurrentContentResponses,
 		);
@@ -293,22 +287,76 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		return this.#openValidatedContent(request, abortSignal);
 	}
 
-	subscribe<TSubscriptionArguments extends BridgeProductSubscriptionArguments>(
-		...arguments_: TSubscriptionArguments
-	): BridgeProductSubscription<TSubscriptionArguments[0]> {
-		const [subscriptionKind, options] = arguments_;
-		const state = this.#createSubscriptionState(subscriptionKind, options);
+	subscribe<
+		TKind extends string,
+		TOptions,
+		TUpdateOptions,
+		TOpen extends { readonly subscriptionKind: TKind },
+		TInterestState extends { readonly subscriptionKind: TKind },
+		TInterestDelta extends { readonly subscriptionKind: TKind },
+		TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
+	>(
+		protocol: BridgeProductMetadataApplicationProtocol<
+			TKind,
+			TOptions,
+			TUpdateOptions,
+			TOpen,
+			TInterestState,
+			TInterestDelta,
+			TData
+		>,
+		options: TOptions,
+	): {
+		readonly events: AsyncIterable<TData['event']>;
+		readonly subscriptionId: string;
+		readonly subscriptionKind: TKind;
+		cancel(): Promise<void>;
+		update(options: TUpdateOptions): Promise<void>;
+	} {
+		this.#metadataApplicationRegistry.requireProtocol(protocol);
+		const state = this.#createSubscriptionState(protocol, options);
 		this.#subscriptions.set(state.subscriptionId, state);
 		state.start();
 		return state.publicSubscription;
 	}
 
-	#createSubscriptionState<TSubscriptionKind extends BridgeProductSubscriptionKind>(
-		subscriptionKind: TSubscriptionKind,
-		options: BridgeProductSubscriptionOptions<TSubscriptionKind>,
-	): BridgeProductSubscriptionState<TSubscriptionKind> {
-		const surface = bridgeProductSurfaceForSubscriptionKind(subscriptionKind);
-		return new BridgeProductSubscriptionState({
+	#createSubscriptionState<
+		TKind extends string,
+		TOptions,
+		TUpdateOptions,
+		TOpen extends { readonly subscriptionKind: TKind },
+		TInterestState extends { readonly subscriptionKind: TKind },
+		TInterestDelta extends { readonly subscriptionKind: TKind },
+		TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
+	>(
+		protocol: BridgeProductMetadataApplicationProtocol<
+			TKind,
+			TOptions,
+			TUpdateOptions,
+			TOpen,
+			TInterestState,
+			TInterestDelta,
+			TData
+		>,
+		options: TOptions,
+	): BridgeProductSubscriptionState<
+		TKind,
+		TOptions,
+		TUpdateOptions,
+		TOpen,
+		TInterestState,
+		TInterestDelta,
+		TData
+	> {
+		return new BridgeProductSubscriptionState<
+			TKind,
+			TOptions,
+			TUpdateOptions,
+			TOpen,
+			TInterestState,
+			TInterestDelta,
+			TData
+		>({
 			controlMux: this.#controlMux,
 			createIdentifier: this.#createIdentifier,
 			ensureMetadataStream: (): Promise<void> => this.#ensureMetadataStream(),
@@ -316,9 +364,10 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			onTerminal: (subscriptionId): void => {
 				this.#subscriptions.delete(subscriptionId);
 			},
-			readWorkerDerivationEpochAtAdmission: (): number => this.workerDerivationEpoch(surface),
+			protocol,
+			readWorkerDerivationEpochAtAdmission: (): number =>
+				this.workerDerivationEpoch(protocol.surface),
 			subscriptionId: this.#createIdentifier('subscription'),
-			subscriptionKind,
 		});
 	}
 

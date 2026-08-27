@@ -90,15 +90,10 @@ extension BridgePaneProductMetadataCoordinator {
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         session: BridgeProductSession
     ) async throws {
-        let data: BridgeProductSubscriptionData
-        switch subscriptionKind {
-        case .fileAnnotations:
-            data = .fileAnnotations(event)
-        case .reviewAnnotations:
-            data = .reviewAnnotations(event)
-        case .fileMetadata, .reviewMetadata:
-            throw BridgePaneProductMetadataCoordinatorError.producerRejected(.unknownLease)
-        }
+        let data = try BridgeProductSubscriptionData.registered(
+            event,
+            subscriptionKind: subscriptionKind
+        )
         let result = try await session.enqueueSubscriptionData(
             subscriptionId: subscriptionId,
             data: data,
@@ -196,7 +191,10 @@ extension BridgePaneProductMetadataCoordinator {
     ) async throws {
         let result = try await session.enqueueSubscriptionData(
             subscriptionId: subscriptionId,
-            data: .fileMetadata(event),
+            data: try BridgeProductSubscriptionData.registered(
+                event,
+                subscriptionKind: .fileMetadata
+            ),
             operationCorrelationID: operationCorrelationID,
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission
@@ -223,7 +221,10 @@ extension BridgePaneProductMetadataCoordinator {
     ) async throws -> BridgeProductProducerEnqueueResult {
         let result = try await session.enqueueSubscriptionData(
             subscriptionId: subscriptionId,
-            data: .reviewMetadata(event),
+            data: try BridgeProductSubscriptionData.registered(
+                event,
+                subscriptionKind: .reviewMetadata
+            ),
             operationCorrelationID: event.operationCorrelationID,
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission

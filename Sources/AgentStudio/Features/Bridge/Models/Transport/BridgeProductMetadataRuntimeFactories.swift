@@ -46,8 +46,9 @@ struct BridgeProductSubscriptionFrameCorrelation: Equatable, Sendable {
     let subscriptionId: String
     let subscriptionKind: BridgeProductSubscriptionKind
     let workerDerivationEpoch: Int
+    private let registeredSurface: BridgeProductSurface
 
-    var surface: BridgeProductSurface { subscriptionKind.surface }
+    var surface: BridgeProductSurface { registeredSurface }
 
     init(
         cursor: String?,
@@ -66,6 +67,9 @@ struct BridgeProductSubscriptionFrameCorrelation: Equatable, Sendable {
             name: "interestRevision",
             codingPath: []
         )
+        registeredSurface = try BridgeProductMetadataApplicationRegistry.product.registration(
+            for: subscriptionKind
+        ).surface
         try BridgeProductContractDecoding.validateSHA256(interestSha256, codingPath: [])
         try BridgeProductContractDecoding.validateNonnegative(
             sourceGeneration,
@@ -122,6 +126,7 @@ extension BridgeProductSubscriptionFrameIdentity {
         self.subscriptionKind = correlation.subscriptionKind
         self.subscriptionSequence = subscriptionSequence
         self.workerDerivationEpoch = correlation.workerDerivationEpoch
+        self.registeredSurface = correlation.surface
     }
 }
 

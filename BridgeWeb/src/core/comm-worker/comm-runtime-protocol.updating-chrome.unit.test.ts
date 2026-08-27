@@ -15,6 +15,7 @@ import {
 import { publishBridgeCommWorkerUpdatingChrome } from './bridge-comm-worker-updating-chrome.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type { BridgeProductReviewComparisonTargetsContentDescriptor } from './bridge-product-content-contracts.js';
+import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type {
 	BridgeProductContentStream,
@@ -545,10 +546,11 @@ function createPanePresentationTestTransport(props: {
 		setPanePresentationFrameSink: (sink): void => {
 			panePresentationSink = sink;
 		},
-		subscribe: ((subscriptionKind: string): never => {
+		subscribe: ((protocol: BridgeProductMetadataApplicationProtocolIdentity): never => {
+			const subscriptionKind = protocol.kind;
 			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The generic fixture closes over the requested annotation subscription kind.
-				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
+				return createIdleWorktreeAnnotationSubscription(protocol) as never;
 			}
 			if (subscriptionKind !== 'file.metadata') return reviewSubscription as never;
 			const subscription = fileSubscriptions[fileSubscriptionCount];

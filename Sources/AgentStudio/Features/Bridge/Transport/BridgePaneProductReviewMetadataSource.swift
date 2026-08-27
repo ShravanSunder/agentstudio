@@ -134,7 +134,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
         guard subscription.subscriptionKind == .reviewMetadata,
-            case .reviewMetadata = subscription.interestState
+            subscription.interestState.reviewMetadataState != nil
         else {
             throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
         }
@@ -157,7 +157,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             throw BridgePaneProductReviewMetadataSourceError.unknownSubscription
         }
         guard subscription.subscriptionKind == .reviewMetadata,
-            case .reviewMetadata = subscription.interestState,
+            subscription.interestState.reviewMetadataState != nil,
             subscription.interestRevision >= activeContext.subscription.interestRevision
         else {
             throw BridgePaneProductReviewMetadataSourceError.unavailablePackage

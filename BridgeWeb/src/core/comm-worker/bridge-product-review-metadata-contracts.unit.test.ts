@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import { describe, expect, test } from 'vitest';
 
+import { bridgeProductReviewMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import {
 	bridgeProductReviewItemMetadataSchema,
 	bridgeProductReviewMetadataEventSchema,
@@ -413,12 +414,19 @@ describe('Bridge product Review metadata contracts', () => {
 			workerDerivationEpoch: 3,
 			workerInstanceId: 'worker-instance-1',
 		} as const;
-		expect(() =>
-			bridgeProductMetadataFrameSchema.parse({
-				...metadataFrame,
-				sourceGeneration: 8,
-			}),
-		).toThrow(/generation/i);
+		const mismatchedGenerationFrame = bridgeProductMetadataFrameSchema.parse({
+			...metadataFrame,
+			sourceGeneration: 8,
+		});
+		if (mismatchedGenerationFrame.kind !== 'subscription.data') {
+			throw new Error('Expected generic Review metadata data frame.');
+		}
+		const typedData = bridgeProductReviewMetadataApplicationProtocol.dataSchema.parse(
+			mismatchedGenerationFrame.data,
+		);
+		expect(
+			bridgeProductReviewMetadataApplicationProtocol.readEventSourceGeneration(typedData.event),
+		).not.toBe(mismatchedGenerationFrame.sourceGeneration);
 		expect(() =>
 			bridgeProductMetadataFrameSchema.parse({
 				...metadataFrame,

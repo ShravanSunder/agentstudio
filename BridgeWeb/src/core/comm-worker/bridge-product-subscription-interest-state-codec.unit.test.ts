@@ -7,14 +7,14 @@ import {
 	bridgeProductSafeMessageSchema,
 	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductMetadataApplicationRegistry } from './bridge-product-metadata-application-registry.js';
 import { bridgeProductSubscriptionInterestDeltaItemCount } from './bridge-product-subscription-accounting.js';
 import {
 	type BridgeProductSubscriptionInterestState,
 	bridgeProductFileMetadataInterestDeltaSchema,
 	bridgeProductReviewMetadataInterestDeltaSchema,
-	preflightBridgeProductSubscriptionInterestStateCanonicalEncoding,
-	validateBridgeProductSubscriptionInterestState,
 } from './bridge-product-subscription-contracts.js';
+import { preflightBridgeProductSubscriptionInterestStateCanonicalEncoding } from './bridge-product-subscription-interest-preflight.js';
 import { encodeBridgeProductSubscriptionInterestState } from './bridge-product-subscription-interest-state-codec.js';
 
 describe('Bridge product subscription interest-state codec', () => {
@@ -108,9 +108,6 @@ describe('Bridge product subscription interest-state codec', () => {
 			status: 'exceedsMaximum',
 			visitedTextValueCount: 32,
 		});
-		expect(() => validateBridgeProductSubscriptionInterestState(worstCaseState)).toThrow(
-			/canonical interest state/iu,
-		);
 		expect(() => encodeBridgeProductSubscriptionInterestState(worstCaseState)).toThrow(
 			/canonical interest state/iu,
 		);
@@ -129,7 +126,7 @@ describe('Bridge product subscription interest-state codec', () => {
 		expect(Buffer.from(new TextEncoder().encode(composedPath))).not.toEqual(
 			Buffer.from(new TextEncoder().encode(decomposedPath)),
 		);
-		expect(validateBridgeProductSubscriptionInterestState(state)).toEqual(state);
+		expect(bridgeProductMetadataApplicationRegistry.validateInterestState(state)).toEqual(state);
 		expect(() => encodeBridgeProductSubscriptionInterestState(state)).not.toThrow();
 		expect(
 			bridgeProductFileMetadataInterestDeltaSchema.safeParse({
@@ -159,7 +156,7 @@ describe('Bridge product subscription interest-state codec', () => {
 		expect(Buffer.from(new TextEncoder().encode(composedItemId))).not.toEqual(
 			Buffer.from(new TextEncoder().encode(decomposedItemId)),
 		);
-		expect(validateBridgeProductSubscriptionInterestState(state)).toEqual(state);
+		expect(bridgeProductMetadataApplicationRegistry.validateInterestState(state)).toEqual(state);
 		expect(() => encodeBridgeProductSubscriptionInterestState(state)).not.toThrow();
 		expect(
 			bridgeProductReviewMetadataInterestDeltaSchema.safeParse({
@@ -178,7 +175,7 @@ describe('Bridge product subscription interest-state codec', () => {
 		expect(new TextEncoder().encode(exactMaximumItemId).byteLength).toBe(128);
 		expect(new TextEncoder().encode(oversizedItemId).byteLength).toBe(129);
 		expect(
-			validateBridgeProductSubscriptionInterestState({
+			bridgeProductMetadataApplicationRegistry.validateInterestState({
 				interests: [{ itemIds: [exactMaximumItemId], lane: 'foreground' }],
 				subscriptionKind: 'review.metadata',
 			}),
@@ -188,7 +185,7 @@ describe('Bridge product subscription interest-state codec', () => {
 		});
 		for (const rejectedItemId of ['', oversizedItemId, invalidScalarItemId]) {
 			expect(() =>
-				validateBridgeProductSubscriptionInterestState({
+				bridgeProductMetadataApplicationRegistry.validateInterestState({
 					interests: [{ itemIds: [rejectedItemId], lane: 'foreground' }],
 					subscriptionKind: 'review.metadata',
 				}),

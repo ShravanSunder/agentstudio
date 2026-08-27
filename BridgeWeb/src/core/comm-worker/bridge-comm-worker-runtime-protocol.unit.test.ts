@@ -953,7 +953,7 @@ function createReviewMetadataInterestProductTransport(
 				throw new Error('Review metadata interest test does not open content.');
 			},
 			subscribe: (...arguments_): never => {
-				const [subscriptionKind] = arguments_;
+				const [{ kind: subscriptionKind }] = arguments_;
 				if (subscriptionKind !== 'review.metadata') {
 					throw new Error(`Unexpected subscription ${subscriptionKind}.`);
 				}

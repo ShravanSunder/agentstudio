@@ -536,7 +536,7 @@ private struct RealGitReviewLoadHarness {
             )
             switch frame {
             case .subscriptionData(let dataFrame):
-                guard case .reviewMetadata(let event) = dataFrame.data else {
+                guard let event = dataFrame.data.reviewMetadataEvent else {
                     throw RealGitReviewMetadataEventError.expectedReviewMetadataEvent
                 }
                 return event
@@ -640,7 +640,7 @@ private func realGitReviewEvent(
     from frame: BridgeProductMetadataFrame
 ) throws -> BridgeProductReviewMetadataEvent {
     guard case .subscriptionData(let dataFrame) = frame,
-        case .reviewMetadata(let event) = dataFrame.data
+        let event = dataFrame.data.reviewMetadataEvent
     else {
         throw RealGitReviewMetadataEventError.expectedReviewMetadataEvent
     }

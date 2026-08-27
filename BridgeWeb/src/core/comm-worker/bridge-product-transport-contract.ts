@@ -10,9 +10,15 @@ import type {
 	BridgeProductContentTerminal,
 } from './bridge-product-content-contracts.js';
 import type {
+	BridgeProductMetadataApplicationEvent,
+	BridgeProductMetadataApplicationKind,
+	BridgeProductMetadataApplicationProtocol,
+	BridgeProductMetadataApplicationProtocolIdentity,
+	BridgeProductMetadataApplicationUpdateOptions,
+} from './bridge-product-metadata-application-protocol.js';
+import type {
 	BridgeProductSubscriptionEvent,
 	BridgeProductSubscriptionKind,
-	BridgeProductSubscriptionOptions,
 	BridgeProductSubscriptionUpdateOptions,
 } from './bridge-product-subscription-contracts.js';
 
@@ -28,13 +34,6 @@ type BridgeProductCallArguments = {
 	];
 }[BridgeProductCallKind];
 
-type BridgeProductSubscriptionArguments = {
-	[TSubscriptionKind in BridgeProductSubscriptionKind]: readonly [
-		subscriptionKind: TSubscriptionKind,
-		options: BridgeProductSubscriptionOptions<TSubscriptionKind>,
-	];
-}[BridgeProductSubscriptionKind];
-
 export type BridgeProductSubscription<TSubscriptionKind extends BridgeProductSubscriptionKind> = {
 	[TRegistrySubscriptionKind in TSubscriptionKind]: {
 		readonly events: AsyncIterable<BridgeProductSubscriptionEvent<TRegistrySubscriptionKind>>;
@@ -46,6 +45,16 @@ export type BridgeProductSubscription<TSubscriptionKind extends BridgeProductSub
 		): Promise<void>;
 	};
 }[TSubscriptionKind];
+
+export type BridgeProductMetadataApplicationSubscription<
+	TProtocol extends BridgeProductMetadataApplicationProtocolIdentity,
+> = {
+	readonly events: AsyncIterable<BridgeProductMetadataApplicationEvent<TProtocol>>;
+	readonly subscriptionId: string;
+	readonly subscriptionKind: BridgeProductMetadataApplicationKind<TProtocol>;
+	cancel(): Promise<void>;
+	update(options: BridgeProductMetadataApplicationUpdateOptions<TProtocol>): Promise<void>;
+};
 
 export type BridgeProductContentStream<TContentKind extends BridgeProductContentKind> = {
 	readonly contentKind: TContentKind;
@@ -69,9 +78,32 @@ export type BridgeProductTransport = {
 		abortSignal: AbortSignal,
 		operationCorrelationId?: string | null,
 	): BridgeProductContentStream<TContentKind>;
-	subscribe<TSubscriptionArguments extends BridgeProductSubscriptionArguments>(
-		...arguments_: TSubscriptionArguments
-	): BridgeProductSubscription<TSubscriptionArguments[0]>;
+	subscribe<
+		TKind extends string,
+		TOptions,
+		TUpdateOptions,
+		TOpen extends { readonly subscriptionKind: TKind },
+		TInterestState extends { readonly subscriptionKind: TKind },
+		TInterestDelta extends { readonly subscriptionKind: TKind },
+		TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
+	>(
+		protocol: BridgeProductMetadataApplicationProtocol<
+			TKind,
+			TOptions,
+			TUpdateOptions,
+			TOpen,
+			TInterestState,
+			TInterestDelta,
+			TData
+		>,
+		options: TOptions,
+	): {
+		readonly events: AsyncIterable<TData['event']>;
+		readonly subscriptionId: string;
+		readonly subscriptionKind: TKind;
+		cancel(): Promise<void>;
+		update(options: TUpdateOptions): Promise<void>;
+	};
 };
 
 export type { BridgeProductCallResult } from './bridge-product-call-contracts.js';

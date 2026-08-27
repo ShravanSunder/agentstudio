@@ -179,7 +179,8 @@ struct BridgePaneProductMetadataCoordinatorTests {
         // Assert
         guard case .subscriptionAccepted(let accepted) = acceptedFrame,
             case .subscriptionData(let data) = dataFrame,
-            case .fileMetadata(.sourceAccepted(let sourceAccepted)) = data.data
+            let fileEvent = data.data.fileMetadataEvent,
+            case .sourceAccepted(let sourceAccepted) = fileEvent
         else {
             Issue.record("Expected File accepted followed by source-accepted data")
             return
@@ -268,9 +269,11 @@ struct BridgePaneProductMetadataCoordinatorTests {
         // Assert
         guard case .subscriptionAccepted(let accepted) = acceptedFrame,
             case .subscriptionData(let sourceAcceptedData) = sourceAcceptedFrame,
-            case .reviewMetadata(.sourceAccepted(let sourceAccepted)) = sourceAcceptedData.data,
+            let sourceAcceptedEvent = sourceAcceptedData.data.reviewMetadataEvent,
+            case .sourceAccepted(let sourceAccepted) = sourceAcceptedEvent,
             case .subscriptionData(let snapshotData) = snapshotFrame,
-            case .reviewMetadata(.snapshot(let snapshot)) = snapshotData.data
+            let snapshotEvent = snapshotData.data.reviewMetadataEvent,
+            case .snapshot(let snapshot) = snapshotEvent
         else {
             Issue.record("Expected Review accepted followed by source-accepted and snapshot data")
             return
@@ -372,7 +375,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         // Assert
         guard case .subscriptionInterestsCommitted(let committed) = committedFrame,
             case .subscriptionData(let data) = dataFrame,
-            case .reviewMetadata(let event) = data.data
+            let event = data.data.reviewMetadataEvent
         else {
             Issue.record("Expected Review interest barrier followed by refreshed source data")
             return
@@ -531,9 +534,9 @@ struct BridgePaneProductMetadataCoordinatorTests {
         // Assert
         #expect(observedFrames.map(\.streamSequenceForTest) == [1, 2, 3, 4])
         guard case .subscriptionData(let fileData) = observedFrames[1],
-            case .fileMetadata = fileData.data,
+            fileData.data.subscriptionKind == .fileMetadata,
             case .subscriptionData(let reviewData) = observedFrames[3],
-            case .reviewMetadata = reviewData.data
+            reviewData.data.subscriptionKind == .reviewMetadata
         else {
             Issue.record("Expected File and Review subscription data on the shared stream")
             return
@@ -707,7 +710,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         }
         let dataFrame = try await pullMetadataFrame(from: pump)
         guard case .subscriptionData(let data) = dataFrame,
-            case .fileMetadata = data.data
+            data.data.subscriptionKind == .fileMetadata
         else {
             Issue.record("Expected the surviving File subscription to resume")
             return

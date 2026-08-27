@@ -106,7 +106,8 @@ func prepareHTTPAnnotationAuthoring(
             recorder: metadataStream.recorder
         ) { frame in
             guard case .subscriptionData(let dataFrame) = frame,
-                case .fileMetadata(.sourceAccepted(let event)) = dataFrame.data
+                let fileEvent = dataFrame.data.fileMetadataEvent,
+                case .sourceAccepted(let event) = fileEvent
             else { return nil }
             return event.source
         }
@@ -125,7 +126,8 @@ func prepareHTTPAnnotationAuthoring(
             recorder: metadataStream.recorder
         ) { frame in
             guard case .subscriptionData(let dataFrame) = frame,
-                case .fileMetadata(.descriptorReady(let event)) = dataFrame.data,
+                let fileEvent = dataFrame.data.fileMetadataEvent,
+                case .descriptorReady(let event) = fileEvent,
                 case .available(let descriptor) = event.payload.availability
             else { return nil }
             return descriptor
@@ -150,7 +152,7 @@ func prepareHTTPAnnotationAuthoring(
             recorder: metadataStream.recorder
         ) { frame in
             guard case .subscriptionData(let dataFrame) = frame,
-                case .fileAnnotations(let event) = dataFrame.data
+                let event = dataFrame.data.fileAnnotationsEvent
             else { return nil }
             return event
         }
@@ -269,7 +271,8 @@ func prepareHTTPAnnotationLocatedRestore(
             recorder: metadataStream.recorder
         ) { frame in
             guard case .subscriptionData(let dataFrame) = frame,
-                case .fileMetadata(.sourceAccepted(let event)) = dataFrame.data
+                let fileEvent = dataFrame.data.fileMetadataEvent,
+                case .sourceAccepted(let event) = fileEvent
             else { return nil }
             return event.source
         }
@@ -293,7 +296,7 @@ func prepareHTTPAnnotationLocatedRestore(
             recorder: metadataStream.recorder
         ) { frame in
             guard case .subscriptionData(let dataFrame) = frame,
-                case .fileAnnotations(let event) = dataFrame.data
+                let event = dataFrame.data.fileAnnotationsEvent
             else { return nil }
             return event
         }
@@ -629,7 +632,7 @@ func waitForHTTPAnnotationInvalidation(
         recorder: recorder
     ) { frame in
         guard case .subscriptionData(let dataFrame) = frame,
-            case .fileAnnotations(let event) = dataFrame.data
+            let event = dataFrame.data.fileAnnotationsEvent
         else { return nil }
         return event
     }

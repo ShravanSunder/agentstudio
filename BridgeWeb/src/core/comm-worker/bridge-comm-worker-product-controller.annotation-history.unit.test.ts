@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
+import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
@@ -45,7 +46,8 @@ test('opens paired annotation projections once and returns native command correl
 			};
 		}) as BridgeProductTransportSession['call'],
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This focused double implements only annotation subscriptions.
-		subscribe: ((subscriptionKind: string): unknown => {
+		subscribe: ((protocol: BridgeProductMetadataApplicationProtocolIdentity): unknown => {
+			const subscriptionKind = protocol.kind;
 			subscribedKinds.push(subscriptionKind);
 			return subscriptionKind === 'file.annotations' ? fileSubscription : reviewSubscription;
 		}) as BridgeProductTransportSession['subscribe'],

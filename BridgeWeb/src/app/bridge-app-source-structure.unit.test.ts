@@ -33,7 +33,35 @@ describe('BridgeApp source structure', () => {
 		const source = readSource('../core/comm-worker/bridge-comm-worker-product-controller.ts');
 
 		expect(source).toContain("this.#productTransport.call('file.source.current', {})");
-		expect(source).toContain("this.#productTransport.subscribe('file.metadata', options)");
+		expect(source).toContain(
+			'this.#productTransport.subscribe(bridgeProductFileMetadataApplicationProtocol, options)',
+		);
+		expect(source).not.toContain("this.#productTransport.subscribe('file.metadata', options)");
+	});
+
+	test('keeps application metadata schemas and transforms behind registered protocols', () => {
+		const sessionContracts = readSource('../core/comm-worker/bridge-product-session-contracts.ts');
+		const subscriptionState = readSource(
+			'../core/comm-worker/bridge-product-subscription-state.ts',
+		);
+		const accounting = readSource('../core/comm-worker/bridge-product-subscription-accounting.ts');
+		const preflight = readSource(
+			'../core/comm-worker/bridge-product-subscription-interest-preflight.ts',
+		);
+		const codec = readSource(
+			'../core/comm-worker/bridge-product-subscription-interest-state-codec.ts',
+		);
+
+		expect(sessionContracts).not.toContain(
+			'bridgeProductSubscriptionDataFrameSchema = z.discriminatedUnion',
+		);
+		expect(sessionContracts).not.toContain('bridgeProductSubscriptionOpenSchema');
+		expect(sessionContracts).not.toContain('bridgeProductSubscriptionInterestDeltaSchema');
+		expect(subscriptionState).not.toContain("case 'file.metadata'");
+		expect(subscriptionState).not.toContain("case 'review.metadata'");
+		expect(accounting).not.toContain('switch (delta.subscriptionKind)');
+		expect(preflight).not.toContain("state.subscriptionKind === 'file.metadata'");
+		expect(codec).not.toContain('bridgeProductSubscriptionKindTag');
 	});
 
 	test('mounts one pane runtime and compile-deletes the legacy page-owned dispatcher', () => {

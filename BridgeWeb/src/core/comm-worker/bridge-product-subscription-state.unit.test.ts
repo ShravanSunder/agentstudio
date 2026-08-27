@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
 import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
-import type { BridgeProductControlMux } from './bridge-product-session-authority.js';
+import type { BridgeProductMetadataApplicationOpen } from './bridge-product-metadata-application-protocol.js';
+import { bridgeProductReviewAnnotationMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import {
 	bridgeProductMetadataFrameSchema,
 	type BridgeProductMetadataFrame,
@@ -9,7 +10,12 @@ import {
 import {
 	BridgeProductSubscriptionState,
 	type BridgeProductSubscriptionFrame,
+	type BridgeProductSubscriptionStateControlMux,
 } from './bridge-product-subscription-state.js';
+
+type ReviewAnnotationOpen = BridgeProductMetadataApplicationOpen<
+	typeof bridgeProductReviewAnnotationMetadataApplicationProtocol
+>;
 
 const annotationInterestSha256 = 'a'.repeat(64);
 
@@ -27,7 +33,7 @@ describe('Bridge product subscription state', () => {
 			onTerminal: (): void => {},
 			readWorkerDerivationEpochAtAdmission: (): number => currentReviewEpoch,
 			subscriptionId: 'review-annotations-admission-1',
-			subscriptionKind: 'review.annotations',
+			protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
 		});
 		const nextEvent = subscriptionState.publicSubscription.events[Symbol.asyncIterator]().next();
 		subscriptionState.start();
@@ -89,6 +95,89 @@ describe('Bridge product subscription state', () => {
 		});
 		subscriptionState.fail(new Error('Subscription-state test cleanup.'));
 	});
+
+	test('rejects cross-kind and generation-mismatched raw data after generic barriers', async () => {
+		for (const testCase of [
+			{
+				data: {
+					event: {
+						eventKind: 'snapshot.required',
+						operationCorrelationId: 'a'.repeat(64),
+						sourceGeneration: 2,
+						worktreeId: 'worktree-1',
+					},
+					subscriptionKind: 'file.annotations',
+				},
+				expectedError: /subscriptionKind|literal/iu,
+				frameSourceGeneration: 2,
+			},
+			{
+				data: {
+					event: {
+						eventKind: 'snapshot.required',
+						operationCorrelationId: 'a'.repeat(64),
+						sourceGeneration: 3,
+						worktreeId: 'worktree-1',
+					},
+					subscriptionKind: 'review.annotations',
+				},
+				expectedError: /generation/iu,
+				frameSourceGeneration: 2,
+			},
+		]) {
+			const controlHarness = createAnnotationControlHarness();
+			const subscriptionState = new BridgeProductSubscriptionState({
+				controlMux: controlHarness.controlMux,
+				createIdentifier: (): string => 'unused-annotation-update',
+				ensureMetadataStream: async (): Promise<void> => {},
+				initialOptions: {},
+				onTerminal: (): void => {},
+				protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
+				readWorkerDerivationEpochAtAdmission: (): number => 1,
+				subscriptionId: 'review-annotations-validation-1',
+			});
+			subscriptionState.start();
+			const open = await controlHarness.capturedOpen;
+			subscriptionState.acceptFrame(
+				requireSubscriptionFrame(
+					bridgeProductMetadataFrameSchema.parse({
+						...metadataFrameIdentity(1),
+						cursor: null,
+						interestRevision: 0,
+						interestSha256: annotationInterestSha256,
+						kind: 'subscription.accepted',
+						sourceGeneration: 0,
+						subscriptionId: open.subscriptionId,
+						subscriptionKind: 'review.annotations',
+						subscriptionSequence: 0,
+						workerDerivationEpoch: open.workerDerivationEpoch,
+					}),
+				),
+			);
+
+			expect(() =>
+				subscriptionState.acceptFrame(
+					requireSubscriptionFrame(
+						bridgeProductMetadataFrameSchema.parse({
+							...metadataFrameIdentity(2),
+							cursor: null,
+							data: testCase.data,
+							interestRevision: 0,
+							interestSha256: annotationInterestSha256,
+							kind: 'subscription.data',
+							operationCorrelationId: null,
+							sourceGeneration: testCase.frameSourceGeneration,
+							subscriptionId: open.subscriptionId,
+							subscriptionKind: 'review.annotations',
+							subscriptionSequence: 1,
+							workerDerivationEpoch: open.workerDerivationEpoch,
+						}),
+					),
+				),
+			).toThrow(testCase.expectedError);
+			subscriptionState.fail(new Error('Subscription validation test cleanup.'));
+		}
+	});
 });
 
 interface CapturedAnnotationOpen {
@@ -98,18 +187,20 @@ interface CapturedAnnotationOpen {
 
 function createAnnotationControlHarness(): {
 	readonly capturedOpen: Promise<CapturedAnnotationOpen>;
-	readonly controlMux: Pick<
-		BridgeProductControlMux,
-		'cancelSubscription' | 'openSubscription' | 'updateSubscriptionBatch'
+	readonly controlMux: BridgeProductSubscriptionStateControlMux<
+		'review.annotations',
+		ReviewAnnotationOpen,
+		{ readonly subscriptionKind: 'review.annotations' }
 	>;
 } {
 	let resolveCapturedOpen: ((open: CapturedAnnotationOpen) => void) | null = null;
 	const capturedOpen = new Promise<CapturedAnnotationOpen>((resolve): void => {
 		resolveCapturedOpen = resolve;
 	});
-	const controlMux: Pick<
-		BridgeProductControlMux,
-		'cancelSubscription' | 'openSubscription' | 'updateSubscriptionBatch'
+	const controlMux: BridgeProductSubscriptionStateControlMux<
+		'review.annotations',
+		ReviewAnnotationOpen,
+		{ readonly subscriptionKind: 'review.annotations' }
 	> = {
 		cancelSubscription: async (): Promise<never> => {
 			throw new Error('Annotation admission harness does not cancel subscriptions.');

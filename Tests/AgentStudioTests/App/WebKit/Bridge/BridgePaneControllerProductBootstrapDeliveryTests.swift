@@ -916,7 +916,7 @@ private func bootstrapReviewEvent(
     from frame: BridgeProductMetadataFrame
 ) throws -> BridgeProductReviewMetadataEvent {
     guard case .subscriptionData(let dataFrame) = frame,
-        case .reviewMetadata(let event) = dataFrame.data
+        let event = dataFrame.data.reviewMetadataEvent
     else {
         throw BootstrapReviewReplayError.expectedReviewMetadataEvent
     }

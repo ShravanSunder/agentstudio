@@ -202,9 +202,7 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
             case .workerSessionOpen:
                 return try .workerSessionAccepted(correlating: request)
             case .subscriptionOpen(let openRequest):
-                let emptyInterestState = BridgeProductSubscriptionState.emptyInterestState(
-                    for: openRequest.subscription.subscriptionKind
-                )
+                let emptyInterestState = try openRequest.subscription.initialInterestState()
                 return try .subscriptionOpenAccepted(
                     correlating: request,
                     interestSha256: emptyInterestState.sha256Hex()
@@ -304,6 +302,8 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
             data = reviewSourceData
         case .fileMetadata:
             data = fileSourceData
+        default:
+            return
         }
         do {
             let foregroundWorkAdmission =

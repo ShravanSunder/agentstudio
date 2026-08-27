@@ -3,24 +3,8 @@ import {
 	createBridgeProductDeferred,
 	type BridgeProductDeferred,
 } from './bridge-product-async-queue.js';
-import type { BridgeProductControlMux } from './bridge-product-session-authority.js';
+import type { BridgeProductMetadataApplicationProtocol } from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductMetadataFrame } from './bridge-product-session-contracts.js';
-import {
-	bridgeProductAnnotationSubscriptionOptionsSchema,
-	bridgeProductAnnotationSubscriptionUpdateOptionsSchema,
-	bridgeProductFileMetadataSubscriptionOptionsSchema,
-	bridgeProductFileMetadataSubscriptionUpdateOptionsSchema,
-	bridgeProductReviewMetadataSubscriptionOptionsSchema,
-	bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema,
-	type BridgeProductSubscriptionEvent,
-	type BridgeProductSubscriptionInterestDeltaWire,
-	type BridgeProductSubscriptionInterestState,
-	type BridgeProductSubscriptionKind,
-	type BridgeProductSubscriptionOptions,
-	type BridgeProductSubscriptionUpdateOptions,
-} from './bridge-product-subscription-contracts.js';
-import { encodeBridgeProductSubscriptionInterestState } from './bridge-product-subscription-interest-state-codec.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 
 export type BridgeProductSubscriptionIdentifierPurpose = 'subscription-update';
 
@@ -39,65 +23,144 @@ export interface BridgeProductSubscriptionFrameSink {
 	fail(error: unknown): void;
 }
 
-export interface BridgeProductSubscriptionStateProps<
-	TSubscriptionKind extends BridgeProductSubscriptionKind,
+export interface BridgeProductSubscriptionStateControlMux<
+	TKind extends string,
+	TOpen extends { readonly subscriptionKind: TKind },
+	TInterestDelta extends { readonly subscriptionKind: TKind },
 > {
-	readonly controlMux: Pick<
-		BridgeProductControlMux,
-		'cancelSubscription' | 'openSubscription' | 'updateSubscriptionBatch'
-	>;
+	cancelSubscription(props: {
+		readonly subscriptionId: string;
+		readonly subscriptionKind: TKind;
+		readonly workerDerivationEpoch: number;
+	}): Promise<unknown>;
+	openSubscription(props: {
+		readonly subscription: TOpen;
+		readonly subscriptionId: string;
+		readonly workerDerivationEpoch: number;
+	}): Promise<{ readonly interestRevision: number; readonly interestSha256: string }>;
+	updateSubscriptionBatch(props: {
+		readonly baseInterestRevision: number;
+		readonly baseInterestSha256: string;
+		readonly batchCount: number;
+		readonly batchIndex: number;
+		readonly delta: TInterestDelta;
+		readonly subscriptionId: string;
+		readonly targetInterestRevision: number;
+		readonly targetInterestSha256: string;
+		readonly totalDeltaItemCount: number;
+		readonly updateId: string;
+		readonly workerDerivationEpoch: number;
+	}): Promise<unknown>;
+}
+
+export interface BridgeProductSubscriptionStateProps<
+	TKind extends string,
+	TOptions,
+	TUpdateOptions,
+	TOpen extends { readonly subscriptionKind: TKind },
+	TInterestState extends { readonly subscriptionKind: TKind },
+	TInterestDelta extends { readonly subscriptionKind: TKind },
+	TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
+> {
+	readonly controlMux: BridgeProductSubscriptionStateControlMux<TKind, TOpen, TInterestDelta>;
 	readonly createIdentifier: (purpose: BridgeProductSubscriptionIdentifierPurpose) => string;
 	readonly ensureMetadataStream: () => Promise<void>;
-	readonly initialOptions: BridgeProductSubscriptionOptions<TSubscriptionKind>;
+	readonly initialOptions: TOptions;
 	readonly onTerminal: (subscriptionId: string) => void;
+	readonly protocol: BridgeProductMetadataApplicationProtocol<
+		TKind,
+		TOptions,
+		TUpdateOptions,
+		TOpen,
+		TInterestState,
+		TInterestDelta,
+		TData
+	>;
 	readonly readWorkerDerivationEpochAtAdmission: () => number;
 	readonly subscriptionId: string;
-	readonly subscriptionKind: TSubscriptionKind;
 }
 
 export class BridgeProductSubscriptionState<
-	TSubscriptionKind extends BridgeProductSubscriptionKind,
+	TKind extends string,
+	TOptions,
+	TUpdateOptions,
+	TOpen extends { readonly subscriptionKind: TKind },
+	TInterestState extends { readonly subscriptionKind: TKind },
+	TInterestDelta extends { readonly subscriptionKind: TKind },
+	TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
 > implements BridgeProductSubscriptionFrameSink {
 	#accepted = false;
-	readonly #controlMux: BridgeProductSubscriptionStateProps<TSubscriptionKind>['controlMux'];
+	readonly #controlMux: BridgeProductSubscriptionStateProps<
+		TKind,
+		TOptions,
+		TUpdateOptions,
+		TOpen,
+		TInterestState,
+		TInterestDelta,
+		TData
+	>['controlMux'];
 	readonly #createIdentifier: (purpose: BridgeProductSubscriptionIdentifierPurpose) => string;
 	#currentInterestHash: string | null = null;
 	#currentInterestRevision = 0;
-	#currentInterestState: BridgeProductSubscriptionInterestState;
+	#currentInterestState: TInterestState;
 	readonly #ensureMetadataStream: () => Promise<void>;
-	readonly #eventQueue = new BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<TSubscriptionKind>
-	>(64);
+	readonly #eventQueue = new BridgeProductBoundedAsyncQueue<TData['event']>(64);
 	#expectedSubscriptionSequence = 0;
-	readonly #initialOptions: BridgeProductSubscriptionOptions<TSubscriptionKind>;
+	readonly #initialOptions: TOptions;
 	readonly #onTerminal: (subscriptionId: string) => void;
 	#operation: Promise<void> = Promise.resolve();
-	#pendingBarrier: PendingSubscriptionBarrier | null = null;
+	#pendingBarrier: PendingSubscriptionBarrier<TInterestState> | null = null;
 	#pendingCancel: BridgeProductDeferred<void> | null = null;
+	readonly #protocol: BridgeProductMetadataApplicationProtocol<
+		TKind,
+		TOptions,
+		TUpdateOptions,
+		TOpen,
+		TInterestState,
+		TInterestDelta,
+		TData
+	>;
 	readonly #readWorkerDerivationEpochAtAdmission: () => number;
 	readonly subscriptionId: string;
-	readonly #subscriptionKind: TSubscriptionKind;
 	#terminal = false;
 	#admittedWorkerDerivationEpoch: number | null = null;
 
-	constructor(props: BridgeProductSubscriptionStateProps<TSubscriptionKind>) {
+	constructor(
+		props: BridgeProductSubscriptionStateProps<
+			TKind,
+			TOptions,
+			TUpdateOptions,
+			TOpen,
+			TInterestState,
+			TInterestDelta,
+			TData
+		>,
+	) {
 		this.#controlMux = props.controlMux;
 		this.#createIdentifier = props.createIdentifier;
 		this.#ensureMetadataStream = props.ensureMetadataStream;
 		this.#initialOptions = props.initialOptions;
 		this.#onTerminal = props.onTerminal;
+		this.#protocol = props.protocol;
 		this.#readWorkerDerivationEpochAtAdmission = props.readWorkerDerivationEpochAtAdmission;
 		this.subscriptionId = props.subscriptionId;
-		this.#subscriptionKind = props.subscriptionKind;
-		this.#currentInterestState = emptyInterestState(props.subscriptionKind);
+		this.#currentInterestState = props.protocol.interestStateSchema.parse(
+			props.protocol.emptyInterestState(),
+		);
 	}
 
-	get publicSubscription(): BridgeProductSubscription<TSubscriptionKind> {
+	get publicSubscription(): {
+		readonly events: AsyncIterable<TData['event']>;
+		readonly subscriptionId: string;
+		readonly subscriptionKind: TKind;
+		cancel(): Promise<void>;
+		update(options: TUpdateOptions): Promise<void>;
+	} {
 		return {
 			cancel: (): Promise<void> => this.cancel(),
 			events: this.#eventQueue,
 			subscriptionId: this.subscriptionId,
-			subscriptionKind: this.#subscriptionKind,
+			subscriptionKind: this.#protocol.kind,
 			update: (options): Promise<void> => this.update(options),
 		};
 	}
@@ -110,7 +173,7 @@ export class BridgeProductSubscriptionState<
 		void this.#operation.catch((): void => {});
 	}
 
-	update(options: BridgeProductSubscriptionUpdateOptions<TSubscriptionKind>): Promise<void> {
+	update(options: TUpdateOptions): Promise<void> {
 		return this.#enqueue(() => this.#updateTo(options));
 	}
 
@@ -121,7 +184,7 @@ export class BridgeProductSubscriptionState<
 			this.#pendingCancel = cancelled;
 			await this.#controlMux.cancelSubscription({
 				subscriptionId: this.subscriptionId,
-				subscriptionKind: this.#subscriptionKind,
+				subscriptionKind: this.#protocol.kind,
 				workerDerivationEpoch: this.#requiredAdmittedWorkerDerivationEpoch(),
 			});
 			await cancelled.promise;
@@ -129,11 +192,12 @@ export class BridgeProductSubscriptionState<
 	}
 
 	acceptFrame(frame: BridgeProductSubscriptionFrame): void {
-		if (this.#terminal)
+		if (this.#terminal) {
 			throw new Error('Bridge product subscription received a post-terminal frame.');
+		}
 		if (
 			frame.subscriptionId !== this.subscriptionId ||
-			frame.subscriptionKind !== this.#subscriptionKind ||
+			frame.subscriptionKind !== this.#protocol.kind ||
 			frame.workerDerivationEpoch !== this.#admittedWorkerDerivationEpoch
 		) {
 			throw new Error('Bridge product subscription frame identity does not match its admission.');
@@ -173,7 +237,7 @@ export class BridgeProductSubscriptionState<
 		frame: Exclude<BridgeProductSubscriptionFrame, { readonly kind: 'subscription.accepted' }>,
 	): void {
 		switch (frame.kind) {
-			case 'subscription.data':
+			case 'subscription.data': {
 				if (
 					frame.interestRevision !== this.#currentInterestRevision ||
 					frame.interestSha256 !== this.#currentInterestHash
@@ -182,8 +246,13 @@ export class BridgeProductSubscriptionState<
 						'Bridge product subscription data arrived outside its committed barrier.',
 					);
 				}
-				this.#eventQueue.push(subscriptionEventForKind(frame, this.#subscriptionKind));
+				const data = this.#protocol.dataSchema.parse(frame.data);
+				if (this.#protocol.readEventSourceGeneration(data.event) !== frame.sourceGeneration) {
+					throw new Error('Bridge product application event generation does not match its frame.');
+				}
+				this.#eventQueue.push(data.event);
 				return;
+			}
 			case 'subscription.interestsCommitted':
 				this.#acceptBarrier(frame);
 				return;
@@ -204,8 +273,12 @@ export class BridgeProductSubscriptionState<
 		await this.#ensureMetadataStream();
 		const workerDerivationEpoch = this.#readWorkerDerivationEpochAtAdmission();
 		this.#admittedWorkerDerivationEpoch = workerDerivationEpoch;
+		const initialOptions = this.#protocol.optionsSchema.parse(this.#initialOptions);
+		const subscription = this.#protocol.openSchema.parse(
+			this.#protocol.initialOpen(initialOptions),
+		);
 		const opened = await this.#controlMux.openSubscription({
-			subscription: subscriptionOpenForOptions(this.#subscriptionKind, this.#initialOptions),
+			subscription,
 			subscriptionId: this.subscriptionId,
 			workerDerivationEpoch,
 		});
@@ -218,24 +291,27 @@ export class BridgeProductSubscriptionState<
 		}
 		this.#currentInterestRevision = opened.interestRevision;
 		this.#currentInterestHash = opened.interestSha256;
-		await this.#updateTo(initialUpdateOptions(this.#subscriptionKind, this.#initialOptions));
+		await this.#updateTo(
+			this.#protocol.updateOptionsSchema.parse(this.#protocol.initialUpdateOptions(initialOptions)),
+		);
 	}
 
-	async #updateTo(
-		options: BridgeProductSubscriptionUpdateOptions<TSubscriptionKind>,
-	): Promise<void> {
+	async #updateTo(options: TUpdateOptions): Promise<void> {
 		if (this.#terminal) throw new Error('Bridge product subscription is terminal.');
-		const targetState = interestStateForUpdate(this.#subscriptionKind, options);
-		const delta = interestDelta(this.#currentInterestState, targetState);
-		const deltaItemCount = interestDeltaItemCount(delta);
+		const parsedOptions = this.#protocol.updateOptionsSchema.parse(options);
+		const targetState = this.#protocol.interestStateSchema.parse(
+			this.#protocol.interestStateForUpdate(parsedOptions),
+		);
+		const delta = this.#protocol.interestDeltaSchema.parse(
+			this.#protocol.interestDelta(this.#currentInterestState, targetState),
+		);
+		const deltaItemCount = this.#protocol.interestDeltaItemCount(delta);
 		if (deltaItemCount === 0) return;
 		if (this.#currentInterestHash === null) {
 			throw new Error('Bridge product subscription update preceded its open acceptance.');
 		}
 		const targetInterestRevision = this.#currentInterestRevision + 1;
-		const targetInterestSha256 = await sha256Hex(
-			encodeBridgeProductSubscriptionInterestState(targetState),
-		);
+		const targetInterestSha256 = await sha256Hex(this.#protocol.encodeInterestState(targetState));
 		const updateId = this.#createIdentifier('subscription-update');
 		const barrier = createBridgeProductDeferred<void>();
 		this.#pendingBarrier = {
@@ -308,173 +384,12 @@ export class BridgeProductSubscriptionState<
 	}
 }
 
-interface PendingSubscriptionBarrier {
+interface PendingSubscriptionBarrier<TInterestState> {
 	readonly completion: BridgeProductDeferred<void>;
 	readonly targetInterestRevision: number;
 	readonly targetInterestSha256: string;
-	readonly targetState: BridgeProductSubscriptionInterestState;
+	readonly targetState: TInterestState;
 	readonly updateId: string;
-}
-
-function emptyInterestState(
-	subscriptionKind: BridgeProductSubscriptionKind,
-): BridgeProductSubscriptionInterestState {
-	switch (subscriptionKind) {
-		case 'file.annotations':
-			return { subscriptionKind: 'file.annotations' };
-		case 'file.metadata':
-			return { interests: [], pathScope: [], subscriptionKind: 'file.metadata' };
-		case 'review.annotations':
-			return { subscriptionKind: 'review.annotations' };
-		case 'review.metadata':
-			return { interests: [], subscriptionKind: 'review.metadata' };
-	}
-	throw new Error('Unsupported Bridge product subscription kind.');
-}
-
-function subscriptionOpenForOptions<TSubscriptionKind extends BridgeProductSubscriptionKind>(
-	subscriptionKind: TSubscriptionKind,
-	options: BridgeProductSubscriptionOptions<TSubscriptionKind>,
-): Parameters<
-	BridgeProductSubscriptionStateProps<TSubscriptionKind>['controlMux']['openSubscription']
->[0]['subscription'] {
-	if (subscriptionKind === 'file.metadata') {
-		const parsed = bridgeProductFileMetadataSubscriptionOptionsSchema.parse(options);
-		return { source: parsed.source, subscriptionKind: 'file.metadata' };
-	}
-	if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
-		bridgeProductAnnotationSubscriptionOptionsSchema.parse(options);
-		return { subscriptionKind };
-	}
-	bridgeProductReviewMetadataSubscriptionOptionsSchema.parse(options);
-	return { subscriptionKind: 'review.metadata' };
-}
-
-function initialUpdateOptions<TSubscriptionKind extends BridgeProductSubscriptionKind>(
-	subscriptionKind: TSubscriptionKind,
-	options: BridgeProductSubscriptionOptions<TSubscriptionKind>,
-): BridgeProductSubscriptionUpdateOptions<TSubscriptionKind> {
-	if (subscriptionKind === 'file.metadata') {
-		const parsed = bridgeProductFileMetadataSubscriptionOptionsSchema.parse(options);
-		return bridgeProductFileMetadataSubscriptionUpdateOptionsSchema.parse({
-			interests: parsed.interests,
-			pathScope: parsed.pathScope,
-		});
-	}
-	if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
-		return bridgeProductAnnotationSubscriptionUpdateOptionsSchema.parse(options);
-	}
-	return bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema.parse(options);
-}
-
-function interestStateForUpdate<TSubscriptionKind extends BridgeProductSubscriptionKind>(
-	subscriptionKind: TSubscriptionKind,
-	options: BridgeProductSubscriptionUpdateOptions<TSubscriptionKind>,
-): BridgeProductSubscriptionInterestState {
-	if (subscriptionKind === 'file.metadata') {
-		return {
-			...bridgeProductFileMetadataSubscriptionUpdateOptionsSchema.parse(options),
-			subscriptionKind: 'file.metadata',
-		};
-	}
-	if (subscriptionKind === 'review.metadata') {
-		return {
-			...bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema.parse(options),
-			subscriptionKind: 'review.metadata',
-		};
-	}
-	bridgeProductAnnotationSubscriptionUpdateOptionsSchema.parse(options);
-	return { subscriptionKind };
-}
-
-function interestDelta(
-	current: BridgeProductSubscriptionInterestState,
-	target: BridgeProductSubscriptionInterestState,
-): BridgeProductSubscriptionInterestDeltaWire {
-	if (
-		target.subscriptionKind === 'file.annotations' ||
-		target.subscriptionKind === 'review.annotations'
-	) {
-		if (current.subscriptionKind !== target.subscriptionKind) {
-			throw new Error('Bridge product interest update crossed subscription kinds.');
-		}
-		return { subscriptionKind: target.subscriptionKind };
-	}
-	if (target.subscriptionKind === 'review.metadata') {
-		if (current.subscriptionKind !== 'review.metadata') {
-			throw new Error('Bridge product interest update crossed subscription kinds.');
-		}
-		const currentLanes = reviewInterestLanes(current);
-		const targetLanes = reviewInterestLanes(target);
-		return {
-			add: [...targetLanes].flatMap(([itemId, lane]) =>
-				currentLanes.get(itemId) === lane ? [] : [{ itemId, lane }],
-			),
-			removeItemIds: [...currentLanes.keys()].filter((itemId) => !targetLanes.has(itemId)),
-			subscriptionKind: 'review.metadata',
-		};
-	}
-	if (current.subscriptionKind !== 'file.metadata') {
-		throw new Error('Bridge product interest update crossed subscription kinds.');
-	}
-	const currentLanes = fileInterestLanes(current);
-	const targetLanes = fileInterestLanes(target);
-	const currentScope = new Set(current.pathScope);
-	const targetScope = new Set(target.pathScope);
-	return {
-		add: [...targetLanes].flatMap(([path, lane]) =>
-			currentLanes.get(path) === lane ? [] : [{ lane, path }],
-		),
-		addPathScope: [...targetScope].filter((path) => !currentScope.has(path)),
-		removePathScope: [...currentScope].filter((path) => !targetScope.has(path)),
-		removePaths: [...currentLanes.keys()].filter((path) => !targetLanes.has(path)),
-		subscriptionKind: 'file.metadata',
-	};
-}
-
-function reviewInterestLanes(
-	state: Extract<BridgeProductSubscriptionInterestState, { subscriptionKind: 'review.metadata' }>,
-): ReadonlyMap<string, (typeof state.interests)[number]['lane']> {
-	return new Map(
-		state.interests.flatMap((interest) =>
-			interest.itemIds.map((itemId) => [itemId, interest.lane] as const),
-		),
-	);
-}
-
-function fileInterestLanes(
-	state: Extract<BridgeProductSubscriptionInterestState, { subscriptionKind: 'file.metadata' }>,
-): ReadonlyMap<string, (typeof state.interests)[number]['lane']> {
-	return new Map(
-		state.interests.flatMap((interest) =>
-			interest.paths.map((path) => [path, interest.lane] as const),
-		),
-	);
-}
-
-function interestDeltaItemCount(delta: BridgeProductSubscriptionInterestDeltaWire): number {
-	if (
-		delta.subscriptionKind === 'file.annotations' ||
-		delta.subscriptionKind === 'review.annotations'
-	) {
-		return 0;
-	}
-	return delta.subscriptionKind === 'review.metadata'
-		? delta.add.length + delta.removeItemIds.length
-		: delta.add.length +
-				delta.addPathScope.length +
-				delta.removePathScope.length +
-				delta.removePaths.length;
-}
-
-function subscriptionEventForKind<TSubscriptionKind extends BridgeProductSubscriptionKind>(
-	frame: Extract<BridgeProductSubscriptionFrame, { kind: 'subscription.data' }>,
-	expectedKind: TSubscriptionKind,
-): BridgeProductSubscriptionEvent<TSubscriptionKind> {
-	if (frame.subscriptionKind !== expectedKind) {
-		throw new Error('Bridge product subscription data crossed subscription kinds.');
-	}
-	return frame.data.event;
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {

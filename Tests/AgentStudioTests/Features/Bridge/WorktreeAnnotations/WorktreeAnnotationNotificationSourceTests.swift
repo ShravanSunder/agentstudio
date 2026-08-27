@@ -29,7 +29,7 @@ struct WorktreeAnnotationNotificationSourceTests {
         )
 
         let openTask = Task {
-            try await source.open(subscription: subscription) { event in
+            try await source.open(subscription: subscription, surface: .file) { event in
                 continuation.yield(event)
             }
         }
@@ -73,7 +73,7 @@ struct WorktreeAnnotationNotificationSourceTests {
             hasStagedUpdate: false
         )
         let openTask = Task {
-            try await source.open(subscription: subscription) { event in
+            try await source.open(subscription: subscription, surface: .file) { event in
                 guard event.sourceGeneration == 0 else {
                     throw NotificationDeliveryFailure.injected
                 }

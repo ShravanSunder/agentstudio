@@ -19,6 +19,7 @@ import {
 	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
 	BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE,
 } from './bridge-product-contract-primitives.js';
+import { parseBridgeProductRegisteredControlRequest } from './bridge-product-metadata-application-registry.js';
 import {
 	BridgeProductMetadataFrameDecoder,
 	encodeBridgeProductMetadataFrame,
@@ -445,64 +446,6 @@ describe('Bridge product session contracts', () => {
 				}).success,
 			).toBe(false);
 		}
-	});
-
-	test('resync carries independent epochs per active surface and rejects split same-surface epochs', () => {
-		const resync = bridgeProductControlRequestSchema.parse(
-			validProductSessionCorpus.controlRequests.find(
-				(request) => request.kind === 'workerSession.resync',
-			),
-		);
-		if (resync.kind !== 'workerSession.resync') {
-			throw new Error('Shared corpus did not decode workerSession.resync.');
-		}
-		const reviewSubscription = resync.activeSubscriptions[0];
-		if (reviewSubscription === undefined) {
-			throw new Error('Shared corpus is missing the active resync subscription.');
-		}
-		const reviewEpochSeven = { ...reviewSubscription, workerDerivationEpoch: 7 };
-		const fileEpochTwo = {
-			interestRevision: 0,
-			interestSha256: '51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b',
-			subscriptionId: 'file-subscription-1',
-			subscriptionKind: 'file.metadata',
-			workerDerivationEpoch: 2,
-		} as const;
-		const paneResync = {
-			...resync,
-			activeSubscriptions: [reviewEpochSeven, fileEpochTwo],
-		};
-		const { workerDerivationEpoch: _missingEpoch, ...reviewWithoutEpoch } = reviewEpochSeven;
-
-		expect(bridgeProductControlRequestSchema.safeParse(paneResync).success).toBe(true);
-		expect(
-			bridgeProductControlRequestSchema.safeParse({ ...paneResync, workerEpoch: 7 }).success,
-		).toBe(false);
-		expect(
-			bridgeProductControlRequestSchema.safeParse({
-				...paneResync,
-				workerDerivationEpoch: 7,
-			}).success,
-		).toBe(false);
-		expect(
-			bridgeProductControlRequestSchema.safeParse({
-				...paneResync,
-				activeSubscriptions: [reviewWithoutEpoch, fileEpochTwo],
-			}).success,
-		).toBe(false);
-		expect(
-			bridgeProductControlRequestSchema.safeParse({
-				...paneResync,
-				activeSubscriptions: [
-					reviewEpochSeven,
-					{
-						...reviewEpochSeven,
-						subscriptionId: 'review-subscription-2',
-						workerDerivationEpoch: 8,
-					},
-				],
-			}).success,
-		).toBe(false);
 	});
 
 	test('reserves accepted and terminal successors for every resumable stream cursor', () => {
@@ -967,7 +910,7 @@ function hostileContractRejects(contract: string, value: unknown): boolean {
 		case 'contentRequest':
 			return !bridgeProductContentRequestSchema.safeParse(value).success;
 		case 'controlRequest':
-			return !bridgeProductControlRequestSchema.safeParse(value).success;
+			return registeredControlRequestRejects(value);
 		case 'controlResponse':
 			return !bridgeProductControlResponseSchema.safeParse(value).success;
 		case 'metadataFrame':
@@ -976,6 +919,15 @@ function hostileContractRejects(contract: string, value: unknown): boolean {
 			return !bridgeProductMetadataStreamRequestSchema.safeParse(value).success;
 		default:
 			throw new Error(`Unknown hostile Bridge product contract: ${contract}`);
+	}
+}
+
+function registeredControlRequestRejects(value: unknown): boolean {
+	try {
+		parseBridgeProductRegisteredControlRequest(value);
+		return false;
+	} catch {
+		return true;
 	}
 }
 

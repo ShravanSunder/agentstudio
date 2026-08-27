@@ -14,6 +14,7 @@ import {
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
+import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type {
@@ -403,8 +404,8 @@ async function createPendingFilePreparationHarness(
 		setPanePresentationFrameSink: (sink): void => {
 			panePresentationSink = sink;
 		},
-		subscribe: ((subscriptionKind: string): never =>
-			(subscriptionKind === 'file.metadata'
+		subscribe: ((protocol: BridgeProductMetadataApplicationProtocolIdentity): never =>
+			(protocol.kind === 'file.metadata'
 				? fileSubscription
 				: reviewSubscription) as never) as BridgeProductTransportSession['subscribe'],
 		workerDerivationEpoch: (surface): number => (surface === 'file' ? fileEpoch : reviewEpoch),

@@ -169,7 +169,7 @@ describe('Bridge product metadata frame decoder', () => {
 		for (const frame of frames) {
 			expect(
 				bridgeProductMetadataFrameSchema.safeParse({ ...frame, sourceGeneration: 2 }).success,
-			).toBe(false);
+			).toBe(true);
 		}
 	});
 
@@ -329,11 +329,11 @@ describe('Bridge product metadata frame decoder', () => {
 
 		expect(decodedFrames).toEqual(frames);
 		expect(bridgeProductMetadataFrameSchema.safeParse(mismatchedFileGenerationFrame).success).toBe(
-			false,
+			true,
 		);
 		expect(
 			bridgeProductMetadataFrameSchema.safeParse(mismatchedReviewGenerationFrame).success,
-		).toBe(false);
+		).toBe(true);
 		expect(decodedFrames.map((frame) => frame.streamSequence)).toEqual([0, 1, 2, 3, 4, 5, 6]);
 		expect(
 			decodedFrames

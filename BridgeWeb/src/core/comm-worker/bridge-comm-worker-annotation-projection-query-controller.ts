@@ -7,10 +7,14 @@ import {
 	type BridgeWorkerAnnotationProjectionSnapshot,
 } from './bridge-comm-worker-annotation-projection-decoder.js';
 import { scheduleBridgeCommWorkerTaskBoundary } from './bridge-comm-worker-task-boundary.js';
+import {
+	bridgeProductFileAnnotationMetadataApplicationProtocol,
+	bridgeProductReviewAnnotationMetadataApplicationProtocol,
+} from './bridge-product-metadata-application-registry.js';
 import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
 import type {
 	BridgeProductContentStream,
-	BridgeProductSubscription,
+	BridgeProductMetadataApplicationSubscription,
 } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import { bridgeProductWorktreeAnnotationEventSchema } from './bridge-product-worktree-annotation-contracts.js';
@@ -24,6 +28,12 @@ import {
 } from './bridge-product-worktree-annotation-projection-query-contracts.js';
 
 export type BridgeCommWorkerAnnotationSurface = 'file' | 'review';
+
+type AnnotationMetadataProtocol =
+	| typeof bridgeProductFileAnnotationMetadataApplicationProtocol
+	| typeof bridgeProductReviewAnnotationMetadataApplicationProtocol;
+type AnnotationMetadataSubscription =
+	BridgeProductMetadataApplicationSubscription<AnnotationMetadataProtocol>;
 
 export interface BridgeCommWorkerAnnotationProjectionDemand {
 	readonly active: boolean;
@@ -69,7 +79,7 @@ export interface BridgeCommWorkerAnnotationProjectionTransport {
 	) => BridgeProductContentStream<'annotation.projection'>;
 	readonly subscribe: (
 		surface: BridgeCommWorkerAnnotationSurface,
-	) => BridgeProductSubscription<'file.annotations' | 'review.annotations'>;
+	) => AnnotationMetadataSubscription;
 }
 
 interface AnnotationProjectionInvalidation {
@@ -101,7 +111,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	#sourceGeneration: number | null = null;
 	#stageAttemptOperationCorrelationId: string | null = null;
 	#nextStageAttempt = 0;
-	#subscription: BridgeProductSubscription<'file.annotations' | 'review.annotations'> | null = null;
+	#subscription: AnnotationMetadataSubscription | null = null;
 
 	constructor(props: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps) {
 		this.#onConvergence = props.onConvergence;
@@ -113,7 +123,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 
 	ensureSubscription(): void {
 		if (this.#disposed || this.#subscription !== null) return;
-		let subscription: BridgeProductSubscription<'file.annotations' | 'review.annotations'>;
+		let subscription: AnnotationMetadataSubscription;
 		try {
 			subscription = this.#transport.subscribe(this.#surface);
 		} catch (error) {
@@ -227,9 +237,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		}
 	}
 
-	async #consumeSubscription(
-		subscription: BridgeProductSubscription<'file.annotations' | 'review.annotations'>,
-	): Promise<void> {
+	async #consumeSubscription(subscription: AnnotationMetadataSubscription): Promise<void> {
 		for await (const unknownEvent of subscription.events) {
 			if (this.#disposed || this.#subscription !== subscription) return;
 			const event = bridgeProductWorktreeAnnotationEventSchema.parse(unknownEvent);
@@ -665,8 +673,8 @@ export function bridgeCommWorkerAnnotationProjectionTransport(
 			productTransport.openContent(descriptor, signal, descriptor.page.operationCorrelationId),
 		subscribe: (surface) =>
 			surface === 'file'
-				? productTransport.subscribe('file.annotations', {})
-				: productTransport.subscribe('review.annotations', {}),
+				? productTransport.subscribe(bridgeProductFileAnnotationMetadataApplicationProtocol, {})
+				: productTransport.subscribe(bridgeProductReviewAnnotationMetadataApplicationProtocol, {}),
 	};
 }
 

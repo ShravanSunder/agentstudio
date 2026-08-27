@@ -12,6 +12,10 @@ import type {
 	BridgeProductRegistryValue,
 	BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
+import {
+	bridgeProductFileMetadataApplicationProtocol,
+	bridgeProductReviewMetadataApplicationProtocol,
+} from './bridge-product-metadata-application-registry.js';
 import type {
 	BridgeProductRequestExecutor,
 	BridgeProductRequestRoute,
@@ -23,13 +27,12 @@ import type {
 import type {
 	BridgeProductSubscriptionEvent,
 	BridgeProductSubscriptionKind,
-	BridgeProductSubscriptionRegistry,
 	BridgeProductSubscriptionUpdateOptions,
 } from './bridge-product-subscription-contracts.js';
-import { bridgeProductSurfaceForSubscriptionKind } from './bridge-product-subscription-contracts.js';
 import type {
 	BridgeProductCallResult,
 	BridgeProductContentStream,
+	BridgeProductMetadataApplicationSubscription,
 	BridgeProductSubscription,
 	BridgeProductTransport,
 } from './bridge-product-transport-contract.js';
@@ -163,7 +166,7 @@ const surfaceBySubscriptionKind = {
 	'review.annotations': 'review',
 	'review.metadata': 'review',
 } as const satisfies {
-	readonly [TSubscriptionKind in BridgeProductSubscriptionKind]: BridgeProductSubscriptionRegistry[TSubscriptionKind]['surface'];
+	readonly [TSubscriptionKind in BridgeProductSubscriptionKind]: BridgeProductSurface;
 };
 const surfaceByContentKind = {
 	'annotation.output': 'file',
@@ -218,9 +221,8 @@ const fileActiveModeCallSurface: 'file' = bridgeProductSurfaceForCallKind(
 	'file.activeViewerMode.update',
 );
 const fileSourceCurrentCallSurface: 'file' = bridgeProductSurfaceForCallKind('file.source.current');
-const reviewSubscriptionSurface: 'review' =
-	bridgeProductSurfaceForSubscriptionKind('review.metadata');
-const fileSubscriptionSurface: 'file' = bridgeProductSurfaceForSubscriptionKind('file.metadata');
+const reviewSubscriptionSurface: 'review' = bridgeProductReviewMetadataApplicationProtocol.surface;
+const fileSubscriptionSurface: 'file' = bridgeProductFileMetadataApplicationProtocol.surface;
 const fileContentSurface: 'file' = bridgeProductSurfaceForContentKind('file.content');
 const reviewContentSurface: 'review' = bridgeProductSurfaceForContentKind('review.content');
 const reviewComparisonTargetsContentSurface: 'review' = bridgeProductSurfaceForContentKind(
@@ -252,8 +254,6 @@ void allMappedSurfaces;
 
 // @ts-expect-error A closed call mapper cannot infer a surface from a string prefix.
 void bridgeProductSurfaceForCallKind('file.arbitrary');
-// @ts-expect-error A closed subscription mapper cannot infer a surface from a string prefix.
-void bridgeProductSurfaceForSubscriptionKind('review.arbitrary');
 // @ts-expect-error A closed content mapper cannot infer a surface from a string prefix.
 void bridgeProductSurfaceForContentKind('file.arbitrary');
 
@@ -319,12 +319,11 @@ void currentFileSourceResult;
 void availableCurrentFileSourceResult;
 void unavailableCurrentFileSourceResult;
 
-const reviewSubscription: BridgeProductSubscription<'review.metadata'> = productTransport.subscribe(
-	'review.metadata',
-	{
-		interests: [{ itemIds: ['review-item-1'], lane: 'foreground' }],
-	},
-);
+const reviewSubscription: BridgeProductMetadataApplicationSubscription<
+	typeof bridgeProductReviewMetadataApplicationProtocol
+> = productTransport.subscribe(bridgeProductReviewMetadataApplicationProtocol, {
+	interests: [{ itemIds: ['review-item-1'], lane: 'foreground' }],
+});
 void reviewSubscription;
 void reviewSubscription.update({
 	interests: [{ itemIds: ['review-item-2'], lane: 'visible' }],
@@ -339,21 +338,20 @@ void reviewSubscription.update({
 	],
 });
 
-const fileSubscription: BridgeProductSubscription<'file.metadata'> = productTransport.subscribe(
-	'file.metadata',
-	{
-		interests: [{ lane: 'visible', paths: ['src/file.ts'] }],
-		pathScope: [],
-		source: {
-			cwdScope: null,
-			freshness: 'live',
-			includeStatuses: true,
-			repoId: '00000000-0000-4000-8000-000000000001',
-			rootPathToken: 'root-token-1',
-			worktreeId: '00000000-0000-4000-8000-000000000002',
-		},
+const fileSubscription: BridgeProductMetadataApplicationSubscription<
+	typeof bridgeProductFileMetadataApplicationProtocol
+> = productTransport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
+	interests: [{ lane: 'visible', paths: ['src/file.ts'] }],
+	pathScope: [],
+	source: {
+		cwdScope: null,
+		freshness: 'live',
+		includeStatuses: true,
+		repoId: '00000000-0000-4000-8000-000000000001',
+		rootPathToken: 'root-token-1',
+		worktreeId: '00000000-0000-4000-8000-000000000002',
 	},
-);
+});
 void fileSubscription.update({
 	interests: [{ lane: 'foreground', paths: ['src/file.ts'] }],
 	pathScope: ['src'],
@@ -369,11 +367,8 @@ void fileSubscription.update({
 	pathScope: [],
 });
 
-declare const unionSubscriptionKind: BridgeProductSubscriptionKind;
-// @ts-expect-error A union subscription key cannot borrow one variant's options.
-void productTransport.subscribe(unionSubscriptionKind, {
-	interests: [{ itemIds: ['review-item-1'], lane: 'foreground' }],
-});
+// @ts-expect-error Subscription strings are retired; callers retain the registered protocol.
+void productTransport.subscribe('review.metadata', { interests: [] });
 
 declare const unionSubscription: BridgeProductSubscription<BridgeProductSubscriptionKind>;
 const reviewSubscriptionUpdate = {
@@ -516,7 +511,7 @@ void productTransport.call('file.source.current', { retry: true });
 const invalidMarkViewedResult: BridgeProductCallResult<'review.markFileViewed'> = {};
 void invalidMarkViewedResult;
 
-void productTransport.subscribe('review.metadata', {
+void productTransport.subscribe(bridgeProductReviewMetadataApplicationProtocol, {
 	interests: [
 		{
 			lane: 'foreground',
@@ -554,7 +549,7 @@ void productTransport.openContent({
 	},
 });
 
-// A Review update cannot carry the File delta variant.
+// Generic control envelopes retain raw application fields for registered validation.
 acceptControlRequest({
 	baseInterestRevision: 0,
 	baseInterestSha256: '1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6',
@@ -564,14 +559,12 @@ acceptControlRequest({
 		add: [
 			{
 				lane: 'foreground',
-				// @ts-expect-error Review deltas cannot carry File paths.
 				path: 'src/file.ts',
 			},
 		],
 		addPathScope: [],
 		removePathScope: [],
 		removePaths: [],
-		// @ts-expect-error Nested delta kind must match the outer Review kind.
 		subscriptionKind: 'file.metadata',
 	},
 	kind: 'subscription.updateBatch',
@@ -589,12 +582,11 @@ acceptControlRequest({
 	workerInstanceId: 'worker-instance-1',
 });
 
-// A Review metadata frame cannot carry the File data variant.
+// Generic metadata envelopes retain raw application data for registered validation.
 acceptMetadataFrame({
 	cursor: null,
 	data: {
 		event: {
-			// @ts-expect-error Review frames cannot carry File events.
 			eventKind: 'file.sourceAccepted',
 			source: {
 				repoId: '00000000-0000-4000-8000-000000000001',
@@ -605,7 +597,6 @@ acceptMetadataFrame({
 				worktreeId: '00000000-0000-4000-8000-000000000002',
 			},
 		},
-		// @ts-expect-error Nested data kind must match the outer Review kind.
 		subscriptionKind: 'file.metadata',
 	},
 	interestRevision: 1,

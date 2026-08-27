@@ -112,7 +112,7 @@ struct BridgeProductStartupTranscriptTests {
         }
 
         // Act
-        let emptyState = BridgeProductSubscriptionState.emptyInterestState(for: .reviewMetadata)
+        let emptyState = BridgeProductSubscriptionInterestState.reviewMetadata(interests: [])
         let candidateState = try BridgeProductSubscriptionInterestMutation.apply(
             [updateRequest.delta],
             to: emptyState,

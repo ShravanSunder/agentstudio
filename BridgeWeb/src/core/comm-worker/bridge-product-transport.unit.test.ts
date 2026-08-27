@@ -8,6 +8,11 @@ import {
 	bridgeProductFrameAcknowledgementRequestSchema,
 	type BridgeProductFrameAcknowledgementRequest,
 } from './bridge-product-frame-acknowledgement-contracts.js';
+import {
+	bridgeProductFileMetadataApplicationProtocol,
+	bridgeProductMetadataApplicationRegistry,
+	bridgeProductReviewMetadataApplicationProtocol,
+} from './bridge-product-metadata-application-registry.js';
 import { encodeBridgeProductMetadataFrame } from './bridge-product-metadata-frame-codec.js';
 import {
 	BridgeProductControlMux,
@@ -25,6 +30,7 @@ import type {
 	BridgeProductSubscriptionKind,
 	BridgeProductSubscriptionOptions,
 } from './bridge-product-subscription-contracts.js';
+import { bridgeProductSubscriptionKindSchema } from './bridge-product-subscription-contracts.js';
 import { encodeBridgeProductSubscriptionInterestState } from './bridge-product-subscription-interest-state-codec.js';
 import {
 	createBridgeProductTransport,
@@ -38,7 +44,10 @@ afterEach(() => {
 describe('Bridge product transport', () => {
 	test('acknowledges Review data immediately after routing without waiting for consumer application', async () => {
 		const harness = createTransportHarness();
-		const subscription = harness.transport.subscribe('review.metadata', { interests: [] });
+		const subscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{ interests: [] },
+		);
 		await harness.server.waitForMetadataStream();
 		const request = harness.server.requiredMetadataRequest();
 		const emptyHash = emptyInterestHash('review.metadata');
@@ -77,7 +86,7 @@ describe('Bridge product transport', () => {
 
 	test('keeps a File subscription alive through its initial source event', async () => {
 		const harness = createTransportHarness();
-		const subscription = harness.transport.subscribe('file.metadata', {
+		const subscription = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
 			interests: [],
 			pathScope: [],
 			source: fileSourceConfiguration(),
@@ -126,7 +135,7 @@ describe('Bridge product transport', () => {
 	test('shares one accepted physical stream, routes early mixed events, and preserves initial interest', async () => {
 		const harness = createTransportHarness({ fileEpoch: 5, reviewEpoch: 2 });
 		harness.server.holdNextSubscriptionOpen();
-		const review = harness.transport.subscribe('review.metadata', {
+		const review = harness.transport.subscribe(bridgeProductReviewMetadataApplicationProtocol, {
 			interests: [{ itemIds: ['review-item-1'], lane: 'foreground' }],
 		});
 		const reviewEvent = review.events[Symbol.asyncIterator]().next();
@@ -207,7 +216,7 @@ describe('Bridge product transport', () => {
 			interestBarrier(reviewUpdate, harness.server.requiredMetadataRequest(), 3, 2),
 		);
 
-		const file = harness.transport.subscribe('file.metadata', {
+		const file = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
 			interests: [],
 			pathScope: [],
 			source: fileSourceConfiguration(),
@@ -228,7 +237,10 @@ describe('Bridge product transport', () => {
 	test('rejects a closed acknowledgement conflict status and cancels the metadata reader', async () => {
 		const harness = createTransportHarness();
 		harness.server.nextAcknowledgementStatus = 409;
-		const subscription = harness.transport.subscribe('review.metadata', { interests: [] });
+		const subscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{ interests: [] },
+		);
 		const nextEvent = subscription.events[Symbol.asyncIterator]().next();
 		await harness.server.waitForMetadataStream();
 		harness.server.emitMetadata(metadataAccepted(harness.server.requiredMetadataRequest(), 0));
@@ -247,7 +259,10 @@ describe('Bridge product transport', () => {
 
 	test('records an unknown subscription acceptance as a route failure before read three', async () => {
 		const harness = createTransportHarness();
-		const subscription = harness.transport.subscribe('review.metadata', { interests: [] });
+		const subscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{ interests: [] },
+		);
 		const nextEvent = subscription.events[Symbol.asyncIterator]().next();
 		await harness.server.waitForMetadataStream();
 		const request = harness.server.requiredMetadataRequest();
@@ -291,7 +306,10 @@ describe('Bridge product transport', () => {
 
 	test('poisons a logical subscription on hostile pre-acceptance data', async () => {
 		const harness = createTransportHarness();
-		const subscription = harness.transport.subscribe('review.metadata', { interests: [] });
+		const subscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{ interests: [] },
+		);
 		const nextEvent = subscription.events[Symbol.asyncIterator]().next();
 		await harness.server.waitForMetadataStream();
 		harness.server.emitMetadata(metadataAccepted(harness.server.requiredMetadataRequest(), 0));
@@ -314,7 +332,7 @@ describe('Bridge product transport', () => {
 
 	test('exposes payload-free metadata stream diagnostics after a poisoned packaged frame', async () => {
 		const harness = createTransportHarness();
-		const subscription = harness.transport.subscribe('file.metadata', {
+		const subscription = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
 			interests: [],
 			pathScope: [],
 			source: fileSourceConfiguration(),
@@ -368,7 +386,10 @@ describe('Bridge product transport', () => {
 
 	test('opens a fresh metadata stream after a physical stream failure', async () => {
 		const harness = createTransportHarness();
-		const firstSubscription = harness.transport.subscribe('review.metadata', { interests: [] });
+		const firstSubscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{ interests: [] },
+		);
 		const firstEvent = firstSubscription.events[Symbol.asyncIterator]().next();
 		await harness.server.waitForMetadataStream();
 		const firstRequest = harness.server.requiredMetadataRequest();
@@ -382,7 +403,10 @@ describe('Bridge product transport', () => {
 
 		await expect(firstEvent).rejects.toThrow();
 
-		const secondSubscription = harness.transport.subscribe('review.metadata', { interests: [] });
+		const secondSubscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{ interests: [] },
+		);
 		await waitForCondition(() => harness.server.metadataFetchCount === 2);
 		const secondRequest = harness.server.requiredMetadataRequest();
 		expect(secondRequest.metadataStreamId).not.toBe(firstRequest.metadataStreamId);
@@ -413,7 +437,10 @@ describe('Bridge product transport', () => {
 
 	test('settles cancel only after the correlated terminal metadata frame', async () => {
 		const harness = createTransportHarness();
-		const subscription = harness.transport.subscribe('review.metadata', { interests: [] });
+		const subscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{ interests: [] },
+		);
 		await harness.server.waitForMetadataStream();
 		const request = harness.server.requiredMetadataRequest();
 		const emptyHash = emptyInterestHash('review.metadata');
@@ -521,6 +548,7 @@ function createTransportHarness(
 				file: epochs.fileEpoch ?? 0,
 				review: epochs.reviewEpoch ?? 0,
 			},
+			metadataApplicationRegistry: bridgeProductMetadataApplicationRegistry,
 		}),
 	};
 }
@@ -862,15 +890,16 @@ function fileSourceIdentity(): BridgeProductFileSourceIdentity {
 	} as const;
 }
 
-function emptyInterestHash(kind: BridgeProductSubscriptionKind): string {
-	switch (kind) {
+function emptyInterestHash(kind: string): string {
+	const validatedKind = bridgeProductSubscriptionKindSchema.parse(kind);
+	switch (validatedKind) {
 		case 'file.annotations':
 		case 'review.annotations':
-			return interestHash({ subscriptionKind: kind });
+			return interestHash({ subscriptionKind: validatedKind });
 		case 'file.metadata':
-			return interestHash({ interests: [], pathScope: [], subscriptionKind: kind });
+			return interestHash({ interests: [], pathScope: [], subscriptionKind: validatedKind });
 		case 'review.metadata':
-			return interestHash({ interests: [], subscriptionKind: kind });
+			return interestHash({ interests: [], subscriptionKind: validatedKind });
 	}
 	throw new Error('Unsupported Bridge product subscription kind.');
 }

@@ -474,7 +474,8 @@ private func restoreHTTPAnnotationDraftAfterRestart(
                 recorder: metadataStream.recorder
             ) { frame in
                 guard case .subscriptionData(let dataFrame) = frame,
-                    case .fileMetadata(.sourceAccepted(let event)) = dataFrame.data
+                    let fileEvent = dataFrame.data.fileMetadataEvent,
+                    case .sourceAccepted(let event) = fileEvent
                 else { return nil }
                 return event.source
             }

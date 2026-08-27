@@ -173,8 +173,8 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
-        guard case .fileMetadata(let sourceSpec) = subscription.subscription,
-            case .fileMetadata(_, let pathScope) = subscription.interestState
+        guard let sourceSpec = subscription.subscription.fileMetadataSource,
+            let interestState = subscription.interestState.fileMetadataState
         else {
             return
         }
@@ -183,7 +183,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             let context = try installContext(
                 subscription: subscription,
                 sourceSpec: sourceSpec,
-                pathScope: pathScope,
+                pathScope: interestState.pathScope,
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
@@ -225,7 +225,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                         foregroundWorkAdmission: foregroundWorkAdmission,
                         manifestIndex: preparedContext.manifestIndex,
                         openedSource: preparedContext.openedSource,
-                        pathScope: pathScope,
+                        pathScope: interestState.pathScope,
                         productAdmission: productAdmission,
                         productSource: productSource,
                         subscription: subscription
@@ -363,7 +363,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
-        guard case .fileMetadata(let interestGroups, _) = subscription.interestState else { return }
+        guard let interestGroups = subscription.interestState.fileMetadataState?.interests else { return }
         var acceptedContext: SubscriptionContext?
         let didAcceptContext =
             foregroundWorkAdmission.withValidAdmission {
@@ -562,7 +562,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         foregroundWorkAdmission.withValidAdmission {
             productAdmission.withValidAdmission {
                 contextBySubscriptionId.compactMap { subscriptionId, context in
-                    guard case .fileMetadata(let sourceSpec) = context.subscription.subscription,
+                    guard let sourceSpec = context.subscription.subscription.fileMetadataSource,
                         context.productAdmission.matches(productAdmission),
                         sourceSpec.includeStatuses
                     else { return nil }

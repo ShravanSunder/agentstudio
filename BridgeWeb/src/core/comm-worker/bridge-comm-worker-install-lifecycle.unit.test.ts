@@ -18,6 +18,7 @@ import {
 	BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
 	BRIDGE_PRODUCT_WIRE_VERSION,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductMetadataApplicationRegistry } from './bridge-product-metadata-application-registry.js';
 import { BridgeProductControlMux } from './bridge-product-session-authority.js';
 import {
 	type BridgePaneCommWorkerInstall,
@@ -57,6 +58,7 @@ function makeTestInstalledProductSession(
 			authority,
 			controlMux,
 			executeProductRequest: executeAgentStudioBridgeProductRequest,
+			metadataApplicationRegistry: bridgeProductMetadataApplicationRegistry,
 		}),
 	};
 }

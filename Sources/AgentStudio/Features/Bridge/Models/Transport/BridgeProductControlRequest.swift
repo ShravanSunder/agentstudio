@@ -264,7 +264,7 @@ struct BridgeProductSubscriptionUpdateBatchRequest: Codable, Equatable, Sendable
     let updateId: String
 
     var correlation: BridgeProductControlCorrelation { identity.correlation }
-    var surface: BridgeProductSurface { subscriptionKind.surface }
+    var surface: BridgeProductSurface? { subscriptionKind.surface }
     var workerDerivationEpoch: Int { identity.workerDerivationEpoch }
 
     init(from decoder: Decoder) throws {
@@ -401,7 +401,7 @@ struct BridgeProductSubscriptionCancelRequest: Codable, Equatable, Sendable {
     let subscriptionKind: BridgeProductSubscriptionKind
 
     var correlation: BridgeProductControlCorrelation { identity.correlation }
-    var surface: BridgeProductSurface { subscriptionKind.surface }
+    var surface: BridgeProductSurface? { subscriptionKind.surface }
     var workerDerivationEpoch: Int { identity.workerDerivationEpoch }
 
     init(from decoder: Decoder) throws {
@@ -421,6 +421,7 @@ struct BridgeProductSubscriptionCancelRequest: Codable, Equatable, Sendable {
         }
         self.subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
         self.subscriptionKind = try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind)
+        _ = try BridgeProductMetadataApplicationRegistry.product.registration(for: subscriptionKind)
         self.identity = try BridgeProductSurfaceControlRequestIdentity(from: decoder)
         try BridgeProductContractDecoding.validateIdentifier(subscriptionId, codingPath: decoder.codingPath)
     }
@@ -448,8 +449,9 @@ struct BridgeProductActiveSubscription: Codable, Equatable, Sendable {
     let subscriptionId: String
     let subscriptionKind: BridgeProductSubscriptionKind
     let workerDerivationEpoch: Int
+    private let registeredSurface: BridgeProductSurface
 
-    var surface: BridgeProductSurface { subscriptionKind.surface }
+    var surface: BridgeProductSurface { registeredSurface }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
@@ -462,6 +464,9 @@ struct BridgeProductActiveSubscription: Codable, Equatable, Sendable {
         self.interestSha256 = try container.decode(String.self, forKey: .interestSha256)
         self.subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
         self.subscriptionKind = try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind)
+        registeredSurface = try BridgeProductMetadataApplicationRegistry.product.registration(
+            for: subscriptionKind
+        ).surface
         self.workerDerivationEpoch = try container.decode(
             Int.self,
             forKey: .workerDerivationEpoch

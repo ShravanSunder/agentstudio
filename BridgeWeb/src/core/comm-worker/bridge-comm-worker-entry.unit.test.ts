@@ -39,6 +39,7 @@ import {
 	BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
 	BRIDGE_PRODUCT_WIRE_VERSION,
 } from './bridge-product-contract-primitives.js';
+import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
 import {
 	bridgePaneCommWorkerInstallSchema,
 	bridgeProductControlRequestSchema,
@@ -753,10 +754,11 @@ function makeUnavailableFileProductTransport(): BridgeProductTransportSession {
 			throw new Error('Entry harness cannot open content without a File source.');
 		},
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The entry harness supports only annotation notification subscriptions.
-		subscribe: ((subscriptionKind: string): never => {
+		subscribe: ((protocol: BridgeProductMetadataApplicationProtocolIdentity): never => {
+			const subscriptionKind = protocol.kind;
 			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The branch closes over the requested annotation subscription kind.
-				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
+				return createIdleWorktreeAnnotationSubscription(protocol) as never;
 			}
 			throw new Error('Entry harness cannot subscribe without a File source.');
 		}) as BridgeProductTransportSession['subscribe'],

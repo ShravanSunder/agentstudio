@@ -571,7 +571,8 @@ function createBrowserTestProductTransport(props: {
 			});
 		},
 		subscribe: (...arguments_): never => {
-			const [subscriptionKind, options] = arguments_;
+			const [protocol, options] = arguments_;
+			const subscriptionKind = protocol.kind;
 			if (subscriptionKind !== 'file.metadata') {
 				throw new Error(`Unexpected browser-test product subscription: ${subscriptionKind}.`);
 			}

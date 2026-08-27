@@ -155,8 +155,9 @@ struct BridgeProductSubscriptionFrameIdentity: Codable, Equatable, Sendable {
     let subscriptionKind: BridgeProductSubscriptionKind
     let subscriptionSequence: Int
     let workerDerivationEpoch: Int
+    let registeredSurface: BridgeProductSurface
 
-    var surface: BridgeProductSurface { subscriptionKind.surface }
+    var surface: BridgeProductSurface { registeredSurface }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: BridgeProductSubscriptionFrameIdentityCodingKeys.self)
@@ -171,6 +172,9 @@ struct BridgeProductSubscriptionFrameIdentity: Codable, Equatable, Sendable {
         self.sourceGeneration = try container.decode(Int.self, forKey: .sourceGeneration)
         self.subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
         self.subscriptionKind = try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind)
+        registeredSurface = try BridgeProductMetadataApplicationRegistry.product.registration(
+            for: subscriptionKind
+        ).surface
         self.subscriptionSequence = try container.decode(Int.self, forKey: .subscriptionSequence)
         self.workerDerivationEpoch = try container.decode(
             Int.self,

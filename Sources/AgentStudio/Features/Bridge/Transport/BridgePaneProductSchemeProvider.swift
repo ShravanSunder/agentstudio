@@ -182,9 +182,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 guard await metadataCoordinator.hasActiveStream else {
                     return try metadataStreamRequiredError(for: request)
                 }
-                let emptyInterestState = BridgeProductSubscriptionState.emptyInterestState(
-                    for: openRequest.subscription.subscriptionKind
-                )
+                let emptyInterestState = try openRequest.subscription.initialInterestState()
                 return try .subscriptionOpenAccepted(
                     correlating: request,
                     interestSha256: emptyInterestState.sha256Hex()

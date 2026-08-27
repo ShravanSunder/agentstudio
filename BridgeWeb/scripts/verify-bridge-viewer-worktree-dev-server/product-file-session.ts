@@ -14,6 +14,8 @@ import {
 	bridgeProductFrameAcknowledgementRequestSchema,
 	type BridgeProductFrameAcknowledgementRequest,
 } from '../../src/core/comm-worker/bridge-product-frame-acknowledgement-contracts.js';
+import type { BridgeProductMetadataApplicationEvent } from '../../src/core/comm-worker/bridge-product-metadata-application-protocol.js';
+import { bridgeProductFileMetadataApplicationProtocol } from '../../src/core/comm-worker/bridge-product-metadata-application-registry.js';
 import { BridgeProductMetadataFrameDecoder } from '../../src/core/comm-worker/bridge-product-metadata-frame-codec.js';
 import {
 	bridgeProductControlRequestSchema,
@@ -23,10 +25,7 @@ import {
 	type BridgeProductControlResponse,
 	type BridgeProductMetadataFrame,
 } from '../../src/core/comm-worker/bridge-product-session-contracts.js';
-import {
-	type BridgeProductSubscriptionEvent,
-	type BridgeProductSubscriptionInterestState,
-} from '../../src/core/comm-worker/bridge-product-subscription-contracts.js';
+import { type BridgeProductSubscriptionInterestState } from '../../src/core/comm-worker/bridge-product-subscription-contracts.js';
 import { encodeBridgeProductSubscriptionInterestState } from '../../src/core/comm-worker/bridge-product-subscription-interest-state-codec.js';
 
 export type BridgeVerifierProductFileSessionState =
@@ -36,7 +35,13 @@ export type BridgeVerifierProductFileSessionState =
 	| 'closing'
 	| 'closed';
 
-type FileMetadataEvent = BridgeProductSubscriptionEvent<'file.metadata'>;
+type FileMetadataEvent = BridgeProductMetadataApplicationEvent<
+	typeof bridgeProductFileMetadataApplicationProtocol
+>;
+
+export function parseBridgeVerifierFileMetadataEvent(data: unknown): FileMetadataEvent {
+	return bridgeProductFileMetadataApplicationProtocol.dataSchema.parse(data).event;
+}
 type FileSourceAcceptedEvent = Extract<
 	FileMetadataEvent,
 	{ readonly eventKind: 'file.sourceAccepted' }
@@ -544,17 +549,19 @@ export class BridgeVerifierProductFileSession {
 	async #waitForFileEvent<TFileEvent extends FileMetadataEvent>(
 		predicate: (event: FileMetadataEvent) => event is TFileEvent,
 	): Promise<TFileEvent> {
-		const frame = await this.#requireMetadataStream().frames.waitFor(
-			(candidate) =>
-				candidate.kind === 'subscription.data' &&
-				candidate.subscriptionId === this.#subscriptionId &&
-				candidate.data.subscriptionKind === 'file.metadata' &&
-				predicate(candidate.data.event),
-		);
-		if (frame.kind !== 'subscription.data' || frame.data.subscriptionKind !== 'file.metadata') {
+		const frame = await this.#requireMetadataStream().frames.waitFor((candidate) => {
+			if (
+				candidate.kind !== 'subscription.data' ||
+				candidate.subscriptionId !== this.#subscriptionId
+			) {
+				return false;
+			}
+			return predicate(parseBridgeVerifierFileMetadataEvent(candidate.data));
+		});
+		if (frame.kind !== 'subscription.data') {
 			throw new Error('Expected file.metadata subscription data.');
 		}
-		const event = frame.data.event;
+		const event = parseBridgeVerifierFileMetadataEvent(frame.data);
 		if (!predicate(event)) throw new Error('File metadata event failed correlation.');
 		return event;
 	}

@@ -13,6 +13,7 @@ import {
 	BridgeProductBoundedAsyncQueue,
 	createBridgeProductDeferred,
 } from './bridge-product-async-queue.js';
+import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
@@ -548,7 +549,8 @@ function createAnnotationProductTransport(props: {
 		}) as BridgeProductTransportSession['openContent'],
 		setPanePresentationFrameSink: (): void => {},
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The annotation runtime test double closes over its three supported subscription kinds.
-		subscribe: ((subscriptionKind: string): unknown => {
+		subscribe: ((protocol: BridgeProductMetadataApplicationProtocolIdentity): unknown => {
+			const subscriptionKind = protocol.kind;
 			props.subscribedKinds.push(subscriptionKind);
 			switch (subscriptionKind) {
 				case 'file.annotations':

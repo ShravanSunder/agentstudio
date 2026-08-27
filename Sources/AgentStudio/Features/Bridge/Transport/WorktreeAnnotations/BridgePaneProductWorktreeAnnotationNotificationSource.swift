@@ -26,12 +26,10 @@ actor BridgePaneAnnotationNotificationSource {
 
     func open(
         subscription: BridgeProductSubscriptionSnapshot,
+        surface: BridgeProductSurface,
         emit: @escaping EventSink
     ) async throws {
-        guard let service,
-            subscription.subscriptionKind == .fileAnnotations
-                || subscription.subscriptionKind == .reviewAnnotations
-        else { throw WorktreeAnnotationServiceError.unavailable }
+        guard let service else { throw WorktreeAnnotationServiceError.unavailable }
         let observer = await service.registerChangeObserver(worktreeID: worktreeID)
         do {
             var sourceGeneration = 0
@@ -45,6 +43,7 @@ actor BridgePaneAnnotationNotificationSource {
                 deliveryAttempt: 0,
                 deliveryStartWasRecorded: false,
                 subscription: subscription,
+                surface: surface,
                 emit: emit
             )
             for await change in observer.stream {
@@ -71,6 +70,7 @@ actor BridgePaneAnnotationNotificationSource {
                     deliveryAttempt: deliveryAttempt,
                     deliveryStartWasRecorded: true,
                     subscription: subscription,
+                    surface: surface,
                     emit: emit
                 )
             }
@@ -81,14 +81,7 @@ actor BridgePaneAnnotationNotificationSource {
         }
     }
 
-    func update(subscription: BridgeProductSubscriptionSnapshot) throws {
-        guard
-            subscription.subscriptionKind == .fileAnnotations
-                || subscription.subscriptionKind == .reviewAnnotations
-        else {
-            throw WorktreeAnnotationServiceError.unavailable
-        }
-    }
+    func update(subscription _: BridgeProductSubscriptionSnapshot) throws {}
 
     func cancel(subscriptionID _: String) async {}
 
@@ -99,10 +92,9 @@ actor BridgePaneAnnotationNotificationSource {
         deliveryAttempt: Int,
         deliveryStartWasRecorded: Bool,
         subscription: BridgeProductSubscriptionSnapshot,
+        surface: BridgeProductSurface,
         emit: EventSink
     ) async throws {
-        let surface: BridgeProductSurface =
-            subscription.subscriptionKind == .fileAnnotations ? .file : .review
         if !deliveryStartWasRecorded {
             await lifecycleTraceRecorder?.record(
                 .init(

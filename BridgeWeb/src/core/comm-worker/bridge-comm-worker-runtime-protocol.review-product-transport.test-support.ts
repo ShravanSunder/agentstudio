@@ -50,7 +50,7 @@ export function makeReviewProductTransport(props: {
 			sink(makeReviewPanePresentationFrame(1, 'foreground'));
 		},
 		subscribe: (...arguments_): never => {
-			const [subscriptionKind] = arguments_;
+			const [{ kind: subscriptionKind }] = arguments_;
 			props.subscribedKinds.push(subscriptionKind);
 			if (subscriptionKind === 'review.annotations' && props.reviewAnnotationSubscription) {
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The optional Review annotation fixture matches the narrowed subscription branch.
@@ -58,7 +58,7 @@ export function makeReviewProductTransport(props: {
 			}
 			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Generic transport fixtures close over the requested annotation subscription kind.
-				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
+				return createIdleWorktreeAnnotationSubscription(arguments_[0]) as never;
 			}
 			if (subscriptionKind !== 'review.metadata') {
 				throw new Error(`Unexpected product subscription ${subscriptionKind}.`);

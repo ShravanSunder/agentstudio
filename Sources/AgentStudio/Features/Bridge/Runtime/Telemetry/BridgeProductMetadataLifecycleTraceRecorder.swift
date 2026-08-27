@@ -392,27 +392,15 @@ struct BridgeProductMetadataLifecycleTraceRecorder: BridgeProductMetadataLifecyc
     }
 
     func record(_ event: BridgeProductMetadataLifecycleTraceEvent) async {
-        let protocolName: String
-        let viewer: String
-        let slice: BridgeTelemetrySlice
-        switch event.subscriptionKind {
-        case .fileAnnotations:
-            protocolName = "worktree-annotations"
-            viewer = "file"
-            slice = .treePrepareInput
-        case .fileMetadata:
-            protocolName = "worktree-file"
-            viewer = "file"
-            slice = .treePrepareInput
-        case .reviewAnnotations:
-            protocolName = "worktree-annotations"
-            viewer = "review"
-            slice = .reviewMetadata
-        case .reviewMetadata:
-            protocolName = "review"
-            viewer = "review"
-            slice = .reviewMetadata
-        }
+        guard
+            let registration = try? BridgeProductMetadataApplicationRegistry.product.registration(
+                for: event.subscriptionKind
+            )
+        else { return }
+        let protocolName = registration.telemetryDescriptor.applicationName
+        let viewer = registration.surface.rawValue
+        let slice: BridgeTelemetrySlice =
+            registration.surface == .review ? .reviewMetadata : .treePrepareInput
 
         var numericAttributes: [String: Double] = [:]
         if let sourceGeneration = event.sourceGeneration {

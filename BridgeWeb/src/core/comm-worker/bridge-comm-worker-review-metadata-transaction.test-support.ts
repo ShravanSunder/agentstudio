@@ -379,7 +379,7 @@ export function reviewMetadataTransport(
 			throw new Error('Review content is outside metadata transaction staging.');
 		},
 		subscribe: (...arguments_): never => {
-			const [subscriptionKind] = arguments_;
+			const [{ kind: subscriptionKind }] = arguments_;
 			if (subscriptionKind !== 'review.metadata') {
 				throw new Error(`Unexpected product subscription ${subscriptionKind}.`);
 			}

@@ -155,7 +155,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(reset.reason == .staleSource)
         guard case .enqueued = fileDataResult,
             case .subscriptionData(let fileData) = fileDataFrame,
-            case .fileMetadata = fileData.data
+            fileData.data.subscriptionKind == .fileMetadata
         else {
             Issue.record("Expected File to accept data after the Review reset")
             await fixture.finish()
@@ -276,7 +276,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(reset.reason == .staleSource)
         guard case .enqueued = fileDataResult,
             case .subscriptionData(let fileData) = fileDataFrame,
-            case .fileMetadata = fileData.data
+            fileData.data.subscriptionKind == .fileMetadata
         else {
             Issue.record("Expected File to accept data after the Review reset")
             await fixture.finish()

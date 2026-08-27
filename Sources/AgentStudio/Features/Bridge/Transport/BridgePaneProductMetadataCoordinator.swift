@@ -19,6 +19,7 @@ actor BridgePaneProductMetadataCoordinator {
     let annotationSource: BridgePaneAnnotationNotificationSource
     let fileMetadataSource: any BridgePaneProductFileMetadataProducing
     let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
+    let nativeApplicationRegistry: BridgePaneProductMetadataNativeApplicationRegistry
     private let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     let isReviewPublicationCurrent: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
     let reviewPublicationReplay:
@@ -49,7 +50,8 @@ actor BridgePaneProductMetadataCoordinator {
             @escaping @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool = { _, _ in true },
         initialPanePresentation: BridgePaneProductPresentationSnapshot? = nil,
         refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource,
-        lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil
+        lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil,
+        nativeApplicationRegistry: BridgePaneProductMetadataNativeApplicationRegistry = .product
     ) {
         self.annotationSource = annotationSource
         self.contentDemandAuthority = BridgePaneProductContentDemandAuthority(
@@ -60,6 +62,7 @@ actor BridgePaneProductMetadataCoordinator {
         self.isReviewPublicationCurrent = isReviewPublicationCurrent
         self.latestPanePresentation = initialPanePresentation
         self.lifecycleTraceRecorder = lifecycleTraceRecorder
+        self.nativeApplicationRegistry = nativeApplicationRegistry
         self.producerTaskLifecycle = BridgePaneProductMetadataProducerTaskLifecycle(
             lifecycleTraceRecorder: lifecycleTraceRecorder
         )
@@ -781,14 +784,10 @@ extension BridgePaneProductMetadataCoordinator {
         subscriptionId: String,
         subscriptionKind: BridgeProductSubscriptionKind
     ) async {
-        switch subscriptionKind {
-        case .fileAnnotations, .reviewAnnotations:
-            await annotationSource.cancel(subscriptionID: subscriptionId)
-        case .fileMetadata:
-            await fileMetadataSource.cancel(subscriptionId: subscriptionId)
-        case .reviewMetadata:
-            await reviewMetadataSource.cancel(subscriptionId: subscriptionId)
-        }
+        await cancelRegisteredSource(
+            subscriptionId: subscriptionId,
+            subscriptionKind: subscriptionKind
+        )
     }
 
     private func removeSubscriptionLifecycleState(subscriptionId: String) {

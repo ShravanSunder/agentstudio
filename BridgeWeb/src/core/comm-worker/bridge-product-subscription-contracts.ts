@@ -9,10 +9,8 @@ import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductOpaqueReferenceSchema,
-	type BridgeProductRegistryValue,
 	bridgeProductSafeMessageSchema,
 	bridgeProductUnicodeScalarUtf8ByteLength,
-	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES,
 	type BridgeProductTypeSetsEqual,
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductExactUtf8IdentitySet } from './bridge-product-exact-utf8-identity.js';
@@ -24,16 +22,15 @@ import {
 	bridgeProductFileChangeStatusSchema,
 	bridgeProductFileTreeRowSchema,
 } from './bridge-product-file-tree-contracts.js';
+import type {
+	BridgeProductMetadataApplicationEvent,
+	BridgeProductMetadataApplicationOptions,
+	BridgeProductMetadataApplicationUpdateOptions,
+} from './bridge-product-metadata-application-protocol.js';
+import type { BridgeProductRegisteredMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import { bridgeProductReviewMetadataEventSchema } from './bridge-product-review-metadata-contracts.js';
 import { validateBridgeProductSubscriptionDeltaCollection } from './bridge-product-subscription-delta-validation.js';
-import { preflightBridgeProductSubscriptionInterestStateCanonicalEncoding } from './bridge-product-subscription-interest-preflight.js';
 import { bridgeProductWorktreeAnnotationEventSchema } from './bridge-product-worktree-annotation-contracts.js';
-
-export { bridgeProductSubscriptionInterestDeltaItemCount } from './bridge-product-subscription-accounting.js';
-export {
-	preflightBridgeProductSubscriptionInterestStateCanonicalEncoding,
-	type BridgeProductSubscriptionInterestStateCanonicalEncodingPreflight,
-} from './bridge-product-subscription-interest-preflight.js';
 
 export {
 	bridgeProductFileSourceIdentitySchema,
@@ -233,15 +230,7 @@ const bridgeProductSubscriptionInterestStateStructuralSchema = z.discriminatedUn
 );
 
 export const bridgeProductSubscriptionInterestStateSchema =
-	bridgeProductSubscriptionInterestStateStructuralSchema.superRefine((state, context): void => {
-		const preflight = preflightBridgeProductSubscriptionInterestStateCanonicalEncoding(state);
-		if (preflight.status === 'exceedsMaximum') {
-			context.addIssue({
-				code: 'custom',
-				message: `Bridge product canonical interest state cannot exceed ${BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES} bytes.`,
-			});
-		}
-	});
+	bridgeProductSubscriptionInterestStateStructuralSchema;
 
 export const bridgeProductFileMetadataLoadedBySchema = z.enum([
 	'startup_window',
@@ -741,38 +730,8 @@ function bridgeProductFileSourceIdentitiesEqual(
 	);
 }
 
-export type BridgeProductSubscriptionRegistry = {
-	readonly 'file.annotations': {
-		readonly event: z.infer<typeof bridgeProductWorktreeAnnotationEventSchema>;
-		readonly options: z.infer<typeof bridgeProductAnnotationSubscriptionOptionsSchema>;
-		readonly surface: 'file';
-		readonly updateOptions: z.infer<typeof bridgeProductAnnotationSubscriptionUpdateOptionsSchema>;
-	};
-	readonly 'file.metadata': {
-		readonly event: z.infer<typeof bridgeProductFileMetadataEventSchema>;
-		readonly options: z.infer<typeof bridgeProductFileMetadataSubscriptionOptionsSchema>;
-		readonly surface: 'file';
-		readonly updateOptions: z.infer<
-			typeof bridgeProductFileMetadataSubscriptionUpdateOptionsSchema
-		>;
-	};
-	readonly 'review.annotations': {
-		readonly event: z.infer<typeof bridgeProductWorktreeAnnotationEventSchema>;
-		readonly options: z.infer<typeof bridgeProductAnnotationSubscriptionOptionsSchema>;
-		readonly surface: 'review';
-		readonly updateOptions: z.infer<typeof bridgeProductAnnotationSubscriptionUpdateOptionsSchema>;
-	};
-	readonly 'review.metadata': {
-		readonly event: z.infer<typeof bridgeProductReviewMetadataEventSchema>;
-		readonly options: z.infer<typeof bridgeProductReviewMetadataSubscriptionOptionsSchema>;
-		readonly surface: 'review';
-		readonly updateOptions: z.infer<
-			typeof bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema
-		>;
-	};
-};
-
-export type BridgeProductSubscriptionKind = keyof BridgeProductSubscriptionRegistry;
+export type BridgeProductSubscriptionKind =
+	BridgeProductRegisteredMetadataApplicationProtocol['kind'];
 export const bridgeProductSubscriptionKindSchema = z.enum([
 	'file.annotations',
 	'file.metadata',
@@ -780,67 +739,31 @@ export const bridgeProductSubscriptionKindSchema = z.enum([
 	'review.metadata',
 ]);
 
-const bridgeProductSurfaceBySubscriptionKind = {
-	'file.annotations': 'file',
-	'file.metadata': 'file',
-	'review.annotations': 'review',
-	'review.metadata': 'review',
-} as const satisfies {
-	readonly [TSubscriptionKind in BridgeProductSubscriptionKind]: BridgeProductSubscriptionRegistry[TSubscriptionKind]['surface'];
-};
-
-export function bridgeProductSurfaceForSubscriptionKind<
+type BridgeProductProtocolForSubscriptionKind<
 	TSubscriptionKind extends BridgeProductSubscriptionKind,
->(
-	subscriptionKind: TSubscriptionKind,
-): BridgeProductSubscriptionRegistry[TSubscriptionKind]['surface'] {
-	return bridgeProductSurfaceBySubscriptionKind[subscriptionKind];
-}
+> = Extract<
+	BridgeProductRegisteredMetadataApplicationProtocol,
+	{ readonly kind: TSubscriptionKind }
+>;
 
 export type BridgeProductSubscriptionOptions<
 	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = BridgeProductRegistryValue<BridgeProductSubscriptionRegistry, TSubscriptionKind, 'options'>;
+> = BridgeProductMetadataApplicationOptions<
+	BridgeProductProtocolForSubscriptionKind<TSubscriptionKind>
+>;
 export type BridgeProductSubscriptionEvent<
 	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = BridgeProductRegistryValue<BridgeProductSubscriptionRegistry, TSubscriptionKind, 'event'>;
+> = BridgeProductMetadataApplicationEvent<
+	BridgeProductProtocolForSubscriptionKind<TSubscriptionKind>
+>;
 export type BridgeProductSubscriptionUpdateOptions<
 	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = BridgeProductRegistryValue<
-	BridgeProductSubscriptionRegistry,
-	TSubscriptionKind,
-	'updateOptions'
+> = BridgeProductMetadataApplicationUpdateOptions<
+	BridgeProductProtocolForSubscriptionKind<TSubscriptionKind>
 >;
 export type BridgeProductSubscriptionInterestState = z.infer<
 	typeof bridgeProductSubscriptionInterestStateSchema
 >;
-
-export function validateBridgeProductSubscriptionInterestState(
-	state: BridgeProductSubscriptionInterestState,
-): BridgeProductSubscriptionInterestState {
-	const preflight = preflightBridgeProductSubscriptionInterestStateCanonicalEncoding(state);
-	if (preflight.status === 'exceedsMaximum') {
-		throw new Error(
-			`Bridge product canonical interest state cannot exceed ${preflight.maximumCanonicalByteLength} bytes.`,
-		);
-	}
-	return bridgeProductSubscriptionInterestStateStructuralSchema.parse(state);
-}
-
-export const bridgeProductSubscriptionOpenSchema = z.discriminatedUnion('subscriptionKind', [
-	z.object({ subscriptionKind: z.literal('file.annotations') }).strict(),
-	z.object({ subscriptionKind: z.literal('review.annotations') }).strict(),
-	z
-		.object({
-			source: bridgeProductFileSourceConfigurationSchema,
-			subscriptionKind: z.literal('file.metadata'),
-		})
-		.strict(),
-	z
-		.object({
-			subscriptionKind: z.literal('review.metadata'),
-		})
-		.strict(),
-]);
 
 const bridgeProductReviewMetadataInterestAdditionSchema = z
 	.object({
@@ -922,16 +845,6 @@ export const bridgeProductFileMetadataInterestDeltaSchema = z
 		});
 	});
 
-export const bridgeProductSubscriptionInterestDeltaSchema = z.discriminatedUnion(
-	'subscriptionKind',
-	[
-		z.object({ subscriptionKind: z.literal('file.annotations') }).strict(),
-		bridgeProductFileMetadataInterestDeltaSchema,
-		z.object({ subscriptionKind: z.literal('review.annotations') }).strict(),
-		bridgeProductReviewMetadataInterestDeltaSchema,
-	],
-);
-
 export const bridgeProductFileAnnotationSubscriptionDataSchema = z
 	.object({
 		event: bridgeProductWorktreeAnnotationEventSchema,
@@ -960,33 +873,8 @@ export const bridgeProductReviewMetadataSubscriptionDataSchema = z
 	})
 	.strict();
 
-export const bridgeProductSubscriptionDataSchema = z.discriminatedUnion('subscriptionKind', [
-	bridgeProductFileAnnotationSubscriptionDataSchema,
-	bridgeProductFileMetadataSubscriptionDataSchema,
-	bridgeProductReviewAnnotationSubscriptionDataSchema,
-	bridgeProductReviewMetadataSubscriptionDataSchema,
-]);
-
-export type BridgeProductSubscriptionOpenWire = z.infer<typeof bridgeProductSubscriptionOpenSchema>;
-export type BridgeProductSubscriptionInterestDeltaWire = z.infer<
-	typeof bridgeProductSubscriptionInterestDeltaSchema
->;
-export type BridgeProductSubscriptionDataWire = z.infer<typeof bridgeProductSubscriptionDataSchema>;
-export type BridgeProductSubscriptionOpenRegistryParity = BridgeProductAssert<
-	BridgeProductTypeSetsEqual<
-		BridgeProductSubscriptionOpenWire['subscriptionKind'],
-		BridgeProductSubscriptionKind
-	>
->;
-export type BridgeProductSubscriptionInterestDeltaRegistryParity = BridgeProductAssert<
-	BridgeProductTypeSetsEqual<
-		BridgeProductSubscriptionInterestDeltaWire['subscriptionKind'],
-		BridgeProductSubscriptionKind
-	>
->;
-export type BridgeProductSubscriptionDataRegistryParity = BridgeProductAssert<
-	BridgeProductTypeSetsEqual<
-		BridgeProductSubscriptionDataWire['subscriptionKind'],
-		BridgeProductSubscriptionKind
-	>
->;
+export type BridgeProductSubscriptionInterestDeltaWire =
+	| { readonly subscriptionKind: 'file.annotations' }
+	| z.infer<typeof bridgeProductFileMetadataInterestDeltaSchema>
+	| { readonly subscriptionKind: 'review.annotations' }
+	| z.infer<typeof bridgeProductReviewMetadataInterestDeltaSchema>;
