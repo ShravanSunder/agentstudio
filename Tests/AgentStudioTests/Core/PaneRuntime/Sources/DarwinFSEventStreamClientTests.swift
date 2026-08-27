@@ -1,5 +1,6 @@
 import AgentStudioGit
 import CoreServices
+import Darwin
 import Foundation
 import Testing
 
@@ -517,6 +518,83 @@ struct DarwinFSEventStreamClientTests {
         client.unregister(worktreeId: worktreeId)
 
         client.shutdown()
+    }
+
+    @Test("local root replacement retires its generation before ordinary routing")
+    func localRootReplacementRequiresCompleteReregistration() async throws {
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "darwin-fsevents-local-root-change-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let client = DarwinFSEventStreamClient()
+        defer { client.shutdown() }
+        let worktreeId = UUIDv7.generate()
+        let repositoryId = UUIDv7.generate()
+        client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: fixtureRoot)
+        let observationPlan = AgentStudioGit.GitStatusObservationPlan(
+            identity: AgentStudioGit.GitStatusObservationIdentity(rawValue: "local-root-change"),
+            scopes: [
+                AgentStudioGit.GitStatusObservationScope(kind: .subtree, path: fixtureRoot)
+            ],
+            support: .supported
+        )
+        let originalBarrier = try #require(
+            await client.prepare(
+                worktreeId: worktreeId,
+                rootPath: fixtureRoot,
+                observationPlan: observationPlan
+            )
+        )
+        var eventIterator = client.events().makeAsyncIterator()
+        let eventTask = Task { await eventIterator.next() }
+        let canonicalFixturePath = try #require(
+            fixtureRoot.withUnsafeFileSystemRepresentation { pathPointer -> String? in
+                guard let pathPointer, let resolvedPointer = Darwin.realpath(pathPointer, nil) else {
+                    return nil
+                }
+                defer { free(resolvedPointer) }
+                return String(cString: resolvedPointer)
+            }
+        )
+
+        client.receiveLocalRawEvents(
+            worktreeId: worktreeId,
+            rawEvents: [
+                (
+                    path: canonicalFixturePath,
+                    eventId: 200,
+                    flags: FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged)
+                )
+            ]
+        )
+
+        let ordinaryBatch = try #require(
+            await firstCompletedValue(from: eventTask, timeout: .seconds(5))
+        )
+        #expect(ordinaryBatch.worktreeId == worktreeId)
+        #expect(ordinaryBatch.paths == [canonicalFixturePath])
+        #expect(ordinaryBatch.requiresFullGitRefresh)
+        #expect(
+            await client.commit(originalBarrier) == .requiresExact(.registrationMissing)
+        )
+        #expect(
+            await client.prepare(
+                worktreeId: worktreeId,
+                rootPath: fixtureRoot,
+                observationPlan: observationPlan
+            ) == nil
+        )
+
+        client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: fixtureRoot)
+        let replacementBarrier = await client.prepare(
+            worktreeId: worktreeId,
+            rootPath: fixtureRoot,
+            observationPlan: observationPlan
+        )
+        #expect(replacementBarrier != nil)
+        #expect(replacementBarrier?.registrationGeneration != originalBarrier.registrationGeneration)
     }
 
     @Test("shutdown is idempotent and blocks future registration")
