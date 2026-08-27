@@ -69,8 +69,223 @@ struct WorkspaceLocalMigrationTests {
                     "002_replace_recent_targets_with_entity_recency",
                     "003_invert_sidebar_group_memory",
                     "004_remove_persisted_pull_request_counts",
+                    "005_move_repo_grouping_to_window_sidebar_memory",
                 ]
         )
+    }
+
+    @Test("repo grouping belongs only to main-window sidebar memory")
+    func repoGroupingBelongsOnlyToMainWindowSidebarMemory() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        let columnNamesByTable = try databaseQueue.read { database in
+            try Dictionary(
+                uniqueKeysWithValues: ["local_window_state", "local_repo_explorer_preferences"].map { tableName in
+                    let columnNames = try Row.fetchAll(
+                        database,
+                        sql: "PRAGMA table_info(\(tableName))"
+                    ).map { row in
+                        row["name"] as String
+                    }
+                    return (tableName, Set(columnNames))
+                }
+            )
+        }
+
+        #expect(columnNamesByTable["local_window_state"]?.contains("repo_grouping_mode") == true)
+        #expect(
+            columnNamesByTable["local_repo_explorer_preferences"]?.contains("grouping_mode") == false
+        )
+    }
+
+    @Test("migration 005 copies the existing grouping selection into the main window row before drop")
+    func migrationCopiesExistingGroupingModeIntoMainWindowRow() throws {
+        // F4: a real pre-005 on-disk database owns the grouping selection on
+        // local_repo_explorer_preferences.grouping_mode; local_window_state does not yet have
+        // repo_grouping_mode. Simulate that exact shape by migrating only through 004, then
+        // manually reproducing the legacy column and a seeded All Panes / By Tab selection, so the
+        // upgrade path is proven to preserve it rather than silently reset every existing user to
+        // By Repo.
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "004_remove_persisted_pull_request_counts"
+        )
+        let workspaceId = UUIDv7.generate().uuidString
+        let windowId = UUIDv7.generate().uuidString
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    ALTER TABLE local_repo_explorer_preferences
+                    ADD COLUMN grouping_mode TEXT NOT NULL DEFAULT 'repo'
+                    """
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_repo_explorer_preferences(
+                        workspace_id, sort_order, visibility_mode, grouping_mode, updated_at
+                    ) VALUES (?, 'ascending', 'all', 'tab', 1)
+                    """,
+                arguments: [workspaceId]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_window_state(
+                        window_id, window_role, sidebar_width, window_frame_json, filter_text,
+                        is_filter_visible, sidebar_collapsed, sidebar_surface, updated_at
+                    ) VALUES (?, 'main', 240, NULL, '', 0, 0, 'repos', 1)
+                    """,
+                arguments: [windowId]
+            )
+        }
+
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        let repoGroupingMode = try databaseQueue.read { database in
+            try String.fetchOne(
+                database,
+                sql: "SELECT repo_grouping_mode FROM local_window_state WHERE window_role = 'main'"
+            )
+        }
+        #expect(repoGroupingMode == "tab")
+    }
+
+    @Test("N1 tie-breaker: migration 005 breaks equal updated_at ties by workspace_id")
+    func migrationBreaksEqualUpdatedAtTiesByWorkspaceId() throws {
+        // N1 tie-breaker (owner ruling, pass 3): two legacy workspace rows can share the exact
+        // same updated_at (e.g. both written in the same batch/import), in which case `ORDER BY
+        // updated_at DESC` alone leaves the winner to SQLite's unspecified row order. The
+        // deterministic secondary key is the table's own primary key, workspace_id DESC.
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "004_remove_persisted_pull_request_counts"
+        )
+        let candidateAId = UUIDv7.generate().uuidString
+        let candidateBId = UUIDv7.generate().uuidString
+        // Determine winner by workspace_id value alone (not by generation/insertion order), then
+        // insert the lexicographically SMALLER id first and the LARGER id second. This decouples
+        // "which row sorts higher by workspace_id" from "which row was inserted/scanned last", so
+        // a query that silently falls back to SQLite's unspecified tie order (e.g. favoring the
+        // most-recently-inserted row) cannot coincidentally reproduce the correct answer -- only
+        // the explicit `workspace_id DESC` tie-break can.
+        let greaterWorkspaceId = max(candidateAId, candidateBId)
+        let lesserWorkspaceId = min(candidateAId, candidateBId)
+        let expectedWinnerMode = greaterWorkspaceId == candidateAId ? "pane" : "tab"
+        let windowId = UUIDv7.generate().uuidString
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    ALTER TABLE local_repo_explorer_preferences
+                    ADD COLUMN grouping_mode TEXT NOT NULL DEFAULT 'repo'
+                    """
+            )
+            // Identical updated_at on both rows -- only workspace_id can break the tie. Insert the
+            // lesser id first and the greater id LAST, so a naive/unfixed query that (in this
+            // SQLite build) happens to favor the most-recently-inserted row on ties would pick the
+            // WRONG (lesser) winner, proving the fix -- not insertion order -- drives the result.
+            try database.execute(
+                sql: """
+                    INSERT INTO local_repo_explorer_preferences(
+                        workspace_id, sort_order, visibility_mode, grouping_mode, updated_at
+                    ) VALUES (?, 'ascending', 'all', ?, 500)
+                    """,
+                arguments: [lesserWorkspaceId, lesserWorkspaceId == candidateAId ? "pane" : "tab"]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_repo_explorer_preferences(
+                        workspace_id, sort_order, visibility_mode, grouping_mode, updated_at
+                    ) VALUES (?, 'ascending', 'all', ?, 500)
+                    """,
+                arguments: [greaterWorkspaceId, greaterWorkspaceId == candidateAId ? "pane" : "tab"]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_window_state(
+                        window_id, window_role, sidebar_width, window_frame_json, filter_text,
+                        is_filter_visible, sidebar_collapsed, sidebar_surface, updated_at
+                    ) VALUES (?, 'main', 240, NULL, '', 0, 0, 'repos', 1)
+                    """,
+                arguments: [windowId]
+            )
+        }
+
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        let repoGroupingMode = try databaseQueue.read { database in
+            try String.fetchOne(
+                database,
+                sql: "SELECT repo_grouping_mode FROM local_window_state WHERE window_role = 'main'"
+            )
+        }
+        #expect(repoGroupingMode == expectedWinnerMode)
+    }
+
+    @Test("N1: migration 005 picks the most-recently-updated legacy workspace row when several exist")
+    func migrationPicksMostRecentlyUpdatedLegacyGroupingAmongMultipleWorkspaces() throws {
+        // N1 (re-audit): local_repo_explorer_preferences is keyed by workspace_id, so a real
+        // pre-005 database can hold more than one legacy row -- the original single-row fix's
+        // unqualified `LIMIT 1` picked an arbitrary winner among them. The deterministic rule
+        // (owner ruling) is the most-recently-updated legacy row, since the active-workspace
+        // selection lives in a separate database (core.sqlite) this local migration cannot reach.
+        // Seed an OLDER row with 'pane' and a NEWER row with 'tab'; the newer one must win
+        // regardless of insertion order or workspace_id ordering.
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "004_remove_persisted_pull_request_counts"
+        )
+        let olderWorkspaceId = UUIDv7.generate().uuidString
+        let newerWorkspaceId = UUIDv7.generate().uuidString
+        let windowId = UUIDv7.generate().uuidString
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    ALTER TABLE local_repo_explorer_preferences
+                    ADD COLUMN grouping_mode TEXT NOT NULL DEFAULT 'repo'
+                    """
+            )
+            // Older row, inserted second (workspace_id ordering and insertion order must not
+            // determine the winner -- only updated_at may).
+            try database.execute(
+                sql: """
+                    INSERT INTO local_repo_explorer_preferences(
+                        workspace_id, sort_order, visibility_mode, grouping_mode, updated_at
+                    ) VALUES (?, 'ascending', 'all', 'pane', 100)
+                    """,
+                arguments: [olderWorkspaceId]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_repo_explorer_preferences(
+                        workspace_id, sort_order, visibility_mode, grouping_mode, updated_at
+                    ) VALUES (?, 'ascending', 'all', 'tab', 200)
+                    """,
+                arguments: [newerWorkspaceId]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_window_state(
+                        window_id, window_role, sidebar_width, window_frame_json, filter_text,
+                        is_filter_visible, sidebar_collapsed, sidebar_surface, updated_at
+                    ) VALUES (?, 'main', 240, NULL, '', 0, 0, 'repos', 1)
+                    """,
+                arguments: [windowId]
+            )
+        }
+
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        let repoGroupingMode = try databaseQueue.read { database in
+            try String.fetchOne(
+                database,
+                sql: "SELECT repo_grouping_mode FROM local_window_state WHERE window_role = 'main'"
+            )
+        }
+        #expect(repoGroupingMode == "tab")
     }
 
     @Test("pull request cache hard cut drops legacy persisted counts")

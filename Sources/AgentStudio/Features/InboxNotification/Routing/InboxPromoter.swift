@@ -159,9 +159,14 @@ final class InboxPromoter {
     ) -> InboxPromotionOutcome {
         let snapshot = policySnapshot()
         let isPinnedToBottom = activity.isPinnedToBottom || snapshot.isPanePinnedToBottom(paneId)
+        // Small, attended, pinned-to-bottom activity is normally too trivial to record at all — but not
+        // when it carries a real last output line. A one-line echo/printf result is exactly the common
+        // case the pane row's L2 text needs, and it produces very few rows; only suppress entirely when
+        // there is truly nothing bounded to show.
         if snapshot.isPaneObserved(paneId),
             isPinnedToBottom,
-            activity.rowsAdded < activity.thresholdRows
+            activity.rowsAdded < activity.thresholdRows,
+            activity.lastOutputLine == nil
         {
             let reason = "observed_small_activity"
             tracePromotion(
@@ -190,12 +195,13 @@ final class InboxPromoter {
             semantic: promotion.semantic,
             sessionId: sessionId
         )
+        let boundedText = InboxNotificationTextPolicy.bounded(title: promotion.title, body: activity.lastOutputLine)
         let notification = InboxNotification(
             id: UUID(),
             timestamp: now(),
             kind: promotion.kind,
-            title: promotion.title,
-            body: nil,
+            title: boundedText.title,
+            body: boundedText.body,
             source: .pane(context),
             activityContext: .init(
                 burstWindowId: activity.burstWindowId,

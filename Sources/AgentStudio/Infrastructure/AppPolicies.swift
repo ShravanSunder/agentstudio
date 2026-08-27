@@ -17,11 +17,16 @@ package enum AppPolicies {
 
     package enum EntityRecency {
         package static let maximumRetainedEntityCountPerKind: Int = 15
+        package static let strongBlueDuration: TimeInterval = 10 * 60
+        package static let mediumBlueDuration: TimeInterval = 60 * 60
+        package static let mutedBlueDuration: TimeInterval = 12 * 60 * 60
+        package static let faintBlueDuration: TimeInterval = 24 * 60 * 60
     }
 
     package enum SidebarProjection {
         package static let cancellationItemStride: Int = 256
         package static let cancellationGroupStride: Int = 64
+        package static let paneRecencyDisplayCadence: Duration = .seconds(60)
 
         package enum Trigger: String, Equatable, Sendable {
             case groupingSwitch = "grouping_switch"
@@ -135,6 +140,15 @@ package enum AppPolicies {
 
     package enum TerminalLocalAction {
         package static let titleMainActorAdmissionSlackNanoseconds: UInt64 = 100_000_000
+    }
+
+    /// Bounds for the source-side "last output line" contraction (Contract 7):
+    /// how large the resulting candidate line may be before it can reach the
+    /// EventBus. The Ghostty viewport read itself is unbounded (full
+    /// viewport, one call per settle) — see
+    /// `SurfaceManager.readViewportTrailingText`.
+    package enum TerminalOutputCapture {
+        package static let maxLastOutputLineUTF8Bytes: Int = 120
     }
 
     package enum NonterminalContentMount {
@@ -408,6 +422,12 @@ package enum AppPolicies {
         /// Shared floor for automatic-refresh freshness and retries after a
         /// failed, truncated, or rate-limited pull request query.
         package static let automaticRefreshMinimumInterval: Duration = .seconds(180)
+        /// Number of consecutive unsuccessful provider attempts (truncated,
+        /// rate-limited, or failed) after which a repository's pull request
+        /// state resolves to terminal-unavailable instead of staying pending
+        /// forever. Bounded retries continue in the background at the normal
+        /// backoff cadence; only the row's honesty signal changes.
+        package static let consecutiveFailureHonestyThreshold: Int = 3
     }
 
     package enum WatchedFolderScanning {
@@ -468,6 +488,10 @@ package enum AppPolicies {
         package static let agentSettledMinimumActiveDuration: Duration = .seconds(360)
         package static let agentSettledQuietDuration: Duration = .seconds(180)
         package static let terminalActivitySessionIdleTimeoutDuration: Duration = .seconds(300)
+        /// Timerless leading-edge rate limit for a pane's activity-status fact (sidebar L2 text):
+        /// at most one publish per pane within this window. A settle inside the window is dropped
+        /// entirely, not deferred; the next settle after the window naturally carries the latest line.
+        package static let paneActivityStatusMinimumPublishInterval: Duration = .seconds(10)
     }
 
     /// Drag-and-drop behavioral rules. These are decisions about HOW the

@@ -44,12 +44,12 @@ struct TabBarAffectedItemTelemetryTests {
             let firstTab = Tab(paneId: firstPane.id)
             store.appendTab(firstTab)
             store.appendTab(Tab(paneId: secondPane.id))
-            await eventually("initial tab items") {
+            await waitForTabBarState("initial tab items") {
                 adapter.tabs.count == 2
             }
 
             store.paneAtom.updatePaneTitle(firstPane.id, title: "Renamed")
-            await eventually("renamed tab item") {
+            await waitForTabBarState("renamed tab item") {
                 adapter.tabs.first(where: { $0.id == firstTab.id })?.title == "Renamed"
             }
             try await recorder.drain()
@@ -112,7 +112,7 @@ struct TabBarAffectedItemTelemetryTests {
             let secondTab = Tab(paneId: secondPane.id)
             store.appendTab(firstTab)
             store.appendTab(secondTab)
-            await eventually("initial tab items") {
+            await waitForTabBarState("initial tab items") {
                 adapter.tabs.map(\.id) == [firstTab.id, secondTab.id]
                     && adapter.activeTabId == secondTab.id
             }
@@ -120,21 +120,21 @@ struct TabBarAffectedItemTelemetryTests {
 
             let initialRevision = adapter.outputPublicationRevision
             store.setActiveTab(firstTab.id)
-            await eventually("active tab publication") {
+            await waitForTabBarState("active tab publication") {
                 adapter.activeTabId == firstTab.id
                     && adapter.outputPublicationRevision == initialRevision + 1
             }
             adapter.visibleProjectionDidRender()
 
-            store.tabLayoutAtom.reorderTab(secondTab.id, to: 0)
-            await eventually("tab reorder publication") {
+            store.tabLayoutAtom.reorderTab(secondTab.id, insertionIndex: 0)
+            await waitForTabBarState("tab reorder publication") {
                 adapter.tabs.map(\.id) == [secondTab.id, firstTab.id]
                     && adapter.outputPublicationRevision == initialRevision + 2
             }
             adapter.visibleProjectionDidRender()
 
             store.removeTab(secondTab.id)
-            await eventually("tab removal publication") {
+            await waitForTabBarState("tab removal publication") {
                 adapter.tabs.map(\.id) == [firstTab.id]
                     && adapter.outputPublicationRevision == initialRevision + 3
             }
@@ -223,7 +223,7 @@ struct TabBarAffectedItemTelemetryTests {
                 project: projectionController.project,
                 onProjectionCompletion: completionRecorder.record
             )
-            await eventually("initial coherent projection") {
+            await waitForTabBarState("initial coherent projection") {
                 adapter.tabs.map(\.displayTitle) == ["First before", "Second before"]
             }
             adapter.visibleProjectionDidRender()
@@ -238,7 +238,7 @@ struct TabBarAffectedItemTelemetryTests {
 
             equalRefreshGate.release()
             #expect(await completionRecorder.wait(for: .equal(.init(value: 3))))
-            await eventually("equal barrier publication") {
+            await waitForTabBarState("equal barrier publication") {
                 adapter.tabs.map(\.displayTitle) == ["First before", "Second after"]
             }
             adapter.visibleProjectionDidRender()
@@ -262,6 +262,16 @@ struct TabBarAffectedItemTelemetryTests {
             }
             _ = adapter
         }
+    }
+
+    private func waitForTabBarState(
+        _ description: String,
+        condition: @escaping @MainActor () -> Bool
+    ) async {
+        #expect(
+            await TabBarAdapterConditionWaiter(condition: condition).wait(),
+            "\(description) timed out"
+        )
     }
 
 }

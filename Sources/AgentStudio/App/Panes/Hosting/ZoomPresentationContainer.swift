@@ -57,6 +57,7 @@ struct ZoomPresentationContainer: View {
     let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let paneInboxPresentation: PaneInboxPresentation?
+    let paneNotePresentation: PaneNotePresentation?
     let workspaceWindowId: UUID?
     let actionDispatcher: PaneActionDispatching
     let arrangementInlineRenameState: ArrangementInlineRenameState
@@ -94,6 +95,7 @@ struct ZoomPresentationContainer: View {
         appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
         paneInboxPresentation: PaneInboxPresentation? = nil,
+        paneNotePresentation: PaneNotePresentation? = nil,
         workspaceWindowId: UUID? = nil,
         actionDispatcher: PaneActionDispatching,
         arrangementInlineRenameState: ArrangementInlineRenameState,
@@ -120,6 +122,7 @@ struct ZoomPresentationContainer: View {
         self.appLifecycleStore = appLifecycleStore
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.paneInboxPresentation = paneInboxPresentation
+        self.paneNotePresentation = paneNotePresentation
         self.workspaceWindowId = workspaceWindowId
         self.actionDispatcher = actionDispatcher
         self.arrangementInlineRenameState = arrangementInlineRenameState
@@ -166,7 +169,7 @@ struct ZoomPresentationContainer: View {
                         }
                     }
 
-                    parentToolbar
+                    parentToolbar(owningPaneSize: tabGeometry.size)
                 }
 
                 drawerPanelOverlay(tabSize: tabGeometry.size)
@@ -219,7 +222,7 @@ struct ZoomPresentationContainer: View {
     }
 
     @ViewBuilder
-    private var parentToolbar: some View {
+    private func parentToolbar(owningPaneSize: CGSize) -> some View {
         if case .zoom(let toolbarModel) = parentToolbarPresentation {
             let zoomAction = toolbarModel.zoomAction.map { zoomAction in
                 sequencedZoomExitAction(
@@ -240,7 +243,9 @@ struct ZoomPresentationContainer: View {
                 octiconLoader: octiconLoader,
                 editorChooser: editorChooser,
                 paneInboxPresentation: paneInboxPresentation,
+                paneNotePresentation: paneNotePresentation,
                 workspaceWindowId: workspaceWindowId,
+                owningPaneSize: owningPaneSize,
                 actionDispatcher: actionDispatcher,
                 onPaneFocusTrigger: onPaneFocusTrigger
             )

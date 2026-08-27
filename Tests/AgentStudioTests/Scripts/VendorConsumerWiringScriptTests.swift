@@ -269,7 +269,7 @@ struct VendorConsumerWiringScriptTests {
             "AGENTS.md",
             "README.md",
             "docs/guides/agent_resources.md",
-            "docs/architecture/session_lifecycle.md",
+            "docs/architecture/runtime/session_lifecycle.md",
             "docs/debugging/zmx-environment-isolation.md",
         ]
         let forbiddenInstructions = [

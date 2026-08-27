@@ -129,7 +129,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let openFinderHandler: @MainActor (URL) -> Bool
     private let openExternalURLHandler: @MainActor (URL) -> Bool
     private let copyPathHandler: @MainActor (URL) -> Void
-    private let paneNotePresentation: PaneNotePresentation?
+    private let paneNotePresentation: PaneNotePresentation
     private let bridgeViewerSurfaceRequestHandler: BridgeViewerSurfaceRequestHandler
     private var arrangementView: WorkspaceArrangementViewDerived {
         WorkspaceArrangementViewDerived(
@@ -284,7 +284,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.openFinderHandler = openFinderHandler
         self.openExternalURLHandler = openExternalURLHandler
         self.copyPathHandler = copyPathHandler
-        self.paneNotePresentation = paneNotePresentation
+        self.paneNotePresentation = paneNotePresentation ?? .toolbarAnchored()
         self.bridgeViewerSurfaceRequestHandler =
             bridgeViewerSurfaceRequestHandler
             ?? { surface, paneId in
@@ -422,10 +422,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             rootView: tabBar,
             performanceTraceRecorder: performanceTraceRecorder
         )
-        hostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex, correlationId in
+        hostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, insertionIndex, correlationId in
             self?.handleTabReorder(
                 fromId: fromId,
-                toIndex: toIndex,
+                insertionIndex: insertionIndex,
                 correlationId: correlationId
             )
         }
@@ -1248,6 +1248,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 )
             },
             paneInboxPresentation: paneInboxPresentation,
+            paneNotePresentation: paneNotePresentation,
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
             },
@@ -1645,19 +1646,41 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         switch plan {
         case .paneAction(let action):
             dispatchAction(action)
-        case .moveTab(let tabId, let toIndex):
-            dispatchAction(.reorderTab(tabId: tabId, newIndex: toIndex))
-        case .extractPaneToTabThenMove(let paneId, let sourceTabId, let toIndex):
+        case .moveTab(let tabId, let insertionIndex):
+            dispatchAction(.reorderTab(tabId: tabId, insertionIndex: insertionIndex))
+        case .extractPaneToTabThenMove(let paneId, let sourceTabId, let insertionIndex):
             let tabCountBefore = store.tabLayoutAtom.tabs.count
             dispatchAction(.extractPaneToTab(tabId: sourceTabId, paneId: paneId))
             guard
                 store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
-                let extractedTabId = store.tabLayoutAtom.activeTabId
+                let extractedTabId = store.tabLayoutAtom.activeTabId,
+                let insertedTabIndexAfterExtraction = store.tabShellAtom.orderedTabIds.firstIndex(
+                    of: extractedTabId
+                )
             else {
                 return
             }
-            dispatchAction(.reorderTab(tabId: extractedTabId, newIndex: toIndex))
+            let postExtractionInsertionIndex = Self.postExtractionInsertionIndex(
+                preExtractionInsertionIndex: insertionIndex,
+                insertedTabIndexAfterExtraction: insertedTabIndexAfterExtraction
+            )
+            dispatchAction(
+                .reorderTab(
+                    tabId: extractedTabId,
+                    insertionIndex: postExtractionInsertionIndex
+                )
+            )
         }
+    }
+
+    private static func postExtractionInsertionIndex(
+        preExtractionInsertionIndex: Int,
+        insertedTabIndexAfterExtraction: Int
+    ) -> Int {
+        guard insertedTabIndexAfterExtraction < preExtractionInsertionIndex else {
+            return preExtractionInsertionIndex
+        }
+        return preExtractionInsertionIndex + 1
     }
 
     nonisolated static func splitDropCommitPlan(
@@ -2638,9 +2661,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     // MARK: - Tab Reordering
 
-    private func handleTabReorder(fromId: UUID, toIndex: Int, correlationId: UUID) {
+    private func handleTabReorder(fromId: UUID, insertionIndex: Int, correlationId: UUID) {
         interactionProbe?.beginInteraction(.tabMove, correlationId: correlationId)
-        dispatchAction(.reorderTab(tabId: fromId, newIndex: toIndex))
+        dispatchAction(.reorderTab(tabId: fromId, insertionIndex: insertionIndex))
         pendingTabMovePublication = PendingTabMovePublication(
             correlationId: correlationId,
             movedTabId: fromId,
@@ -2698,14 +2721,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return false
     }
 
-    private func handleExtractPaneRequested(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
+    private func handleExtractPaneRequested(tabId: UUID, paneId: UUID, targetTabInsertionIndex: Int?) {
         // Single-pane tabs cannot extract; treat tab-bar pane drag as tab reorder
         // so "single pane move ability" still works.
         if let sourceTab = store.tabLayoutAtom.tab(tabId),
             sourceTab.activePaneIds.count == 1
         {
-            if let targetTabIndex {
-                dispatchAction(.reorderTab(tabId: tabId, newIndex: targetTabIndex))
+            if let targetTabInsertionIndex {
+                dispatchAction(.reorderTab(tabId: tabId, insertionIndex: targetTabInsertionIndex))
             }
             return
         }
@@ -2714,14 +2737,26 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         dispatchAction(.extractPaneToTab(tabId: tabId, paneId: paneId))
 
         // For tab-bar drops, place the newly extracted tab at the drop insertion index.
-        guard let targetTabIndex,
+        guard let targetTabInsertionIndex,
             store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
-            let extractedTabId = store.tabLayoutAtom.activeTabId
+            let extractedTabId = store.tabLayoutAtom.activeTabId,
+            let insertedTabIndexAfterExtraction = store.tabShellAtom.orderedTabIds.firstIndex(
+                of: extractedTabId
+            )
         else {
             return
         }
 
-        dispatchAction(.reorderTab(tabId: extractedTabId, newIndex: targetTabIndex))
+        let postExtractionInsertionIndex = Self.postExtractionInsertionIndex(
+            preExtractionInsertionIndex: targetTabInsertionIndex,
+            insertedTabIndexAfterExtraction: insertedTabIndexAfterExtraction
+        )
+        dispatchAction(
+            .reorderTab(
+                tabId: extractedTabId,
+                insertionIndex: postExtractionInsertionIndex
+            )
+        )
     }
 
     private func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
@@ -3463,6 +3498,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
+        if command == .editPaneNote, targetType == .pane {
+            guard store.paneAtom.pane(target) != nil else { return }
+            paneNotePresentation.present(target)
+            return
+        }
+
         if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
             handleTargetedPaneInboxCommand(command, target: target, targetType: targetType)
             return
@@ -4166,8 +4207,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
-        handleExtractPaneRequested(tabId: tabId, paneId: paneId, targetTabIndex: targetTabIndex)
+    func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabInsertionIndex: Int?) {
+        handleExtractPaneRequested(
+            tabId: tabId,
+            paneId: paneId,
+            targetTabInsertionIndex: targetTabInsertionIndex
+        )
     }
 
     func executeMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
@@ -4345,7 +4390,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     ) -> Bool? {
         switch command {
         case .minimizePane, .expandPane, .closePane, .splitRight, .detachDrawerPane,
-            .extractPaneToTab, .movePaneToTab, .toggleDrawer, .addDrawerPane:
+            .extractPaneToTab, .movePaneToTab, .toggleDrawer, .addDrawerPane, .editPaneNote:
             break
         default:
             return nil
@@ -4408,6 +4453,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case (.toggleDrawer, .layout):
             return activeLayoutShowsPane(target)
         case (.addDrawerPane, .layout):
+            return activeLayoutShowsPane(target)
+        case (.editPaneNote, .layout):
             return activeLayoutShowsPane(target)
         default:
             return false
@@ -4626,11 +4673,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         case .editPaneNote:
             guard let paneId = activeMainPaneCommandTarget() else { return false }
-            if let paneNotePresentation {
-                paneNotePresentation.present(paneId)
-            } else {
-                requestPaneNotePresentation(for: paneId)
-            }
+            paneNotePresentation.present(paneId)
             return true
         case .copyCurrentPanePath:
             guard let path = activeMainPanePath() else { return false }

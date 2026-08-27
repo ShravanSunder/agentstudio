@@ -104,7 +104,7 @@ struct DrawerOverlayIconBarVisibilityTests {
         )
     }
 
-    @Test("Zoom toolbar orders pane mode, Drawer, Viewer, Editor, location, then alerts")
+    @Test("Zoom toolbar separates leading Drawer controls from trailing pane actions")
     func zoomToolbarUsesAcceptedSemanticGroupOrder() throws {
         let zoomAction = makePaneSurfaceAction(
             label: "Pane Zoom",
@@ -129,12 +129,12 @@ struct DrawerOverlayIconBarVisibilityTests {
         let orderedIdentifiers = [
             "paneSurfaceToolbar.drawerToggle",
             "paneSurfaceToolbar.drawerAdd",
-            "paneSurfaceToolbar.zoom",
-            "paneSurfaceToolbar.viewer",
+            "paneSurfaceToolbar.note",
             "paneSurfaceToolbar.editor",
             "paneSurfaceToolbar.finder",
             "paneSurfaceToolbar.copyPath",
-            "paneSurfaceToolbar.inbox",
+            "paneSurfaceToolbar.zoom",
+            "paneSurfaceToolbar.viewer",
         ]
         let orderedFrames = try orderedIdentifiers.map { identifier in
             let view = try #require(findView(in: mount.hostingView, identifier: identifier))
@@ -144,6 +144,9 @@ struct DrawerOverlayIconBarVisibilityTests {
         for (leftFrame, rightFrame) in zip(orderedFrames, orderedFrames.dropFirst()) {
             #expect(leftFrame.maxX < rightFrame.minX)
         }
+        #expect(
+            findView(in: mount.hostingView, identifier: "paneSurfaceToolbar.inbox") == nil
+        )
     }
 
     @Test("PR blocker precedes the PR action and pane fullscreen controls")
@@ -183,10 +186,13 @@ struct DrawerOverlayIconBarVisibilityTests {
         let orderedIdentifiers = [
             "paneSurfaceToolbar.drawerToggle",
             "paneSurfaceToolbar.drawerAdd",
+            "paneSurfaceToolbar.note",
             "paneSurfaceToolbar.pullRequestBlocker",
             "paneSurfaceToolbar.pullRequest",
-            "paneSurfaceToolbar.zoom",
             "paneSurfaceToolbar.editor",
+            "paneSurfaceToolbar.finder",
+            "paneSurfaceToolbar.copyPath",
+            "paneSurfaceToolbar.zoom",
         ]
         let orderedFrames = try orderedIdentifiers.map { identifier in
             let view = try #require(findView(in: mount.hostingView, identifier: identifier))
@@ -197,9 +203,11 @@ struct DrawerOverlayIconBarVisibilityTests {
             #expect(leftFrame.maxX < rightFrame.minX)
         }
 
-        let blockerFrame = orderedFrames[2]
-        let pullRequestFrame = orderedFrames[3]
-        let paneContextFrame = orderedFrames[4]
+        let blockerFrame = orderedFrames[3]
+        let pullRequestFrame = orderedFrames[4]
+        let editorFrame = orderedFrames[5]
+        let copyPathFrame = orderedFrames[7]
+        let paneContextFrame = orderedFrames[8]
         #expect(
             abs(
                 pullRequestFrame.minX - blockerFrame.maxX
@@ -208,9 +216,88 @@ struct DrawerOverlayIconBarVisibilityTests {
         )
         #expect(
             abs(
-                paneContextFrame.minX - pullRequestFrame.maxX
+                editorFrame.minX - pullRequestFrame.maxX
                     - expectedToolbarSeparatorWidth
             ) < 0.5
+        )
+        #expect(
+            abs(
+                paneContextFrame.minX - copyPathFrame.maxX
+                    - expectedToolbarSeparatorWidth
+            ) < 0.5
+        )
+    }
+
+    @Test("passive Git status precedes PR and action controls without a clean placeholder")
+    func passiveGitStatusPrecedesActionsWithoutCleanPlaceholder() throws {
+        let presentation = try #require(
+            PaneSurfaceGitStatusPresentation.resolve(
+                branchStatus: GitBranchStatus(
+                    isDirty: true,
+                    syncState: .behind(625),
+                    prCount: nil,
+                    linesAdded: 20,
+                    linesDeleted: 14,
+                    untrackedFileCount: 0
+                )
+            )
+        )
+        let pullRequestAction = makePaneSurfaceAction(
+            label: "Open PR",
+            identifier: "paneSurfaceToolbar.pullRequest"
+        )
+        let mount = mountDrawerOverlay(
+            isIconBarVisible: true,
+            trailingActions: makeTrailingActions(
+                gitStatusPresentation: presentation,
+                openPullRequestAction: pullRequestAction
+            ),
+            width: 720
+        )
+        defer {
+            mount.window.orderOut(nil)
+            mount.window.close()
+        }
+
+        let gitStatusView = try #require(
+            findView(in: mount.hostingView, identifier: "paneSurfaceToolbar.gitStatus")
+        )
+        let pullRequestView = try #require(
+            findView(in: mount.hostingView, identifier: "paneSurfaceToolbar.pullRequest")
+        )
+        let editorView = try #require(
+            findView(in: mount.hostingView, identifier: "paneSurfaceToolbar.editor")
+        )
+        let gitStatusFrame = gitStatusView.convert(gitStatusView.bounds, to: mount.hostingView)
+        let pullRequestFrame = pullRequestView.convert(pullRequestView.bounds, to: mount.hostingView)
+        let editorFrame = editorView.convert(editorView.bounds, to: mount.hostingView)
+
+        #expect(gitStatusFrame.maxX < pullRequestFrame.minX)
+        #expect(pullRequestFrame.maxX < editorFrame.minX)
+        #expect(gitStatusView.accessibilityLabel() == presentation.accessibilityLabel)
+        #expect(gitStatusView.accessibilityRole() != .button)
+
+        let cleanMount = mountDrawerOverlay(
+            isIconBarVisible: true,
+            trailingActions: makeTrailingActions(
+                gitStatusPresentation: PaneSurfaceGitStatusPresentation.resolve(
+                    branchStatus: GitBranchStatus(
+                        isDirty: false,
+                        syncState: .synced,
+                        prCount: nil,
+                        linesAdded: 0,
+                        linesDeleted: 0,
+                        untrackedFileCount: 0
+                    )
+                )
+            )
+        )
+        defer {
+            cleanMount.window.orderOut(nil)
+            cleanMount.window.close()
+        }
+        #expect(
+            findView(in: cleanMount.hostingView, identifier: "paneSurfaceToolbar.gitStatus") == nil
         )
     }
 
@@ -324,13 +411,16 @@ struct DrawerOverlayIconBarVisibilityTests {
     }
 
     private func makeTrailingActions(
+        gitStatusPresentation: PaneSurfaceGitStatusPresentation? = nil,
         pullRequestBlockerIndicator: PaneSurfaceToolbarStatusIndicator? = nil,
         openPullRequestAction: PaneSurfaceToolbarAction? = nil
     ) -> DrawerOverlay.TrailingActions {
         DrawerOverlay.TrailingActions(
+            editPaneNoteAction: makeTargetedAction(.editPaneNote),
             openEditorMenuAction: makeTargetedAction(.openPaneLocationInEditorMenu),
             openFinderAction: makeTargetedAction(.openPaneLocationInFinder),
             copyPathAction: makeTargetedAction(.copyCurrentPanePath),
+            gitStatusPresentation: gitStatusPresentation,
             pullRequestBlockerIndicator: pullRequestBlockerIndicator,
             openPullRequestAction: openPullRequestAction,
             showPaneInboxAction: makeTargetedAction(.showPaneInboxNotifications),

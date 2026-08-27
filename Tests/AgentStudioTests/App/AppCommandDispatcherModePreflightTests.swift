@@ -322,7 +322,7 @@ private final class RecordingDispatcherWorkspaceCommandOwner: WorkspaceCommandHa
         interactions.append(.targetedExecution(command: command, target: target, targetType: targetType))
     }
 
-    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabIndex _: Int?) {}
+    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabInsertionIndex _: Int?) {}
 
     func executeMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
         interactions.append(

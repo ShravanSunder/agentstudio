@@ -85,6 +85,10 @@ describe('Bridge Review presentation adapter', () => {
 		expect(presentationSnapshot?.reviewPackage.packageId).toBe('review-package-ready');
 		expect(presentationSnapshot?.reviewPackage.revision).toBe(101);
 		expect(presentationSnapshot?.reviewPackage.itemsById['item-source']?.itemVersion).toBe(7);
+		expect(presentationSnapshot?.reviewPackage.itemsById['item-source']).toMatchObject({
+			additions: 7,
+			deletions: 4,
+		});
 		expect(presentationSnapshot?.reviewPackage).toMatchObject({
 			baseEndpoint: reviewBaseEndpoint,
 			comparisonOrigin: reviewComparisonOrigin,
@@ -701,11 +705,13 @@ function reviewDisplayItem(itemId: string, path: string): BridgeWorkerReviewDisp
 		contentFacts: [],
 		extentFacts: [],
 		metadata: {
+			additions: 7,
 			basePath: path,
 			changeKind: 'modified',
 			contentDescriptorIdsByRole: {},
 			contentHashesByRole: {},
 			contentRoles: [],
+			deletions: 4,
 			extension: 'swift',
 			fileClass: 'source',
 			headPath: path,

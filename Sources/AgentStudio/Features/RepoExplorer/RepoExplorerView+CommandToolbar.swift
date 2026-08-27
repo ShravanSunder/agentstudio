@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioSharedComponents
 
 extension RepoExplorerView {
     func presentedGroupingCommand(
@@ -16,6 +17,14 @@ extension RepoExplorerView {
         case .repo: .setRepoSidebarGroupingRepo
         case .pane: .setRepoSidebarGroupingPane
         case .tab: .setRepoSidebarGroupingTab
+        }
+    }
+
+    func groupingModeIcon(for mode: RepoExplorerGroupingMode) -> AppEntityIcon {
+        switch mode {
+        case .repo: AppEntityIcon.repo
+        case .pane: AppEntityIcon.pane
+        case .tab: AppEntityIcon.tab
         }
     }
 }

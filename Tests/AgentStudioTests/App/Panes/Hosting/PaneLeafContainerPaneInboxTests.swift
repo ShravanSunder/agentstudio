@@ -14,6 +14,23 @@ struct PaneLeafContainerPaneInboxTests {
         installTestCoreAtomsIfNeeded()
     }
 
+    @Test("pane surface keeps a popover host for command-driven inbox presentation")
+    func paneSurfaceKeepsCommandDrivenInboxPopoverHost() throws {
+        let toolbarSource = try String(
+            contentsOfFile: "Sources/AgentStudio/App/Panes/Hosting/PaneSurfaceToolbarHost.swift",
+            encoding: .utf8
+        )
+        let overlaySource = try String(
+            contentsOfFile: "Sources/AgentStudio/Core/Views/Drawer/DrawerOverlay.swift",
+            encoding: .utf8
+        )
+
+        #expect(toolbarSource.contains("paneInboxPresentation?.trailingActions("))
+        #expect(toolbarSource.contains("inboxPopoverPresented: $paneInboxPopoverOpen"))
+        #expect(overlaySource.contains("trailingActions?.inboxPopoverPresented"))
+        #expect(overlaySource.contains("trailingActions?.inboxPopoverContent"))
+    }
+
     @Test("pane leaf consumes matching pending pane inbox request on appear")
     func paneLeafConsumesMatchingPendingPaneInboxRequestOnAppear() async {
         let tempDir = FileManager.default.temporaryDirectory

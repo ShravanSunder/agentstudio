@@ -40,7 +40,7 @@ struct WorkspaceTabShellAtomTests {
         atom.appendTabShell(first)
         atom.appendTabShell(second)
 
-        atom.moveTab(fromId: second.id, toIndex: 0)
+        atom.moveTab(fromId: second.id, insertionIndex: 0)
 
         #expect(atom.tabShells.map { $0.id } == [second.id, first.id])
     }

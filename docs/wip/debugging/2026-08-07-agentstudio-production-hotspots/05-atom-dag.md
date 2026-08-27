@@ -15,7 +15,7 @@ RepoEnrichmentCacheAtom
             └─ Repo Explorer row facts
 ```
 
-`AtomEntityMap.value(for:)` is the intended keyed slot read. Its storage and per-slot observation implementation lives in [AtomEntityMap.swift](../../../../Sources/AgentStudio/Infrastructure/AtomLib/AtomEntityMap.swift:33). The architecture explicitly says hot consumers should prefer keyed reads and reserve dictionary snapshots for persistence/cold bridges ([component_architecture.md](../../../../docs/architecture/component_architecture.md:151)).
+`AtomEntityMap.value(for:)` is the intended keyed slot read. Its storage and per-slot observation implementation lives in [AtomEntityMap.swift](../../../../Sources/AgentStudio/Infrastructure/AtomLib/AtomEntityMap.swift:33). The architecture explicitly says hot consumers should prefer keyed reads and reserve dictionary snapshots for persistence/cold bridges ([component_architecture.md](../../../../docs/architecture/structure/component_architecture.md:151)).
 
 ## Current Repo Explorer reads
 

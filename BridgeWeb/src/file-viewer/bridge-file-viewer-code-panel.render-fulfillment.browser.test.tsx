@@ -524,6 +524,9 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 					totalHeightPixels={null}
 				/>,
 			);
+			expect(
+				document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
+			).toContain('Loading file');
 			await rendered.rerender(
 				<BridgeFileViewerCodePanel
 					codeViewWorkerPoolEnabled={false}

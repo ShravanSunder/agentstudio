@@ -24,6 +24,34 @@ struct InboxPromoterTests {
         #expect(fixture.atom.globalUnreadCount == 1)
     }
 
+    @Test("settled activity carrying a last output line populates the notification body")
+    func settledActivityWithLastOutputLinePopulatesBody() {
+        let fixture = Fixture()
+        let paneId = UUID()
+
+        fixture.promoter.promoteSettledActivity(
+            makeSettledActivity(rowsAdded: 40, lastOutputLine: "all tests passed"),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+
+        #expect(fixture.atom.notifications[0].body == "all tests passed")
+    }
+
+    @Test("settled activity without a last output line leaves the notification body nil")
+    func settledActivityWithoutLastOutputLineLeavesBodyNil() {
+        let fixture = Fixture()
+        let paneId = UUID()
+
+        fixture.promoter.promoteSettledActivity(
+            makeSettledActivity(rowsAdded: 40, lastOutputLine: nil),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+
+        #expect(fixture.atom.notifications[0].body == nil)
+    }
+
     @Test("repeated unread settled activity refreshes timestamp and sidebar sort")
     func repeatedUnreadSettledActivityRefreshesTimestampAndSidebarSort() {
         var now = Date(timeIntervalSince1970: 1000)
@@ -520,6 +548,31 @@ struct InboxPromoterTests {
         #expect(fixture.atom.notifications.isEmpty)
     }
 
+    @Test("observed pinned small activity with a real last output line is retained as read history")
+    func observedPinnedSmallActivityWithRealContentIsRetainedAsReadHistory() throws {
+        // The small-activity suppression above exists to avoid a spam row for trivial scrollback noise
+        // while a pane is attended and pinned to bottom. It must not also swallow real, bounded content:
+        // a one-line `echo`/`printf` result is exactly the common case the pane row's L2 text needs to
+        // surface, and it produces very few rows. Only suppress entirely when there is truly nothing to
+        // show.
+        let paneId = UUID()
+        let fixture = Fixture(
+            policySnapshot: .init(observedPaneIds: [paneId], pinnedToBottomByPaneId: [paneId: true])
+        )
+
+        fixture.promoter.promoteSettledActivity(
+            makeSettledActivity(rowsAdded: 1, lastOutputLine: "seam-live-proof-095848"),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+
+        let notification = try #require(fixture.atom.notifications.first)
+        #expect(fixture.atom.notifications.count == 1)
+        #expect(notification.isRead == true)
+        #expect(notification.isDismissedFromPaneInbox == true)
+        #expect(notification.body == "seam-live-proof-095848")
+    }
+
     @Test("observed not pinned activity creates unread claim")
     func observedNotPinnedActivityCreatesUnreadClaim() {
         let paneId = UUID()
@@ -580,7 +633,8 @@ struct InboxPromoterTests {
     private func makeSettledActivity(
         burstWindowId: UUID = UUID(),
         eventCount: Int = 1,
-        rowsAdded: Int = 40
+        rowsAdded: Int = 40,
+        lastOutputLine: String? = nil
     ) -> TerminalSettledActivity {
         TerminalSettledActivity(
             burstWindowId: burstWindowId,
@@ -592,7 +646,8 @@ struct InboxPromoterTests {
             rowsAdded: rowsAdded,
             baselineRows: 100,
             latestRows: 100 + rowsAdded,
-            isPinnedToBottom: false
+            isPinnedToBottom: false,
+            lastOutputLine: lastOutputLine
         )
     }
 }

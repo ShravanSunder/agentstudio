@@ -449,12 +449,12 @@ safe labels only, and no interaction regression. JSONL is not fallback proof.
 
 **Files:**
 
-- Modify: `docs/architecture/workspace_data_architecture.md` (D1)
-- Modify: `docs/architecture/pane_runtime_architecture.md` (D4-D7, M4, M7, M9)
-- Modify: `docs/architecture/pane_runtime_eventbus_design.md` (D9-D10, M8)
-- Modify: `docs/architecture/component_architecture.md` (D14)
+- Modify: `docs/architecture/state/workspace_data_architecture.md` (D1)
+- Modify: `docs/architecture/runtime/pane_runtime_architecture.md` (D4-D7, M4, M7, M9)
+- Modify: `docs/architecture/runtime/pane_runtime_eventbus_design.md` (D9-D10, M8)
+- Modify: `docs/architecture/structure/component_architecture.md` (D14)
 - Modify: `docs/specs/2026-08-10-performance-program/doc-drift-inventory.md`
-- Modify: `docs/architecture/architecture_lint_inventory.md` only if a rule flips
+- Modify: `docs/architecture/structure/architecture_lint_inventory.md` only if a rule flips
 - Modify the owning architecture rule/fixture only when the evidence below requires a flip
 
 **Mechanics:** update only the closed inventory items assigned to slice 2 and

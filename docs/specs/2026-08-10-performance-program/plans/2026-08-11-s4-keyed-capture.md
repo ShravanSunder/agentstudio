@@ -403,8 +403,8 @@ gate, p95s, deltas, and waste ratios. JSONL is not fallback proof.
 
 **Files:**
 
-- Modify: `docs/architecture/atom_persistence_boundaries.md` (D3; M1-M3, M12)
-- Modify: `docs/architecture/component_architecture.md` (D15)
+- Modify: `docs/architecture/state/atom_persistence_boundaries.md` (D3; M1-M3, M12)
+- Modify: `docs/architecture/structure/component_architecture.md` (D15)
 - Modify: `AGENTS.md` or the current owning architecture table source (D16)
 - Modify the owning Repo Explorer/sidebar architecture doc for M5; if no
   current owner exists, use the narrowest existing architecture doc and record
@@ -412,7 +412,7 @@ gate, p95s, deltas, and waste ratios. JSONL is not fallback proof.
 - Modify: `docs/specs/2026-08-10-performance-program/doc-drift-inventory.md`
 - Modify: `Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Rules/ObservationCaptureKeyedReadsRule.swift`
 - Modify its Good/Bad fixtures and rule tests
-- Modify: `docs/architecture/architecture_lint_inventory.md`
+- Modify: `docs/architecture/structure/architecture_lint_inventory.md`
 
 **Authority:** R18/R19, closed inventory, and C3/V5.
 

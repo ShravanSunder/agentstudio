@@ -28,7 +28,10 @@ import {
 } from '../core/telemetry-worker/bridge-pane-telemetry-worker-session.js';
 import { bridgeTelemetryWorkerBootstrapSchema } from '../core/telemetry-worker/bridge-telemetry-worker-contracts.js';
 import { bridgeTelemetryCompactSampleForEvent } from '../core/telemetry-worker/bridge-telemetry-worker-event-adapter.js';
-import type { BridgeFileViewerAppProps } from '../file-viewer/bridge-file-viewer-app.js';
+import type {
+	BridgeFileViewerAppProps,
+	BridgeFileViewerOpenPathCommand,
+} from '../file-viewer/bridge-file-viewer-app.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
 import {
 	recordBridgeFileModeSendAttempt,
@@ -40,6 +43,7 @@ import {
 	createBridgeTelemetryRecorderFromClient,
 	type BridgeTelemetryRecorder,
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
+import { recordBridgeViewerActivationRequestedTelemetrySample } from '../foundation/telemetry/bridge-viewer-activation-telemetry.js';
 import { setBridgeViewerNativeOpenAnchor } from '../foundation/telemetry/bridge-viewer-first-interaction.js';
 import type { BridgeAppControlProbe } from './bridge-app-control.js';
 import { BridgeFileViewerMode } from './bridge-app-file-viewer-mode.js';
@@ -67,6 +71,7 @@ import {
 } from './bridge-viewer-activation-prewarm.js';
 import { BridgeViewerAppShell } from './bridge-viewer-app-shell.js';
 import { BridgeViewerContextSwitcher } from './bridge-viewer-content-header.js';
+import { useBridgeCommWorkerSessionTelemetry } from './use-bridge-comm-worker-session-telemetry.js';
 
 export interface BridgeAppProps {
 	readonly target?: EventTarget;
@@ -88,6 +93,13 @@ declare global {
 }
 
 type BridgeViewerMode = 'file' | 'review';
+
+interface BridgeViewerActivation {
+	readonly cause: 'context_switcher' | 'native_request' | 'review_file_corner';
+	readonly sequence: number;
+	readonly startedAtPerfNow: number;
+	readonly viewer: BridgeViewerMode;
+}
 
 type BridgeNativeSurfaceSelectionRequest = Extract<
 	BridgeWorkerServerToMainMessage,
@@ -149,6 +161,11 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const [activeViewerSourceSignalRevision, setActiveViewerSourceSignalRevision] = useState(0);
 	const activeViewerModeRetryAttemptsBySignalKeyRef = useRef<Map<string, number>>(new Map());
 	const [activeViewerModeRetryRevision, setActiveViewerModeRetryRevision] = useState(0);
+	const viewerActivationSequenceRef = useRef(0);
+	const [viewerActivation, setViewerActivation] = useState<BridgeViewerActivation | null>(null);
+	const openFileFromReviewCommandSequenceRef = useRef(0);
+	const [openFileFromReviewCommand, setOpenFileFromReviewCommand] =
+		useState<BridgeFileViewerOpenPathCommand | null>(null);
 	const nativeSurfaceSelectionArrivalRevisionRef = useRef(0);
 	const [nativeSurfaceSelectionSignalRevision, setNativeSurfaceSelectionSignalRevision] =
 		useState(0);
@@ -186,19 +203,58 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			bridgeReadyCallbacksRef.current.delete(callback);
 		};
 	}, []);
-	const activateViewerMode = useCallback((viewerMode: BridgeViewerMode): void => {
-		setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
-			if (currentMountedViewerModes.has(viewerMode)) {
-				return currentMountedViewerModes;
-			}
-			return new Set<BridgeViewerMode>([...currentMountedViewerModes, viewerMode]);
-		});
-		const currentState = navigationAdmissionStateRef.current;
-		if (currentState.activeSurface === viewerMode) return;
-		const nextState = { ...currentState, activeSurface: viewerMode };
-		navigationAdmissionStateRef.current = nextState;
-		setNavigationAdmissionState(nextState);
-	}, []);
+	useBridgeCommWorkerSessionTelemetry(telemetryRecorder);
+	const activateViewerMode = useCallback(
+		(
+			viewerMode: BridgeViewerMode,
+			cause: BridgeViewerActivation['cause'] = 'context_switcher',
+		): BridgeViewerActivation | null => {
+			setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
+				if (currentMountedViewerModes.has(viewerMode)) {
+					return currentMountedViewerModes;
+				}
+				return new Set<BridgeViewerMode>([...currentMountedViewerModes, viewerMode]);
+			});
+			const currentState = navigationAdmissionStateRef.current;
+			if (currentState.activeSurface === viewerMode) return null;
+			viewerActivationSequenceRef.current += 1;
+			const activation = {
+				cause,
+				sequence: viewerActivationSequenceRef.current,
+				startedAtPerfNow: performance.now(),
+				viewer: viewerMode,
+			} satisfies BridgeViewerActivation;
+			recordBridgeViewerActivationRequestedTelemetrySample({
+				activationSequence: activation.sequence,
+				cause,
+				fromViewer: currentState.activeSurface,
+				sourceAvailable: activeViewerSourcesRef.current[viewerMode] !== null,
+				telemetryRecorder,
+				traceContext: null,
+				viewer: viewerMode,
+			});
+			setViewerActivation(activation);
+			const nextState = { ...currentState, activeSurface: viewerMode };
+			navigationAdmissionStateRef.current = nextState;
+			setNavigationAdmissionState(nextState);
+			return activation;
+		},
+		[telemetryRecorder],
+	);
+	const openReviewFileInFileViewer = useCallback(
+		(path: string): void => {
+			openFileFromReviewCommandSequenceRef.current += 1;
+			const activation = activateViewerMode('file', 'review_file_corner');
+			if (activation === null) return;
+			setOpenFileFromReviewCommand({
+				activationStartedAtPerfNow: activation.startedAtPerfNow,
+				commandId: openFileFromReviewCommandSequenceRef.current,
+				path,
+				traceContext: null,
+			});
+		},
+		[activateViewerMode],
+	);
 	const applyNativeSurfaceSelectionRequest = useCallback(
 		(request: BridgeNativeSurfaceSelectionRequest): void => {
 			const currentState = navigationAdmissionStateRef.current;
@@ -744,14 +800,32 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		<BridgeViewerAppShell appOwner="BridgeApp" mode={activeViewerMode}>
 			{mountedViewerModes.has('file') ? (
 				<div
-					className="h-full min-h-0"
+					aria-hidden={activeViewerMode !== 'file'}
+					className={
+						activeViewerMode === 'file'
+							? 'absolute inset-0 h-full min-h-0'
+							: 'invisible pointer-events-none absolute inset-0 h-full min-h-0'
+					}
 					data-bridge-viewer-mode-active={activeViewerMode === 'file' ? 'true' : 'false'}
 					data-bridge-viewer-mode-host="file"
 					data-testid="bridge-viewer-mode-host-file"
-					hidden={activeViewerMode !== 'file'}
+					inert={activeViewerMode !== 'file' || undefined}
 				>
 					<BridgeFileViewerMode
 						{...props}
+						fileViewerProps={{
+							...props.fileViewerProps,
+							...(viewerActivation?.viewer === 'file'
+								? {
+										activationCause: viewerActivation.cause,
+										activationSequence: viewerActivation.sequence,
+										activationStartedAtPerfNow: viewerActivation.startedAtPerfNow,
+									}
+								: {}),
+							...(openFileFromReviewCommand === null
+								? {}
+								: { openPathCommand: openFileFromReviewCommand }),
+						}}
 						fileViewClient={paneRuntimeHost.fileViewClient}
 						isNavigationCommandStillEligible={isNavigationCommandStillEligible}
 						isActive={activeViewerMode === 'file'}
@@ -776,11 +850,16 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			) : null}
 			{mountedViewerModes.has('review') ? (
 				<div
-					className="h-full min-h-0"
+					aria-hidden={activeViewerMode !== 'review'}
+					className={
+						activeViewerMode === 'review'
+							? 'absolute inset-0 h-full min-h-0'
+							: 'invisible pointer-events-none absolute inset-0 h-full min-h-0'
+					}
 					data-bridge-viewer-mode-active={activeViewerMode === 'review' ? 'true' : 'false'}
 					data-bridge-viewer-mode-host="review"
 					data-testid="bridge-viewer-mode-host-review"
-					hidden={activeViewerMode !== 'review'}
+					inert={activeViewerMode !== 'review' || undefined}
 				>
 					<BridgeReviewViewerMode
 						{...props}
@@ -789,6 +868,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						target={target}
 						onActiveSourceChange={reportReviewActiveSource}
 						onNavigationSourceChange={reportReviewNavigationSource}
+						onOpenFile={openReviewFileInFileViewer}
 						reviewClient={paneRuntimeHost.reviewClient}
 						telemetryRecorderRef={telemetryRecorderRef}
 						viewerContextSwitcher={

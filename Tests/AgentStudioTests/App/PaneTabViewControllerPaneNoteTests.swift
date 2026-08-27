@@ -24,6 +24,19 @@ struct PaneTabViewControllerPaneNoteTests {
         #expect(harness.launchRecorder.paneNoteRequests == [pane.id])
     }
 
+    @Test("targeted editPaneNote presents note editor for the requested main pane")
+    func targetedEditPaneNote_targetsRequestedMainPane() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = makeMainPane(in: harness)
+
+        #expect(harness.controller.canExecute(.editPaneNote, target: pane.id, targetType: .pane))
+        harness.controller.execute(.editPaneNote, target: pane.id, targetType: .pane)
+
+        #expect(harness.launchRecorder.paneNoteRequests == [pane.id])
+    }
+
     @Test("copyCurrentPanePath copies active main pane cwd")
     func copyCurrentPanePath_usesMainPaneCWD() {
         let harness = makeHarness()

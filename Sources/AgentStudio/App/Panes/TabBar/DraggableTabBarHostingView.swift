@@ -18,7 +18,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     private var hostingView: NSHostingView<AnyView>!
     weak var tabBarAdapter: TabBarAdapter?
-    var onReorder: ((_ fromId: UUID, _ toIndex: Int, _ correlationId: UUID) -> Void)?
+    var onReorder: ((_ fromId: UUID, _ insertionIndex: Int, _ correlationId: UUID) -> Void)?
     /// Injection seams for window-drag handling on clicks that land outside any
     /// tab pill. Default to the real AppKit calls; tests substitute closures.
     var performWindowDrag: ((NSEvent) -> Void)?
@@ -49,6 +49,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private var panStartTabId: UUID?
     private var panStartEvent: NSEvent?
     private var dwellState = DragDwellState.idle
+    private var paneDropTraceIsActive = false
 
     private var managementLayerObservation: Task<Void, Never>?
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -197,6 +198,9 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     func updateTabFrames(_ frames: [UUID: CGRect]) {
         tabFrames.merge(frames) { _, new in new }
+        guard let currentTabIds = tabBarAdapter?.tabs.map(\.id), !currentTabIds.isEmpty else { return }
+        let currentTabIdSet = Set(currentTabIds)
+        tabFrames = tabFrames.filter { currentTabIdSet.contains($0.key) }
     }
 
     func tabFrameInView(for tabId: UUID) -> NSRect? {
@@ -209,11 +213,12 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     /// Get current tab frames, preferring local cache but falling back to TabBarAdapter
     private var currentTabFrames: [UUID: CGRect] {
-        if !tabFrames.isEmpty {
-            return tabFrames
+        let availableFrames = tabFrames.isEmpty ? tabBarAdapter?.tabFrames ?? [:] : tabFrames
+        guard let currentTabIds = tabBarAdapter?.tabs.map(\.id), !currentTabIds.isEmpty else {
+            return availableFrames
         }
-        // Fall back to TabBarAdapter frames (set directly by SwiftUI)
-        return tabBarAdapter?.tabFrames ?? [:]
+        let currentTabIdSet = Set(currentTabIds)
+        return availableFrames.filter { currentTabIdSet.contains($0.key) }
     }
 
     // MARK: - Hit Testing
@@ -247,6 +252,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         orderedTabIds: [UUID]
     ) -> Int? {
         guard !orderedTabIds.isEmpty else { return nil }
+        guard orderedTabIds.allSatisfy({ tabFrames[$0] != nil }) else { return nil }
 
         let swiftUIPoint = CGPoint(x: dropPoint.x, y: boundsHeight - dropPoint.y)
         let sortedTabs = orderedTabIds.enumerated().compactMap { index, tabId -> (index: Int, frame: CGRect)? in
@@ -255,9 +261,10 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         }.sorted { $0.frame.minX < $1.frame.minX }
         guard !sortedTabs.isEmpty else { return nil }
 
-        let verticalMinY = sortedTabs.map(\.frame.minY).min() ?? 0
-        let verticalMaxY = sortedTabs.map(\.frame.maxY).max() ?? 0
-        guard swiftUIPoint.y >= verticalMinY, swiftUIPoint.y <= verticalMaxY else {
+        // The AppKit destination owns the full tab-row bounds. SwiftUI pill
+        // frames choose the horizontal insertion slot, but their visual
+        // padding must not create dead drop bands above or below the pills.
+        guard swiftUIPoint.y >= 0, swiftUIPoint.y <= boundsHeight else {
             return nil
         }
 
@@ -479,11 +486,24 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             return []
         }
 
-        if types.contains(.agentStudioPaneDrop),
-            !paneDropIsAllowedInTabBar(sender.draggingPasteboard)
-        {
-            clearDropTargetIndicator()
-            return []
+        if types.contains(.agentStudioPaneDrop) {
+            paneDropTraceIsActive = true
+            guard let paneData = sender.draggingPasteboard.data(forType: .agentStudioPaneDrop) else {
+                recordPaneDropTrace(phase: "entered", outcome: "rejected", reason: "payload_missing")
+                clearDropTargetIndicator()
+                return []
+            }
+            guard let payload = decodePaneDragPayload(from: paneData, context: "draggingEntered") else {
+                recordPaneDropTrace(
+                    phase: "entered", outcome: "rejected", reason: "payload_decode_failed")
+                clearDropTargetIndicator()
+                return []
+            }
+            guard Self.allowsTabBarInsertion(for: payload) else {
+                recordPaneDropTrace(phase: "entered", outcome: "rejected", reason: "drawer_child")
+                clearDropTargetIndicator()
+                return []
+            }
         }
 
         // Reject drags when management layer exited mid-drag.
@@ -491,10 +511,23 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         if (types.contains(.agentStudioTabInternal) || types.contains(.agentStudioPaneDrop))
             && !atom(\.managementLayer).isActive
         {
+            if types.contains(.agentStudioPaneDrop) {
+                recordPaneDropTrace(
+                    phase: "entered", outcome: "rejected", reason: "management_inactive")
+            }
             return []
         }
 
         updateDropTarget(for: sender)
+        if types.contains(.agentStudioPaneDrop) {
+            let point = convert(sender.draggingLocation, from: nil)
+            recordPaneDropTrace(
+                phase: "entered",
+                outcome: "accepted",
+                reason: "none",
+                targetResolved: dropIndexAtPoint(point) != nil
+            )
+        }
         return .move
     }
 
@@ -530,6 +563,10 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     }
 
     override func draggingEnded(_ sender: NSDraggingInfo) {
+        if paneDropTraceIsActive {
+            recordPaneDropTrace(phase: "terminal", outcome: "ended", reason: "none")
+            paneDropTraceIsActive = false
+        }
         clearDropTargetIndicator()
     }
 
@@ -540,41 +577,46 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         // Handle internal tab reorder (only when management layer is still active)
         if let idString = pasteboard.string(forType: .agentStudioTabInternal),
             let tabId = UUID(uuidString: idString),
-            let targetIndex = tabBarAdapter?.dropTargetIndex,
+            let insertionIndex = tabBarAdapter?.dropTargetIndex,
             atom(\.managementLayer).isActive
         {
-            onReorder?(tabId, targetIndex, UUIDv7.generate())
+            onReorder?(tabId, insertionIndex, UUIDv7.generate())
             return true
         }
 
         // Handle pane drop:
         // - Always use insertion index semantics on the tab row
         // - Create/move to a new tab at the insertion target
-        if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
-            let payload = decodePaneDragPayload(
-                from: paneData,
-                context: "performDragOperation"
-            )
-        {
-            if !Self.allowsTabBarInsertion(for: payload) {
-                return false
-            }
-
-            let dropPoint = convert(sender.draggingLocation, from: nil)
-            let targetTabIndex = dropIndexAtPoint(dropPoint)
-            guard let targetTabIndex else {
-                return false
-            }
-
-            AppCommandDispatcher.shared.dispatchExtractPaneToTab(
-                tabId: payload.tabId,
-                paneId: payload.paneId,
-                targetTabIndex: targetTabIndex
-            )
-            return true
+        guard (pasteboard.types ?? []).contains(.agentStudioPaneDrop) else { return false }
+        guard let paneData = pasteboard.data(forType: .agentStudioPaneDrop) else {
+            recordPaneDropTrace(phase: "commit", outcome: "rejected", reason: "payload_missing")
+            return false
+        }
+        guard let payload = decodePaneDragPayload(from: paneData, context: "performDragOperation") else {
+            recordPaneDropTrace(
+                phase: "commit", outcome: "rejected", reason: "payload_decode_failed")
+            return false
+        }
+        guard Self.allowsTabBarInsertion(for: payload) else {
+            recordPaneDropTrace(phase: "commit", outcome: "rejected", reason: "drawer_child")
+            return false
         }
 
-        return false
+        let dropPoint = convert(sender.draggingLocation, from: nil)
+        guard let targetTabInsertionIndex = dropIndexAtPoint(dropPoint) else {
+            recordPaneDropTrace(
+                phase: "commit", outcome: "rejected", reason: "target_unresolved")
+            return false
+        }
+
+        AppCommandDispatcher.shared.dispatchExtractPaneToTab(
+            tabId: payload.tabId,
+            paneId: payload.paneId,
+            targetTabInsertionIndex: targetTabInsertionIndex
+        )
+        recordPaneDropTrace(
+            phase: "commit", outcome: "requested", reason: "none", targetResolved: true)
+        return true
     }
 
     private func paneDropIsAllowedInTabBar(_ pasteboard: NSPasteboard) -> Bool {
@@ -649,6 +691,28 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
                 "DraggableTabBarHostingView.\(context) pane payload decode failed: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    private func recordPaneDropTrace(
+        phase: String,
+        outcome: String,
+        reason: String,
+        targetResolved: Bool = false
+    ) {
+        performanceTraceRecorder?.record(
+            .tabBarPaneDrop,
+            attributes: [
+                "agentstudio.performance.tabbar.pane_drop.phase": .string(phase),
+                "agentstudio.performance.tabbar.pane_drop.outcome": .string(outcome),
+                "agentstudio.performance.tabbar.pane_drop.reason": .string(reason),
+                "agentstudio.performance.management_layer.is_active": .bool(
+                    atom(\.managementLayer).isActive
+                ),
+                "agentstudio.performance.tabbar.pane_drop.target_resolved": .bool(targetResolved),
+                "agentstudio.performance.tabbar.pane_drop.frame.count": .int(currentTabFrames.count),
+                "agentstudio.performance.tabbar.tab.count": .int(tabBarAdapter?.tabs.count ?? 0),
+            ]
+        )
     }
 
     private func updateDropTarget(for sender: NSDraggingInfo) {

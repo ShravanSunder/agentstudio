@@ -53,7 +53,8 @@ enum WorkspaceLocalRepositoryCodecs {
             let row = try Row.fetchOne(
                 database,
                 sql: """
-                    SELECT filter_text, is_filter_visible, sidebar_collapsed, sidebar_surface
+                    SELECT filter_text, is_filter_visible, sidebar_collapsed, sidebar_surface,
+                           repo_grouping_mode
                     FROM local_window_state
                     WHERE window_role = 'main'
                     """
@@ -62,14 +63,19 @@ enum WorkspaceLocalRepositoryCodecs {
             return nil
         }
         let surfaceValue: String = row["sidebar_surface"]
+        let groupingValue: String = row["repo_grouping_mode"]
         guard let sidebarSurface = SQLiteLocalUXStorage.sidebarSurface(from: surfaceValue) else {
             throw WorkspaceLocalRepositoryError.unsupportedSidebarSurface(surfaceValue)
+        }
+        guard let repoGroupingMode = SQLiteLocalUXStorage.repoGroupingMode(from: groupingValue) else {
+            throw WorkspaceLocalRepositoryError.unsupportedRepoGroupingMode(groupingValue)
         }
         return .init(
             filterText: row["filter_text"],
             isFilterVisible: (row["is_filter_visible"] as Int) == 1,
             sidebarCollapsed: (row["sidebar_collapsed"] as Int) == 1,
-            sidebarSurface: sidebarSurface
+            sidebarSurface: sidebarSurface,
+            repoGroupingMode: repoGroupingMode
         )
     }
 

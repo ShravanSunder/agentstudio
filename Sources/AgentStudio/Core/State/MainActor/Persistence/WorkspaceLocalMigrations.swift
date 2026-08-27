@@ -74,6 +74,67 @@ package enum WorkspaceLocalMigrations {
         migrator.registerMigration("004_remove_persisted_pull_request_counts") { database in
             try database.execute(sql: "DROP TABLE IF EXISTS cache_pull_request_count")
         }
+        migrator.registerMigration("005_move_repo_grouping_to_window_sidebar_memory") { database in
+            let windowColumnNames = try Set(
+                String.fetchAll(
+                    database,
+                    sql: "SELECT name FROM pragma_table_info('local_window_state')"
+                )
+            )
+            if !windowColumnNames.contains("repo_grouping_mode") {
+                try database.execute(
+                    sql: """
+                        ALTER TABLE local_window_state
+                        ADD COLUMN repo_grouping_mode TEXT NOT NULL DEFAULT 'repo'
+                        """
+                )
+            }
+
+            let preferenceColumnNames = try Set(
+                String.fetchAll(
+                    database,
+                    sql: "SELECT name FROM pragma_table_info('local_repo_explorer_preferences')"
+                )
+            )
+            if preferenceColumnNames.contains("grouping_mode") {
+                // Preserve an existing user's selection: copy the legacy per-workspace value into
+                // the new window-scoped column before the old column is dropped. A missing or
+                // unrecognized legacy value leaves the new column at its 'repo' default rather than
+                // failing the migration.
+                //
+                // Deterministic mapping (owner ruling, N1): local_repo_explorer_preferences is
+                // keyed by workspace_id, so more than one legacy row is possible. The ideal winner
+                // is the currently active workspace, but that selection lives in
+                // app_workspace_selection in core.sqlite -- a separate database this local
+                // migration cannot reach (core and local prepare and migrate independently; see
+                // "SQLite ownership" in CLAUDE.md). The deterministic fallback is therefore the
+                // most-recently-updated legacy row, ordered by this table's own updated_at; two
+                // rows can share an updated_at (e.g. both written in the same batch/import), so
+                // break ties with the table's own primary key (workspace_id DESC) to guarantee one
+                // deterministic winner rather than falling back to SQLite's unspecified row order
+                // (owner ruling, N1 tie-breaker).
+                if let existingGroupingMode = try String.fetchOne(
+                    database,
+                    sql: """
+                        SELECT grouping_mode FROM local_repo_explorer_preferences
+                        ORDER BY updated_at DESC, workspace_id DESC
+                        LIMIT 1
+                        """
+                ), SQLiteLocalUXStorage.isValidRepoExplorerGrouping(existingGroupingMode) {
+                    try database.execute(
+                        sql: """
+                            UPDATE local_window_state
+                            SET repo_grouping_mode = ?
+                            WHERE window_role = 'main'
+                            """,
+                        arguments: [existingGroupingMode]
+                    )
+                }
+                try database.execute(
+                    sql: "ALTER TABLE local_repo_explorer_preferences DROP COLUMN grouping_mode"
+                )
+            }
+        }
         return migrator
     }
 
@@ -148,6 +209,7 @@ package enum WorkspaceLocalMigrations {
             is_filter_visible INTEGER NOT NULL CHECK (is_filter_visible IN (0, 1)),
             sidebar_collapsed INTEGER NOT NULL CHECK (sidebar_collapsed IN (0, 1)),
             sidebar_surface TEXT NOT NULL,
+            repo_grouping_mode TEXT NOT NULL DEFAULT 'repo',
             updated_at REAL NOT NULL
         )
         """,
@@ -269,7 +331,6 @@ package enum WorkspaceLocalMigrations {
         """
         CREATE TABLE local_repo_explorer_preferences (
             workspace_id TEXT PRIMARY KEY,
-            grouping_mode TEXT NOT NULL,
             sort_order TEXT NOT NULL,
             visibility_mode TEXT NOT NULL,
             updated_at REAL NOT NULL

@@ -481,12 +481,16 @@ extension GitWorkingDirectoryEvent {
 extension ForgeEvent {
     var traceName: String {
         switch self {
+        case .pullRequestRefreshStateChanged:
+            return "forge.pullRequestRefreshStateChanged"
         case .pullRequestsChanged:
             return "forge.pullRequestsChanged"
         case .pullRequestBranchesInvalidated:
             return "forge.pullRequestBranchesInvalidated"
         case .pullRequestRepositoryInvalidated:
             return "forge.pullRequestRepositoryInvalidated"
+        case .pullRequestsUnavailable:
+            return "forge.pullRequestsUnavailable"
         case .checksUpdated:
             return "forge.checksUpdated"
         case .refreshFailed:

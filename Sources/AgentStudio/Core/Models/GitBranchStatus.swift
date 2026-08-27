@@ -13,34 +13,55 @@ package struct GitBranchStatus: Equatable, Sendable {
     package let isDirty: Bool
     package let syncState: SyncState
     package let prCount: Int?
+    package let pullRequestIsLoading: Bool
+    /// True when pull request data for this row has a resolved, terminal
+    /// absence: the repository has no GitHub remote, provider queries have
+    /// failed past the forge honesty threshold, or this specific worktree is
+    /// at detached HEAD (no branch to key a query on). Distinguishes "we
+    /// haven't heard back yet" (`prCount == nil` alone) from "no data is
+    /// coming", so consumers stop rendering a pending indicator for the
+    /// latter.
+    package let pullRequestDataUnavailable: Bool
     package let linesAdded: Int
     package let linesDeleted: Int
+    package let untrackedFileCount: Int
 
     package static let unknown = Self(
         isDirty: false,
         syncState: .unknown,
         prCount: nil,
+        pullRequestIsLoading: false,
+        pullRequestDataUnavailable: false,
         linesAdded: 0,
-        linesDeleted: 0
+        linesDeleted: 0,
+        untrackedFileCount: 0
     )
 
     package init(
         isDirty: Bool,
         syncState: SyncState,
         prCount: Int?,
+        pullRequestIsLoading: Bool = false,
+        pullRequestDataUnavailable: Bool = false,
         linesAdded: Int,
-        linesDeleted: Int
+        linesDeleted: Int,
+        untrackedFileCount: Int
     ) {
         self.isDirty = isDirty
         self.syncState = syncState
         self.prCount = prCount
+        self.pullRequestIsLoading = pullRequestIsLoading
+        self.pullRequestDataUnavailable = pullRequestDataUnavailable
         self.linesAdded = linesAdded
         self.linesDeleted = linesDeleted
+        self.untrackedFileCount = untrackedFileCount
     }
 
     package static func merge(
         worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
-        pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts]
+        pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts],
+        loadingPullRequestRepoIds: Set<UUID> = [],
+        unavailablePullRequestRepoIds: Set<UUID> = []
     ) -> [UUID: Self] {
         var mergedByWorktreeId: [UUID: Self] = [:]
         mergedByWorktreeId.reserveCapacity(worktreeEnrichmentsByWorktreeId.count)
@@ -50,7 +71,9 @@ package struct GitBranchStatus: Equatable, Sendable {
                 .flatMap { pullRequestFactsByBranch[$0] }
             mergedByWorktreeId[worktreeId] = status(
                 enrichment: enrichment,
-                pullRequestFacts: pullRequestFacts
+                pullRequestFacts: pullRequestFacts,
+                pullRequestIsLoading: loadingPullRequestRepoIds.contains(enrichment.repoId),
+                pullRequestDataUnavailable: unavailablePullRequestRepoIds.contains(enrichment.repoId)
             )
         }
 
@@ -59,17 +82,30 @@ package struct GitBranchStatus: Equatable, Sendable {
 
     package static func status(
         enrichment: WorktreeEnrichment?,
-        pullRequestFacts: PullRequestFacts?
+        pullRequestFacts: PullRequestFacts?,
+        pullRequestIsLoading: Bool = false,
+        pullRequestDataUnavailable: Bool = false
     ) -> Self {
         guard let enrichment else {
             return Self(
                 isDirty: Self.unknown.isDirty,
                 syncState: Self.unknown.syncState,
                 prCount: pullRequestFacts?.openCount,
+                pullRequestIsLoading: pullRequestIsLoading,
+                pullRequestDataUnavailable: pullRequestDataUnavailable,
                 linesAdded: Self.unknown.linesAdded,
-                linesDeleted: Self.unknown.linesDeleted
+                linesDeleted: Self.unknown.linesDeleted,
+                untrackedFileCount: Self.unknown.untrackedFileCount
             )
         }
+
+        // A detached-HEAD worktree has no branch to key a forge query on
+        // (RepoBranchKey requires a non-empty branch), so it can never
+        // resolve pull request data on its own. This is a local, synchronous
+        // fact derived from the enrichment itself: it resolves immediately,
+        // requires no forge query or event, and only changes when the
+        // worktree's branch fact changes (a fresh `enrichment` reaching here).
+        let isDetachedHead = enrichment.branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         let summary = enrichment.snapshot?.summary
         let isDirty: Bool
@@ -109,8 +145,11 @@ package struct GitBranchStatus: Equatable, Sendable {
             isDirty: isDirty,
             syncState: syncState,
             prCount: pullRequestFacts?.openCount,
+            pullRequestIsLoading: pullRequestIsLoading && !pullRequestDataUnavailable && !isDetachedHead,
+            pullRequestDataUnavailable: pullRequestDataUnavailable || isDetachedHead,
             linesAdded: summary?.linesAdded ?? 0,
-            linesDeleted: summary?.linesDeleted ?? 0
+            linesDeleted: summary?.linesDeleted ?? 0,
+            untrackedFileCount: summary?.untracked ?? 0
         )
     }
 }

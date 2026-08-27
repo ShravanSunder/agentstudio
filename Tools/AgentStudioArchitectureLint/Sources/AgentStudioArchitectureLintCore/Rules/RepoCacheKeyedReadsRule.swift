@@ -37,7 +37,8 @@ private final class RawRepoCacheMemberVisitor: SyntaxVisitor {
         violations.append(
             ArchitectureViolation(
                 position: node.positionAfterSkippingLeadingTrivia,
-                message: "Use keyed repo-cache readers such as worktreeFacts(for:) or named snapshot bridges"
+                message:
+                    "Use keyed repo-cache readers such as worktreeEnrichment(for:) or pullRequestFacts(for:), or named snapshot bridges"
             )
         )
     }

@@ -155,7 +155,7 @@ The four R4 rules live in the SwiftSyntax architecture-lint registry. Their
 initial report-only state uses the existing warning/review classification;
 R19 changes the affected rule/surface to blocking error. Stable IDs, severity,
 and proof remain recorded in
-`docs/architecture/architecture_lint_inventory.md:1-25,62-83`.
+`docs/architecture/structure/architecture_lint_inventory.md:1-25,62-83`.
 The concise R5 contract lives in `CLAUDE.md` beside the existing high-volume
 source rule (`CLAUDE.md:518-525`).
 

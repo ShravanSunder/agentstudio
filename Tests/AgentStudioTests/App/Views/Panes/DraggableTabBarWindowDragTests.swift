@@ -110,6 +110,59 @@ struct DraggableTabBarWindowDragTests {
         )
     }
 
+    @Test("pane drag entry emits bounded target telemetry")
+    func paneDragEntryEmitsBoundedTargetTelemetry() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory.appending(
+            path: "tab-pane-drop-input-\(UUIDv7.generate().uuidString)"
+        )
+        defer { try? FileManager.default.removeItem(at: traceDirectory) }
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "tab-pane-drop-input",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 942,
+            timeUnixNano: { 942 }
+        )
+        let traceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        let fixture = makeHostingViewFixture(performanceTraceRecorder: traceRecorder)
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("test.pane-drop-\(UUIDv7.generate())"))
+        pasteboard.clearContents()
+        let payload = PaneDragPayload(paneId: UUIDv7.generate(), tabId: fixture.tabId)
+        pasteboard.setData(try JSONEncoder().encode(payload), forType: .agentStudioPaneDrop)
+        let dragInfo = TabReorderDraggingInfo(
+            pasteboard: pasteboard,
+            location: fixture.hostingView.convert(fixture.pointInsidePill, to: nil)
+        )
+        atom(\.managementLayer).activate()
+        defer { atom(\.managementLayer).deactivate() }
+
+        let operation = fixture.hostingView.draggingEntered(dragInfo)
+        _ = fixture.hostingView.draggingUpdated(dragInfo)
+        _ = fixture.hostingView.draggingUpdated(dragInfo)
+        fixture.hostingView.draggingEnded(dragInfo)
+        try await traceRecorder.drain()
+
+        #expect(operation == .move)
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.tabbar.pane_drop\""))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.pane_drop.phase\":\"entered\""))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.pane_drop.outcome\":\"accepted\""))
+        #expect(contents.contains("\"agentstudio.performance.management_layer.is_active\":true"))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.pane_drop.frame.count\":1"))
+        #expect(
+            contents.split(separator: "\n").filter { line in
+                line.contains("\"body\":\"performance.tabbar.pane_drop\"")
+            }.count == 2
+        )
+        #expect(contents.contains("\"agentstudio.performance.tabbar.pane_drop.phase\":\"terminal\""))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.pane_drop.outcome\":\"ended\""))
+        #expect(!contents.contains(payload.paneId.uuidString))
+    }
+
     @Test("a secondary click on a tab requests its native context menu and consumes the event")
     func secondaryClickOnTabRequestsContextMenuAndConsumesEvent() throws {
         let fixture = makeHostingViewFixture()
@@ -143,6 +196,47 @@ struct DraggableTabBarWindowDragTests {
         fixture.hostingView.mouseDown(with: event)
 
         #expect(draggedEvent === event)
+    }
+
+    @Test("a never-presented tab host runs the AppKit destination reorder lifecycle")
+    func neverPresentedTabHostRunsAppKitDestinationReorderLifecycle() async throws {
+        let fixture = makeTabReorderHostingViewFixture()
+        defer {
+            fixture.window.orderOut(nil)
+            try? FileManager.default.removeItem(at: fixture.harness.tempDir)
+        }
+        await eventually("tab adapter materializes reorder tabs") {
+            fixture.hostingView.tabBarAdapter?.tabs.map(\.id) == fixture.tabIds
+        }
+
+        atom(\.managementLayer).activate()
+        defer { atom(\.managementLayer).deactivate() }
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("test.tab-reorder-\(UUIDv7.generate())"))
+        pasteboard.clearContents()
+        pasteboard.setString(fixture.tabIds[0].uuidString, forType: .agentStudioTabInternal)
+        let lastTabFrame = try #require(fixture.tabFrames.values.max { $0.maxX < $1.maxX })
+        let localDropPoint = NSPoint(
+            x: lastTabFrame.maxX + 500,
+            y: fixture.hostingView.bounds.height - lastTabFrame.midY
+        )
+        let insertionIndex = try #require(
+            DraggableTabBarHostingView.paneDropInsertionIndex(
+                dropPoint: localDropPoint,
+                boundsHeight: fixture.hostingView.bounds.height,
+                tabFrames: fixture.tabFrames,
+                orderedTabIds: fixture.tabIds
+            )
+        )
+        #expect(insertionIndex == fixture.tabIds.count)
+        let dragInfo = TabReorderDraggingInfo(
+            pasteboard: pasteboard,
+            location: fixture.hostingView.convert(localDropPoint, to: nil)
+        )
+
+        #expect(fixture.hostingView.draggingEntered(dragInfo) == .move)
+        #expect(fixture.hostingView.performDragOperation(dragInfo))
+        #expect(fixture.harness.store.tabs.map(\.id) == [fixture.tabIds[1], fixture.tabIds[2], fixture.tabIds[0]])
     }
 
     @Test("a double click in the empty strip zooms when the system pref is Maximize")
@@ -227,6 +321,56 @@ struct DraggableTabBarWindowDragTests {
         let tabId: UUID
         let pointInsidePill: NSPoint
         let pointOutsidePill: NSPoint
+    }
+
+    private struct TabReorderHostingViewFixture {
+        let harness: Harness
+        let hostingView: DraggableTabBarHostingView
+        let window: NSWindow
+        let tabIds: [UUID]
+        let tabFrames: [UUID: CGRect]
+    }
+
+    private func makeTabReorderHostingViewFixture() -> TabReorderHostingViewFixture {
+        let harness = makeHarness()
+        let firstPane = harness.store.createPane(title: "First")
+        let secondPane = harness.store.createPane(title: "Second")
+        let thirdPane = harness.store.createPane(title: "Third")
+        let tabs = [
+            Tab(paneId: firstPane.id, name: "First"),
+            Tab(paneId: secondPane.id, name: "Second"),
+            Tab(paneId: thirdPane.id, name: "Third"),
+        ]
+        for tab in tabs {
+            harness.store.appendTab(tab)
+        }
+
+        let hostingView = harness.controller.makeTabBarHostingView()
+        let bounds = NSRect(x: 0, y: 0, width: 400, height: AppStyles.Shell.TabBar.height)
+        hostingView.frame = bounds
+        let window = NSWindow(
+            contentRect: bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.contentView?.layoutSubtreeIfNeeded()
+        let tabFrames = [
+            tabs[0].id: CGRect(x: 0, y: 4, width: 100, height: 32),
+            tabs[1].id: CGRect(x: 100, y: 4, width: 100, height: 32),
+            tabs[2].id: CGRect(x: 200, y: 4, width: 100, height: 32),
+        ]
+        hostingView.updateTabFrames(tabFrames)
+        hostingView.tabBarAdapter?.tabFrames = tabFrames
+
+        return TabReorderHostingViewFixture(
+            harness: harness,
+            hostingView: hostingView,
+            window: window,
+            tabIds: tabs.map(\.id),
+            tabFrames: tabFrames
+        )
     }
 
     /// Builds a `DraggableTabBarHostingView` hosted as the content view of a real,
@@ -321,4 +465,45 @@ struct DraggableTabBarWindowDragTests {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         return try String(contentsOf: projectRoot.appending(path: relativePath), encoding: .utf8)
     }
+}
+
+private final class TabReorderDraggingInfo: NSObject, NSDraggingInfo {
+    nonisolated let draggingPasteboard: NSPasteboard
+    let draggingLocation: NSPoint
+
+    @MainActor
+    init(pasteboard: NSPasteboard, location: NSPoint) {
+        draggingPasteboard = pasteboard
+        draggingLocation = location
+        super.init()
+    }
+
+    var draggingDestinationWindow: NSWindow? { nil }
+    var draggingSourceOperationMask: NSDragOperation { .move }
+    var draggedImageLocation: NSPoint { .zero }
+    var draggedImage: NSImage? { nil }
+    var draggingSource: Any? { nil }
+    var draggingSequenceNumber: Int { 0 }
+    var draggingFormation: NSDraggingFormation {
+        get { .default }
+        set { _ = newValue }
+    }
+    var animatesToDestination: Bool {
+        get { false }
+        set { _ = newValue }
+    }
+    var numberOfValidItemsForDrop: Int {
+        get { 0 }
+        set { _ = newValue }
+    }
+    var springLoadingHighlight: NSSpringLoadingHighlight { .none }
+    func slideDraggedImage(to _: NSPoint) {}
+    func enumerateDraggingItems(
+        options _: NSDraggingItemEnumerationOptions,
+        for _: NSView?,
+        classes _: [AnyClass],
+        searchOptions _: [NSPasteboard.ReadingOptionKey: Any],
+        using _: @escaping (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
+    ) {}
+    func resetSpringLoading() {}
 }

@@ -26,6 +26,7 @@ package struct WorkspaceLocalRepository: Sendable {
         var isFilterVisible: Bool
         var sidebarCollapsed: Bool
         var sidebarSurface: SidebarSurface
+        var repoGroupingMode: RepoSidebarGroupingMode = .repo
     }
 
     struct WorkspaceMemoryRecord: Equatable, Sendable {
@@ -59,36 +60,28 @@ package struct WorkspaceLocalRepository: Sendable {
     }
 
     package struct RepoExplorerPreferencesRecord: Equatable, Sendable {
-        package let groupingMode: String
         package let sortOrder: String
         package let visibilityMode: String
 
         private init(
-            groupingMode: String,
             sortOrder: String,
             visibilityMode _: String
         ) {
-            self.groupingMode = groupingMode
             self.sortOrder = sortOrder
             self.visibilityMode = SQLiteLocalUXStorage.repoExplorerVisibilityAll
         }
 
         package static let `default` = Self(
-            groupingMode: SQLiteLocalUXStorage.repoExplorerGroupingRepo,
             sortOrder: SQLiteLocalUXStorage.repoExplorerSortAscending,
             visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
         )
 
         package static func validated(
-            groupingMode: String,
             sortOrder: String,
             visibilityMode: String
         ) -> Self? {
-            guard SQLiteLocalUXStorage.isValidRepoExplorerGrouping(groupingMode),
-                SQLiteLocalUXStorage.isValidRepoExplorerSort(sortOrder)
-            else { return nil }
+            guard SQLiteLocalUXStorage.isValidRepoExplorerSort(sortOrder) else { return nil }
             return Self(
-                groupingMode: groupingMode,
                 sortOrder: sortOrder,
                 visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
             )
@@ -455,6 +448,7 @@ package struct WorkspaceLocalRepository: Sendable {
 
 enum WorkspaceLocalRepositoryError: Error, Equatable {
     case unsupportedSidebarSurface(String)
+    case unsupportedRepoGroupingMode(String)
     case malformedWorkspaceId(String)
     case malformedTabId(String)
     case malformedArrangementId(String)

@@ -2,6 +2,7 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudioInboxNotification
@@ -170,9 +171,15 @@ struct InboxNotificationRouterTests {
         in fixture: Fixture,
         description: String
     ) async {
-        await assertEventuallyMain(description) {
-            fixture.inboxAtom.notifications.count == count
+        let notificationCountValues = Observations {
+            fixture.inboxAtom.notifications.count
         }
+        for await notificationCount in notificationCountValues {
+            if notificationCount == count {
+                return
+            }
+        }
+        Issue.record("\(description): notification observation ended before reaching \(count)")
     }
 
     private func makeTraceRuntime(
@@ -304,9 +311,9 @@ struct InboxNotificationRouterTests {
         )
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await fixture.router.flushTraceRecords()
-        await assertEventuallyMain("inbox router should write decision and append traces") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+        await assertEventuallyAsync("inbox router should write decision and append traces") {
+            await fixture.router.flushTraceRecords()
+            return (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"inbox.notification.appended\"") == true
         }
 
@@ -348,9 +355,9 @@ struct InboxNotificationRouterTests {
         _ = await fixture.bus.post(makePaneEnvelope(paneId: paneId, event: .terminal(.bellRang)))
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await fixture.router.flushTraceRecords()
-        await assertEventuallyMain("inbox router should write eventbus delivery summary") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+        await assertEventuallyAsync("inbox router should write eventbus delivery summary") {
+            await fixture.router.flushTraceRecords()
+            return (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"eventbus.deliver\"") == true
         }
 
@@ -420,8 +427,8 @@ struct InboxNotificationRouterTests {
 
         await Task.yield()
         makeWindowKey(fixture.windowLifecycle)
-        await fixture.router.flushTraceRecords()
-        await assertEventuallyMain("focus gain should write a pane attention trace") {
+        await assertEventuallyAsync("focus gain should write a pane attention trace") {
+            await fixture.router.flushTraceRecords()
             guard let outputFileURL = traceRuntime.outputFileURL else { return false }
             return (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"inbox.focusGainedObservedPane\"") == true

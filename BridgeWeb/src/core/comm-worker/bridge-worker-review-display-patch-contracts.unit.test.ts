@@ -261,11 +261,13 @@ const REVIEW_DISPLAY_EVENT = {
 						contentFacts: [],
 						extentFacts: [],
 						metadata: {
+							additions: 1,
 							basePath: 'Sources/App.swift',
 							changeKind: 'modified',
 							contentDescriptorIdsByRole: {},
 							contentHashesByRole: {},
 							contentRoles: [],
+							deletions: 0,
 							extension: 'swift',
 							fileClass: 'source',
 							headPath: 'Sources/App.swift',

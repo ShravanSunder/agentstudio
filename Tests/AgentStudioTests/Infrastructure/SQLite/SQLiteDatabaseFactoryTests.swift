@@ -57,35 +57,6 @@ struct SQLiteDatabaseFactoryTests {
         #expect(writerBusyTimeoutMilliseconds == 2000)
     }
 
-    @Test("byte-preserving startup reader sees committed WAL content without changing database files")
-    func bytePreservingStartupReaderSeesCommittedWALWithoutChangingDatabaseFiles() throws {
-        // Arrange
-        let fixture = try SQLiteFactoryFileFixture.make()
-        defer { fixture.remove() }
-        try fixture.createCrashLeftWALDatabase()
-        let durableFilesBeforeRead = try fixture.durableFileBytes()
-        #expect(durableFilesBeforeRead.wal != .missing)
-        #expect(durableFilesBeforeRead.sharedMemory != .missing)
-        let mainDatabaseOnlyReader = try fixture.makeMainDatabaseOnlyImmutableReader()
-        let mainDatabaseOnlyValue = try mainDatabaseOnlyReader.read { database in
-            try String.fetchOne(database, sql: "SELECT value FROM startup_probe")
-        }
-        #expect(mainDatabaseOnlyValue == nil)
-
-        // Act
-        let startupReader = try SQLiteDatabaseFactory.makeBytePreservingStartupReader(at: fixture.databaseURL)
-        let restoredValue = try startupReader.read { database in
-            try String.fetchOne(database, sql: "SELECT value FROM startup_probe")
-        }
-
-        // Assert
-        #expect(restoredValue == "committed-in-wal")
-        let durableFilesAfterRead = try fixture.durableFileBytes()
-        #expect(durableFilesAfterRead.database == durableFilesBeforeRead.database)
-        #expect(durableFilesAfterRead.wal == durableFilesBeforeRead.wal)
-        #expect(durableFilesAfterRead.sharedMemory == durableFilesBeforeRead.sharedMemory)
-    }
-
     @Test("byte-preserving startup reader rejects a missing database without creating files")
     func bytePreservingStartupReaderRejectsMissingDatabaseWithoutCreatingFiles() throws {
         // Arrange
@@ -197,29 +168,8 @@ private struct SQLiteFactoryFileFixture {
     func createCrashLeftWALDatabase() throws {
         let process = Process()
         let standardError = Pipe()
-        process.executableURL = URL(filePath: "/usr/bin/python3")
-        process.arguments = [
-            "-c",
-            """
-            import os
-            import sqlite3
-            import sys
-
-            connection = sqlite3.connect(sys.argv[1])
-            connection.execute("PRAGMA journal_mode=WAL")
-            connection.execute("PRAGMA wal_autocheckpoint=0")
-            connection.execute("CREATE TABLE startup_probe (value TEXT NOT NULL)")
-            connection.commit()
-            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
-            connection.execute(
-                "INSERT INTO startup_probe(value) VALUES (?)",
-                ("committed-in-wal",),
-            )
-            connection.commit()
-            os._exit(0)
-            """,
-            databaseURL.path,
-        ]
+        process.executableURL = Self.crashFixtureExecutableURL
+        process.arguments = [databaseURL.path]
         process.standardError = standardError
         let terminationSignal = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in terminationSignal.signal() }
@@ -239,6 +189,26 @@ private struct SQLiteFactoryFileFixture {
         }
     }
 
+    private static var crashFixtureExecutableURL: URL {
+        let buildDirectory = ProcessInfo.processInfo.environment["SWIFT_BUILD_DIR"] ?? ".build"
+        return projectRootURL.appendingPathComponent(buildDirectory, isDirectory: true)
+            .appendingPathComponent("debug", isDirectory: true)
+            .appendingPathComponent("agentstudio-sqlite-crash-fixture")
+    }
+
+    private static var projectRootURL: URL {
+        var currentURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        for _ in 0..<20 {
+            if FileManager.default.fileExists(
+                atPath: currentURL.appendingPathComponent("Package.swift").path
+            ) {
+                return currentURL
+            }
+            currentURL.deleteLastPathComponent()
+        }
+        preconditionFailure("Could not resolve Package.swift from SQLiteDatabaseFactoryTests.swift")
+    }
+
     func makeMainDatabaseOnlyImmutableReader() throws -> DatabaseQueue {
         var components = URLComponents(url: databaseURL.standardizedFileURL, resolvingAgainstBaseURL: false)
         components?.queryItems = [URLQueryItem(name: "immutable", value: "1")]
@@ -253,6 +223,38 @@ private struct SQLiteFactoryFileFixture {
             return .missing
         }
         return try .present(Data(contentsOf: fileURL))
+    }
+}
+
+@Suite("SQLiteDatabaseFactoryProcessTests", .serialized)
+struct SQLiteDatabaseFactoryProcessTests {
+    @Test("byte-preserving startup reader sees committed WAL content without changing database files")
+    func bytePreservingStartupReaderSeesCommittedWALWithoutChangingDatabaseFiles() throws {
+        // Arrange
+        let fixture = try SQLiteFactoryFileFixture.make()
+        defer { fixture.remove() }
+        try fixture.createCrashLeftWALDatabase()
+        let durableFilesBeforeRead = try fixture.durableFileBytes()
+        #expect(durableFilesBeforeRead.wal != .missing)
+        #expect(durableFilesBeforeRead.sharedMemory != .missing)
+        let mainDatabaseOnlyReader = try fixture.makeMainDatabaseOnlyImmutableReader()
+        let mainDatabaseOnlyValue = try mainDatabaseOnlyReader.read { database in
+            try String.fetchOne(database, sql: "SELECT value FROM startup_probe")
+        }
+        #expect(mainDatabaseOnlyValue == nil)
+
+        // Act
+        let startupReader = try SQLiteDatabaseFactory.makeBytePreservingStartupReader(at: fixture.databaseURL)
+        let restoredValue = try startupReader.read { database in
+            try String.fetchOne(database, sql: "SELECT value FROM startup_probe")
+        }
+
+        // Assert
+        #expect(restoredValue == "committed-in-wal")
+        let durableFilesAfterRead = try fixture.durableFileBytes()
+        #expect(durableFilesAfterRead.database == durableFilesBeforeRead.database)
+        #expect(durableFilesAfterRead.wal == durableFilesBeforeRead.wal)
+        #expect(durableFilesAfterRead.sharedMemory == durableFilesBeforeRead.sharedMemory)
     }
 }
 

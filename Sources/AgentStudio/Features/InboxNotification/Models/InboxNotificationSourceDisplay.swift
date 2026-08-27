@@ -102,8 +102,7 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
     }
 
     private static func detailText(for body: String?) -> String? {
-        guard body != "Output appeared while you were away" else { return nil }
-        return body
+        InboxNotificationTextPolicy.contentBearingBody(body)
     }
 
     private static func sourceLine(

@@ -35,6 +35,12 @@ struct DrawerToolbarCommandPresentationTests {
                     targetType: .pane
                 ),
                 .init(
+                    command: .editPaneNote,
+                    surface: .toolbar(.pane),
+                    target: locationTargetPaneId,
+                    targetType: .pane
+                ),
+                .init(
                     command: .openPaneLocationInEditorMenu,
                     surface: .toolbar(.pane),
                     target: locationTargetPaneId,
@@ -83,7 +89,7 @@ struct DrawerToolbarCommandPresentationTests {
             resolver.requests.map(\.surface)
                 == Array(
                     repeating: .toolbar(.terminalZoom),
-                    count: 7
+                    count: 8
                 )
         )
     }
@@ -103,6 +109,7 @@ struct DrawerToolbarCommandPresentationTests {
 
         #expect(presentation.toggleDrawer?.isEnabled == false)
         #expect(presentation.addDrawerPane == nil)
+        #expect(presentation.editPaneNote?.isEnabled == true)
         #expect(presentation.openEditorMenu?.isEnabled == true)
         #expect(presentation.openFinder == nil)
         #expect(presentation.copyPath?.isEnabled == false)

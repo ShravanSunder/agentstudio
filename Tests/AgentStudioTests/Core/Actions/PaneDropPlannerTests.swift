@@ -41,7 +41,7 @@ final class PaneDropPlannerTests {
 
         let result = PaneDropPlanner.previewDecision(
             payload: payload,
-            destination: .tabBarInsertion(targetTabIndex: 0),
+            destination: .tabBarInsertion(insertionIndex: 0),
             state: state
         )
 
@@ -70,11 +70,11 @@ final class PaneDropPlannerTests {
 
         let result = PaneDropPlanner.previewDecision(
             payload: payload,
-            destination: .tabBarInsertion(targetTabIndex: 1),
+            destination: .tabBarInsertion(insertionIndex: 1),
             state: state
         )
 
-        #expect(result == .eligible(.moveTab(tabId: sourceTabId, toIndex: 1)))
+        #expect(result == .eligible(.moveTab(tabId: sourceTabId, insertionIndex: 1)))
     }
 
     @Test
@@ -100,7 +100,7 @@ final class PaneDropPlannerTests {
 
         let result = PaneDropPlanner.previewDecision(
             payload: payload,
-            destination: .tabBarInsertion(targetTabIndex: 1),
+            destination: .tabBarInsertion(insertionIndex: 1),
             state: state
         )
 
@@ -110,7 +110,7 @@ final class PaneDropPlannerTests {
                     .extractPaneToTabThenMove(
                         paneId: sourcePaneA,
                         sourceTabId: sourceTabId,
-                        toIndex: 1
+                        insertionIndex: 1
                     )
                 )
         )
@@ -448,7 +448,7 @@ final class PaneDropPlannerTests {
         )
         let tabResult = PaneDropPlanner.previewDecision(
             payload: payload,
-            destination: .tabBarInsertion(targetTabIndex: 1),
+            destination: .tabBarInsertion(insertionIndex: 1),
             state: state
         )
 

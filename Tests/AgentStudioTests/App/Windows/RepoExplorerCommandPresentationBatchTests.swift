@@ -10,6 +10,25 @@ import Testing
 @MainActor
 @Suite("Repo Explorer command presentation batch", .serialized)
 struct RepoExplorerCommandPresentationBatchTests {
+    @Test("toolbar capability requests keep both sort destinations mounted")
+    func toolbarCapabilityRequestsKeepBothSortDestinationsMounted() {
+        let requestsBeforeToggle = RepoExplorerToolbarCommandPresentation.requests(
+            nextSortOrder: .descending
+        )
+        let requestsAfterToggle = RepoExplorerToolbarCommandPresentation.requests(
+            nextSortOrder: .ascending
+        )
+        let requestedSortOrders = Set(
+            requestsBeforeToggle.compactMap { request -> RepoExplorerSortOrder? in
+                guard case .repoSidebarSortOrder(let order) = request.arguments else { return nil }
+                return order
+            }
+        )
+
+        #expect(requestsBeforeToggle == requestsAfterToggle)
+        #expect(requestedSortOrders == Set(RepoExplorerSortOrder.allCases))
+    }
+
     @Test("mixed capability and visible-set wake re-resolves surviving requests")
     func mixedCapabilityAndVisibleSetWakeReresolvesSurvivingRequests() async throws {
         let handler = RepoExplorerCommandPresentationRecordingHandler()
@@ -273,10 +292,16 @@ struct RepoExplorerCommandPresentationBatchTests {
                     let store = WorkspaceStore()
                     let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
                     let prefs = RepoExplorerSidebarPrefsAtom()
+                    let visibleRepo = store.addRepo(
+                        at: FileManager.default.temporaryDirectory.appending(
+                            path: "repo-command-visible-\(UUIDv7.generate().uuidString)"
+                        )
+                    )
+                    let visibleWorktree = try! #require(visibleRepo.worktrees.first)
                     let pane = store.createPane()
                     let tab = Tab(paneId: pane.id)
                     store.appendTab(tab)
-                    visibleWorktrees.setVisibleWorktreeIds([])
+                    visibleWorktrees.setVisibleWorktreeIds([visibleWorktree.id])
 
                     let batch = RepoExplorerCommandPresentationBatch(
                         store: store,
@@ -296,6 +321,13 @@ struct RepoExplorerCommandPresentationBatchTests {
                     replacementHandler.canExecuteResult = false
                     replacementHandler.targetedCanExecuteResult = false
                     AppCommandDispatcher.shared.handler = replacementHandler
+                    let ownedCapabilityBatchCount = {
+                        replacementHandler.repoExplorerCapabilityRequestBatches.filter { requests in
+                            requests.contains { request in
+                                request.target == visibleWorktree.id
+                            }
+                        }.count
+                    }
                     for _ in 0..<20 {
                         await Task.yield()
                     }
@@ -321,19 +353,25 @@ struct RepoExplorerCommandPresentationBatchTests {
                     for _ in 0..<20 { await Task.yield() }
                     #expect(batch.snapshot.generation == managementGeneration)
 
-                    let capabilityBatchCountBeforeActiveTab =
-                        replacementHandler.repoExplorerCapabilityRequestBatches.count
+                    let ownedCapabilityBatchCountBeforeActiveTab = ownedCapabilityBatchCount()
                     let secondPane = store.createPane()
                     store.appendTab(Tab(paneId: secondPane.id))
                     await eventually("active tab capability recompute") {
-                        replacementHandler.repoExplorerCapabilityRequestBatches.count
-                            > capabilityBatchCountBeforeActiveTab
+                        ownedCapabilityBatchCount() > ownedCapabilityBatchCountBeforeActiveTab
                     }
                     #expect(batch.snapshot.generation == managementGeneration)
                     let activeTabGeneration = managementGeneration
                     let presentationBeforeUnrelatedRepo = batch.snapshot.results
-                    let capabilityBatchCountBeforeUnrelatedRepo =
-                        replacementHandler.repoExplorerCapabilityRequestBatches.count
+                    let ownedCapabilityBatchCountBeforeUnrelatedRepo = ownedCapabilityBatchCount()
+
+                    // The dispatcher is process-global, so unrelated toolbar traffic must not be
+                    // attributed to this batch owner's exact visible-worktree request set.
+                    _ = AppCommandDispatcher.shared.repoExplorerCommandPresentationSnapshot(
+                        requests: RepoExplorerToolbarCommandPresentation.requests(
+                            nextSortOrder: prefs.sortOrder.toggled
+                        ),
+                        generation: batch.snapshot.generation &+ 1
+                    )
 
                     _ = store.addRepo(
                         at: FileManager.default.temporaryDirectory.appending(
@@ -344,8 +382,7 @@ struct RepoExplorerCommandPresentationBatchTests {
                     #expect(batch.snapshot.generation == activeTabGeneration)
                     #expect(batch.snapshot.results == presentationBeforeUnrelatedRepo)
                     #expect(
-                        replacementHandler.repoExplorerCapabilityRequestBatches.count
-                            == capabilityBatchCountBeforeUnrelatedRepo
+                        ownedCapabilityBatchCount() == ownedCapabilityBatchCountBeforeUnrelatedRepo
                     )
                 }
             }
@@ -463,7 +500,7 @@ private final class RepoExplorerCommandPresentationRecordingHandler: WorkspaceCo
         true
     }
 
-    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabIndex _: Int?) {}
+    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabInsertionIndex _: Int?) {}
 
     func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
 

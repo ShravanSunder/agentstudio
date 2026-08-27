@@ -169,6 +169,9 @@ struct BridgePaneProductReviewMetadataSourceTests {
             Issue.record("Expected initial Review metadata snapshot")
             return
         }
+        let itemMetadata = try #require(snapshot.itemMetadata.first)
+        #expect(itemMetadata.additions == 2)
+        #expect(itemMetadata.deletions == 1)
         #expect(snapshot.extentFacts.isEmpty)
     }
 

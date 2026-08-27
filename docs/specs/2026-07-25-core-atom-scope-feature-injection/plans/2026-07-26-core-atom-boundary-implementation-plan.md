@@ -591,7 +591,7 @@ Do not use the excluded `AtomLibCompileFailures` fixture directory as proof.
 Synchronize:
 
 - `AGENTS.md` atom ownership text if the final names/paths differ;
-- `docs/architecture/directory_structure.md`;
+- `docs/architecture/structure/directory_structure.md`;
 - other directly contradicted atom/pane ownership paragraphs found by the
   final reference audit.
 

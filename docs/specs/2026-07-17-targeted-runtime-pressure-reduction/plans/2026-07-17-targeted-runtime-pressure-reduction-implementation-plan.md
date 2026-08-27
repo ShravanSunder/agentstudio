@@ -500,13 +500,13 @@ contract:
    fixtures and the architecture-lint rule inventory.
 4. Use `docs-maintain` to update the smallest durable source-of-truth set with
    progressive disclosure. `docs/architecture/README.md` routes readers;
-   [Pane Runtime Architecture — Contract 7](../../../architecture/pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction)
+   [Pane Runtime Architecture — Contract 7](../../../architecture/runtime/pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction)
    owns the normative typed source-admission and contraction contract;
-   [Pane Runtime EventBus Design](../../../architecture/pane_runtime_eventbus_design.md)
+   [Pane Runtime EventBus Design](../../../architecture/runtime/pane_runtime_eventbus_design.md)
    owns the concrete coordination, actor, and MainActor mechanics;
-   [Workspace Data Architecture](../../../architecture/workspace_data_architecture.md)
+   [Workspace Data Architecture](../../../architecture/state/workspace_data_architecture.md)
    owns filesystem affected-key mechanics;
-   [Architecture Lint Inventory](../../../architecture/architecture_lint_inventory.md)
+   [Architecture Lint Inventory](../../../architecture/structure/architecture_lint_inventory.md)
    is the detailed static-enforcement proof map after those normative and
    mechanics documents; and `AGENTS.md` carries only a concise pointer for
    future agents. Reconcile final claims after the type and architecture-lint

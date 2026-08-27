@@ -95,7 +95,6 @@ final class WorkspaceSettingsStore {
         isObservingSettings = true
         withObservationTracking {
             _ = editorPreferenceAtom.bookmarkedEditorId
-            _ = repoExplorerSidebarPrefsAtom.groupingMode
             _ = repoExplorerSidebarPrefsAtom.sortOrder
             _ = inboxNotificationPrefsAtom.grouping
             _ = inboxNotificationPrefsAtom.sort
@@ -157,7 +156,6 @@ final class WorkspaceSettingsStore {
     {
         guard
             let preferences = WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
-                groupingMode: repoExplorerSidebarPrefsAtom.groupingMode.rawValue,
                 sortOrder: repoExplorerSidebarPrefsAtom.sortOrder.rawValue,
                 visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
             )
@@ -222,7 +220,6 @@ final class WorkspaceSettingsStore {
         switch value {
         case .loaded(let preferences):
             guard
-                let groupingMode = RepoExplorerGroupingMode(rawValue: preferences.groupingMode),
                 let sortOrder = RepoExplorerSortOrder(rawValue: preferences.sortOrder)
             else {
                 hydrateRepoExplorerDefaults()
@@ -230,7 +227,6 @@ final class WorkspaceSettingsStore {
                 return
             }
             repoExplorerSidebarPrefsAtom.hydrate(
-                groupingMode: groupingMode,
                 sortOrder: sortOrder
             )
         case .defaulted:
@@ -282,7 +278,6 @@ final class WorkspaceSettingsStore {
 
     private func hydrateRepoExplorerDefaults() {
         repoExplorerSidebarPrefsAtom.hydrate(
-            groupingMode: .repo,
             sortOrder: .default
         )
     }

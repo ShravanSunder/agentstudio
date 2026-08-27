@@ -35,6 +35,33 @@ private func observePullRequestFacts(
 @Suite(.serialized)
 struct RepoCacheAtomFamilyTests {
     @Test
+    func pullRequestLoadingIsKeyedAndOnlyExplicitLifecycleEdgesClearIt() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let loadingRepoId = UUIDv7.generate()
+        let unrelatedRepoId = UUIDv7.generate()
+
+        cacheAtom.setPullRequestLoading(true, forRepository: loadingRepoId)
+
+        #expect(cacheAtom.isPullRequestLoading(forRepository: loadingRepoId))
+        #expect(!cacheAtom.isPullRequestLoading(forRepository: unrelatedRepoId))
+        #expect(cacheAtom.loadingPullRequestRepoIds == [loadingRepoId])
+
+        cacheAtom.applyPullRequestFacts([
+            RepoBranchKey(repoId: loadingRepoId, branch: "main")!:
+                PullRequestFacts(openCount: 0, exactOpenURL: nil)
+        ])
+
+        // A prior request's result may arrive after a newer request starts.
+        // Result facts must not clear the newer request's explicit loading edge.
+        #expect(cacheAtom.isPullRequestLoading(forRepository: loadingRepoId))
+
+        cacheAtom.setPullRequestLoading(false, forRepository: loadingRepoId)
+
+        #expect(!cacheAtom.isPullRequestLoading(forRepository: loadingRepoId))
+        #expect(cacheAtom.loadingPullRequestRepoIds.isEmpty)
+    }
+
+    @Test
     func repoBranchKeyRejectsOnlyEmptyBranchAndPreservesExactBranchText() {
         let repoId = UUIDv7.generate()
 
@@ -311,6 +338,27 @@ struct RepoCacheAtomFamilyTests {
         #expect(cacheAtom.cacheRevision == 1)
         #expect(cacheAtom.sourceRevision == 42)
         #expect(cacheAtom.lastRebuiltAt == timestamp)
+    }
+
+    @Test
+    func clearWakesUnavailablePullRequestReadersAndEmptiesTheSet() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let repoId = UUIDv7.generate()
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
+
+        cacheAtom.markPullRequestsUnavailable(forRepository: repoId)
+        #expect(cacheAtom.unavailablePullRequestRepoIds == [repoId])
+
+        withObservationTracking {
+            _ = cacheAtom.unavailablePullRequestRepoIds
+        } onChange: {
+            invalidationCounter.record()
+        }
+
+        cacheAtom.clear()
+
+        #expect(invalidationCounter.didFire)
+        #expect(cacheAtom.unavailablePullRequestRepoIds.isEmpty)
     }
 
     private static func localRepoEnrichment(

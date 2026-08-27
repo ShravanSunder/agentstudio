@@ -17,10 +17,10 @@ struct InboxRowTests {
         let detailLine = InboxRow.metadataLine(text: "3 files changed", prominence: .tertiary)
 
         #expect(String(describing: type(of: sourceLine)) == "SidebarMetadataLine")
-        #expect(sourceLine.iconSystemName == nil)
+        #expect(sourceLine.icon == nil)
         #expect(sourceLine.text == "askluna · askluna")
         #expect(sourceLine.prominence == .secondary)
-        #expect(placementLine.iconSystemName == nil)
+        #expect(placementLine.icon == nil)
         #expect(placementLine.text == "Tab Terminal · Pane project-dev")
         #expect(placementLine.prominence == .secondary)
         #expect(detailLine.text == "3 files changed")

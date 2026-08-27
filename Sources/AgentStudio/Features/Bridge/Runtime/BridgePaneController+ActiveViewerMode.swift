@@ -14,6 +14,7 @@ extension BridgePaneController {
     ) async {
         var rejectionReasons: [BridgeActiveViewerModeSignalRejectionReason] = []
         var didAcceptSequence = false
+        let previousAcceptedSignal = activeViewerModeSignalState.acceptedSignal
         let isActiveSourceAccepted = activeSource.map { source in
             isCommittedProductActiveViewerSourceAccepted(
                 mode: mode,
@@ -83,6 +84,19 @@ extension BridgePaneController {
                 productAdmission: productAdmission
             )
         }
+        if rejectionReasons.isEmpty,
+            didAcceptSequence,
+            let activeSource,
+            let acceptedSignal = activeViewerModeSignalState.acceptedSignal,
+            previousAcceptedSignal?.mode != acceptedSignal.mode
+                || previousAcceptedSignal?.activeSource != acceptedSignal.activeSource
+        {
+            await recordActiveViewerModeSignalAccepted(
+                mode: mode,
+                activeSource: activeSource,
+                sequence: sequence
+            )
+        }
         for rejectionReason in rejectionReasons {
             await recordActiveViewerModeSignalRejected(
                 reason: rejectionReason,
@@ -149,6 +163,41 @@ extension BridgePaneController {
                 ],
                 numericAttributes: [
                     "agentstudio.bridge.active_viewer.signal_rejected.count": 1
+                ],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
+    }
+
+    private func recordActiveViewerModeSignalAccepted(
+        mode: BridgeActiveViewerMode,
+        activeSource: BridgeActiveViewerSource,
+        sequence: Int
+    ) async {
+        guard let telemetryRecorder else {
+            return
+        }
+        await telemetryRecorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .swift,
+                name: "performance.bridge.swift.active_viewer_mode_signal_accepted",
+                durationMilliseconds: nil,
+                traceContext: nil,
+                stringAttributes: [
+                    "agentstudio.bridge.active_source.protocol": activeSource.protocolId.rawValue,
+                    "agentstudio.bridge.active_viewer.mode": mode.rawValue,
+                    "agentstudio.bridge.phase": "active_viewer_mode_signal_accepted",
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.control.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.warm.rawValue,
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.reviewRPC.rawValue,
+                    "agentstudio.bridge.transport": "swift",
+                ],
+                numericAttributes: [
+                    "agentstudio.bridge.active_viewer.sequence": Double(sequence),
+                    "agentstudio.bridge.active_viewer.signal_accepted.count": 1,
+                    "agentstudio.bridge.source.generation": Double(activeSource.generation),
                 ],
                 booleanAttributes: [:]
             ),

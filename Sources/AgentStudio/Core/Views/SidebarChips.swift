@@ -1,6 +1,137 @@
 import AgentStudioInfrastructure
 import SwiftUI
 
+/// The single PR-count chip spec used everywhere a positive PR-count fact renders as a chip: same
+/// glyph, same product-accent color, same pill style. By Repo worktree rows and pane rows (All
+/// Panes/By Tab) both call this so the glyph and color can never diverge between surfaces.
+package enum SidebarPullRequestChipSpec {
+    package static let icon: SidebarChip.Icon = .octicon("octicon-git-pull-request")
+
+    @MainActor
+    package static func chip(count: Int, octiconLoader: OcticonLoader) -> SidebarChip {
+        SidebarChip(
+            icon: icon,
+            octiconLoader: octiconLoader,
+            text: "\(count)",
+            style: .accent(AppStyles.Shell.Sidebar.checkoutDefaultAccentColor)
+        )
+    }
+}
+
+package struct SidebarGitStatusChips: View {
+    package let branchStatus: GitBranchStatus
+    package let octiconLoader: OcticonLoader
+
+    package init(branchStatus: GitBranchStatus, octiconLoader: OcticonLoader) {
+        self.branchStatus = branchStatus
+        self.octiconLoader = octiconLoader
+    }
+
+    package static func diffDetail(
+        branchStatus: GitBranchStatus
+    ) -> SidebarDiffChip.WorkingTreeDetail? {
+        SidebarDiffChip.workingTreeDetail(
+            isDirty: branchStatus.isDirty,
+            linesAdded: branchStatus.linesAdded,
+            linesDeleted: branchStatus.linesDeleted,
+            untrackedFileCount: branchStatus.untrackedFileCount
+        )
+    }
+
+    package static func showsSync(branchStatus: GitBranchStatus) -> Bool {
+        switch branchStatus.syncState {
+        case .ahead(let count), .behind(let count): count > 0
+        case .diverged(let ahead, let behind): ahead > 0 || behind > 0
+        case .synced, .noUpstream, .unknown: false
+        }
+    }
+
+    package static func hasContent(branchStatus: GitBranchStatus) -> Bool {
+        showsPendingPullRequestFacts(branchStatus: branchStatus)
+            || (branchStatus.prCount ?? 0) > 0 && !branchStatus.pullRequestDataUnavailable
+            || diffDetail(branchStatus: branchStatus) != nil
+            || showsSync(branchStatus: branchStatus)
+    }
+
+    package static func showsPendingPullRequestFacts(branchStatus: GitBranchStatus) -> Bool {
+        branchStatus.pullRequestIsLoading
+            && !branchStatus.pullRequestDataUnavailable
+    }
+
+    private var syncCounts: (ahead: String, behind: String) {
+        switch branchStatus.syncState {
+        case .synced: ("0", "0")
+        case .ahead(let count): ("\(count)", "0")
+        case .behind(let count): ("0", "\(count)")
+        case .diverged(let ahead, let behind): ("\(ahead)", "\(behind)")
+        case .noUpstream: ("-", "-")
+        case .unknown: ("?", "?")
+        }
+    }
+
+    package var body: some View {
+        HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+            if let prCount = branchStatus.prCount,
+                prCount > 0,
+                !branchStatus.pullRequestDataUnavailable
+            {
+                SidebarPullRequestChipSpec.chip(count: prCount, octiconLoader: octiconLoader)
+            }
+
+            if let diffDetail = Self.diffDetail(branchStatus: branchStatus) {
+                SidebarDiffChip(octiconLoader: octiconLoader, detail: diffDetail)
+            }
+
+            if Self.showsSync(branchStatus: branchStatus) {
+                SidebarStatusSyncChip(
+                    octiconLoader: octiconLoader,
+                    aheadText: syncCounts.ahead,
+                    behindText: syncCounts.behind,
+                    hasSyncSignal: true
+                )
+            }
+        }
+    }
+
+}
+
+package struct SidebarPendingPullRequestIndicator: View {
+    package init() {}
+
+    package var body: some View {
+        Image(systemName: SystemSymbol.circleDotted.rawValue)
+            .font(.system(size: AppStyles.Shell.Sidebar.chipIconSize, weight: .medium))
+            .foregroundStyle(.secondary)
+            .symbolEffect(
+                .variableColor.iterative,
+                options: .repeating.speed(AppStyles.Shell.Sidebar.pendingFactsSymbolEffectSpeed)
+            )
+            .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
+            .fixedSize(horizontal: true, vertical: true)
+            .accessibilityLabel("Refreshing pull request status")
+    }
+}
+
+extension View {
+    package func sidebarPendingPullRequestIndicator(isVisible: Bool) -> some View {
+        frame(minHeight: isVisible ? AppStyles.Shell.Sidebar.chipLineHeight : nil)
+            .overlay(alignment: .leading) {
+                if isVisible {
+                    SidebarPendingPullRequestIndicator()
+                        .frame(
+                            width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
+                            alignment: .trailing
+                        )
+                        .offset(
+                            x:
+                                -(AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
+                                + AppStyles.Shell.Sidebar.groupIconTitleSpacing)
+                        )
+                }
+            }
+    }
+}
+
 package struct SidebarChip: View {
     package enum Icon: Equatable {
         case octicon(String)
@@ -68,7 +199,7 @@ package struct SidebarChip: View {
             text == nil
                 ? AppStyles.Shell.Sidebar.chipIconOnlyHorizontalPadding : AppStyles.Shell.Sidebar.chipHorizontalPadding
         )
-        .padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)
+        .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
         .background(
             Capsule()
                 .fill(Color.white.opacity(AppStyles.Shell.Sidebar.chipBackgroundOpacity))
@@ -130,7 +261,7 @@ package struct SidebarStatusSyncChip: View {
         .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .medium).monospacedDigit())
         .lineLimit(1)
         .padding(.horizontal, AppStyles.Shell.Sidebar.chipHorizontalPadding)
-        .padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)
+        .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
         .background(
             Capsule()
                 .fill(Color.white.opacity(AppStyles.Shell.Sidebar.chipBackgroundOpacity))
@@ -149,63 +280,81 @@ package struct SidebarStatusSyncChip: View {
 }
 
 package struct SidebarDiffChip: View {
+    /// The one working-tree fact the chip describes. The dirty dot is never rendered on its own, so
+    /// every case here carries a label the reader can act on.
+    package enum WorkingTreeDetail: Equatable {
+        case lineCounts(added: Int, deleted: Int)
+        case untrackedOnly
+    }
+
     let octiconLoader: OcticonLoader
-    let linesAdded: Int
-    let linesDeleted: Int
-    let showsDirtyIndicator: Bool
-    let isMuted: Bool
+    let detail: WorkingTreeDetail
 
     private var plusColor: Color {
-        if isMuted {
-            return SidebarChip.Style.neutral.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
-        }
-        return AppStyles.Shell.Sidebar.chipSuccessColor.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
+        AppStyles.Shell.Sidebar.chipSuccessColor.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
     }
 
     private var minusColor: Color {
-        if isMuted {
-            return SidebarChip.Style.neutral.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
-        }
-        return AppStyles.Shell.Sidebar.chipDangerColor.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
+        AppStyles.Shell.Sidebar.chipDangerColor.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
     }
 
-    package init(
-        octiconLoader: OcticonLoader,
+    private var neutralColor: Color {
+        SidebarChip.Style.neutral.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
+    }
+
+    package init(octiconLoader: OcticonLoader, detail: WorkingTreeDetail) {
+        self.octiconLoader = octiconLoader
+        self.detail = detail
+    }
+
+    /// Resolves the chip for a branch status, or `nil` when the checkout is clean and the row shows no
+    /// diff chip at all.
+    package static func workingTreeDetail(
+        isDirty: Bool,
         linesAdded: Int,
         linesDeleted: Int,
-        showsDirtyIndicator: Bool,
-        isMuted: Bool
-    ) {
-        self.octiconLoader = octiconLoader
-        self.linesAdded = linesAdded
-        self.linesDeleted = linesDeleted
-        self.showsDirtyIndicator = showsDirtyIndicator
-        self.isMuted = isMuted
+        untrackedFileCount: Int
+    ) -> WorkingTreeDetail? {
+        if linesAdded > 0 || linesDeleted > 0 {
+            return .lineCounts(added: linesAdded, deleted: linesDeleted)
+        }
+        if untrackedFileCount > 0 {
+            return .untrackedOnly
+        }
+        // A dirty checkout with no real tracked or untracked counts yet means enrichment hasn't
+        // caught up, not a distinct presentable state (F7): the matrix authorizes only
+        // +N -M, "untracked", or no chip. Showing nothing here is correct; the counts arrive with
+        // the next enrichment pass.
+        return nil
     }
 
     package var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.chipContentSpacing) {
-            if showsDirtyIndicator {
-                OcticonImage(
-                    name: "octicon-dot-fill",
-                    size: AppStyles.Shell.Sidebar.chipIconSize,
-                    loader: octiconLoader
-                )
-                .foregroundStyle(
-                    SidebarChip.Style.danger.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity))
-            }
+            OcticonImage(
+                name: "octicon-dot-fill",
+                size: AppStyles.Shell.Sidebar.chipIconSize,
+                loader: octiconLoader
+            )
+            .foregroundStyle(
+                SidebarChip.Style.danger.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity))
 
-            HStack(spacing: AppStyles.General.Spacing.tight) {
-                Text("+\(linesAdded)")
-                    .foregroundStyle(plusColor)
-                Text("-\(linesDeleted)")
-                    .foregroundStyle(minusColor)
+            switch detail {
+            case .lineCounts(let added, let deleted):
+                HStack(spacing: AppStyles.General.Spacing.tight) {
+                    Text("+\(added)")
+                        .foregroundStyle(plusColor)
+                    Text("-\(deleted)")
+                        .foregroundStyle(minusColor)
+                }
+            case .untrackedOnly:
+                Text("untracked")
+                    .foregroundStyle(neutralColor)
             }
         }
         .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .medium).monospacedDigit())
         .lineLimit(1)
         .padding(.horizontal, AppStyles.Shell.Sidebar.chipHorizontalPadding)
-        .padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)
+        .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
         .background(
             Capsule()
                 .fill(Color.white.opacity(AppStyles.Shell.Sidebar.chipBackgroundOpacity))

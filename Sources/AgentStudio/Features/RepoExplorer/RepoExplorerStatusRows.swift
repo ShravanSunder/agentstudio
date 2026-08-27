@@ -34,7 +34,7 @@ struct RepoExplorerLoadingSectionHeaderRow: View {
                 .fill(Color.primary.opacity(0.12))
                 .frame(height: 1)
 
-            HStack(spacing: AppStyles.General.Spacing.tight) {
+            HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                 if state == .scanning {
                     ProgressView()
                         .controlSize(.small)

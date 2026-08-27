@@ -16,6 +16,15 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
     let trigger: AppPolicies.SidebarProjection.Trigger
     let worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment]
     let pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts]
+    let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
+    let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
+    /// Repos whose pull request data has resolved to a terminal absence (no remote, or provider
+    /// failures past the forge honesty threshold). This is independent of
+    /// `pullRequestFactsSnapshot`: a repo can transition into this set with zero change to its
+    /// (empty) facts snapshot, so every equality/admission check below must compare this field
+    /// explicitly — otherwise that transition compares equal and silently skips re-projection.
+    let unavailablePullRequestRepoIds: Set<UUID>
+    let loadingPullRequestRepoIds: Set<UUID>
 
     init(
         generation: Int,
@@ -24,7 +33,11 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         isFiltering: Bool,
         trigger: AppPolicies.SidebarProjection.Trigger,
         worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment] = [:],
-        pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts] = [:]
+        pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts] = [:],
+        paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts] = [:],
+        tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts] = [:],
+        unavailablePullRequestRepoIds: Set<UUID> = [],
+        loadingPullRequestRepoIds: Set<UUID> = []
     ) {
         self.generation = generation
         self.snapshot = snapshot
@@ -33,6 +46,29 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         self.trigger = trigger
         self.worktreeEnrichmentSnapshot = worktreeEnrichmentSnapshot
         self.pullRequestFactsSnapshot = pullRequestFactsSnapshot
+        self.paneRowFactsByPaneId = paneRowFactsByPaneId
+        self.tabGroupFactsByTabId = tabGroupFactsByTabId
+        self.unavailablePullRequestRepoIds = unavailablePullRequestRepoIds
+        self.loadingPullRequestRepoIds = loadingPullRequestRepoIds
+    }
+
+    func generated(
+        generation: Int,
+        trigger: AppPolicies.SidebarProjection.Trigger
+    ) -> Self {
+        Self(
+            generation: generation,
+            snapshot: snapshot,
+            collapsedGroupIds: collapsedGroupIds,
+            isFiltering: isFiltering,
+            trigger: trigger,
+            worktreeEnrichmentSnapshot: worktreeEnrichmentSnapshot,
+            pullRequestFactsSnapshot: pullRequestFactsSnapshot,
+            paneRowFactsByPaneId: paneRowFactsByPaneId,
+            tabGroupFactsByTabId: tabGroupFactsByTabId,
+            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds,
+            loadingPullRequestRepoIds: loadingPullRequestRepoIds
+        )
     }
 
     func scopedChange(from previous: Self) -> RepoExplorerScopedProjectionChange? {
@@ -47,7 +83,11 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
                 == snapshot.bridgePaneCommandCandidatesByWorktreeId,
             previous.collapsedGroupIds == collapsedGroupIds,
             previous.isFiltering == isFiltering,
+            previous.unavailablePullRequestRepoIds == unavailablePullRequestRepoIds,
+            previous.loadingPullRequestRepoIds == loadingPullRequestRepoIds,
             previous.pullRequestFactsSnapshot == pullRequestFactsSnapshot
+                && previous.paneRowFactsByPaneId == paneRowFactsByPaneId
+                && previous.tabGroupFactsByTabId == tabGroupFactsByTabId
         else { return nil }
 
         if previous.snapshot.repos == snapshot.repos {
@@ -108,6 +148,8 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
     let branchStatusByWorktreeId: [UUID: GitBranchStatus]
     let branchNameByWorktreeId: [UUID: String]
     let bridgeCommandResolutionByWorktreeId: [UUID: BridgePaneCommandResolution]
+    let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
+    let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
 
     static let empty: Self = {
         let snapshot = RepoExplorerSnapshot(
@@ -140,7 +182,9 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
             rowIndexDuration: .zero,
             branchStatusByWorktreeId: [:],
             branchNameByWorktreeId: [:],
-            bridgeCommandResolutionByWorktreeId: [:]
+            bridgeCommandResolutionByWorktreeId: [:],
+            paneRowFactsByPaneId: [:],
+            tabGroupFactsByTabId: [:]
         )
     }()
 }
@@ -183,9 +227,26 @@ actor RepoExplorerProjectionWorker {
         try Task.checkCancellation()
         let clock = ContinuousClock()
         let workerStart = clock.now
+        let branchStatusByWorktreeId = try branchStatusByWorktreeId(
+            snapshot: request.snapshot,
+            worktreeEnrichmentByWorktreeId: request.worktreeEnrichmentSnapshot,
+            pullRequestFactsByBranch: request.pullRequestFactsSnapshot,
+            loadingPullRequestRepoIds: request.loadingPullRequestRepoIds,
+            unavailablePullRequestRepoIds: request.unavailablePullRequestRepoIds,
+            cancellationCheck: { try Task.checkCancellation() }
+        )
+        let branchNameByWorktreeId = try branchNameByWorktreeId(
+            snapshot: request.snapshot,
+            worktreeEnrichmentByWorktreeId: request.worktreeEnrichmentSnapshot,
+            cancellationCheck: { try Task.checkCancellation() }
+        )
         let projectionStart = clock.now
         let projection = try RepoExplorerProjection.projectCancellable(
             request.snapshot,
+            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId,
+            branchNameByWorktreeId: branchNameByWorktreeId,
+            branchStatusByWorktreeId: branchStatusByWorktreeId,
             cancellationCheck: { try Task.checkCancellation() }
         )
         let projectionDuration = projectionStart.duration(to: clock.now)
@@ -198,17 +259,6 @@ actor RepoExplorerProjectionWorker {
         )
         let rowIndexDuration = rowIndexStart.duration(to: clock.now)
         try Task.checkCancellation()
-        let branchStatusByWorktreeId = try branchStatusByWorktreeId(
-            snapshot: request.snapshot,
-            worktreeEnrichmentByWorktreeId: request.worktreeEnrichmentSnapshot,
-            pullRequestFactsByBranch: request.pullRequestFactsSnapshot,
-            cancellationCheck: { try Task.checkCancellation() }
-        )
-        let branchNameByWorktreeId = try branchNameByWorktreeId(
-            snapshot: request.snapshot,
-            worktreeEnrichmentByWorktreeId: request.worktreeEnrichmentSnapshot,
-            cancellationCheck: { try Task.checkCancellation() }
-        )
         let bridgeCommandResolutionByWorktreeId = try bridgeCommandResolutionByWorktreeId(
             snapshot: request.snapshot,
             cancellationCheck: { try Task.checkCancellation() }
@@ -227,7 +277,9 @@ actor RepoExplorerProjectionWorker {
             rowIndexDuration: rowIndexDuration,
             branchStatusByWorktreeId: branchStatusByWorktreeId,
             branchNameByWorktreeId: branchNameByWorktreeId,
-            bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId
+            bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId,
+            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId
         )
     }
 
@@ -253,12 +305,16 @@ actor RepoExplorerProjectionWorker {
         snapshot: RepoExplorerSnapshot,
         worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment],
         pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts],
+        loadingPullRequestRepoIds: Set<UUID>,
+        unavailablePullRequestRepoIds: Set<UUID>,
         cancellationCheck: () throws -> Void
     ) throws -> [UUID: GitBranchStatus] {
         let worktreeIds = snapshot.repos.flatMap(\.worktrees).map(\.id)
         var branchStatusByWorktreeId = GitBranchStatus.merge(
             worktreeEnrichmentsByWorktreeId: worktreeEnrichmentByWorktreeId,
-            pullRequestFactsByBranch: pullRequestFactsByBranch
+            pullRequestFactsByBranch: pullRequestFactsByBranch,
+            loadingPullRequestRepoIds: loadingPullRequestRepoIds,
+            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds
         )
         branchStatusByWorktreeId.reserveCapacity(max(branchStatusByWorktreeId.count, worktreeIds.count))
         for (index, worktreeId) in worktreeIds.enumerated() where branchStatusByWorktreeId[worktreeId] == nil {
@@ -390,7 +446,11 @@ actor RepoExplorerProjectionWorker {
             .flatMap { request.pullRequestFactsSnapshot[$0] }
         branchStatuses[worktreeId] = GitBranchStatus.status(
             enrichment: enrichment,
-            pullRequestFacts: pullRequestFacts
+            pullRequestFacts: pullRequestFacts,
+            pullRequestIsLoading: enrichment.map { request.loadingPullRequestRepoIds.contains($0.repoId) }
+                ?? false,
+            pullRequestDataUnavailable: enrichment.map { request.unavailablePullRequestRepoIds.contains($0.repoId) }
+                ?? false
         )
         branchNames[worktreeId] = branchName(enrichment: enrichment)
         return RepoExplorerProjectionResult(
@@ -406,7 +466,9 @@ actor RepoExplorerProjectionWorker {
             rowIndexDuration: .zero,
             branchStatusByWorktreeId: branchStatuses,
             branchNameByWorktreeId: branchNames,
-            bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId
+            bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId,
+            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId
         )
     }
 
@@ -432,7 +494,9 @@ actor RepoExplorerProjectionWorker {
             rowIndexDuration: .zero,
             branchStatusByWorktreeId: previous.branchStatusByWorktreeId,
             branchNameByWorktreeId: previous.branchNameByWorktreeId,
-            bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId
+            bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId,
+            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId
         )
     }
 }

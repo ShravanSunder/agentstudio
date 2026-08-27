@@ -55,6 +55,13 @@ export interface BridgePaneCommWorkerSessionDiagnosticSnapshot {
 	readonly state: BridgePaneCommWorkerSessionDiagnosticState;
 }
 
+type BridgePaneCommWorkerSessionDiagnosticObserver = (
+	snapshot: BridgePaneCommWorkerSessionDiagnosticSnapshot,
+) => void;
+
+const bridgePaneCommWorkerSessionDiagnosticObservers =
+	new Set<BridgePaneCommWorkerSessionDiagnosticObserver>();
+
 export interface BridgePaneRuntimeDiagnosticSnapshot {
 	readonly nativeBootstrapInstallAcceptedCount: number;
 	readonly nativeBootstrapInstallAttemptCount: number;
@@ -162,6 +169,18 @@ export function recordBridgePaneCommWorkerSessionDiagnosticSnapshot(
 	diagnostic.queuedCommandCount = snapshot.queuedCommandCount;
 	diagnostic.replacementRequestCount = snapshot.replacementRequestCount;
 	diagnostic.sessionState = snapshot.state;
+	for (const observer of bridgePaneCommWorkerSessionDiagnosticObservers) {
+		observer(snapshot);
+	}
+}
+
+export function observeBridgePaneCommWorkerSessionDiagnosticSnapshots(
+	observer: BridgePaneCommWorkerSessionDiagnosticObserver,
+): () => void {
+	bridgePaneCommWorkerSessionDiagnosticObservers.add(observer);
+	return (): void => {
+		bridgePaneCommWorkerSessionDiagnosticObservers.delete(observer);
+	};
 }
 
 export function recordBridgePaneRuntimeDiagnosticSnapshot(
