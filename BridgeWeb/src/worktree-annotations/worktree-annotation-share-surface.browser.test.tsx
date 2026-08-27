@@ -178,7 +178,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 				.element(rendered.getByRole('region', { name: 'Share comments' }))
 				.not.toBeInTheDocument();
 			expect(toastSpies.success).toHaveBeenCalledWith(
-				'Copied 3 comments',
+				'Copied 3 annotations',
 				expect.objectContaining({
 					action: expect.objectContaining({ label: 'Mark as not handled' }),
 				}),
@@ -253,7 +253,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 			.element(rendered.getByRole('region', { name: 'Share comments' }))
 			.not.toBeInTheDocument();
 		expect(toastSpies.warning).toHaveBeenCalledWith(
-			'Clipboard contains 2 comments, but durable history was not recorded.',
+			'Clipboard contains 2 annotations, but durable history was not recorded.',
 		);
 		expect(toastSpies.success).not.toHaveBeenCalled();
 	});
@@ -269,7 +269,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		await expect.element(rendered.getByRole('button', { name: 'History (1)' })).toBeVisible();
 		expect(document.querySelector('[data-slot="popover-content"]')).toBeNull();
 		await performBrowserAction(() => rendered.getByRole('button', { name: 'History (1)' }).click());
-		await expect.element(rendered.getByText('Clipboard Markdown · 3 comments')).toBeVisible();
+		await expect.element(rendered.getByText('Clipboard Markdown · 3 annotations')).toBeVisible();
 		await performBrowserAction(() =>
 			rendered.getByRole('button', { name: 'Mark as not handled' }).click(),
 		);

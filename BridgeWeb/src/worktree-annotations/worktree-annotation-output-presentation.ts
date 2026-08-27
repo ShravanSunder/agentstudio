@@ -32,7 +32,7 @@ export function annotationOutputFeedback(
 					closeInteraction: true,
 					message: null,
 					severity: 'success',
-					toast: `Copied ${commentCountLabel(outcome.summary.messageCount)}`,
+					toast: `Copied ${annotationCountLabel(outcome.summary.messageCount)}`,
 				};
 			}
 			return {
@@ -71,9 +71,7 @@ export function annotationOutputHistoryStatus(
 ): string {
 	switch (state) {
 		case 'succeeded':
-			return outputKind === 'clipboard_markdown'
-				? 'Succeeded — the clipboard was changed and durable history was recorded.'
-				: 'Succeeded — the file was written and durable history was recorded.';
+			return outputKind === 'clipboard_markdown' ? 'Copied' : 'Exported';
 		case 'finalization_failed':
 			return outputKind === 'clipboard_markdown'
 				? 'Partial success — the clipboard was changed, but durable history was not recorded.'
@@ -91,14 +89,14 @@ export function annotationOutputHistoryStatus(
 	}
 }
 
-export function commentCountLabel(messageCount: number): string {
-	return messageCount === 1 ? '1 comment' : `${messageCount} comments`;
+export function annotationCountLabel(messageCount: number): string {
+	return messageCount === 1 ? '1 annotation' : `${messageCount} annotations`;
 }
 
 function successfulExportMessage(
 	summary: Extract<WorktreeAnnotationOutputOutcome, { readonly kind: 'succeeded' }>['summary'],
 ): string {
-	const count = commentCountLabel(summary.messageCount);
+	const count = annotationCountLabel(summary.messageCount);
 	return summary.destinationFilename === null
 		? `Exported ${count}, but no destination filename was returned.`
 		: `Exported ${count} to ${summary.destinationFilename}.`;
@@ -110,7 +108,7 @@ function partialSuccessMessage(
 		{ readonly kind: 'partial_success' }
 	>['summary'],
 ): string {
-	const count = commentCountLabel(summary.messageCount);
+	const count = annotationCountLabel(summary.messageCount);
 	if (summary.outputKind === 'clipboard_markdown') {
 		return `Clipboard contains ${count}, but durable history was not recorded.`;
 	}

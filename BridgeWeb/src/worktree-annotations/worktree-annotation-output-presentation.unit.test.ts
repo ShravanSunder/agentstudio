@@ -22,7 +22,7 @@ describe('worktree annotation output presentation', () => {
 			closeInteraction: true,
 			message: null,
 			severity: 'success',
-			toast: 'Copied 2 comments',
+			toast: 'Copied 2 annotations',
 		});
 	});
 
@@ -40,7 +40,7 @@ describe('worktree annotation output presentation', () => {
 			closeInteraction: true,
 			message: null,
 			severity: 'success',
-			toast: 'Exported 1 comment to review-comments.json.',
+			toast: 'Exported 1 annotation to review-comments.json.',
 		});
 		expect(annotationOutputFeedback({ kind: 'destination_cancelled' })).toEqual({
 			closeInteraction: false,
@@ -59,12 +59,14 @@ describe('worktree annotation output presentation', () => {
 			}),
 		).toMatchObject({
 			closeInteraction: true,
-			message: 'Clipboard contains 2 comments, but durable history was not recorded.',
+			message: 'Clipboard contains 2 annotations, but durable history was not recorded.',
 			severity: 'warning',
 		});
 	});
 
 	test('distinguishes partial and unknown history without rebuilding content', () => {
+		expect(annotationOutputHistoryStatus('succeeded', 'clipboard_markdown')).toBe('Copied');
+		expect(annotationOutputHistoryStatus('succeeded', 'json_file')).toBe('Exported');
 		expect(annotationOutputHistoryStatus('finalization_failed', 'json_file')).toBe(
 			'Partial success — the file was written, but durable history was not recorded.',
 		);

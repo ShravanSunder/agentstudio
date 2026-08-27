@@ -13,7 +13,7 @@ import { clearWorktreeAnnotationOutputHandled } from './worktree-annotation-outp
 import {
 	annotationOutputFeedback,
 	annotationOutputHistoryStatus,
-	commentCountLabel,
+	annotationCountLabel,
 } from './worktree-annotation-output-presentation.js';
 import type { WorktreeAnnotationOutputHistorySummary } from './worktree-annotation-surface-client.js';
 import {
@@ -69,9 +69,9 @@ export function WorktreeAnnotationOutputHistoryControl(): ReactElement | null {
 				sessionId: summary.sessionId,
 			});
 			if (outcome.status.kind === 'failed') toast.error(outcome.status.code);
-			else toast.success('Comments marked as not handled.');
+			else toast.success('Annotations marked as not handled.');
 		} catch (error: unknown) {
-			toast.error(error instanceof Error ? error.message : 'Comments could not be updated.');
+			toast.error(error instanceof Error ? error.message : 'Annotations could not be updated.');
 		}
 	};
 	const repeatOutput = async (attemptId: string): Promise<void> => {
@@ -98,10 +98,7 @@ export function WorktreeAnnotationOutputHistoryControl(): ReactElement | null {
 				<CollapsibleTrigger render={<BridgeViewerButton />}>
 					History ({history.length})
 				</CollapsibleTrigger>
-				<CollapsibleContent className="mt-2 space-y-2">
-					<p className="text-[11px] text-[var(--bridge-text-secondary)]">
-						Inspect or repeat exact durable output. History never changes comment placement.
-					</p>
+				<CollapsibleContent className="mt-2">
 					<WorktreeAnnotationOutputHistory
 						history={history}
 						inspection={inspection}
@@ -125,15 +122,16 @@ function WorktreeAnnotationOutputHistory(props: {
 	readonly onRepeat: (attemptId: string) => void;
 }): ReactElement {
 	return (
-		<div className="space-y-2">
+		<div className="space-y-1">
 			{props.history.map((summary, attemptIndex) => (
 				<div
-					className="rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-control-bg)] p-1.5"
+					className="border-t border-[var(--bridge-border-subtle)] pt-1.5"
+					data-testid="annotation-output-history-entry"
 					key={summary.attemptId}
 				>
 					<p className="text-[11px] font-medium text-[var(--bridge-text-primary)]">
 						{summary.outputKind === 'clipboard_markdown' ? 'Clipboard Markdown' : 'JSON file'} ·{' '}
-						{commentCountLabel(summary.messageCount)}
+						{annotationCountLabel(summary.messageCount)}
 					</p>
 					<p className="text-[11px] text-[var(--bridge-text-secondary)]">
 						<time dateTime={new Date(summary.createdAt).toISOString()}>

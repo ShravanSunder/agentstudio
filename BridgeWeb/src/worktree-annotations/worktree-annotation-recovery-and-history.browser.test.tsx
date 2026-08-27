@@ -65,7 +65,11 @@ describe('worktree annotation recovery and rail history controls', () => {
 			await rendered.getByRole('button', { name: 'History (1)' }).click();
 			await settleInteraction();
 		});
-		await expect.element(rendered.getByText('Clipboard Markdown · 1 comment')).toBeVisible();
+		await expect.element(rendered.getByText('Clipboard Markdown · 1 annotation')).toBeVisible();
+		expect(document.body.textContent).not.toContain('Inspect or repeat exact durable output.');
+		const historyEntry = rendered.getByTestId('annotation-output-history-entry').element();
+		expect(historyEntry.classList).toContain('border-t');
+		expect(historyEntry.classList).not.toContain('rounded-md');
 		expect(document.querySelector('time[datetime="2026-08-17T10:00:00.000Z"]')).not.toBeNull();
 		await expect
 			.element(rendered.getByRole('button', { name: 'Repeat output attempt 1' }))

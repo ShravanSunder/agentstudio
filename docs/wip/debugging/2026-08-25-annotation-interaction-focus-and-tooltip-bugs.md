@@ -404,6 +404,35 @@ Date: 2026-08-25
       saved body, Save remains disabled, Command-Enter is inert, and the first
       actual body change enters the durable draft path.
 
+21. **Complete real flow and Share History visual weight**
+    - Real proof topology: current dirty-source Swift backend build, one stable
+      detached source checkout at `33fab324a`, one isolated SQLite data root,
+      fresh Vite transform cache, and production comm-worker/React/Pierre paths.
+      No route-local fixture UI or alternate transport was used.
+    - Passed journey: single-line gutter admission; first durable draft; root
+      Save; single-click activation; double-click Edit; unchanged Save disabled;
+      changed body plus Command-Enter Save; one-click Reply; reply Command-Enter
+      Save; stable two-annotation expansion/collapse; File-to-Review session
+      continuity; Pending/All membership; Copy dismissal and default handling;
+      History inspection; Mark as not handled; and Review-side JSON Export.
+    - Taste finding: expanded History repeated an explanatory paragraph, a long
+      success sentence, and a nested dark card, while still saying `comments`.
+      That secondary ledger visually outweighed the Share command row.
+    - Correction: retain the existing in-flow Collapsible and BridgeViewer
+      buttons, remove the redundant explainer, render quiet divider rows, use
+      `annotation(s)`, and shorten proven success to `Copied` or `Exported`.
+      Detailed failure/unknown copy remains because it communicates recovery
+      consequences.
+    - Proof: failing-first presentation unit tests failed 4/4 against old copy;
+      corrected unit tests pass 4/4; focused Recovery/History Chromium proof
+      passes; scoped format, type-aware lint, and `git diff --check` pass; live
+      HMR shows the quiet divider row and terse status in File and Review.
+    - Concurrent blocker: the integrated Share browser fixture currently omits
+      its published `History (1)` before presentation renders under the active
+      catalog/session-selection changes. Its failure predates and is outside
+      the History paint/copy correction; no assertion or membership gate was
+      weakened.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component
