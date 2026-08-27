@@ -1,5 +1,5 @@
 import { act, type ReactElement } from 'react';
-import { describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 
@@ -38,6 +38,12 @@ import {
 import { WorktreeAnnotationThread } from './worktree-annotation-thread.js';
 
 describe('worktree annotation inline thread', () => {
+	beforeEach(async (): Promise<void> => {
+		await act(async (): Promise<void> => {
+			await userEvent.unhover(document.body);
+		});
+	});
+
 	test('renders one message directly with the exact compact controls', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
@@ -54,11 +60,13 @@ describe('worktree annotation inline thread', () => {
 		await expect
 			.element(rendered.getByRole('button', { name: 'Resolve annotation thread' }))
 			.toBeVisible();
-		await expect.element(rendered.getByLabelText('You')).toBeVisible();
 		await expect
 			.element(rendered.getByTestId('worktree-annotation-message-pending-status'))
 			.toHaveTextContent('Pending');
 		const annotationMessage = rendered.getByTestId('worktree-annotation-message').element();
+		expect(
+			annotationMessage.querySelector('[data-slot="avatar"][aria-label="You"]'),
+		).not.toBeNull();
 		expect(annotationMessage.getAttribute('aria-label')).toBe('Root annotation by You');
 		expect(annotationMessage.textContent).not.toContain('Root annotation');
 		expect(annotationMessage.textContent).not.toContain('Saved');
@@ -134,8 +142,13 @@ describe('worktree annotation inline thread', () => {
 
 		await publishThreadMessages(surface, [agentMessage]);
 
-		await expect.element(rendered.getByLabelText('Agent')).toBeVisible();
 		await expect.element(rendered.getByText('Agent response.')).toBeVisible();
+		expect(
+			rendered
+				.getByTestId('worktree-annotation-message')
+				.element()
+				.querySelector('[data-slot="avatar"][aria-label="Agent"]'),
+		).not.toBeNull();
 		const newStatus = rendered.getByTestId('worktree-annotation-message-new-status');
 		await expect.element(newStatus).toHaveTextContent('New');
 		expect(newStatus.element().className).toContain('text-primary');
@@ -199,8 +212,10 @@ describe('worktree annotation inline thread', () => {
 			.toBeVisible();
 		const compactFrame = rendered.getByTestId('worktree-annotation-thread').element();
 
+		const expandButton = rendered.getByRole('button', { name: 'Expand 2 annotations' }).element();
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Expand 2 annotations' }).click();
+			await userEvent.click(expandButton);
+			await userEvent.unhover(expandButton);
 		});
 
 		await expect.element(rendered.getByText('Keep the refresh asynchronous.')).toBeVisible();
@@ -231,8 +246,10 @@ describe('worktree annotation inline thread', () => {
 			makeSavedMessage({ body: 'Editable root.', messageId: rootMessageId }),
 			makeSavedMessage({ body: 'Editable reply.', messageId: replyMessageId, ordinal: 1 }),
 		]);
+		const expandButton = rendered.getByRole('button', { name: 'Expand 2 annotations' }).element();
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Expand 2 annotations' }).click();
+			await userEvent.click(expandButton);
+			await userEvent.unhover(expandButton);
 		});
 		await settleThreadMotion(
 			rendered.getByTestId('worktree-annotation-thread-history').element(),
@@ -398,8 +415,10 @@ describe('worktree annotation inline thread', () => {
 		expect(pendingIndex).toBeGreaterThan(newIndex);
 		expect(messageIndex).toBeGreaterThan(pendingIndex);
 
+		const expandButton = rendered.getByRole('button', { name: 'Expand 2 annotations' }).element();
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Expand 2 annotations' }).click();
+			await userEvent.click(expandButton);
+			await userEvent.unhover(expandButton);
 		});
 		await settleThreadMotion(
 			rendered.getByTestId('worktree-annotation-thread-history').element(),

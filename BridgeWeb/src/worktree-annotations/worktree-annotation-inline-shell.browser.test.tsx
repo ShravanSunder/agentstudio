@@ -1,5 +1,5 @@
 import { act, type ReactElement } from 'react';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 
@@ -22,6 +22,12 @@ import {
 import { WorktreeAnnotationThread } from './worktree-annotation-thread.js';
 
 describe('worktree annotation inline shell', () => {
+	beforeEach(async (): Promise<void> => {
+		await act(async (): Promise<void> => {
+			await userEvent.unhover(document.body);
+		});
+	});
+
 	afterEach(async (): Promise<void> => {
 		await cleanup();
 	});
@@ -53,6 +59,7 @@ describe('worktree annotation inline shell', () => {
 
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Expand 2 annotations' }).click();
+			await userEvent.unhover(expandButton);
 		});
 		const historyPanel = rendered.getByTestId('worktree-annotation-thread-history').element();
 		await settleThreadMotion(historyPanel, 'Expected thread expansion motion to settle.');
@@ -123,7 +130,11 @@ describe('worktree annotation inline shell', () => {
 		await page.screenshot({ path: '../../../tmp/bridgeweb-inline-thread-expanded.png' });
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Collapse 2 annotations' }).click();
+			const collapseButton = rendered
+				.getByRole('button', { name: 'Collapse 2 annotations' })
+				.element();
+			await userEvent.click(collapseButton);
+			await userEvent.unhover(collapseButton);
 		});
 		await settleThreadMotion(historyPanel, 'Expected thread collapse motion to settle.');
 		await settleBrowserCondition(
@@ -140,8 +151,14 @@ describe('worktree annotation inline shell', () => {
 		const rendered = await renderInlineShell(surface);
 		await publishTwoMessageThread(surface);
 
+		const replyButton = rendered
+			.getByRole('button', {
+				name: 'Reply to annotation thread',
+			})
+			.element();
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Reply to annotation thread' }).click();
+			await userEvent.click(replyButton);
+			await userEvent.unhover(replyButton);
 		});
 		await settleThreadMotion(
 			rendered.getByTestId('worktree-annotation-thread-history').element(),
@@ -253,7 +270,8 @@ describe('worktree annotation inline shell', () => {
 		expect(getComputedStyle(expansionChevron).transitionDuration).toBe('0.12s');
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Expand 5 annotations' }).click();
+			await userEvent.click(expandButton);
+			await userEvent.unhover(expandButton);
 		});
 		const historyPanel = rendered.getByTestId('worktree-annotation-thread-history').element();
 		await settleBrowserCondition(
@@ -280,7 +298,11 @@ describe('worktree annotation inline shell', () => {
 		await page.screenshot({ path: '../../../tmp/bridgeweb-inline-five-message-expanded.png' });
 
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Collapse 5 annotations' }).click();
+			const collapseButton = rendered
+				.getByRole('button', { name: 'Collapse 5 annotations' })
+				.element();
+			await userEvent.click(collapseButton);
+			await userEvent.unhover(collapseButton);
 		});
 		const reverseMaskKeyframes = historyGroup
 			.getAnimations()
@@ -315,10 +337,10 @@ describe('worktree annotation inline shell', () => {
 		);
 		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain('p-2');
 		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
-			'pr-9',
+			'pr-4',
 		);
 		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
-			'pb-9',
+			'pb-4',
 		);
 
 		await act(async (): Promise<void> => {
@@ -411,8 +433,10 @@ describe('worktree annotation inline shell', () => {
 		await publishTwoMessageThread(surface);
 
 		await expect.element(rendered.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
+		const editButton = rendered.getByRole('button', { name: 'Edit annotation' }).element();
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Edit annotation' }).click();
+			await userEvent.click(editButton);
+			await userEvent.unhover(editButton);
 		});
 		const editor = rendered.getByRole('textbox', { name: 'Annotation Markdown' });
 		await expect.element(editor).toBeVisible();

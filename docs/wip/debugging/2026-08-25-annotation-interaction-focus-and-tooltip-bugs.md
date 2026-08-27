@@ -362,15 +362,13 @@ Date: 2026-08-25
       resolved → reopened state proof; permanent Edit visibility across pointer,
       keyboard focus, body activation, and editor entry/exit; tooltip and
       accessibility-name checks; live visual owner acceptance.
-    - Status: implemented in the UI lane. Failing-first browser evidence caught
-      the old 36 px geometry, hidden Edit, old header treatment, and old Save
-      admission. Seven focused headed-Chromium interaction/style cases pass,
-      including permanent Edit, guarded double click, link/selection protection,
-      and Resolve/Reopen color state. The geometry case is still blocked from a
-      fresh result: headless Chrome aborts before discovery, while headed Chrome
-      triggers an unrelated Tooltip `act(...)` warning from the physical pointer.
-      Unit dirty-state proof passes 2/2. Updated screenshots and final owner feel
-      remain pending.
+    - Status: implemented and automatically verified in the UI lane.
+      Failing-first browser evidence caught the old 36 px geometry, hidden Edit,
+      old header treatment, and old Save admission. The complete owned headed-
+      Chromium set passes 38/38 after tests explicitly clear pointer hover from
+      Tooltip triggers inside React `act`; geometry proves 16 px right/bottom
+      clearance. Unit dirty-state proof passes 2/2. Updated one- and multi-
+      annotation screenshots are captured; final owner feel remains pending.
 
 20. **Unchanged annotation Edit exposes a storage-mechanism Save error**
     - Actual: entering Edit without changing the saved body leaves Save enabled.
