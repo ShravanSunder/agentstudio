@@ -137,8 +137,14 @@ package enum DarwinFSEventPathClassifier {
         }
 
         let canonicalScopes = observationScopes.map { scope in
-            (kind: scope.kind, path: scope.path.path)
+            let path = scope.path.path
+            return (
+                kind: scope.kind,
+                path: path,
+                subtreePrefix: scope.kind == .subtree ? path + "/" : nil
+            )
         }
+        let rootPrefix = rootPath + "/"
         let classifiedRawEvents = rawEvents.map { event in
             let candidate = normalizedPath(for: event.path)
             let hasRelevantMutation = canonicalScopes.contains { scope in
@@ -146,7 +152,8 @@ package enum DarwinFSEventPathClassifier {
                 case .item:
                     return candidate == scope.path
                 case .subtree:
-                    return candidate == scope.path || candidate.hasPrefix(scope.path + "/")
+                    return candidate == scope.path
+                        || scope.subtreePrefix.map { candidate.hasPrefix($0) } == true
                 }
             }
             return DarwinFSEventClassifiedRawEvent(
@@ -157,7 +164,7 @@ package enum DarwinFSEventPathClassifier {
         }
         let ordinaryWorktreePaths = ordinaryPaths.filter { path in
             let candidate = normalizedPath(for: path)
-            return candidate == rootPath || candidate.hasPrefix(rootPath + "/")
+            return candidate == rootPath || candidate.hasPrefix(rootPrefix)
         }
         return DarwinFSEventClassification(
             rawEvents: classifiedRawEvents,
@@ -167,6 +174,13 @@ package enum DarwinFSEventPathClassifier {
 
     private static func lexicallyNormalizedAbsolutePath(_ path: String) -> String {
         guard path.hasPrefix("/") else { return path }
+        let requiresNormalization =
+            path.contains("//")
+            || path.contains("/./")
+            || path.hasSuffix("/.")
+            || path.contains("/../")
+            || path.hasSuffix("/..")
+        guard requiresNormalization else { return path }
 
         var normalizedComponents: [Substring] = []
         for component in path.split(separator: "/", omittingEmptySubsequences: true) {
@@ -576,14 +590,10 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 return
             }
             if classificationInput.observesContinuity {
-                for event in classification.rawEvents {
-                    continuityLedger.recordRawEvent(
-                        registrationId: worktreeId,
-                        eventId: event.eventId,
-                        flags: event.flags,
-                        hasRelevantMutation: event.hasRelevantMutation
-                    )
-                }
+                continuityLedger.recordRawEvents(
+                    registrationId: worktreeId,
+                    events: classification.rawEvents
+                )
             }
             if !classification.ordinaryPaths.isEmpty {
                 ingressBuffer.yield(

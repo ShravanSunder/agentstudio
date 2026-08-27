@@ -184,15 +184,31 @@ package final class GitCleanContinuityLedger: @unchecked Sendable {
     ) {
         lock.withLock {
             guard !hasShutdown, var registration = registrationById[registrationId] else { return }
+            Self.applyRawEvent(
+                eventId: eventId,
+                flags: flags,
+                hasRelevantMutation: hasRelevantMutation,
+                to: &registration
+            )
+            registrationById[registrationId] = registration
+        }
+    }
 
-            let cursorRegressed = registration.latestEventId.map { eventId < $0 } ?? false
-            if flags & Self.uncertaintyFlags != 0 || cursorRegressed {
-                registration.uncertaintyEpoch &+= 1
+    package func recordRawEvents(
+        registrationId: UUID,
+        events: [DarwinFSEventClassifiedRawEvent]
+    ) {
+        guard !events.isEmpty else { return }
+        lock.withLock {
+            guard !hasShutdown, var registration = registrationById[registrationId] else { return }
+            for event in events {
+                Self.applyRawEvent(
+                    eventId: event.eventId,
+                    flags: event.flags,
+                    hasRelevantMutation: event.hasRelevantMutation,
+                    to: &registration
+                )
             }
-            if hasRelevantMutation {
-                registration.mutationEpoch &+= 1
-            }
-            registration.latestEventId = eventId
             registrationById[registrationId] = registration
         }
     }
@@ -210,6 +226,22 @@ package final class GitCleanContinuityLedger: @unchecked Sendable {
             hasShutdown = true
             registrationById.removeAll(keepingCapacity: false)
         }
+    }
+
+    private static func applyRawEvent(
+        eventId: FSEventStreamEventId,
+        flags: FSEventStreamEventFlags,
+        hasRelevantMutation: Bool,
+        to registration: inout RegistrationState
+    ) {
+        let cursorRegressed = registration.latestEventId.map { eventId < $0 } ?? false
+        if flags & uncertaintyFlags != 0 || cursorRegressed {
+            registration.uncertaintyEpoch &+= 1
+        }
+        if hasRelevantMutation {
+            registration.mutationEpoch &+= 1
+        }
+        registration.latestEventId = eventId
     }
 }
 

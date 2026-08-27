@@ -166,6 +166,67 @@ struct DarwinFSEventStreamClientTests {
         }
     }
 
+    @Test("continuity ledger applies one callback batch without losing mutation or cursor order")
+    func continuityLedgerAppliesCallbackBatchInOrder() throws {
+        let mutationLedger = GitCleanContinuityLedger()
+        let mutationRegistrationId = UUIDv7.generate()
+        let mutationIdentity = AgentStudioGit.GitStatusObservationIdentity(rawValue: "identity-mutation")
+        mutationLedger.register(registrationId: mutationRegistrationId, identity: mutationIdentity)
+        let mutationBarrier = try #require(
+            mutationLedger.beginBarrier(
+                registrationId: mutationRegistrationId,
+                identity: mutationIdentity
+            )
+        )
+
+        mutationLedger.recordRawEvents(
+            registrationId: mutationRegistrationId,
+            events: [
+                DarwinFSEventClassifiedRawEvent(
+                    eventId: 41,
+                    flags: 0,
+                    hasRelevantMutation: false
+                ),
+                DarwinFSEventClassifiedRawEvent(
+                    eventId: 42,
+                    flags: 0,
+                    hasRelevantMutation: true
+                ),
+            ]
+        )
+
+        #expect(mutationLedger.commitBarrier(mutationBarrier) == .requiresExact(.mutationObserved))
+
+        let cursorLedger = GitCleanContinuityLedger()
+        let cursorRegistrationId = UUIDv7.generate()
+        let cursorIdentity = AgentStudioGit.GitStatusObservationIdentity(rawValue: "identity-cursor")
+        cursorLedger.register(registrationId: cursorRegistrationId, identity: cursorIdentity)
+        let cursorBarrier = try #require(
+            cursorLedger.beginBarrier(
+                registrationId: cursorRegistrationId,
+                identity: cursorIdentity
+            )
+        )
+
+        cursorLedger.recordRawEvents(
+            registrationId: cursorRegistrationId,
+            events: [
+                DarwinFSEventClassifiedRawEvent(
+                    eventId: 42,
+                    flags: 0,
+                    hasRelevantMutation: false
+                ),
+                DarwinFSEventClassifiedRawEvent(
+                    eventId: 41,
+                    flags: 0,
+                    hasRelevantMutation: false
+                ),
+            ]
+        )
+
+        #expect(cursorLedger.commitBarrier(cursorBarrier) == .requiresExact(.eventStreamUncertain))
+    }
+
     @Test("continuity ledger renews only the same registration identity and epochs")
     func continuityLedgerRenewsStableAuthority() throws {
         let ledger = GitCleanContinuityLedger()
