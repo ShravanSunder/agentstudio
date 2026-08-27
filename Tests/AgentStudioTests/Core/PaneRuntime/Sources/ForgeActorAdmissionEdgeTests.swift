@@ -328,7 +328,7 @@ struct ForgeActorAdmissionEdgeTests {
         await fixture.stopObserving()
     }
 
-    @Test("same-scope follow-up rechecks at one second without bypassing success freshness")
+    @Test("same-scope follow-up remains pending until success freshness expires")
     func sameScopeFollowUpRespectsSuccessFreshness() async {
         let fixture = await ForgeActorFixture.make()
         let repoId = UUIDv7.generate()
@@ -360,18 +360,34 @@ struct ForgeActorAdmissionEdgeTests {
                 )
             )
         )
+        var followUpWasRecorded = false
+        for _ in 0..<1000 {
+            if await fixture.actor.refreshStateByRepoId[repoId]?.pendingFollowUp == true {
+                followUpWasRecorded = true
+                break
+            }
+            await Task.yield()
+        }
+        #expect(followUpWasRecorded)
+
         await fixture.provider.resolve(callAt: 0, with: .complete([]))
-        await fixture.clock.waitForPendingSleepCount(atLeast: 1)
-        #expect(await fixture.provider.callCount == 1)
-
-        fixture.advance(by: AppPolicies.ForgeRefresh.pendingFollowUpDelay)
-        await Task.yield()
-        #expect(await fixture.provider.callCount == 1)
-
-        fixture.advance(
-            by: AppPolicies.Forge.automaticRefreshMinimumInterval
-                - AppPolicies.ForgeRefresh.pendingFollowUpDelay
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: branch,
+                expected: PullRequestFacts(openCount: 0, exactOpenURL: nil)
+            )
         )
+        await fixture.clock.waitForPendingSleepCount(exactly: 1)
+        let freshnessDeadline =
+            fixture.clock.now.advanced(by: AppPolicies.Forge.automaticRefreshMinimumInterval)
+        #expect(fixture.clock.pendingSleepDeadlines == [freshnessDeadline])
+        #expect(await fixture.provider.callCount == 1)
+
+        fixture.advance(by: AppPolicies.Forge.automaticRefreshMinimumInterval - .seconds(1))
+        #expect(await fixture.provider.callCount == 1)
+
+        fixture.advance(by: .seconds(1))
         #expect(await fixture.provider.waitForCallCount(2))
 
         await fixture.provider.resolve(callAt: 1, with: .complete([]))
