@@ -8,20 +8,26 @@ import Foundation
             AppPolicies.SidebarPerformanceProof.strictWatchedRootURLs.map(\.standardizedFileURL)
         }
 
-        static func registerStrictWatchedRoots(store: WorkspaceStore) -> [WatchedPath]? {
+        static func registerStrictWatchedRoots(
+            store: WorkspaceStore,
+            controlRootURL: URL
+        ) -> [WatchedPath]? {
             let rootURLs = strictWatchedRootURLs
+            let registrationRootURLs = rootURLs + [controlRootURL]
             guard rootURLs.count == 2,
-                rootURLs.allSatisfy({
+                Set(registrationRootURLs.map(\.standardizedFileURL)).count
+                    == registrationRootURLs.count,
+                registrationRootURLs.allSatisfy({
                     var isDirectory: ObjCBool = false
                     return FileManager.default.fileExists(atPath: $0.path, isDirectory: &isDirectory)
                         && isDirectory.boolValue
                 })
             else { return nil }
 
-            let watchedPaths = rootURLs.compactMap { rootURL in
+            let watchedPaths = registrationRootURLs.compactMap { rootURL in
                 store.mutationCoordinator.addWatchedPath(rootURL)
             }
-            guard watchedPaths.count == rootURLs.count else { return nil }
+            guard watchedPaths.count == registrationRootURLs.count else { return nil }
             return watchedPaths
         }
 

@@ -29,6 +29,11 @@ package struct GitCleanContinuityAuthority: Sendable, Equatable {
     package let uncertaintyEpoch: UInt64
 }
 
+package enum GitCleanContinuityAuthorityValidation: Sendable, Equatable {
+    case authoritative(GitCleanContinuityAuthority)
+    case requiresExact(GitCleanContinuityFailureReason)
+}
+
 /// Lock-protected authority ledger updated directly from the raw FSEvents callback.
 ///
 /// Ordinary filesystem delivery is intentionally lossy. This ledger therefore
@@ -105,41 +110,57 @@ package final class GitCleanContinuityLedger: @unchecked Sendable {
 
     package func commitBarrier(
         _ barrier: GitCleanContinuityBarrier
-    ) -> GitCleanContinuityAuthority? {
+    ) -> GitCleanContinuityAuthorityValidation {
         lock.withLock {
-            guard !hasShutdown,
-                let registration = registrationById[barrier.registrationId],
-                registration.identity == barrier.observationIdentity,
-                registration.generation == barrier.registrationGeneration,
-                registration.mutationEpoch == barrier.mutationEpoch,
-                registration.uncertaintyEpoch == barrier.uncertaintyEpoch
-            else {
-                return nil
+            guard !hasShutdown else { return .requiresExact(.shutdown) }
+            guard let registration = registrationById[barrier.registrationId] else {
+                return .requiresExact(.registrationMissing)
             }
-            return GitCleanContinuityAuthority(
-                registrationId: barrier.registrationId,
-                observationIdentity: barrier.observationIdentity,
-                registrationGeneration: barrier.registrationGeneration,
-                mutationEpoch: barrier.mutationEpoch,
-                uncertaintyEpoch: barrier.uncertaintyEpoch
+            guard registration.identity == barrier.observationIdentity else {
+                return .requiresExact(.identityChanged)
+            }
+            guard registration.generation == barrier.registrationGeneration else {
+                return .requiresExact(.registrationReplaced)
+            }
+            guard registration.mutationEpoch == barrier.mutationEpoch else {
+                return .requiresExact(.mutationObserved)
+            }
+            guard registration.uncertaintyEpoch == barrier.uncertaintyEpoch else {
+                return .requiresExact(.eventStreamUncertain)
+            }
+            return .authoritative(
+                GitCleanContinuityAuthority(
+                    registrationId: barrier.registrationId,
+                    observationIdentity: barrier.observationIdentity,
+                    registrationGeneration: barrier.registrationGeneration,
+                    mutationEpoch: barrier.mutationEpoch,
+                    uncertaintyEpoch: barrier.uncertaintyEpoch
+                )
             )
         }
     }
 
     package func renew(
         _ authority: GitCleanContinuityAuthority
-    ) -> GitCleanContinuityAuthority? {
+    ) -> GitCleanContinuityAuthorityValidation {
         lock.withLock {
-            guard !hasShutdown,
-                let registration = registrationById[authority.registrationId],
-                registration.identity == authority.observationIdentity,
-                registration.generation == authority.registrationGeneration,
-                registration.mutationEpoch == authority.mutationEpoch,
-                registration.uncertaintyEpoch == authority.uncertaintyEpoch
-            else {
-                return nil
+            guard !hasShutdown else { return .requiresExact(.shutdown) }
+            guard let registration = registrationById[authority.registrationId] else {
+                return .requiresExact(.registrationMissing)
             }
-            return authority
+            guard registration.identity == authority.observationIdentity else {
+                return .requiresExact(.identityChanged)
+            }
+            guard registration.generation == authority.registrationGeneration else {
+                return .requiresExact(.registrationReplaced)
+            }
+            guard registration.mutationEpoch == authority.mutationEpoch else {
+                return .requiresExact(.mutationObserved)
+            }
+            guard registration.uncertaintyEpoch == authority.uncertaintyEpoch else {
+                return .requiresExact(.eventStreamUncertain)
+            }
+            return .authoritative(authority)
         }
     }
 
@@ -198,7 +219,7 @@ package protocol GitCleanContinuityWitness: Sendable {
         rootPath: URL,
         observationPlan: AgentStudioGit.GitStatusObservationPlan
     ) async -> GitCleanContinuityBarrier?
-    func commit(_ barrier: GitCleanContinuityBarrier) async -> GitCleanContinuityAuthority?
-    func renew(_ authority: GitCleanContinuityAuthority) async -> GitCleanContinuityAuthority?
+    func commit(_ barrier: GitCleanContinuityBarrier) async -> GitCleanContinuityAuthorityValidation
+    func renew(_ authority: GitCleanContinuityAuthority) async -> GitCleanContinuityAuthorityValidation
     func retire(worktreeId: UUID, rootPath: URL)
 }

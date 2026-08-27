@@ -560,8 +560,8 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(!source.contains("AppCommandIPC"))
     }
 
-    @Test("strict fixture is sourced from one complete two-root watched-folder refresh")
-    func strictFixtureUsesOneCompleteTwoRootWatchedFolderRefresh() throws {
+    @Test("strict fixture refreshes two real roots plus one isolated control root")
+    func strictFixtureRefreshesTwoRealRootsPlusOneIsolatedControlRoot() throws {
         let fixtureSource = try String(
             contentsOfFile: "Sources/AgentStudio/App/Boot/SidebarPerformanceProofFixture+RealSize.swift",
             encoding: .utf8
@@ -587,7 +587,12 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         )
         #expect(requiredRoots.lowerBound < addWatchedPath.lowerBound)
         #expect(completedSummary.lowerBound < refreshWatchedFolders.lowerBound)
+        #expect(fixtureSource.contains("controlRootURL: URL"))
+        #expect(fixtureSource.contains("rootURLs + [controlRootURL]"))
         #expect(combinedSource.contains("summary.repoPaths(in: rootURL).isEmpty"))
+        #expect(combinedSource.contains("summary.repoPaths(in: controlRootURL) == [controlRootURL]"))
+        #expect(combinedSource.contains("controlRootPresent: true"))
+        #expect(combinedSource.contains("control_root_present"))
         #expect(!diagnosticSource.contains("populateRealSizeTopology"))
     }
 
@@ -664,7 +669,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(!source.contains("AppCommandDispatcher.shared.dispatch(.showWorktreeSidebar)"))
         #expect(source.contains("await commands.refreshWatchedFolders"))
         for attribute in [
-            "open_source_root_present", "project_dev_root_present",
+            "open_source_root_present", "project_dev_root_present", "control_root_present",
             "discovered_repository_count", "discovered_worktree_count",
             "topology_fingerprint", "tab_count", "pane_model_count",
             "expected_session_variant",

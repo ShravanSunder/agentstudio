@@ -47,6 +47,7 @@ import AppKit
         let worktreeCount: Int
         let topologyFingerprint: String
         let expectedSessionCount: Int
+        let controlRootPresent: Bool
     }
 
     extension AppDelegate {
@@ -176,6 +177,8 @@ import AppKit
                 attributes: startupDiagnosticTraceAttributes(for: action).merging([
                     "agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present": .bool(true),
                     "agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present": .bool(true),
+                    "agentstudio.startup_diagnostic.sidebar_proof.control_root_present": .bool(
+                        fixtureEvidence.controlRootPresent),
                     "agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count": .int(
                         fixtureEvidence.repositoryCount),
                     "agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count": .int(
@@ -269,17 +272,8 @@ import AppKit
             action: AgentStudioStartupDiagnosticAction,
             population: SidebarPerformanceProofPopulation
         ) async -> StrictSidebarPerformanceFixtureEvidence? {
-            guard
-                let watchedPaths = SidebarPerformanceProofFixture.registerStrictWatchedRoots(
-                    store: store
-                )
-            else {
-                recordBlockedSidebarPerformanceProofDiagnostic(
-                    action: action,
-                    reason: "required_watched_roots_unavailable"
-                )
-                return nil
-            }
+            guard let (controlRootURL, watchedPaths) = strictSidebarWatchedFixtureInputs(action: action)
+            else { return nil }
             guard let summary = await refreshStrictWatchedRootsAndAwaitZeroLogicalDebt(watchedPaths)
             else {
                 recordBlockedSidebarPerformanceProofDiagnostic(
@@ -293,6 +287,7 @@ import AppKit
                 rootURLs.allSatisfy({ rootURL in
                     !summary.repoPaths(in: rootURL).isEmpty
                 }),
+                summary.repoPaths(in: controlRootURL) == [controlRootURL],
                 summary.filesystemLogicalDebtCount == 0,
                 let topologyFingerprint = summary.topologyFingerprint
             else {
@@ -368,8 +363,34 @@ import AppKit
                 topologyFingerprint: topologyFingerprint,
                 expectedSessionCount: population == .zeroPTYIdle
                     ? AppPolicies.SidebarPerformanceProof.zeroPTYExpectedSessionCount
-                    : AppPolicies.SidebarPerformanceProof.mountedPTYExpectedSessionCount
+                    : AppPolicies.SidebarPerformanceProof.mountedPTYExpectedSessionCount,
+                controlRootPresent: true
             )
+        }
+
+        private func strictSidebarWatchedFixtureInputs(
+            action: AgentStudioStartupDiagnosticAction
+        ) -> (controlRootURL: URL, watchedPaths: [WatchedPath])? {
+            guard let controlRootURL = action.sidebarPerformanceControlRootURL() else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "continuity_control_root_unavailable"
+                )
+                return nil
+            }
+            guard
+                let watchedPaths = SidebarPerformanceProofFixture.registerStrictWatchedRoots(
+                    store: store,
+                    controlRootURL: controlRootURL
+                )
+            else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "required_watched_roots_unavailable"
+                )
+                return nil
+            }
+            return (controlRootURL, watchedPaths)
         }
 
         private func refreshStrictWatchedRootsAndAwaitZeroLogicalDebt(

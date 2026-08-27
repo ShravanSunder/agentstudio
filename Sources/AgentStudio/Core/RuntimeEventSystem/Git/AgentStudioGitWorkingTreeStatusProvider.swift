@@ -178,16 +178,18 @@ package struct AgentStudioGitWorkingTreeStatusProvider: GitExactCleanStatusProvi
                         Self.mapFacts(read.facts, isPathspecScoped: false)
                     )
                 }
-                guard let authority = await continuityWitness.commit(barrier) else {
-                    return GitExactCleanStatusFactsResult.requiresExact(.eventStreamUncertain)
-                }
-                return GitExactCleanStatusFactsResult.available(
-                    Self.mapFacts(
-                        read.facts,
-                        isPathspecScoped: false,
-                        exactCleanAuthority: authority
+                switch await continuityWitness.commit(barrier) {
+                case .requiresExact(let reason):
+                    return GitExactCleanStatusFactsResult.requiresExact(reason)
+                case .authoritative(let authority):
+                    return GitExactCleanStatusFactsResult.available(
+                        Self.mapFacts(
+                            read.facts,
+                            isPathspecScoped: false,
+                            exactCleanAuthority: authority
+                        )
                     )
-                )
+                }
             }
             guard !Task.isCancelled else {
                 return .unavailable(GitWorkingTreeStatusUnavailable(reason: .cancelled))
@@ -213,10 +215,12 @@ package struct AgentStudioGitWorkingTreeStatusProvider: GitExactCleanStatusProvi
         guard let continuityWitness else {
             return .requiresExact(.unsupportedObservation)
         }
-        guard let renewed = await continuityWitness.renew(authority) else {
-            return .requiresExact(.eventStreamUncertain)
+        switch await continuityWitness.renew(authority) {
+        case .authoritative(let renewed):
+            return .renewed(renewed)
+        case .requiresExact(let reason):
+            return .requiresExact(reason)
         }
-        return .renewed(renewed)
     }
 
     package func retireExactCleanAuthority(worktreeId: UUID, rootPath: URL) {

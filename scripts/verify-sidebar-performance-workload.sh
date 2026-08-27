@@ -198,6 +198,46 @@ reset_disposable_debug_root() {
   /bin/rm -rf -- "$RESET_DATA_DIR"
 }
 
+prepare_strict_git_continuity_control() {
+  local control_root="${1:?missing continuity control root}"
+  case "$control_root" in
+    "$RESET_DATA_DIR/"*) ;;
+    *) echo "refusing continuity control outside isolated debug root" >&2; return 1 ;;
+  esac
+  [ ! -e "$control_root" ] || {
+    echo "continuity control root already exists" >&2
+    return 1
+  }
+  mkdir -p "$control_root"
+  printf '%s\n' '.continuity-proof-ignored' >"$control_root/.gitignore"
+  printf '%s\n' 'verified clean continuity baseline' >"$control_root/baseline.txt"
+  /usr/bin/git -C "$control_root" init --quiet
+  /usr/bin/git -C "$control_root" add .gitignore baseline.txt
+  /usr/bin/git -C "$control_root" \
+    -c commit.gpgsign=false \
+    -c user.name='Agent Studio Performance Proof' \
+    -c user.email='performance-proof@invalid.local' \
+    commit --quiet -m 'establish continuity control baseline'
+  [ -z "$(/usr/bin/git -C "$control_root" status --porcelain=v1 --untracked-files=all)" ] || {
+    echo "continuity control repository is not exactly clean" >&2
+    return 1
+  }
+}
+
+inject_strict_git_continuity_uncertainty() {
+  local control_root="${1:?missing continuity control root}"
+  local ignored_path="$control_root/.continuity-proof-ignored"
+  [ ! -e "$ignored_path" ] || {
+    echo "continuity uncertainty was already injected" >&2
+    return 1
+  }
+  : >"$ignored_path"
+  [ -z "$(/usr/bin/git -C "$control_root" status --porcelain=v1 --untracked-files=all)" ] || {
+    echo "ignored continuity stimulus changed exact Git status" >&2
+    return 1
+  }
+}
+
 retire_current_candidate() {
   [ -s "$STATE_FILE" ] || return 0
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
@@ -569,7 +609,7 @@ PY
 }
 
 strict_sidebar_fixture_ready_query() {
-  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.fixture_ready agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present,agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present,agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count,agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint,agentstudio.startup_diagnostic.sidebar_proof.tab_count,agentstudio.startup_diagnostic.sidebar_proof.pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant | limit 1'
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.fixture_ready agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present,agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present,agentstudio.startup_diagnostic.sidebar_proof.control_root_present,agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count,agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint,agentstudio.startup_diagnostic.sidebar_proof.tab_count,agentstudio.startup_diagnostic.sidebar_proof.pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant | limit 1'
 }
 
 load_strict_sidebar_fixture_ready() {
@@ -615,6 +655,8 @@ if not exact_true("open_source_root_present"):
     raise SystemExit("strict fixture missing open-source root")
 if not exact_true("project_dev_root_present"):
     raise SystemExit("strict fixture missing project-dev root")
+if not exact_true("control_root_present"):
+    raise SystemExit("strict fixture missing isolated continuity control root")
 def exact_int(name):
     raw = record.get(prefix + name)
     try:
@@ -1500,6 +1542,117 @@ wait_for_positive_quiescence() {
   }
 }
 
+strict_git_continuity_counter_value() {
+  local metric_suffix="${1:?missing continuity counter suffix}"
+  local marker_selector
+  marker_selector="$(metric_label_selector "$TRACE_MARKER")"
+  metric_value_or_empty \
+    "sum(agentstudio_performance_git_aggregate_continuity_${metric_suffix}_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.aggregate\"})"
+}
+
+strict_git_continuity_authority_value() {
+  local marker_selector
+  marker_selector="$(metric_label_selector "$TRACE_MARKER")"
+  metric_value_or_empty \
+    "max(agentstudio_performance_git_aggregate_continuity_authority_current{agent.proof.marker=\"$marker_selector\",event=\"performance.git.aggregate\"})"
+}
+
+capture_strict_git_continuity_baseline() {
+  local output="${1:?missing continuity baseline output}"
+  local timeout_ms=$((STRICT_POLICY_GIT_MAXIMUM_SETTLEMENT_MS \
+    + STRICT_POLICY_QUIESCENCE_MS + STRICT_POLICY_READBACK_TIMEOUT_MS))
+  local deadline_ms=$(( $(monotonic_now_ms) + timeout_ms ))
+  local accepted authority mutation uncertainty fallback_admitted fallback_coalesced
+  local renewed avoided_facts avoided_detail
+  while [ "$(monotonic_now_ms)" -lt "$deadline_ms" ]; do
+    accepted="$(strict_git_continuity_counter_value baseline_accepted)"; accepted="${accepted:-0}"
+    authority="$(strict_git_continuity_authority_value)"; authority="${authority:-0}"
+    if /usr/bin/python3 - "$accepted" "$authority" <<'PY'
+import sys
+accepted, authority = map(float, sys.argv[1:])
+raise SystemExit(0 if accepted > 0 and authority > 0 else 1)
+PY
+    then
+      mutation="$(strict_git_continuity_counter_value mutation_invalidated)"; mutation="${mutation:-0}"
+      uncertainty="$(strict_git_continuity_counter_value uncertainty_mutation_observed)"; uncertainty="${uncertainty:-0}"
+      fallback_admitted="$(strict_git_continuity_counter_value fallback_admitted)"; fallback_admitted="${fallback_admitted:-0}"
+      fallback_coalesced="$(strict_git_continuity_counter_value fallback_coalesced)"; fallback_coalesced="${fallback_coalesced:-0}"
+      renewed="$(strict_git_continuity_counter_value renewed)"; renewed="${renewed:-0}"
+      avoided_facts="$(strict_git_continuity_counter_value physical_fact_read_avoided)"; avoided_facts="${avoided_facts:-0}"
+      avoided_detail="$(strict_git_continuity_counter_value physical_detail_read_avoided)"; avoided_detail="${avoided_detail:-0}"
+      {
+        printf 'STRICT_CONTINUITY_BASELINE_ACCEPTED=%s\n' "$accepted"
+        printf 'STRICT_CONTINUITY_BASELINE_MUTATION=%s\n' "$mutation"
+        printf 'STRICT_CONTINUITY_BASELINE_UNCERTAINTY=%s\n' "$uncertainty"
+        printf 'STRICT_CONTINUITY_BASELINE_FALLBACK_ADMITTED=%s\n' "$fallback_admitted"
+        printf 'STRICT_CONTINUITY_BASELINE_FALLBACK_COALESCED=%s\n' "$fallback_coalesced"
+        printf 'STRICT_CONTINUITY_BASELINE_RENEWED=%s\n' "$renewed"
+        printf 'STRICT_CONTINUITY_BASELINE_AVOIDED_FACTS=%s\n' "$avoided_facts"
+        printf 'STRICT_CONTINUITY_BASELINE_AVOIDED_DETAIL=%s\n' "$avoided_detail"
+      } >"$output"
+      return 0
+    fi
+    /bin/sleep 1
+  done
+  echo "verified-clean continuity authority did not become observable before mutation" >&2
+  return 1
+}
+
+validate_strict_git_continuity_recovery() {
+  local baseline_file="${1:?missing continuity baseline file}"
+  # shellcheck disable=SC1090
+  source "$baseline_file"
+  local accepted mutation uncertainty fallback_admitted fallback_coalesced
+  local renewed avoided_facts avoided_detail authority
+  accepted="$(strict_git_continuity_counter_value baseline_accepted)"; accepted="${accepted:-0}"
+  mutation="$(strict_git_continuity_counter_value mutation_invalidated)"; mutation="${mutation:-0}"
+  uncertainty="$(strict_git_continuity_counter_value uncertainty_mutation_observed)"; uncertainty="${uncertainty:-0}"
+  fallback_admitted="$(strict_git_continuity_counter_value fallback_admitted)"; fallback_admitted="${fallback_admitted:-0}"
+  fallback_coalesced="$(strict_git_continuity_counter_value fallback_coalesced)"; fallback_coalesced="${fallback_coalesced:-0}"
+  renewed="$(strict_git_continuity_counter_value renewed)"; renewed="${renewed:-0}"
+  avoided_facts="$(strict_git_continuity_counter_value physical_fact_read_avoided)"; avoided_facts="${avoided_facts:-0}"
+  avoided_detail="$(strict_git_continuity_counter_value physical_detail_read_avoided)"; avoided_detail="${avoided_detail:-0}"
+  authority="$(strict_git_continuity_authority_value)"; authority="${authority:-0}"
+  validate_strict_git_continuity_delta_values \
+    "$STRICT_CONTINUITY_BASELINE_ACCEPTED" "$accepted" \
+    "$STRICT_CONTINUITY_BASELINE_MUTATION" "$mutation" \
+    "$STRICT_CONTINUITY_BASELINE_UNCERTAINTY" "$uncertainty" \
+    "$STRICT_CONTINUITY_BASELINE_FALLBACK_ADMITTED" "$fallback_admitted" \
+    "$STRICT_CONTINUITY_BASELINE_FALLBACK_COALESCED" "$fallback_coalesced" \
+    "$STRICT_CONTINUITY_BASELINE_RENEWED" "$renewed" \
+    "$STRICT_CONTINUITY_BASELINE_AVOIDED_FACTS" "$avoided_facts" \
+    "$STRICT_CONTINUITY_BASELINE_AVOIDED_DETAIL" "$avoided_detail" "$authority"
+}
+
+validate_strict_git_continuity_delta_values() {
+  [ "$#" -eq 17 ] || {
+    echo "continuity delta validation requires 17 values" >&2
+    return 2
+  }
+  /usr/bin/python3 - "$@" <<'PY'
+import sys
+values = list(map(float, sys.argv[1:]))
+(accepted_before, accepted_after, mutation_before, mutation_after,
+ uncertainty_before, uncertainty_after, admitted_before, admitted_after,
+ coalesced_before, coalesced_after, renewed_before, renewed_after,
+ facts_before, facts_after, detail_before, detail_after, authority) = values
+if accepted_after <= accepted_before:
+    raise SystemExit("controlled exact fallback did not remint clean authority")
+if mutation_after - mutation_before != 1:
+    raise SystemExit("controlled ignored mutation did not invalidate exactly one authority")
+if uncertainty_after - uncertainty_before != 1:
+    raise SystemExit("controlled mutation uncertainty reason was not observed exactly once")
+if (admitted_after - admitted_before) + (coalesced_after - coalesced_before) != 1:
+    raise SystemExit("controlled mutation did not produce exactly one bounded fallback outcome")
+if renewed_after <= renewed_before:
+    raise SystemExit("measured interval did not contain a positive continuity renewal")
+if facts_after <= facts_before or detail_after <= detail_before:
+    raise SystemExit("measured interval did not prove avoided physical Git reads")
+if authority <= 0:
+    raise SystemExit("continuity authority did not recover after exact fallback")
+PY
+}
+
 begin_strict_population() {
   local population="${1:?missing population}"
   local selector="${2:?missing diagnostic selector}"
@@ -1509,6 +1662,8 @@ begin_strict_population() {
   local activation_mode
   mkdir -p "$population_artifact"
   reset_disposable_debug_root
+  STRICT_CONTROL_ROOT="$RESET_DATA_DIR/sidebar-performance-continuity-control"
+  prepare_strict_git_continuity_control "$STRICT_CONTROL_ROOT"
   TRACE_MARKER="$(opaque_trace_marker "${TRACE_NAME}-${population}" "$(/usr/bin/uuidgen)")"
   STATE_FILE="$population_artifact/debug-observability.env"
   : >"$population_artifact/zmx-lifecycle.jsonl"
@@ -1518,6 +1673,7 @@ begin_strict_population() {
     AGENTSTUDIO_TRACE_TAGS="$trace_tags" \
     AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
     AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION="$selector" \
+    AGENTSTUDIO_STARTUP_WATCH_FOLDER="$STRICT_CONTROL_ROOT" \
     AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
     "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
   for _ in $(seq 1 60); do [ -s "$STATE_FILE" ] && break; /bin/sleep 1; done
@@ -1549,6 +1705,7 @@ sample_strict_idle_population() {
   local population="${1:?missing population}"
   local samples="$ARTIFACT/populations/$population/cpu.samples"
   local marker_selector periodic_query periodic_completion_baseline periodic_completion_final
+  local continuity_baseline="$ARTIFACT/populations/$population/continuity-baseline.env"
   marker_selector="$(metric_label_selector "$TRACE_MARKER")"
   periodic_query="sum(agentstudio_performance_events_total{agent.proof.marker=\"$marker_selector\",event=\"performance.git.status\",trigger_source=\"periodic\"})"
   periodic_completion_baseline="$(metric_value_or_empty "$periodic_query")"
@@ -1560,6 +1717,10 @@ sample_floor, sample_interval_ms, maximum_settlement_ms = map(float, sys.argv[1:
 if sample_floor * sample_interval_ms < maximum_settlement_ms:
     raise SystemExit("idle population is shorter than the maximum Git settlement interval")
 PY
+  if [ "$population" = "zero_pty_idle" ]; then
+    capture_strict_git_continuity_baseline "$continuity_baseline"
+    inject_strict_git_continuity_uncertainty "$STRICT_CONTROL_ROOT"
+  fi
   : >"$samples"
   while [ "$(wc -l <"$samples")" -lt "$STRICT_POLICY_IDLE_SAMPLE_FLOOR" ]; do
     record_strict_cpu_sample "$samples"
@@ -1571,6 +1732,9 @@ PY
   periodic_completion_final="${periodic_completion_final:-0}"
   validate_strict_periodic_completion_delta \
     "$periodic_completion_baseline" "$periodic_completion_final"
+  if [ "$population" = "zero_pty_idle" ]; then
+    validate_strict_git_continuity_recovery "$continuity_baseline"
+  fi
   finish_strict_population "$population"
 }
 
@@ -2591,6 +2755,26 @@ validate_compare_baseline_fixture
 sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="repo",phase=~"startup_diagnostic|request_build_mainactor|mainactor_apply|projection_worker|row_index"}'
 
 if [ "$mode" = "prepare-only" ]; then
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_CONTROL_ROOT:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "continuity control test requires canned test-response authorization" >&2
+      exit 2
+    }
+    RESET_DATA_DIR="$(dirname "$AGENTSTUDIO_SIDEBAR_TEST_CONTROL_ROOT")"
+    prepare_strict_git_continuity_control "$AGENTSTUDIO_SIDEBAR_TEST_CONTROL_ROOT"
+    inject_strict_git_continuity_uncertainty "$AGENTSTUDIO_SIDEBAR_TEST_CONTROL_ROOT"
+    printf 'continuity_control_clean=true\ncontinuity_ignored_file_present=true\n'
+    exit 0
+  fi
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_CONTINUITY_DELTAS:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "continuity delta test requires canned test-response authorization" >&2
+      exit 2
+    }
+    IFS=',' read -r -a continuity_delta_values <<<"$AGENTSTUDIO_SIDEBAR_TEST_CONTINUITY_DELTAS"
+    validate_strict_git_continuity_delta_values "${continuity_delta_values[@]}"
+    exit 0
+  fi
   if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_POLICY_RECORD:-}" ]; then
     [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
       echo "policy record test requires canned test-response authorization" >&2
@@ -2708,6 +2892,7 @@ RESET_BUNDLE_IDENTIFIER=""
 STRICT_EXPECTED_TOPOLOGY_FINGERPRINT=""
 STRICT_EXPECTED_REPOSITORY_COUNT=""
 STRICT_EXPECTED_WORKTREE_COUNT=""
+STRICT_CONTROL_ROOT=""
 trap cleanup EXIT INT TERM
 if [ "$mode" = "sidebar-proof" ]; then
   run_strict_sidebar_cpu_populations

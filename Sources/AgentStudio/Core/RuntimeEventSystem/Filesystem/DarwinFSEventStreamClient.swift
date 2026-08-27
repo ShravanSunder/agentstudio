@@ -348,8 +348,10 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
     @concurrent
     nonisolated package func commit(
         _ barrier: GitCleanContinuityBarrier
-    ) async -> GitCleanContinuityAuthority? {
-        guard let registration = retainedRegistration(for: barrier) else { return nil }
+    ) async -> GitCleanContinuityAuthorityValidation {
+        guard let registration = retainedRegistration(for: barrier) else {
+            return .requiresExact(.registrationMissing)
+        }
         defer { FSEventStreamRelease(registration.stream) }
         FSEventStreamFlushSync(registration.stream)
         return continuityLedger.commitBarrier(barrier)
@@ -358,8 +360,10 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
     @concurrent
     nonisolated package func renew(
         _ authority: GitCleanContinuityAuthority
-    ) async -> GitCleanContinuityAuthority? {
-        guard let registration = retainedRegistration(for: authority) else { return nil }
+    ) async -> GitCleanContinuityAuthorityValidation {
+        guard let registration = retainedRegistration(for: authority) else {
+            return .requiresExact(.registrationMissing)
+        }
         defer { FSEventStreamRelease(registration.stream) }
         FSEventStreamFlushSync(registration.stream)
         return continuityLedger.renew(authority)

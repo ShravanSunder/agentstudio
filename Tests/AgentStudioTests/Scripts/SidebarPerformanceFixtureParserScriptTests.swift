@@ -10,6 +10,7 @@ struct SidebarPerformanceFixtureParserScriptTests {
         let record = [
             prefix + "open_source_root_present": "true",
             prefix + "project_dev_root_present": "true",
+            prefix + "control_root_present": "true",
             prefix + "discovered_repository_count": "121",
             prefix + "discovered_worktree_count": "147",
             prefix + "topology_fingerprint": String(repeating: "a", count: 64),

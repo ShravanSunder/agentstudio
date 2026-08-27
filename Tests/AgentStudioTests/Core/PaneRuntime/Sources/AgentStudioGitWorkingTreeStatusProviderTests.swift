@@ -346,7 +346,7 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
             rootPath: rootPath
         )
 
-        #expect(result == .requiresExact(.eventStreamUncertain))
+        #expect(result == .requiresExact(.mutationObserved))
     }
 
     @Test("slow threshold observes without completing or releasing the physical read")
@@ -938,20 +938,26 @@ private final class TestGitCleanContinuityWitness: GitCleanContinuityWitness, @u
         )
     }
 
-    func commit(_ barrier: GitCleanContinuityBarrier) async -> GitCleanContinuityAuthority? {
+    func commit(
+        _ barrier: GitCleanContinuityBarrier
+    ) async -> GitCleanContinuityAuthorityValidation {
         lock.withLock { _commitCount += 1 }
-        guard commitSucceeds else { return nil }
-        return GitCleanContinuityAuthority(
-            registrationId: barrier.registrationId,
-            observationIdentity: barrier.observationIdentity,
-            registrationGeneration: barrier.registrationGeneration,
-            mutationEpoch: barrier.mutationEpoch,
-            uncertaintyEpoch: barrier.uncertaintyEpoch
+        guard commitSucceeds else { return .requiresExact(.mutationObserved) }
+        return .authoritative(
+            GitCleanContinuityAuthority(
+                registrationId: barrier.registrationId,
+                observationIdentity: barrier.observationIdentity,
+                registrationGeneration: barrier.registrationGeneration,
+                mutationEpoch: barrier.mutationEpoch,
+                uncertaintyEpoch: barrier.uncertaintyEpoch
+            )
         )
     }
 
-    func renew(_ authority: GitCleanContinuityAuthority) async -> GitCleanContinuityAuthority? {
-        authority
+    func renew(
+        _ authority: GitCleanContinuityAuthority
+    ) async -> GitCleanContinuityAuthorityValidation {
+        .authoritative(authority)
     }
 
     func retire(worktreeId _: UUID, rootPath _: URL) {}

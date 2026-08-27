@@ -18,7 +18,7 @@ struct DarwinFSEventStreamClientTests {
         let preparation = try #require(ledger.beginBarrier(registrationId: registrationId, identity: identity))
         ledger.recordMutation(registrationId: registrationId, eventId: 41)
 
-        #expect(ledger.commitBarrier(preparation) == nil)
+        #expect(ledger.commitBarrier(preparation) == .requiresExact(.mutationObserved))
     }
 
     @Test("continuity ledger rejects loss and discontinuity flags fail closed")
@@ -49,7 +49,7 @@ struct DarwinFSEventStreamClientTests {
                 hasRelevantMutation: false
             )
 
-            #expect(ledger.commitBarrier(preparation) == nil)
+            #expect(ledger.commitBarrier(preparation) == .requiresExact(.eventStreamUncertain))
         }
     }
 
@@ -60,16 +60,19 @@ struct DarwinFSEventStreamClientTests {
         let identity = AgentStudioGit.GitStatusObservationIdentity(rawValue: "identity-a")
         ledger.register(registrationId: registrationId, identity: identity)
         let preparation = try #require(ledger.beginBarrier(registrationId: registrationId, identity: identity))
-        let authority = try #require(ledger.commitBarrier(preparation))
+        guard case .authoritative(let authority) = ledger.commitBarrier(preparation) else {
+            Issue.record("stable barrier did not mint authority")
+            return
+        }
 
         let renewed = ledger.renew(authority)
 
-        #expect(renewed != nil)
+        #expect(renewed == .authoritative(authority))
         ledger.register(
             registrationId: registrationId,
             identity: AgentStudioGit.GitStatusObservationIdentity(rawValue: "identity-b")
         )
-        #expect(ledger.renew(authority) == nil)
+        #expect(ledger.renew(authority) == .requiresExact(.identityChanged))
     }
 
     @Test("filesystem ingress does not retain more fine batches than its configured capacity")

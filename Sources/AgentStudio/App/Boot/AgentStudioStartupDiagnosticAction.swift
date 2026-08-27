@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
@@ -122,5 +123,42 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
         let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty else { return nil }
         return URL(fileURLWithPath: NSString(string: path).expandingTildeInPath).standardizedFileURL
+    }
+
+    func sidebarPerformanceControlRootURL(
+        from environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL? {
+        #if DEBUG
+            guard AppDataPaths.allowsDebugHarnessEnvironmentOverrides(environment: environment) else {
+                return nil
+            }
+            switch kind {
+            case .sidebarCPUZeroPTYIdle, .sidebarCPUQuiescentPTYIdle,
+                .sidebarCPUSearchClear, .sidebarCPUGrouping, .sidebarCPUHideShow,
+                .sidebarCPUTabSwitch:
+                break
+            default:
+                return nil
+            }
+
+            guard let candidate = Self.watchFolderURL(from: environment) else { return nil }
+            let dataRoot = AppDataPaths.rootDirectory(environment: environment)
+                .resolvingSymlinksInPath().standardizedFileURL
+            let resolvedCandidate = candidate.resolvingSymlinksInPath().standardizedFileURL
+            var isDirectory: ObjCBool = false
+            guard
+                FileManager.default.fileExists(
+                    atPath: resolvedCandidate.path,
+                    isDirectory: &isDirectory
+                ), isDirectory.boolValue
+            else { return nil }
+            let descendantPrefix = dataRoot.path.hasSuffix("/") ? dataRoot.path : dataRoot.path + "/"
+            guard resolvedCandidate.path != dataRoot.path,
+                resolvedCandidate.path.hasPrefix(descendantPrefix)
+            else { return nil }
+            return resolvedCandidate
+        #else
+            return nil
+        #endif
     }
 }
