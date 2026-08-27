@@ -395,6 +395,45 @@ struct AgentStudioPerformanceTraceRecorderTests {
         #expect(contents.contains("\"agentstudio.performance.atom.slot.count\":2"))
     }
 
+    @Test("recorder emits scrubbed filesystem ingress snapshots")
+    func recorderEmitsFilesystemIngressSnapshots() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "filesystem-ingress-recorder",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 924,
+            timeUnixNano: { 784 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+
+        recorder.record(
+            .filesystemIngressSnapshot,
+            attributes: [
+                "agentstudio.performance.filesystem.ingress.local.accepted.batch.count": .int(2),
+                "agentstudio.performance.filesystem.ingress.overflow.recovery.count": .int(3),
+            ]
+        )
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.filesystem.ingress_snapshot\""))
+        #expect(
+            contents.contains(
+                "\"agentstudio.performance.filesystem.ingress.local.accepted.batch.count\":2"
+            )
+        )
+        #expect(
+            contents.contains(
+                "\"agentstudio.performance.filesystem.ingress.overflow.recovery.count\":3"
+            )
+        )
+    }
+
     @Test("Repo Explorer row and scroll instruments emit bounded JSONL receipts")
     func repoExplorerRowAndScrollInstrumentsEmitBoundedJSONLReceipts() async throws {
         let traceDirectory = temporaryTraceDirectoryURL()

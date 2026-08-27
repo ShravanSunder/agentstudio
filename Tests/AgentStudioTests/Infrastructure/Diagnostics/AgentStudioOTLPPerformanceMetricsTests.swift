@@ -6,6 +6,49 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPPerformanceMetricsTests {
+    @Test("filesystem ingress snapshot numeric fields become counter metrics")
+    func filesystemIngressSnapshotFieldsBecomeCounterMetrics() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 121,
+            severityText: .info,
+            body: "performance.filesystem.ingress_snapshot",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.filesystem.ingress.local.accepted.batch.count": .int(11),
+                "agentstudio.performance.filesystem.ingress.shared_uncertainty.dropped.path.count": .int(13),
+                "agentstudio.performance.filesystem.ingress.overflow.coarse_recovery.count": .int(17),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+        let samplesByLabel = Dictionary(uniqueKeysWithValues: metricEvent.samples.map { ($0.label, $0.value) })
+
+        #expect(
+            samplesByLabel[
+                "agentstudio_performance_filesystem_ingress_local_accepted_batch_count"
+            ] == 11
+        )
+        #expect(
+            samplesByLabel[
+                "agentstudio_performance_filesystem_ingress_shared_uncertainty_dropped_path_count"
+            ] == 13
+        )
+        #expect(
+            samplesByLabel[
+                "agentstudio_performance_filesystem_ingress_overflow_coarse_recovery_count"
+            ] == 17
+        )
+        #expect(
+            metricEvent.measurements.allSatisfy { measurement in
+                if case .counter = measurement { return true }
+                return false
+            })
+    }
+
     @Test("startup usable projects launch and layout phase distributions")
     func startupUsableProjectsBothDurations() throws {
         let record = AgentStudioOTLPProjectedLogRecord(

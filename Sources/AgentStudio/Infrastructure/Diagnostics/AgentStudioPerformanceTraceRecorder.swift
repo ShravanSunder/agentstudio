@@ -200,6 +200,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case commandBarCache = "performance.commandbar.cache"
         case coordinatorWrite = "performance.coordinator.write"
         case filesystemEffectSnapshot = "performance.filesystem.effect_snapshot"
+        case filesystemIngressSnapshot = "performance.filesystem.ingress_snapshot"
         case filesystemStageOutcome = "performance.filesystem.stage_outcome"
         case filesystemLogicalDebt = "performance.filesystem.logical_debt"
         case focusResponderChange = "performance.focus.responder_change"

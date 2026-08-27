@@ -325,6 +325,7 @@ extension AppDelegate {
         seedSlotsForInstalledPanes()
         let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         let fseventStreamClient = DarwinFSEventStreamClient()
+        bootRegisterFilesystemIngressPerformanceReporter(for: fseventStreamClient)
         let gitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(
             physicalGate: gitStatusPhysicalGate,
             continuityWitness: fseventStreamClient
@@ -401,6 +402,21 @@ extension AppDelegate {
         bootStartTerminalActivityRouter(bus: paneRuntimeBus)
         AppCommandDispatcher.shared.appCommandRouter = self
         oauthService = OAuthService()
+    }
+
+    private func bootRegisterFilesystemIngressPerformanceReporter(
+        for fseventStreamClient: DarwinFSEventStreamClient
+    ) {
+        guard let performanceTraceRecorder else { return }
+        let client = fseventStreamClient
+        let recorder = performanceTraceRecorder
+        performanceTraceRecorder.registerPeriodicSnapshotReporter { [weak client, weak recorder] in
+            guard let client, let recorder else { return }
+            recorder.record(
+                .filesystemIngressSnapshot,
+                attributes: client.snapshotAndResetIngressPerformance().traceAttributes
+            )
+        }
     }
 
     private func bootInstallPreparedContentMountOwners(coordinator: WorkspaceSurfaceCoordinator) {

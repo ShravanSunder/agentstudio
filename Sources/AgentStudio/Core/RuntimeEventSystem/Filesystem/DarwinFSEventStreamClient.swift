@@ -9,12 +9,15 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
     private let eventsContinuation: AsyncStream<FSEventBatch>.Continuation
     private let maximumRetainedOverflowPathsPerRegistration: Int
     private let overflowHandler: @Sendable (UUID) -> Void
+    private let performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
     private var overflowRecoveryByWorktreeId: [UUID: FSEventOverflowRecovery] = [:]
 
     package init(
         capacity: Int,
         maximumRetainedOverflowPathsPerRegistration: Int =
             AppPolicies.FilesystemIngress.maximumRetainedOverflowPathsPerRegistration,
+        performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator =
+            DarwinFSEventIngressPerformanceAccumulator(),
         overflowHandler: @escaping @Sendable (UUID) -> Void = { _ in }
     ) {
         precondition(capacity > 0)
@@ -27,6 +30,7 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         eventsContinuation = continuation
         self.maximumRetainedOverflowPathsPerRegistration =
             maximumRetainedOverflowPathsPerRegistration
+        self.performanceAccumulator = performanceAccumulator
         self.overflowHandler = overflowHandler
     }
 
@@ -34,17 +38,38 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         eventsStream
     }
 
-    package func yield(_ batch: FSEventBatch) {
+    package func yield(
+        _ batch: FSEventBatch,
+        source: DarwinFSEventIngressSource = .local
+    ) {
         lock.withLock {
             switch eventsContinuation.yield(batch) {
             case .enqueued:
-                break
+                performanceAccumulator.recordIngress(
+                    source: source,
+                    disposition: .accepted,
+                    pathCount: batch.paths.count
+                )
             case .dropped(let droppedBatch):
+                performanceAccumulator.recordIngress(
+                    source: source,
+                    disposition: .dropped,
+                    pathCount: droppedBatch.paths.count
+                )
                 retainOverflowRecovery(droppedBatch)
                 overflowHandler(droppedBatch.worktreeId)
             case .terminated:
-                break
+                performanceAccumulator.recordIngress(
+                    source: source,
+                    disposition: .terminated,
+                    pathCount: batch.paths.count
+                )
             @unknown default:
+                performanceAccumulator.recordIngress(
+                    source: source,
+                    disposition: .dropped,
+                    pathCount: batch.paths.count
+                )
                 retainOverflowRecovery(batch)
                 overflowHandler(batch.worktreeId)
             }
@@ -54,9 +79,15 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
     package func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] {
         lock.withLock {
             defer { overflowRecoveryByWorktreeId.removeAll(keepingCapacity: true) }
-            return overflowRecoveryByWorktreeId.values.sorted {
+            let recoveries = overflowRecoveryByWorktreeId.values.sorted {
                 $0.worktreeId.uuidString < $1.worktreeId.uuidString
             }
+            performanceAccumulator.recordOverflowDrain(
+                recoveryCount: recoveries.count,
+                retainedPathCount: recoveries.reduce(0) { $0 + ($1.paths?.count ?? 0) },
+                coarseRecoveryCount: recoveries.count(where: { $0.paths == nil })
+            )
+            return recoveries
         }
     }
 
@@ -164,6 +195,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             changedPaths.append(path)
             rawEvents.append((path: path, eventId: ids[index], flags: flags[index]))
         }
+        client.ingressPerformanceAccumulator.recordLocalRawCallback(eventCount: rawEvents.count)
         client.emitRawEvents(
             worktreeId: context.worktreeId,
             lifecycleGeneration: context.lifecycleGeneration,
@@ -181,6 +213,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
     private let ingressBuffer: DarwinFSEventIngressBuffer
     private let continuityLedger: GitCleanContinuityLedger
     private let sharedExactItemObserverRegistry: DarwinSharedExactItemObserverRegistry
+    private let ingressPerformanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
 
     package init(
         bufferedFineBatchCapacity: Int = AppPolicies.FilesystemIngress.bufferedFineBatchCapacity,
@@ -188,14 +221,17 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             DarwinSharedExactItemNativeStream.start
     ) {
         let continuityLedger = GitCleanContinuityLedger()
+        let ingressPerformanceAccumulator = DarwinFSEventIngressPerformanceAccumulator()
         let ingressBuffer = DarwinFSEventIngressBuffer(
             capacity: bufferedFineBatchCapacity,
+            performanceAccumulator: ingressPerformanceAccumulator,
             overflowHandler: { worktreeId in
                 continuityLedger.markUncertain(registrationId: worktreeId)
             }
         )
         self.continuityLedger = continuityLedger
         self.ingressBuffer = ingressBuffer
+        self.ingressPerformanceAccumulator = ingressPerformanceAccumulator
         sharedExactItemObserverRegistry = DarwinSharedExactItemObserverRegistry(
             streamFactory: sharedExactItemStreamFactory,
             recordRawEvents: { worktreeId, events in
@@ -207,15 +243,17 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             markUncertain: { worktreeId in
                 continuityLedger.markUncertain(registrationId: worktreeId)
             },
-            yieldFullGitRefresh: { worktreeId in
+            yieldFullGitRefresh: { worktreeId, source in
                 ingressBuffer.yield(
                     FSEventBatch(
                         worktreeId: worktreeId,
                         paths: [],
                         requiresFullGitRefresh: true
-                    )
+                    ),
+                    source: source
                 )
-            }
+            },
+            performanceAccumulator: ingressPerformanceAccumulator
         )
     }
 
@@ -229,6 +267,10 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
 
     package func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] {
         ingressBuffer.consumeOverflowRecoveries()
+    }
+
+    package func snapshotAndResetIngressPerformance() -> DarwinFSEventIngressPerformanceSnapshot {
+        ingressPerformanceAccumulator.snapshotAndReset()
     }
 
     package func register(worktreeId: UUID, repoId _: UUID, rootPath: URL) {

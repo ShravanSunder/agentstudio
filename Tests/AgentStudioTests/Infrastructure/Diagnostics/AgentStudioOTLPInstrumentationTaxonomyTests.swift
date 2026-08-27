@@ -265,4 +265,48 @@ struct AgentStudioOTLPInstrumentationTaxonomyTests {
         #expect(projection.attributes["agentstudio.performance.filesystem.stage"] == nil)
         #expect(projection.attributes["agentstudio.performance.filesystem.outcome"] == nil)
     }
+
+    @Test("filesystem ingress snapshot exports only explicit numeric attribution")
+    func filesystemIngressSnapshotExportsOnlyExplicitNumericAttribution() {
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 4,
+                severityText: .info,
+                body: "performance.filesystem.ingress_snapshot",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.trace.tag": .string("performance"),
+                    "agentstudio.performance.filesystem.ingress.local_raw_callback.batch.count": .int(3),
+                    "agentstudio.performance.filesystem.ingress.shared_exact.accepted.batch.count": .int(5),
+                    "agentstudio.performance.filesystem.ingress.overflow.recovery.count": .int(7),
+                    "agentstudio.performance.filesystem.ingress.raw_path": .string("/private/repository"),
+                    "agentstudio.performance.filesystem.ingress.worktree_id": .string(
+                        UUIDv7.generate().uuidString
+                    ),
+                ]
+            )
+        )
+
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.filesystem.ingress.local_raw_callback.batch.count"
+            ] == .int(3)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.filesystem.ingress.shared_exact.accepted.batch.count"
+            ] == .int(5)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.filesystem.ingress.overflow.recovery.count"
+            ] == .int(7)
+        )
+        #expect(projection.attributes["agentstudio.performance.filesystem.ingress.raw_path"] == nil)
+        #expect(projection.attributes["agentstudio.performance.filesystem.ingress.worktree_id"] == nil)
+    }
 }

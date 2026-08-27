@@ -323,6 +323,48 @@ struct DarwinFSEventStreamClientTests {
         ingressBuffer.finish()
     }
 
+    @Test("ingress buffer attributes dispositions and overflow drains by bounded source")
+    func ingressBufferAttributesDispositionsAndOverflowDrains() {
+        let accumulator = DarwinFSEventIngressPerformanceAccumulator()
+        let ingressBuffer = DarwinFSEventIngressBuffer(
+            capacity: 1,
+            performanceAccumulator: accumulator
+        )
+        let retainedWorktreeId = UUIDv7.generate()
+        let overflowedWorktreeId = UUIDv7.generate()
+
+        ingressBuffer.yield(
+            FSEventBatch(worktreeId: retainedWorktreeId, paths: ["retained"]),
+            source: .local
+        )
+        ingressBuffer.yield(
+            FSEventBatch(worktreeId: overflowedWorktreeId, paths: ["dropped"]),
+            source: .sharedExact
+        )
+        _ = ingressBuffer.consumeOverflowRecoveries()
+        ingressBuffer.finish()
+        ingressBuffer.yield(
+            FSEventBatch(
+                worktreeId: overflowedWorktreeId,
+                paths: [],
+                requiresFullGitRefresh: true
+            ),
+            source: .sharedUncertainty
+        )
+
+        let snapshot = accumulator.snapshotAndReset()
+        #expect(snapshot.localIngress.acceptedBatchCount == 1)
+        #expect(snapshot.localIngress.acceptedPathCount == 1)
+        #expect(snapshot.sharedExactIngress.droppedBatchCount == 1)
+        #expect(snapshot.sharedExactIngress.droppedPathCount == 1)
+        #expect(snapshot.sharedUncertaintyIngress.terminatedBatchCount == 1)
+        #expect(snapshot.sharedUncertaintyIngress.terminatedPathCount == 0)
+        #expect(snapshot.overflowDrainCount == 1)
+        #expect(snapshot.overflowRecoveryCount == 1)
+        #expect(snapshot.overflowRetainedPathCount == 1)
+        #expect(snapshot.overflowCoarseRecoveryCount == 0)
+    }
+
     @Test("overflow recovery preserves known path scope")
     func overflowRecoveryPreservesKnownPathScope() throws {
         let ingressBuffer = DarwinFSEventIngressBuffer(capacity: 1)
@@ -533,6 +575,24 @@ struct DarwinFSEventStreamClientTests {
         let worktreeId = UUIDv7.generate()
         let repositoryId = UUIDv7.generate()
         client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: fixtureRoot)
+        let readinessSentinelPath = fixtureRoot.appending(path: "native-stream-ready.sentinel")
+        let canonicalReadinessSentinelPath = DarwinFSEventPathCanonicalizer.canonicalURL(
+            readinessSentinelPath
+        ).path
+        let readinessBatchTask = Task<FSEventBatch?, Never> {
+            for await batch in client.events() {
+                if batch.worktreeId == worktreeId,
+                    batch.paths.contains(canonicalReadinessSentinelPath)
+                {
+                    return batch
+                }
+            }
+            return nil
+        }
+        try Data("ready".utf8).write(to: readinessSentinelPath)
+        _ = try #require(
+            await firstCompletedValue(from: readinessBatchTask, timeout: .seconds(5))
+        )
         let observationPlan = AgentStudioGit.GitStatusObservationPlan(
             identity: AgentStudioGit.GitStatusObservationIdentity(rawValue: "local-root-change"),
             scopes: [

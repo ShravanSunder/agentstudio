@@ -133,6 +133,65 @@ struct DarwinSharedExactItemObserverTests {
         fixture.registry.shutdown()
     }
 
+    @Test("shared callbacks attribute bounded exact and uncertainty fanout")
+    func sharedCallbacksAttributeExactAndUncertaintyFanout() throws {
+        let parentKey = makeSharedParentKey("attribution-parent")
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+        let fixture = makeSharedExactItemFixture()
+
+        #expect(
+            bind(
+                fixture.registry,
+                worktreeId: firstWorktreeId,
+                parentKey: parentKey,
+                itemName: "configuration"
+            )
+        )
+        #expect(
+            bind(
+                fixture.registry,
+                worktreeId: secondWorktreeId,
+                parentKey: parentKey,
+                itemName: "configuration"
+            )
+        )
+        let generation = try #require(fixture.registry.snapshot().generationByParent[parentKey])
+
+        receive(
+            fixture.registry,
+            parentKey: parentKey,
+            streamGeneration: generation,
+            path: "\(parentKey.parentPath)/configuration",
+            eventId: 91
+        )
+        let exactSnapshot = fixture.performanceAccumulator.snapshotAndReset()
+        #expect(exactSnapshot.sharedRawCallbackBatchCount == 1)
+        #expect(exactSnapshot.sharedRawCallbackEventCount == 1)
+        #expect(exactSnapshot.sharedExactSubscriberCount == 2)
+        #expect(exactSnapshot.sharedUncertaintySubscriberCount == 0)
+        #expect(exactSnapshot.sharedFullRefreshEmissionCount == 2)
+        #expect(fixture.effectRecorder.fullGitRefreshSources == [.sharedExact, .sharedExact])
+
+        fixture.effectRecorder.reset()
+        receive(
+            fixture.registry,
+            parentKey: parentKey,
+            streamGeneration: generation,
+            path: "\(parentKey.parentPath)/unrelated",
+            eventId: 92,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+        )
+        let uncertaintySnapshot = fixture.performanceAccumulator.snapshotAndReset()
+        #expect(uncertaintySnapshot.sharedRawCallbackBatchCount == 1)
+        #expect(uncertaintySnapshot.sharedRawCallbackEventCount == 1)
+        #expect(uncertaintySnapshot.sharedExactSubscriberCount == 0)
+        #expect(uncertaintySnapshot.sharedUncertaintySubscriberCount == 2)
+        #expect(uncertaintySnapshot.sharedFullRefreshEmissionCount == 2)
+        #expect(fixture.effectRecorder.fullGitRefreshSources == [.sharedUncertainty, .sharedUncertainty])
+        fixture.registry.shutdown()
+    }
+
     @Test("shared exact observer uses one parent stream for 148 dependent plans")
     func sharedExactObserverContractsSharedParentTopology() {
         let parentKey = makeSharedParentKey()
@@ -165,7 +224,8 @@ struct DarwinSharedExactItemObserverTests {
         let streamFactory = RecordingSharedExactItemStreamFactory(startsSuccessfully: false)
         let registry = makeSharedExactItemRegistry(
             effectRecorder: effectRecorder,
-            streamFactory: streamFactory
+            streamFactory: streamFactory,
+            performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator()
         )
 
         #expect(
@@ -405,30 +465,31 @@ struct DarwinSharedExactItemObserverTests {
 
     private func makeSharedExactItemRegistry(
         effectRecorder: SharedExactItemEffectRecorder,
-        streamFactory: RecordingSharedExactItemStreamFactory
+        streamFactory: RecordingSharedExactItemStreamFactory,
+        performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
     ) -> DarwinSharedExactItemObserverRegistry {
         DarwinSharedExactItemObserverRegistry(
             streamFactory: streamFactory.makeStream,
             recordRawEvents: effectRecorder.recordRawEvents,
             markUncertain: effectRecorder.markUncertain,
-            yieldFullGitRefresh: effectRecorder.yieldFullGitRefresh
+            yieldFullGitRefresh: effectRecorder.yieldFullGitRefresh,
+            performanceAccumulator: performanceAccumulator
         )
     }
 
-    private func makeSharedExactItemFixture() -> (
-        registry: DarwinSharedExactItemObserverRegistry,
-        effectRecorder: SharedExactItemEffectRecorder,
-        streamFactory: RecordingSharedExactItemStreamFactory
-    ) {
+    private func makeSharedExactItemFixture() -> SharedExactItemFixture {
         let effectRecorder = SharedExactItemEffectRecorder()
         let streamFactory = RecordingSharedExactItemStreamFactory()
-        return (
+        let performanceAccumulator = DarwinFSEventIngressPerformanceAccumulator()
+        return SharedExactItemFixture(
             registry: makeSharedExactItemRegistry(
                 effectRecorder: effectRecorder,
-                streamFactory: streamFactory
+                streamFactory: streamFactory,
+                performanceAccumulator: performanceAccumulator
             ),
             effectRecorder: effectRecorder,
-            streamFactory: streamFactory
+            streamFactory: streamFactory,
+            performanceAccumulator: performanceAccumulator
         )
     }
 
@@ -477,6 +538,13 @@ struct DarwinSharedExactItemObserverTests {
     }
 }
 
+private struct SharedExactItemFixture {
+    let registry: DarwinSharedExactItemObserverRegistry
+    let effectRecorder: SharedExactItemEffectRecorder
+    let streamFactory: RecordingSharedExactItemStreamFactory
+    let performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
+}
+
 private enum SharedExactItemRecordedAction: Equatable {
     case mutation(worktreeId: UUID, eventIds: [FSEventStreamEventId])
     case uncertain(worktreeId: UUID)
@@ -486,6 +554,7 @@ private enum SharedExactItemRecordedAction: Equatable {
 private final class SharedExactItemEffectRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var recordedActions: [SharedExactItemRecordedAction] = []
+    private var recordedFullGitRefreshSources: [DarwinFSEventIngressSource] = []
 
     var actions: [SharedExactItemRecordedAction] {
         lock.withLock { recordedActions }
@@ -503,6 +572,10 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
             guard case .fullGitRefresh(let worktreeId) = action else { return nil }
             return worktreeId
         }
+    }
+
+    var fullGitRefreshSources: [DarwinFSEventIngressSource] {
+        lock.withLock { recordedFullGitRefreshSources }
     }
 
     func recordRawEvents(
@@ -526,15 +599,17 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
         }
     }
 
-    func yieldFullGitRefresh(worktreeId: UUID) {
+    func yieldFullGitRefresh(worktreeId: UUID, source: DarwinFSEventIngressSource) {
         lock.withLock {
             recordedActions.append(.fullGitRefresh(worktreeId: worktreeId))
+            recordedFullGitRefreshSources.append(source)
         }
     }
 
     func reset() {
         lock.withLock {
             recordedActions.removeAll(keepingCapacity: true)
+            recordedFullGitRefreshSources.removeAll(keepingCapacity: true)
         }
     }
 }

@@ -180,7 +180,8 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     private let streamFactory: DarwinSharedExactItemStreamFactory
     private let recordRawEvents: @Sendable (UUID, [DarwinFSEventClassifiedRawEvent]) -> Void
     private let markUncertain: @Sendable (UUID) -> Void
-    private let yieldFullGitRefresh: @Sendable (UUID) -> Void
+    private let yieldFullGitRefresh: @Sendable (UUID, DarwinFSEventIngressSource) -> Void
+    private let performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
     private var nextStreamGeneration: UInt64 = 0
     private var observerByParent: [DarwinSharedExactItemParentKey: ObserverState] = [:]
     private var exactItemsByParentByWorktreeId: [UUID: [DarwinSharedExactItemParentKey: Set<String>]] = [:]
@@ -197,12 +198,14 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                 [DarwinFSEventClassifiedRawEvent]
             ) -> Void,
         markUncertain: @escaping @Sendable (UUID) -> Void,
-        yieldFullGitRefresh: @escaping @Sendable (UUID) -> Void
+        yieldFullGitRefresh: @escaping @Sendable (UUID, DarwinFSEventIngressSource) -> Void,
+        performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
     ) {
         self.streamFactory = streamFactory
         self.recordRawEvents = recordRawEvents
         self.markUncertain = markUncertain
         self.yieldFullGitRefresh = yieldFullGitRefresh
+        self.performanceAccumulator = performanceAccumulator
     }
 
     package func bind(
@@ -430,6 +433,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         rawEvents: [DarwinSharedExactItemRawEvent]
     ) {
         guard !rawEvents.isEmpty else { return }
+        performanceAccumulator.recordSharedRawCallback(eventCount: rawEvents.count)
 
         lifecycleCondition.lock()
         guard !hasShutdown,
@@ -442,7 +446,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
 
         var mutationEventsByWorktreeId: [UUID: [DarwinFSEventClassifiedRawEvent]] = [:]
         var uncertainWorktreeIds: Set<UUID> = []
-        var fullGitRefreshWorktreeIds: Set<UUID> = []
+        var exactSubscriberWorktreeIds: Set<UUID> = []
         var shouldRetireObserver = false
         let dependentWorktreeIds = Set(
             observer.exactPathsByWorktreeId.keys.filter {
@@ -467,7 +471,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                     )
                 )
             }
-            fullGitRefreshWorktreeIds.formUnion(exactSubscribers)
+            exactSubscriberWorktreeIds.formUnion(exactSubscribers)
 
             let hasUncertainFlags = rawEvent.flags & Self.uncertaintyFlags != 0
             let hasAmbiguousAncestorCoverage = observer.worktreeIdsByExactPath.keys.contains { exactPath in
@@ -475,7 +479,6 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             }
             if hasUncertainFlags || cursorRegressed || hasAmbiguousAncestorCoverage {
                 uncertainWorktreeIds.formUnion(dependentWorktreeIds)
-                fullGitRefreshWorktreeIds.formUnion(dependentWorktreeIds)
             }
             if rawEvent.flags
                 & FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged) != 0
@@ -492,6 +495,13 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         }
         lifecycleCondition.unlock()
 
+        let fullGitRefreshWorktreeIds = exactSubscriberWorktreeIds.union(uncertainWorktreeIds)
+        performanceAccumulator.recordSharedFanout(
+            exactSubscriberCount: exactSubscriberWorktreeIds.count,
+            uncertaintySubscriberCount: uncertainWorktreeIds.count,
+            fullRefreshEmissionCount: fullGitRefreshWorktreeIds.count
+        )
+
         for worktreeId in mutationEventsByWorktreeId.keys.sorted(by: Self.sortWorktreeIds) {
             guard let events = mutationEventsByWorktreeId[worktreeId] else { continue }
             recordRawEvents(worktreeId, events)
@@ -500,7 +510,10 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             markUncertain(worktreeId)
         }
         for worktreeId in fullGitRefreshWorktreeIds.sorted(by: Self.sortWorktreeIds) {
-            yieldFullGitRefresh(worktreeId)
+            yieldFullGitRefresh(
+                worktreeId,
+                uncertainWorktreeIds.contains(worktreeId) ? .sharedUncertainty : .sharedExact
+            )
         }
         if let retiredStreamLifetime {
             retiredStreamLifetime.retire()
