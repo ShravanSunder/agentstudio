@@ -342,6 +342,83 @@ struct DarwinFSEventStreamClientTests {
         ingressBuffer.finish()
     }
 
+    @Test("overflow recovery preserves path-free full Git invalidation")
+    func overflowRecoveryPreservesPathFreeFullGitInvalidation() throws {
+        let ingressBuffer = DarwinFSEventIngressBuffer(capacity: 1)
+        let retainedWorktreeId = UUIDv7.generate()
+        let overflowedWorktreeId = UUIDv7.generate()
+
+        ingressBuffer.yield(FSEventBatch(worktreeId: retainedWorktreeId, paths: ["retained"]))
+        ingressBuffer.yield(
+            FSEventBatch(
+                worktreeId: overflowedWorktreeId,
+                paths: [],
+                requiresFullGitRefresh: true
+            )
+        )
+        ingressBuffer.yield(
+            FSEventBatch(worktreeId: overflowedWorktreeId, paths: ["Sources/Later.swift"])
+        )
+        let isolatedWorktreeId = UUIDv7.generate()
+        ingressBuffer.yield(
+            FSEventBatch(worktreeId: isolatedWorktreeId, paths: ["Sources/Isolated.swift"])
+        )
+
+        let recoveries = ingressBuffer.consumeOverflowRecoveries()
+        let recovery = try #require(recoveries.first { $0.worktreeId == overflowedWorktreeId })
+        #expect(recovery.worktreeId == overflowedWorktreeId)
+        #expect(recovery.paths == ["Sources/Later.swift"])
+        #expect(recovery.requiresFullGitRefresh)
+        let isolatedRecovery = try #require(recoveries.first { $0.worktreeId == isolatedWorktreeId })
+        #expect(!isolatedRecovery.requiresFullGitRefresh)
+        ingressBuffer.finish()
+    }
+
+    @Test("binding plan shares external exact-item parents without broadening local streams")
+    func bindingPlanSeparatesSharedExternalExactItems() throws {
+        let worktreeRoot = URL(fileURLWithPath: "/private/tmp/project/repo")
+        let commonRefsRoot = URL(fileURLWithPath: "/private/tmp/project/common/refs")
+        let externalParent = URL(fileURLWithPath: "/Users/example")
+        let configurationPath = externalParent.appending(path: ".gitconfig")
+        let ignorePath = externalParent.appending(path: ".gitignore-global")
+        let scopes = [
+            AgentStudioGit.GitStatusObservationScope(kind: .subtree, path: worktreeRoot),
+            AgentStudioGit.GitStatusObservationScope(kind: .subtree, path: commonRefsRoot),
+            AgentStudioGit.GitStatusObservationScope(
+                kind: .item,
+                path: worktreeRoot.appending(path: ".git/HEAD")
+            ),
+            AgentStudioGit.GitStatusObservationScope(
+                kind: .item,
+                path: commonRefsRoot.appending(path: "heads/main")
+            ),
+            AgentStudioGit.GitStatusObservationScope(kind: .item, path: configurationPath),
+            AgentStudioGit.GitStatusObservationScope(kind: .item, path: ignorePath),
+        ]
+
+        let plans = (0..<148).compactMap { _ in
+            DarwinFSEventBindingPlanner.plan(
+                scopes: scopes,
+                volumeSystemNumberForPath: { _ in 1 }
+            )
+        }
+        let sharedParentKeys = Set(plans.flatMap { $0.sharedExactItemsByParent.keys })
+        let plan = try #require(plans.first)
+
+        #expect(plans.count == 148)
+        #expect(sharedParentKeys.count == 1)
+        #expect(plan.localWatchedPaths == [commonRefsRoot.path, worktreeRoot.path])
+        #expect(plan.localScopes.count == 4)
+        #expect(plan.sharedExactItemsByParent.count == 1)
+        #expect(
+            plan.sharedExactItemsByParent.values.first == Set([configurationPath.path, ignorePath.path])
+        )
+        #expect(
+            plan.localScopes.count
+                + plan.sharedExactItemsByParent.values.reduce(0) { $0 + $1.count } == scopes.count
+        )
+    }
+
     @Test("overflow recovery becomes coarse when retained path scope exceeds its bound")
     func overflowRecoveryBecomesCoarseWhenScopeExceedsBound() throws {
         let ingressBuffer = DarwinFSEventIngressBuffer(

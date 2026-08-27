@@ -68,7 +68,9 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
                 worktreeId: batch.worktreeId,
                 paths: nil,
                 containsGitTopologyPath: existing.containsGitTopologyPath
-                    || batchContainsGitTopologyPath
+                    || batchContainsGitTopologyPath,
+                requiresFullGitRefresh: existing.requiresFullGitRefresh
+                    || batch.requiresFullGitRefresh
             )
             return
         }
@@ -77,6 +79,9 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         let containsGitTopologyPath =
             existing?.containsGitTopologyPath == true
             || batchContainsGitTopologyPath
+        let requiresFullGitRefresh =
+            existing?.requiresFullGitRefresh == true
+            || batch.requiresFullGitRefresh
         for path in batch.paths {
             if retainedPaths.count >= maximumRetainedOverflowPathsPerRegistration,
                 !retainedPaths.contains(path)
@@ -84,7 +89,8 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
                 overflowRecoveryByWorktreeId[batch.worktreeId] = FSEventOverflowRecovery(
                     worktreeId: batch.worktreeId,
                     paths: nil,
-                    containsGitTopologyPath: containsGitTopologyPath
+                    containsGitTopologyPath: containsGitTopologyPath,
+                    requiresFullGitRefresh: requiresFullGitRefresh
                 )
                 return
             }
@@ -93,7 +99,8 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         overflowRecoveryByWorktreeId[batch.worktreeId] = FSEventOverflowRecovery(
             worktreeId: batch.worktreeId,
             paths: retainedPaths,
-            containsGitTopologyPath: containsGitTopologyPath
+            containsGitTopologyPath: containsGitTopologyPath,
+            requiresFullGitRefresh: requiresFullGitRefresh
         )
     }
 

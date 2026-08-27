@@ -208,7 +208,11 @@ package actor FilesystemActor {
 
     /// Test seam for deterministic ingress without OS-level FSEvents.
     package func enqueueRawPaths(worktreeId: UUID, paths: [String]) async {
-        await ingestRawPaths(worktreeId: worktreeId, paths: paths)
+        await ingestRawPaths(
+            worktreeId: worktreeId,
+            paths: paths,
+            requiresFullGitRefresh: false
+        )
     }
 
     package func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
@@ -294,6 +298,7 @@ package actor FilesystemActor {
     private func ingestRawPaths(
         worktreeId: UUID,
         paths: [String],
+        requiresFullGitRefresh: Bool,
         shouldScheduleAndRecord: Bool = true
     ) async {
         guard !hasBegunShutdown else { return }
@@ -303,7 +308,14 @@ package actor FilesystemActor {
             )
             return
         }
-        guard !paths.isEmpty else { return }
+        guard !paths.isEmpty || requiresFullGitRefresh else { return }
+
+        if requiresFullGitRefresh {
+            var pendingChanges = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
+            pendingChanges.containsGitInternalChanges = true
+            pendingChanges.recordPendingChange(at: schedulingClock.now())
+            pendingChangesByWorktreeId[worktreeId] = pendingChanges
+        }
 
         for rawPath in paths {
             guard let ownedPath = rootOwnership.route(sourceWorktreeId: worktreeId, rawPath: rawPath)
@@ -371,6 +383,7 @@ package actor FilesystemActor {
                     await self.ingestRawPaths(
                         worktreeId: batch.worktreeId,
                         paths: batch.paths,
+                        requiresFullGitRefresh: batch.requiresFullGitRefresh,
                         shouldScheduleAndRecord: false
                     )
                 }
@@ -416,6 +429,7 @@ package actor FilesystemActor {
                     await ingestRawPaths(
                         worktreeId: recovery.worktreeId,
                         paths: batch.paths,
+                        requiresFullGitRefresh: recovery.requiresFullGitRefresh,
                         shouldScheduleAndRecord: false
                     )
                 }
@@ -431,6 +445,9 @@ package actor FilesystemActor {
             }
             guard pendingChangesByWorktreeId[recovery.worktreeId] != nil else { continue }
             var pendingChanges = pendingChangesByWorktreeId[recovery.worktreeId] ?? PendingWorktreeChanges()
+            if recovery.requiresFullGitRefresh {
+                pendingChanges.containsGitInternalChanges = true
+            }
             pendingChanges.projectedPaths.insert(".")
             pendingChanges.recordPendingChange(at: schedulingClock.now())
             pendingChangesByWorktreeId[recovery.worktreeId] = pendingChanges

@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -6,6 +7,73 @@ import Testing
 
 @Suite(.serialized)
 struct FilesystemActorFilteringTests {
+    @Test("path-free full Git invalidation reaches the existing debounced changeset path")
+    func pathFreeFullGitInvalidationReachesExistingDebounce() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let fseventStreamClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fseventStreamClient,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+        let worktreeId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/full-git-invalidation-\(worktreeId.uuidString)")
+        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        var iterator = stream.makeAsyncIterator()
+        fseventStreamClient.send(
+            FSEventBatch(
+                worktreeId: worktreeId,
+                paths: [],
+                requiresFullGitRefresh: true
+            )
+        )
+
+        let envelope = try #require(await iterator.next())
+        let changeset = try #require(filesChangedChangeset(from: envelope))
+        #expect(changeset.worktreeId == worktreeId)
+        #expect(changeset.paths.isEmpty)
+        #expect(changeset.containsGitInternalChanges)
+
+        await actor.shutdown()
+    }
+
+    @Test("path-free full Git overflow recovery retains its scope through admission")
+    func pathFreeFullGitOverflowRecoveryRetainsScope() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let fseventStreamClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fseventStreamClient,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+        let worktreeId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/full-git-overflow-\(worktreeId.uuidString)")
+        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        var iterator = stream.makeAsyncIterator()
+        fseventStreamClient.sendOverflowRecovery(
+            worktreeId: worktreeId,
+            paths: [],
+            requiresFullGitRefresh: true
+        )
+        fseventStreamClient.send(
+            FSEventBatch(worktreeId: worktreeId, paths: ["Sources/App.swift"])
+        )
+
+        let envelope = try #require(await iterator.next())
+        let changeset = try #require(filesChangedChangeset(from: envelope))
+        #expect(changeset.worktreeId == worktreeId)
+        #expect(changeset.paths == ["Sources/App.swift"])
+        #expect(changeset.containsGitInternalChanges)
+
+        await actor.shutdown()
+    }
+
     @Test("git internal paths are suppressed from projection payload and annotated for downstream sinks")
     func gitInternalPathsAreSuppressedFromProjectionPayload() async throws {
         let bus = EventBus<RuntimeEnvelope>()

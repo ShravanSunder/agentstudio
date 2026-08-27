@@ -43,7 +43,8 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
     package func sendOverflowRecovery(
         worktreeId: UUID,
         paths: Set<String>? = nil,
-        containsGitTopologyPath: Bool = false
+        containsGitTopologyPath: Bool = false,
+        requiresFullGitRefresh: Bool = false
     ) {
         lock.withLock {
             let existing = overflowRecoveryByWorktreeId[worktreeId]
@@ -54,7 +55,9 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
                 worktreeId: worktreeId,
                 paths: existing?.paths == nil && existing != nil ? nil : mergedPaths,
                 containsGitTopologyPath: existing?.containsGitTopologyPath == true
-                    || containsGitTopologyPath
+                    || containsGitTopologyPath,
+                requiresFullGitRefresh: existing?.requiresFullGitRefresh == true
+                    || requiresFullGitRefresh
             )
         }
     }
