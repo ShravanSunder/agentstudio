@@ -12,6 +12,10 @@ import type {
 	BridgeProductRegistryValue,
 	BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
+import type {
+	BridgeProductMetadataApplicationEvent,
+	BridgeProductMetadataDataFrame,
+} from './bridge-product-metadata-application-protocol.js';
 import {
 	bridgeProductFileMetadataApplicationProtocol,
 	bridgeProductReviewMetadataApplicationProtocol,
@@ -25,7 +29,6 @@ import type {
 	BridgeProductMetadataFrame,
 } from './bridge-product-session-contracts.js';
 import type {
-	BridgeProductSubscriptionEvent,
 	BridgeProductSubscriptionKind,
 	BridgeProductSubscriptionUpdateOptions,
 } from './bridge-product-subscription-contracts.js';
@@ -391,42 +394,54 @@ if (unionSubscription.subscriptionKind === 'review.metadata') {
 	void unionSubscription.update({});
 }
 
-declare const fileMetadataEvent: BridgeProductSubscriptionEvent<'file.metadata'>;
-// @ts-expect-error Review and File subscription events cannot cross-wire.
-const invalidReviewMetadataEvent: BridgeProductSubscriptionEvent<'review.metadata'> =
-	fileMetadataEvent;
-void invalidReviewMetadataEvent;
+declare const fileMetadataFrame: BridgeProductMetadataDataFrame<
+	BridgeProductMetadataApplicationEvent<typeof bridgeProductFileMetadataApplicationProtocol>
+>;
+// @ts-expect-error Review and File subscription frames cannot cross-wire.
+const invalidReviewMetadataFrame: BridgeProductMetadataDataFrame<
+	BridgeProductMetadataApplicationEvent<typeof bridgeProductReviewMetadataApplicationProtocol>
+> = fileMetadataFrame;
+void invalidReviewMetadataFrame;
 
-switch (fileMetadataEvent.eventKind) {
+const fileMetadataFrameIdentity: readonly [string, string | null, number, number] = [
+	fileMetadataFrame.metadataStreamId,
+	fileMetadataFrame.operationCorrelationId,
+	fileMetadataFrame.sourceGeneration,
+	fileMetadataFrame.workerDerivationEpoch,
+];
+void fileMetadataFrameIdentity;
+
+switch (fileMetadataFrame.data.eventKind) {
 	case 'file.sourceAccepted':
-		void fileMetadataEvent.source.sourceId;
+		void fileMetadataFrame.data.source.sourceId;
 		break;
 	case 'file.treeWindow':
-		void fileMetadataEvent.rows;
+		void fileMetadataFrame.data.rows;
 		break;
 	case 'file.treeDelta':
-		void fileMetadataEvent.operations;
+		void fileMetadataFrame.data.operations;
 		break;
 	case 'file.statusPatch':
-		void fileMetadataEvent.patch.patchKind;
+		void fileMetadataFrame.data.patch.patchKind;
 		break;
-	case 'file.descriptorReady':
-		void fileMetadataEvent.availability.availabilityKind;
-		const descriptorEncoding: 'utf-8' | null = fileMetadataEvent.encoding;
-		const descriptorPayloadByteCount: number = fileMetadataEvent.payloadByteCount;
-		const descriptorPayloadLineCount: number = fileMetadataEvent.payloadLineCount;
-		const descriptorTotalLineCount: number | null = fileMetadataEvent.totalLineCount;
+	case 'file.descriptorReady': {
+		void fileMetadataFrame.data.availability.availabilityKind;
+		const descriptorEncoding: 'utf-8' | null = fileMetadataFrame.data.encoding;
+		const descriptorPayloadByteCount: number = fileMetadataFrame.data.payloadByteCount;
+		const descriptorPayloadLineCount: number = fileMetadataFrame.data.payloadLineCount;
+		const descriptorTotalLineCount: number | null = fileMetadataFrame.data.totalLineCount;
 		void descriptorEncoding;
 		void descriptorPayloadByteCount;
 		void descriptorPayloadLineCount;
 		void descriptorTotalLineCount;
 		// @ts-expect-error Descriptor-ready events cannot expose legacy resource carriers.
-		void fileMetadataEvent.resourceUrl;
+		void fileMetadataFrame.data.resourceUrl;
 		// @ts-expect-error Descriptor-ready events no longer expose ambiguous line counts.
-		void fileMetadataEvent.lineCount;
+		void fileMetadataFrame.data.lineCount;
 		break;
+	}
 	case 'file.invalidated':
-		void fileMetadataEvent.replacementDescriptor;
+		void fileMetadataFrame.data.replacementDescriptor;
 		break;
 }
 

@@ -2,28 +2,38 @@ import { expect, test } from 'vitest';
 
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+import type {
+	BridgeProductMetadataApplicationProtocolIdentity,
+	BridgeProductMetadataDataFrame,
+} from './bridge-product-metadata-application-protocol.js';
+import {
+	bridgeProductFileAnnotationMetadataApplicationProtocol,
+	bridgeProductReviewAnnotationMetadataApplicationProtocol,
+} from './bridge-product-metadata-application-registry.js';
+import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import type { BridgeProductWorktreeAnnotationEvent } from './bridge-product-worktree-annotation-contracts.js';
+
+type AnnotationMetadataProtocol =
+	| typeof bridgeProductFileAnnotationMetadataApplicationProtocol
+	| typeof bridgeProductReviewAnnotationMetadataApplicationProtocol;
+type AnnotationMetadataSubscription =
+	BridgeProductMetadataApplicationSubscription<AnnotationMetadataProtocol>;
+type AnnotationMetadataFrame = BridgeProductMetadataDataFrame<BridgeProductWorktreeAnnotationEvent>;
 
 test('opens paired annotation projections once and returns native command correlation', async () => {
-	const fileEvents = new BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'file.annotations'>
-	>(8);
-	const reviewEvents = new BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'review.annotations'>
-	>(8);
+	const fileEvents = new BridgeProductBoundedAsyncQueue<AnnotationMetadataFrame>(8);
+	const reviewEvents = new BridgeProductBoundedAsyncQueue<AnnotationMetadataFrame>(8);
 	const subscribedKinds: string[] = [];
 	const calledMethods: string[] = [];
-	const fileSubscription: BridgeProductSubscription<'file.annotations'> = {
+	const fileSubscription: AnnotationMetadataSubscription = {
 		cancel: async (): Promise<void> => {},
 		events: fileEvents,
 		subscriptionId: 'file-annotations-1',
 		subscriptionKind: 'file.annotations',
 		update: async (): Promise<void> => {},
 	};
-	const reviewSubscription: BridgeProductSubscription<'review.annotations'> = {
+	const reviewSubscription: AnnotationMetadataSubscription = {
 		cancel: async (): Promise<void> => {},
 		events: reviewEvents,
 		subscriptionId: 'review-annotations-1',
@@ -56,17 +66,16 @@ test('opens paired annotation projections once and returns native command correl
 		onFileMetadataEvent: (): void => {},
 		productTransport,
 	});
-	const projectionEvent = {
-		eventKind: 'snapshot.required',
-		operationCorrelationId: 'a'.repeat(64),
-		sourceGeneration: 1,
-		worktreeId: 'worktree-1',
+	const projectionEvent: BridgeProductWorktreeAnnotationEvent = {
+		authority: { applicationSourceGeneration: 1, worktreeId: 'worktree-1' },
+		kind: 'annotation.controlChanged',
+		reason: 'discovery',
 	} as const;
 
 	controller.ensureAnnotationSubscriptions();
 	controller.ensureAnnotationSubscriptions();
-	fileEvents.push(projectionEvent);
-	reviewEvents.push(projectionEvent);
+	fileEvents.push(annotationMetadataFrame(projectionEvent, fileSubscription));
+	reviewEvents.push(annotationMetadataFrame(projectionEvent, reviewSubscription));
 	const fileResult = await controller.sendProductControl({
 		method: 'file.annotations.command',
 		params: { operation: { kind: 'session.discover' } },
@@ -163,5 +172,22 @@ function unusedAnnotationProductTransport(): BridgeProductTransportSession {
 			throw new Error('Unexpected direct subscription.');
 		},
 		workerDerivationEpoch: (): number => 0,
+	};
+}
+
+function annotationMetadataFrame(
+	event: BridgeProductWorktreeAnnotationEvent,
+	subscription: AnnotationMetadataSubscription,
+): AnnotationMetadataFrame {
+	return {
+		data: event,
+		metadataStreamId: 'annotation-metadata-stream',
+		operationCorrelationId: 'a'.repeat(64),
+		sourceGeneration: event.authority.applicationSourceGeneration,
+		streamSequence: 1,
+		subscriptionId: subscription.subscriptionId,
+		subscriptionKind: subscription.subscriptionKind,
+		subscriptionSequence: 1,
+		workerDerivationEpoch: 1,
 	};
 }

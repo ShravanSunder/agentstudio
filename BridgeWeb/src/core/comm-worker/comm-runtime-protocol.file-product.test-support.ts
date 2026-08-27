@@ -2,13 +2,17 @@ import { expect } from 'vitest';
 
 import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	makeReviewMetadataDataFrame,
+	type ReviewMetadataSubscription,
+} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import {
 	createIdleWorktreeAnnotationSubscription,
 	flushBridgeWorkerRuntimeContinuations,
+	makeFileMetadataDataFrame,
+	type FileMetadataSubscription,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type {
 	BridgeProductPanePresentationFrame,
 	BridgeProductTransportSession,
@@ -38,16 +42,16 @@ export function makeFileProductTestTransport(props: {
 	) => void;
 	readonly onSubscribe?: () => void;
 	readonly reviewEvents?: BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'review.metadata'>
+		ReturnType<typeof makeReviewMetadataDataFrame>
 	>;
-	readonly subscription: BridgeProductSubscription<'file.metadata'>;
+	readonly subscription: FileMetadataSubscription;
 }): BridgeProductTransportSession {
 	let fileEpoch = 0;
 	let reviewEpoch = 0;
 	const reviewEvents =
 		props.reviewEvents ??
-		new BridgeProductBoundedAsyncQueue<BridgeProductSubscriptionEvent<'review.metadata'>>(64);
-	const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		new BridgeProductBoundedAsyncQueue<ReturnType<typeof makeReviewMetadataDataFrame>>(64);
+	const reviewSubscription: ReviewMetadataSubscription = {
 		cancel: async (): Promise<void> => {},
 		events: reviewEvents,
 		subscriptionId: 'review-subscription-for-file-runtime-test',
@@ -168,7 +172,7 @@ const currentFileSourceConfiguration = {
 	worktreeId: fileProductTestSource.worktreeId,
 } as const;
 
-export function makeTreeWindowEvent(): BridgeProductSubscriptionEvent<'file.metadata'> {
+export function makeTreeWindowEvent(): Parameters<typeof makeFileMetadataDataFrame>[0] {
 	return {
 		eventKind: 'file.treeWindow',
 		finalWindow: true,
@@ -195,7 +199,7 @@ export function makeTreeWindowEvent(): BridgeProductSubscriptionEvent<'file.meta
 	};
 }
 
-export function makeDescriptorReadyEvent(): BridgeProductSubscriptionEvent<'file.metadata'> {
+export function makeDescriptorReadyEvent(): Parameters<typeof makeFileMetadataDataFrame>[0] {
 	return {
 		availability: {
 			availabilityKind: 'available',

@@ -132,6 +132,7 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 				surface: 'file',
 			};
 		},
+		getCatalogSnapshot: () => ({ kind: 'unknown' }),
 		getServerSnapshot: snapshot,
 		getSnapshot: snapshot,
 		inspectOutput: async () => {

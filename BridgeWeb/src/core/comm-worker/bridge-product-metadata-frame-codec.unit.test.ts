@@ -100,18 +100,25 @@ describe('Bridge product metadata frame decoder', () => {
 		});
 	});
 
-	test('round-trips compact File and Review annotation invalidations through the framed metadata codec', () => {
+	test('round-trips strict File and Review annotation catalog events through the framed metadata codec', () => {
 		const frameIdentity = {
 			metadataStreamId: 'metadata-stream-annotations',
 			paneSessionId: 'pane-session-annotations',
 			wireVersion: 2,
 			workerInstanceId: 'worker-instance-annotations',
 		} as const;
-		const invalidation = {
-			eventKind: 'snapshot.required',
-			operationCorrelationId: 'a'.repeat(64),
-			sourceGeneration: 1,
-			worktreeId: '00000000-0000-7000-8000-000000000001',
+		const catalogBeginEvent = {
+			authority: {
+				applicationSourceGeneration: 1,
+				worktreeId: '00000000-0000-7000-8000-000000000001',
+			},
+			kind: 'annotation.catalog',
+			transfer: {
+				catalogRevision: 1,
+				expectedEntryCount: 0,
+				kind: 'catalog.begin',
+				transferId: 'annotation-catalog-transfer-1',
+			},
 		} as const;
 		const annotationInterestSha256 = 'a'.repeat(64);
 		const frames = [
@@ -119,7 +126,7 @@ describe('Bridge product metadata frame decoder', () => {
 				...frameIdentity,
 				cursor: 'file-annotations-cursor-1',
 				data: {
-					event: invalidation,
+					event: catalogBeginEvent,
 					subscriptionKind: 'file.annotations',
 				},
 				interestRevision: 0,
@@ -138,7 +145,7 @@ describe('Bridge product metadata frame decoder', () => {
 				...frameIdentity,
 				cursor: 'review-annotations-cursor-1',
 				data: {
-					event: invalidation,
+					event: catalogBeginEvent,
 					subscriptionKind: 'review.annotations',
 				},
 				interestRevision: 0,

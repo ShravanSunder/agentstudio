@@ -1,5 +1,8 @@
 import { recordWorktreeAnnotationLifecycleTelemetry } from '../../worktree-annotations/worktree-annotation-lifecycle-telemetry.js';
-import { bridgeCommWorkerAnnotationProjectionConvergenceEvent } from './bridge-comm-worker-annotation-runtime-events.js';
+import {
+	bridgeCommWorkerAnnotationCatalogStagingEvents,
+	bridgeCommWorkerAnnotationProjectionConvergenceEvent,
+} from './bridge-comm-worker-annotation-runtime-events.js';
 import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-clock.js';
 import {
 	createBridgeCommWorkerCommandHandler,
@@ -610,6 +613,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 						? {}
 						: { telemetryClient: props.telemetryClient }),
 				}),
+			onAnnotationCatalog: (publication): void => {
+				for (const message of bridgeCommWorkerAnnotationCatalogStagingEvents(publication)) {
+					port.postMessage(message);
+				}
+			},
 			onAnnotationProjectionConvergence: ({ operationCorrelationId, state, surface }): void => {
 				if (operationCorrelationId !== null && state.kind === 'ready') {
 					for (const phase of [

@@ -15,6 +15,7 @@ import type {
 	BridgeProductMetadataApplicationProtocol,
 	BridgeProductMetadataApplicationProtocolIdentity,
 	BridgeProductMetadataApplicationUpdateOptions,
+	BridgeProductMetadataDataFrame,
 } from './bridge-product-metadata-application-protocol.js';
 import type {
 	BridgeProductSubscriptionEvent,
@@ -49,7 +50,9 @@ export type BridgeProductSubscription<TSubscriptionKind extends BridgeProductSub
 export type BridgeProductMetadataApplicationSubscription<
 	TProtocol extends BridgeProductMetadataApplicationProtocolIdentity,
 > = {
-	readonly events: AsyncIterable<BridgeProductMetadataApplicationEvent<TProtocol>>;
+	readonly events: AsyncIterable<
+		BridgeProductMetadataDataFrame<BridgeProductMetadataApplicationEvent<TProtocol>>
+	>;
 	readonly subscriptionId: string;
 	readonly subscriptionKind: BridgeProductMetadataApplicationKind<TProtocol>;
 	cancel(): Promise<void>;
@@ -98,7 +101,7 @@ export type BridgeProductTransport = {
 		>,
 		options: TOptions,
 	): {
-		readonly events: AsyncIterable<TData['event']>;
+		readonly events: AsyncIterable<BridgeProductMetadataDataFrame<TData['event']>>;
 		readonly subscriptionId: string;
 		readonly subscriptionKind: TKind;
 		cancel(): Promise<void>;

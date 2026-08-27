@@ -388,6 +388,7 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 				publishBridgeProductMetadataStreamDiagnostic(message.diagnostic);
 				break;
 			case 'annotationCommandAccepted':
+			case 'annotationCatalogStaging':
 			case 'annotationOutputInspection':
 			case 'annotationProjectionConvergence':
 			case 'nativeSurfaceSelectionRequest':

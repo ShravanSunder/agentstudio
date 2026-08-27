@@ -31,39 +31,94 @@ describe('Bridge product worktree annotation contracts', () => {
 		expect(bridgeProductWorktreeAnnotationCommandOutcomeSchema.parse(outcome)).toEqual(outcome);
 	});
 
-	test('accepts only the compact snapshot-required invalidation', () => {
-		const event = {
-			eventKind: 'snapshot.required',
-			operationCorrelationId: 'a'.repeat(64),
-			sourceGeneration: 7,
-			worktreeId: '00000000-0000-7000-8000-000000000001',
+	test('accepts the strict catalog, session-change, and control-change metadata events', () => {
+		const authority = {
+			applicationSourceGeneration: 7,
+			worktreeId: 'worktree-1',
 		} as const;
+		const transferId = '01890abc-def0-7abc-8def-012345678900';
+		const events = [
+			{
+				authority,
+				kind: 'annotation.catalog',
+				transfer: {
+					catalogRevision: 7,
+					entries: [
+						{ kind: 'session', semanticRevision: 3, sessionId: lowercaseSessionId },
+						{
+							createdOrdinal: 0,
+							kind: 'thread',
+							scope: 'whole_file',
+							sessionId: lowercaseSessionId,
+							threadId: '01890abc-def0-7abc-8def-012345678902',
+						},
+						{
+							kind: 'message',
+							messageId: '01890abc-def0-7abc-8def-012345678901',
+							ordinal: 0,
+							threadId: '01890abc-def0-7abc-8def-012345678902',
+						},
+					],
+					kind: 'catalog.window',
+					transferId,
+					windowOrdinal: 0,
+				},
+			},
+			{
+				authority,
+				kind: 'annotation.sessionChanged',
+				semanticRevision: 4,
+				sessionId: lowercaseSessionId,
+			},
+			{ authority, kind: 'annotation.controlChanged', reason: 'recovery' },
+		] as const;
 
-		expect(bridgeProductWorktreeAnnotationEventSchema.parse(event)).toEqual(event);
+		for (const event of events) {
+			expect(bridgeProductWorktreeAnnotationEventSchema.parse(event)).toEqual(event);
+		}
 	});
 
-	test('rejects missing, invalid, and unknown invalidation members', () => {
-		const event = {
-			eventKind: 'snapshot.required',
-			operationCorrelationId: 'a'.repeat(64),
-			sourceGeneration: 7,
-			worktreeId: '00000000-0000-7000-8000-000000000001',
+	test('rejects legacy invalidation, unknown members, invalid ranges, and catalog authority mismatch', () => {
+		const authority = {
+			applicationSourceGeneration: 7,
+			worktreeId: 'worktree-1',
 		} as const;
-		const { sourceGeneration: _sourceGeneration, ...missingSourceGeneration } = event;
-		const { worktreeId: _worktreeId, ...missingWorktreeId } = event;
+		const controlChanged = {
+			authority,
+			kind: 'annotation.controlChanged',
+			reason: 'discovery',
+		} as const;
+		const sessionChanged = {
+			authority,
+			kind: 'annotation.sessionChanged',
+			semanticRevision: 3,
+			sessionId: lowercaseSessionId,
+		} as const;
 
 		for (const rejected of [
-			missingSourceGeneration,
-			missingWorktreeId,
-			{ ...event, eventKind: 'projection.state' },
-			{ ...event, eventKind: 'message.batch' },
-			{ ...event, sourceGeneration: -1 },
-			{ ...event, sourceGeneration: Number.MAX_SAFE_INTEGER + 1 },
-			{ ...event, sourceGeneration: 1.5 },
-			{ ...event, worktreeId: '' },
-			{ ...event, worktreeId: 'x'.repeat(129) },
-			{ ...event, worktreeId: 'worktree with spaces' },
-			{ ...event, payload: { body: 'must not enter metadata' } },
+			{
+				eventKind: 'snapshot.required',
+				operationCorrelationId: 'a'.repeat(64),
+				sourceGeneration: 7,
+				worktreeId: authority.worktreeId,
+			},
+			{ ...controlChanged, authority: { ...authority, applicationSourceGeneration: -1 } },
+			{ ...controlChanged, authority: { ...authority, applicationSourceGeneration: 1.5 } },
+			{ ...controlChanged, authority: { ...authority, worktreeId: '' } },
+			{ ...controlChanged, reason: 'unsupported' },
+			{ ...controlChanged, payload: { body: 'must not enter metadata' } },
+			{ ...sessionChanged, semanticRevision: 0 },
+			{ ...sessionChanged, sessionId: 'not-an-annotation-id' },
+			{
+				authority,
+				kind: 'annotation.catalog',
+				transfer: {
+					catalogRevision: 8,
+					expectedEntryCount: 0,
+					kind: 'catalog.begin',
+					transferId: '01890abc-def0-7abc-8def-012345678900',
+				},
+			},
 		] as const) {
 			expect(bridgeProductWorktreeAnnotationEventSchema.safeParse(rejected).success).toBe(false);
 		}

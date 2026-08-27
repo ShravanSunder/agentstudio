@@ -133,6 +133,18 @@ export type BridgeProductMetadataApplicationEvent<
 		? TData['event']
 		: never;
 
+export interface BridgeProductMetadataDataFrame<TData> {
+	readonly data: TData;
+	readonly metadataStreamId: string;
+	readonly operationCorrelationId: string | null;
+	readonly sourceGeneration: number;
+	readonly streamSequence: number;
+	readonly subscriptionId: string;
+	readonly subscriptionKind: string;
+	readonly subscriptionSequence: number;
+	readonly workerDerivationEpoch: number;
+}
+
 export type BridgeProductMetadataApplicationOpen<
 	TProtocol extends BridgeProductMetadataApplicationProtocolIdentity,
 > =

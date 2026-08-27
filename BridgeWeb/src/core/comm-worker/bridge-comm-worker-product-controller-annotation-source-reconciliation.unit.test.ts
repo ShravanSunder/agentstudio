@@ -2,9 +2,24 @@ import { describe, expect, test } from 'vitest';
 
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+import type {
+	BridgeProductMetadataApplicationEvent,
+	BridgeProductMetadataDataFrame,
+} from './bridge-product-metadata-application-protocol.js';
+import {
+	bridgeProductFileMetadataApplicationProtocol,
+	bridgeProductReviewMetadataApplicationProtocol,
+} from './bridge-product-metadata-application-registry.js';
+import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+
+type FileMetadataProtocol = typeof bridgeProductFileMetadataApplicationProtocol;
+type FileMetadataEvent = BridgeProductMetadataApplicationEvent<FileMetadataProtocol>;
+type FileMetadataSubscription = BridgeProductMetadataApplicationSubscription<FileMetadataProtocol>;
+type ReviewMetadataProtocol = typeof bridgeProductReviewMetadataApplicationProtocol;
+type ReviewMetadataEvent = BridgeProductMetadataApplicationEvent<ReviewMetadataProtocol>;
+type ReviewMetadataSubscription =
+	BridgeProductMetadataApplicationSubscription<ReviewMetadataProtocol>;
 
 const currentFileSourceConfiguration = {
 	cwdScope: null,
@@ -108,10 +123,12 @@ describe('Bridge comm worker annotation source reconciliation', () => {
 function fileMetadataSubscription(props: {
 	readonly cancel: () => Promise<void>;
 	readonly subscriptionId: string;
-}): BridgeProductSubscription<'file.metadata'> {
+}): FileMetadataSubscription {
 	return {
 		cancel: props.cancel,
-		events: new BridgeProductBoundedAsyncQueue<BridgeProductSubscriptionEvent<'file.metadata'>>(1),
+		events: new BridgeProductBoundedAsyncQueue<BridgeProductMetadataDataFrame<FileMetadataEvent>>(
+			1,
+		),
 		subscriptionId: props.subscriptionId,
 		subscriptionKind: 'file.metadata',
 		update: async (): Promise<void> => {},
@@ -121,10 +138,10 @@ function fileMetadataSubscription(props: {
 function reviewMetadataSubscription(props: {
 	readonly cancel: () => Promise<void>;
 	readonly subscriptionId: string;
-}): BridgeProductSubscription<'review.metadata'> {
+}): ReviewMetadataSubscription {
 	return {
 		cancel: props.cancel,
-		events: new BridgeProductBoundedAsyncQueue<BridgeProductSubscriptionEvent<'review.metadata'>>(
+		events: new BridgeProductBoundedAsyncQueue<BridgeProductMetadataDataFrame<ReviewMetadataEvent>>(
 			1,
 		),
 		subscriptionId: props.subscriptionId,

@@ -70,6 +70,7 @@ export interface BridgePaneSurfaceClient {
 	readonly subscribeMessages: (
 		listener: (message: BridgeWorkerServerToMainMessage) => void,
 	) => () => void;
+	readonly subscribeWorkerReplacement?: (listener: () => void) => () => void;
 	readonly surface: BridgePaneSurface;
 }
 
@@ -118,6 +119,7 @@ export function createBridgePaneRuntime(
 	const renderFulfillmentCoordinators = new Set<BridgeMainRenderFulfillmentCoordinator>();
 	const renderDispositionAdmissions = new Set<BridgeMainRenderDispositionAdmission>();
 	const renderStores = new Set<BridgeMainRenderSnapshotStore>();
+	const workerReplacementListeners = new Set<() => void>();
 	let isDisposed = false;
 	let nativeBootstrapInstalled = false;
 	let nativeBootstrapReplacementRequested = false;
@@ -181,6 +183,7 @@ export function createBridgePaneRuntime(
 		pendingReplacementReplayEntryByKey = new Map(currentReplacementReplayEntryByKey);
 		latestFileDisplayEpoch = 0;
 		for (const renderStore of renderStores) renderStore.prepareForWorkerReplacement();
+		for (const listener of workerReplacementListeners) listener();
 		for (const coordinator of renderFulfillmentCoordinators) {
 			coordinator.retireWorkerInstance();
 		}
@@ -286,6 +289,12 @@ export function createBridgePaneRuntime(
 			renderStore,
 			send: sendSurfaceCommand,
 			subscribeMessages: rpcClient.subscribe,
+			subscribeWorkerReplacement: (listener): (() => void) => {
+				workerReplacementListeners.add(listener);
+				return (): void => {
+					workerReplacementListeners.delete(listener);
+				};
+			},
 			surface,
 		});
 	}
@@ -324,6 +333,7 @@ export function createBridgePaneRuntime(
 			renderDispositionAdmissions.clear();
 			surfaceClients.clear();
 			renderStores.clear();
+			workerReplacementListeners.clear();
 			dispatcher.dispose();
 			session.dispose();
 		},

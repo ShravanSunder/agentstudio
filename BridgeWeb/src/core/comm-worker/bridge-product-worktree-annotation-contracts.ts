@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
+import { createBridgeMetadataCatalogTransferSchema } from './bridge-metadata-catalog-transfer-contracts.js';
 import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
-	bridgeProductSha256Schema,
 	bridgeProductUnicodeScalarUtf8ByteLength,
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
@@ -393,15 +393,88 @@ export const bridgeProductWorktreeAnnotationMessageEntrySchema = z
 	}))
 	.pipe(bridgeProductWorktreeAnnotationDecodedMessageEntrySchema);
 
-export const bridgeProductWorktreeAnnotationEventSchema = z
+export const bridgeProductWorktreeAnnotationCatalogEntrySchema = z.discriminatedUnion('kind', [
+	z
+		.object({
+			kind: z.literal('session'),
+			semanticRevision: bridgeProductNonnegativeSequenceSchema,
+			sessionId: bridgeProductReviewPublicationIdSchema,
+		})
+		.strict(),
+	z
+		.object({
+			createdOrdinal: bridgeProductNonnegativeSequenceSchema,
+			kind: z.literal('thread'),
+			scope: z.enum(['located', 'whole_file']),
+			sessionId: bridgeProductReviewPublicationIdSchema,
+			threadId: bridgeProductReviewPublicationIdSchema,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('message'),
+			messageId: bridgeProductReviewPublicationIdSchema,
+			ordinal: bridgeProductNonnegativeSequenceSchema,
+			threadId: bridgeProductReviewPublicationIdSchema,
+		})
+		.strict(),
+]);
+
+export const bridgeProductWorktreeAnnotationEventAuthoritySchema = z
 	.object({
-		eventKind: z.literal('snapshot.required'),
-		operationCorrelationId: bridgeProductSha256Schema,
-		sourceGeneration: bridgeProductNonnegativeSequenceSchema,
+		applicationSourceGeneration: bridgeProductNonnegativeSequenceSchema,
 		worktreeId: bridgeProductIdentifierSchema,
 	})
 	.strict();
 
+const bridgeProductWorktreeAnnotationCatalogTransferSchema =
+	createBridgeMetadataCatalogTransferSchema(bridgeProductWorktreeAnnotationCatalogEntrySchema);
+
+const bridgeProductWorktreeAnnotationCatalogEventSchema = z
+	.object({
+		authority: bridgeProductWorktreeAnnotationEventAuthoritySchema,
+		kind: z.literal('annotation.catalog'),
+		transfer: bridgeProductWorktreeAnnotationCatalogTransferSchema,
+	})
+	.strict()
+	.superRefine((event, context) => {
+		if (event.transfer.catalogRevision === event.authority.applicationSourceGeneration) return;
+		context.addIssue({
+			code: 'custom',
+			message: 'Annotation catalog revision must equal its application source generation.',
+			path: ['transfer', 'catalogRevision'],
+		});
+	});
+
+const bridgeProductWorktreeAnnotationSessionChangedEventSchema = z
+	.object({
+		authority: bridgeProductWorktreeAnnotationEventAuthoritySchema,
+		kind: z.literal('annotation.sessionChanged'),
+		semanticRevision: bridgeProductNonnegativeSequenceSchema.positive(),
+		sessionId: bridgeProductReviewPublicationIdSchema,
+	})
+	.strict();
+
+const bridgeProductWorktreeAnnotationControlChangedEventSchema = z
+	.object({
+		authority: bridgeProductWorktreeAnnotationEventAuthoritySchema,
+		kind: z.literal('annotation.controlChanged'),
+		reason: z.enum(['discovery', 'recovery']),
+	})
+	.strict();
+
+export const bridgeProductWorktreeAnnotationEventSchema = z.union([
+	bridgeProductWorktreeAnnotationCatalogEventSchema,
+	bridgeProductWorktreeAnnotationSessionChangedEventSchema,
+	bridgeProductWorktreeAnnotationControlChangedEventSchema,
+]);
+
 export type BridgeProductWorktreeAnnotationEvent = z.infer<
 	typeof bridgeProductWorktreeAnnotationEventSchema
+>;
+export type BridgeProductWorktreeAnnotationCatalogEntry = z.infer<
+	typeof bridgeProductWorktreeAnnotationCatalogEntrySchema
+>;
+export type BridgeProductWorktreeAnnotationEventAuthority = z.infer<
+	typeof bridgeProductWorktreeAnnotationEventAuthoritySchema
 >;

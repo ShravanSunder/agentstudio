@@ -8,7 +8,11 @@ import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worke
 import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
 import { reviewSnapshotWithContentEvent } from './bridge-comm-worker-runtime-protocol.review-product-fixtures.test-support.js';
 import { drainBridgeCommWorkerPreparationUntilIdle } from './bridge-comm-worker-runtime-protocol.review-product-preparation.test-support.js';
-import { makeReviewProductTransport } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import {
+	makeReviewMetadataDataFrame,
+	makeReviewProductTransport,
+	type ReviewMetadataSubscription,
+} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
 	assertBridgeCommWorkerPreparationDrain,
 	activateBridgeCommWorkerReviewViewerMode,
@@ -16,17 +20,15 @@ import {
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+
+type ReviewMetadataDataFrame = ReturnType<typeof makeReviewMetadataDataFrame>;
 
 describe('Bridge comm worker Review product cross-surface lifecycle', () => {
 	test('opens Review content when Review interaction epochs restart after File interaction', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const openedContentKinds: string[] = [];
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'review-subscription-cross-surface-epoch',
@@ -49,7 +51,7 @@ describe('Bridge comm worker Review product cross-surface lifecycle', () => {
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'cross-surface-epoch');
 		await flushBridgeWorkerRuntimeContinuations();
-		events.push(reviewSnapshotWithContentEvent);
+		events.push(makeReviewMetadataDataFrame(reviewSnapshotWithContentEvent));
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(scheduledDrains).toHaveLength(1);
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains.shift())();

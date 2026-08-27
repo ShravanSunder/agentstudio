@@ -5,13 +5,30 @@ import {
 	BridgeProductBoundedAsyncQueue,
 	createBridgeProductDeferred,
 } from './bridge-product-async-queue.js';
+import type {
+	BridgeProductMetadataApplicationEvent,
+	BridgeProductMetadataDataFrame,
+} from './bridge-product-metadata-application-protocol.js';
+import {
+	bridgeProductFileMetadataApplicationProtocol,
+	bridgeProductReviewMetadataApplicationProtocol,
+} from './bridge-product-metadata-application-registry.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT,
-	type BridgeProductSubscriptionEvent,
 	type BridgeProductSubscriptionOptions,
 } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+
+type FileMetadataProtocol = typeof bridgeProductFileMetadataApplicationProtocol;
+type FileMetadataEvent = BridgeProductMetadataApplicationEvent<FileMetadataProtocol>;
+type FileMetadataFrame = BridgeProductMetadataDataFrame<FileMetadataEvent>;
+type FileMetadataSubscription = BridgeProductMetadataApplicationSubscription<FileMetadataProtocol>;
+type ReviewMetadataProtocol = typeof bridgeProductReviewMetadataApplicationProtocol;
+type ReviewMetadataEvent = BridgeProductMetadataApplicationEvent<ReviewMetadataProtocol>;
+type ReviewMetadataFrame = BridgeProductMetadataDataFrame<ReviewMetadataEvent>;
+type ReviewMetadataSubscription =
+	BridgeProductMetadataApplicationSubscription<ReviewMetadataProtocol>;
 
 const source = {
 	repoId: '00000000-0000-4000-8000-000000000001',
@@ -25,16 +42,13 @@ const source = {
 describe('Bridge comm worker product controller', () => {
 	test('opens one Review metadata subscription and reconciles lane interests in the comm worker', async () => {
 		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
-		const updates: Array<Parameters<BridgeProductSubscription<'review.metadata'>['update']>[0]> =
-			[];
-		const observedEvents: BridgeProductSubscriptionEvent<'review.metadata'>[] = [];
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
+		const updates: Array<Parameters<ReviewMetadataSubscription['update']>[0]> = [];
+		const observedEvents: ReviewMetadataEvent[] = [];
 		const observedEpochs: number[] = [];
 		let reviewEpoch = 0;
 		let subscriptionOptions: unknown = null;
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'review-subscription-1',
@@ -93,7 +107,7 @@ describe('Bridge comm worker product controller', () => {
 			revision: 11,
 			sourceIdentity: 'query-1',
 		} as const;
-		events.push(sourceAcceptedEvent);
+		events.push(reviewMetadataFrame(sourceAcceptedEvent));
 		await Promise.resolve();
 
 		// Assert
@@ -119,9 +133,7 @@ describe('Bridge comm worker product controller', () => {
 
 	test('opens one canonical Review subscription for empty interests and keeps it open', async () => {
 		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(1);
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(1);
 		let derivationEpochBumpCount = 0;
 		let subscribeReviewCallCount = 0;
 		let subscriptionOptions: BridgeProductSubscriptionOptions<'review.metadata'> | null = null;
@@ -166,18 +178,14 @@ describe('Bridge comm worker product controller', () => {
 	});
 
 	test('cancels and reopens Review with the same interests after application failure', async () => {
-		const firstEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
-		const secondEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const firstEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
+		const secondEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
 		const subscriptionOptions: BridgeProductSubscriptionOptions<'review.metadata'>[] = [];
 		let cancelCount = 0;
 		let subscriptionCount = 0;
 		let reviewEpoch = 0;
 		const reopened = createBridgeProductDeferred<void>();
-		const subscriptions: readonly BridgeProductSubscription<'review.metadata'>[] = [
+		const subscriptions: readonly ReviewMetadataSubscription[] = [
 			{
 				cancel: async (): Promise<void> => {
 					cancelCount += 1;
@@ -223,15 +231,17 @@ describe('Bridge comm worker product controller', () => {
 			protocol: 'review',
 		});
 
-		firstEvents.push({
-			eventKind: 'review.sourceAccepted',
-			operationCorrelationId: null,
-			generation: 7,
-			packageId: 'package-1',
-			publicationId: '00000000-0000-7000-8000-000000000011',
-			revision: 11,
-			sourceIdentity: 'query-1',
-		});
+		firstEvents.push(
+			reviewMetadataFrame({
+				eventKind: 'review.sourceAccepted',
+				operationCorrelationId: null,
+				generation: 7,
+				packageId: 'package-1',
+				publicationId: '00000000-0000-7000-8000-000000000011',
+				revision: 11,
+				sourceIdentity: 'query-1',
+			}),
+		);
 		await reopened.promise;
 
 		expect(cancelCount).toBe(1);
@@ -243,9 +253,7 @@ describe('Bridge comm worker product controller', () => {
 	});
 
 	test('does not send a Review publication receipt after worker metadata application', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
 		const calls: Array<{ readonly method: string; readonly request: unknown }> = [];
 		const allMetadataApplied = createBridgeProductDeferred<void>();
 		let metadataApplicationCount = 0;
@@ -282,24 +290,28 @@ describe('Bridge comm worker product controller', () => {
 		});
 		controller.ensureReviewMetadata();
 
-		events.push({
-			eventKind: 'review.sourceAccepted',
-			operationCorrelationId: null,
-			generation: 7,
-			packageId: 'package-1',
-			publicationId,
-			revision: 11,
-			sourceIdentity: 'source-1',
-		});
-		events.push({
-			eventKind: 'review.sourceAccepted',
-			operationCorrelationId: null,
-			generation: 8,
-			packageId: 'package-2',
-			publicationId: '00000000-0000-7000-8000-000000000012',
-			revision: 12,
-			sourceIdentity: 'source-2',
-		});
+		events.push(
+			reviewMetadataFrame({
+				eventKind: 'review.sourceAccepted',
+				operationCorrelationId: null,
+				generation: 7,
+				packageId: 'package-1',
+				publicationId,
+				revision: 11,
+				sourceIdentity: 'source-1',
+			}),
+		);
+		events.push(
+			reviewMetadataFrame({
+				eventKind: 'review.sourceAccepted',
+				operationCorrelationId: null,
+				generation: 8,
+				packageId: 'package-2',
+				publicationId: '00000000-0000-7000-8000-000000000012',
+				revision: 12,
+				sourceIdentity: 'source-2',
+			}),
+		);
 		await allMetadataApplied.promise;
 
 		expect(metadataApplicationCount).toBe(2);
@@ -307,9 +319,7 @@ describe('Bridge comm worker product controller', () => {
 	});
 
 	test('keeps draining Review metadata without coupling applied-call failure to recovery', async () => {
-		const reviewEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const reviewEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
 		const terminalObservation = createBridgeProductDeferred<
 			'metadataContinued' | 'metadataFailure'
 		>();
@@ -362,24 +372,28 @@ describe('Bridge comm worker product controller', () => {
 		});
 		controller.ensureReviewMetadata();
 
-		reviewEvents.push({
-			eventKind: 'review.sourceAccepted',
-			operationCorrelationId: null,
-			generation: 7,
-			packageId: 'package-1',
-			publicationId,
-			revision: 11,
-			sourceIdentity: 'source-1',
-		});
-		reviewEvents.push({
-			eventKind: 'review.sourceAccepted',
-			operationCorrelationId: null,
-			generation: 8,
-			packageId: 'package-2',
-			publicationId: '00000000-0000-7000-8000-000000000012',
-			revision: 12,
-			sourceIdentity: 'source-2',
-		});
+		reviewEvents.push(
+			reviewMetadataFrame({
+				eventKind: 'review.sourceAccepted',
+				operationCorrelationId: null,
+				generation: 7,
+				packageId: 'package-1',
+				publicationId,
+				revision: 11,
+				sourceIdentity: 'source-1',
+			}),
+		);
+		reviewEvents.push(
+			reviewMetadataFrame({
+				eventKind: 'review.sourceAccepted',
+				operationCorrelationId: null,
+				generation: 8,
+				packageId: 'package-2',
+				publicationId: '00000000-0000-7000-8000-000000000012',
+				revision: 12,
+				sourceIdentity: 'source-2',
+			}),
+		);
 		const observation = await terminalObservation.promise;
 
 		expect(observation).toBe('metadataContinued');
@@ -391,9 +405,7 @@ describe('Bridge comm worker product controller', () => {
 	});
 
 	test('retains early File demand and reconciles it after one discovered source opens', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(64);
 		const sourceDiscovery = createDeferredFileSourceDiscovery();
 		const updates: unknown[] = [];
 		let discoveryCallCount = 0;
@@ -450,7 +462,7 @@ describe('Bridge comm worker product controller', () => {
 
 		sourceDiscovery.resolve({ source: currentFileSourceConfiguration, status: 'available' });
 		await Promise.all([firstEnsure, secondEnsure]);
-		events.push({ eventKind: 'file.sourceAccepted', source });
+		events.push(fileMetadataFrame({ eventKind: 'file.sourceAccepted', source }));
 		await demandReapplied;
 
 		expect(discoveryCallCount).toBe(1);
@@ -469,19 +481,17 @@ describe('Bridge comm worker product controller', () => {
 	});
 
 	test('continues draining File metadata while an interest barrier is pending', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(64);
 		let releaseInterestUpdate = (): void => {};
 		const pendingInterestUpdate = new Promise<void>((resolve): void => {
 			releaseInterestUpdate = resolve;
 		});
-		const observedEvents: BridgeProductSubscriptionEvent<'file.metadata'>[] = [];
+		const observedEvents: FileMetadataEvent[] = [];
 		let resolveAllEventsObserved = (): void => {};
 		const allEventsObserved = new Promise<void>((resolve): void => {
 			resolveAllEventsObserved = resolve;
 		});
-		const subscription: BridgeProductSubscription<'file.metadata'> = {
+		const subscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'file-subscription-pending-barrier',
@@ -504,18 +514,20 @@ describe('Bridge comm worker product controller', () => {
 			selectedPath: 'Sources/File.swift',
 			visiblePaths: [],
 		});
-		events.push({ eventKind: 'file.sourceAccepted', source });
+		events.push(fileMetadataFrame({ eventKind: 'file.sourceAccepted', source }));
 		for (let index = 0; index < 65; index += 1) {
-			events.push({
-				eventKind: 'file.treeWindow',
-				finalWindow: index === 64,
-				lineage: { lane: 'foreground', loadedBy: 'startup_window' },
-				pathScope: [],
-				rows: [],
-				source,
-				startIndex: index,
-				totalRowCount: index === 64 ? 0 : null,
-			});
+			events.push(
+				fileMetadataFrame({
+					eventKind: 'file.treeWindow',
+					finalWindow: index === 64,
+					lineage: { lane: 'foreground', loadedBy: 'startup_window' },
+					pathScope: [],
+					rows: [],
+					source,
+					startIndex: index,
+					totalRowCount: index === 64 ? 0 : null,
+				}),
+			);
 			await Promise.resolve();
 		}
 
@@ -560,17 +572,15 @@ describe('Bridge comm worker product controller', () => {
 
 	test('opens File metadata and replaces worker-owned selected demand without another native RPC path', async () => {
 		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(64);
 		const updates: unknown[] = [];
-		const observedEvents: BridgeProductSubscriptionEvent<'file.metadata'>[] = [];
+		const observedEvents: FileMetadataEvent[] = [];
 		const observedEpochs: number[] = [];
 		let resolveSourceAccepted = (): void => {};
 		const sourceAccepted = new Promise<void>((resolve): void => {
 			resolveSourceAccepted = resolve;
 		});
-		const subscription: BridgeProductSubscription<'file.metadata'> = {
+		const subscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'file-subscription-1',
@@ -592,7 +602,7 @@ describe('Bridge comm worker product controller', () => {
 
 		// Act
 		await controller.ensureFileSource();
-		events.push({ eventKind: 'file.sourceAccepted', source });
+		events.push(fileMetadataFrame({ eventKind: 'file.sourceAccepted', source }));
 		await sourceAccepted;
 		await controller.updateFileMetadataDemand({
 			epoch: 1,
@@ -629,15 +639,13 @@ describe('Bridge comm worker product controller', () => {
 	});
 
 	test('deduplicates selected, visible, and nearby paths by demand priority', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(64);
 		const updates: unknown[] = [];
 		let resolveSourceAccepted = (): void => {};
 		const sourceAccepted = new Promise<void>((resolve): void => {
 			resolveSourceAccepted = resolve;
 		});
-		const subscription: BridgeProductSubscription<'file.metadata'> = {
+		const subscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'file-subscription-priority',
@@ -655,7 +663,7 @@ describe('Bridge comm worker product controller', () => {
 			subscribeFile: () => subscription,
 		});
 		await controller.ensureFileSource();
-		events.push({ eventKind: 'file.sourceAccepted', source });
+		events.push(fileMetadataFrame({ eventKind: 'file.sourceAccepted', source }));
 		await sourceAccepted;
 
 		await controller.updateFileMetadataDemand({
@@ -678,15 +686,13 @@ describe('Bridge comm worker product controller', () => {
 	});
 
 	test('bounds aggregate File interests while retaining selected priority', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
-		const updates: Array<Parameters<BridgeProductSubscription<'file.metadata'>['update']>[0]> = [];
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(64);
+		const updates: Array<Parameters<FileMetadataSubscription['update']>[0]> = [];
 		let resolveSourceAccepted = (): void => {};
 		const sourceAccepted = new Promise<void>((resolve): void => {
 			resolveSourceAccepted = resolve;
 		});
-		const subscription: BridgeProductSubscription<'file.metadata'> = {
+		const subscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'file-subscription-bounded',
@@ -704,7 +710,7 @@ describe('Bridge comm worker product controller', () => {
 			subscribeFile: () => subscription,
 		});
 		await controller.ensureFileSource();
-		events.push({ eventKind: 'file.sourceAccepted', source });
+		events.push(fileMetadataFrame({ eventKind: 'file.sourceAccepted', source }));
 		await sourceAccepted;
 
 		await controller.updateFileMetadataDemand({
@@ -731,9 +737,7 @@ describe('Bridge comm worker product controller', () => {
 	});
 
 	test('reports File interest update failures and permits a same-demand retry', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(64);
 		const failures: Array<{ readonly error: unknown; readonly epoch: number }> = [];
 		const updates: unknown[] = [];
 		let shouldRejectUpdate = true;
@@ -741,7 +745,7 @@ describe('Bridge comm worker product controller', () => {
 		const sourceAccepted = new Promise<void>((resolve): void => {
 			resolveSourceAccepted = resolve;
 		});
-		const subscription: BridgeProductSubscription<'file.metadata'> = {
+		const subscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'file-subscription-update-failure',
@@ -766,7 +770,7 @@ describe('Bridge comm worker product controller', () => {
 			subscribeFile: () => subscription,
 		});
 		await controller.ensureFileSource();
-		events.push({ eventKind: 'file.sourceAccepted', source });
+		events.push(fileMetadataFrame({ eventKind: 'file.sourceAccepted', source }));
 		await sourceAccepted;
 		const demand = {
 			epoch: 1,
@@ -791,10 +795,8 @@ describe('Bridge comm worker product controller', () => {
 
 	test('reports an active File metadata subscription that ends unexpectedly', async () => {
 		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
-		const subscription: BridgeProductSubscription<'file.metadata'> = {
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(64);
+		const subscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'file-subscription-ended',
@@ -898,4 +900,32 @@ function discoverCurrentFileSource(): Promise<{
 	readonly status: 'available';
 }> {
 	return Promise.resolve({ source: currentFileSourceConfiguration, status: 'available' });
+}
+
+function fileMetadataFrame(event: FileMetadataEvent): FileMetadataFrame {
+	return {
+		data: event,
+		metadataStreamId: 'file-metadata-stream',
+		operationCorrelationId: null,
+		sourceGeneration: event.source.subscriptionGeneration,
+		streamSequence: 1,
+		subscriptionId: 'file-metadata-subscription',
+		subscriptionKind: 'file.metadata',
+		subscriptionSequence: 1,
+		workerDerivationEpoch: 1,
+	};
+}
+
+function reviewMetadataFrame(event: ReviewMetadataEvent): ReviewMetadataFrame {
+	return {
+		data: event,
+		metadataStreamId: 'review-metadata-stream',
+		operationCorrelationId: event.operationCorrelationId,
+		sourceGeneration: event.generation,
+		streamSequence: 1,
+		subscriptionId: 'review-metadata-subscription',
+		subscriptionKind: 'review.metadata',
+		subscriptionSequence: 1,
+		workerDerivationEpoch: 1,
+	};
 }

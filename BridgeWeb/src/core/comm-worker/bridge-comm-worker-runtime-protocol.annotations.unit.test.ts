@@ -13,9 +13,10 @@ import {
 	BridgeProductBoundedAsyncQueue,
 	createBridgeProductDeferred,
 } from './bridge-product-async-queue.js';
-import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+import type {
+	BridgeProductMetadataApplicationProtocolIdentity,
+	BridgeProductMetadataDataFrame,
+} from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import type { BridgeProductWorktreeAnnotationEvent } from './bridge-product-worktree-annotation-contracts.js';
 import type { BridgeProductAnnotationOutputContentDescriptor } from './bridge-product-worktree-annotation-output-contracts.js';
@@ -25,6 +26,8 @@ import {
 } from './bridge-worker-contracts.js';
 
 const annotationWorktreeId = '00000000-0000-7000-8000-000000000001';
+
+type AnnotationMetadataFrame = BridgeProductMetadataDataFrame<BridgeProductWorktreeAnnotationEvent>;
 
 describe('Bridge comm worker annotation runtime protocol', () => {
 	test('calls inspection before content open and transfers the exact correlated output bytes once', async () => {
@@ -143,12 +146,8 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 	});
 
 	test('opens one paired subscription and preserves surface and native correlation', async () => {
-		const fileAnnotationEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.annotations'>
-		>(8);
-		const reviewAnnotationEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.annotations'>
-		>(8);
+		const fileAnnotationEvents = new BridgeProductBoundedAsyncQueue<AnnotationMetadataFrame>(8);
+		const reviewAnnotationEvents = new BridgeProductBoundedAsyncQueue<AnnotationMetadataFrame>(8);
 		const subscribedKinds: string[] = [];
 		const calledMethods: string[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
@@ -164,8 +163,8 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			productTransport,
 		});
-		fileAnnotationEvents.push(annotationProjectionEvent(11));
-		reviewAnnotationEvents.push(annotationProjectionEvent(22));
+		fileAnnotationEvents.push(annotationProjectionEvent(11, 'file.annotations'));
+		reviewAnnotationEvents.push(annotationProjectionEvent(22, 'review.annotations'));
 		dispatch.message(annotationCommand('fileView', 'file-worker-request'));
 		dispatch.message(annotationCommand('review', 'review-worker-request'));
 		await flushBridgeWorkerRuntimeContinuations();
@@ -199,11 +198,47 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 		);
 	});
 
+	test('publishes a committed native catalog as bounded FIFO staging on the existing port', async () => {
+		const fileAnnotationEvents = new BridgeProductBoundedAsyncQueue<AnnotationMetadataFrame>(8);
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			productTransport: createAnnotationProductTransport({
+				calledMethods: [],
+				fileAnnotationEvents,
+				reviewAnnotationEvents: new BridgeProductBoundedAsyncQueue(1),
+				subscribedKinds: [],
+			}),
+		});
+
+		for (const frame of annotationCatalogFrames(7, 'file.annotations')) {
+			fileAnnotationEvents.push(frame);
+		}
+		await flushBridgeWorkerRuntimeContinuations();
+
+		const staging = postedMessages
+			.map(({ message }) => message)
+			.filter((message) => message.kind === 'annotationCatalogStaging');
+		expect(staging.map((message) => message.transfer.kind)).toEqual([
+			'catalog.begin',
+			'catalog.window',
+			'catalog.commit',
+		]);
+		expect(staging.every((message) => message.surface === 'fileView')).toBe(true);
+		expect(staging.at(-1)).toMatchObject({
+			authority: {
+				subscriptionId: 'annotation-subscription',
+				workerDerivationEpoch: 1,
+				worktreeId: annotationWorktreeId,
+			},
+			operationCorrelationId: 'a'.repeat(64),
+		});
+	});
+
 	test('combines active File source authority with annotation invalidation to start projection query', async () => {
 		// Arrange
-		const fileAnnotationEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.annotations'>
-		>(8);
+		const fileAnnotationEvents = new BridgeProductBoundedAsyncQueue<AnnotationMetadataFrame>(8);
 		const calledMethods: string[] = [];
 		const projectionQueryStarted = createBridgeProductDeferred<void>();
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
@@ -224,7 +259,7 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 		});
 
 		// Act
-		fileAnnotationEvents.push(annotationProjectionEvent(0));
+		fileAnnotationEvents.push(annotationProjectionEvent(0, 'file.annotations'));
 		dispatch.message(
 			encodeBridgeWorkerActiveViewerModeUpdateCommand({
 				epoch: 1,
@@ -467,24 +502,97 @@ function annotationOutputDescriptor(props: {
 	};
 }
 
-function annotationProjectionEvent(revision: number): BridgeProductWorktreeAnnotationEvent {
+function annotationProjectionEvent(
+	revision: number,
+	subscriptionKind: 'file.annotations' | 'review.annotations',
+): AnnotationMetadataFrame {
 	return {
-		eventKind: 'snapshot.required',
+		data: {
+			authority: {
+				applicationSourceGeneration: revision,
+				worktreeId: annotationWorktreeId,
+			},
+			kind: 'annotation.controlChanged',
+			reason: 'discovery',
+		},
+		metadataStreamId: 'annotation-metadata-stream',
 		operationCorrelationId: 'a'.repeat(64),
 		sourceGeneration: revision,
+		streamSequence: 1,
+		subscriptionId: 'annotation-subscription',
+		subscriptionKind,
+		subscriptionSequence: 1,
+		workerDerivationEpoch: 1,
+	};
+}
+
+function annotationCatalogFrames(
+	revision: number,
+	subscriptionKind: 'file.annotations' | 'review.annotations',
+): readonly AnnotationMetadataFrame[] {
+	const authority = {
+		applicationSourceGeneration: revision,
 		worktreeId: annotationWorktreeId,
 	} as const;
+	const transferId = `annotation-catalog-${revision}`;
+	const events: readonly BridgeProductWorktreeAnnotationEvent[] = [
+		{
+			authority,
+			kind: 'annotation.catalog',
+			transfer: {
+				catalogRevision: revision,
+				expectedEntryCount: 1,
+				kind: 'catalog.begin',
+				transferId,
+			},
+		},
+		{
+			authority,
+			kind: 'annotation.catalog',
+			transfer: {
+				catalogRevision: revision,
+				entries: [
+					{
+						kind: 'session',
+						semanticRevision: 1,
+						sessionId: '00000000-0000-7000-8000-000000000011',
+					},
+				],
+				kind: 'catalog.window',
+				transferId,
+				windowOrdinal: 0,
+			},
+		},
+		{
+			authority,
+			kind: 'annotation.catalog',
+			transfer: {
+				catalogRevision: revision,
+				entryCount: 1,
+				kind: 'catalog.commit',
+				transferId,
+				windowCount: 1,
+			},
+		},
+	];
+	return events.map((event, index) => ({
+		data: event,
+		metadataStreamId: 'annotation-metadata-stream',
+		operationCorrelationId: 'a'.repeat(64),
+		sourceGeneration: revision,
+		streamSequence: index + 1,
+		subscriptionId: 'annotation-subscription',
+		subscriptionKind,
+		subscriptionSequence: index + 1,
+		workerDerivationEpoch: 1,
+	}));
 }
 
 function createAnnotationProductTransport(props: {
 	readonly calledMethods: string[];
 	readonly failingAnnotationMethod?: 'file.annotations.command' | 'review.annotations.command';
-	readonly fileAnnotationEvents: BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'file.annotations'>
-	>;
-	readonly reviewAnnotationEvents: BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'review.annotations'>
-	>;
+	readonly fileAnnotationEvents: BridgeProductBoundedAsyncQueue<AnnotationMetadataFrame>;
+	readonly reviewAnnotationEvents: BridgeProductBoundedAsyncQueue<AnnotationMetadataFrame>;
 	readonly inspection?: {
 		readonly descriptor: BridgeProductAnnotationOutputContentDescriptor;
 		readonly exactBytes: ArrayBuffer;
@@ -495,7 +603,7 @@ function createAnnotationProductTransport(props: {
 	readonly subscribedKinds: string[];
 }): BridgeProductTransportSession {
 	const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'review.metadata'>
+		BridgeProductMetadataDataFrame<never>
 	>(1);
 	return {
 		bumpWorkerDerivationEpoch: (): number => 1,
@@ -567,12 +675,16 @@ function createAnnotationProductTransport(props: {
 	};
 }
 
-function annotationTestSubscription<
-	TSubscriptionKind extends 'file.annotations' | 'review.annotations' | 'review.metadata',
->(
-	subscriptionKind: TSubscriptionKind,
-	events: BridgeProductSubscription<TSubscriptionKind>['events'],
-): BridgeProductSubscription<TSubscriptionKind> {
+function annotationTestSubscription<TEvent>(
+	subscriptionKind: 'file.annotations' | 'review.annotations' | 'review.metadata',
+	events: AsyncIterable<BridgeProductMetadataDataFrame<TEvent>>,
+): {
+	readonly events: AsyncIterable<BridgeProductMetadataDataFrame<TEvent>>;
+	readonly subscriptionId: string;
+	readonly subscriptionKind: string;
+	cancel(): Promise<void>;
+	update(): Promise<void>;
+} {
 	return {
 		cancel: async (): Promise<void> => {},
 		events,

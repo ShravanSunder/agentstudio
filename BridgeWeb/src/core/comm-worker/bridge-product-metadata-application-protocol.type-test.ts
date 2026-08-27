@@ -1,10 +1,11 @@
 import { z } from 'zod';
 
 import {
-	defineBridgeProductMetadataApplicationProtocol,
 	type BridgeProductMetadataApplicationEvent,
 	type BridgeProductMetadataApplicationOptions,
 	type BridgeProductMetadataApplicationUpdateOptions,
+	type BridgeProductMetadataDataFrame,
+	defineBridgeProductMetadataApplicationProtocol,
 } from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 
@@ -78,6 +79,30 @@ declare const inferredSubscription: BridgeProductMetadataApplicationSubscription
 void inferredOptions;
 void inferredEvent;
 void inferredSubscription.update(inferredUpdate);
+
+async function consumeInferredSubscriptionFrames(): Promise<void> {
+	for await (const frame of inferredSubscription.events) {
+		const typedFrame: BridgeProductMetadataDataFrame<
+			BridgeProductMetadataApplicationEvent<typeof inferredProtocol>
+		> = frame;
+		const payload: string = typedFrame.data.payload;
+		const sourceGeneration: number = typedFrame.sourceGeneration;
+		const workerDerivationEpoch: number = typedFrame.workerDerivationEpoch;
+		void payload;
+		void sourceGeneration;
+		void workerDerivationEpoch;
+	}
+}
+void consumeInferredSubscriptionFrames;
+
+declare const incorrectlyUnwrappedEvent: BridgeProductMetadataApplicationEvent<
+	typeof inferredProtocol
+>;
+// @ts-expect-error Subscription iterators yield transport frames, not bare application events.
+const invalidUnwrappedFrame: BridgeProductMetadataDataFrame<
+	BridgeProductMetadataApplicationEvent<typeof inferredProtocol>
+> = incorrectlyUnwrappedEvent;
+void invalidUnwrappedFrame;
 
 // @ts-expect-error Protocol options retain their required source.
 const missingSource: BridgeProductMetadataApplicationOptions<typeof inferredProtocol> = {

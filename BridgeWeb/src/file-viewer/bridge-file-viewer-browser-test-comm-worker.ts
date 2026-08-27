@@ -18,11 +18,13 @@ import {
 	bridgeProductFileContentDescriptorSchema,
 	type BridgeProductContentFrameFor,
 } from '../core/comm-worker/bridge-product-content-contracts.js';
+import type { BridgeProductMetadataDataFrame } from '../core/comm-worker/bridge-product-metadata-application-protocol.js';
+import { bridgeProductFileMetadataApplicationProtocol } from '../core/comm-worker/bridge-product-metadata-application-registry.js';
 import type {
 	BridgeProductSubscriptionEvent,
 	BridgeProductSubscriptionUpdateOptions,
 } from '../core/comm-worker/bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from '../core/comm-worker/bridge-product-transport-contract.js';
+import type { BridgeProductMetadataApplicationSubscription } from '../core/comm-worker/bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from '../core/comm-worker/bridge-product-transport.js';
 import {
 	bridgeWorkerServerToMainWireMessageSchema,
@@ -576,23 +578,43 @@ function createBrowserTestProductTransport(props: {
 			if (subscriptionKind !== 'file.metadata') {
 				throw new Error(`Unexpected browser-test product subscription: ${subscriptionKind}.`);
 			}
+			const subscriptionId = 'browser-file-metadata-subscription';
+			let metadataStreamSequence = 0;
+			let subscriptionSequence = 0;
 			const events = new BridgeProductBoundedAsyncQueue<
-				BridgeProductSubscriptionEvent<'file.metadata'>
+				BridgeProductMetadataDataFrame<BridgeProductSubscriptionEvent<'file.metadata'>>
 			>(256);
 			const publish: PublishFileMetadataEvents = (publishedEvents): void => {
 				props.onMetadataEventsPublished(publishedEvents.length);
-				for (const event of publishedEvents) events.push(event);
+				for (const event of publishedEvents) {
+					metadataStreamSequence += 1;
+					subscriptionSequence += 1;
+					events.push({
+						data: event,
+						metadataStreamId: 'browser-file-test-metadata-stream',
+						operationCorrelationId: null,
+						sourceGeneration:
+							bridgeProductFileMetadataApplicationProtocol.readEventSourceGeneration(event),
+						streamSequence: metadataStreamSequence,
+						subscriptionId,
+						subscriptionKind: 'file.metadata',
+						subscriptionSequence,
+						workerDerivationEpoch: fileEpoch,
+					});
+				}
 			};
 			const session = props.productSessionRef.current;
 			session?.onMetadataSubscriptionOpen?.(options as never);
 			publish(session?.initialMetadataEvents ?? []);
 			session?.onMetadataSubscription?.(publish);
-			const subscription: BridgeProductSubscription<'file.metadata'> = {
+			const subscription: BridgeProductMetadataApplicationSubscription<
+				typeof bridgeProductFileMetadataApplicationProtocol
+			> = {
 				cancel: async (): Promise<void> => {
 					events.close(true);
 				},
 				events,
-				subscriptionId: 'browser-file-metadata-subscription',
+				subscriptionId,
 				subscriptionKind: 'file.metadata',
 				update: async (
 					updatedOptions: BridgeProductSubscriptionUpdateOptions<'file.metadata'>,

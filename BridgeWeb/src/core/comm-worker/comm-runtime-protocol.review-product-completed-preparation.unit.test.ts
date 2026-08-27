@@ -13,26 +13,28 @@ import {
 	requirePanePresentationSink,
 } from './bridge-comm-worker-runtime-protocol.review-product-pane-presentation.test-support.js';
 import { drainBridgeCommWorkerPreparationUntilIdle } from './bridge-comm-worker-runtime-protocol.review-product-preparation.test-support.js';
-import { makeReviewProductTransport } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import {
+	makeReviewMetadataDataFrame,
+	makeReviewProductTransport,
+	type ReviewMetadataSubscription,
+} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 	makeImmediateReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductPanePresentationFrame } from './bridge-product-transport.js';
+
+type ReviewMetadataDataFrame = ReturnType<typeof makeReviewMetadataDataFrame>;
 
 describe('Bridge comm worker completed Review preparation lifecycle', () => {
 	test('does not replay completed Review preparation or reset when native foreground returns to File', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const openedDescriptorIds: string[] = [];
 		let panePresentationSink: ((frame: BridgeProductPanePresentationFrame) => void) | null = null;
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'review-subscription-completed-foreground-return',
@@ -60,7 +62,7 @@ describe('Bridge comm worker completed Review preparation lifecycle', () => {
 			sendProductControl: async (): Promise<void> => {},
 		});
 		await flushBridgeWorkerRuntimeContinuations();
-		events.push(reviewSnapshotWithContentEvent);
+		events.push(makeReviewMetadataDataFrame(reviewSnapshotWithContentEvent));
 		await flushBridgeWorkerRuntimeContinuations();
 		await drainBridgeCommWorkerPreparationUntilIdle(
 			scheduledDrains,

@@ -8,19 +8,22 @@ import {
 } from './bridge-comm-worker-protocol.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	makeReviewMetadataDataFrame,
+	type ReviewMetadataSubscription,
+} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import {
 	createIdleWorktreeAnnotationSubscription,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
+	makeFileMetadataDataFrame,
+	type FileMetadataDataFrame,
+	type FileMetadataSubscription,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { publishBridgeCommWorkerUpdatingChrome } from './bridge-comm-worker-updating-chrome.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type { BridgeProductReviewComparisonTargetsContentDescriptor } from './bridge-product-content-contracts.js';
 import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type {
-	BridgeProductContentStream,
-	BridgeProductSubscription,
-} from './bridge-product-transport-contract.js';
+import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import type {
 	BridgeProductPanePresentationFrame,
 	BridgeProductTransportSession,
@@ -30,6 +33,8 @@ import type {
 	BridgeWorkerServerToMainMessage,
 	BridgeWorkerServerToMainWireMessage,
 } from './bridge-worker-contracts.js';
+
+type ReviewMetadataDataFrame = ReturnType<typeof makeReviewMetadataDataFrame>;
 
 describe('Bridge comm worker updating panel chrome', () => {
 	test('publishes Review chrome only when it can carry exact publication lineage', () => {
@@ -127,12 +132,8 @@ describe('Bridge comm worker updating panel chrome', () => {
 
 	test('preserves a settled comparison-target query when native foreground is lost', async () => {
 		// Arrange — retaining the completed request id makes foreground loss publish a false failure.
-		const fileEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(16);
-		const reviewEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(16);
+		const fileEvents = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(16);
+		const reviewEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(16);
 		const presentation = createPanePresentationTestTransport({
 			fileEvents,
 			reviewEvents,
@@ -183,12 +184,8 @@ describe('Bridge comm worker updating panel chrome', () => {
 
 	test('settles the current comparison-target query when native foreground is lost', async () => {
 		// Arrange
-		const fileEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(16);
-		const reviewEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(16);
+		const fileEvents = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(16);
+		const reviewEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(16);
 		const presentation = createPanePresentationTestTransport({ fileEvents, reviewEvents });
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		let resolveQuery!: (result: unknown) => void;
@@ -238,15 +235,9 @@ describe('Bridge comm worker updating panel chrome', () => {
 
 	test('reopens failed File metadata after the coalesced native File refresh settles', async () => {
 		// Arrange — removing refresh-settlement recovery makes this test fail.
-		const firstFileEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(16);
-		const replacementFileEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(16);
-		const reviewEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(16);
+		const firstFileEvents = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(16);
+		const replacementFileEvents = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(16);
+		const reviewEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(16);
 		const presentation = createPanePresentationTestTransport({
 			fileEvents: firstFileEvents,
 			replacementFileEvents,
@@ -283,12 +274,8 @@ describe('Bridge comm worker updating panel chrome', () => {
 	test('publishes updating state only for the native-foreground active surface', async () => {
 		// Arrange
 		const telemetrySamples: BridgeTelemetrySample[] = [];
-		const fileEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(16);
-		const reviewEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(16);
+		const fileEvents = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(16);
+		const reviewEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(16);
 		const presentation = createPanePresentationTestTransport({ fileEvents, reviewEvents });
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -303,8 +290,10 @@ describe('Bridge comm worker updating panel chrome', () => {
 			},
 		});
 		await flushBridgeWorkerRuntimeContinuations();
-		fileEvents.push({ eventKind: 'file.sourceAccepted', source: fileSource });
-		reviewEvents.push(reviewSourceAcceptedEvent);
+		fileEvents.push(
+			makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source: fileSource }),
+		);
+		reviewEvents.push(makeReviewMetadataDataFrame(reviewSourceAcceptedEvent));
 		await flushBridgeWorkerRuntimeContinuations();
 		dispatch.message(activeViewerModeUpdateCommand('review', 1));
 		await flushBridgeWorkerRuntimeContinuations();
@@ -478,15 +467,9 @@ interface PanelChromePublication {
 }
 
 function createPanePresentationTestTransport(props: {
-	readonly fileEvents: BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'file.metadata'>
-	>;
-	readonly replacementFileEvents?: BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'file.metadata'>
-	>;
-	readonly reviewEvents: BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'review.metadata'>
-	>;
+	readonly fileEvents: BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>;
+	readonly replacementFileEvents?: BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>;
+	readonly reviewEvents: BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>;
 	readonly supportsComparisonTargetContent?: boolean;
 }): {
 	readonly productTransport: BridgeProductTransportSession;
@@ -497,7 +480,7 @@ function createPanePresentationTestTransport(props: {
 	let fileSubscriptionCount = 0;
 	let reviewEpoch = 0;
 	let panePresentationSink: ((frame: BridgeProductPanePresentationFrame) => void) | null = null;
-	const fileSubscriptions: readonly BridgeProductSubscription<'file.metadata'>[] = [
+	const fileSubscriptions: readonly FileMetadataSubscription[] = [
 		{
 			cancel: async (): Promise<void> => {},
 			events: props.fileEvents,
@@ -513,7 +496,7 @@ function createPanePresentationTestTransport(props: {
 			update: async (): Promise<void> => {},
 		},
 	];
-	const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+	const reviewSubscription: ReviewMetadataSubscription = {
 		cancel: async (): Promise<void> => {},
 		events: props.reviewEvents,
 		subscriptionId: 'review-subscription-updating-chrome',
@@ -697,4 +680,4 @@ const reviewSourceAcceptedEvent = {
 	publicationId: '00000000-0000-7000-8000-000000000011',
 	revision: 1,
 	sourceIdentity: 'review-source-updating-chrome',
-} satisfies BridgeProductSubscriptionEvent<'review.metadata'>;
+} satisfies Parameters<typeof makeReviewMetadataDataFrame>[0];

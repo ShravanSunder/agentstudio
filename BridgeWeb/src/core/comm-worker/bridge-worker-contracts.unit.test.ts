@@ -77,6 +77,7 @@ describe('BridgeWorkerContracts', () => {
 			surface: command.surface,
 			transferDescriptors: [],
 			state: {
+				contentSessionIds: [],
 				kind: 'ready',
 				snapshot: {
 					expectedMessageCount: 0,

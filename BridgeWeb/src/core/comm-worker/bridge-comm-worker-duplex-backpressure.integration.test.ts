@@ -8,19 +8,20 @@ import {
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
 import {
 	createBridgeCommWorkerReviewProductTestSource,
+	makeFileMetadataDataFrame,
 	makeContentRequestDescriptor,
 	makeRenderSemantics,
 	makeWorkerReviewContentMetadata,
 	openReviewContentFromDescriptorMap,
 	type BridgeCommWorkerReviewProductTestSource,
+	type FileMetadataDataFrame,
+	type FileMetadataSubscription,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { createBridgeMainRenderDispositionAdmission } from './bridge-main-render-disposition-admission.js';
 import {
 	BridgeProductBoundedAsyncQueue,
 	createBridgeProductDeferred,
 } from './bridge-product-async-queue.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import type {
 	BridgeWorkerFilePierreRenderJobEvent,
@@ -280,10 +281,8 @@ describe('Bridge comm worker duplex backpressure over an actual MessageChannel',
 	test('orders File painted response before waiting selection B publishes', async () => {
 		const channel = new MessageChannel();
 		const collector = createMainPortCollector(channel.port2);
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
-		const subscription: BridgeProductSubscription<'file.metadata'> = {
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
+		const subscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'file-subscription-duplex-backpressure',
@@ -301,9 +300,14 @@ describe('Bridge comm worker duplex backpressure over an actual MessageChannel',
 			}),
 		});
 		await activateViewerMode(channel.port2, collector, 'file', 'duplex-file');
-		events.push({ eventKind: 'file.sourceAccepted', source: fileProductTestSource });
-		events.push(makeTreeWindowEvent());
-		events.push(makeDescriptorReadyEvent());
+		events.push(
+			makeFileMetadataDataFrame({
+				eventKind: 'file.sourceAccepted',
+				source: fileProductTestSource,
+			}),
+		);
+		events.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
+		events.push(makeFileMetadataDataFrame(makeDescriptorReadyEvent()));
 		await collector.waitFor((message) => message.kind === 'fileDisplayPatch');
 
 		const selectionARequestId = 'request-duplex-file-selection-a';

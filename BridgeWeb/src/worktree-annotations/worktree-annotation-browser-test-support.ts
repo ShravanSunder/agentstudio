@@ -1,8 +1,14 @@
 import { createElement, type ReactElement, type ReactNode } from 'react';
 
-import { createBridgeMainRenderSnapshotStore } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
+import {
+	createBridgeMainRenderSnapshotStore,
+	type BridgeMainReviewPublicationIdentity,
+} from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
-import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
+import type {
+	BridgeProductReviewAnnotationPublicationIdentity,
+	BridgeProductWorktreeAnnotationOperation,
+} from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import type {
 	WorktreeAnnotationCommandOutcome,
@@ -79,7 +85,9 @@ export class RecordingAnnotationBrowserSurface {
 	readonly #listeners = new Set<(message: BridgeWorkerServerToMainMessage) => void>();
 	readonly client: BridgePaneSurfaceClient;
 	readonly sentOperations: BridgeProductWorktreeAnnotationOperation[] = [];
+	readonly sentReviewPublicationIdentities: BridgeProductReviewAnnotationPublicationIdentity[] = [];
 	readonly sentOutputInspectionAttemptIds: string[] = [];
+	#reviewActiveIdentity: BridgeMainReviewPublicationIdentity = annotationReviewMainIdentity;
 	readonly #pendingAnnotationCommands: Array<{
 		readonly operation: BridgeProductWorktreeAnnotationOperation;
 		readonly requestId: string;
@@ -117,7 +125,7 @@ export class RecordingAnnotationBrowserSurface {
 		const renderStore = createBridgeMainRenderSnapshotStore();
 		if (surface === 'review') {
 			Object.defineProperty(renderStore, 'getReviewRefreshPresentation', {
-				value: () => ({ activeIdentity: annotationReviewMainIdentity, candidate: null }),
+				value: () => ({ activeIdentity: this.#reviewActiveIdentity, candidate: null }),
 			});
 		}
 		this.client = {
@@ -144,6 +152,13 @@ export class RecordingAnnotationBrowserSurface {
 					return requestId;
 				}
 				this.sentOperations.push(command.operation);
+				if (this.client.surface === 'review') {
+					const reviewPublicationIdentity = command.reviewPublicationIdentity;
+					if (reviewPublicationIdentity === undefined) {
+						throw new Error('Review annotation command is missing its publication identity.');
+					}
+					this.sentReviewPublicationIdentities.push(reviewPublicationIdentity);
+				}
 				const operation = command.operation;
 				this.#pendingAnnotationCommands.push({ operation, requestId });
 				if (props.failRootCreateWithConflict === true && command.operation.kind === 'root.create') {
@@ -159,6 +174,10 @@ export class RecordingAnnotationBrowserSurface {
 			},
 			surface,
 		};
+	}
+
+	setReviewActiveIdentity(identity: BridgeMainReviewPublicationIdentity): void {
+		this.#reviewActiveIdentity = identity;
 	}
 
 	publishProjection(revision: number, expectedThreadCount: number): void {
@@ -676,11 +695,13 @@ export class RecordingAnnotationBrowserSurface {
 			this.#projectionAssemblyPending = false;
 		}
 		const completeThreads = [...this.#threadsById.values()];
+		this.#publishCatalog(this.#projectionDeclaration.revision);
 		this.#publish({
 			direction: 'serverWorkerToMain',
 			kind: 'annotationProjectionConvergence',
 			operationCorrelationId: 'a'.repeat(64),
 			state: {
+				contentSessionIds: this.#sessions.map((session) => session.sessionId),
 				kind: 'ready',
 				snapshot: {
 					expectedMessageCount: completeThreads.reduce(
@@ -700,6 +721,84 @@ export class RecordingAnnotationBrowserSurface {
 			surface: this.client.surface,
 			transferDescriptors: [],
 			wireVersion: 1,
+		});
+	}
+
+	#publishCatalog(catalogRevision: number): void {
+		const transferId = `browser-annotation-catalog-${catalogRevision}`;
+		const sessionEntries = this.#sessions.map((session) => ({
+			kind: 'session' as const,
+			semanticRevision: session.semanticRevision,
+			sessionId: session.sessionId,
+		}));
+		const nextThreadOrdinalBySessionId = new Map<string, number>();
+		const descendantEntries = [...this.#threadsById.values()].flatMap((thread) => {
+			const sessionId = thread.messages[0]?.sessionId;
+			if (sessionId === undefined) {
+				throw new Error('Browser annotation fixture threads require one message-owned session.');
+			}
+			const createdOrdinal = nextThreadOrdinalBySessionId.get(sessionId) ?? 0;
+			nextThreadOrdinalBySessionId.set(sessionId, createdOrdinal + 1);
+			return [
+				{
+					createdOrdinal,
+					kind: 'thread' as const,
+					scope: thread.context.scope,
+					sessionId,
+					threadId: thread.context.threadId,
+				},
+				...thread.messages.map((message) => ({
+					kind: 'message' as const,
+					messageId: message.messageId,
+					ordinal: message.ordinal,
+					threadId: thread.context.threadId,
+				})),
+			];
+		});
+		const entries = [...sessionEntries, ...descendantEntries];
+		const common = {
+			authority: {
+				subscriptionId: `${this.client.surface}-browser-annotation-subscription`,
+				workerDerivationEpoch: 1,
+				worktreeId: 'worktree-1',
+			},
+			direction: 'serverWorkerToMain' as const,
+			kind: 'annotationCatalogStaging' as const,
+			operationCorrelationId: 'a'.repeat(64),
+			surface: this.client.surface,
+			transferDescriptors: [],
+			wireVersion: 1 as const,
+		};
+		this.#publish({
+			...common,
+			transfer: {
+				catalogRevision,
+				expectedEntryCount: entries.length,
+				kind: 'catalog.begin',
+				transferId,
+			},
+		});
+		if (entries.length > 0) {
+			this.#publish({
+				...common,
+				transfer: {
+					catalogRevision,
+					entries,
+					kind: 'catalog.window',
+					transferId,
+					windowOrdinal: 0,
+				},
+			});
+		}
+		this.#publish({
+			...common,
+			transfer: {
+				catalogRevision,
+				entryCount: entries.length,
+				kind: 'catalog.commit',
+				transferId,
+				windowCount: entries.length === 0 ? 0 : 1,
+			},
 		});
 	}
 

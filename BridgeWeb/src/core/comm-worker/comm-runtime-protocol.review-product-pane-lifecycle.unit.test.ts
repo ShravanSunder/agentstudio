@@ -19,26 +19,28 @@ import {
 	startBridgeCommWorkerPreparationDrains,
 	type PendingReviewContentAttempt,
 } from './bridge-comm-worker-runtime-protocol.review-product-preparation.test-support.js';
-import { makeReviewProductTransport } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import {
+	makeReviewMetadataDataFrame,
+	makeReviewProductTransport,
+	type ReviewMetadataSubscription,
+} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
 	activateBridgeCommWorkerReviewViewerMode,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductPanePresentationFrame } from './bridge-product-transport.js';
+
+type ReviewMetadataDataFrame = ReturnType<typeof makeReviewMetadataDataFrame>;
 
 describe('Bridge comm worker Review product pane activity lifecycle', () => {
 	test('preserves selected Review preparation while the pane is hidden and foregrounded', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const attempts: PendingReviewContentAttempt[] = [];
 		let panePresentationSink: ((frame: BridgeProductPanePresentationFrame) => void) | null = null;
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'review-subscription-pane-suppression',
@@ -69,7 +71,7 @@ describe('Bridge comm worker Review product pane activity lifecycle', () => {
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'pane-suppression');
 		await flushBridgeWorkerRuntimeContinuations();
-		events.push(reviewSnapshotWithContentEvent);
+		events.push(makeReviewMetadataDataFrame(reviewSnapshotWithContentEvent));
 		await flushBridgeWorkerRuntimeContinuations();
 		await startBridgeCommWorkerPreparationDrains(
 			scheduledDrains,
@@ -143,13 +145,11 @@ describe('Bridge comm worker Review product pane activity lifecycle', () => {
 	});
 
 	test('preserves held Review preparation across back-to-back hidden and foreground frames', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const attempts: PendingReviewContentAttempt[] = [];
 		let panePresentationSink: ((frame: BridgeProductPanePresentationFrame) => void) | null = null;
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'review-subscription-rapid-pane-resume',
@@ -180,7 +180,7 @@ describe('Bridge comm worker Review product pane activity lifecycle', () => {
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'rapid-pane-resume');
 		await flushBridgeWorkerRuntimeContinuations();
-		events.push(reviewSnapshotWithContentEvent);
+		events.push(makeReviewMetadataDataFrame(reviewSnapshotWithContentEvent));
 		await flushBridgeWorkerRuntimeContinuations();
 		await startBridgeCommWorkerPreparationDrains(
 			scheduledDrains,

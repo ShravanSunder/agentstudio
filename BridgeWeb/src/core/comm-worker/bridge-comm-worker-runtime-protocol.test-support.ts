@@ -8,12 +8,19 @@ import {
 	BridgeProductBoundedAsyncQueue,
 	createBridgeProductDeferred,
 } from './bridge-product-async-queue.js';
-import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
+import type {
+	BridgeProductMetadataApplicationEvent,
+	BridgeProductMetadataApplicationProtocolIdentity,
+	BridgeProductMetadataDataFrame,
+} from './bridge-product-metadata-application-protocol.js';
+import {
+	bridgeProductFileMetadataApplicationProtocol,
+	bridgeProductReviewMetadataApplicationProtocol,
+} from './bridge-product-metadata-application-registry.js';
 import { bridgeProductReviewMetadataEventSchema } from './bridge-product-review-metadata-contracts.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type {
 	BridgeProductContentStream,
-	BridgeProductSubscription,
+	BridgeProductMetadataApplicationSubscription,
 } from './bridge-product-transport-contract.js';
 import type {
 	BridgeProductPanePresentationFrame,
@@ -37,6 +44,28 @@ export const reviewContentFixtureByDescriptorId = new Map<
 	string,
 	{ readonly itemId: string; readonly text: string }
 >();
+
+type FileMetadataEvent = BridgeProductMetadataApplicationEvent<
+	typeof bridgeProductFileMetadataApplicationProtocol
+>;
+export type FileMetadataDataFrame = BridgeProductMetadataDataFrame<FileMetadataEvent>;
+export type FileMetadataSubscription = BridgeProductMetadataApplicationSubscription<
+	typeof bridgeProductFileMetadataApplicationProtocol
+>;
+
+export function makeFileMetadataDataFrame(event: FileMetadataEvent): FileMetadataDataFrame {
+	return {
+		data: event,
+		metadataStreamId: 'file-metadata-test-stream',
+		operationCorrelationId: null,
+		sourceGeneration: event.source.subscriptionGeneration,
+		streamSequence: 1,
+		subscriptionId: 'file-metadata-test-subscription',
+		subscriptionKind: 'file.metadata',
+		subscriptionSequence: 1,
+		workerDerivationEpoch: 1,
+	};
+}
 
 export function createRecordingBridgeCommWorkerPort(
 	props: {
@@ -214,14 +243,22 @@ export type BridgeCommWorkerReviewProductTestSourceInput = Omit<
 	'reviewPublicationIdentity'
 >;
 
+type ReviewMetadataEvent = BridgeProductMetadataApplicationEvent<
+	typeof bridgeProductReviewMetadataApplicationProtocol
+>;
+type ReviewMetadataDataFrame = BridgeProductMetadataDataFrame<ReviewMetadataEvent>;
+type ReviewMetadataSubscription = BridgeProductMetadataApplicationSubscription<
+	typeof bridgeProductReviewMetadataApplicationProtocol
+>;
+
 export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorkerReviewProductTestSource {
-	const events = new BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'review.metadata'>
-	>(64);
+	const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 	let currentWorkerDerivationEpoch = 0;
 	let currentSnapshot: ReviewProductTestSnapshot | null = null;
 	let currentRevision = 0;
-	const subscription: BridgeProductSubscription<'review.metadata'> = {
+	let streamSequence = 0;
+	let subscriptionSequence = 0;
+	const subscription: ReviewMetadataSubscription = {
 		cancel: async (): Promise<void> => {
 			events.close(true);
 		},
@@ -293,7 +330,7 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 		publishReplacementSource: (source, revision): void => {
 			const nextRevision = Math.max(currentRevision + 1, revision ?? currentRevision + 1);
 			const nextSnapshot = reviewProductSnapshotFromRuntimeSource(source, nextRevision);
-			events.push(nextSnapshot);
+			events.push(metadataDataFrame(nextSnapshot));
 			currentSnapshot = nextSnapshot;
 			currentRevision = nextRevision;
 		},
@@ -308,18 +345,34 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 	): void {
 		const nextRevision = Math.max(currentRevision + 1, revision ?? currentRevision + 1);
 		const nextSnapshot = reviewProductSnapshotFromRuntimeSource(source, nextRevision);
-		events.push(
+		const event =
 			currentSnapshot === null
 				? nextSnapshot
-				: reviewProductDeltaBetweenSnapshots(currentSnapshot, nextSnapshot),
-		);
+				: reviewProductDeltaBetweenSnapshots(currentSnapshot, nextSnapshot);
+		events.push(metadataDataFrame(event));
 		currentSnapshot = nextSnapshot;
 		currentRevision = nextRevision;
+	}
+
+	function metadataDataFrame(event: ReviewMetadataEvent): ReviewMetadataDataFrame {
+		streamSequence += 1;
+		subscriptionSequence += 1;
+		return {
+			data: event,
+			metadataStreamId: 'review-product-test-metadata-stream',
+			operationCorrelationId: event.operationCorrelationId,
+			sourceGeneration: event.generation,
+			streamSequence,
+			subscriptionId: subscription.subscriptionId,
+			subscriptionKind: subscription.subscriptionKind,
+			subscriptionSequence,
+			workerDerivationEpoch: currentWorkerDerivationEpoch,
+		};
 	}
 }
 
 type ReviewProductTestSnapshot = Extract<
-	BridgeProductSubscriptionEvent<'review.metadata'>,
+	ReviewMetadataEvent,
 	{ readonly eventKind: 'review.snapshot' }
 >;
 
@@ -496,7 +549,7 @@ function reviewProductSnapshotFromRuntimeSource(
 function reviewProductDeltaBetweenSnapshots(
 	previousSnapshot: ReviewProductTestSnapshot,
 	nextSnapshot: ReviewProductTestSnapshot,
-): BridgeProductSubscriptionEvent<'review.metadata'> {
+): ReviewMetadataEvent {
 	const previousItemsById = new Map(
 		previousSnapshot.itemMetadata.map((item) => [item.itemId, item]),
 	);

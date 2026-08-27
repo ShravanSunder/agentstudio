@@ -14,7 +14,6 @@ import { reviewSnapshotEvent } from './bridge-comm-worker-runtime-protocol.revie
 import { makeReviewProductTransport } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
 	activateBridgeCommWorkerReviewViewerMode,
-	createBridgeCommWorkerReviewProductTestSource,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
@@ -22,20 +21,37 @@ import {
 	BridgeProductBoundedAsyncQueue,
 	createBridgeProductDeferred,
 } from './bridge-product-async-queue.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+import type {
+	BridgeProductMetadataApplicationEvent,
+	BridgeProductMetadataDataFrame,
+} from './bridge-product-metadata-application-protocol.js';
+import {
+	bridgeProductReviewAnnotationMetadataApplicationProtocol,
+	bridgeProductReviewMetadataApplicationProtocol,
+} from './bridge-product-metadata-application-registry.js';
+import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductWorktreeAnnotationEvent } from './bridge-product-worktree-annotation-contracts.js';
+
+type ReviewAnnotationMetadataProtocol =
+	typeof bridgeProductReviewAnnotationMetadataApplicationProtocol;
+type ReviewAnnotationMetadataSubscription =
+	BridgeProductMetadataApplicationSubscription<ReviewAnnotationMetadataProtocol>;
+type ReviewMetadataProtocol = typeof bridgeProductReviewMetadataApplicationProtocol;
+type ReviewMetadataEvent = BridgeProductMetadataApplicationEvent<ReviewMetadataProtocol>;
+type ReviewMetadataFrame = BridgeProductMetadataDataFrame<ReviewMetadataEvent>;
+type ReviewMetadataSubscription =
+	BridgeProductMetadataApplicationSubscription<ReviewMetadataProtocol>;
+type WorktreeAnnotationMetadataFrame =
+	BridgeProductMetadataDataFrame<BridgeProductWorktreeAnnotationEvent>;
 
 describe('Bridge comm worker Review product source projection', () => {
 	test('re-exposes newest complete Review only after installed predecessor acknowledgment succeeds', async () => {
 		// Arrange
-		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
 		const appliedCallStarted = createBridgeProductDeferred<void>();
 		const appliedCallCompletion = createBridgeProductDeferred<void>();
 		const subscribedKinds: string[] = [];
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events: reviewMetadataEvents,
 			subscriptionId: 'review-successor-re-exposure',
@@ -60,8 +76,8 @@ describe('Bridge comm worker Review product source projection', () => {
 			}),
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'successor-re-exposure');
-		reviewMetadataEvents.push(reviewSnapshotEvent);
-		reviewMetadataEvents.push(successorReviewSnapshotEvent());
+		reviewMetadataEvents.push(reviewMetadataFrame(reviewSnapshotEvent));
+		reviewMetadataEvents.push(reviewMetadataFrame(successorReviewSnapshotEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 		const initialDisplayCount = messageCount(postedMessages, 'reviewDisplayPatch');
 		const initialReadyCount = messageCount(postedMessages, 'reviewCandidateReady');
@@ -111,10 +127,8 @@ describe('Bridge comm worker Review product source projection', () => {
 
 	test('retries failed successor admission once after its failure terminal reaches main', async () => {
 		// Arrange
-		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events: reviewMetadataEvents,
 			subscriptionId: 'review-successor-admission-failure',
@@ -137,8 +151,8 @@ describe('Bridge comm worker Review product source projection', () => {
 			}),
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'successor-admission-failure');
-		reviewMetadataEvents.push(reviewSnapshotEvent);
-		reviewMetadataEvents.push(successorReviewSnapshotEvent());
+		reviewMetadataEvents.push(reviewMetadataFrame(reviewSnapshotEvent));
+		reviewMetadataEvents.push(reviewMetadataFrame(successorReviewSnapshotEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 		dispatch.message(installedPredecessorCommand('review-predecessor-applied-before-failure'));
 		await flushBridgeWorkerRuntimeContinuations();
@@ -175,21 +189,19 @@ describe('Bridge comm worker Review product source projection', () => {
 		// Arrange
 		const calledMethods: string[] = [];
 		const reviewAnnotationEvents =
-			new BridgeProductBoundedAsyncQueue<BridgeProductWorktreeAnnotationEvent>(8);
-		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+			new BridgeProductBoundedAsyncQueue<WorktreeAnnotationMetadataFrame>(8);
+		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
 		const reviewProjectionSourceGenerations: number[] = [];
 		const reviewProjectionQueryStarted = createBridgeProductDeferred<void>();
 		const subscribedKinds: string[] = [];
-		const reviewAnnotationSubscription: BridgeProductSubscription<'review.annotations'> = {
+		const reviewAnnotationSubscription: ReviewAnnotationMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events: reviewAnnotationEvents,
 			subscriptionId: 'review-annotations-no-fabricated-source',
 			subscriptionKind: 'review.annotations',
 			update: async (): Promise<void> => {},
 		};
-		const reviewMetadataSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const reviewMetadataSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events: reviewMetadataEvents,
 			subscriptionId: 'review-metadata-no-fabricated-source',
@@ -224,13 +236,8 @@ describe('Bridge comm worker Review product source projection', () => {
 
 		// Act
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'annotation-metadata-source');
-		reviewAnnotationEvents.push({
-			eventKind: 'snapshot.required',
-			operationCorrelationId: 'a'.repeat(64),
-			sourceGeneration: 0,
-			worktreeId: 'worktree-1',
-		});
-		reviewMetadataEvents.push(reviewSnapshotEvent);
+		reviewAnnotationEvents.push(annotationControlChangedFrame(0));
+		reviewMetadataEvents.push(reviewMetadataFrame(reviewSnapshotEvent));
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(reviewProjectionSourceGenerations).toEqual([]);
 		dispatch.message(
@@ -254,12 +261,10 @@ describe('Bridge comm worker Review product source projection', () => {
 	test('projects typed Review subscription snapshots into worker-owned source truth', async () => {
 		const operationCorrelationId = 'b'.repeat(64);
 		const telemetrySamples: BridgeTelemetrySample[] = [];
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const subscribedKinds: string[] = [];
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'review-subscription-1',
@@ -298,7 +303,7 @@ describe('Bridge comm worker Review product source projection', () => {
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(subscribedKinds).toEqual(['file.annotations', 'review.annotations', 'review.metadata']);
-		events.push({ ...reviewSnapshotEvent, operationCorrelationId });
+		events.push(reviewMetadataFrame({ ...reviewSnapshotEvent, operationCorrelationId }));
 		await flushBridgeWorkerRuntimeContinuations();
 
 		expect(scheduledDrains).toHaveLength(1);
@@ -370,12 +375,22 @@ describe('Bridge comm worker Review product source projection', () => {
 
 	test('publishes a ready empty Review source when the snapshot has no changed files', async () => {
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
+		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(8);
+		const reviewSubscription: ReviewMetadataSubscription = {
+			cancel: async (): Promise<void> => {},
+			events: reviewMetadataEvents,
+			subscriptionId: 'review-empty-source-subscription',
+			subscriptionKind: 'review.metadata',
+			update: async (): Promise<void> => {},
+		};
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			productTransport: reviewProductSource.productTransport,
+			productTransport: makeReviewProductTransport({
+				reviewSubscription,
+				subscribedKinds: [],
+			}),
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
 			},
@@ -397,15 +412,7 @@ describe('Bridge comm worker Review product source projection', () => {
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		reviewProductSource.publishSource(
-			{
-				contentItems: [],
-				contentRequestDescriptors: [],
-				renderSemantics: [],
-				rows: [],
-			},
-			7,
-		);
+		reviewMetadataEvents.push(reviewMetadataFrame(emptyReviewSnapshotEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 
 		const reviewDisplayEvents = postedMessages
@@ -447,11 +454,11 @@ describe('Bridge comm worker Review product source projection', () => {
 			epoch: 1,
 			surface: 'review',
 		});
-		reviewProductSource.close();
+		reviewMetadataEvents.close(true);
 	});
 });
 
-function successorReviewSnapshotEvent(): BridgeProductSubscriptionEvent<'review.metadata'> {
+function successorReviewSnapshotEvent(): ReviewMetadataEvent {
 	return {
 		...reviewSnapshotEvent,
 		generation: reviewSnapshotEvent.generation + 1,
@@ -460,6 +467,42 @@ function successorReviewSnapshotEvent(): BridgeProductSubscriptionEvent<'review.
 		publicationId: '00000000-0000-7000-8000-000000000012',
 		revision: reviewSnapshotEvent.revision + 1,
 		sourceIdentity: 'source-2',
+	};
+}
+
+function emptyReviewSnapshotEvent(): ReviewMetadataEvent {
+	return {
+		...reviewSnapshotEvent,
+		contentSources: [],
+		extentFacts: [],
+		itemMetadata: [],
+		itemWindow: {
+			finalWindow: true,
+			itemCount: 0,
+			startIndex: 0,
+			totalItemCount: 0,
+		},
+		generation: 1,
+		packageId: 'review-product-test-package',
+		presentationRevision: 7,
+		publicationId: '00000000-0000-7000-8000-000000000007',
+		reviewComparison: null,
+		revision: 7,
+		sourceIdentity: 'review-product-test-source',
+		summary: {
+			additions: 0,
+			deletions: 0,
+			filesChanged: 0,
+			hiddenFileCount: 0,
+			visibleFileCount: 0,
+		},
+		treeRows: [],
+		treeWindow: {
+			finalWindow: true,
+			rowCount: 0,
+			startIndex: 0,
+			totalRowCount: 0,
+		},
 	};
 }
 
@@ -493,4 +536,39 @@ function messageCount(
 	kind: string,
 ): number {
 	return postedMessages.filter(({ message }): boolean => message.kind === kind).length;
+}
+
+function annotationControlChangedFrame(sourceGeneration: number): WorktreeAnnotationMetadataFrame {
+	return {
+		data: {
+			authority: {
+				applicationSourceGeneration: sourceGeneration,
+				worktreeId: 'worktree-1',
+			},
+			kind: 'annotation.controlChanged',
+			reason: 'discovery',
+		},
+		metadataStreamId: 'review-annotation-metadata-stream',
+		operationCorrelationId: 'a'.repeat(64),
+		sourceGeneration,
+		streamSequence: 1,
+		subscriptionId: 'review-annotation-subscription',
+		subscriptionKind: 'review.annotations',
+		subscriptionSequence: 1,
+		workerDerivationEpoch: 1,
+	};
+}
+
+function reviewMetadataFrame(event: ReviewMetadataEvent): ReviewMetadataFrame {
+	return {
+		data: event,
+		metadataStreamId: 'review-metadata-stream',
+		operationCorrelationId: event.operationCorrelationId,
+		sourceGeneration: event.generation,
+		streamSequence: 1,
+		subscriptionId: 'review-metadata-subscription',
+		subscriptionKind: 'review.metadata',
+		subscriptionSequence: 1,
+		workerDerivationEpoch: 1,
+	};
 }

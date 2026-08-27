@@ -120,9 +120,19 @@ describe('Bridge product transport', () => {
 			}),
 		);
 
-		await expect(nextEvent).resolves.toMatchObject({
+		await expect(nextEvent).resolves.toEqual({
 			done: false,
-			value: { eventKind: 'file.sourceAccepted', source: fileSourceIdentity() },
+			value: {
+				data: { eventKind: 'file.sourceAccepted', source: fileSourceIdentity() },
+				metadataStreamId: request.metadataStreamId,
+				operationCorrelationId: null,
+				sourceGeneration: 1,
+				streamSequence: 2,
+				subscriptionId: subscription.subscriptionId,
+				subscriptionKind: 'file.metadata',
+				subscriptionSequence: 1,
+				workerDerivationEpoch: 0,
+			},
 		});
 		expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
 			activeSubscriptionCount: 1,
@@ -194,9 +204,27 @@ describe('Bridge product transport', () => {
 			}),
 		);
 
-		expect(await reviewEvent).toMatchObject({
+		expect(await reviewEvent).toEqual({
 			done: false,
-			value: { eventKind: 'review.sourceAccepted', packageId: 'package-1' },
+			value: {
+				data: {
+					eventKind: 'review.sourceAccepted',
+					generation: 1,
+					operationCorrelationId: null,
+					packageId: 'package-1',
+					publicationId: '00000000-0000-7000-8000-000000000001',
+					revision: 1,
+					sourceIdentity: 'source-1',
+				},
+				metadataStreamId: harness.server.requiredMetadataRequest().metadataStreamId,
+				operationCorrelationId: null,
+				sourceGeneration: 1,
+				streamSequence: 2,
+				subscriptionId: review.subscriptionId,
+				subscriptionKind: 'review.metadata',
+				subscriptionSequence: 1,
+				workerDerivationEpoch: 2,
+			},
 		});
 		harness.server.releaseHeldSubscriptionOpen();
 		await harness.server.waitForControlKind('subscription.updateBatch');

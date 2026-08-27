@@ -43,6 +43,7 @@ export type {
 	BridgeWorkerViewportPatchPayload,
 } from './bridge-worker-content-contracts.js';
 import {
+	bridgeWorkerAnnotationCatalogStagingEventSchema,
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationCommandSchema,
 	bridgeWorkerAnnotationOutputInspectCommandSchema,
@@ -798,6 +799,7 @@ export const bridgeWorkerFilePierreRenderJobEventSchema = bridgeWorkerServerToMa
 	});
 
 export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind', [
+	bridgeWorkerAnnotationCatalogStagingEventSchema,
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
 	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
@@ -819,6 +821,7 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 ]);
 
 export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('kind', [
+	bridgeWorkerAnnotationCatalogStagingEventSchema,
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
 	bridgeWorkerAnnotationProjectionConvergenceEventSchema,

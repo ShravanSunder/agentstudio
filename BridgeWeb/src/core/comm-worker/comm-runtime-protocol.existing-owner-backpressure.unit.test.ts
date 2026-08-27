@@ -17,15 +17,16 @@ import {
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 	makeContentRequestDescriptor,
+	makeFileMetadataDataFrame,
 	makeRenderSemantics,
 	makeWorkerReviewContentMetadata,
 	openReviewContentFromDescriptorMap,
 	type BridgeCommWorkerReviewProductTestSourceInput,
+	type FileMetadataDataFrame,
+	type FileMetadataSubscription,
 	type PostedBridgeWorkerRuntimeMessage,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type {
 	BridgeWorkerFilePierreRenderJobEvent,
 	BridgeWorkerReviewPierreRenderJobEvent,
@@ -169,7 +170,7 @@ describe('Bridge comm worker existing Review owner backpressure', () => {
 
 interface FileBackpressureHarness {
 	readonly dispatch: ReturnType<typeof createRecordingBridgeCommWorkerPort>['dispatch'];
-	readonly events: BridgeProductBoundedAsyncQueue<BridgeProductSubscriptionEvent<'file.metadata'>>;
+	readonly events: BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>;
 	readonly postedMessages: PostedBridgeWorkerRuntimeMessage[];
 	readonly scheduledDrains: BridgeCommWorkerPreparationDrain[];
 }
@@ -177,11 +178,9 @@ interface FileBackpressureHarness {
 async function createFileBackpressureHarness(
 	throwForRequestId?: string,
 ): Promise<FileBackpressureHarness> {
-	const events = new BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'file.metadata'>
-	>(64);
+	const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
 	const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-	const subscription: BridgeProductSubscription<'file.metadata'> = {
+	const subscription: FileMetadataSubscription = {
 		cancel: async (): Promise<void> => {},
 		events,
 		subscriptionId: 'file-subscription-existing-owner-backpressure',
@@ -209,9 +208,11 @@ async function createFileBackpressureHarness(
 		},
 	});
 	await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'existing-owner-backpressure');
-	events.push({ eventKind: 'file.sourceAccepted', source: fileProductTestSource });
-	events.push(makeTreeWindowEvent());
-	events.push(makeDescriptorReadyEvent());
+	events.push(
+		makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source: fileProductTestSource }),
+	);
+	events.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
+	events.push(makeFileMetadataDataFrame(makeDescriptorReadyEvent()));
 	await flushBridgeWorkerRuntimeContinuations();
 	const harness = { dispatch, events, postedMessages, scheduledDrains };
 	selectFile(harness, 1, 'selection-a');
@@ -237,19 +238,23 @@ function pushReplacementFileSource(harness: FileBackpressureHarness): void {
 	) {
 		throw new Error('Expected available File replacement fixtures.');
 	}
-	harness.events.push({ eventKind: 'file.sourceAccepted', source: replacementSource });
-	harness.events.push({ ...treeWindow, source: replacementSource });
-	harness.events.push({
-		...descriptorReady,
-		availability: {
-			...descriptorReady.availability,
-			contentDescriptor: {
-				...descriptorReady.availability.contentDescriptor,
-				source: replacementSource,
+	harness.events.push(
+		makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source: replacementSource }),
+	);
+	harness.events.push(makeFileMetadataDataFrame({ ...treeWindow, source: replacementSource }));
+	harness.events.push(
+		makeFileMetadataDataFrame({
+			...descriptorReady,
+			availability: {
+				...descriptorReady.availability,
+				contentDescriptor: {
+					...descriptorReady.availability.contentDescriptor,
+					source: replacementSource,
+				},
 			},
-		},
-		source: replacementSource,
-	});
+			source: replacementSource,
+		}),
+	);
 }
 
 function reviewSource(

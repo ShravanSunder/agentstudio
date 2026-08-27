@@ -228,6 +228,7 @@ function bridgeWorkerMessageMatchesSurface(
 ): boolean {
 	switch (message.kind) {
 		case 'annotationCommandAccepted':
+		case 'annotationCatalogStaging':
 		case 'annotationOutputInspection':
 		case 'annotationProjectionConvergence':
 			return message.surface === surface;

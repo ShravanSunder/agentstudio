@@ -362,10 +362,46 @@ describe('Bridge pane runtime', () => {
 		if (pendingInspectionRequest === undefined) {
 			throw new Error('Expected a pending annotation output inspection request.');
 		}
+		const catalogStagingBase = {
+			authority: {
+				subscriptionId: 'file-annotation-subscription-before-replacement',
+				workerDerivationEpoch: 2,
+				worktreeId: 'worktree-1',
+			},
+			direction: 'serverWorkerToMain' as const,
+			kind: 'annotationCatalogStaging' as const,
+			operationCorrelationId: 'a'.repeat(64),
+			surface: 'fileView' as const,
+			transferDescriptors: [],
+			wireVersion: 1 as const,
+		};
+		publishWorkerMessages?.([
+			{
+				...catalogStagingBase,
+				transfer: {
+					catalogRevision: 20,
+					expectedEntryCount: 0,
+					kind: 'catalog.begin',
+					transferId: 'file-annotation-catalog-before-replacement',
+				},
+			},
+			{
+				...catalogStagingBase,
+				transfer: {
+					catalogRevision: 20,
+					entryCount: 0,
+					kind: 'catalog.commit',
+					transferId: 'file-annotation-catalog-before-replacement',
+					windowCount: 0,
+				},
+			},
+		]);
+		expect(annotationClient.getCatalogSnapshot().kind).toBe('current');
 		dispatchedMessages.length = 0;
 
 		// Act
 		requestReplacement?.('workerReplacement');
+		expect(annotationClient.getCatalogSnapshot().kind).toBe('stale');
 		fileClient.send({
 			command: 'select',
 			epoch: 3,

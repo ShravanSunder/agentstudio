@@ -9,14 +9,19 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	makeReviewMetadataDataFrame,
+	type ReviewMetadataSubscription,
+} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import {
 	activateBridgeCommWorkerFileViewerMode,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
+	makeFileMetadataDataFrame,
+	type FileMetadataDataFrame,
+	type FileMetadataSubscription,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type {
 	BridgeProductPanePresentationFrame,
 	BridgeProductTransportSession,
@@ -91,7 +96,7 @@ describe('Bridge comm worker selected File preparation cancellation', () => {
 	test('keeps the selected load alive across identity-equivalent descriptor replay', async () => {
 		const harness = await createPendingFilePreparationHarness();
 
-		harness.events.push(fileDescriptorReadyEvent());
+		harness.events.push(makeFileMetadataDataFrame(fileDescriptorReadyEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 
 		expect(harness.abortCount()).toBe(0);
@@ -109,11 +114,13 @@ describe('Bridge comm worker selected File preparation cancellation', () => {
 		const harness = await createPendingFilePreparationHarness();
 
 		harness.events.push(
-			fileDescriptorReadyEvent({
-				descriptorId: 'descriptor-file-2',
-				fileId: 'file-2',
-				path: 'Sources/Unrelated.swift',
-			}),
+			makeFileMetadataDataFrame(
+				fileDescriptorReadyEvent({
+					descriptorId: 'descriptor-file-2',
+					fileId: 'file-2',
+					path: 'Sources/Unrelated.swift',
+				}),
+			),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 
@@ -154,11 +161,13 @@ describe('Bridge comm worker selected File preparation cancellation', () => {
 		const harness = await createPendingFilePreparationHarness();
 
 		harness.events.push(
-			fileDescriptorReadyEvent({
-				descriptorId: 'descriptor-file-1-replacement',
-				expectedSha256: 'b'.repeat(64),
-				modifiedAtUnixMilliseconds: 2,
-			}),
+			makeFileMetadataDataFrame(
+				fileDescriptorReadyEvent({
+					descriptorId: 'descriptor-file-1-replacement',
+					expectedSha256: 'b'.repeat(64),
+					modifiedAtUnixMilliseconds: 2,
+				}),
+			),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 		await drainUntilAttemptCount(harness, 2);
@@ -303,7 +312,7 @@ interface PendingFilePreparationHarness {
 	readonly abortCount: () => number;
 	readonly attempts: PendingContentAttempt[];
 	readonly dispatch: ReturnType<typeof createRecordingBridgeCommWorkerPort>['dispatch'];
-	readonly events: BridgeProductBoundedAsyncQueue<BridgeProductSubscriptionEvent<'file.metadata'>>;
+	readonly events: BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>;
 	readonly postedMessages: readonly { readonly message: BridgeWorkerServerToMainMessage }[];
 	readonly publishPresentation: (
 		presentationRevision: number,
@@ -330,24 +339,20 @@ async function createPendingFilePreparationHarness(
 		) => () => void;
 	} = {},
 ): Promise<PendingFilePreparationHarness> {
-	const events = new BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'file.metadata'>
-	>(64);
+	const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
 	const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 	const attempts: PendingContentAttempt[] = [];
 	let observedAbortCount = 0;
-	const fileSubscription: BridgeProductSubscription<'file.metadata'> = {
+	const fileSubscription: FileMetadataSubscription = {
 		cancel: async (): Promise<void> => {},
 		events,
 		subscriptionId: 'file-subscription-preparation-cancellation',
 		subscriptionKind: 'file.metadata',
 		update: async (): Promise<void> => {},
 	};
-	const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+	const reviewSubscription: ReviewMetadataSubscription = {
 		cancel: async (): Promise<void> => {},
-		events: new BridgeProductBoundedAsyncQueue<BridgeProductSubscriptionEvent<'review.metadata'>>(
-			64,
-		),
+		events: new BridgeProductBoundedAsyncQueue<ReturnType<typeof makeReviewMetadataDataFrame>>(64),
 		subscriptionId: 'review-subscription-for-file-preparation-cancellation',
 		subscriptionKind: 'review.metadata',
 		update: async (): Promise<void> => {},
@@ -452,9 +457,11 @@ async function createPendingFilePreparationHarness(
 		}),
 	);
 	await flushBridgeWorkerRuntimeContinuations();
-	events.push({ eventKind: 'file.sourceAccepted', source });
-	events.push(fileTreeWindowEvent());
-	if (props.includeDescriptor !== false) events.push(fileDescriptorReadyEvent());
+	events.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
+	events.push(makeFileMetadataDataFrame(fileTreeWindowEvent()));
+	if (props.includeDescriptor !== false) {
+		events.push(makeFileMetadataDataFrame(fileDescriptorReadyEvent()));
+	}
 	await flushBridgeWorkerRuntimeContinuations();
 	const harness = {
 		abortCount: (): number => observedAbortCount,
@@ -556,7 +563,7 @@ function fileAvailabilityPatches(
 		.filter((patch) => patch.slice === 'contentAvailability');
 }
 
-function fileTreeWindowEvent(): BridgeProductSubscriptionEvent<'file.metadata'> {
+function fileTreeWindowEvent(): Parameters<typeof makeFileMetadataDataFrame>[0] {
 	return {
 		eventKind: 'file.treeWindow',
 		finalWindow: true,
@@ -591,7 +598,7 @@ function fileDescriptorReadyEvent(
 		readonly modifiedAtUnixMilliseconds?: number;
 		readonly path?: string;
 	} = {},
-): BridgeProductSubscriptionEvent<'file.metadata'> {
+): Parameters<typeof makeFileMetadataDataFrame>[0] {
 	const fileId = props.fileId ?? 'file-1';
 	const path = props.path ?? 'Sources/File.swift';
 	return {

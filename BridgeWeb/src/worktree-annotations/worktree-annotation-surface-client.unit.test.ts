@@ -24,6 +24,7 @@ const messageId = '00000000-0000-7000-8000-000000000013';
 describe('worktree annotation finite projection store', () => {
 	test('installs one complete finite snapshot atomically', () => {
 		const store = new WorktreeAnnotationProjectionStore();
+		stageCatalog(store, 4);
 		const listener = vi.fn();
 		store.subscribe(listener);
 
@@ -31,7 +32,7 @@ describe('worktree annotation finite projection store', () => {
 
 		expect(listener).toHaveBeenCalledTimes(1);
 		expect(store.getSnapshot()).toMatchObject({
-			presentationRevision: 1,
+			presentationRevision: 2,
 			revision: 4,
 			readStatus: { kind: 'ready' },
 			worktreeId: 'worktree-1',
@@ -41,6 +42,7 @@ describe('worktree annotation finite projection store', () => {
 
 	test('rejects an older semantic revision without publishing', () => {
 		const store = new WorktreeAnnotationProjectionStore();
+		stageCatalog(store, 5);
 		const listener = vi.fn();
 		store.subscribe(listener);
 		store.apply(projectionSnapshot(5, 9), 'a'.repeat(64));
@@ -53,6 +55,7 @@ describe('worktree annotation finite projection store', () => {
 
 	test('preserves exact command outcomes and cold output history across projection replacement', () => {
 		const store = new WorktreeAnnotationProjectionStore();
+		stageCatalog(store, 6);
 		store.recordCommandOutcome({
 			requestId: 'annotation-request-1',
 			sessionId,
@@ -77,6 +80,41 @@ describe('worktree annotation finite projection store', () => {
 
 		expect(store.getSnapshot().commandOutcomes).toHaveLength(1);
 		expect(store.getSnapshot().outputHistory).toHaveLength(1);
+	});
+
+	test('preserves demanded rich content across an empty-demand control refresh', () => {
+		const store = new WorktreeAnnotationProjectionStore();
+		stageCatalog(store, 6);
+		store.apply(projectionSnapshot(6, 11), 'a'.repeat(64), [sessionId]);
+
+		store.apply(
+			{
+				...projectionSnapshot(7, 11),
+				expectedMessageCount: 0,
+				expectedThreadCount: 0,
+				threads: [],
+			},
+			'a'.repeat(64),
+			[],
+		);
+
+		expect(store.getSnapshot().threads[0]?.messages[0]?.messageId).toBe(messageId);
+		expect(store.getSnapshot().readStatus).toEqual({ kind: 'ready' });
+	});
+
+	test('retires removed-session rich content and output history at catalog commit', () => {
+		const store = new WorktreeAnnotationProjectionStore();
+		stageCatalog(store, 6);
+		store.apply(projectionSnapshot(6, 11), 'a'.repeat(64), [sessionId]);
+		store.replaceOutputHistory([outputHistorySummary(sessionId, '21')]);
+
+		for (const message of catalogStagingMessages(7, 'fileView', false)) {
+			store.applyCatalogStaging(message);
+		}
+
+		expect(store.getSnapshot().threads).toEqual([]);
+		expect(store.getSnapshot().outputHistory).toEqual([]);
+		expect(store.getSnapshot().readStatus).toEqual({ kind: 'refreshing' });
 	});
 
 	test('merges cold output history by demanded session', () => {
@@ -131,7 +169,11 @@ describe('worktree annotation surface command rendezvous', () => {
 			direction: 'serverWorkerToMain',
 			kind: 'annotationProjectionConvergence',
 			operationCorrelationId: 'a'.repeat(64),
-			state: { kind: 'ready', snapshot: projectionSnapshot(7, 12) },
+			state: {
+				contentSessionIds: [sessionId],
+				kind: 'ready',
+				snapshot: projectionSnapshot(7, 12),
+			},
 			surface: 'fileView',
 			transferDescriptors: [],
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
@@ -160,7 +202,11 @@ describe('worktree annotation surface command rendezvous', () => {
 			direction: 'serverWorkerToMain',
 			kind: 'annotationProjectionConvergence',
 			operationCorrelationId: 'a'.repeat(64),
-			state: { kind: 'ready', snapshot: projectionSnapshot(7, 12) },
+			state: {
+				contentSessionIds: [sessionId],
+				kind: 'ready',
+				snapshot: projectionSnapshot(7, 12),
+			},
 			surface: 'fileView',
 			transferDescriptors: [],
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
@@ -172,6 +218,33 @@ describe('worktree annotation surface command rendezvous', () => {
 			operation: { kind: 'output.history', sessionId },
 			surface: 'fileView',
 		});
+		releaseSession();
+		harness.client.dispose();
+	});
+
+	test('does not refresh rich output history after a control-only projection', () => {
+		const harness = createSurfaceClientHarness();
+		const releaseSession = harness.client.acquireSession(sessionId);
+		harness.sentCommands.length = 0;
+
+		harness.publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
+			state: {
+				contentSessionIds: [],
+				kind: 'ready',
+				snapshot: { ...projectionSnapshot(7, 12), threads: [] },
+			},
+			surface: 'fileView',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+
+		expect(harness.sentCommands).not.toContainEqual(
+			expect.objectContaining({ operation: { kind: 'output.history', sessionId } }),
+		);
+		expect(harness.client.getSnapshot().readStatus).toEqual({ kind: 'refreshing' });
 		releaseSession();
 		harness.client.dispose();
 	});
@@ -321,6 +394,7 @@ function createSurfaceClientHarness(
 } {
 	let listener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
 	let nextWorkerRequestIndex = 0;
+	let catalogStaged = false;
 	const sentCommands: Parameters<BridgePaneSurfaceClient['send']>[0][] = [];
 	const telemetrySamples: BridgeTelemetrySample[] = [];
 	const renderStore = createBridgeMainRenderSnapshotStore();
@@ -363,11 +437,103 @@ function createSurfaceClientHarness(
 			},
 		}),
 		publish: (message): void => {
+			if (
+				!catalogStaged &&
+				message.kind === 'annotationProjectionConvergence' &&
+				message.state.kind === 'ready'
+			) {
+				catalogStaged = true;
+				for (const catalogMessage of catalogStagingMessages(
+					message.state.snapshot.projectionRevision,
+					surface,
+				)) {
+					listener?.(catalogMessage);
+				}
+			}
 			listener?.(message);
 		},
 		sentCommands,
 		telemetrySamples,
 	};
+}
+
+function stageCatalog(store: WorktreeAnnotationProjectionStore, catalogRevision: number): void {
+	for (const message of catalogStagingMessages(catalogRevision, 'fileView')) {
+		store.applyCatalogStaging(message);
+	}
+}
+
+function catalogStagingMessages(
+	catalogRevision: number,
+	surface: 'fileView' | 'review',
+	includeSession = true,
+): readonly Extract<
+	BridgeWorkerServerToMainMessage,
+	{ readonly kind: 'annotationCatalogStaging' }
+>[] {
+	const authority = {
+		subscriptionId: `${surface}-annotation-subscription-1`,
+		workerDerivationEpoch: 1,
+		worktreeId: 'worktree-1',
+	} as const;
+	const transferId = `${surface}-annotation-catalog-${catalogRevision}`;
+	const entries = includeSession
+		? [
+				{ kind: 'session' as const, semanticRevision: catalogRevision, sessionId },
+				{
+					createdOrdinal: 0,
+					kind: 'thread' as const,
+					scope: 'located' as const,
+					sessionId,
+					threadId,
+				},
+				{ kind: 'message' as const, messageId, ordinal: 0, threadId },
+			]
+		: [];
+	const common = {
+		authority,
+		direction: 'serverWorkerToMain' as const,
+		kind: 'annotationCatalogStaging' as const,
+		operationCorrelationId: 'a'.repeat(64),
+		surface,
+		transferDescriptors: [],
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+	};
+	return [
+		{
+			...common,
+			transfer: {
+				catalogRevision,
+				expectedEntryCount: entries.length,
+				kind: 'catalog.begin',
+				transferId,
+			},
+		},
+		...(entries.length === 0
+			? []
+			: [
+					{
+						...common,
+						transfer: {
+							catalogRevision,
+							entries,
+							kind: 'catalog.window' as const,
+							transferId,
+							windowOrdinal: 0,
+						},
+					},
+				]),
+		{
+			...common,
+			transfer: {
+				catalogRevision,
+				entryCount: entries.length,
+				kind: 'catalog.commit',
+				transferId,
+				windowCount: entries.length === 0 ? 0 : 1,
+			},
+		},
+	];
 }
 
 const reviewPublicationIdentity = {

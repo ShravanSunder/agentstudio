@@ -3,7 +3,10 @@ import {
 	createBridgeProductDeferred,
 	type BridgeProductDeferred,
 } from './bridge-product-async-queue.js';
-import type { BridgeProductMetadataApplicationProtocol } from './bridge-product-metadata-application-protocol.js';
+import type {
+	BridgeProductMetadataApplicationProtocol,
+	BridgeProductMetadataDataFrame,
+} from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductMetadataFrame } from './bridge-product-session-contracts.js';
 
 export type BridgeProductSubscriptionIdentifierPurpose = 'subscription-update';
@@ -104,7 +107,9 @@ export class BridgeProductSubscriptionState<
 	#currentInterestRevision = 0;
 	#currentInterestState: TInterestState;
 	readonly #ensureMetadataStream: () => Promise<void>;
-	readonly #eventQueue = new BridgeProductBoundedAsyncQueue<TData['event']>(64);
+	readonly #eventQueue = new BridgeProductBoundedAsyncQueue<
+		BridgeProductMetadataDataFrame<TData['event']>
+	>(64);
 	#expectedSubscriptionSequence = 0;
 	readonly #initialOptions: TOptions;
 	readonly #onTerminal: (subscriptionId: string) => void;
@@ -150,7 +155,7 @@ export class BridgeProductSubscriptionState<
 	}
 
 	get publicSubscription(): {
-		readonly events: AsyncIterable<TData['event']>;
+		readonly events: AsyncIterable<BridgeProductMetadataDataFrame<TData['event']>>;
 		readonly subscriptionId: string;
 		readonly subscriptionKind: TKind;
 		cancel(): Promise<void>;
@@ -250,7 +255,17 @@ export class BridgeProductSubscriptionState<
 				if (this.#protocol.readEventSourceGeneration(data.event) !== frame.sourceGeneration) {
 					throw new Error('Bridge product application event generation does not match its frame.');
 				}
-				this.#eventQueue.push(data.event);
+				this.#eventQueue.push({
+					data: data.event,
+					metadataStreamId: frame.metadataStreamId,
+					operationCorrelationId: frame.operationCorrelationId,
+					sourceGeneration: frame.sourceGeneration,
+					streamSequence: frame.streamSequence,
+					subscriptionId: frame.subscriptionId,
+					subscriptionKind: frame.subscriptionKind,
+					subscriptionSequence: frame.subscriptionSequence,
+					workerDerivationEpoch: frame.workerDerivationEpoch,
+				});
 				return;
 			}
 			case 'subscription.interestsCommitted':

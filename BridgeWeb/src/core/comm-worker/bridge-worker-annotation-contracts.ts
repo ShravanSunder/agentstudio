@@ -1,12 +1,18 @@
 import { z } from 'zod';
 
 import { bridgeWorkerAnnotationProjectionSnapshotSchema } from './bridge-comm-worker-annotation-projection-decoder.js';
+import { createBridgeMetadataCatalogTransferSchema } from './bridge-metadata-catalog-transfer-contracts.js';
 import { bridgeProductWorktreeAnnotationOperationSchema } from './bridge-product-call-contracts.js';
 import {
 	bridgeProductIdentifierSchema,
+	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductSha256Schema,
 } from './bridge-product-contract-primitives.js';
-import { bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema } from './bridge-product-worktree-annotation-contracts.js';
+import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
+import {
+	bridgeProductWorktreeAnnotationCatalogEntrySchema,
+	bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema,
+} from './bridge-product-worktree-annotation-contracts.js';
 import {
 	bridgeProductAnnotationOutputContentDescriptorSchema,
 	bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
@@ -79,6 +85,13 @@ export const bridgeWorkerAnnotationProjectionConvergenceEventSchema =
 				z.object({ kind: z.literal('unavailable'), retryable: z.boolean() }).strict(),
 				z
 					.object({
+						contentSessionIds: z
+							.array(bridgeProductReviewPublicationIdSchema)
+							.max(128)
+							.refine((sessionIds) => new Set(sessionIds).size === sessionIds.length, {
+								message: 'Annotation content-session identities must be unique.',
+							})
+							.readonly(),
 						kind: z.literal('ready'),
 						snapshot: bridgeWorkerAnnotationProjectionSnapshotSchema,
 					})
@@ -96,6 +109,33 @@ export const bridgeWorkerAnnotationProjectionConvergenceEventSchema =
 				});
 			}
 		});
+
+export const bridgeWorkerAnnotationCatalogStagingEventSchema = bridgeWorkerServerToMainBaseSchema
+	.extend({
+		authority: z
+			.object({
+				subscriptionId: bridgeProductIdentifierSchema,
+				workerDerivationEpoch: bridgeProductNonnegativeSequenceSchema,
+				worktreeId: bridgeProductIdentifierSchema,
+			})
+			.strict(),
+		kind: z.literal('annotationCatalogStaging'),
+		operationCorrelationId: bridgeProductSha256Schema,
+		surface: bridgeWorkerInteractionSurfaceSchema,
+		transfer: createBridgeMetadataCatalogTransferSchema(
+			bridgeProductWorktreeAnnotationCatalogEntrySchema,
+		),
+	})
+	.strict()
+	.superRefine((event, context): void => {
+		if (event.transferDescriptors.length === 0) return;
+		context.addIssue({
+			code: 'custom',
+			message:
+				'Annotation catalog staging uses structured-clone data without transfer descriptors.',
+			path: ['transferDescriptors'],
+		});
+	});
 
 const bridgeWorkerArrayBufferSchema = z.custom<ArrayBuffer>(
 	(value): value is ArrayBuffer => value instanceof ArrayBuffer,
@@ -159,4 +199,7 @@ export type BridgeWorkerAnnotationCommandAcceptedEvent = z.infer<
 >;
 export type BridgeWorkerAnnotationProjectionConvergenceEvent = z.infer<
 	typeof bridgeWorkerAnnotationProjectionConvergenceEventSchema
+>;
+export type BridgeWorkerAnnotationCatalogStagingEvent = z.infer<
+	typeof bridgeWorkerAnnotationCatalogStagingEventSchema
 >;

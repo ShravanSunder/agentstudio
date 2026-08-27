@@ -2,6 +2,7 @@ import type { WorktreeAnnotationLifecycleTelemetryRecorder } from '../../worktre
 import {
 	BridgeCommWorkerAnnotationProjectionQueryController,
 	bridgeCommWorkerAnnotationProjectionTransport,
+	type BridgeCommWorkerAnnotationCatalogPublication,
 	type BridgeCommWorkerAnnotationProjectionDemand,
 	type BridgeCommWorkerAnnotationProjectionPublication,
 	type BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication,
@@ -118,6 +119,9 @@ export class BridgeCommWorkerProductController {
 
 	constructor(props: {
 		readonly callCurrentFileSource?: () => Promise<FileSourceDiscoveryResult>;
+		readonly onAnnotationCatalog?: (
+			publication: BridgeCommWorkerAnnotationCatalogPublication,
+		) => void;
 		readonly onAnnotationProjectionConvergence?: (
 			publication: BridgeCommWorkerAnnotationProjectionPublication,
 		) => void;
@@ -144,11 +148,13 @@ export class BridgeCommWorkerProductController {
 		this.#productTransport = props.productTransport;
 		const onConvergence =
 			props.onAnnotationProjectionConvergence ?? ignoreAnnotationProjectionConvergence;
+		const onCatalog = props.onAnnotationCatalog ?? ignoreAnnotationCatalog;
 		const annotationProjectionTransport = bridgeCommWorkerAnnotationProjectionTransport(
 			props.productTransport,
 		);
 		this.#annotationProjectionBySurface = {
 			file: new BridgeCommWorkerAnnotationProjectionQueryController({
+				onCatalog,
 				onConvergence,
 				onSourceAuthorityStale: (publication): void => {
 					void this.reconcileAnnotationProjectionSourceAuthority(publication);
@@ -158,6 +164,7 @@ export class BridgeCommWorkerProductController {
 				telemetryClient: props.telemetryClient,
 			}),
 			review: new BridgeCommWorkerAnnotationProjectionQueryController({
+				onCatalog,
 				onConvergence,
 				onSourceAuthorityStale: (publication): void => {
 					void this.reconcileAnnotationProjectionSourceAuthority(publication);
@@ -454,8 +461,9 @@ export class BridgeCommWorkerProductController {
 		workerDerivationEpoch: number,
 	): Promise<void> {
 		try {
-			for await (const event of subscription.events) {
+			for await (const frame of subscription.events) {
 				if (subscription !== this.#reviewSubscription) return;
+				const event = frame.data;
 				try {
 					const applicationReceipt = await this.#onReviewMetadataEvent(
 						event,
@@ -659,8 +667,9 @@ export class BridgeCommWorkerProductController {
 		workerDerivationEpoch: number,
 	): Promise<void> {
 		try {
-			for await (const event of subscription.events) {
+			for await (const frame of subscription.events) {
 				if (subscription !== this.#fileSubscription) return;
+				const event = frame.data;
 				this.#fileSource = event.source;
 				this.#onFileMetadataEvent(event, workerDerivationEpoch);
 				if (event.eventKind === 'file.sourceAccepted' || this.#hasFileMetadataDemand) {
@@ -822,4 +831,8 @@ function ignoreReviewMetadataFailure(_error: unknown, _workerDerivationEpoch: nu
 
 function ignoreAnnotationProjectionConvergence(
 	_publication: BridgeCommWorkerAnnotationProjectionPublication,
+): void {}
+
+function ignoreAnnotationCatalog(
+	_publication: BridgeCommWorkerAnnotationCatalogPublication,
 ): void {}

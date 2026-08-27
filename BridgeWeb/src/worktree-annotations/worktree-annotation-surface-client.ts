@@ -9,6 +9,7 @@ import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-tel
 import { recordWorktreeAnnotationLifecycleTelemetry } from './worktree-annotation-lifecycle-telemetry.js';
 import {
 	WorktreeAnnotationProjectionStore,
+	type WorktreeAnnotationCatalogProjection,
 	type WorktreeAnnotationCommandOutcome,
 	type WorktreeAnnotationProjectionSnapshot,
 } from './worktree-annotation-projection-store.js';
@@ -20,6 +21,7 @@ export {
 	WorktreeAnnotationProjectionStore,
 } from './worktree-annotation-projection-store.js';
 export type {
+	WorktreeAnnotationCatalogProjection,
 	WorktreeAnnotationCommandOutcome,
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationOutputHistorySummary,
@@ -41,6 +43,7 @@ export interface WorktreeAnnotationSurfaceClient {
 		operation: BridgeProductWorktreeAnnotationOperation,
 	) => Promise<WorktreeAnnotationCommandOutcome>;
 	readonly getServerSnapshot: () => WorktreeAnnotationProjectionSnapshot;
+	readonly getCatalogSnapshot: () => WorktreeAnnotationCatalogProjection;
 	readonly getSnapshot: () => WorktreeAnnotationProjectionSnapshot;
 	readonly inspectOutput: (attemptId: string) => Promise<WorktreeAnnotationOutputInspection>;
 	readonly retryProjection: () => void;
@@ -140,6 +143,12 @@ export function createWorktreeAnnotationSurfaceClient(
 	const unsubscribeMessages = surfaceClient.subscribeMessages(
 		(message: BridgeWorkerServerToMainMessage): void => {
 			if (isDisposed) return;
+			if (message.kind === 'annotationCatalogStaging') {
+				if (message.surface === surfaceClient.surface) {
+					projectionStore.applyCatalogStaging(message);
+				}
+				return;
+			}
 			if (message.kind === 'annotationOutputInspection') {
 				const pendingInspection = pendingOutputInspectionsByWorkerRequestId.get(message.requestId);
 				if (pendingInspection === undefined) return;
@@ -158,8 +167,14 @@ export function createWorktreeAnnotationSurfaceClient(
 			if (message.kind === 'annotationProjectionConvergence') {
 				if (message.state.kind === 'ready') {
 					if (message.operationCorrelationId !== null) {
-						projectionStore.apply(message.state.snapshot, message.operationCorrelationId);
-						for (const sessionId of demandCountBySessionId.keys()) {
+						projectionStore.apply(
+							message.state.snapshot,
+							message.operationCorrelationId,
+							message.state.contentSessionIds,
+							[...demandCountBySessionId.keys()],
+						);
+						for (const sessionId of message.state.contentSessionIds) {
+							if (!demandCountBySessionId.has(sessionId)) continue;
 							void execute({ kind: 'output.history', sessionId }).catch((): void => {});
 						}
 						recordWorktreeAnnotationLifecycleTelemetry({
@@ -295,6 +310,10 @@ export function createWorktreeAnnotationSurfaceClient(
 		observedSurfaceEpoch = currentEpoch;
 		for (const sessionId of demandCountBySessionId.keys()) refreshDemandedSession(sessionId);
 	});
+	const unsubscribeWorkerReplacement =
+		surfaceClient.subscribeWorkerReplacement?.((): void => {
+			projectionStore.prepareForWorkerReplacement();
+		}) ?? noopUnsubscribe;
 
 	return {
 		acquireSession: (sessionId): (() => void) => {
@@ -323,6 +342,7 @@ export function createWorktreeAnnotationSurfaceClient(
 			isDisposed = true;
 			unsubscribeMessages();
 			unsubscribeSourceEpoch();
+			unsubscribeWorkerReplacement();
 			const disposalError = new Error('Annotation surface client is disposed.');
 			for (const pendingCommand of pendingCommandsByWorkerRequestId.values()) {
 				pendingCommand.reject(disposalError);
@@ -341,6 +361,7 @@ export function createWorktreeAnnotationSurfaceClient(
 			demandCountBySessionId.clear();
 		},
 		execute,
+		getCatalogSnapshot: projectionStore.getCatalogSnapshot,
 		getServerSnapshot: projectionStore.getServerSnapshot,
 		getSnapshot: projectionStore.getSnapshot,
 		inspectOutput,

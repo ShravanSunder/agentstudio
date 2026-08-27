@@ -59,18 +59,26 @@ describe('Bridge product subscription state', () => {
 			),
 		);
 		currentReviewEpoch = 2;
+		const catalogBeginEvent = {
+			authority: {
+				applicationSourceGeneration: 1,
+				worktreeId: 'worktree-1',
+			},
+			kind: 'annotation.catalog',
+			transfer: {
+				catalogRevision: 1,
+				expectedEntryCount: 0,
+				kind: 'catalog.begin',
+				transferId: 'annotation-catalog-transfer-1',
+			},
+		} as const;
 		subscriptionState.acceptFrame(
 			requireSubscriptionFrame(
 				bridgeProductMetadataFrameSchema.parse({
 					...metadataFrameIdentity(2),
 					cursor: 'review-annotations-cursor-1',
 					data: {
-						event: {
-							eventKind: 'snapshot.required',
-							operationCorrelationId: 'a'.repeat(64),
-							sourceGeneration: 1,
-							worktreeId: 'worktree-1',
-						},
+						event: catalogBeginEvent,
 						subscriptionKind: 'review.annotations',
 					},
 					interestRevision: 0,
@@ -89,9 +97,19 @@ describe('Bridge product subscription state', () => {
 
 		// Assert
 		expect(open.workerDerivationEpoch).toBe(1);
-		await expect(nextEvent).resolves.toMatchObject({
+		await expect(nextEvent).resolves.toEqual({
 			done: false,
-			value: { eventKind: 'snapshot.required', sourceGeneration: 1 },
+			value: {
+				data: catalogBeginEvent,
+				metadataStreamId: 'metadata-stream-annotations',
+				operationCorrelationId: null,
+				sourceGeneration: 1,
+				streamSequence: 2,
+				subscriptionId: open.subscriptionId,
+				subscriptionKind: 'review.annotations',
+				subscriptionSequence: 1,
+				workerDerivationEpoch: open.workerDerivationEpoch,
+			},
 		});
 		subscriptionState.fail(new Error('Subscription-state test cleanup.'));
 	});
@@ -101,10 +119,12 @@ describe('Bridge product subscription state', () => {
 			{
 				data: {
 					event: {
-						eventKind: 'snapshot.required',
-						operationCorrelationId: 'a'.repeat(64),
-						sourceGeneration: 2,
-						worktreeId: 'worktree-1',
+						authority: {
+							applicationSourceGeneration: 2,
+							worktreeId: 'worktree-1',
+						},
+						kind: 'annotation.controlChanged',
+						reason: 'discovery',
 					},
 					subscriptionKind: 'file.annotations',
 				},
@@ -114,10 +134,13 @@ describe('Bridge product subscription state', () => {
 			{
 				data: {
 					event: {
-						eventKind: 'snapshot.required',
-						operationCorrelationId: 'a'.repeat(64),
-						sourceGeneration: 3,
-						worktreeId: 'worktree-1',
+						authority: {
+							applicationSourceGeneration: 3,
+							worktreeId: 'worktree-1',
+						},
+						kind: 'annotation.sessionChanged',
+						semanticRevision: 4,
+						sessionId: '00000000-0000-7000-8000-000000000001',
 					},
 					subscriptionKind: 'review.annotations',
 				},

@@ -1,11 +1,45 @@
 import type { BridgeWorkerAnnotationProjectionSnapshot } from './bridge-comm-worker-annotation-projection-decoder.js';
+import type { BridgeCommWorkerAnnotationCatalogPublication } from './bridge-comm-worker-annotation-projection-query-controller.js';
+import { packBridgeMetadataCatalogTransfer } from './bridge-metadata-catalog-transfer-packer.js';
 import { bridgeProductWorktreeAnnotationDecodedCommandResultSchema } from './bridge-product-call-contracts.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
+import { bridgeProductWorktreeAnnotationCatalogEntrySchema } from './bridge-product-worktree-annotation-contracts.js';
 import type {
+	BridgeWorkerAnnotationCatalogStagingEvent,
 	BridgeWorkerAnnotationCommandAcceptedEvent,
 	BridgeWorkerAnnotationProjectionConvergenceEvent,
 } from './bridge-worker-annotation-contracts.js';
+import { bridgeWorkerAnnotationCatalogStagingEventSchema } from './bridge-worker-annotation-contracts.js';
+
+const annotationCatalogStagingEncoder = new TextEncoder();
+
+export function bridgeCommWorkerAnnotationCatalogStagingEvents(
+	publication: BridgeCommWorkerAnnotationCatalogPublication,
+): readonly BridgeWorkerAnnotationCatalogStagingEvent[] {
+	const buildEvent = (
+		transfer: BridgeWorkerAnnotationCatalogStagingEvent['transfer'],
+	): BridgeWorkerAnnotationCatalogStagingEvent =>
+		bridgeWorkerAnnotationCatalogStagingEventSchema.parse({
+			authority: publication.catalog.authority,
+			direction: 'serverWorkerToMain',
+			kind: 'annotationCatalogStaging',
+			operationCorrelationId: publication.operationCorrelationId,
+			surface: publication.surface === 'file' ? 'fileView' : 'review',
+			transfer,
+			transferDescriptors: [],
+			wireVersion: 1,
+		});
+	const transfers = packBridgeMetadataCatalogTransfer({
+		catalogRevision: publication.catalog.catalogRevision,
+		encodeEnvelope: (transfer): Uint8Array =>
+			annotationCatalogStagingEncoder.encode(JSON.stringify(buildEvent(transfer))),
+		entries: publication.catalog.entries,
+		entrySchema: bridgeProductWorktreeAnnotationCatalogEntrySchema,
+		transferId: publication.catalog.transferId,
+	});
+	return Object.freeze(transfers.map((transfer) => buildEvent(transfer)));
+}
 
 export function bridgeCommWorkerAnnotationCommandAcceptedEvent(props: {
 	readonly actionResult: unknown;
@@ -36,7 +70,11 @@ export function bridgeCommWorkerAnnotationCommandAcceptedEvent(props: {
 export function bridgeCommWorkerAnnotationProjectionConvergenceEvent(props: {
 	readonly operationCorrelationId: string | null;
 	readonly state:
-		| { readonly kind: 'ready'; readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot }
+		| {
+				readonly contentSessionIds: readonly string[];
+				readonly kind: 'ready';
+				readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot;
+		  }
 		| { readonly error: unknown; readonly kind: 'unavailable' }
 		| { readonly kind: 'refreshing' };
 	readonly surface: 'file' | 'review';

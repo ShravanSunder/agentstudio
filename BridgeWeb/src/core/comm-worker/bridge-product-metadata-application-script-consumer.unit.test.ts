@@ -8,10 +8,17 @@ describe('Bridge verifier File metadata application consumer', () => {
 			{},
 			{
 				event: {
-					eventKind: 'snapshot.required',
-					operationCorrelationId: null,
-					sourceGeneration: 1,
-					worktreeId: 'worktree-1',
+					authority: {
+						applicationSourceGeneration: 1,
+						worktreeId: 'worktree-1',
+					},
+					kind: 'annotation.catalog',
+					transfer: {
+						catalogRevision: 1,
+						expectedEntryCount: 0,
+						kind: 'catalog.begin',
+						transferId: 'annotation-catalog-transfer-1',
+					},
 				},
 				subscriptionKind: 'review.annotations',
 			},

@@ -7,8 +7,8 @@ import type {
 	BridgeCommWorkerReviewCandidateFailedPublication,
 	BridgeCommWorkerReviewCandidateStartedPublication,
 } from './bridge-comm-worker-review-publication-types.js';
+import type { ReviewMetadataSubscription } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import type { BridgeProductReviewMetadataEvent } from './bridge-product-review-metadata-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import type { BridgeWorkerReviewDisplayPatch } from './bridge-worker-contracts.js';
 
@@ -350,9 +350,7 @@ function reviewQuery(): ReviewSnapshotEvent['query'] {
 }
 
 export function reviewMetadataTransport(
-	reviewSubscription:
-		| BridgeProductSubscription<'review.metadata'>
-		| readonly BridgeProductSubscription<'review.metadata'>[],
+	reviewSubscription: ReviewMetadataSubscription | readonly ReviewMetadataSubscription[],
 	onSubscriptionOpened: () => void = (): void => {},
 	onPublicationApplied: () => void = (): void => {},
 ): BridgeProductTransportSession {

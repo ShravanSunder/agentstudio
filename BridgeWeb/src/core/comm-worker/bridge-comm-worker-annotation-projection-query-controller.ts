@@ -2,6 +2,8 @@ import {
 	recordWorktreeAnnotationLifecycleTelemetry,
 	type WorktreeAnnotationLifecycleTelemetryRecorder,
 } from '../../worktree-annotations/worktree-annotation-lifecycle-telemetry.js';
+import { type BridgeCommWorkerAnnotationCatalog } from './bridge-comm-worker-annotation-catalog-applicator.js';
+import { BridgeCommWorkerAnnotationMetadataApplication } from './bridge-comm-worker-annotation-metadata-application.js';
 import {
 	BridgeCommWorkerAnnotationProjectionDecoder,
 	type BridgeWorkerAnnotationProjectionSnapshot,
@@ -46,8 +48,18 @@ export interface BridgeCommWorkerAnnotationProjectionPublication {
 	readonly operationCorrelationId: string | null;
 	readonly state:
 		| { readonly error: unknown; readonly kind: 'unavailable' }
-		| { readonly kind: 'ready'; readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot }
+		| {
+				readonly contentSessionIds: readonly string[];
+				readonly kind: 'ready';
+				readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot;
+		  }
 		| { readonly kind: 'refreshing' };
+	readonly surface: BridgeCommWorkerAnnotationSurface;
+}
+
+export interface BridgeCommWorkerAnnotationCatalogPublication {
+	readonly catalog: BridgeCommWorkerAnnotationCatalog;
+	readonly operationCorrelationId: string;
 	readonly surface: BridgeCommWorkerAnnotationSurface;
 }
 
@@ -58,6 +70,7 @@ export interface BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublica
 }
 
 interface CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps {
+	readonly onCatalog: (publication: BridgeCommWorkerAnnotationCatalogPublication) => void;
 	readonly onConvergence: (publication: BridgeCommWorkerAnnotationProjectionPublication) => void;
 	readonly onSourceAuthorityStale: (
 		publication: BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication,
@@ -84,17 +97,22 @@ export interface BridgeCommWorkerAnnotationProjectionTransport {
 
 interface AnnotationProjectionInvalidation {
 	readonly operationCorrelationId: string;
+	readonly queryKind: 'content' | 'control';
+	readonly sessionIds: readonly string[];
 	readonly sourceGeneration: number;
 	readonly worktreeId: string;
 }
 
 export class BridgeCommWorkerAnnotationProjectionQueryController {
+	readonly #onCatalog: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps['onCatalog'];
 	readonly #onConvergence: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps['onConvergence'];
 	readonly #onSourceAuthorityStale: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps['onSourceAuthorityStale'];
 	readonly #surface: BridgeCommWorkerAnnotationSurface;
 	readonly #transport: BridgeCommWorkerAnnotationProjectionTransport;
 	readonly #telemetryClient: WorktreeAnnotationLifecycleTelemetryRecorder | undefined;
 	#active = false;
+	readonly #metadataApplication = new BridgeCommWorkerAnnotationMetadataApplication();
+	#controlReady = false;
 	#automaticQueryRetryConsumed = false;
 	#automaticSubscriptionReopenConsumed = false;
 	#abortController: AbortController | null = null;
@@ -114,6 +132,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	#subscription: AnnotationMetadataSubscription | null = null;
 
 	constructor(props: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps) {
+		this.#onCatalog = props.onCatalog;
 		this.#onConvergence = props.onConvergence;
 		this.#onSourceAuthorityStale = props.onSourceAuthorityStale;
 		this.#surface = props.surface;
@@ -160,17 +179,35 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			this.#abortController?.abort();
 			return;
 		}
-		if (
-			nextActive &&
-			(becameActive ||
-				previousSourceGeneration !== demand.sourceGeneration ||
-				reviewIdentityChanged ||
-				sessionDemandChanged)
-		) {
+		const presentationAuthorityChanged =
+			previousSourceGeneration !== demand.sourceGeneration || reviewIdentityChanged;
+		if (nextActive && (becameActive || presentationAuthorityChanged)) {
+			if (this.#invalidation?.queryKind === 'content') {
+				this.#invalidation = { ...this.#invalidation, sessionIds: this.#sessionIds };
+			}
 			this.#automaticQueryRetryConsumed = false;
 			this.#automaticSubscriptionReopenConsumed = false;
 			this.#invalidationGeneration += 1;
 			this.#abortController?.abort();
+		}
+		if (
+			nextActive &&
+			sessionDemandChanged &&
+			!becameActive &&
+			!presentationAuthorityChanged &&
+			this.#invalidation !== null
+		) {
+			if (this.#controlReady) {
+				this.#admitProjectionInvalidation({
+					...this.#invalidation,
+					queryKind: 'content',
+					sessionIds: this.#sessionIds,
+				});
+			} else if (this.#invalidation.queryKind === 'content') {
+				this.#invalidation = { ...this.#invalidation, sessionIds: this.#sessionIds };
+				this.#invalidationGeneration += 1;
+				this.#abortController?.abort();
+			}
 		}
 		if (nextActive && this.#subscription === null) this.ensureSubscription();
 		if (becameActive || this.#invalidationGeneration > this.#lastAttemptedGeneration) {
@@ -191,6 +228,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 
 	sourceUnavailable(error: unknown): void {
 		if (this.#disposed || !this.#active) return;
+		this.#controlReady = false;
 		this.#invalidationGeneration += 1;
 		this.#lastAttemptedGeneration = this.#invalidationGeneration;
 		this.#abortController?.abort();
@@ -204,6 +242,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	async dispose(): Promise<void> {
 		if (this.#disposed) return;
 		this.#disposed = true;
+		this.#metadataApplication.retireAuthority();
 		this.#invalidationGeneration += 1;
 		this.#abortController?.abort();
 		const subscription = this.#subscription;
@@ -238,33 +277,76 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	}
 
 	async #consumeSubscription(subscription: AnnotationMetadataSubscription): Promise<void> {
-		for await (const unknownEvent of subscription.events) {
+		for await (const frame of subscription.events) {
 			if (this.#disposed || this.#subscription !== subscription) return;
-			const event = bridgeProductWorktreeAnnotationEventSchema.parse(unknownEvent);
+			const event = bridgeProductWorktreeAnnotationEventSchema.parse(frame.data);
+			if (frame.operationCorrelationId === null) {
+				throw new Error('Annotation metadata event requires lifecycle correlation.');
+			}
 			this.#recordLifecycle(
-				event.operationCorrelationId,
+				frame.operationCorrelationId,
 				'annotation_invalidation_received',
 				'success',
-				event.sourceGeneration,
+				event.authority.applicationSourceGeneration,
 			);
 			this.#automaticQueryRetryConsumed = false;
 			this.#automaticSubscriptionReopenConsumed = false;
-			this.#invalidation = {
-				operationCorrelationId: event.operationCorrelationId,
-				sourceGeneration: event.sourceGeneration,
-				worktreeId: event.worktreeId,
-			};
-			this.#invalidationGeneration += 1;
-			this.#abortController?.abort();
-			this.#scheduleQueryLoop();
+			const action = this.#metadataApplication.accept({ ...frame, data: event }, this.#sessionIds);
+			switch (action.kind) {
+				case 'catalog':
+					this.#onCatalog({
+						catalog: action.catalog,
+						operationCorrelationId: frame.operationCorrelationId,
+						surface: this.#surface,
+					});
+					this.#controlReady = false;
+					this.#admitProjectionInvalidation({
+						operationCorrelationId: frame.operationCorrelationId,
+						queryKind: 'control',
+						sessionIds: [],
+						sourceGeneration: event.authority.applicationSourceGeneration,
+						worktreeId: event.authority.worktreeId,
+					});
+					break;
+				case 'control':
+					this.#controlReady = false;
+					this.#admitProjectionInvalidation({
+						operationCorrelationId: frame.operationCorrelationId,
+						queryKind: 'control',
+						sessionIds: [],
+						sourceGeneration: event.authority.applicationSourceGeneration,
+						worktreeId: event.authority.worktreeId,
+					});
+					break;
+				case 'content':
+					this.#admitProjectionInvalidation({
+						operationCorrelationId: frame.operationCorrelationId,
+						queryKind: 'content',
+						sessionIds: this.#sessionIds,
+						sourceGeneration: event.authority.applicationSourceGeneration,
+						worktreeId: event.authority.worktreeId,
+					});
+					break;
+				case 'none':
+					break;
+			}
 		}
 		if (!this.#disposed && this.#subscription === subscription) {
 			throw new Error('Annotation projection notification subscription ended unexpectedly.');
 		}
 	}
 
+	#admitProjectionInvalidation(invalidation: AnnotationProjectionInvalidation): void {
+		this.#invalidation = invalidation;
+		this.#invalidationGeneration += 1;
+		this.#abortController?.abort();
+		this.#scheduleQueryLoop();
+	}
+
 	#handleSubscriptionFailure(error: unknown): void {
 		this.#subscription = null;
+		this.#controlReady = false;
+		this.#metadataApplication.retireAuthority();
 		this.#onConvergence({
 			operationCorrelationId: this.#invalidation?.operationCorrelationId ?? null,
 			state: { error, kind: 'unavailable' },
@@ -405,12 +487,27 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			}
 			this.#onConvergence({
 				operationCorrelationId: invalidation.operationCorrelationId,
-				state: { kind: 'ready', snapshot: fetchResult.snapshot },
+				state: {
+					contentSessionIds: invalidation.sessionIds,
+					kind: 'ready',
+					snapshot: fetchResult.snapshot,
+				},
 				surface: this.#surface,
 			});
 			this.#recordAttemptTerminal(invalidation, sourceGeneration, stageAttempt, 'success');
 			terminalRecorded = true;
 			this.#automaticQueryRetryConsumed = false;
+			if (invalidation.queryKind === 'control') {
+				this.#controlReady = true;
+				if (this.#sessionIds.length > 0) {
+					this.#invalidation = {
+						...invalidation,
+						queryKind: 'content',
+						sessionIds: this.#sessionIds,
+					};
+					this.#invalidationGeneration += 1;
+				}
+			}
 		} catch (error) {
 			const result = abortController.signal.aborted ? 'cancelled' : 'failure';
 			this.#recordAttemptTerminal(invalidation, sourceGeneration, stageAttempt, result);
@@ -466,7 +563,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				cursor,
 				operationCorrelationId: invalidation.operationCorrelationId,
 				reviewPublicationIdentity,
-				sessionIds: [...this.#sessionIds],
+				sessionIds: [...invalidation.sessionIds],
 				signal,
 				sourceGeneration,
 			});
@@ -524,6 +621,13 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			);
 			const decodedProjection = decoder.finish();
 			const snapshot = decodedProjection.snapshot;
+			if (
+				!this.#metadataApplication.projectionMeetsCurrentness(snapshot, invalidation.sessionIds)
+			) {
+				throw new Error(
+					'Annotation rich projection did not meet current catalog session authority.',
+				);
+			}
 			if (
 				expectedPage.operationCorrelationId !== invalidation.operationCorrelationId ||
 				snapshot.projectionRevision !== expectedPage.projectionRevision ||

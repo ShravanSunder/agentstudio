@@ -479,6 +479,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 					return true;
 				}
 				case 'annotationCommandAccepted':
+				case 'annotationCatalogStaging':
 				case 'annotationOutputInspection':
 				case 'annotationProjectionConvergence':
 				case 'fileDisplayPatch':

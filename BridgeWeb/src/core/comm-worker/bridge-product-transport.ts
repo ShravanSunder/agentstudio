@@ -34,6 +34,7 @@ import {
 import type {
 	BridgeProductMetadataApplicationProtocol,
 	BridgeProductMetadataApplicationRegistry,
+	BridgeProductMetadataDataFrame,
 } from './bridge-product-metadata-application-protocol.js';
 import {
 	BridgeProductMetadataStreamDecoder,
@@ -307,7 +308,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		>,
 		options: TOptions,
 	): {
-		readonly events: AsyncIterable<TData['event']>;
+		readonly events: AsyncIterable<BridgeProductMetadataDataFrame<TData['event']>>;
 		readonly subscriptionId: string;
 		readonly subscriptionKind: TKind;
 		cancel(): Promise<void>;

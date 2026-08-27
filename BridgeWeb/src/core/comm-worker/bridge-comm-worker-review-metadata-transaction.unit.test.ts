@@ -19,13 +19,17 @@ import {
 } from './bridge-comm-worker-review-metadata-transaction.test-support.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	makeReviewMetadataDataFrame,
+	type ReviewMetadataSubscription,
+} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import {
 	activateBridgeCommWorkerReviewViewerMode,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+
+type ReviewMetadataDataFrame = ReturnType<typeof makeReviewMetadataDataFrame>;
 
 describe('Bridge comm worker Review metadata transaction staging', () => {
 	test('ignores delayed older accepted snapshots after a newer generation commits', () => {
@@ -589,15 +593,11 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 	});
 
 	test('reopens Review after a final B application failure and commits replayed B once', async () => {
-		const firstEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
-		const replayEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const firstEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
+		const replayEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 		let firstCancelCount = 0;
 		let openedSubscriptionCount = 0;
-		const subscriptions: readonly BridgeProductSubscription<'review.metadata'>[] = [
+		const subscriptions: readonly ReviewMetadataSubscription[] = [
 			{
 				cancel: async (): Promise<void> => {
 					firstCancelCount += 1;
@@ -624,12 +624,18 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 			}),
 		});
 		await flushBridgeWorkerRuntimeContinuations();
-		firstEvents.push(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true));
+		firstEvents.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
-		firstEvents.push(reviewReset(candidateIdentity));
-		firstEvents.push(reviewSourceAccepted(candidateIdentity));
-		firstEvents.push(reviewSnapshot(candidateIdentity, 'item-b-1', 0, 3, false));
-		firstEvents.push(reviewWindow(candidateIdentity, 'item-b-3', 2, 3, true));
+		firstEvents.push(makeReviewMetadataDataFrame(reviewReset(candidateIdentity)));
+		firstEvents.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
+		firstEvents.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b-1', 0, 3, false)),
+		);
+		firstEvents.push(
+			makeReviewMetadataDataFrame(reviewWindow(candidateIdentity, 'item-b-3', 2, 3, true)),
+		);
 
 		await flushBridgeWorkerRuntimeContinuations();
 
@@ -641,8 +647,10 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		expect(JSON.stringify(failureDisplayMessages.at(-1))).toContain('source-active');
 		expect(JSON.stringify(failureDisplayMessages.at(-1))).not.toContain('source-candidate');
 
-		replayEvents.push(reviewSourceAccepted(candidateIdentity));
-		replayEvents.push(reviewSnapshot(candidateIdentity, 'item-b-replay', 0, 1, true));
+		replayEvents.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
+		replayEvents.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b-replay', 0, 1, true)),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 
 		const replayPublications = postedMessages
@@ -658,17 +666,13 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 
 	test('rolls back the real worker store when the critical B display post fails', async () => {
 		// Arrange
-		const firstEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
-		const replayEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const firstEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
+		const replayEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 		let firstCancelCount = 0;
 		let openedSubscriptionCount = 0;
 		let appliedReceiptCount = 0;
 		let rejectCandidateDisplay = false;
-		const subscriptions: readonly BridgeProductSubscription<'review.metadata'>[] = [
+		const subscriptions: readonly ReviewMetadataSubscription[] = [
 			{
 				cancel: async (): Promise<void> => {
 					firstCancelCount += 1;
@@ -708,7 +712,9 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 			),
 		});
 		await flushBridgeWorkerRuntimeContinuations();
-		firstEvents.push(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true));
+		firstEvents.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 		const activeSlicePatchCount = postedMessages.filter(
 			({ message }) => message.kind === 'slicePatch',
@@ -716,9 +722,11 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		rejectCandidateDisplay = true;
 
 		// Act
-		firstEvents.push(reviewReset(candidateIdentity));
-		firstEvents.push(reviewSourceAccepted(candidateIdentity));
-		firstEvents.push(reviewSnapshot(candidateIdentity, 'item-b', 0, 1, true));
+		firstEvents.push(makeReviewMetadataDataFrame(reviewReset(candidateIdentity)));
+		firstEvents.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
+		firstEvents.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b', 0, 1, true)),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
@@ -744,8 +752,10 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		).toHaveLength(1);
 
 		rejectCandidateDisplay = false;
-		replayEvents.push(reviewSourceAccepted(candidateIdentity));
-		replayEvents.push(reviewSnapshot(candidateIdentity, 'item-b', 0, 1, true));
+		replayEvents.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
+		replayEvents.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b', 0, 1, true)),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 		const candidateDisplayMessages = postedMessages
 			.map(({ message }) => message)
@@ -760,13 +770,11 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 
 	test('keeps applied B when post-commit drain scheduling fails', async () => {
 		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 		let cancelCount = 0;
 		let openedSubscriptionCount = 0;
 		let appliedReceiptCount = 0;
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {
 				cancelCount += 1;
 			},
@@ -805,7 +813,7 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Act
-		events.push(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true));
+		events.push(makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)));
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
@@ -826,10 +834,8 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 
 	test('routes a pending subscription failure without replacing the active runtime source', async () => {
 		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'review-transaction-failure',
@@ -843,14 +849,16 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 			productTransport: reviewMetadataTransport(reviewSubscription),
 		});
 		await flushBridgeWorkerRuntimeContinuations();
-		events.push(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true));
+		events.push(makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)));
 		await flushBridgeWorkerRuntimeContinuations();
 		const activeSlicePatchCount = postedMessages.filter(
 			({ message }) => message.kind === 'slicePatch',
 		).length;
-		events.push(reviewReset(candidateIdentity));
-		events.push(reviewSourceAccepted(candidateIdentity));
-		events.push(reviewSnapshot(candidateIdentity, 'item-b-1', 0, 2, false));
+		events.push(makeReviewMetadataDataFrame(reviewReset(candidateIdentity)));
+		events.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
+		events.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b-1', 0, 2, false)),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Act

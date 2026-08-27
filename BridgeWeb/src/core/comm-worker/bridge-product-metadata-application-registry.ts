@@ -95,7 +95,7 @@ export const bridgeProductFileAnnotationMetadataApplicationProtocol =
 		openSchema: fileAnnotationOpenSchema,
 		optionsSchema: bridgeProductAnnotationSubscriptionOptionsSchema,
 		preflightInterestState: () => acceptedInterestStatePreflight(6, 0),
-		readEventSourceGeneration: (event) => event.sourceGeneration,
+		readEventSourceGeneration: (event) => event.authority.applicationSourceGeneration,
 		surface: 'file',
 		updateOptionsSchema: bridgeProductAnnotationSubscriptionUpdateOptionsSchema,
 	});
@@ -121,7 +121,7 @@ export const bridgeProductReviewAnnotationMetadataApplicationProtocol =
 		openSchema: reviewAnnotationOpenSchema,
 		optionsSchema: bridgeProductAnnotationSubscriptionOptionsSchema,
 		preflightInterestState: () => acceptedInterestStatePreflight(6, 0),
-		readEventSourceGeneration: (event) => event.sourceGeneration,
+		readEventSourceGeneration: (event) => event.authority.applicationSourceGeneration,
 		surface: 'review',
 		updateOptionsSchema: bridgeProductAnnotationSubscriptionUpdateOptionsSchema,
 	});

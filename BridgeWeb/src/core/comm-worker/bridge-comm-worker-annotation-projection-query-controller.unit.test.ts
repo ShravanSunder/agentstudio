@@ -8,10 +8,15 @@ import {
 	type BridgeCommWorkerAnnotationProjectionPublication,
 	type BridgeCommWorkerAnnotationProjectionTransport,
 } from './bridge-comm-worker-annotation-projection-query-controller.js';
+import type { BridgeProductMetadataDataFrame } from './bridge-product-metadata-application-protocol.js';
+import {
+	bridgeProductFileAnnotationMetadataApplicationProtocol,
+	bridgeProductReviewAnnotationMetadataApplicationProtocol,
+} from './bridge-product-metadata-application-registry.js';
 import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
 import type {
 	BridgeProductContentStream,
-	BridgeProductSubscription,
+	BridgeProductMetadataApplicationSubscription,
 } from './bridge-product-transport-contract.js';
 import type { BridgeProductWorktreeAnnotationEvent } from './bridge-product-worktree-annotation-contracts.js';
 import type {
@@ -27,56 +32,50 @@ describe('Bridge comm worker annotation projection query controller', () => {
 	test('records inactive invalidations and fetches only after activation', async () => {
 		const harness = await createHarness({ pages: await makeProjectionPages(1, 7) });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(7));
+		pushSessionCatalog(harness.notifications, 7);
 		await flushMicrotasks();
 		expect(harness.querySourceGenerations).toEqual([]);
 
 		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 7 });
 		await harness.controller.waitForIdle();
 
-		expect(harness.querySourceGenerations).toEqual([7]);
-		expect(harness.statuses).toEqual(['refreshing', 'ready']);
-		expect(harness.publications).toHaveLength(1);
-		expect(harness.publications[0]?.snapshot.threads[0]?.messages).toHaveLength(1);
+		expect(harness.querySourceGenerations).toEqual([7, 7]);
+		expect(harness.statuses).toEqual(['refreshing', 'ready', 'refreshing', 'ready']);
+		expect(harness.publications).toHaveLength(2);
+		expect(harness.publications.at(-1)?.snapshot.threads[0]?.messages).toHaveLength(1);
+		const lifecyclePhases = harness.telemetrySamples.map(
+			(sample) =>
+				`${sample.stringAttributes['agentstudio.bridge.phase']}:${sample.stringAttributes['agentstudio.bridge.result']}`,
+		);
 		expect(
-			harness.telemetrySamples.map(
-				(sample) =>
-					`${sample.stringAttributes['agentstudio.bridge.phase']}:${sample.stringAttributes['agentstudio.bridge.result']}`,
-			),
-		).toEqual([
-			'annotation_invalidation_received:success',
-			'projection_convergence_started:started',
-			'projection_query_started:started',
-			'worker_application_started:started',
-			'content_transfer_started:started',
-			'content_transfer_terminal:success',
-			'projection_validation_started:started',
-			'projection_validation_terminal:success',
-			'projection_query_terminal:success',
-			'projection_convergence_terminal:success',
-			'worker_application_terminal:success',
-		]);
+			lifecyclePhases.filter((phase) => phase === 'annotation_invalidation_received:success'),
+		).toHaveLength(3);
+		expect(
+			lifecyclePhases.filter((phase) => phase === 'projection_query_terminal:success'),
+		).toHaveLength(2);
 		expect(
 			harness.telemetrySamples.every(
 				(sample) => sample.stringAttributes['agentstudio.bridge.operation.id'] === 'a'.repeat(64),
 			),
 		).toBe(true);
-		expect(
-			harness.telemetrySamples
-				.filter(
-					(sample) =>
-						sample.stringAttributes['agentstudio.bridge.phase'] !==
-						'annotation_invalidation_received',
-				)
-				.every((sample) => sample.numericAttributes['agentstudio.bridge.stage.attempt'] === 0),
-		).toBe(true);
+		expect([
+			...new Set(
+				harness.telemetrySamples
+					.filter(
+						(sample) =>
+							sample.stringAttributes['agentstudio.bridge.phase'] !==
+							'annotation_invalidation_received',
+					)
+					.map((sample) => sample.numericAttributes['agentstudio.bridge.stage.attempt']),
+			),
+		]).toEqual([0, 1]);
 	});
 
 	test('requeries when demanded sessions change on the same active source generation', async () => {
 		const harness = await createHarness({ pages: await makeProjectionPages(1, 8) });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(100));
+		pushSessionCatalog(harness.notifications, 100);
 		await harness.controller.waitForIdle();
 
 		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
@@ -85,19 +84,96 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		expect(harness.querySessionIds).toEqual([[], [sessionId]]);
 	});
 
+	test('finishes the empty-demand control read before retained demand loads rich content', async () => {
+		const harness = await createHarness({ pages: await makeProjectionPages(1, 8) });
+		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
+		harness.controller.ensureSubscription();
+
+		pushSessionCatalog(harness.notifications, 8);
+		await harness.controller.waitForIdle();
+
+		expect(harness.querySessionIds).toEqual([[], [sessionId]]);
+		expect(harness.publications.map((publication) => publication.contentSessionIds)).toEqual([
+			[],
+			[sessionId],
+		]);
+	});
+
+	test('records an undemanded session change without fetching rich content', async () => {
+		const harness = await createHarness({ pages: await makeProjectionPages(1, 8) });
+		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
+		harness.controller.ensureSubscription();
+		pushSessionCatalog(harness.notifications, 8);
+		await harness.controller.waitForIdle();
+		harness.querySessionIds.length = 0;
+
+		harness.notifications.push(sessionChanged(9, 2));
+		await harness.controller.waitForIdle();
+		expect(harness.querySessionIds).toEqual([]);
+
+		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
+		await harness.controller.waitForIdle();
+		expect(harness.querySessionIds).toEqual([[sessionId]]);
+		expect(harness.publications.at(-1)?.contentSessionIds).toEqual([sessionId]);
+	});
+
+	test('suppresses equal session revisions and queries demanded content only for a newer revision', async () => {
+		const harness = await createHarness({ pages: await makeProjectionPages(1, 8) });
+		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
+		harness.controller.ensureSubscription();
+		pushSessionCatalog(harness.notifications, 8);
+		await harness.controller.waitForIdle();
+		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
+		await harness.controller.waitForIdle();
+		harness.querySessionIds.length = 0;
+
+		harness.notifications.push(sessionChanged(9, 1));
+		harness.notifications.push(sessionChanged(10, 2));
+		harness.notifications.push(sessionChanged(11, 2));
+		await flushMicrotasks();
+		await harness.controller.waitForIdle();
+
+		expect(harness.querySessionIds).toEqual([[sessionId]]);
+	});
+
+	test('control changes query summaries with empty rich demand even while a session is demanded', async () => {
+		const harness = await createHarness({ pages: await makeProjectionPages(1, 8) });
+		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
+		harness.controller.ensureSubscription();
+		pushSessionCatalog(harness.notifications, 8);
+		await harness.controller.waitForIdle();
+		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
+		await harness.controller.waitForIdle();
+		harness.querySessionIds.length = 0;
+
+		harness.notifications.push(controlChanged(9));
+		await harness.controller.waitForIdle();
+
+		expect(harness.querySessionIds).toEqual([[], [sessionId]]);
+		expect(harness.publications.at(-2)?.contentSessionIds).toEqual([]);
+		expect(harness.publications.at(-1)?.contentSessionIds).toEqual([sessionId]);
+	});
+
 	test('requeries after same-generation demand is deactivated and reactivated', async () => {
 		const harness = await createHarness({ pages: await makeProjectionPages(1, 9) });
 		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 9 });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(9));
+		pushSessionCatalog(harness.notifications, 9);
 		await harness.controller.waitForIdle();
 
 		harness.controller.setDemand({ active: false, sessionIds: [sessionId], sourceGeneration: 9 });
 		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 9 });
 		await harness.controller.waitForIdle();
 
-		expect(harness.querySourceGenerations).toEqual([9, 9]);
-		expect(harness.statuses).toEqual(['refreshing', 'ready', 'refreshing', 'ready']);
+		expect(harness.querySourceGenerations).toEqual([9, 9, 9]);
+		expect(harness.statuses).toEqual([
+			'refreshing',
+			'ready',
+			'refreshing',
+			'ready',
+			'refreshing',
+			'ready',
+		]);
 	});
 
 	test('keeps convergence live when notification precedes the current source generation', async () => {
@@ -111,7 +187,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 10 });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(12));
+		harness.notifications.push(controlChanged(12));
 		await harness.controller.waitForIdle();
 
 		expect(harness.statuses).toEqual(['refreshing']);
@@ -137,7 +213,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 17 });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(18));
+		harness.notifications.push(controlChanged(18));
 		await harness.controller.waitForIdle();
 		harness.controller.sourceUnavailable(new Error('File metadata producer ended.'));
 		expect(harness.statuses).toEqual(['refreshing', 'unavailable']);
@@ -164,7 +240,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 16 });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(16));
+		harness.notifications.push(controlChanged(16));
 
 		await harness.controller.waitForIdle();
 
@@ -185,7 +261,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 
 		firstNotifications.close();
 		await flushTaskQueueUntil(() => harness.subscriptionCount() === 2);
-		replacementNotifications.push(snapshotRequired(17));
+		replacementNotifications.push(controlChanged(17));
 		await harness.controller.waitForIdle();
 
 		expect(harness.subscriptionCount()).toBe(2);
@@ -209,7 +285,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		await harness.controller.waitForIdle();
 		harness.controller.retry();
 		await flushTaskQueueUntil(() => harness.subscriptionCount() === 3);
-		retryNotifications.push(snapshotRequired(19));
+		retryNotifications.push(controlChanged(19));
 		await harness.controller.waitForIdle();
 
 		expect(harness.subscriptionCount()).toBe(3);
@@ -232,10 +308,10 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 10 });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(10));
+		harness.notifications.push(controlChanged(10));
 		await flushTaskQueueUntil(() => harness.querySourceGenerations.length === 1);
 		for (let sourceGeneration = 11; sourceGeneration <= 15; sourceGeneration += 1) {
-			harness.notifications.push(snapshotRequired(sourceGeneration));
+			harness.notifications.push(controlChanged(sourceGeneration));
 		}
 		await flushTaskQueueUntil(() => harness.querySourceGenerations.length === 2);
 		expect(harness.querySourceGenerations).toEqual([10, 10]);
@@ -257,7 +333,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 20 });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(20));
+		harness.notifications.push(controlChanged(20));
 		await harness.controller.waitForIdle();
 
 		expect(harness.publications).toHaveLength(1);
@@ -271,7 +347,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 21 });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(21));
+		harness.notifications.push(controlChanged(21));
 		await harness.controller.waitForIdle();
 
 		expect(harness.failures).toEqual([]);
@@ -285,7 +361,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 22 });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(22));
+		harness.notifications.push(controlChanged(22));
 		await harness.controller.waitForIdle();
 
 		expect(harness.publications).toEqual([]);
@@ -304,7 +380,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 30 });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(30));
+		harness.notifications.push(controlChanged(30));
 		await harness.controller.waitForIdle();
 
 		expect(harness.publications).toEqual([]);
@@ -316,7 +392,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages, terminalKind: 'error' });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 40 });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(40));
+		harness.notifications.push(controlChanged(40));
 		await harness.controller.waitForIdle();
 
 		expect(harness.publications).toEqual([]);
@@ -336,7 +412,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 50 });
 		harness.controller.ensureSubscription();
-		harness.notifications.push(snapshotRequired(50));
+		harness.notifications.push(controlChanged(50));
 		await flushTaskQueue();
 		const disposal = harness.controller.dispose();
 		expect(observedSignals[0]?.aborted).toBe(true);
@@ -355,14 +431,22 @@ interface MutableProjectionPage {
 interface TestNotificationQueue {
 	readonly close: () => void;
 	readonly push: (event: BridgeProductWorktreeAnnotationEvent) => void;
-	readonly subscription: BridgeProductSubscription<'file.annotations' | 'review.annotations'>;
+	readonly subscription: AnnotationMetadataSubscription;
 }
+
+type AnnotationMetadataProtocol =
+	| typeof bridgeProductFileAnnotationMetadataApplicationProtocol
+	| typeof bridgeProductReviewAnnotationMetadataApplicationProtocol;
+type AnnotationMetadataSubscription =
+	BridgeProductMetadataApplicationSubscription<AnnotationMetadataProtocol>;
+type AnnotationMetadataFrame = BridgeProductMetadataDataFrame<BridgeProductWorktreeAnnotationEvent>;
 
 interface AnnotationProjectionTestHarness {
 	readonly controller: BridgeCommWorkerAnnotationProjectionQueryController;
 	readonly failures: unknown[];
 	readonly notifications: TestNotificationQueue;
 	readonly publications: Array<{
+		readonly contentSessionIds: readonly string[];
 		readonly snapshot: Extract<
 			BridgeCommWorkerAnnotationProjectionPublication['state'],
 			{ readonly kind: 'ready' }
@@ -429,10 +513,16 @@ async function createHarness(props: {
 		},
 	};
 	const controller = new BridgeCommWorkerAnnotationProjectionQueryController({
+		onCatalog: (): void => {},
 		onConvergence: ({ state, surface }): void => {
 			statuses.push(state.kind);
-			if (state.kind === 'ready') publications.push({ snapshot: state.snapshot, surface });
-			else if (state.kind === 'unavailable') failures.push(state.error);
+			if (state.kind === 'ready') {
+				publications.push({
+					contentSessionIds: state.contentSessionIds,
+					snapshot: state.snapshot,
+					surface,
+				});
+			} else if (state.kind === 'unavailable') failures.push(state.error);
 		},
 		onSourceAuthorityStale: (publication): void => {
 			sourceAuthorityStalePublications.push(publication);
@@ -460,11 +550,11 @@ async function createHarness(props: {
 }
 
 function createNotificationQueue(surface: 'file' | 'review'): TestNotificationQueue {
-	const pending: Array<IteratorResult<BridgeProductWorktreeAnnotationEvent>> = [];
-	const waiters: Array<(result: IteratorResult<BridgeProductWorktreeAnnotationEvent>) => void> = [];
-	const events: AsyncIterable<BridgeProductWorktreeAnnotationEvent> = {
+	const pending: Array<IteratorResult<AnnotationMetadataFrame>> = [];
+	const waiters: Array<(result: IteratorResult<AnnotationMetadataFrame>) => void> = [];
+	const events: AsyncIterable<AnnotationMetadataFrame> = {
 		[Symbol.asyncIterator]: () => ({
-			next: async (): Promise<IteratorResult<BridgeProductWorktreeAnnotationEvent>> => {
+			next: async (): Promise<IteratorResult<AnnotationMetadataFrame>> => {
 				const result = pending.shift();
 				if (result !== undefined) return result;
 				return await new Promise((resolve) => waiters.push(resolve));
@@ -478,7 +568,7 @@ function createNotificationQueue(surface: 'file' | 'review'): TestNotificationQu
 		events,
 		update: vi.fn(async (): Promise<void> => {}),
 	};
-	const subscription: BridgeProductSubscription<'file.annotations' | 'review.annotations'> =
+	const subscription: AnnotationMetadataSubscription =
 		surface === 'file'
 			? {
 					...base,
@@ -496,9 +586,10 @@ function createNotificationQueue(surface: 'file' | 'review'): TestNotificationQu
 			pending.push({ done: true, value: undefined });
 		},
 		push: (event: BridgeProductWorktreeAnnotationEvent): void => {
+			const frame = annotationMetadataFrame(event, subscription);
 			const resolve = waiters.shift();
-			if (resolve === undefined) pending.push({ done: false, value: event });
-			else resolve({ done: false, value: event });
+			if (resolve === undefined) pending.push({ done: false, value: frame });
+			else resolve({ done: false, value: frame });
 		},
 		subscription,
 	};
@@ -655,12 +746,86 @@ function concatenate(chunks: readonly Uint8Array<ArrayBuffer>[]): Uint8Array<Arr
 	return result;
 }
 
-function snapshotRequired(sourceGeneration: number): BridgeProductWorktreeAnnotationEvent {
+function controlChanged(sourceGeneration: number): BridgeProductWorktreeAnnotationEvent {
 	return {
-		eventKind: 'snapshot.required',
-		operationCorrelationId: 'a'.repeat(64),
-		sourceGeneration,
+		authority: {
+			applicationSourceGeneration: sourceGeneration,
+			worktreeId,
+		},
+		kind: 'annotation.controlChanged',
+		reason: 'discovery',
+	};
+}
+
+function sessionChanged(
+	sourceGeneration: number,
+	semanticRevision: number,
+): BridgeProductWorktreeAnnotationEvent {
+	return {
+		authority: {
+			applicationSourceGeneration: sourceGeneration,
+			worktreeId,
+		},
+		kind: 'annotation.sessionChanged',
+		semanticRevision,
+		sessionId,
+	};
+}
+
+function pushSessionCatalog(notifications: TestNotificationQueue, sourceGeneration: number): void {
+	const transferId = `catalog-transfer-${sourceGeneration}`;
+	const authority = {
+		applicationSourceGeneration: sourceGeneration,
 		worktreeId,
+	} as const;
+	notifications.push({
+		authority,
+		kind: 'annotation.catalog',
+		transfer: {
+			catalogRevision: sourceGeneration,
+			expectedEntryCount: 1,
+			kind: 'catalog.begin',
+			transferId,
+		},
+	});
+	notifications.push({
+		authority,
+		kind: 'annotation.catalog',
+		transfer: {
+			catalogRevision: sourceGeneration,
+			entries: [{ kind: 'session', semanticRevision: 1, sessionId }],
+			kind: 'catalog.window',
+			transferId,
+			windowOrdinal: 0,
+		},
+	});
+	notifications.push({
+		authority,
+		kind: 'annotation.catalog',
+		transfer: {
+			catalogRevision: sourceGeneration,
+			entryCount: 1,
+			kind: 'catalog.commit',
+			transferId,
+			windowCount: 1,
+		},
+	});
+}
+
+function annotationMetadataFrame(
+	event: BridgeProductWorktreeAnnotationEvent,
+	subscription: AnnotationMetadataSubscription,
+): AnnotationMetadataFrame {
+	return {
+		data: event,
+		metadataStreamId: 'annotation-metadata-stream',
+		operationCorrelationId: 'a'.repeat(64),
+		sourceGeneration: event.authority.applicationSourceGeneration,
+		streamSequence: 1,
+		subscriptionId: subscription.subscriptionId,
+		subscriptionKind: subscription.subscriptionKind,
+		subscriptionSequence: 1,
+		workerDerivationEpoch: 1,
 	};
 }
 

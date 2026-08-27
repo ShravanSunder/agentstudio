@@ -4,8 +4,18 @@ import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-
 import { makeReviewProductTransport } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+import type {
+	BridgeProductMetadataApplicationEvent,
+	BridgeProductMetadataDataFrame,
+} from './bridge-product-metadata-application-protocol.js';
+import { bridgeProductReviewMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
+import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
+
+type ReviewMetadataProtocol = typeof bridgeProductReviewMetadataApplicationProtocol;
+type ReviewMetadataEvent = BridgeProductMetadataApplicationEvent<ReviewMetadataProtocol>;
+type ReviewMetadataFrame = BridgeProductMetadataDataFrame<ReviewMetadataEvent>;
+type ReviewMetadataSubscription =
+	BridgeProductMetadataApplicationSubscription<ReviewMetadataProtocol>;
 
 const reviewRecoveryControls: readonly BridgeProductControlCommand[] = [
 	{ method: 'review.comparisonTargets.query', params: {} },
@@ -20,12 +30,8 @@ describe('Bridge comm worker Review metadata recovery', () => {
 		'reopens failed Review metadata before $method control',
 		async (command) => {
 			// Arrange
-			const firstEvents = new BridgeProductBoundedAsyncQueue<
-				BridgeProductSubscriptionEvent<'review.metadata'>
-			>(8);
-			const replacementEvents = new BridgeProductBoundedAsyncQueue<
-				BridgeProductSubscriptionEvent<'review.metadata'>
-			>(8);
+			const firstEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(8);
+			const replacementEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(8);
 			const observedFailure = makeDeferred<void>();
 			const subscriptions = [
 				reviewSubscription('review-subscription-before-failure', firstEvents),
@@ -65,8 +71,8 @@ describe('Bridge comm worker Review metadata recovery', () => {
 
 function reviewSubscription(
 	subscriptionId: string,
-	events: BridgeProductBoundedAsyncQueue<BridgeProductSubscriptionEvent<'review.metadata'>>,
-): BridgeProductSubscription<'review.metadata'> {
+	events: BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>,
+): ReviewMetadataSubscription {
 	return {
 		cancel: async (): Promise<void> => {},
 		events,
