@@ -442,6 +442,7 @@ describe('worktree annotation inline thread', () => {
 		]);
 
 		await expect.element(rendered.getByText('Unsaved latest changes.')).toBeVisible();
+		await expect.element(rendered.getByText('Draft changes · saved locally')).toBeVisible();
 		const draftCue = rendered.getByTestId('worktree-annotation-thread-summary').getByText('Draft');
 		await expect.element(draftCue).toBeVisible();
 		expect(draftCue.element().className).toContain('text-warning');

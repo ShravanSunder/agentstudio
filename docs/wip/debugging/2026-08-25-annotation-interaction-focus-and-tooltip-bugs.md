@@ -57,9 +57,23 @@ Date: 2026-08-25
      consistent with the owned shadcn Textarea/input system and the surrounding
      comment surface.
    - Evidence: supplied focused-editor screenshot.
-   - Fix: the owned card and embedded surfaces now provide a visible
-     `focus-within` ring at the shared surface boundary.
-   - Status: focused browser proof passes.
+   - Root cause: the owned shadcn-style Textarea correctly removes its own
+     border/ring for `appearance="embedded"`, but the replacement lived only in
+     a low-contrast `focus-within` treatment. Editing was not explicit state,
+     so the boundary could also disappear when focus moved to Revert or Save.
+   - Fix: `WorktreeAnnotationInlineSurface` now receives explicit `editing`
+     state. Card, embedded, and chronology surfaces share one persistent inset
+     `border-ring + ring-2` editor boundary; keyboard focus strengthens the same
+     ring. The embedded Textarea remains borderless, avoiding a nested outline.
+     Draft metadata now reads `Draft changes · saved locally` rather than the
+     contradictory `Saved · draft changes`.
+   - Proof: failing-first browser assertion, then 25/25 focused thread/editor
+     tests; scoped lint, formatting, TypeScript, and diff checks pass. Captured
+     browser visual: `tmp/bridgeweb-annotation-explicit-editing.png`.
+   - Live blocker: the current origin/main Review dev journey is waiting for
+     review metadata, so final product-surface owner acceptance remains blocked
+     by the concurrent publication lane.
+   - Status: implemented and browser-verified; live owner acceptance remains.
 
 5. **Clicking the active yellow thread background after Reply flickers the chronology**
    - Actual: Reply opens an empty composer. Clicking the yellow active-thread

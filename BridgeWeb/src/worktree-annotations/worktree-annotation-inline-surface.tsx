@@ -3,6 +3,10 @@ import type { FocusEvent, KeyboardEvent, MouseEvent, ReactElement, ReactNode, Re
 import { Avatar, AvatarFallback } from '@/components/ui/avatar.js';
 import { Button } from '@/components/ui/button.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.js';
+import { cn } from '@/lib/utils.js';
+
+const annotationEditingSurfaceClassName =
+	'border-ring ring-2 ring-inset ring-ring/30 focus-within:ring-ring/50';
 
 export interface WorktreeAnnotationInlineSurfaceProps {
 	readonly active?: boolean | undefined;
@@ -13,6 +17,7 @@ export interface WorktreeAnnotationInlineSurfaceProps {
 	readonly continueTimeline?: boolean | undefined;
 	readonly draft?: boolean | undefined;
 	readonly embedded?: boolean | undefined;
+	readonly editing?: boolean | undefined;
 	readonly metadata: ReactNode;
 	readonly onBlurCapture?: ((event: FocusEvent<HTMLElement>) => void) | undefined;
 	readonly onClickCapture?: ((event: MouseEvent<HTMLElement>) => void) | undefined;
@@ -32,6 +37,7 @@ export function WorktreeAnnotationInlineSurface(
 				className="relative min-w-0"
 				data-annotation-active={props.active === true ? 'true' : 'false'}
 				data-annotation-draft={props.draft === true ? 'present' : 'absent'}
+				data-annotation-editing={props.editing === true ? 'true' : 'false'}
 				data-testid="worktree-annotation-message"
 				data-worktree-annotation-interaction
 				onBlurCapture={props.onBlurCapture}
@@ -42,7 +48,13 @@ export function WorktreeAnnotationInlineSurface(
 				<div className="mb-1 flex min-w-0 items-center gap-1.5 text-xs/relaxed text-comment-muted">
 					{props.metadata}
 				</div>
-				<div className="min-w-0 rounded-md pr-8 transition-shadow focus-within:ring-2 focus-within:ring-ring/50">
+				<div
+					className={cn(
+						'min-w-0 rounded-md border border-transparent pr-8 transition-[border-color,box-shadow]',
+						props.editing === true ? annotationEditingSurfaceClassName : undefined,
+					)}
+					data-annotation-editor-surface
+				>
 					{props.children}
 				</div>
 				{props.commands === undefined ? null : (
@@ -61,6 +73,7 @@ export function WorktreeAnnotationInlineSurface(
 			className="grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2"
 			data-annotation-active={props.active === true ? 'true' : 'false'}
 			data-annotation-draft={props.draft === true ? 'present' : 'absent'}
+			data-annotation-editing={props.editing === true ? 'true' : 'false'}
 			data-testid="worktree-annotation-message"
 			data-worktree-annotation-interaction
 			onBlurCapture={props.onBlurCapture}
@@ -86,7 +99,13 @@ export function WorktreeAnnotationInlineSurface(
 				) : null}
 			</div>
 			{props.appearance === 'chronology' ? (
-				<div className="relative min-w-0 rounded-md py-1 pr-8 focus-within:ring-1 focus-within:ring-ring/30">
+				<div
+					className={cn(
+						'relative min-w-0 rounded-md border border-transparent py-1 pr-8 transition-[border-color,box-shadow]',
+						props.editing === true ? annotationEditingSurfaceClassName : undefined,
+					)}
+					data-annotation-editor-surface
+				>
 					{props.children}
 					{props.commands === undefined ? null : (
 						<div
@@ -98,7 +117,7 @@ export function WorktreeAnnotationInlineSurface(
 					)}
 				</div>
 			) : (
-				<WorktreeAnnotationSurfaceCard commands={props.commands}>
+				<WorktreeAnnotationSurfaceCard commands={props.commands} editing={props.editing}>
 					{props.children}
 				</WorktreeAnnotationSurfaceCard>
 			)}
@@ -109,11 +128,18 @@ export function WorktreeAnnotationInlineSurface(
 interface WorktreeAnnotationSurfaceCardProps {
 	readonly children: ReactNode;
 	readonly commands?: ReactNode | undefined;
+	readonly editing?: boolean | undefined;
 }
 
 function WorktreeAnnotationSurfaceCard(props: WorktreeAnnotationSurfaceCardProps): ReactElement {
 	return (
-		<div className="relative mt-1 min-h-20 min-w-0 overflow-hidden rounded-2xl border border-comment-border bg-comment-surface text-comment-foreground transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50">
+		<div
+			className={cn(
+				'relative mt-1 min-h-20 min-w-0 overflow-hidden rounded-2xl border border-comment-border bg-comment-surface text-comment-foreground transition-[border-color,box-shadow]',
+				props.editing === true ? annotationEditingSurfaceClassName : undefined,
+			)}
+			data-annotation-editor-surface
+		>
 			<div className="min-w-0 p-2 pr-10">{props.children}</div>
 			{props.commands === undefined ? null : (
 				<div

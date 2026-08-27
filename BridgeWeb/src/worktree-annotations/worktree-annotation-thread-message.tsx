@@ -329,6 +329,7 @@ export function WorktreeAnnotationMessageEditor(
 			commands={messageCommands}
 			continueTimeline={props.continueTimeline}
 			draft={props.message.draft !== null}
+			editing={props.isEditing}
 			metadata={
 				<>
 					<span className="font-medium text-comment-foreground">
@@ -460,7 +461,7 @@ function assertCommittedAnnotationOutcome(
 export function annotationMessageStateLabel(message: WorktreeAnnotationMessageEntry): string {
 	if (message.status === 'locked') return 'Output locked';
 	if (message.savedBody === null) return 'Draft';
-	if (message.draft !== null) return 'Saved · draft changes';
+	if (message.draft !== null) return 'Draft changes · saved locally';
 	return 'Saved';
 }
 

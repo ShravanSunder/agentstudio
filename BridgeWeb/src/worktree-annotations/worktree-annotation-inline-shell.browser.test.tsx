@@ -395,16 +395,34 @@ describe('worktree annotation inline shell', () => {
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Edit annotation' }).click();
 		});
-		await expect
-			.element(rendered.getByRole('textbox', { name: 'Annotation Markdown' }))
-			.toBeVisible();
+		const editor = rendered.getByRole('textbox', { name: 'Annotation Markdown' });
+		await expect.element(editor).toBeVisible();
+		const editingMessage = editor
+			.element()
+			.closest<HTMLElement>('[data-testid="worktree-annotation-message"]');
+		const editorSurface = editor.element().closest<HTMLElement>('[data-annotation-editor-surface]');
+		if (editingMessage === null || editorSurface === null) {
+			throw new Error('Expected the explicit message editor surface.');
+		}
+		expect(editingMessage.getAttribute('data-annotation-editing')).toBe('true');
+		expect(editorSurface.classList).toContain('ring-inset');
+		expect(getComputedStyle(editorSurface).boxShadow).not.toBe('none');
+		const revert = rendered.getByRole('button', { name: 'Revert draft' });
+		await act(async (): Promise<void> => {
+			revert.element().focus();
+			await Promise.resolve();
+		});
+		expect(editingMessage.getAttribute('data-annotation-editing')).toBe('true');
+		expect(getComputedStyle(editorSurface).boxShadow).not.toBe('none');
+		await page.screenshot({ path: '../../../tmp/bridgeweb-annotation-explicit-editing.png' });
 
 		await act(async (): Promise<void> => {
-			rendered.getByRole('textbox', { name: 'Annotation Markdown' }).element().focus();
+			editor.element().focus();
 			await userEvent.keyboard('{Escape}');
 		});
 		const message = rendered.getByTestId('worktree-annotation-message').all().at(-1);
 		if (message === undefined) throw new Error('Expected the latest message after editing.');
+		expect(message.element().getAttribute('data-annotation-editing')).toBe('false');
 		await act(async (): Promise<void> => {
 			message.element().focus();
 			await userEvent.keyboard('{Enter}');

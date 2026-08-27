@@ -415,6 +415,7 @@ export function WorktreeAnnotationNewMessageComposer(
 					continueTimeline={props.continueTimeline}
 					draft={isDurable && committedCursor === null}
 					embedded={props.placement === 'embedded'}
+					editing={committedCursor === null}
 					metadata={
 						<>
 							<span className="font-medium text-comment-foreground">You</span>
