@@ -158,7 +158,11 @@ struct RepoExplorerTableRowCellTests {
 
         #expect(cell.currentBindingIdentity == initialBinding)
         #expect(cell.currentCommandGeneration == initialSnapshot.generation)
-        await cell.drainDeferredMenuBindingApplication()
+        await waitForBinding(
+            cell,
+            visibleGeneration: 9,
+            commandGeneration: latestSnapshot.generation
+        )
 
         #expect(cell.currentBindingIdentity?.visibleGeneration == 9)
         #expect(cell.currentCommandGeneration == latestSnapshot.generation)
@@ -213,7 +217,11 @@ struct RepoExplorerTableRowCellTests {
         menu.performActionForItem(at: 0)
 
         #expect(dispatchCount == 1)
-        await cell.drainDeferredMenuBindingApplication()
+        await waitForBinding(
+            cell,
+            visibleGeneration: 8,
+            commandGeneration: updatedSnapshot.generation
+        )
         #expect(cell.currentBindingIdentity?.visibleGeneration == 8)
         #expect(cell.currentCommandGeneration == updatedSnapshot.generation)
     }
@@ -252,7 +260,11 @@ struct RepoExplorerTableRowCellTests {
             name: NSMenu.didBeginTrackingNotification,
             object: submenu
         )
-        await cell.drainDeferredMenuBindingApplication()
+        await expectBindingRemains(
+            cell,
+            identity: openingBinding,
+            commandGeneration: initialSnapshot.generation
+        )
 
         #expect(cell.currentBindingIdentity == openingBinding)
         #expect(cell.currentCommandGeneration == initialSnapshot.generation)
@@ -262,7 +274,11 @@ struct RepoExplorerTableRowCellTests {
             name: NSMenu.didEndTrackingNotification,
             object: submenu
         )
-        await cell.drainDeferredMenuBindingApplication()
+        await waitForBinding(
+            cell,
+            visibleGeneration: 8,
+            commandGeneration: updatedSnapshot.generation
+        )
 
         #expect(cell.currentBindingIdentity?.visibleGeneration == 8)
         #expect(cell.currentCommandGeneration == updatedSnapshot.generation)
@@ -336,6 +352,37 @@ private final class ContextMenuActionTarget: NSObject {
 
     @objc func performMenuItemAction(_: NSMenuItem) {
         action()
+    }
+}
+
+@MainActor
+private func waitForBinding(
+    _ cell: RepoExplorerTableRowCell,
+    visibleGeneration: UInt64,
+    commandGeneration: UInt64
+) async {
+    for _ in 0..<100 {
+        if cell.currentBindingIdentity?.visibleGeneration == visibleGeneration,
+            cell.currentCommandGeneration == commandGeneration
+        {
+            return
+        }
+        await Task.yield()
+    }
+    #expect(cell.currentBindingIdentity?.visibleGeneration == visibleGeneration)
+    #expect(cell.currentCommandGeneration == commandGeneration)
+}
+
+@MainActor
+private func expectBindingRemains(
+    _ cell: RepoExplorerTableRowCell,
+    identity: RepoExplorerTableRowBindingIdentity,
+    commandGeneration: UInt64
+) async {
+    for _ in 0..<10 {
+        await Task.yield()
+        #expect(cell.currentBindingIdentity == identity)
+        #expect(cell.currentCommandGeneration == commandGeneration)
     }
 }
 

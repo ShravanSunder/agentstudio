@@ -285,10 +285,6 @@ final class RepoExplorerTableRowCell: NSTableCellView {
         }
     }
 
-    func drainDeferredMenuBindingApplication() async {
-        await deferredBindingApplicationTask?.value
-    }
-
     @discardableResult
     func performIfCurrent(
         _ identity: RepoExplorerTableRowBindingIdentity,
