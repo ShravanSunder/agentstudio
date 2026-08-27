@@ -82,6 +82,79 @@ struct RepoExplorerMaterializationSnapshotTests {
         #expect(tabGroup.icon == .tabGroup)
     }
 
+    @Test("every grouping mode materializes group and child rows on the shared native grid")
+    func everyGroupingModeMaterializesRowsOnSharedNativeGrid() throws {
+        let repoID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let paneID = UUIDv7.generate()
+        let tabID = UUIDv7.generate()
+        let result = try RepoExplorerProjectionWorker.project(
+            makeRepoRequest(repoID: repoID, worktreeID: worktreeID)
+        )
+        let worktreePresentation = try #require(
+            result.materializationSnapshot.rows.compactMap { row -> RepoExplorerMaterializedWorktreePresentation? in
+                guard case .worktree(let worktree) = row.presentation else { return nil }
+                return worktree
+            }.first
+        )
+        let paneDestination = RepoExplorerPaneDestination(
+            paneId: paneID,
+            repoId: repoID,
+            worktreeId: worktreeID,
+            worktreeLabel: "main",
+            tabId: tabID,
+            tabIndex: 0,
+            paneIndexInTab: 0,
+            isActiveInTab: true
+        )
+        let panePresentation = RepoExplorerProjectedPaneRow(
+            groupId: "pane-repo:\(repoID.uuidString)",
+            repoId: repoID,
+            destination: paneDestination,
+            rowId: "pane-row:\(paneID.uuidString)",
+            primaryText: "Pane 1"
+        )
+        let tabPanePresentation = RepoExplorerProjectedPaneRow(
+            groupId: "tab:\(tabID.uuidString)",
+            repoId: repoID,
+            destination: paneDestination,
+            membershipOwner: .tab,
+            rowId: "tab-pane-row:\(paneID.uuidString)",
+            primaryText: "Pane 1"
+        )
+        let childPresentations: [(RepoExplorerGroupingMode, RepoExplorerMaterializedRowPresentation)] = [
+            (.repo, .worktree(worktreePresentation)),
+            (.pane, .pane(panePresentation)),
+            (.tab, .pane(tabPanePresentation)),
+        ]
+
+        for (groupingMode, childPresentation) in childPresentations {
+            let groupPresentation = RepoExplorerMaterializedRowPresentation.groupHeader(
+                RepoExplorerMaterializedGroupHeaderPresentation(
+                    groupID: groupingMode.rawValue,
+                    icon: groupingMode == .tab ? .tabGroup : .repo,
+                    title: groupingMode.title,
+                    organizationName: nil,
+                    colorHex: nil,
+                    isExpanded: true,
+                    repoIDs: [repoID],
+                    semanticRepoPath: nil,
+                    paneDestinations: []
+                )
+            )
+            let groupLayout = RepoExplorerRowLayout.make(for: groupPresentation)
+            let childLayout = RepoExplorerRowLayout.make(for: childPresentation)
+
+            #expect(groupLayout.rowClass == .groupHeader)
+            #expect(groupLayout.metrics.leadingInset == 0)
+            #expect(childLayout.rowClass == (groupingMode == .repo ? .worktree : .pane))
+            #expect(
+                childLayout.metrics.leadingInset
+                    == AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+            )
+        }
+    }
+
     @Test("layout facts are stable and only declared wrapping rows request visible measurement")
     func layoutFactsAreStableAndWrappingIsExplicit() throws {
         let repoID = UUIDv7.generate()

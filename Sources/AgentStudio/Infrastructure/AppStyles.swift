@@ -106,7 +106,7 @@ package enum AppStyles {
             package static let shadowOffsetY: CGFloat = 0
             package static let rowContentSpacing: CGFloat = 4
             package static let rowVerticalInset: CGFloat = 6
-            package static let listRowLeadingInset: CGFloat = 2
+            package static let listRowLeadingInset: CGFloat = Header.contentPadding
             package static let groupIconSize: CGFloat = 14
             package static let groupIconTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
             package static let rowLeadingIconColumnWidth: CGFloat = groupIconSize

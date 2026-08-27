@@ -14,6 +14,10 @@ struct SidebarSourceGroupHeaderTests {
             SidebarSourceGroupHeader<EmptyView>.leadingInset
                 == AppStyles.Shell.Sidebar.listRowLeadingInset
         )
+        #expect(
+            SidebarSourceGroupHeader<EmptyView>.leadingInset
+                == SidebarHeaderLayoutPolicy.standard.contentPadding
+        )
     }
 
     @Test("default repo header wraps source group header chrome")
