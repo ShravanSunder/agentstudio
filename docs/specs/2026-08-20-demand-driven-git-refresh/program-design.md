@@ -22,7 +22,12 @@ RepositoryFactDemandCoordinator (App)
               ├──────── local worktree demand ────────┐
               │                                       ▼
               │                         GitWorkingDirectoryProjector
-              │                           status facts + demanded detail
+              │                           freshness + exact-clean admission
+              │                                       │
+              │                                       ▼
+              │                         AgentStudioGitWorkingTreeStatusProvider
+              │                           ├─ agentstudio-git exact clean proof
+              │                           └─ Darwin loss-aware continuity witness
               │
               ├──────── demanded repositories ───────┐
               │                                       ▼
@@ -53,16 +58,19 @@ The three source owners share the same stage vocabulary—cache check, contracti
 
 ## Why this structure
 
-The structural crux is where “good enough” becomes a decision. Putting that decision in views recreates render-triggered work; putting it in `agentstudio-git` mixes product demand into the data plane; putting every source behind one scheduler erases authority and recovery differences. The selected design keeps product demand in Agent Studio, source policy in the owning actor, physical Git mechanics in `agentstudio-git`, and accepted values in keyed atoms.
+The structural crux is where “good enough” becomes a decision. Putting that decision in views recreates render-triggered work; putting product demand in `agentstudio-git` mixes product policy into the data plane; treating event silence as Git truth would make the filesystem observer a second source of repository facts; putting every source behind one scheduler erases authority and recovery differences. The selected design keeps product demand and freshness policy in the projector, exact-clean semantics and dependency identity in `agentstudio-git`, loss-aware continuity evidence in the existing Darwin observation boundary, proof composition in the local status provider, and accepted values in keyed atoms.
 
 | Alternative | Gain | Cost | Decision |
 | --- | --- | --- | --- |
 | Views call sources when data looks missing | Minimal plumbing | Render-triggered work, duplicated policy, no reliable capacity | Reject |
 | One repository-fact scheduler owns local Git, fetch, and Forge | One queue and vocabulary | Mixed authority, coupled failures, complex priority across unrelated sources | Reject |
 | Independent source actors consume one App demand snapshot | Singular demand semantics with source-owned freshness/recovery | Adds one demand model and one remote-ref actor | Select |
+| Every finite checkpoint performs exact Git | Simple correctness story | One 0.6–3.8 second read can breach idle p99; complete attended demand produces continuous fleet waves | Reject |
+| Treat missing filesystem events as unchanged | Minimal implementation | Silent stale facts after drops, gaps, linked-worktree metadata mutation, or unsupported observation | Reject |
+| Exact-clean baseline plus loss-aware continuity | Keeps Git as truth while avoiding repeated unchanged traversals | Requires observer uncertainty/epoch semantics and package/app proof composition | Select |
 | Process-isolated local status helper | Hard kill boundary | IPC, worker lifecycle, cost relocation, wider proof | Defer unless in-process design fails its falsifiers |
 
-The design reuses `RepoCacheAtom`, `AtomFamily`, `WorkspaceCacheCoordinator`, `GitWorkingDirectoryProjector`, `ForgeActor`, `PullRequestDemandProjection` semantics, the `agentstudio-git` remote process runner and parsing foundation, `EagerDerivedAtomFamily`, the EventBus, and the exact-debug proof path. New durable machinery is limited to the holistic demand snapshot, `RemoteReferenceRefreshActor`, process-wide source capacity owners, local status fact/detail and staged-fetch contracts, and the deadline/governor state required to replace fixed polling.
+The design reuses `RepoCacheAtom`, `AtomFamily`, `WorkspaceCacheCoordinator`, `GitWorkingDirectoryProjector`, `DarwinFSEventStreamClient`, `AgentStudioGitWorkingTreeStatusProvider`, `ForgeActor`, `PullRequestDemandProjection` semantics, the `agentstudio-git` remote process runner and parsing foundation, `EagerDerivedAtomFamily`, the EventBus, and the exact-debug proof path. New durable machinery is limited to the holistic demand snapshot, `RemoteReferenceRefreshActor`, process-wide source capacity owners, local status fact/detail, exact-clean proof, loss-aware continuity, and staged-fetch contracts, plus the deadline/governor state required to replace fixed polling. Exact-clean and continuity authority is runtime-only and never persisted.
 
 Revisit process isolation only if one admitted local operation still violates the action CPU target after duplicated detail work and fleet admission are absent, or a native read demonstrably cannot finish within the accepted process lifecycle. Any future helper CPU must be included in user-capacity proof.
 
@@ -116,11 +124,14 @@ It replaces the fixed 15-second fleet tick with per-worktree deadlines and one r
 - at most one scope-unioning pending intent;
 - immutable admission class captured at start;
 - next status-fact, line-detail, capacity, and failure deadline;
-- unchanged-result adaptation and automatic-start governor state.
+- unchanged-result adaptation and automatic-start governor state;
+- one opaque verified-clean authority for each accepted exact-clean worktree.
 
 Attention changes update tier and deadlines. They create physical intent only when the accepted local fact is missing, invalidated, or stale for the new tier. Ordinary tab/sidebar changes with fresh facts perform no Git work.
 
 Registration creates missing-baseline intent. Active and visible registrations receive priority; background registrations enter the same paced automatic governor and finite deadline path rather than bypassing admission as one eager fleet seed.
+
+At a finite freshness checkpoint the projector first asks the status provider to renew the accepted verified-clean authority. A renewed authority advances the complete empty fact/detail freshness and adaptive cadence without acquiring Git capacity. A result that requires exact work retains one scope-preserving exact fallback intent under the existing priority, governor, capacity, and currentness rules. Known invalidations and explicit refreshes do not take the continuity fast path.
 
 ### AgentStudio local status composition
 
@@ -136,17 +147,31 @@ The gate owns:
 
 It does not choose product demand, tier, retry, publication, or UI behavior. The projector owns automatic pacing; other explicit status consumers use the same physical safety gate without inheriting background refresh policy.
 
+`AgentStudioGitWorkingTreeStatusProvider` composes package-owned exact-clean proof with the Darwin continuity witness. It owns no demand, cadence, cache, retry, or publication policy. Before a full exact scan it asks the package for an opaque observation plan containing the complete Git dependency identity and the paths/scopes the platform must observe. It binds that exact plan into the witness and completes a stable start barrier before calling status. The facts read re-resolves and compares its Git dependency identity with the prepared plan; drift rejects clean authority while preserving ordinary exact facts. After an exact-clean result the provider completes a post-scan flush barrier and mints authority only when registration, mutation, uncertainty, and dependency identity epochs still match. For checkpoint renewal it returns exactly one typed outcome: `renewed(authority)` or `requiresExact(reason)`. A raced, unsupported, incomplete, or uncertain observation always returns `requiresExact`.
+
+The projector captures the accepted authority identity before awaiting renewal and revalidates the same worktree, root, request generation, authority, and pending invalidation after the provider returns. The witness conditionally commits the renewal against its still-current epoch before projector freshness can advance. A mutation between provider return and freshness acceptance therefore makes the commit fail and preserves one exact fallback rather than being overwritten by a late renewal.
+
 ### agentstudio-git local contracts
 
-`agentstudio-git` remains Git-shaped and product-agnostic. Its local status contract hard-cuts over from one hidden compound operation to explicit capabilities:
+At the current resolved package revision `56690acb6e9ac410d9ad5ade977c47395d7c9583`, `agentstudio-git` is already Git-shaped and product-agnostic and already exposes separate capabilities:
 
 - status facts scoped by the existing safe pathspec contract, excluding full-worktree line-count detail;
 - exact full-worktree line-count detail;
 - an explicit complete-status composition for consumers that always require both.
 
-Typed results distinguish facts from detail; optional integers do not encode “not requested,” “unknown,” and “failed.” The status-fact reader never performs `git_diff_tree_to_workdir_with_index` as a hidden side effect. The detail reader owns that exact operation.
+Typed results already distinguish facts from detail; optional integers do not encode “not requested,” “unknown,” and “failed.” The status-fact reader does not perform `git_diff_tree_to_workdir_with_index` as a hidden side effect. The detail reader owns that exact operation. This existing foundation remains unchanged except that the fact read now returns package-owned observation-plan and exact-clean proof information required by the new continuity contract.
 
-The retained v0.0.89 sample attributed 165 of 404 inclusive status-reader samples to the unconditional shortstat and 229 to status-entry collection. Removing the hidden coupling is therefore part of the first realization, not speculative cleanup.
+The retained v0.0.89 sample attributed 165 of 404 inclusive status-reader samples to the then-unconditional shortstat and 229 to status-entry collection. Revision `56690acb` already removed that hidden coupling; continuity extends this shipped split so a proven exact-clean result also skips the now-separate detail call and later unchanged checkpoints skip both physical reads.
+
+Only a successful full facts read tied to the same prepared `GitStatusObservationPlan` may mint the opaque `GitExactCleanBaseline`. Its exact-clean predicate requires no staged change, tracked worktree change, conflict, rename, type change, unreadable entry, or recursively discovered untracked entry. Path-scoped and non-clean reads never mint it. An exact-clean baseline logically implies exact `0/0`, so the package skips the line-detail diff for that result.
+
+The package observation plan records a complete dependency identity rather than paths inferred by Agent Studio: the worktree subtree; resolved per-worktree Git directory and index; common refs, configuration, packed refs, and `info/exclude`; applicable resolved ignore dependencies; and every transitive submodule HEAD, index, worktree, configuration, ignore, and Git-directory input consulted by the selected libgit2 status options. If the package cannot enumerate any consulted top-level or submodule input, or the platform cannot observe one of the supplied scopes, continuity is unsupported for that worktree while ordinary exact status remains available.
+
+### Darwin Git clean continuity capability
+
+The existing `DarwinFSEventStreamClient` gains a narrow `GitCleanContinuityWitness` capability consumed directly by the local status provider. App composition creates exactly one process-scoped client and injects the same object into both `FilesystemActor` and `AgentStudioGitWorkingTreeStatusProvider`; production defaults cannot silently construct a second witness. It is not routed through `FilesystemActor` or EventBus, because those lossy presentation/invalidation paths cannot prove the absence of a mutation. This adds no atom, store, EventBus case, generic scheduler, helper process, persistence owner, or coordinator responsibility.
+
+For each admitted observation scope the witness retains registration generation, per-volume event cursor, mutation epoch, uncertainty epoch, stable barriers, and coverage state. Start and post-scan barriers flush the stream without holding the lifecycle lock, then revalidate every generation and epoch so delayed kernel delivery cannot create a false-clean interval. Relevant mutations advance the mutation epoch before ordinary filesystem delivery. FSEvent IDs and flags remain intact through classification. `MustScanSubDirs`, user/kernel drops, event-ID wrap, root change, mount/unmount discontinuity, stream-start failure, buffer overflow, registration replacement, and unsupported scope advance uncertainty and fail renewal closed. Git administrative mutations use the existing full-scope Git-internal invalidation semantics rather than a new EventBus fact. Shutdown first drains projector/provider renewal and retires all authorities, then shuts down the shared witness.
 
 ### RemoteReferenceRefreshActor
 
@@ -265,20 +290,42 @@ CURRENT
 FSEvent -> 500ms debounce / 10s max flush
   -> 500ms derived coalescing
   -> projector pending changeset
-  -> fixed 15s fleet timer also scans every registered root
-  -> status call = entries + unconditional full shortstat
-  -> one-second caller timeout may settle before native completion
+  -> per-worktree deadline + governor
+  -> separate status-facts call
+  -> detail call when changed/missing/explicit/due
+  -> one-second threshold is slow observation; native completion retains custody
 
 TARGET
-FSEvent
-  -> [unchanged] bounded debounce and scope-preserving changeset union
-  -> [changed] cache/freshness admission before physical work
-  -> [added] per-worktree earliest deadline; no fleet tick
-  -> [added] automatic start governor + immutable admitted class
-  -> [changed] status-fact call
-  -> [added] line detail only when invalidated/changed/missing/explicit/due
-  -> [added] complete generation/root validation
-  <- [unchanged] changed EventBus fact or content-equal suppression
+initial full exact baseline
+  -> package resolve GitStatusObservationPlan(identity + opaque scopes)
+  -> shared Darwin witness bind scopes + flush start barrier
+  -> package full status-facts read tied to prepared identity
+       ├─ identity drift / non-clean / unsupported -> no authority
+       └─ exact clean -> candidate baseline + implied exact 0/0
+  -> shared Darwin witness flush post-scan barrier
+       ├─ epoch/generation changed -> requiresExact(reason)
+       └─ stable -> mint verified-clean authority
+  -> projector validates worktree/root/request/current invalidation
+  -> accept complete candidate and authority or retain exact fallback
+
+finite tier-specific checkpoint
+  -> provider renew(verified-clean authority)
+       ├─ renewed
+       │    -> exact empty candidate + exact 0/0
+       │    -> no physical Git and no Git-capacity acquisition
+       └─ requiresExact(reason)
+            -> existing priority/governor/capacity admission
+            -> safe path-scoped or full status facts
+            -> detail only when invalidated/changed/missing/explicit/due
+            -> full exact clean may mint replacement authority
+  -> witness conditionally commits still-current renewal
+  -> projector revalidates generation/root/authority/pending invalidation after await
+  <- exact fallback when raced; otherwise changed EventBus fact or content-equal suppression
+
+FSEvent / known mutation / explicit refresh
+  -> bounded debounce and scope-preserving changeset union
+  -> invalidate clean authority before ordinary delivery
+  -> existing exact/scoped admission path above
 ```
 
 ### Demanded remote-reference path
@@ -343,6 +390,21 @@ Each source owner uses the same semantic states but owns separate instances and 
 
 Local status additionally composes fact and detail phases inside one materialization attempt. Fact completion may release its physical slot before detail starts, but the projector retains same-worktree single-flight and does not admit the follow-up between phases. Automatic duty accounting sums both native phases.
 
+Verified-clean continuity adds the following local substates without changing the shared source lifecycle:
+
+| Local continuity state | Meaning | Valid transition |
+| --- | --- | --- |
+| No baseline | No accepted exact-clean authority | full exact scan, removal |
+| Exact clean preparing | Observation barrier surrounds a full exact scan | verified clean current, exact fallback pending, removal |
+| Verified clean current | Accepted exact-clean facts and matching witness authority | continuity renewal, mutation, uncertainty, explicit refresh, identity change |
+| Continuity renewed | Checkpoint accepted with no physical Git | verified clean current at next deadline, mutation, uncertainty |
+| Mutated | Relevant dependency changed | exact fallback pending/running |
+| Uncertain | Coverage, cursor, registration, or dependency proof failed | exact fallback pending/running |
+| Exact fallback pending/running | One retained exact intent owns recovery | verified clean current, accepted non-clean, failure recovery, removal |
+| Removed | No baseline or publication authority | new authoritative registration only |
+
+Renewal without an exact baseline, renewal across epoch or identity mismatch, uncertainty treated as unchanged, a path-scoped result minting a baseline, fallback loss during coalescing, and late authority advancing freshness are illegal and fail closed.
+
 Remote fetch and Forge use killable child processes. Cancellation requests termination through the owning executor; the executor retains exit and pipe observation, escalates to a bounded hard kill when required, and settles the async call only after exact child exit. Source actors may revoke logical publication authority immediately but retain physical capacity until that settled return. Remote fetch writes only generation-scoped staging refs before currentness validation; stale completion cleanup cannot promote them. Forge rejects an incomplete repository plan as a unit. Both owners reject any completion after demand/origin/topology generation changed.
 
 Illegal transitions fail closed: publication from obsolete identity/generation/scope, second same-key physical work, capacity release before true completion/exit, capacity counted as failure, partial local publication, canonical-ref promotion before currentness validation, automatic remote work without demand, and rendering-triggered source work.
@@ -353,7 +415,7 @@ Demand delivery is one complete-value consistency boundary. No source owner obse
 
 Each source actor owns exactly one reschedulable next-deadline task. A state change cancels the prior wait, recomputes the earliest useful instant, and installs one successor through the injected clock seam. A stale wake recomputes and has no authority.
 
-Local deadline candidates include status freshness, line-detail freshness, background stable-hash phase, automatic governor, capacity fallback, and genuine failure. Remote-ref and Forge candidates include demanded freshness, capacity fallback, provider backoff, and authoritative retry-after. Forge's one-second equivalent-follow-up candidate is an eligibility recheck only; it never advances a same-scope automatic physical start ahead of the three-minute successful-result floor.
+Local deadline candidates include status freshness, line-detail freshness, verified-clean checkpoint renewal, automatic governor, capacity fallback, and genuine failure. Remote-ref and Forge candidates include demanded freshness, capacity fallback, provider backoff, and authoritative retry-after. Forge's one-second equivalent-follow-up candidate is an eligibility recheck only; it never advances a same-scope automatic physical start ahead of the three-minute successful-result floor.
 
 Local automatic pacing uses completed physical duty:
 
@@ -389,6 +451,8 @@ The one-second local threshold becomes slow observation rather than physical com
 
 Fact success followed by detail failure publishes nothing partial. The prior complete candidate remains visible, complete-detail demand survives, and genuine failure recovery owns the next eligible attempt.
 
+Observer uncertainty preserves the last accepted facts and retains exactly one exact fallback intent. One uncertainty generation cannot enqueue fleet duplicates. A global observer restart may invalidate many authorities, but recovery still flows through the existing attention priority, automatic governor, process capacity, and same-root exclusion. Mutation during the baseline scan or either renewal barrier rejects the authority. Any non-clean exact result clears it. Worktree removal and shutdown clear both authority and observer scope. Continuity outcomes are validation outcomes and never enter source-failure backoff.
+
 ### Remote fetch failure
 
 Fetch failure, timeout, or noninteractive credential failure preserves current-origin accepted remote refs and ahead/behind. The actor records a genuine failure deadline and presentable remote freshness remains last-fetched, never fabricated as server-current. Rate/auth failure does not trigger interactive prompts. Stale or cancelled completion cleans only its generation-scoped staging refs. A crash may leave private staged refs, but startup cleanup owns them and canonical readers never observe them. Successful current-generation fetch atomically promotes its complete staged update/delete set, accepts one origin/generation token, closes failure state, and requests token-carrying local recomputation.
@@ -419,23 +483,31 @@ Required outcome families:
 - contraction: coalesced, replaced, retained-scope count, max-flush admission;
 - admission: fresh-suppressed, no-demand, automatic-paced, capacity-deferred, same-key-deferred, admitted by class;
 - physical: started, slow, caller-cancelled, settled, truly completed/exited, failed, active-at-shutdown;
-- query: path/full, fact/detail, fetch-staged/promoted/abandoned/cleaned, demanded-branch alias count, fallback-wide, returned node/result count, atomic-plan completeness;
-- validation: current, stale-generation, stale-root/origin/branch/demand, removed, shutdown;
+- query: path/full, fact/detail, avoided-fact-read, avoided-detail-read, fetch-staged/promoted/abandoned/cleaned, demanded-branch alias count, fallback-wide, returned node/result count, atomic-plan completeness;
+- validation: current, stale-generation, stale-root/origin/branch/demand, exact-clean-baseline prepared/accepted/rejected, continuity-renewed, mutation-invalidated, uncertainty by bounded reason, exact-fallback admitted/coalesced, removed, shutdown;
 - publication: published, content-equal, partial-rejected;
 - recovery: capacity-rearmed, failure-opened/closed, rate-limited, unavailable/available;
-- debt: pending count by source/reason, physical count, oldest physical age, next deadline distance.
+- debt: pending count by source/reason, physical count, current verified-clean authority count, oldest authority/checkpoint age, oldest physical age, next deadline distance.
 
 ```text
 DETERMINISTIC PROOF
 injected clocks + controllable local/child providers
   -> real demand projection and source actor state
   -> cache hit/no-call, debounce, freshness, capacity, generation flows
+  -> positive continuity renewal makes zero physical calls
+  -> uncertainty retains exactly one exact fallback and foreground priority
   -> observed starts, query scopes, pending intent, publication, recovery
 
 PACKAGE PROOF
 agentstudio-git real disposable repositories/remotes
   -> status-fact versus detail cost/contract
-  -> path/full compatibility
+  -> differential exact-clean cases: nested untracked, staged, conflict, rename,
+     type change, unreadable, linked index, HEAD/ref/config/ignore mutation,
+     and transitive submodule HEAD/index/worktree/config/ignore/Git-directory mutation
+  -> observer drop/wrap/root-change/start-failure/re-registration/barrier races fail closed
+  -> mutation before registration, during scan, between scan and post-barrier,
+     during renewal, and between provider return and freshness acceptance fails closed
+  -> path/full compatibility and zero detail read for exact clean
   -> staged noninteractive fetch, current promotion, stale cleanup, and cancellation/timeout
   -> complete package check before revision consumption
 
@@ -449,7 +521,7 @@ strict verifier
   -> graceful exact-candidate retirement and zero required loss
 ```
 
-Final runtime proof may use controlled disposable remotes for staged-fetch mutation while the topology scale comes from the complete real watched roots. It must not mutate user repositories or global Git configuration. The idle population must include at least one complete maximum local self-heal interval and its resulting physical completion. With the selected 240-second background base and 4x adaptation, retain at least 1,000 usable one-second samples; if policy tuning lengthens the maximum, the proof horizon lengthens with it. Settlement requires no overdue deadline, physical work within source gates, preparation debt classified by reason, and oldest debt plus next deadline within policy. Inventory and include every debug-owned descendant/helper process so cost cannot pass by relocation. No fake substitutes for production watched-folder discovery, production provider wiring, native UI materialization, exporter delivery, or exact process identity.
+Final runtime proof may use controlled disposable remotes for staged-fetch mutation while the topology scale comes from the complete real watched roots. It must not mutate user repositories or global Git configuration. Immediately before the timed idle interval, the verifier injects one controlled local observer uncertainty and ends that proof action; it starts idle sampling before the retained exact fallback settles. The measured interval therefore includes fallback CPU and complete recovery without including the injection action. The same interval includes at least one complete maximum local self-heal checkpoint and positive continuity renewals. With the selected 240-second background base and 4x adaptation, retain at least 1,000 usable one-second samples; if policy tuning lengthens the maximum, the proof horizon lengthens with it. Settlement requires no overdue deadline, physical work within source gates, preparation debt classified by reason, and oldest debt plus next deadline within policy. Inventory and include every debug-owned descendant/helper process so cost cannot pass by relocation. The final marker must meet idle p99 and action p95 CPU targets with zero hidden loss or uncertainty. No fake substitutes for production watched-folder discovery, production provider wiring, native UI materialization, exporter delivery, or exact process identity.
 
 ## Requirement, realization, and proof trace
 
@@ -459,10 +531,10 @@ Final runtime proof may use controlled disposable remotes for staged-fetch mutat
 | U-GIT-ACTION-CPU-1 | content-equal demand, fresh-cache suppression, keyed projections | native action/read-back populations with exact-PID samples |
 | U-GIT-CACHE-FIRST-1 | RepoCacheAtom families, source-owner freshness, keyed eager reads | cache hit/no-source and keyed revision proof |
 | U-GIT-SOURCE-SUFFICIENCY-1 | three source owners consuming one demand snapshot | source-selection behavior and end-to-end fact provenance |
-| U-GIT-SELF-HEAL-1 | finite local/detail deadlines and first-demand remote deadlines | injected-clock longitudinal and demanded-checkpoint proof |
+| U-GIT-SELF-HEAL-1 | finite local/detail deadlines, verified-clean renewal, fail-closed exact fallback, and first-demand remote deadlines | injected-clock renewal/fallback longitudinal and demanded-checkpoint proof |
 | U-GIT-FOREGROUND-1 | shared demand class, immutable admission, source capacity/reservation | blocked-background/remote interleavings and stressed action proof |
 | U-GIT-ADMISSION-1 | bounded contraction, one active/one pending, deadline owners | outcome-accounted state tests and telemetry ratios |
-| U-GIT-LOCAL-EFFICIENCY-1 | fact/detail package cutover, safe pathspec, complete materialization | package compatibility/timing and app detail-demand proof |
+| U-GIT-LOCAL-EFFICIENCY-1 | fact/detail package cutover, exact-clean baseline, loss-aware continuity, safe pathspec, complete materialization | package differential/observer proof, compatibility/timing, and app zero-call renewal proof |
 | U-GIT-REMOTE-REF-1 | RemoteReferenceRefreshActor and targeted local recomputation | demanded fetch/cache/failure integration and read-back |
 | U-GIT-FORGE-1 | existing branch cache plus alias query plan/global CLI capacity | GraphQL plan, recovery, cache, and toolbar/sidebar agreement |
 | U-GIT-CURRENTNESS-1 | per-source captured generations/scopes and changed-only applier | A/B/C identity/invalidation interleavings and integration publication |
@@ -475,9 +547,10 @@ Final runtime proof may use controlled disposable remotes for staged-fetch mutat
 This is one holistic internal cutover:
 
 - one App demand snapshot replaces independently drifting visibility/demand observations, and sidebar attention changes only with canonical sidebar presentation or semantic membership rather than search, grouping, scrolling, or rendering;
-- the local fixed fleet tick is removed when the earliest-deadline path becomes authoritative;
-- local caller timeout becomes slow observation;
-- `agentstudio-git` status facts no longer hide line-count detail;
+- the already-landed earliest-deadline path remains authoritative; no local fixed fleet tick returns;
+- the already-landed slow-observation threshold continues to retain native physical custody;
+- the already-landed `agentstudio-git` fact/detail split remains authoritative;
+- `agentstudio-git` exact-clean baseline and Darwin continuity capability land together with provider/projector consumption;
 - all production local status consumers share one process-scoped physical gate;
 - demanded remote refs acquire staged-fetch/promotion ownership without changing local-status truth ownership;
 - Forge gains global CLI capacity, branch-scoped GraphQL planning, and consistent three-minute automatic recovery;
@@ -485,7 +558,7 @@ This is one holistic internal cutover:
 
 There is no persisted migration and no dual runtime scheduler. Deadline, demand, capacity, and physical state rebuild from current topology and accepted runtime facts at launch. Existing Git/Forge EventBus facts and UI fact shapes remain stable except for deliberate source-detail contract changes internal to the package/app boundary.
 
-The package cutover lands in dependency order from Agent Studio's current exact pin `474bf34210dd8e176f9b3585b061161a8e8b50d4` or a verified descendant of that revision. The Git-only contract/readers become one reviewed `agentstudio-git` revision while preserving the blocking-read executor and every non-status discovery/review public contract; Agent Studio then verifies ancestry and API/content preservation, updates its exact revision, and cuts every consumer to the explicit status and staged-fetch contracts. The old package API and new app materializer do not coexist in a released build. Rollback restores the prior app materializer and prior exact package revision together.
+The package cutover starts from Agent Studio's current exact pin `56690acb6e9ac410d9ad5ade977c47395d7c9583`, itself a verified descendant of `474bf34210dd8e176f9b3585b061161a8e8b50d4`. The already-shipped fact/detail and staged-fetch contracts remain the foundation. One reviewed descendant adds only exact-clean proof and complete observation-dependency discovery while preserving the blocking-read executor and every unrelated discovery/review/remote contract. Agent Studio verifies ancestry and API/content preservation, updates its exact revision, and cuts the provider/projector to that proof contract. The package baseline contract, shared Darwin witness, provider composition, and projector consumption are a hard cutover with no compatibility path. Rollback restores the prior app provider/projector and prior exact package revision together.
 
 Architecture enforcement prevents:
 
@@ -494,6 +567,8 @@ Architecture enforcement prevents:
 - enrichment, path, cache-dictionary, or fleet presentation reads inside demand capture;
 - a second local fleet timer or generic cross-source scheduler;
 - hidden line-detail work inside status-fact reads;
+- a path-scoped, non-clean, raced, unsupported, or observation-uncertain result minting or renewing exact-clean authority;
+- treating missing events, event loss, observer restart, or identity drift as proof of no Git change;
 - independent production status providers bypassing the shared physical gate;
 - automatic remote work without demand;
 - direct demanded fetch mutation of canonical remote-tracking refs before origin/generation validation;

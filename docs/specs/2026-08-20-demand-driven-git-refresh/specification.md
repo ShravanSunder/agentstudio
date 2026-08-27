@@ -4,9 +4,9 @@ Requirements: [Demand-Driven Repository Fact Refresh Requirements](requirements.
 
 ## Observable problem and desired difference
 
-Agent Studio currently performs recurring in-process local Git work after the sidebar projection has settled, uses several independently constructed status-capacity registries, and pays a second full-worktree line-count diff inside every status request. The retained exact-debug marker aligns one-second local status settlements with repeated 50–111% process CPU samples. Current GitHub refresh has a three-minute freshness gate and per-repository single-flight, but no global CLI capacity, generic failures can retry faster than the documented floor, and one demanded branch still fetches repository-wide open PR pages before local filtering.
+Agent Studio currently performs recurring in-process local Git work after the sidebar projection has settled, uses several independently constructed status-capacity registries, and pays a second full-worktree line-count diff inside every status request. The retained exact-debug marker aligns one-second local status settlements with repeated 50–111% process CPU samples. A current-head real-root run with 121 repositories and 148 worktrees completed 208 periodic local Git reads with 63.5 seconds of physical duty before another forty-worktree ready wave prevented positive settlement. Current GitHub refresh has a three-minute freshness gate and per-repository single-flight, but no global CLI capacity, generic failures can retry faster than the documented floor, and one demanded branch still fetches repository-wide open PR pages before local filtering.
 
-The required difference is a cache-first system in which consumers immediately read accepted keyed facts, source work begins only when the cache and demand contract require it, the cheapest authoritative source and smallest safe query are selected, physical work is bounded across consumers, and only complete current changed facts publish.
+The required difference is a cache-first system in which consumers immediately read accepted keyed facts, source work begins only when the cache and demand contract require it, the cheapest authoritative source and smallest safe query are selected, physical work is bounded across consumers, and only complete current changed facts publish. A finite local freshness checkpoint may renew a previously exact-clean result without another Git traversal only when uninterrupted, loss-aware observation proves that the exact Git identity and every relevant dependency remained unchanged; any uncertainty must use the existing exact Git path.
 
 ## Normative obligations
 
@@ -32,7 +32,7 @@ Each cached fact MUST retain source identity, owning entity identity, accepted g
 
 ### S6 — Cheapest sufficient source
 
-Workspace membership MUST come from canonical topology atoms; working-tree, branch, local remote-tracking, and line-count truth MUST come from local Git; server-current remote refs MUST come from demanded remote fetch; PR/check/review/mergeability truth MUST come from Forge/GitHub. The system MUST NOT invoke a stronger or remote source when accepted weaker-source facts satisfy the consumer's promise.
+Workspace membership MUST come from canonical topology atoms; working-tree, branch, local remote-tracking, and line-count truth MUST originate from local Git; server-current remote refs MUST come from demanded remote fetch; PR/check/review/mergeability truth MUST come from Forge/GitHub. Loss-aware local observation MAY prove that a previously accepted exact-clean local Git result remains current, but it MUST NOT originate a Git fact or turn a non-clean or uncertain result into clean. The system MUST NOT invoke a stronger or remote source when accepted weaker-source facts satisfy the consumer's promise.
 
 ### S7 — Contract input before admission
 
@@ -40,15 +40,19 @@ Filesystem bursts MUST coalesce by worktree while preserving affected-path union
 
 ### S8 — Local self-heal and priority
 
-Every registered available worktree MUST retain a finite local refresh deadline. Active, visible, open, explicit, and background classes MUST preserve that priority order and finite class-specific freshness bounds. Equal results MAY lengthen the next deadline within the declared maximum; changed results MUST restore prompt eligibility. A background queue MUST NOT starve active or visible work.
+Every registered available worktree MUST retain a finite local freshness checkpoint. Active, visible, open, explicit, and background classes MUST preserve that priority order and finite class-specific freshness bounds. At a checkpoint, a current exact-clean result MAY renew through verified continuity without physical Git; every other result MUST remain eligible for the exact local Git backstop. Equal or continuity-renewed results MAY lengthen the next checkpoint within the declared maximum; changed, uncertain, or identity-invalid results MUST restore exact-refresh eligibility. A background queue MUST NOT starve active or visible work.
 
 ### S9 — Efficient local query shape
 
-Known bounded changed paths MUST use path-scoped status when rename, Git-internal, identity, or scope safety does not require a full status. Status facts and exact full-worktree line-count detail MUST be separate physical capabilities. Known content changes, changed status facts, missing detail, explicit complete refresh, or an expired finite detail deadline MUST demand exact line counts. Equal automatic facts with fresh accepted detail MUST reuse the cached exact counts and MUST NOT run the second full diff.
+Known bounded changed paths MUST use path-scoped status when rename, Git-internal, identity, or scope safety does not require a full status. Status facts and exact full-worktree line-count detail MUST be separate physical capabilities. Known content changes, changed or non-clean status facts, missing detail without an exact-clean proof, explicit complete refresh, or an expired finite detail deadline without verified clean continuity MUST demand exact line counts. A full exact status result that proves no staged, tracked-worktree, conflicted, renamed, type-changed, unreadable, or recursively discovered untracked entry MUST imply exact empty status and exact `0/0` line detail without executing the second full diff. Equal automatic facts with fresh accepted detail MUST reuse the cached exact counts and MUST NOT run the second full diff.
+
+### S9A — Verified exact-clean continuity
+
+Only a successful full exact local Git result for the current repository, worktree, root, per-worktree Git directory and index, HEAD, branch, origin/configuration, ignore dependencies, and refresh generation MAY establish an exact-clean baseline. Observation coverage MUST begin before that baseline is accepted and MUST remain continuous through a freshness-checkpoint barrier. A checkpoint MAY renew the exact empty facts and exact `0/0` detail without physical Git only when the observer proves the same identity and epoch, no relevant mutation, no dropped or wrapped events, no rescan requirement, no registration or sleep gap, and no unsupported observation state. Known mutation, explicit refresh, dirty or incomplete baseline, identity drift, observation loss, or any ambiguity MUST return to the existing exact Git path. Continuity renewal MUST NOT delete finite checkpoints or suppress a pending known invalidation.
 
 ### S10 — Complete local publication
 
-A local result MUST publish only as one complete worktree candidate containing mutually current status facts and exact line-count detail. A detail failure after fact success MUST retain the prior complete candidate and one complete pending intent; it MUST NOT publish a mixed old/new result. Publication MUST validate worktree/root identity, request generation, and shutdown state.
+A local result MUST publish only as one complete worktree candidate containing mutually current status facts and exact line-count detail. A continuity-renewed candidate MUST carry the exact-clean baseline identity plus the observation epoch and checkpoint barrier that justified renewal. A detail failure after fact success MUST retain the prior complete candidate and one complete pending intent; it MUST NOT publish a mixed old/new result. Publication MUST validate worktree/root identity, request generation, exact-clean/observation generation when applicable, and shutdown state.
 
 ### S11 — Ahead/behind source and remote-ref refresh
 
@@ -76,11 +80,11 @@ Global capacity exhaustion or same-root/same-repository work already in flight M
 
 ### S17 — Currentness and changed-only publication
 
-Every active operation MUST capture source identity, repository/worktree/branch scope, and refresh generation. Before publication, the owner MUST validate those values against current membership and demand. Obsolete results MUST NOT publish or advance freshness/equality baselines. Complete equal results MAY suppress publication only when sequence-end state equals the ungated reference.
+Every active operation MUST capture source identity, repository/worktree/branch scope, and refresh generation. A clean-continuity renewal MUST additionally capture and validate the exact-clean baseline identity, observation epoch, checkpoint barrier, and uncertainty generation. Before publication, the owner MUST validate those values against current membership and demand. Obsolete or uncertain results MUST NOT publish or advance freshness/equality baselines. Complete equal results MAY suppress publication only when sequence-end state equals the ungated reference.
 
 ### S18 — Bounded observability
 
-Debug telemetry MUST expose bounded outcomes for cache hit/miss/stale, source selection, contraction, freshness admission, active coalescing, capacity deferral, physical start/slow/settlement/completion, query scope, failure backoff, currentness rejection, publication, and pending/physical debt. Acceptance populations MUST report zero required trace/runtime/collector loss and retain existing source scrubbing.
+Debug telemetry MUST expose bounded outcomes for cache hit/miss/stale, source selection, contraction, freshness admission, verified-clean renewal, mutation invalidation, observation uncertainty, exact fallback, active coalescing, capacity deferral, physical start/slow/settlement/completion, query scope, failure backoff, currentness rejection, publication, and pending/physical debt. Acceptance populations MUST report zero required trace/runtime/collector loss and retain existing source scrubbing.
 
 ### S19 — Exact debug-only lifecycle
 
@@ -88,11 +92,12 @@ The proof harness MUST bind launch, workload, sampling, telemetry, retirement, z
 
 ### S20 — Proof completeness
 
-Acceptance MUST combine deterministic cache/admission/currentness tests, local and remote physical-lifecycle tests, `agentstudio-git` compatibility and efficiency proof, integration through production local/remote owners, marker-scoped outcomes/loss telemetry, exact-PID CPU populations, and native interaction/read-back proof. Instantaneous zero debt, a stale marker, unit-only evidence, an unauthorized JSONL fallback, or host process-name checks MUST NOT substitute for the required boundary evidence.
+Acceptance MUST combine deterministic cache/admission/currentness tests, local and remote physical-lifecycle tests, `agentstudio-git` compatibility and efficiency proof, differential clean-continuity proof against an immediate exact Git reference, observer loss/gap/identity/race proof, integration through production local/remote owners, marker-scoped outcomes/loss telemetry, exact-PID CPU populations, and native interaction/read-back proof. The verifier MUST inject controlled uncertainty before the timed idle interval, then begin the interval after the injection action ends but before its retained exact fallback settles. The timed real-root idle population therefore contains positive verified-clean renewals, at least one periodic local self-heal completion, and observable exact fallback work without containing a proof action. Instantaneous zero debt, a stale marker, unit-only evidence, an unauthorized JSONL fallback, or host process-name checks MUST NOT substitute for the required boundary evidence.
 
 ## Failure and partial-success contract
 
 - Cache freshness expiry preserves current-identity accepted facts while demanded refresh proceeds.
+- Exact-clean continuity uncertainty preserves the accepted candidate, retains one exact fallback intent, and advances neither clean-proof nor freshness authority.
 - Local fact success followed by detail failure publishes nothing partial.
 - Remote fetch or Forge failure preserves current-origin accepted facts and enters only its bounded recovery class.
 - A partially successful multi-batch Forge plan publishes no branch facts; recovery retries the complete latest repository plan.
@@ -105,6 +110,7 @@ Acceptance MUST combine deterministic cache/admission/currentness tests, local a
 - Hidden repositories are not promised continuous server-current remote refs or PR/check facts.
 - Ahead/behind remains explicitly last-fetched until a demanded fetch succeeds.
 - An in-process libgit2 operation is not promised hard cancellation when its public API exposes no interruption seam.
+- Verified clean continuity is not a cache-forever promise, a replacement source for Git facts, or permission to assume that silence means unchanged.
 - A demanded-branch Forge request need not use branch filtering when GitHub cannot express the required complete bounded query, but the fallback must remain bounded and observable.
 - No persistence, generic scheduling framework, beta/production instrumentation, or broad helper-process architecture is implied.
 
@@ -112,14 +118,14 @@ Acceptance MUST combine deterministic cache/admission/currentness tests, local a
 
 | Requirement | Observable contract | Evidence modality |
 | --- | --- | --- |
-| U-GIT-IDLE-CPU-1 | S1, S8-S16 | exact-PID performance measurement plus marker-scoped source telemetry |
+| U-GIT-IDLE-CPU-1 | S1, S8-S16 | exact-PID performance measurement plus marker-scoped source and clean-continuity telemetry |
 | U-GIT-ACTION-CPU-1 | S2, S4 | native interaction/read-back plus exact-PID performance measurement |
 | U-GIT-CACHE-FIRST-1 | S4-S5 | keyed cache behavior, source-call absence, and projection revision evidence |
 | U-GIT-SOURCE-SUFFICIENCY-1 | S6, S11-S13 | source-selection behavior and local/remote integration evidence |
-| U-GIT-SELF-HEAL-1 | S8-S12 | injected-deadline behavior and longitudinal demanded-checkpoint proof |
+| U-GIT-SELF-HEAL-1 | S8-S12 | injected-deadline behavior, continuity uncertainty fallback, and longitudinal demanded-checkpoint proof |
 | U-GIT-FOREGROUND-1 | S8, S14-S16 | deterministic capacity/priority interleavings and stressed runtime actions |
 | U-GIT-ADMISSION-1 | S7-S8, S12-S16 | outcome-accounted contraction/admission tests and marker ratios |
-| U-GIT-LOCAL-EFFICIENCY-1 | S9-S10 | package/app query-shape, detail-demand, currentness, and timing evidence |
+| U-GIT-LOCAL-EFFICIENCY-1 | S9-S10 | package/app query-shape, exact-clean implication, continuity differential, fallback, currentness, and timing evidence |
 | U-GIT-REMOTE-REF-1 | S11 | remote-fetch cache/freshness/failure integration and read-back evidence |
 | U-GIT-FORGE-1 | S12-S14 | branch-scoped provider, cache, concurrency, rate-limit, and UI agreement evidence |
 | U-GIT-CURRENTNESS-1 | S5, S10-S17 | generation/identity interleavings and complete publication evidence |
