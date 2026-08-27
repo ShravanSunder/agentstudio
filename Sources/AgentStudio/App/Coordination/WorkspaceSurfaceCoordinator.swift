@@ -178,20 +178,35 @@ final class WorkspaceSurfaceCoordinator {
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil
     ) {
-        if filesystemSource != nil {
-            precondition(gitWorkingTreeStatusProvider != nil && gitStatusPhysicalGate != nil)
-        }
+        let suppliedFilesystemTrioCount = [
+            filesystemSource != nil,
+            gitWorkingTreeStatusProvider != nil,
+            gitStatusPhysicalGate != nil,
+        ].filter { $0 }.count
+        precondition(
+            suppliedFilesystemTrioCount == 0 || suppliedFilesystemTrioCount == 3,
+            "filesystem source, Git status provider, and physical gate must be injected together"
+        )
         let resolvedGitStatusPhysicalGate = gitStatusPhysicalGate ?? AgentStudioGitStatusPhysicalGate()
-        let resolvedGitWorkingTreeStatusProvider =
-            gitWorkingTreeStatusProvider
-            ?? AgentStudioGitWorkingTreeStatusProvider(physicalGate: resolvedGitStatusPhysicalGate)
-        let resolvedFilesystemSource =
-            filesystemSource
-            ?? FilesystemGitPipeline(
+        let resolvedGitWorkingTreeStatusProvider: any GitWorkingTreeStatusProvider
+        let resolvedFilesystemSource: any WorkspaceFilesystemSourceManaging
+        if let filesystemSource, let gitWorkingTreeStatusProvider {
+            resolvedGitWorkingTreeStatusProvider = gitWorkingTreeStatusProvider
+            resolvedFilesystemSource = filesystemSource
+        } else {
+            let fseventStreamClient = DarwinFSEventStreamClient()
+            let provider = AgentStudioGitWorkingTreeStatusProvider(
+                physicalGate: resolvedGitStatusPhysicalGate,
+                continuityWitness: fseventStreamClient
+            )
+            resolvedGitWorkingTreeStatusProvider = provider
+            resolvedFilesystemSource = FilesystemGitPipeline(
                 bus: paneEventBus,
-                gitWorkingTreeProvider: resolvedGitWorkingTreeStatusProvider,
+                gitWorkingTreeProvider: provider,
+                fseventStreamClient: fseventStreamClient,
                 performanceTraceRecorder: performanceTraceRecorder
             )
+        }
         let visibilityTierResolver = StoreVisibilityTierResolver(store: store)
         self.store = store
         self.viewRegistry = viewRegistry

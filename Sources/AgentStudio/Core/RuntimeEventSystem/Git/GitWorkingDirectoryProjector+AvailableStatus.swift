@@ -39,14 +39,14 @@ extension GitWorkingDirectoryProjector {
         admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
         clearCapacityRetryState(worktreeId: changeset.worktreeId)
         resetStatusBackoff(worktreeId: changeset.worktreeId)
-        let previousAcceptedFacts = lastAcceptedStatusFactsByWorktreeId[changeset.worktreeId]
-        let previousAcceptedDetail = lastAcceptedLineDetailByWorktreeId[changeset.worktreeId]
+        let previousAccepted = acceptedStatusBaseline(for: changeset.worktreeId)
         let currentAcceptedFacts = GitWorkingTreeStatusFacts(status: currentStatusSnapshot)
         let completeStatusChanged =
-            previousAcceptedFacts != currentAcceptedFacts
-            || previousAcceptedDetail != materialized.detail
+            previousAccepted.facts != currentAcceptedFacts
+            || previousAccepted.detail != materialized.detail
         lastStatusEntriesByWorktreeId[changeset.worktreeId] = currentStatusSnapshot.entries
         lastAcceptedStatusFactsByWorktreeId[changeset.worktreeId] = currentAcceptedFacts
+        acceptExactCleanAuthority(from: materialized, scope: scope, changeset: changeset)
         if let detail = materialized.detail {
             lastAcceptedLineDetailByWorktreeId[changeset.worktreeId] = detail
             if materialized.refreshedDetail {
@@ -113,5 +113,28 @@ extension GitWorkingDirectoryProjector {
                 )
             )
         }
+    }
+
+    private func acceptExactCleanAuthority(
+        from materialized: MaterializedGitStatus,
+        scope: GitStatusScope,
+        changeset: FileChangeset
+    ) {
+        let authority = materialized.facts.exactCleanAuthority
+        let worktreeId = changeset.worktreeId
+        if scope == .full, let authority {
+            exactCleanAuthorityByWorktreeId[worktreeId] = authority
+        } else {
+            exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId)
+        }
+    }
+
+    private func acceptedStatusBaseline(
+        for worktreeId: UUID
+    ) -> (facts: GitWorkingTreeStatusFacts?, detail: GitWorkingTreeLineDetail?) {
+        (
+            facts: lastAcceptedStatusFactsByWorktreeId[worktreeId],
+            detail: lastAcceptedLineDetailByWorktreeId[worktreeId]
+        )
     }
 }

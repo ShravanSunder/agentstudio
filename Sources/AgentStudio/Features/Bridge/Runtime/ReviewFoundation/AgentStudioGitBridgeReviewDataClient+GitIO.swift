@@ -185,7 +185,7 @@ extension AgentStudioGitBridgeReviewDataClient {
                 freshnessKey: freshnessKey
             ) {
                 try await statusPhysicalGate.withPhysicalRead(for: self.repositoryPath) {
-                    try await client.statusFacts(for: self.repositoryPath, options: options)
+                    try await client.statusFacts(for: self.repositoryPath, options: options).facts
                 }
             }
         } catch BridgeGitReadSchedulerError.timedOut {

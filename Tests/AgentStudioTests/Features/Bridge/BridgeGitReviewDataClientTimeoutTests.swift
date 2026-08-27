@@ -313,9 +313,15 @@ private actor NonCooperativeDiffAgentStudioGitClient: AgentStudioGitLocalClient 
         throw GitDataPlaneError.unsupported(message: "not used")
     }
 
-    func statusFacts(for worktreePath: URL, options: GitStatusOptions) async throws(GitDataPlaneError)
-        -> GitStatusFactsSnapshot
-    {
+    func statusObservationPlan(for _: URL) async throws(GitDataPlaneError) -> GitStatusObservationPlan {
+        throw GitDataPlaneError.unsupported(message: "not used")
+    }
+
+    func statusFacts(
+        for _: URL,
+        options _: GitStatusOptions,
+        observationPlan _: GitStatusObservationPlan?
+    ) async throws(GitDataPlaneError) -> GitStatusFactsRead {
         throw GitDataPlaneError.unsupported(message: "not used")
     }
 

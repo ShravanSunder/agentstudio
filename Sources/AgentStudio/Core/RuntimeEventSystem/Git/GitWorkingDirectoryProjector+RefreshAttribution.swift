@@ -50,6 +50,7 @@ extension GitWorkingDirectoryProjector {
         immediateRefreshWorktreeIds.insert(worktreeId)
         if isExplicit {
             explicitRefreshWorktreeIds.insert(worktreeId)
+            exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId)
         }
         guard !deferChangesetIfStatusBackoffOpen(changeset) else { return }
         guard !deferChangesetIfCapacityRetryPending(changeset) else { return }

@@ -50,6 +50,12 @@ struct FilesystemActorHotPathArchitectureTests {
             ),
             encoding: .utf8
         )
+        let workspaceSurfaceCoordinatorSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift"
+            ),
+            encoding: .utf8
+        )
 
         #expect(pathFilterSource.contains("@concurrent nonisolated package static func loadOffExecutor"))
         #expect(filesystemActorSource.contains("await FilesystemPathFilter.loadOffExecutor(forRootPath:"))
@@ -75,6 +81,18 @@ struct FilesystemActorHotPathArchitectureTests {
                 "AgentStudioGitWorkingTreeStatusProvider(\n            physicalGate: gitStatusPhysicalGate"
             )
         )
+        #expect(workspaceBootSource.contains("let fseventStreamClient = DarwinFSEventStreamClient()"))
+        #expect(workspaceBootSource.contains("continuityWitness: fseventStreamClient"))
+        #expect(workspaceBootSource.contains("fseventStreamClient: fseventStreamClient"))
+        #expect(workspaceSurfaceCoordinatorSource.contains("suppliedFilesystemTrioCount == 0"))
+        #expect(workspaceSurfaceCoordinatorSource.contains("suppliedFilesystemTrioCount == 3"))
+        let projectorShutdown = try #require(
+            filesystemGitPipelineSource.range(of: "await gitWorkingDirectoryProjector.shutdown()")
+        )
+        let filesystemShutdown = try #require(
+            filesystemGitPipelineSource.range(of: "await filesystemActor.shutdown()")
+        )
+        #expect(projectorShutdown.lowerBound < filesystemShutdown.lowerBound)
         try assertNoUnexpectedProductionGitShellSignatures(projectRoot: projectRoot)
     }
 

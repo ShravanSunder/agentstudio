@@ -1,3 +1,4 @@
+import AgentStudioGit
 import AgentStudioInfrastructure
 import CoreServices
 import Foundation
@@ -7,12 +8,14 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
     private let eventsStream: AsyncStream<FSEventBatch>
     private let eventsContinuation: AsyncStream<FSEventBatch>.Continuation
     private let maximumRetainedOverflowPathsPerRegistration: Int
+    private let overflowHandler: @Sendable (UUID) -> Void
     private var overflowRecoveryByWorktreeId: [UUID: FSEventOverflowRecovery] = [:]
 
     package init(
         capacity: Int,
         maximumRetainedOverflowPathsPerRegistration: Int =
-            AppPolicies.FilesystemIngress.maximumRetainedOverflowPathsPerRegistration
+            AppPolicies.FilesystemIngress.maximumRetainedOverflowPathsPerRegistration,
+        overflowHandler: @escaping @Sendable (UUID) -> Void = { _ in }
     ) {
         precondition(capacity > 0)
         precondition(maximumRetainedOverflowPathsPerRegistration > 0)
@@ -24,6 +27,7 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         eventsContinuation = continuation
         self.maximumRetainedOverflowPathsPerRegistration =
             maximumRetainedOverflowPathsPerRegistration
+        self.overflowHandler = overflowHandler
     }
 
     package func events() -> AsyncStream<FSEventBatch> {
@@ -37,10 +41,12 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
                 break
             case .dropped(let droppedBatch):
                 retainOverflowRecovery(droppedBatch)
+                overflowHandler(droppedBatch.worktreeId)
             case .terminated:
                 break
             @unknown default:
                 retainOverflowRecovery(batch)
+                overflowHandler(batch.worktreeId)
             }
         }
     }
@@ -104,55 +110,80 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
 /// This implementation keeps lifecycle and registration semantics concrete and
 /// deterministic at runtime while event ingestion remains routed through actor
 /// seams (`enqueueRawPaths`) during this migration phase.
-package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable {
+package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanContinuityWitness,
+    @unchecked Sendable
+{
     private final class CallbackContext {
         weak var client: DarwinFSEventStreamClient?
         let worktreeId: UUID
+        let lifecycleGeneration: UInt64
 
-        init(client: DarwinFSEventStreamClient, worktreeId: UUID) {
+        init(client: DarwinFSEventStreamClient, worktreeId: UUID, lifecycleGeneration: UInt64) {
             self.client = client
             self.worktreeId = worktreeId
+            self.lifecycleGeneration = lifecycleGeneration
         }
     }
 
     private struct StreamRegistration {
+        let lifecycleGeneration: UInt64
         let rootPath: URL
+        let observationIdentity: AgentStudioGit.GitStatusObservationIdentity?
+        let observationScopes: [AgentStudioGit.GitStatusObservationScope]
+        let watchedPaths: [String]
         let stream: FSEventStreamRef
         let queue: DispatchQueue
         let callbackContextPtr: UnsafeMutableRawPointer
     }
 
-    private static let callback: FSEventStreamCallback = { _, clientContextInfo, eventCount, eventPaths, _, _ in
-        guard let clientContextInfo else { return }
+    private static let callback: FSEventStreamCallback = { _, info, count, paths, flags, ids in
+        guard let info else { return }
 
-        let context = Unmanaged<CallbackContext>.fromOpaque(clientContextInfo).takeUnretainedValue()
+        let context = Unmanaged<CallbackContext>.fromOpaque(info).takeUnretainedValue()
         guard let client = context.client else { return }
 
-        let pathArray = unsafeBitCast(eventPaths, to: CFArray.self)
+        let pathArray = unsafeBitCast(paths, to: CFArray.self)
         let pathCount = CFArrayGetCount(pathArray)
-        let boundedCount = min(Int(eventCount), pathCount)
+        let boundedCount = min(Int(count), pathCount)
         var changedPaths: [String] = []
+        var rawEvents: [(path: String, eventId: FSEventStreamEventId, flags: FSEventStreamEventFlags)] = []
         changedPaths.reserveCapacity(boundedCount)
+        rawEvents.reserveCapacity(boundedCount)
         for index in 0..<boundedCount {
             let value = CFArrayGetValueAtIndex(pathArray, index)
             guard let value else { continue }
             let path = unsafeBitCast(value, to: CFString.self) as String
             changedPaths.append(path)
+            rawEvents.append((path: path, eventId: ids[index], flags: flags[index]))
         }
-        client.emitBatch(worktreeId: context.worktreeId, paths: changedPaths)
+        client.emitRawEvents(
+            worktreeId: context.worktreeId,
+            lifecycleGeneration: context.lifecycleGeneration,
+            rawEvents: rawEvents,
+            ordinaryPaths: changedPaths
+        )
     }
 
     private static let defaultLatency: CFTimeInterval = 0.1
 
     private let lifecycleLock = NSLock()
     private var hasShutdown = false
+    private var nextLifecycleGeneration: UInt64 = 0
     private var streamByWorktreeId: [UUID: StreamRegistration] = [:]
     private let ingressBuffer: DarwinFSEventIngressBuffer
+    private let continuityLedger: GitCleanContinuityLedger
 
     package init(
         bufferedFineBatchCapacity: Int = AppPolicies.FilesystemIngress.bufferedFineBatchCapacity
     ) {
-        ingressBuffer = DarwinFSEventIngressBuffer(capacity: bufferedFineBatchCapacity)
+        let continuityLedger = GitCleanContinuityLedger()
+        self.continuityLedger = continuityLedger
+        ingressBuffer = DarwinFSEventIngressBuffer(
+            capacity: bufferedFineBatchCapacity,
+            overflowHandler: { worktreeId in
+                continuityLedger.markUncertain(registrationId: worktreeId)
+            }
+        )
     }
 
     deinit {
@@ -190,7 +221,16 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
             Self.teardown(registrationToTearDown)
         }
 
-        guard let registration = makeRegistration(worktreeId: worktreeId, rootPath: canonicalRootPath) else {
+        guard
+            let registration = makeRegistration(
+                worktreeId: worktreeId,
+                lifecycleGeneration: allocateLifecycleGeneration(),
+                rootPath: canonicalRootPath,
+                observationIdentity: nil,
+                observationScopes: [],
+                watchedPaths: [canonicalRootPath.path]
+            )
+        else {
             return
         }
 
@@ -217,6 +257,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
         if let registration {
             Self.teardown(registration)
         }
+        continuityLedger.unregister(registrationId: worktreeId)
     }
 
     package func shutdown() {
@@ -234,11 +275,119 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
         for registration in registrations {
             Self.teardown(registration)
         }
+        continuityLedger.shutdown()
         ingressBuffer.finish()
     }
 
-    private func makeRegistration(worktreeId: UUID, rootPath: URL) -> StreamRegistration? {
-        let callbackContext = CallbackContext(client: self, worktreeId: worktreeId)
+    @concurrent
+    nonisolated package func prepare(
+        worktreeId: UUID,
+        rootPath: URL,
+        observationPlan: AgentStudioGit.GitStatusObservationPlan
+    ) async -> GitCleanContinuityBarrier? {
+        guard observationPlan.support == .supported else { return nil }
+        let canonicalRootPath = rootPath.standardizedFileURL.resolvingSymlinksInPath()
+        guard let binding = bindingPaths(for: observationPlan) else { return nil }
+
+        let currentRegistration = retainedRegistration(worktreeId: worktreeId)
+        guard let currentRegistration, currentRegistration.rootPath == canonicalRootPath else { return nil }
+        defer { FSEventStreamRelease(currentRegistration.stream) }
+
+        let registration: StreamRegistration
+        if currentRegistration.observationIdentity == observationPlan.identity,
+            currentRegistration.watchedPaths == binding.watchedPaths
+        {
+            continuityLedger.register(
+                registrationId: worktreeId,
+                identity: observationPlan.identity
+            )
+            registration = currentRegistration
+        } else {
+            continuityLedger.unregister(registrationId: worktreeId)
+            guard
+                let replacement = makeRegistration(
+                    worktreeId: worktreeId,
+                    lifecycleGeneration: allocateLifecycleGeneration(),
+                    rootPath: canonicalRootPath,
+                    observationIdentity: observationPlan.identity,
+                    observationScopes: binding.scopes,
+                    watchedPaths: binding.watchedPaths
+                )
+            else {
+                return nil
+            }
+
+            let installed = lifecycleLock.withLock { () -> Bool in
+                guard !hasShutdown,
+                    streamByWorktreeId[worktreeId]?.lifecycleGeneration
+                        == currentRegistration.lifecycleGeneration
+                else {
+                    return false
+                }
+                streamByWorktreeId[worktreeId] = replacement
+                return true
+            }
+            guard installed else {
+                Self.teardown(replacement)
+                continuityLedger.unregister(registrationId: worktreeId)
+                return nil
+            }
+            Self.teardown(currentRegistration)
+            registration = replacement
+        }
+
+        // A flush may synchronously wait for the callback queue. Never hold the
+        // lifecycle lock while flushing because callbacks acquire that lock.
+        FSEventStreamFlushSync(registration.stream)
+        return continuityLedger.beginBarrier(
+            registrationId: worktreeId,
+            identity: observationPlan.identity
+        )
+    }
+
+    @concurrent
+    nonisolated package func commit(
+        _ barrier: GitCleanContinuityBarrier
+    ) async -> GitCleanContinuityAuthority? {
+        guard let registration = retainedRegistration(for: barrier) else { return nil }
+        defer { FSEventStreamRelease(registration.stream) }
+        FSEventStreamFlushSync(registration.stream)
+        return continuityLedger.commitBarrier(barrier)
+    }
+
+    @concurrent
+    nonisolated package func renew(
+        _ authority: GitCleanContinuityAuthority
+    ) async -> GitCleanContinuityAuthority? {
+        guard let registration = retainedRegistration(for: authority) else { return nil }
+        defer { FSEventStreamRelease(registration.stream) }
+        FSEventStreamFlushSync(registration.stream)
+        return continuityLedger.renew(authority)
+    }
+
+    package func retire(worktreeId: UUID, rootPath: URL) {
+        let canonicalRootPath = rootPath.standardizedFileURL.resolvingSymlinksInPath()
+        let matches = lifecycleLock.withLock {
+            streamByWorktreeId[worktreeId]?.rootPath == canonicalRootPath
+        }
+        if matches {
+            continuityLedger.unregister(registrationId: worktreeId)
+        }
+    }
+
+    private func makeRegistration(
+        worktreeId: UUID,
+        lifecycleGeneration: UInt64,
+        rootPath: URL,
+        observationIdentity: AgentStudioGit.GitStatusObservationIdentity?,
+        observationScopes: [AgentStudioGit.GitStatusObservationScope],
+        watchedPaths: [String]
+    ) -> StreamRegistration? {
+        let callbackContext = CallbackContext(
+            client: self,
+            worktreeId: worktreeId,
+            lifecycleGeneration: lifecycleGeneration
+        )
         let callbackContextPtr = Unmanaged.passRetained(callbackContext).toOpaque()
         var streamContext = FSEventStreamContext(
             version: 0,
@@ -247,7 +396,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
             release: nil,
             copyDescription: nil
         )
-        let watchPaths = [rootPath.path as NSString] as CFArray
+        let watchPaths = watchedPaths.map { $0 as NSString } as CFArray
         let flags = FSEventStreamCreateFlags(
             kFSEventStreamCreateFlagFileEvents
                 | kFSEventStreamCreateFlagNoDefer
@@ -274,7 +423,11 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
             qos: .utility
         )
         FSEventStreamSetDispatchQueue(stream, queue)
+        if let observationIdentity {
+            continuityLedger.register(registrationId: worktreeId, identity: observationIdentity)
+        }
         guard FSEventStreamStart(stream) else {
+            continuityLedger.unregister(registrationId: worktreeId)
             FSEventStreamInvalidate(stream)
             FSEventStreamRelease(stream)
             Unmanaged<CallbackContext>.fromOpaque(callbackContextPtr).release()
@@ -282,19 +435,149 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
         }
 
         return StreamRegistration(
+            lifecycleGeneration: lifecycleGeneration,
             rootPath: rootPath,
+            observationIdentity: observationIdentity,
+            observationScopes: observationScopes,
+            watchedPaths: watchedPaths,
             stream: stream,
             queue: queue,
             callbackContextPtr: callbackContextPtr
         )
     }
 
-    private func emitBatch(worktreeId: UUID, paths: [String]) {
-        guard !paths.isEmpty else { return }
+    private func emitRawEvents(
+        worktreeId: UUID,
+        lifecycleGeneration: UInt64,
+        rawEvents: [(path: String, eventId: FSEventStreamEventId, flags: FSEventStreamEventFlags)],
+        ordinaryPaths: [String]
+    ) {
+        guard !rawEvents.isEmpty else { return }
 
         lifecycleLock.withLock {
-            guard !hasShutdown, streamByWorktreeId[worktreeId] != nil else { return }
-            ingressBuffer.yield(FSEventBatch(worktreeId: worktreeId, paths: paths))
+            guard !hasShutdown, let registration = streamByWorktreeId[worktreeId] else { return }
+            guard registration.lifecycleGeneration == lifecycleGeneration else {
+                continuityLedger.markUncertain(registrationId: worktreeId)
+                return
+            }
+            if registration.observationIdentity != nil {
+                for event in rawEvents {
+                    continuityLedger.recordRawEvent(
+                        registrationId: worktreeId,
+                        eventId: event.eventId,
+                        flags: event.flags,
+                        hasRelevantMutation: Self.isRelevant(
+                            path: event.path,
+                            scopes: registration.observationScopes
+                        )
+                    )
+                }
+            }
+            let ordinaryWorktreePaths = ordinaryPaths.filter { path in
+                Self.isWithinRoot(path: path, rootPath: registration.rootPath)
+            }
+            if !ordinaryWorktreePaths.isEmpty {
+                ingressBuffer.yield(FSEventBatch(worktreeId: worktreeId, paths: ordinaryWorktreePaths))
+            }
+        }
+    }
+
+    private func retainedRegistration(worktreeId: UUID) -> StreamRegistration? {
+        lifecycleLock.withLock {
+            guard !hasShutdown, let registration = streamByWorktreeId[worktreeId] else { return nil }
+            FSEventStreamRetain(registration.stream)
+            return registration
+        }
+    }
+
+    private func retainedRegistration(for barrier: GitCleanContinuityBarrier) -> StreamRegistration? {
+        lifecycleLock.withLock {
+            guard !hasShutdown,
+                let registration = streamByWorktreeId[barrier.registrationId],
+                registration.observationIdentity == barrier.observationIdentity
+            else {
+                return nil
+            }
+            FSEventStreamRetain(registration.stream)
+            return registration
+        }
+    }
+
+    private func retainedRegistration(for authority: GitCleanContinuityAuthority) -> StreamRegistration? {
+        lifecycleLock.withLock {
+            guard !hasShutdown,
+                let registration = streamByWorktreeId[authority.registrationId],
+                registration.observationIdentity == authority.observationIdentity
+            else {
+                return nil
+            }
+            FSEventStreamRetain(registration.stream)
+            return registration
+        }
+    }
+
+    private func bindingPaths(
+        for plan: AgentStudioGit.GitStatusObservationPlan
+    ) -> (scopes: [AgentStudioGit.GitStatusObservationScope], watchedPaths: [String])? {
+        guard !plan.scopes.isEmpty else { return nil }
+        let scopes = plan.scopes.map { scope in
+            AgentStudioGit.GitStatusObservationScope(
+                kind: scope.kind,
+                path: scope.path.standardizedFileURL.resolvingSymlinksInPath()
+            )
+        }
+        let watchedPaths = Set(
+            scopes.map { scope in
+                switch scope.kind {
+                case .item:
+                    scope.path.deletingLastPathComponent().path
+                case .subtree:
+                    scope.path.path
+                }
+            }
+        ).sorted()
+        guard !watchedPaths.isEmpty, pathsShareVolume(watchedPaths) else { return nil }
+        return (scopes, watchedPaths)
+    }
+
+    private func pathsShareVolume(_ paths: [String]) -> Bool {
+        let volumeNumbers = paths.compactMap { path -> NSNumber? in
+            var candidate = URL(fileURLWithPath: path)
+            while candidate.path != "/", !FileManager.default.fileExists(atPath: candidate.path) {
+                candidate.deleteLastPathComponent()
+            }
+            let attributes = try? FileManager.default.attributesOfFileSystem(forPath: candidate.path)
+            return attributes?[.systemNumber] as? NSNumber
+        }
+        return volumeNumbers.count == paths.count && Set(volumeNumbers).count == 1
+    }
+
+    private static func isRelevant(
+        path: String,
+        scopes: [AgentStudioGit.GitStatusObservationScope]
+    ) -> Bool {
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+        return scopes.contains { scope in
+            let scopePath = scope.path.path
+            switch scope.kind {
+            case .item:
+                return candidate == scopePath
+            case .subtree:
+                return candidate == scopePath || candidate.hasPrefix(scopePath + "/")
+            }
+        }
+    }
+
+    private static func isWithinRoot(path: String, rootPath: URL) -> Bool {
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+        let root = rootPath.path
+        return candidate == root || candidate.hasPrefix(root + "/")
+    }
+
+    private func allocateLifecycleGeneration() -> UInt64 {
+        lifecycleLock.withLock {
+            nextLifecycleGeneration &+= 1
+            return nextLifecycleGeneration
         }
     }
 

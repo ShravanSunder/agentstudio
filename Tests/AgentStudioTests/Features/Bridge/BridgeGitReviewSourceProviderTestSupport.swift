@@ -149,15 +149,21 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         throw GitDataPlaneError.unsupported(message: "not used")
     }
 
-    func statusFacts(for worktreePath: URL, options: GitStatusOptions) async throws(GitDataPlaneError)
-        -> GitStatusFactsSnapshot
-    {
+    func statusObservationPlan(for _: URL) async throws(GitDataPlaneError) -> GitStatusObservationPlan {
+        throw GitDataPlaneError.unsupported(message: "not used")
+    }
+
+    func statusFacts(
+        for worktreePath: URL,
+        options: GitStatusOptions,
+        observationPlan _: GitStatusObservationPlan?
+    ) async throws(GitDataPlaneError) -> GitStatusFactsRead {
         statusRequests.append((worktreePath, options))
         if let optionFailure = statusFailureByOptions[options] {
             throw optionFailure
         }
         if let optionSnapshot = statusSnapshotByOptions[options] {
-            return optionSnapshot
+            return GitStatusFactsRead(facts: optionSnapshot, exactCleanBaseline: nil)
         }
         if let statusFailure {
             throw statusFailure
@@ -165,7 +171,7 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         guard let statusSnapshot else {
             throw GitDataPlaneError.unsupported(message: "not used")
         }
-        return statusSnapshot
+        return GitStatusFactsRead(facts: statusSnapshot, exactCleanBaseline: nil)
     }
 
     func exactLineCountDetail(for worktreePath: URL) async throws(GitDataPlaneError)
@@ -184,7 +190,7 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         -> GitCompleteStatusSnapshot
     {
         GitCompleteStatusSnapshot(
-            facts: try await statusFacts(for: worktreePath, options: options),
+            facts: try await statusFacts(for: worktreePath, options: options).facts,
             lineCountDetail: try await exactLineCountDetail(for: worktreePath)
         )
     }

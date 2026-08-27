@@ -41,7 +41,31 @@ extension GitWorkingDirectoryProjector {
     func resolveStatusResult(for changeset: FileChangeset) async -> ResolvedGitStatus {
         switch scopeDecision(for: changeset) {
         case .full:
-            let result = await gitWorkingTreeProvider.statusFactsResult(for: changeset.rootPath, pathspecs: nil)
+            let result: GitWorkingTreeStatusFactsResult
+            if let exactCleanProvider = gitWorkingTreeProvider as? any GitExactCleanStatusProviding {
+                switch await exactCleanProvider.exactCleanStatusFactsResult(
+                    for: changeset.worktreeId,
+                    rootPath: changeset.rootPath
+                ) {
+                case .available(let facts):
+                    result = .available(facts)
+                case .requiresExact:
+                    // The observed scan raced a mutation or uncertainty. Publish
+                    // nothing from it and run exactly one ordinary full fallback
+                    // inside the already admitted priority/capacity flow.
+                    result = await gitWorkingTreeProvider.statusFactsResult(
+                        for: changeset.rootPath,
+                        pathspecs: nil
+                    )
+                case .unavailable(let unavailable):
+                    result = .unavailable(unavailable)
+                }
+            } else {
+                result = await gitWorkingTreeProvider.statusFactsResult(
+                    for: changeset.rootPath,
+                    pathspecs: nil
+                )
+            }
             return ResolvedGitStatus(result: result, scope: .full, pathspecCount: 0)
         case .scoped(let pathspecs, let cachedEntries):
             let scopedResult = await gitWorkingTreeProvider.statusFactsResult(

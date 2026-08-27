@@ -2,6 +2,12 @@ import AgentStudioInfrastructure
 import Foundation
 
 extension GitWorkingDirectoryProjector {
+    private enum ExactCleanRenewalDisposition {
+        case renewed
+        case requiresExact
+        case stale
+    }
+
     package func waitForVisibilityAdmission() async {
         while let activeTask = visibilityAdmissionTask {
             await activeTask.value
@@ -122,7 +128,7 @@ extension GitWorkingDirectoryProjector {
         return nil
     }
 
-    private func handleDeadlineWake(generation: UInt64) {
+    private func handleDeadlineWake(generation: UInt64) async {
         guard generation == deadlineTaskGeneration, !isShuttingDown else { return }
         deadlineTask = nil
         let now = deadlineClock.now
@@ -134,6 +140,15 @@ extension GitWorkingDirectoryProjector {
             case .automatic:
                 automaticRefreshDeadlineByWorktreeId.removeValue(forKey: entry.worktreeId)
                 guard admitAutomaticRefreshAfterQuarantine(worktreeId: entry.worktreeId) else { continue }
+                switch await renewExactCleanAuthorityIfCurrent(
+                    worktreeId: entry.worktreeId,
+                    deadlineGeneration: generation
+                ) {
+                case .renewed, .stale:
+                    continue
+                case .requiresExact:
+                    break
+                }
                 guard prepareAutomaticRefreshIfCurrent(worktreeId: entry.worktreeId) else { continue }
                 tierEligibleWorktreeIds.insert(entry.worktreeId)
             case .failure:
@@ -144,6 +159,47 @@ extension GitWorkingDirectoryProjector {
         }
         admitPendingWorktrees()
         rescheduleDeadlineTask()
+    }
+
+    private func renewExactCleanAuthorityIfCurrent(
+        worktreeId: UUID,
+        deadlineGeneration: UInt64
+    ) async -> ExactCleanRenewalDisposition {
+        guard !isShuttingDown,
+            pendingByWorktreeId[worktreeId] == nil,
+            !explicitRefreshWorktreeIds.contains(worktreeId),
+            let context = registeredContext(for: worktreeId),
+            let authority = exactCleanAuthorityByWorktreeId[worktreeId],
+            let exactCleanProvider = gitWorkingTreeProvider as? any GitExactCleanStatusProviding
+        else {
+            return .requiresExact
+        }
+
+        let renewal = await exactCleanProvider.renewExactCleanAuthority(authority)
+        guard !Task.isCancelled,
+            !isShuttingDown,
+            deadlineTaskGeneration == deadlineGeneration,
+            registeredContext(for: worktreeId) == context,
+            exactCleanAuthorityByWorktreeId[worktreeId] == authority,
+            pendingByWorktreeId[worktreeId] == nil,
+            !explicitRefreshWorktreeIds.contains(worktreeId)
+        else {
+            return .stale
+        }
+
+        switch renewal {
+        case .renewed(let renewedAuthority):
+            exactCleanAuthorityByWorktreeId[worktreeId] = renewedAuthority
+            let acceptedAt = deadlineClock.now
+            lastAcceptedStatusAtByWorktreeId[worktreeId] = acceptedAt
+            lastAcceptedLineDetailAtByWorktreeId[worktreeId] = acceptedAt
+            unchangedStatusResultCountByWorktreeId[worktreeId, default: 0] += 1
+            scheduleAutomaticRefresh(worktreeId: worktreeId)
+            return .renewed
+        case .requiresExact:
+            exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId)
+            return .requiresExact
+        }
     }
 
     func setRefreshDeadline(

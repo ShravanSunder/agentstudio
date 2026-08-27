@@ -11,15 +11,26 @@ typealias AgentStudioGitCompleteStatusReader =
     ) async throws -> AgentStudioGit.GitCompleteStatusSnapshot
 typealias AgentStudioGitStatusFactsReader =
     @Sendable (URL, AgentStudioGit.GitStatusOptions) async throws -> AgentStudioGit.GitStatusFactsSnapshot
+typealias AgentStudioGitVerifiedStatusFactsReader =
+    @Sendable (
+        URL,
+        AgentStudioGit.GitStatusOptions,
+        AgentStudioGit.GitStatusObservationPlan?
+    ) async throws -> AgentStudioGit.GitStatusFactsRead
+typealias AgentStudioGitStatusObservationPlanReader =
+    @Sendable (URL) async throws -> AgentStudioGit.GitStatusObservationPlan
 typealias AgentStudioGitLineDetailReader =
     @Sendable (URL) async throws -> AgentStudioGit.GitStatusLineCountDetail
 
-package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
+package struct AgentStudioGitWorkingTreeStatusProvider: GitExactCleanStatusProviding {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "AgentStudioGitWorkingTree")
 
     private let statusReader: AgentStudioGitCompleteStatusReader
     private let statusFactsReader: AgentStudioGitStatusFactsReader
+    private let verifiedStatusFactsReader: AgentStudioGitVerifiedStatusFactsReader?
+    private let statusObservationPlanReader: AgentStudioGitStatusObservationPlanReader?
     private let lineDetailReader: AgentStudioGitLineDetailReader
+    private let continuityWitness: (any GitCleanContinuityWitness)?
     private let slowThreshold: Duration
     private let slowObservationScheduler: any AgentStudioGitStatusSlowObservationScheduler
     private let physicalGate: AgentStudioGitStatusPhysicalGate
@@ -27,14 +38,26 @@ package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProv
     package init(
         client: any AgentStudioGit.AgentStudioGitLocalClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient(),
         physicalGate: AgentStudioGitStatusPhysicalGate,
+        continuityWitness: (any GitCleanContinuityWitness)? = nil,
         slowThreshold: Duration = AppPolicies.GitRefresh.defaultStatusReadTimeout
     ) {
         self.init(
             slowThreshold: slowThreshold,
             slowObservationScheduler: DispatchGitStatusSlowObservationScheduler(),
             physicalGate: physicalGate,
+            continuityWitness: continuityWitness,
+            statusObservationPlanReader: { worktreePath in
+                try await client.statusObservationPlan(for: worktreePath)
+            },
+            verifiedStatusFactsReader: { worktreePath, options, observationPlan in
+                try await client.statusFacts(
+                    for: worktreePath,
+                    options: options,
+                    observationPlan: observationPlan
+                )
+            },
             statusFactsReader: { worktreePath, options in
-                try await client.statusFacts(for: worktreePath, options: options)
+                try await client.statusFacts(for: worktreePath, options: options).facts
             },
             lineDetailReader: { worktreePath in
                 try await client.exactLineCountDetail(for: worktreePath)
@@ -50,11 +73,17 @@ package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProv
         slowObservationScheduler: any AgentStudioGitStatusSlowObservationScheduler =
             DispatchGitStatusSlowObservationScheduler(),
         physicalGate: AgentStudioGitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate(),
+        continuityWitness: (any GitCleanContinuityWitness)? = nil,
+        statusObservationPlanReader: AgentStudioGitStatusObservationPlanReader? = nil,
+        verifiedStatusFactsReader: AgentStudioGitVerifiedStatusFactsReader? = nil,
         statusFactsReader: AgentStudioGitStatusFactsReader? = nil,
         lineDetailReader: AgentStudioGitLineDetailReader? = nil,
         statusReader: @escaping AgentStudioGitCompleteStatusReader
     ) {
         self.statusReader = statusReader
+        self.continuityWitness = continuityWitness
+        self.statusObservationPlanReader = statusObservationPlanReader
+        self.verifiedStatusFactsReader = verifiedStatusFactsReader
         self.statusFactsReader =
             statusFactsReader ?? { rootPath, options in
                 try await statusReader(rootPath, options).facts
@@ -101,6 +130,97 @@ package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProv
         } catch {
             return .unavailable(Self.mapUnavailable(error))
         }
+    }
+
+    package func exactCleanStatusFactsResult(
+        for worktreeId: UUID,
+        rootPath: URL
+    ) async -> GitExactCleanStatusFactsResult {
+        guard let continuityWitness,
+            let statusObservationPlanReader,
+            let verifiedStatusFactsReader
+        else {
+            return Self.mapOrdinaryResult(await statusFactsResult(for: rootPath, pathspecs: nil))
+        }
+
+        do {
+            let result = try await readPhysical(rootPath: rootPath) {
+                let observationPlan: AgentStudioGit.GitStatusObservationPlan?
+                do {
+                    observationPlan = try await statusObservationPlanReader(rootPath)
+                } catch {
+                    observationPlan = nil
+                }
+                let barrier: GitCleanContinuityBarrier?
+                if let observationPlan {
+                    barrier = await continuityWitness.prepare(
+                        worktreeId: worktreeId,
+                        rootPath: rootPath,
+                        observationPlan: observationPlan
+                    )
+                } else {
+                    barrier = nil
+                }
+                let read = try await verifiedStatusFactsReader(
+                    rootPath,
+                    AgentStudioGit.GitStatusOptions(
+                        includeIgnored: false,
+                        includeUntracked: true,
+                        pathspecs: nil
+                    ),
+                    observationPlan
+                )
+                guard let observationPlan,
+                    let barrier,
+                    read.exactCleanBaseline?.observationIdentity == observationPlan.identity
+                else {
+                    return GitExactCleanStatusFactsResult.available(
+                        Self.mapFacts(read.facts, isPathspecScoped: false)
+                    )
+                }
+                guard let authority = await continuityWitness.commit(barrier) else {
+                    return GitExactCleanStatusFactsResult.requiresExact(.eventStreamUncertain)
+                }
+                return GitExactCleanStatusFactsResult.available(
+                    Self.mapFacts(
+                        read.facts,
+                        isPathspecScoped: false,
+                        exactCleanAuthority: authority
+                    )
+                )
+            }
+            guard !Task.isCancelled else {
+                return .unavailable(GitWorkingTreeStatusUnavailable(reason: .cancelled))
+            }
+            return result
+        } catch {
+            return .unavailable(Self.mapUnavailable(error))
+        }
+    }
+
+    nonisolated private static func mapOrdinaryResult(
+        _ result: GitWorkingTreeStatusFactsResult
+    ) -> GitExactCleanStatusFactsResult {
+        switch result {
+        case .available(let facts): .available(facts)
+        case .unavailable(let unavailable): .unavailable(unavailable)
+        }
+    }
+
+    package func renewExactCleanAuthority(
+        _ authority: GitCleanContinuityAuthority
+    ) async -> GitExactCleanRenewalResult {
+        guard let continuityWitness else {
+            return .requiresExact(.unsupportedObservation)
+        }
+        guard let renewed = await continuityWitness.renew(authority) else {
+            return .requiresExact(.eventStreamUncertain)
+        }
+        return .renewed(renewed)
+    }
+
+    package func retireExactCleanAuthority(worktreeId: UUID, rootPath: URL) {
+        continuityWitness?.retire(worktreeId: worktreeId, rootPath: rootPath)
     }
 
     package func lineDetailResult(for rootPath: URL) async -> GitWorkingTreeLineDetailResult {
@@ -227,7 +347,8 @@ package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProv
 
     nonisolated private static func mapFacts(
         _ facts: AgentStudioGit.GitStatusFactsSnapshot,
-        isPathspecScoped: Bool
+        isPathspecScoped: Bool,
+        exactCleanAuthority: GitCleanContinuityAuthority? = nil
     ) -> GitWorkingTreeStatusFacts {
         let detail = AgentStudioGit.GitStatusLineCountDetail(
             repositoryRoot: facts.repositoryRoot,
@@ -244,7 +365,8 @@ package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProv
                 entries: facts.entries.map(mapEntry),
                 containsPathIdentityAmbiguity: isPathspecScoped
                     && facts.entries.contains(where: hasStandalonePathIdentityChange)
-            )
+            ),
+            exactCleanAuthority: exactCleanAuthority
         )
     }
 

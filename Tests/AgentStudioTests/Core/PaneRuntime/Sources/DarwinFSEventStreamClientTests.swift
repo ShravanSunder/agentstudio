@@ -1,3 +1,5 @@
+import AgentStudioGit
+import CoreServices
 import Foundation
 import Testing
 
@@ -6,6 +8,70 @@ import Testing
 
 @Suite("DarwinFSEventStreamClient")
 struct DarwinFSEventStreamClientTests {
+    @Test("continuity ledger rejects a baseline when mutation crosses its barrier")
+    func continuityLedgerRejectsMutationAcrossBaselineBarrier() throws {
+        let ledger = GitCleanContinuityLedger()
+        let registrationId = UUIDv7.generate()
+        let identity = AgentStudioGit.GitStatusObservationIdentity(rawValue: "identity-a")
+
+        ledger.register(registrationId: registrationId, identity: identity)
+        let preparation = try #require(ledger.beginBarrier(registrationId: registrationId, identity: identity))
+        ledger.recordMutation(registrationId: registrationId, eventId: 41)
+
+        #expect(ledger.commitBarrier(preparation) == nil)
+    }
+
+    @Test("continuity ledger rejects loss and discontinuity flags fail closed")
+    func continuityLedgerRejectsLossFlags() throws {
+        let lossFlags: [FSEventStreamEventFlags] = [
+            FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs),
+            FSEventStreamEventFlags(kFSEventStreamEventFlagUserDropped),
+            FSEventStreamEventFlags(kFSEventStreamEventFlagKernelDropped),
+            FSEventStreamEventFlags(kFSEventStreamEventFlagEventIdsWrapped),
+            FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged),
+            FSEventStreamEventFlags(kFSEventStreamEventFlagMount),
+            FSEventStreamEventFlags(kFSEventStreamEventFlagUnmount),
+        ]
+
+        for flags in lossFlags {
+            let ledger = GitCleanContinuityLedger()
+            let registrationId = UUIDv7.generate()
+            let identity = AgentStudioGit.GitStatusObservationIdentity(rawValue: "identity-\(flags)")
+            ledger.register(registrationId: registrationId, identity: identity)
+            let preparation = try #require(
+                ledger.beginBarrier(registrationId: registrationId, identity: identity)
+            )
+
+            ledger.recordRawEvent(
+                registrationId: registrationId,
+                eventId: 42,
+                flags: flags,
+                hasRelevantMutation: false
+            )
+
+            #expect(ledger.commitBarrier(preparation) == nil)
+        }
+    }
+
+    @Test("continuity ledger renews only the same registration identity and epochs")
+    func continuityLedgerRenewsStableAuthority() throws {
+        let ledger = GitCleanContinuityLedger()
+        let registrationId = UUIDv7.generate()
+        let identity = AgentStudioGit.GitStatusObservationIdentity(rawValue: "identity-a")
+        ledger.register(registrationId: registrationId, identity: identity)
+        let preparation = try #require(ledger.beginBarrier(registrationId: registrationId, identity: identity))
+        let authority = try #require(ledger.commitBarrier(preparation))
+
+        let renewed = ledger.renew(authority)
+
+        #expect(renewed != nil)
+        ledger.register(
+            registrationId: registrationId,
+            identity: AgentStudioGit.GitStatusObservationIdentity(rawValue: "identity-b")
+        )
+        #expect(ledger.renew(authority) == nil)
+    }
+
     @Test("filesystem ingress does not retain more fine batches than its configured capacity")
     func ingressRetainsAtMostConfiguredFineBatchCapacity() async throws {
         let ingressBuffer = DarwinFSEventIngressBuffer(capacity: 2)

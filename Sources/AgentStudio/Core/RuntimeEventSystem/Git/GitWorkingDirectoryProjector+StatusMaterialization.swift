@@ -25,6 +25,16 @@ extension GitWorkingDirectoryProjector {
         // They refresh facts, but do not prove that worktree content changed.
         let contentWasInvalidated = !changeset.paths.isEmpty
         let isExplicit = refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] == "explicit"
+        if facts.exactCleanAuthority != nil {
+            let exactEmptyDetail = GitWorkingTreeLineDetail(linesAdded: 0, linesDeleted: 0)
+            return MaterializedGitStatus(
+                result: .available(facts.composing(exactEmptyDetail)),
+                facts: facts,
+                detail: exactEmptyDetail,
+                refreshedDetail: true,
+                capacityCompletionGeneration: nil
+            )
+        }
         let needsDetail =
             acceptedDetail == nil
             || acceptedFacts != facts

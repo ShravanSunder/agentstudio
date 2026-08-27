@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite(.serialized)
 struct AgentStudioGitWorkingTreeStatusProviderTests {
@@ -271,6 +272,81 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(await invocationTracker.factsReadCount == 1)
         #expect(await invocationTracker.lineDetailReadCount == 0)
         #expect(await invocationTracker.completeStatusReadCount == 0)
+    }
+
+    @Test("verified exact clean scan returns authority without line detail")
+    func verifiedExactCleanScanReturnsAuthorityWithoutLineDetail() async throws {
+        let rootPath = URL(fileURLWithPath: "/tmp/repo")
+        let worktreeId = UUIDv7.generate()
+        let observationPlan = makeObservationPlan(rootPath: rootPath)
+        let witness = TestGitCleanContinuityWitness(commitSucceeds: true)
+        let invocationTracker = StatusReaderInvocationTracker()
+        let snapshot = makeSnapshot()
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveStatusSlowObservationScheduler(),
+            physicalGate: AgentStudioGitStatusPhysicalGate(),
+            continuityWitness: witness,
+            statusObservationPlanReader: { _ in observationPlan },
+            verifiedStatusFactsReader: { _, _, suppliedPlan in
+                await invocationTracker.recordFactsRead()
+                return AgentStudioGit.GitStatusFactsRead(
+                    facts: snapshot.facts,
+                    exactCleanBaseline: suppliedPlan.map {
+                        AgentStudioGit.GitExactCleanBaseline(observationIdentity: $0.identity)
+                    }
+                )
+            },
+            lineDetailReader: { _ in
+                await invocationTracker.recordLineDetailRead()
+                return snapshot.lineCountDetail
+            },
+            statusReader: { _, _ in snapshot }
+        )
+
+        let result = await provider.exactCleanStatusFactsResult(
+            for: worktreeId,
+            rootPath: rootPath
+        )
+
+        guard case .available(let facts) = result else {
+            Issue.record("expected exact clean facts, got \(result)")
+            return
+        }
+        #expect(facts.exactCleanAuthority != nil)
+        #expect(await invocationTracker.factsReadCount == 1)
+        #expect(await invocationTracker.lineDetailReadCount == 0)
+        #expect(witness.prepareCount == 1)
+        #expect(witness.commitCount == 1)
+    }
+
+    @Test("post-scan barrier failure rejects clean facts")
+    func postScanBarrierFailureRejectsCleanFacts() async throws {
+        let rootPath = URL(fileURLWithPath: "/tmp/repo")
+        let observationPlan = makeObservationPlan(rootPath: rootPath)
+        let witness = TestGitCleanContinuityWitness(commitSucceeds: false)
+        let snapshot = makeSnapshot()
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            slowObservationScheduler: PassiveStatusSlowObservationScheduler(),
+            physicalGate: AgentStudioGitStatusPhysicalGate(),
+            continuityWitness: witness,
+            statusObservationPlanReader: { _ in observationPlan },
+            verifiedStatusFactsReader: { _, _, suppliedPlan in
+                AgentStudioGit.GitStatusFactsRead(
+                    facts: snapshot.facts,
+                    exactCleanBaseline: suppliedPlan.map {
+                        AgentStudioGit.GitExactCleanBaseline(observationIdentity: $0.identity)
+                    }
+                )
+            },
+            statusReader: { _, _ in snapshot }
+        )
+
+        let result = await provider.exactCleanStatusFactsResult(
+            for: UUIDv7.generate(),
+            rootPath: rootPath
+        )
+
+        #expect(result == .requiresExact(.eventStreamUncertain))
     }
 
     @Test("slow threshold observes without completing or releasing the physical read")
@@ -822,4 +898,61 @@ private func makeSummary(
         behindCount: behindCount,
         hasUpstream: hasUpstream
     )
+}
+
+private func makeObservationPlan(rootPath: URL) -> AgentStudioGit.GitStatusObservationPlan {
+    AgentStudioGit.GitStatusObservationPlan(
+        identity: AgentStudioGit.GitStatusObservationIdentity(rawValue: "test-observation-identity"),
+        scopes: [
+            AgentStudioGit.GitStatusObservationScope(kind: .subtree, path: rootPath)
+        ],
+        support: .supported
+    )
+}
+
+private final class TestGitCleanContinuityWitness: GitCleanContinuityWitness, @unchecked Sendable {
+    private let lock = NSLock()
+    private let commitSucceeds: Bool
+    private var _prepareCount = 0
+    private var _commitCount = 0
+
+    init(commitSucceeds: Bool) {
+        self.commitSucceeds = commitSucceeds
+    }
+
+    var prepareCount: Int { lock.withLock { _prepareCount } }
+    var commitCount: Int { lock.withLock { _commitCount } }
+
+    func prepare(
+        worktreeId: UUID,
+        rootPath _: URL,
+        observationPlan: AgentStudioGit.GitStatusObservationPlan
+    ) async -> GitCleanContinuityBarrier? {
+        lock.withLock { _prepareCount += 1 }
+        return GitCleanContinuityBarrier(
+            registrationId: worktreeId,
+            observationIdentity: observationPlan.identity,
+            registrationGeneration: 1,
+            mutationEpoch: 0,
+            uncertaintyEpoch: 0
+        )
+    }
+
+    func commit(_ barrier: GitCleanContinuityBarrier) async -> GitCleanContinuityAuthority? {
+        lock.withLock { _commitCount += 1 }
+        guard commitSucceeds else { return nil }
+        return GitCleanContinuityAuthority(
+            registrationId: barrier.registrationId,
+            observationIdentity: barrier.observationIdentity,
+            registrationGeneration: barrier.registrationGeneration,
+            mutationEpoch: barrier.mutationEpoch,
+            uncertaintyEpoch: barrier.uncertaintyEpoch
+        )
+    }
+
+    func renew(_ authority: GitCleanContinuityAuthority) async -> GitCleanContinuityAuthority? {
+        authority
+    }
+
+    func retire(worktreeId _: UUID, rootPath _: URL) {}
 }

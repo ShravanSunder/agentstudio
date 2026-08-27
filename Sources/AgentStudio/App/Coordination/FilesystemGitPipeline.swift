@@ -103,9 +103,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     func shutdown() async {
         await forgeActor.setDemand(worktreeIds: [])
         await remoteReferenceRefreshActor.setDemand(repositoryIds: [])
-        await filesystemActor.shutdown()
         await remoteReferenceRefreshActor.shutdown()
         await gitWorkingDirectoryProjector.shutdown()
+        await filesystemActor.shutdown()
         await forgeActor.shutdown()
     }
 

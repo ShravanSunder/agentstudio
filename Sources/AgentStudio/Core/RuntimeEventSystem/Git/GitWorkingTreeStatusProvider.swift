@@ -166,8 +166,12 @@ package struct GitWorkingTreeStatusFacts: Sendable, Equatable {
     package let originResolution: GitOriginResolution
     package let entries: [GitWorkingTreeStatusEntry]
     package let containsPathIdentityAmbiguity: Bool
+    package let exactCleanAuthority: GitCleanContinuityAuthority?
 
-    package init(status: GitWorkingTreeStatus) {
+    package init(
+        status: GitWorkingTreeStatus,
+        exactCleanAuthority: GitCleanContinuityAuthority? = nil
+    ) {
         changed = status.summary.changed
         staged = status.summary.staged
         untracked = status.summary.untracked
@@ -178,6 +182,7 @@ package struct GitWorkingTreeStatusFacts: Sendable, Equatable {
         originResolution = status.originResolution
         entries = status.entries
         containsPathIdentityAmbiguity = status.containsPathIdentityAmbiguity
+        self.exactCleanAuthority = exactCleanAuthority
     }
 
     package func composing(_ detail: GitWorkingTreeLineDetail) -> GitWorkingTreeStatus {
@@ -197,6 +202,19 @@ package struct GitWorkingTreeStatusFacts: Sendable, Equatable {
             entries: entries,
             containsPathIdentityAmbiguity: containsPathIdentityAmbiguity
         )
+    }
+
+    package static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.changed == rhs.changed
+            && lhs.staged == rhs.staged
+            && lhs.untracked == rhs.untracked
+            && lhs.aheadCount == rhs.aheadCount
+            && lhs.behindCount == rhs.behindCount
+            && lhs.hasUpstream == rhs.hasUpstream
+            && lhs.branch == rhs.branch
+            && lhs.originResolution == rhs.originResolution
+            && lhs.entries == rhs.entries
+            && lhs.containsPathIdentityAmbiguity == rhs.containsPathIdentityAmbiguity
     }
 }
 
@@ -257,6 +275,17 @@ package enum GitWorkingTreeLineDetailResult: Sendable, Equatable {
     case unavailable(GitWorkingTreeStatusUnavailable)
 }
 
+package enum GitExactCleanRenewalResult: Sendable, Equatable {
+    case renewed(GitCleanContinuityAuthority)
+    case requiresExact(GitCleanContinuityFailureReason)
+}
+
+package enum GitExactCleanStatusFactsResult: Sendable, Equatable {
+    case available(GitWorkingTreeStatusFacts)
+    case requiresExact(GitCleanContinuityFailureReason)
+    case unavailable(GitWorkingTreeStatusUnavailable)
+}
+
 package protocol GitWorkingTreeStatusProvider: Sendable {
     /// Reads working-tree status. A non-`nil` `pathspecs` scopes the entry walk to
     /// just those repo-relative paths (see `GitStatusOptions.pathspecs`); line,
@@ -266,6 +295,17 @@ package protocol GitWorkingTreeStatusProvider: Sendable {
     func lineDetailResult(for rootPath: URL) async -> GitWorkingTreeLineDetailResult
     func physicalCompletionGeneration() -> UInt64?
     func waitForPhysicalCompletion(after generation: UInt64) async
+}
+
+package protocol GitExactCleanStatusProviding: GitWorkingTreeStatusProvider {
+    func exactCleanStatusFactsResult(
+        for worktreeId: UUID,
+        rootPath: URL
+    ) async -> GitExactCleanStatusFactsResult
+    func renewExactCleanAuthority(
+        _ authority: GitCleanContinuityAuthority
+    ) async -> GitExactCleanRenewalResult
+    func retireExactCleanAuthority(worktreeId: UUID, rootPath: URL)
 }
 
 extension GitWorkingTreeStatusProvider {

@@ -78,6 +78,7 @@ package actor GitWorkingDirectoryProjector {
     /// extension can read it.
     var lastStatusEntriesByWorktreeId: [UUID: [GitWorkingTreeStatusEntry]] = [:]
     var lastAcceptedStatusFactsByWorktreeId: [UUID: GitWorkingTreeStatusFacts] = [:]
+    var exactCleanAuthorityByWorktreeId: [UUID: GitCleanContinuityAuthority] = [:]
     var lastAcceptedLineDetailByWorktreeId: [UUID: GitWorkingTreeLineDetail] = [:]
     var lastAcceptedLineDetailAtByWorktreeId: [UUID: Duration] = [:]
     var lastAcceptedStatusAtByWorktreeId: [UUID: Duration] = [:]
@@ -218,6 +219,12 @@ package actor GitWorkingDirectoryProjector {
         for task in tasksToAwait {
             await task.value
         }
+        for (worktreeId, rootPath) in rootPathByWorktreeId {
+            (gitWorkingTreeProvider as? any GitExactCleanStatusProviding)?.retireExactCleanAuthority(
+                worktreeId: worktreeId,
+                rootPath: rootPath
+            )
+        }
         flushAggregatePerformanceSnapshot()
         capacityRetryWorktreeIds.removeAll(keepingCapacity: false)
         capacityRetryReasonByWorktreeId.removeAll(keepingCapacity: false)
@@ -260,6 +267,7 @@ package actor GitWorkingDirectoryProjector {
         lastEmittedSnapshotByWorktreeId.removeAll(keepingCapacity: false)
         lastStatusEntriesByWorktreeId.removeAll(keepingCapacity: false)
         lastAcceptedStatusFactsByWorktreeId.removeAll(keepingCapacity: false)
+        exactCleanAuthorityByWorktreeId.removeAll(keepingCapacity: false)
         lastAcceptedLineDetailByWorktreeId.removeAll(keepingCapacity: false)
         lastAcceptedLineDetailAtByWorktreeId.removeAll(keepingCapacity: false)
         lastAcceptedStatusAtByWorktreeId.removeAll(keepingCapacity: false)
@@ -293,6 +301,7 @@ package actor GitWorkingDirectoryProjector {
             let worktreeId = changeset.worktreeId
             guard !suppressedWorktreeIds.contains(worktreeId) else { return }
             guard acceptsFilesystemChanges(changeset) else { return }
+            exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId)
             guard Self.shouldRefresh(for: changeset) else {
                 aggregatePerformance.increment(\.suppressedInput)
                 flushAggregatePerformanceSnapshotIfNeeded()
@@ -413,6 +422,7 @@ package actor GitWorkingDirectoryProjector {
 
     package func refreshRegisteredWorktreesImmediately() {
         for worktreeId in rootPathByWorktreeId.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+            exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId)
             enqueueImmediateRefreshIfRegistered(
                 worktreeId: worktreeId,
                 triggerSource: .visibilityChange,
@@ -434,6 +444,7 @@ package actor GitWorkingDirectoryProjector {
                     Self.pathsIntersect(canonicalRootPath, watchedPath)
                 })
             else { continue }
+            exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId)
             enqueueImmediateRefreshIfRegistered(
                 worktreeId: worktreeId,
                 triggerSource: .visibilityChange,
@@ -491,9 +502,16 @@ package actor GitWorkingDirectoryProjector {
             return
         }
         if previousContext != nil, previousContext != context {
+            if let previousContext {
+                (gitWorkingTreeProvider as? any GitExactCleanStatusProviding)?.retireExactCleanAuthority(
+                    worktreeId: worktreeId,
+                    rootPath: previousContext.rootPath
+                )
+            }
             lastEmittedSnapshotByWorktreeId.removeValue(forKey: worktreeId)
             lastStatusEntriesByWorktreeId.removeValue(forKey: worktreeId)
             lastAcceptedStatusFactsByWorktreeId.removeValue(forKey: worktreeId)
+            exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId)
             lastAcceptedLineDetailByWorktreeId.removeValue(forKey: worktreeId)
             lastAcceptedLineDetailAtByWorktreeId.removeValue(forKey: worktreeId)
             lastAcceptedStatusAtByWorktreeId.removeValue(forKey: worktreeId)
@@ -539,6 +557,12 @@ package actor GitWorkingDirectoryProjector {
     }
 
     private func applyUnregistration(worktreeId: UUID, repoId: UUID) {
+        if let rootPath = rootPathByWorktreeId[worktreeId] {
+            (gitWorkingTreeProvider as? any GitExactCleanStatusProviding)?.retireExactCleanAuthority(
+                worktreeId: worktreeId,
+                rootPath: rootPath
+            )
+        }
         addSuppressedWorktree(worktreeId)
         pendingByWorktreeId.removeValue(forKey: worktreeId)
         immediateRefreshWorktreeIds.remove(worktreeId)
@@ -559,6 +583,7 @@ package actor GitWorkingDirectoryProjector {
         lastEmittedSnapshotByWorktreeId.removeValue(forKey: worktreeId)
         lastStatusEntriesByWorktreeId.removeValue(forKey: worktreeId)
         lastAcceptedStatusFactsByWorktreeId.removeValue(forKey: worktreeId)
+        exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId)
         lastAcceptedLineDetailByWorktreeId.removeValue(forKey: worktreeId)
         lastAcceptedLineDetailAtByWorktreeId.removeValue(forKey: worktreeId)
         lastAcceptedStatusAtByWorktreeId.removeValue(forKey: worktreeId)
