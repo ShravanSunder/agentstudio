@@ -368,7 +368,13 @@ Date: 2026-08-25
       Chromium set passes 38/38 after tests explicitly clear pointer hover from
       Tooltip triggers inside React `act`; geometry proves 16 px right/bottom
       clearance. Unit dirty-state proof passes 2/2. Updated one- and multi-
-      annotation screenshots are captured; final owner feel remains pending.
+      annotation screenshots are captured. A fresh isolated-cache Vite server
+      against the real Swift development backend rendered and expanded the
+      persisted `.gitignore:2-5` two-annotation thread with current action names,
+      annotation counts, hidden visible ordinals, and exact accessible ordinals.
+      The next concurrent worktree mutation promoted File to `Loading file`,
+      which did not settle during two bounded waits, so current-head live visual
+      capture and final owner feel remain pending that backend/source refresh.
 
 20. **Unchanged annotation Edit exposes a storage-mechanism Save error**
     - Actual: entering Edit without changing the saved body leaves Save enabled.
