@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Studio YouTube channel banner</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 2560px;
+        height: 1440px;
+        margin: 0;
+        overflow: hidden;
+        background: #2e3036;
+      }
+
+      body {
+        position: relative;
+        color: #ffffff;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
+      }
+
+      .topology {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .safe-area {
+        position: absolute;
+        top: 508px;
+        left: 507px;
+        display: grid;
+        width: 1546px;
+        height: 423px;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        align-items: center;
+        gap: 72px;
+        padding-inline: 48px;
+      }
+
+      .copy {
+        min-width: 0;
+      }
+
+      .eyebrow,
+      .brand,
+      .headline,
+      .payoff {
+        margin: 0;
+      }
+
+      .eyebrow {
+        color: #9ba1ad;
+        font-family: ui-monospace, "SF Mono", monospace;
+        font-size: 22px;
+        font-weight: 400;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .brand,
+      .headline,
+      .payoff {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, sans-serif;
+        font-weight: 800;
+      }
+
+      .brand {
+        margin-top: 18px;
+        font-size: 50px;
+        letter-spacing: -0.04em;
+      }
+
+      .headline {
+        margin-top: 34px;
+        font-size: 86px;
+        line-height: 0.92;
+        letter-spacing: -0.055em;
+      }
+
+      .headline span {
+        display: block;
+      }
+
+      .payoff {
+        margin-top: 26px;
+        color: #89b4fa;
+        font-size: 58px;
+        line-height: 0.98;
+        letter-spacing: -0.045em;
+      }
+
+      .icon {
+        width: 320px;
+        height: 320px;
+      }
+    </style>
+  </head>
+  <body>
+    <svg class="topology" viewBox="0 0 2560 1440" aria-hidden="true">
+      <path d="M0 1060 H2560" fill="none" stroke="#89b4fa" stroke-width="4" stroke-opacity="0.55" />
+      <path
+        d="M360 1060 V460 Q360 360 460 360 H2100 Q2200 360 2200 460 V1060"
+        fill="none"
+        stroke="#ef9f76"
+        stroke-linecap="round"
+        stroke-width="4"
+        stroke-opacity="0.65"
+      />
+      <circle cx="360" cy="1060" r="10" fill="#ef9f76" />
+      <circle cx="2200" cy="1060" r="10" fill="#ef9f76" />
+    </svg>
+
+    <main class="safe-area">
+      <div class="copy">
+        <p class="eyebrow">Native macOS. Repo-aware. Terminal-first.</p>
+        <p class="brand">Agent Studio</p>
+        <h1 class="headline">
+          <span>Run dozens of agents</span>
+          <span>in one workspace.</span>
+        </h1>
+        <p class="payoff">Stay oriented. Miss nothing.</p>
+      </div>
+      <img class="icon" src="__APP_LOGO_DATA_URI__" alt="" />
+    </main>
+  </body>
+</html>
