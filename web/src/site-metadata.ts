@@ -1,6 +1,6 @@
 export const siteMetadata = {
   canonicalOrigin: "https://getagentstudio.dev",
-  homeTitle: "Agent Studio: Native macOS workspace for coding agents",
+  homeTitle: "Agent Studio: Native macOS IDE for parallel coding agents",
   socialCard: {
     alt: "Agent Studio. Run dozens of agents in one workspace. Stay oriented. Miss nothing.",
     height: 630,

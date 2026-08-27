@@ -3,9 +3,14 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import {
+  campaignAttributionRegistry,
+  campaignChannels,
+} from "../src/campaign-attribution/campaign-attribution-registry";
+
 const canonicalHomeUrl = "https://getagentstudio.dev/";
 const canonicalSitemapUrl = "https://getagentstudio.dev/sitemap.xml";
-const expectedMetadataTitle = "Agent Studio: Native macOS workspace for coding agents";
+const expectedMetadataTitle = "Agent Studio: Native macOS IDE for parallel coding agents";
 const previewPort = 20_000 + (process.pid % 10_000);
 const previewOrigin = `http://127.0.0.1:${previewPort}`;
 let previewProcess: ChildProcess | undefined;
@@ -168,6 +173,42 @@ describe("site discovery metadata", () => {
     expect(socialImageMetadata.height).toBe(630);
   });
 
+  it("publishes aggregate and registered campaign pages with canonical homepage metadata", async (): Promise<void> => {
+    const campaignPaths = [
+      ...campaignChannels.map((channel) => `/${channel}/`),
+      ...campaignAttributionRegistry.routes.map((route) => `${route.path}/`),
+    ];
+
+    await Promise.all(
+      campaignPaths.map(async (campaignPath): Promise<void> => {
+        const campaignResponse = await fetch(new URL(campaignPath, previewOrigin));
+        expect(campaignResponse.status, campaignPath).toBe(200);
+
+        const campaignHtml = await campaignResponse.text();
+        expect(campaignHtml, campaignPath).toContain(`<title>${expectedMetadataTitle}</title>`);
+        expect(
+          findTagAttributes(campaignHtml, "link", "rel", "canonical")?.get("href"),
+          campaignPath,
+        ).toBe(canonicalHomeUrl);
+        expect(
+          findTagAttributes(campaignHtml, "meta", "property", "og:url")?.get("content"),
+          campaignPath,
+        ).toBe(canonicalHomeUrl);
+        expect(
+          findTagAttributes(campaignHtml, "meta", "name", "twitter:title")?.get("content"),
+          campaignPath,
+        ).toBe(expectedMetadataTitle);
+        expect(
+          findTagAttributes(campaignHtml, "meta", "property", "og:image")?.get("content"),
+          campaignPath,
+        ).toBe("https://getagentstudio.dev/agent-studio-social-card.png");
+      }),
+    );
+
+    const unknownCampaignResponse = await fetch(new URL("/x/zzzz/", previewOrigin));
+    expect(unknownCampaignResponse.status).toBe(404);
+  });
+
   it("publishes only the canonical home page in the sitemap and advertises it in robots", async (): Promise<void> => {
     const sitemapResponse = await fetch(new URL("/sitemap.xml", previewOrigin));
     expect(sitemapResponse.status).toBe(200);
@@ -176,6 +217,9 @@ describe("site discovery metadata", () => {
     const sitemapXml = await sitemapResponse.text();
     expect(sitemapXml).toContain(`<loc>${canonicalHomeUrl}</loc>`);
     expect(sitemapXml).not.toContain("topology-full-page-lab");
+    for (const campaignChannel of campaignChannels) {
+      expect(sitemapXml).not.toContain(`/${campaignChannel}`);
+    }
 
     const robotsResponse = await fetch(new URL("/robots.txt", previewOrigin));
     expect(robotsResponse.status).toBe(200);

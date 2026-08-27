@@ -3,10 +3,20 @@ import { resolve } from "node:path";
 
 import sharp from "sharp";
 
+import {
+  campaignAttributionRegistry,
+  campaignChannels,
+} from "../src/campaign-attribution/campaign-attribution-registry.ts";
+import { canonicalHomeUrl, siteMetadata } from "../src/site-metadata.ts";
+
 const projectDirectory = process.cwd();
 const cloudflareAssetsDirectory = resolve(
   projectDirectory,
   ".cloudflare/output/v0/workers/default/assets",
+);
+const cloudflareWorkerConfigPath = resolve(
+  projectDirectory,
+  ".cloudflare/output/v0/workers/default/config.json",
 );
 const expectedFiles = [
   "agent-studio-social-card.png",
@@ -21,6 +31,61 @@ await Promise.all(
     const assetStats = await stat(resolve(cloudflareAssetsDirectory, assetName));
     if (!assetStats.isFile() || assetStats.size === 0) {
       throw new Error(`Cloudflare output has no usable root discovery asset: ${assetName}`);
+    }
+  }),
+);
+
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const cloudflareWorkerConfig = JSON.parse(
+  await readFile(cloudflareWorkerConfigPath, "utf8"),
+) as unknown;
+if (!isRecord(cloudflareWorkerConfig) || !isRecord(cloudflareWorkerConfig["assets"])) {
+  throw new Error("Cloudflare output has no readable static-assets configuration");
+}
+
+const cloudflareAssetsConfig = cloudflareWorkerConfig["assets"];
+if (
+  cloudflareAssetsConfig["htmlHandling"] !== "drop-trailing-slash" ||
+  cloudflareAssetsConfig["notFoundHandling"] !== "none"
+) {
+  throw new Error("Cloudflare output does not enforce the campaign route HTML contract");
+}
+
+const forbiddenRuntimeConfigKeys = ["main", "bindings", "analyticsEngineDatasets"];
+for (const forbiddenRuntimeConfigKey of forbiddenRuntimeConfigKeys) {
+  if (cloudflareWorkerConfig[forbiddenRuntimeConfigKey] !== undefined) {
+    throw new Error(
+      `Cloudflare campaign release must remain assets-only; found ${forbiddenRuntimeConfigKey}`,
+    );
+  }
+}
+
+const expectedCampaignHtmlPaths = [
+  ...campaignChannels.map((channel) => `${channel}/index.html`),
+  ...campaignAttributionRegistry.routes.map((route) => `${route.path.slice(1)}/index.html`),
+];
+
+await Promise.all(
+  expectedCampaignHtmlPaths.map(async (campaignHtmlPath): Promise<void> => {
+    const campaignHtmlFile = resolve(cloudflareAssetsDirectory, campaignHtmlPath);
+    const campaignHtmlStats = await stat(campaignHtmlFile);
+    if (!campaignHtmlStats.isFile() || campaignHtmlStats.size === 0) {
+      throw new Error(`Cloudflare output has no campaign page: ${campaignHtmlPath}`);
+    }
+
+    const campaignHtml = await readFile(campaignHtmlFile, "utf8");
+    const requiredMetadata = [
+      `<title>${siteMetadata.homeTitle}</title>`,
+      `<link rel="canonical" href="${canonicalHomeUrl}">`,
+      `<meta property="og:url" content="${canonicalHomeUrl}">`,
+      `<meta property="og:image" content="${new URL(siteMetadata.socialCard.path, siteMetadata.canonicalOrigin).href}">`,
+    ];
+    for (const metadata of requiredMetadata) {
+      if (!campaignHtml.includes(metadata)) {
+        throw new Error(`Cloudflare campaign page ${campaignHtmlPath} is missing ${metadata}`);
+      }
     }
   }),
 );
@@ -59,10 +124,17 @@ if (!sitemap.includes("<loc>https://getagentstudio.dev/</loc>")) {
 if (sitemap.includes("topology-full-page-lab")) {
   throw new Error("Cloudflare sitemap exposes the topology lab");
 }
+for (const campaignChannel of campaignChannels) {
+  if (sitemap.includes(`/${campaignChannel}`)) {
+    throw new Error(`Cloudflare sitemap exposes campaign channel ${campaignChannel}`);
+  }
+}
 
 const robots = await readFile(resolve(cloudflareAssetsDirectory, "robots.txt"), "utf8");
 if (!robots.includes("Sitemap: https://getagentstudio.dev/sitemap.xml")) {
   throw new Error("Cloudflare robots file does not advertise the canonical sitemap");
 }
 
-console.log("Verified Cloudflare campaign images, sitemap, and origin robots assets.");
+console.log(
+  `Verified Cloudflare campaign images, ${expectedCampaignHtmlPaths.length} campaign pages, sitemap, and origin robots assets.`,
+);

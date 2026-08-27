@@ -4,7 +4,7 @@ export default defineWorker({
   name: "agent-studio-web",
   compatibilityDate: "2026-08-20",
   assets: {
-    htmlHandling: "auto-trailing-slash",
+    htmlHandling: "drop-trailing-slash",
     notFoundHandling: "none",
   },
 });
