@@ -135,9 +135,9 @@ describe('worktree annotation Share comments integrated surface', () => {
 			await performBrowserAction(() =>
 				rendered.getByRole('button', { name: 'Share comments' }).click(),
 			);
-			await expect
-				.element(rendered.getByRole('button', { name: 'Pending comments, 2' }))
-				.toHaveAttribute('aria-pressed', 'true');
+			const pendingScopeButton = requireShareScopeButton('Pending comments');
+			expect(pendingScopeButton.getAttribute('aria-label')).toBe('Pending comments, 2');
+			expect(pendingScopeButton.getAttribute('aria-pressed')).toBe('true');
 			expect(document.querySelector('[aria-label="Other saved comments"]')).toBeNull();
 			if (surfaceKind === 'review') {
 				const integratedSurface = rendered
@@ -151,9 +151,9 @@ describe('worktree annotation Share comments integrated surface', () => {
 				});
 			}
 
-			await performBrowserAction(() =>
-				rendered.getByRole('button', { name: 'All comments, 3' }).click(),
-			);
+			const allScopeButton = requireShareScopeButton('All comments');
+			expect(allScopeButton.getAttribute('aria-label')).toBe('All comments, 3');
+			await performBrowserAction(async (): Promise<void> => allScopeButton.click());
 			await performBrowserAction(() =>
 				rendered.getByRole('button', { name: 'Copy Markdown' }).click(),
 			);
@@ -481,7 +481,12 @@ async function publishShareProjection(
 			context: locatedContext,
 			messages: [
 				savedMessage({ body: 'Handled saved comment', handled: true, messageId: handledMessageId }),
-				savedMessage({ body: 'New saved comment', handled: false, messageId: newMessageId }),
+				savedMessage({
+					body: 'New saved comment',
+					handled: false,
+					messageId: newMessageId,
+					ordinal: 1,
+				}),
 			],
 		});
 		surface.publishThreadMessages({
@@ -517,11 +522,13 @@ function savedMessage(props: {
 	readonly body: string;
 	readonly handled: boolean;
 	readonly messageId: string;
+	readonly ordinal?: number;
 	readonly threadId?: string;
 }): WorktreeAnnotationMessageEntry {
 	return {
 		...annotationMessage({
 			messageId: props.messageId,
+			...(props.ordinal === undefined ? {} : { ordinal: props.ordinal }),
 			sessionRevision: 3,
 			threadId: props.threadId ?? annotationHeadThreadId,
 		}),
@@ -554,6 +561,19 @@ function findLastOperation(
 	kind: 'output.handled.clear' | 'output.scope.commit',
 ): BridgeProductWorktreeAnnotationOperation | undefined {
 	return surface.sentOperations.findLast((operation): boolean => operation.kind === kind);
+}
+
+function requireShareScopeButton(
+	labelPrefix: 'All comments' | 'Pending comments',
+): HTMLButtonElement {
+	const button = document.querySelector<HTMLButtonElement>(`button[aria-label^="${labelPrefix},"]`);
+	if (button !== null) return button;
+	const availableLabels = [...document.querySelectorAll<HTMLElement>('button[aria-label]')].map(
+		(candidate) => candidate.getAttribute('aria-label'),
+	);
+	throw new Error(
+		`Expected ${labelPrefix} scope button. Available button labels: ${JSON.stringify(availableLabels)}.`,
+	);
 }
 
 function outputHandledClearOperations(

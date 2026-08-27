@@ -434,10 +434,14 @@ describe('worktree annotation inline shell', () => {
 
 		await expect.element(rendered.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
 		const editButton = rendered.getByRole('button', { name: 'Edit annotation' }).element();
-		await act(async (): Promise<void> => {
+		await performBrowserAction(async (): Promise<void> => {
 			await userEvent.click(editButton);
 			await userEvent.unhover(editButton);
 		});
+		await settleThreadMotion(
+			rendered.getByTestId('worktree-annotation-thread-history').element(),
+			'Expected direct Edit thread expansion to settle.',
+		);
 		const editor = rendered.getByRole('textbox', { name: 'Annotation Markdown' });
 		await expect.element(editor).toBeVisible();
 		const editingMessage = editor
@@ -465,17 +469,25 @@ describe('worktree annotation inline shell', () => {
 		expect(commandFocusedBoxShadow).not.toBe('none');
 		await page.screenshot({ path: '../../../tmp/bridgeweb-annotation-explicit-editing.png' });
 
-		await act(async (): Promise<void> => {
+		await performBrowserAction(async (): Promise<void> => {
 			editor.element().focus();
 			await userEvent.keyboard('{Escape}');
 		});
+		await settleThreadMotion(
+			rendered.getByTestId('worktree-annotation-thread-history').element(),
+			'Expected editor exit thread motion to settle.',
+		);
 		const message = rendered.getByTestId('worktree-annotation-message').all().at(-1);
 		if (message === undefined) throw new Error('Expected the latest message after editing.');
 		expect(message.element().getAttribute('data-annotation-editing')).toBe('false');
-		await act(async (): Promise<void> => {
+		await performBrowserAction(async (): Promise<void> => {
 			message.element().focus();
 			await userEvent.keyboard('{Enter}');
 		});
+		await settleThreadMotion(
+			rendered.getByTestId('worktree-annotation-thread-history').element(),
+			'Expected Enter thread expansion to settle.',
+		);
 		await expect
 			.element(rendered.getByRole('textbox', { name: 'Annotation Markdown' }))
 			.toBeVisible();
@@ -563,6 +575,15 @@ async function renderInlineShell(
 function nextAnimationFrame(): Promise<void> {
 	return new Promise((resolve): void => {
 		requestAnimationFrame((): void => resolve());
+	});
+}
+
+async function performBrowserAction(action: () => Promise<void>): Promise<void> {
+	await act(async (): Promise<void> => {
+		await action();
+		await Promise.resolve();
+		await nextAnimationFrame();
+		await Promise.resolve();
 	});
 }
 
