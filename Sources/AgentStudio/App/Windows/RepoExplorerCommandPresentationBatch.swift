@@ -103,6 +103,7 @@ final class RepoExplorerCommandPresentationBatch {
 
     func acceptVisibleWorktreeSnapshot(_ visibleSnapshot: RepoExplorerVisibleWorktreeSnapshot) {
         guard let observationID else { return }
+        guard currentVisibleSnapshot != visibleSnapshot else { return }
         currentVisibleSnapshot = visibleSnapshot
         refresh(observationID: observationID)
     }
