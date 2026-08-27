@@ -237,7 +237,7 @@ bash scripts/doctor-mac.sh
 
 [tasks.setup]
 description = "Prepare shared vendors, or explicitly hydrate and build local vendors"
-depends = ["bridge-web-install", "install-hooks"]
+depends = ["bridge-web-install", "web-install", "install-hooks"]
 usage = '''
 flag "--use-local-vendors" help="Hydrate and build Ghostty and zmx in this worktree"
 '''
@@ -331,7 +331,12 @@ git diff --check
 
 [tasks."test:web"]
 description = "Run the marketing website pull-request gate"
+depends = ["web-install"]
 run = "pnpm --dir web run check && pnpm --dir web run build && pnpm --dir web exec cf build && pnpm --dir web run verify:cloudflare-discovery"
+
+[tasks.web-install]
+description = "Install frozen marketing website dependencies"
+run = "pnpm --dir web install --frozen-lockfile"
 
 [tasks."test:architecture"]
 description = "Run the AgentStudio architecture lint tool package tests"

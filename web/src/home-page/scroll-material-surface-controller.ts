@@ -84,7 +84,7 @@ export function initializeScrollMaterialSurfaces(): void {
 
   const synchronizeSurfaces = (): void => {
     for (const { materialSurface, videoController } of surfaceControllers) {
-      if (reducedMotionQuery.matches) {
+      if (reducedMotionQuery.matches || document.visibilityState === "hidden") {
         applySurfaceProgress(materialSurface, 1, false);
         videoController.synchronize(1, false);
         continue;
@@ -117,6 +117,7 @@ export function initializeScrollMaterialSurfaces(): void {
     window.removeEventListener("scroll", scheduleSurfaceUpdate);
     window.removeEventListener("resize", scheduleSurfaceUpdate);
     window.removeEventListener("pagehide", handlePageHide);
+    document.removeEventListener("visibilitychange", scheduleSurfaceUpdate);
     reducedMotionQuery.removeEventListener("change", scheduleSurfaceUpdate);
     for (const { videoController } of surfaceControllers) {
       videoController.dispose();
@@ -137,6 +138,7 @@ export function initializeScrollMaterialSurfaces(): void {
   window.addEventListener("scroll", scheduleSurfaceUpdate, { passive: true });
   window.addEventListener("resize", scheduleSurfaceUpdate, { passive: true });
   reducedMotionQuery.addEventListener("change", scheduleSurfaceUpdate);
+  document.addEventListener("visibilitychange", scheduleSurfaceUpdate);
   window.addEventListener("pagehide", handlePageHide);
 }
 

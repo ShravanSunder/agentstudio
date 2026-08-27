@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createScrollAutoplayVideoController } from "../src/home-page/scroll-autoplay-video-controller";
+import { initializeScrollMaterialSurfaces } from "../src/home-page/scroll-material-surface-controller";
 import { initializeInstallCommand } from "../src/install-command/install-command-controller";
 import { marketingCopy } from "../src/marketing-copy";
 import { initializePersistenceProof } from "../src/product-plate/persistence-proof-controller";
@@ -199,6 +200,43 @@ describe("interactive website controllers", () => {
     expect(fixture.paused()).toBe(false);
 
     controller.dispose();
+  });
+
+  it("pauses scroll-owned autoplay while the document is hidden", async () => {
+    const fixture = createControllableVideoFixture();
+    fixture.root.dataset["scrollMaterialSurface"] = "";
+    vi.spyOn(fixture.root, "getBoundingClientRect").mockImplementation((): DOMRect => {
+      const height = 400;
+      const top = window.innerHeight * 0.8 - height;
+      return {
+        bottom: top + height,
+        height,
+        left: 0,
+        right: 800,
+        toJSON: (): object => ({}),
+        top,
+        width: 800,
+        x: 0,
+        y: top,
+      };
+    });
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+
+    initializeScrollMaterialSurfaces();
+    expect(fixture.playSpy).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await vi.waitFor(() => expect(fixture.pauseSpy).toHaveBeenCalledTimes(1));
+    initializeScrollMaterialSurfaces();
+    Reflect.deleteProperty(document, "visibilityState");
   });
 
   it("enhances the product stories with synchronized tabs, panels, and keyboard movement", () => {
