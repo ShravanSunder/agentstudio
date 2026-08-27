@@ -14,6 +14,7 @@ dry-run ok: uses one persistent authenticated semantic IPC session
 dry-run ok: requires exactly 257 initial Review diffs and retains the 100-diff floor before IPC authentication
 dry-run ok: proves Review early/middle/final traversal
 dry-run ok: proves two independent panes and hidden-to-foreground refresh
+dry-run ok: reactivates the exact packaged app before every foreground pane phase
 dry-run ok: hard-cuts Files and Review Filter candidates with semantic read-back
 dry-run ok: proves supported Search admission and length boundaries
 dry-run ok: proves the disposable worktree remains read-only
@@ -284,6 +285,7 @@ fi
 
 AGENTSTUDIO_BRIDGE_JOURNEY_MARKER="$state_marker" \
 AGENTSTUDIO_BRIDGE_JOURNEY_PROOF_TOKEN="$state_proof_token" \
+AGENTSTUDIO_BRIDGE_JOURNEY_APP="$state_app" \
 /usr/bin/python3 - \
   "$ipc_metadata" \
   "$ipc_token" \
@@ -316,6 +318,7 @@ data_root = sys.argv[10]
 comparison_target_name = sys.argv[11]
 reviewed_branch_name = sys.argv[12]
 git_bin = sys.argv[13]
+candidate_app = os.environ.get("AGENTSTUDIO_BRIDGE_JOURNEY_APP", "")
 response_timeout = float(os.environ.get("AGENTSTUDIO_BRIDGE_JOURNEY_IPC_TIMEOUT_SECONDS", "20"))
 
 
@@ -506,6 +509,9 @@ session = Session(socket_path)
 
 
 def focus_foreground_pane(handle, label):
+    activation = subprocess.run(["/usr/bin/open", "-a", candidate_app], check=False)
+    if activation.returncode != 0:
+        fail(f"{label} could not reactivate the packaged candidate")
     session.request("pane.focus", {"handle": handle})
     return wait_for(
         label,

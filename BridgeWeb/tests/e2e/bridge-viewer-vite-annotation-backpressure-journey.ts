@@ -486,7 +486,7 @@ async function runAnnotationBackpressureJourney(props: {
 			milestones: props.milestones,
 			operation: async (): Promise<number> => {
 				const expansion = createdPage.getByRole('button', {
-					name: `Expand ${bodies.length} messages`,
+					name: `Expand ${bodies.length} annotations`,
 				});
 				await expansion.waitFor({
 					state: 'visible',
@@ -627,7 +627,7 @@ async function createAndSaveReply(props: {
 	readonly replyOrdinal: ReplyOrdinal;
 }): Promise<string> {
 	props.milestones.transition(`reply.${props.replyOrdinal}.composer.opening`);
-	const replyButton = props.page.getByRole('button', { name: 'Reply to thread' }).last();
+	const replyButton = props.page.getByRole('button', { name: 'Reply to annotation thread' }).last();
 	await replyButton.click();
 	const composer = props.page.getByRole('textbox', { name: 'Reply with Markdown' });
 	await withBoundedTimeout(

@@ -309,7 +309,14 @@ struct BridgePackagedProductJourneyScriptTests {
         )
 
         #expect(source.contains(#"/usr/bin/open -a "$state_app""#))
+        #expect(source.contains(#"AGENTSTUDIO_BRIDGE_JOURNEY_APP="$state_app""#))
+        #expect(source.contains(#"candidate_app = os.environ.get("AGENTSTUDIO_BRIDGE_JOURNEY_APP", "")"#))
         #expect(source.contains("def focus_foreground_pane(handle, label):"))
+        #expect(
+            source.contains(
+                #"subprocess.run(["/usr/bin/open", "-a", candidate_app], check=False)"#
+            )
+        )
         #expect(source.contains(#"value.get("diagnostics", {}).get("nativeActivity") == "foreground""#))
         #expect(
             source.contains(#"focus_foreground_pane(review_handle, "Review pane foreground")"#)
