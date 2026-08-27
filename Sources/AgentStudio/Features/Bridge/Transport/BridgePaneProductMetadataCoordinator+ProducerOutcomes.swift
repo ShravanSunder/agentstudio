@@ -82,33 +82,50 @@ extension BridgePaneProductMetadataCoordinator {
 }
 
 extension BridgePaneProductMetadataCoordinator {
-    static func enqueue(
+    static func enqueueAnnotationEvent(
+        _ request: BridgeWorktreeAnnotationEnqueueRequest
+    ) async throws -> BridgeProductProducerEnqueueResult {
+        let data = try BridgeProductSubscriptionData.registered(
+            request.event,
+            subscriptionKind: request.subscriptionKind
+        )
+        let result = try await request.session.enqueueSubscriptionData(
+            subscriptionId: request.subscriptionID,
+            data: data,
+            operationCorrelationID: request.operationCorrelationID,
+            productAdmission: request.productAdmission,
+            foregroundWorkAdmission: request.foregroundWorkAdmission
+        )
+        return result
+    }
+
+    static func makeProspectiveMetadataFrame(
         event: BridgeProductWorktreeAnnotationEvent,
-        subscriptionKind: BridgeProductSubscriptionKind,
-        subscriptionId: String,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        session: BridgeProductSession
-    ) async throws {
+        operationCorrelationID: String,
+        stream: BridgeProductMetadataStreamCorrelation,
+        subscription: BridgeProductSubscriptionSnapshot
+    ) throws -> BridgeProductMetadataFrame {
         let data = try BridgeProductSubscriptionData.registered(
             event,
-            subscriptionKind: subscriptionKind
+            subscriptionKind: subscription.subscriptionKind
         )
-        let result = try await session.enqueueSubscriptionData(
-            subscriptionId: subscriptionId,
-            data: data,
-            operationCorrelationID: event.operationCorrelationID,
-            productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission
+        let subscriptionCorrelation = try BridgeProductSubscriptionFrameCorrelation(
+            cursor: nil,
+            interestRevision: subscription.interestRevision,
+            interestSha256: subscription.interestSha256,
+            sourceGeneration: data.sourceGeneration,
+            subscriptionId: subscription.subscriptionId,
+            subscriptionKind: subscription.subscriptionKind,
+            workerDerivationEpoch: subscription.workerDerivationEpoch
         )
-        switch result {
-        case .enqueued:
-            return
-        case .queueReset:
-            throw BridgePaneProductMetadataCoordinatorError.producerQueueReset
-        case .rejected(let rejection):
-            throw BridgePaneProductMetadataCoordinatorError.producerRejected(rejection)
-        }
+        return try .subscriptionData(
+            stream: stream,
+            streamSequence: BridgeProductWireContract.maximumSafeInteger,
+            subscription: subscriptionCorrelation,
+            subscriptionSequence: BridgeProductWireContract.maximumSafeInteger,
+            operationCorrelationID: operationCorrelationID,
+            data: data
+        )
     }
 
     static func reviewPublicationFailure(
@@ -157,6 +174,17 @@ extension BridgePaneProductMetadataCoordinator {
         }
         if error is BridgePaneProductFileMetadataSourceError {
             return .fileSourceUnavailable
+        }
+        if let catalogWriterError = error as? BridgeProductMetadataCatalogWriterError {
+            switch catalogWriterError {
+            case .frameQueueReset:
+                return .producerQueueReset
+            case .frameRejected(let rejection):
+                return .producerRejection(rejection)
+            case .encodedEntryBytesExceeded, .entryCountExceeded,
+                .entryDoesNotFitMetadataFrame, .frameObservationFailed:
+                return .unexpected
+            }
         }
         if let coordinatorError = error as? BridgePaneProductMetadataCoordinatorError {
             switch coordinatorError {

@@ -2,7 +2,9 @@ import Foundation
 import GRDB
 
 extension WorktreeAnnotationSQLiteRepository {
-    func acquireEditToken(_ props: AcquireEditTokenProps) throws -> WorktreeAnnotationSessionDetail {
+    func acquireEditToken(_ props: AcquireEditTokenProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
         try databaseWriter.write { database in
             try validateMessageRevision(
                 database,
@@ -31,7 +33,10 @@ extension WorktreeAnnotationSQLiteRepository {
                 throw WorktreeAnnotationRepositoryError.conflict(currentRevision: currentRevision)
             }
             if currentToken == props.editToken, props.liveEditTokens.contains(props.editToken) {
-                return try loadSessionDetail(database, sessionID: props.sessionID)
+                return WorktreeAnnotationCommittedMutation(
+                    canonicalResult: try loadSessionDetail(database, sessionID: props.sessionID),
+                    change: .noChange
+                )
             }
             if let currentToken, props.liveEditTokens.contains(currentToken) {
                 throw WorktreeAnnotationRepositoryError.editTokenConflict
@@ -57,11 +62,14 @@ extension WorktreeAnnotationSQLiteRepository {
                 sessionID: props.sessionID,
                 now: props.now
             )
-            return try loadSessionDetail(database, sessionID: props.sessionID)
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return .content(detail)
         }
     }
 
-    func releaseEditToken(_ props: ReleaseEditTokenProps) throws -> WorktreeAnnotationSessionDetail {
+    func releaseEditToken(_ props: ReleaseEditTokenProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
         try databaseWriter.write { database in
             try validateMessageRevision(
                 database,
@@ -95,7 +103,8 @@ extension WorktreeAnnotationSQLiteRepository {
                 sessionID: props.sessionID,
                 now: props.now
             )
-            return try loadSessionDetail(database, sessionID: props.sessionID)
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return .content(detail)
         }
     }
 }

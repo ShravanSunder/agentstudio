@@ -1,5 +1,10 @@
 import Foundation
 
+struct WorktreeAnnotationRootPlacementContext: Sendable {
+    let contextID: String
+    let surface: BridgeProductSurface
+}
+
 struct WorktreeAnnotationEditTokenCommandProps: Sendable {
     let sessionID: WorktreeAnnotationSessionID
     let messageID: WorktreeAnnotationMessageID

@@ -600,7 +600,7 @@ struct WorktreeAnnotationSourceCaptureTests {
                 editToken: "review-relocation-editor",
                 now: Date(timeIntervalSince1970: 2)
             )
-        )
+        ).canonicalResult
         let evaluation = try WorktreeAnnotationSourceEvaluator.evaluate(
             .init(
                 session: detail.session,

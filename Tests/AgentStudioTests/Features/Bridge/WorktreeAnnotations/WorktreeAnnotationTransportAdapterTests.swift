@@ -153,15 +153,15 @@ struct WorktreeAnnotationTransportAdapterTests {
         let encodedReceipt = try #require(encodedOutcome["receipt"] as? [String: Any])
         #expect(encodedReceipt["messageId"] as? String == createdMessage.id.rawValue.uuidString.lowercased())
         #expect(encodedReceipt["threadId"] as? String == createdThread.thread.id.rawValue.uuidString.lowercased())
-        guard
-            case .snapshotRequired(let changedWorktreeID, let operationCorrelationID, _) =
-                await changes.next()
-        else {
-            Issue.record("Expected correlated annotation invalidation")
-            return
-        }
-        #expect(changedWorktreeID == "worktree-1")
-        #expect(operationCorrelationID.count == 64)
+        let change = try #require(await changes.next())
+        #expect(change.worktreeID == "worktree-1")
+        #expect(change.applicationSourceGeneration == 1)
+        #expect(change.operationCorrelationID.count == 64)
+        #expect(change.disposition == .catalog)
+        #expect(
+            change.sessionSemanticRevisionByID
+                == [detail.session.id: detail.session.semanticRevision]
+        )
         await harness.store.removeChangeObserver(token: observer.token)
         #expect(detail.threads.first?.messages.first?.draft?.body == "Durable draft")
         #expect(

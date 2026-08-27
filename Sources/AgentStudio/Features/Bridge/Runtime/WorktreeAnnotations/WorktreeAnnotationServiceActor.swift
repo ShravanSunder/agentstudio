@@ -40,51 +40,28 @@ struct WorktreeAnnotationSourceRefreshSnapshot: Equatable, Sendable {
     let requirements: [WorktreeAnnotationSourceRefreshRequirement]
 }
 
-struct WorktreeAnnotationRootPlacementContext: Sendable {
-    let contextID: String
-    let surface: BridgeProductSurface
-}
-
-enum WorktreeAnnotationChange: Equatable, Sendable {
-    case snapshotRequired(
-        worktreeID: String,
-        operationCorrelationID: String,
-        deliveryAttempt: Int
-    )
-}
-
-struct WorktreeAnnotationChangeObserver: Sendable {
-    let stream: AsyncStream<WorktreeAnnotationChange>
-    let token: UUID
-}
-
 struct WorktreeAnnotationServiceProjectionCapture: Sendable {
     let recoveryState: WorktreeAnnotationRecoveryState
     let repositorySnapshot: WorktreeAnnotationRepositoryProjectionSnapshot
     let revision: Int
 }
 
-private struct WorktreeAnnotationChangeObserverState {
-    let continuation: AsyncStream<WorktreeAnnotationChange>.Continuation
-    let worktreeID: String
-}
-
 /// Application-scoped actor for annotation commands, queries, and demand.
 ///
-/// Semantic mutations await the repository transaction before broadcasting a
-/// compact invalidation. SQLite remains the only annotation authority.
+/// Semantic mutations await the repository transaction before applying its
+/// compact classified change. SQLite remains the only annotation authority.
 package actor WorktreeAnnotationServiceActor {
     let repositoryAccess: any WorktreeAnnotationRepositoryAccess
-    private let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
+    let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
     private var activeDemandGenerationByContextKey:
         [WorktreeAnnotationPlacementContextKey: WorktreeAnnotationDemandGeneration] = [:]
     private var latestSourceRefreshFenceByContextKey:
         [WorktreeAnnotationPlacementContextKey: WorktreeAnnotationSourceRefreshFence] = [:]
-    private var changeObserverByToken: [UUID: WorktreeAnnotationChangeObserverState] = [:]
-    private var projectionRevision = 0
+    var changeObserverByToken: [UUID: WorktreeAnnotationChangeObserverState] = [:]
+    var projectionRevision = 0
     let editOwnership = WorktreeAnnotationEditOwnershipRegistry()
-    private var recoveryState: WorktreeAnnotationRecoveryState = .available
-    private var unacknowledgedRecoveryWitness: WorktreeAnnotationRecoveryProvenance?
+    var recoveryState: WorktreeAnnotationRecoveryState = .available
+    var unacknowledgedRecoveryWitness: WorktreeAnnotationRecoveryProvenance?
 
     init(
         repositoryAccess: any WorktreeAnnotationRepositoryAccess,
@@ -102,57 +79,6 @@ package actor WorktreeAnnotationServiceActor {
         lifecycleTraceRecorder = traceRuntime.map {
             BridgeProductMetadataLifecycleTraceRecorder(
                 recorder: BridgePerformanceTraceRecorder(traceRuntime: $0)
-            )
-        }
-    }
-
-    func registerChangeObserver(worktreeID: String) -> WorktreeAnnotationChangeObserver {
-        let token = UUIDv7.generate()
-        let stream = AsyncStream<WorktreeAnnotationChange>(
-            bufferingPolicy: .bufferingNewest(1)
-        ) { continuation in
-            changeObserverByToken[token] = WorktreeAnnotationChangeObserverState(
-                continuation: continuation,
-                worktreeID: worktreeID
-            )
-            continuation.onTermination = { [weak self] _ in
-                Task { await self?.removeChangeObserver(token: token) }
-            }
-        }
-        return WorktreeAnnotationChangeObserver(stream: stream, token: token)
-    }
-
-    func removeChangeObserver(token: UUID) {
-        changeObserverByToken.removeValue(forKey: token)?.continuation.finish()
-    }
-
-    func changeObserverCount() -> Int {
-        changeObserverByToken.count
-    }
-
-    @discardableResult
-    package func restoreRecoveryState() async -> PersistenceRecoveryEvent? {
-        do {
-            let witness = try await repositoryAccess.fetchUnacknowledgedRecoveryProvenance()
-            unacknowledgedRecoveryWitness = witness
-            recoveryState = witness.map(WorktreeAnnotationRecoveryState.recoveredDegraded) ?? .available
-            await publishSnapshotRequiredForEveryObservedWorktree()
-            return witness.map {
-                PersistenceRecoveryEvent(
-                    store: .worktreeAnnotations,
-                    workspaceId: nil,
-                    recovery: .quarantinedAndReset,
-                    quarantinedFilename: $0.quarantinedFilenames.joined(separator: ", ")
-                )
-            }
-        } catch {
-            unacknowledgedRecoveryWitness = nil
-            recoveryState = .unavailable
-            await publishSnapshotRequiredForEveryObservedWorktree()
-            return PersistenceRecoveryEvent(
-                store: .worktreeAnnotations,
-                workspaceId: nil,
-                recovery: .resetToDefaults
             )
         }
     }
@@ -317,37 +243,22 @@ package actor WorktreeAnnotationServiceActor {
     }
 
     @discardableResult
+    func acceptCurrentAssociation(
+        _ props: WorktreeAnnotationSQLiteRepository.AcceptCurrentAssociationProps
+    ) async throws -> WorktreeAnnotationSQLiteRepository.AssociationMutationResult {
+        try requireMutationAllowed()
+        return try await publishCorrelatedMutation {
+            try await repositoryAccess.acceptCurrentAssociation(props)
+        }
+    }
+
+    @discardableResult
     func markMessagesViewed(
         _ props: WorktreeAnnotationSQLiteRepository.MarkMessagesViewedProps
     ) async throws -> WorktreeAnnotationSQLiteRepository.ViewedMutationResult {
         try requireMutationAllowed()
-        let operationCorrelationID = BridgeOperationCorrelation.mintScrubbedID()
-        await recordNativeAnnotationWork(
-            operationCorrelationID: operationCorrelationID,
-            result: .started,
-            stage: .nativeWorkStarted
-        )
-        do {
-            let committed = try await repositoryAccess.markMessagesViewed(props)
-            await recordNativeAnnotationWork(
-                operationCorrelationID: operationCorrelationID,
-                result: .success,
-                stage: .nativeWorkTerminal
-            )
-            if committed.changed {
-                await publishSnapshotRequired(
-                    worktreeID: committed.worktreeID,
-                    operationCorrelationID: operationCorrelationID
-                )
-            }
-            return committed
-        } catch {
-            await recordNativeAnnotationWork(
-                operationCorrelationID: operationCorrelationID,
-                result: .failure,
-                stage: .nativeWorkTerminal
-            )
-            throw error
+        return try await publishCorrelatedMutation {
+            try await repositoryAccess.markMessagesViewed(props)
         }
     }
 
@@ -356,15 +267,18 @@ package actor WorktreeAnnotationServiceActor {
         _ props: WorktreeAnnotationSourceRefreshProps
     ) async throws -> WorktreeAnnotationSessionDetail {
         try requireAvailableForReads()
-        return try await publishCorrelatedMutation(
-            worktreeID: { $0.session.worktreeID },
-            { try await performSourceRefresh(props) }
-        )
+        let committedResult = try await publishCorrelatedMutation {
+            try await performSourceRefresh(props)
+        }
+        guard committedResult.remainsCurrent else {
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
+        }
+        return committedResult.detail
     }
 
     private func performSourceRefresh(
         _ props: WorktreeAnnotationSourceRefreshProps
-    ) async throws -> WorktreeAnnotationSessionDetail {
+    ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSourceRefreshCommittedResult> {
         try requireAvailableForReads()
         guard !props.contextID.isEmpty, props.sourceEpoch >= 0 else {
             throw WorktreeAnnotationServiceError.staleSourceEpoch
@@ -410,13 +324,13 @@ package actor WorktreeAnnotationServiceActor {
                 material: props.material
             )
         )
-        let committedDetail: WorktreeAnnotationSessionDetail
+        let committedMutation: WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
         if evaluation.sourceRelationship != loadedDetail.session.sourceRelationship
             || evaluation.acceptedSourceFingerprint.map({
                 $0 != loadedDetail.session.acceptedSourceFingerprint
             }) == true
         {
-            committedDetail = try await repositoryAccess.setSourceRelationship(
+            committedMutation = try await repositoryAccess.setSourceRelationship(
                 .init(
                     sessionID: props.sessionID,
                     relationship: evaluation.sourceRelationship,
@@ -426,14 +340,19 @@ package actor WorktreeAnnotationServiceActor {
                 )
             )
         } else {
-            committedDetail = loadedDetail
+            committedMutation = WorktreeAnnotationCommittedMutation(
+                canonicalResult: loadedDetail,
+                change: .noChange
+            )
         }
-        guard activeDemandGenerationByContextKey[contextKey] == props.demandGeneration,
-            latestSourceRefreshFenceByContextKey[contextKey] == refreshFence
-        else {
-            throw WorktreeAnnotationServiceError.staleSourceEpoch
-        }
-        return committedDetail
+        return WorktreeAnnotationCommittedMutation(
+            canonicalResult: WorktreeAnnotationSourceRefreshCommittedResult(
+                detail: committedMutation.canonicalResult,
+                remainsCurrent: activeDemandGenerationByContextKey[contextKey] == props.demandGeneration
+                    && latestSourceRefreshFenceByContextKey[contextKey] == refreshFence
+            ),
+            change: committedMutation.change
+        )
     }
 
     @discardableResult
@@ -444,11 +363,7 @@ package actor WorktreeAnnotationServiceActor {
         guard props.expectedProjectionRevision == projectionRevision else {
             throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
-        let committed = try await publishCorrelatedMutation(
-            worktreeID: { $0.sessionDetail.session.worktreeID },
-            { try await repositoryAccess.prepareOutput(props) }
-        )
-        return committed.preparedOutput
+        return try await publishCorrelatedMutation { try await repositoryAccess.prepareOutput(props) }
     }
 
     func inspectOutputAttempt(
@@ -494,18 +409,14 @@ package actor WorktreeAnnotationServiceActor {
         now: Date
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput {
         try requireMutationAllowed()
-        let committed = try await publishCorrelatedMutation(
-            worktreeID: { $0.sessionDetail.session.worktreeID },
-            {
-                try await repositoryAccess.repeatOutputAttempt(
-                    sourceAttemptID: sourceAttemptID,
-                    repeatedAttemptID: repeatedAttemptID,
-                    destinationPath: destinationPath,
-                    now: now
-                )
-            }
-        )
-        return committed.preparedOutput
+        return try await publishCorrelatedMutation {
+            try await repositoryAccess.repeatOutputAttempt(
+                sourceAttemptID: sourceAttemptID,
+                repeatedAttemptID: repeatedAttemptID,
+                destinationPath: destinationPath,
+                now: now
+            )
+        }
     }
 
     @discardableResult
@@ -514,11 +425,9 @@ package actor WorktreeAnnotationServiceActor {
         now: Date
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput {
         try requireMutationAllowed()
-        let committed = try await publishCorrelatedMutation(
-            worktreeID: { $0.sessionDetail.session.worktreeID },
-            { try await repositoryAccess.cancelOutputAttempt(attemptID: attemptID, now: now) }
-        )
-        return committed.preparedOutput
+        return try await publishCorrelatedMutation {
+            try await repositoryAccess.cancelOutputAttempt(attemptID: attemptID, now: now)
+        }
     }
 
     @discardableResult
@@ -528,17 +437,13 @@ package actor WorktreeAnnotationServiceActor {
         now: Date
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput {
         try requireMutationAllowed()
-        let committed = try await publishCorrelatedMutation(
-            worktreeID: { $0.sessionDetail.session.worktreeID },
-            {
-                try await repositoryAccess.cancelOutputAttempt(
-                    attemptID: attemptID,
-                    effectError: effectError,
-                    now: now
-                )
-            }
-        )
-        return committed.preparedOutput
+        return try await publishCorrelatedMutation {
+            try await repositoryAccess.cancelOutputAttempt(
+                attemptID: attemptID,
+                effectError: effectError,
+                now: now
+            )
+        }
     }
 
     @discardableResult
@@ -548,17 +453,13 @@ package actor WorktreeAnnotationServiceActor {
         now: Date
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput {
         try requireMutationAllowed()
-        let committed = try await publishCorrelatedMutation(
-            worktreeID: { $0.sessionDetail.session.worktreeID },
-            {
-                try await repositoryAccess.finalizeOutputAttempt(
-                    attemptID: attemptID,
-                    eventKind: eventKind,
-                    now: now
-                )
-            }
-        )
-        return committed.preparedOutput
+        return try await publishCorrelatedMutation {
+            try await repositoryAccess.finalizeOutputAttempt(
+                attemptID: attemptID,
+                eventKind: eventKind,
+                now: now
+            )
+        }
     }
 
     @discardableResult
@@ -568,17 +469,13 @@ package actor WorktreeAnnotationServiceActor {
         now: Date
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput {
         try requireMutationAllowed()
-        let committed = try await publishCorrelatedMutation(
-            worktreeID: { $0.sessionDetail.session.worktreeID },
-            {
-                try await repositoryAccess.markOutputAttemptFinalizationFailed(
-                    attemptID: attemptID,
-                    cleanupError: cleanupError,
-                    now: now
-                )
-            }
-        )
-        return committed.preparedOutput
+        return try await publishCorrelatedMutation {
+            try await repositoryAccess.markOutputAttemptFinalizationFailed(
+                attemptID: attemptID,
+                cleanupError: cleanupError,
+                now: now
+            )
+        }
     }
 
     func fetchOutputHistory(
@@ -609,30 +506,13 @@ package actor WorktreeAnnotationServiceActor {
 
     func markPreparedOutputAttemptsUnknown(now: Date) async throws -> Int {
         try requireMutationAllowed()
-        let changedCount: Int
-        do {
-            changedCount = try await repositoryAccess.markPreparedOutputAttemptsUnknown(now: now)
-        } catch { throw error }
+        let changedCount = try await publishCorrelatedMutation {
+            try await repositoryAccess.markPreparedOutputAttemptsUnknown(now: now)
+        }
         if changedCount > 0 {
             activeDemandGenerationByContextKey.removeAll()
         }
         return changedCount
-    }
-
-    package func acknowledgeRecovery(at acknowledgedAt: Date) async throws {
-        guard let witness = unacknowledgedRecoveryWitness else {
-            if recoveryState == .unavailable {
-                throw WorktreeAnnotationServiceError.unavailable
-            }
-            return
-        }
-        _ = try await repositoryAccess.acknowledgeRecoveryProvenance(
-            id: witness.id,
-            acknowledgedAt: acknowledgedAt
-        )
-        unacknowledgedRecoveryWitness = nil
-        recoveryState = .available
-        await publishSnapshotRequiredForEveryObservedWorktree()
     }
 
     func requireAvailableForReads() throws {
@@ -648,20 +528,16 @@ package actor WorktreeAnnotationServiceActor {
         }
     }
 
-    func publishCommittedMutation(
-        _ mutation: () async throws -> WorktreeAnnotationSessionDetail
-    ) async throws -> WorktreeAnnotationSessionDetail {
+    func publishCommittedMutation<CanonicalResult: Sendable>(
+        _ mutation: () async throws -> WorktreeAnnotationCommittedMutation<CanonicalResult>
+    ) async throws -> CanonicalResult {
         try requireMutationAllowed()
-        return try await publishCorrelatedMutation(
-            worktreeID: { $0.session.worktreeID },
-            mutation
-        )
+        return try await publishCorrelatedMutation(mutation)
     }
 
-    func publishCorrelatedMutation<CommittedResult: Sendable>(
-        worktreeID: (CommittedResult) -> String,
-        _ mutation: () async throws -> CommittedResult
-    ) async throws -> CommittedResult {
+    func publishCorrelatedMutation<CanonicalResult: Sendable>(
+        _ mutation: () async throws -> WorktreeAnnotationCommittedMutation<CanonicalResult>
+    ) async throws -> CanonicalResult {
         let operationCorrelationID = BridgeOperationCorrelation.mintScrubbedID()
         await recordNativeAnnotationWork(
             operationCorrelationID: operationCorrelationID,
@@ -669,17 +545,17 @@ package actor WorktreeAnnotationServiceActor {
             stage: .nativeWorkStarted
         )
         do {
-            let committed = try await mutation()
+            let committedMutation = try await mutation()
             await recordNativeAnnotationWork(
                 operationCorrelationID: operationCorrelationID,
                 result: .success,
                 stage: .nativeWorkTerminal
             )
-            await publishSnapshotRequired(
-                worktreeID: worktreeID(committed),
+            await applyCommittedChange(
+                committedMutation.change,
                 operationCorrelationID: operationCorrelationID
             )
-            return committed
+            return committedMutation.canonicalResult
         } catch {
             await recordNativeAnnotationWork(
                 operationCorrelationID: operationCorrelationID,
@@ -698,75 +574,7 @@ package actor WorktreeAnnotationServiceActor {
         activeDemandGenerationByContextKey.removeValue(forKey: contextKey)
     }
 
-    func publishSnapshotRequired(worktreeID: String, operationCorrelationID: String) async {
-        projectionRevision += 1
-        let observerTokens =
-            changeObserverByToken
-            .filter { $0.value.worktreeID == worktreeID }
-            .map(\.key)
-            .sorted { $0.uuidString < $1.uuidString }
-        for (deliveryAttempt, token) in observerTokens.enumerated() {
-            guard let observer = changeObserverByToken[token] else {
-                continue
-            }
-            await lifecycleTraceRecorder?.record(
-                .init(
-                    operationCorrelationID: operationCorrelationID,
-                    result: .started,
-                    sourceGeneration: projectionRevision,
-                    stageAttempt: deliveryAttempt,
-                    stage: .notificationDeliveryStarted,
-                    surface: nil
-                )
-            )
-            let change = WorktreeAnnotationChange.snapshotRequired(
-                worktreeID: worktreeID,
-                operationCorrelationID: operationCorrelationID,
-                deliveryAttempt: deliveryAttempt
-            )
-            if case .dropped(let displacedChange) = observer.continuation.yield(change),
-                case .snapshotRequired(
-                    _,
-                    let displacedOperationCorrelationID,
-                    let displacedDeliveryAttempt
-                ) = displacedChange
-            {
-                await lifecycleTraceRecorder?.record(
-                    .init(
-                        operationCorrelationID: displacedOperationCorrelationID,
-                        result: .stale,
-                        sourceGeneration: projectionRevision,
-                        stageAttempt: displacedDeliveryAttempt,
-                        stage: .notificationDeliveryTerminal,
-                        surface: nil
-                    )
-                )
-            }
-        }
-    }
-
-    private func publishSnapshotRequiredForEveryObservedWorktree() async {
-        projectionRevision += 1
-        for worktreeID in Set(changeObserverByToken.values.map(\.worktreeID)) {
-            let operationCorrelationID = BridgeOperationCorrelation.mintScrubbedID()
-            await recordNativeAnnotationWork(
-                operationCorrelationID: operationCorrelationID,
-                result: .started,
-                stage: .nativeWorkStarted
-            )
-            await publishSnapshotRequired(
-                worktreeID: worktreeID,
-                operationCorrelationID: operationCorrelationID
-            )
-            await recordNativeAnnotationWork(
-                operationCorrelationID: operationCorrelationID,
-                result: .success,
-                stage: .nativeWorkTerminal
-            )
-        }
-    }
-
-    private func recordNativeAnnotationWork(
+    func recordNativeAnnotationWork(
         operationCorrelationID: String,
         result: BridgeAnnotationLifecycleTraceEvent.Result,
         stage: BridgeAnnotationLifecycleTraceEvent.Stage

@@ -28,7 +28,7 @@ struct WorktreeAnnotationViewedMutationTests {
             )
         }
 
-        let result = try fixture.repository.markMessagesViewed(
+        let resultMutation = try fixture.repository.markMessagesViewed(
             .init(
                 sessionID: fixture.detail.session.id,
                 items: fixture.agentMessages.map {
@@ -37,8 +37,14 @@ struct WorktreeAnnotationViewedMutationTests {
                 now: Date(timeIntervalSince1970: 20)
             )
         )
+        let result = resultMutation.canonicalResult
 
         #expect(result.changed)
+        guard case .content(let sessionChanges) = resultMutation.change else {
+            Issue.record("Expected viewed mutation content classification")
+            return
+        }
+        #expect(sessionChanges.map(\.semanticRevision) == [initialSessionRevision + 1])
         #expect(result.sessionID == fixture.detail.session.id)
         #expect(result.results.count == 2)
         #expect(
@@ -81,7 +87,7 @@ struct WorktreeAnnotationViewedMutationTests {
         let otherMessage = try #require(otherSession.threads.first?.messages.first)
         let missingMessageID = WorktreeAnnotationMessageID.generate()
 
-        let result = try fixture.repository.markMessagesViewed(
+        let resultMutation = try fixture.repository.markMessagesViewed(
             .init(
                 sessionID: fixture.detail.session.id,
                 items: [
@@ -100,38 +106,39 @@ struct WorktreeAnnotationViewedMutationTests {
                 now: Date(timeIntervalSince1970: 20)
             )
         )
+        let result = resultMutation.canonicalResult
 
-        #expect(
-            result.results == [
-                .viewed(
-                    messageID: firstAgent.id,
-                    savedRevision: firstSavedRevision,
-                    committedSessionRevision: detailWithHumanMessage.session.semanticRevision + 1,
-                    disposition: .changed
-                ),
-                .notViewed(
-                    messageID: secondAgent.id,
-                    expectedSavedRevision: secondSavedRevision + 1,
-                    disposition: .stale
-                ),
-                .notViewed(
-                    messageID: humanMessage.id,
-                    expectedSavedRevision: try #require(humanMessage.savedRevision),
-                    disposition: .notAgent
-                ),
-                .notViewed(
-                    messageID: otherMessage.id,
-                    expectedSavedRevision: try #require(otherMessage.savedRevision),
-                    disposition: .notFound
-                ),
-                .notViewed(
-                    messageID: missingMessageID,
-                    expectedSavedRevision: 1,
-                    disposition: .notFound
-                ),
-            ])
+        let expectedResults: [WorktreeAnnotationViewedResult] = [
+            .viewed(
+                messageID: firstAgent.id,
+                savedRevision: firstSavedRevision,
+                committedSessionRevision: detailWithHumanMessage.session.semanticRevision + 1,
+                disposition: .changed
+            ),
+            .notViewed(
+                messageID: secondAgent.id,
+                expectedSavedRevision: secondSavedRevision + 1,
+                disposition: .stale
+            ),
+            .notViewed(
+                messageID: humanMessage.id,
+                expectedSavedRevision: try #require(humanMessage.savedRevision),
+                disposition: .notAgent
+            ),
+            .notViewed(
+                messageID: otherMessage.id,
+                expectedSavedRevision: try #require(otherMessage.savedRevision),
+                disposition: .notFound
+            ),
+            .notViewed(
+                messageID: missingMessageID,
+                expectedSavedRevision: 1,
+                disposition: .notFound
+            ),
+        ]
+        #expect(result.results == expectedResults)
 
-        let repeated = try fixture.repository.markMessagesViewed(
+        let repeatedMutation = try fixture.repository.markMessagesViewed(
             .init(
                 sessionID: fixture.detail.session.id,
                 items: [
@@ -140,7 +147,9 @@ struct WorktreeAnnotationViewedMutationTests {
                 now: Date(timeIntervalSince1970: 21)
             )
         )
+        let repeated = repeatedMutation.canonicalResult
         #expect(!repeated.changed)
+        #expect(repeatedMutation.change == .noChange)
         #expect(
             repeated.results == [
                 .viewed(
@@ -209,7 +218,7 @@ private func addSavedMessage(
             editToken: editToken,
             now: Date(timeIntervalSince1970: now)
         )
-    )
+    ).canonicalResult
     return try saveMessage(
         repository: repository,
         detail: draftDetail,
@@ -236,7 +245,7 @@ private func addSavedRootSession(
             editToken: editToken,
             now: Date(timeIntervalSince1970: now)
         )
-    )
+    ).canonicalResult
     return try saveMessage(
         repository: repository,
         detail: draftDetail,
@@ -262,5 +271,5 @@ private func saveMessage(
             expectedDraftRevision: try #require(message.draft?.draftRevision),
             now: Date(timeIntervalSince1970: now)
         )
-    )
+    ).canonicalResult
 }

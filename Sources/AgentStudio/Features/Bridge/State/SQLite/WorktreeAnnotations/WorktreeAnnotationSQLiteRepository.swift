@@ -206,7 +206,9 @@ struct WorktreeAnnotationSQLiteRepository {
         ).map(decodeSession)
     }
 
-    func createRootDraft(_ props: CreateRootDraftProps) throws -> WorktreeAnnotationSessionDetail {
+    func createRootDraft(_ props: CreateRootDraftProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
         let body = try WorktreeAnnotationMessagePolicy.validate(props.body)
         return try databaseWriter.write { database in
             let sessionID = try resolveSessionForNewThread(database, props: props)
@@ -249,11 +251,14 @@ struct WorktreeAnnotationSQLiteRepository {
                     now: props.now
                 )
             )
-            return try loadSessionDetail(database, sessionID: sessionID)
+            let detail = try loadSessionDetail(database, sessionID: sessionID)
+            return .catalog(detail)
         }
     }
 
-    func flushDraft(_ props: FlushDraftProps) throws -> WorktreeAnnotationSessionDetail {
+    func flushDraft(_ props: FlushDraftProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
         try databaseWriter.write { database in
             try validateMessageRevision(
                 database,
@@ -315,18 +320,11 @@ struct WorktreeAnnotationSQLiteRepository {
                     )
                 }
                 try advanceSession(database, sessionID: props.sessionID, now: props.now)
-                return try loadSessionDetail(database, sessionID: props.sessionID)
+                let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+                return .catalog(detail)
             }
 
-            let body: String
-            if props.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                guard props.body.utf8.count <= WorktreeAnnotationMessagePolicy.maximumBodyUTF8Bytes else {
-                    throw WorktreeAnnotationRepositoryError.invalidState
-                }
-                body = props.body
-            } else {
-                body = try WorktreeAnnotationMessagePolicy.validate(props.body)
-            }
+            let body = try Self.validateFlushedDraftBody(props.body)
 
             try database.execute(
                 sql: """
@@ -354,11 +352,24 @@ struct WorktreeAnnotationSQLiteRepository {
                 sessionID: props.sessionID,
                 now: props.now
             )
-            return try loadSessionDetail(database, sessionID: props.sessionID)
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return .content(detail)
         }
     }
 
-    func saveDraft(_ props: SaveDraftProps) throws -> WorktreeAnnotationSessionDetail {
+    private static func validateFlushedDraftBody(_ body: String) throws -> String {
+        guard body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return try WorktreeAnnotationMessagePolicy.validate(body)
+        }
+        guard body.utf8.count <= WorktreeAnnotationMessagePolicy.maximumBodyUTF8Bytes else {
+            throw WorktreeAnnotationRepositoryError.invalidState
+        }
+        return body
+    }
+
+    func saveDraft(_ props: SaveDraftProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
         try databaseWriter.write { database in
             try validateMessageRevision(
                 database,
@@ -400,11 +411,14 @@ struct WorktreeAnnotationSQLiteRepository {
                 sessionID: props.sessionID,
                 now: props.now
             )
-            return try loadSessionDetail(database, sessionID: props.sessionID)
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return .content(detail)
         }
     }
 
-    func revertDraft(_ props: RevertDraftProps) throws -> WorktreeAnnotationSessionDetail {
+    func revertDraft(_ props: RevertDraftProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
         try databaseWriter.write { database in
             try validateMessageRevision(
                 database,
@@ -457,11 +471,14 @@ struct WorktreeAnnotationSQLiteRepository {
                     now: props.now
                 )
             }
-            return try loadSessionDetail(database, sessionID: props.sessionID)
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return hasSavedBody ? .content(detail) : .catalog(detail)
         }
     }
 
-    func createReplyDraft(_ props: CreateReplyDraftProps) throws -> WorktreeAnnotationSessionDetail {
+    func createReplyDraft(_ props: CreateReplyDraftProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
         let body = try WorktreeAnnotationMessagePolicy.validate(props.body)
         return try databaseWriter.write { database in
             try validateThreadRevision(
@@ -505,11 +522,14 @@ struct WorktreeAnnotationSQLiteRepository {
                 arguments: [props.now.timeIntervalSince1970, props.threadID.databaseValue]
             )
             try advanceSession(database, sessionID: props.sessionID, now: props.now)
-            return try loadSessionDetail(database, sessionID: props.sessionID)
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return .catalog(detail)
         }
     }
 
-    func setThreadResolution(_ props: SetThreadResolutionProps) throws -> WorktreeAnnotationSessionDetail {
+    func setThreadResolution(_ props: SetThreadResolutionProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
         try databaseWriter.write { database in
             try validateThreadRevision(
                 database,
@@ -528,7 +548,10 @@ struct WorktreeAnnotationSQLiteRepository {
                 throw WorktreeAnnotationRepositoryError.notFound
             }
             if currentResolution == props.resolution.rawValue {
-                return try loadSessionDetail(database, sessionID: props.sessionID)
+                return WorktreeAnnotationCommittedMutation(
+                    canonicalResult: try loadSessionDetail(database, sessionID: props.sessionID),
+                    change: .noChange
+                )
             }
             try database.execute(
                 sql: """
@@ -545,7 +568,8 @@ struct WorktreeAnnotationSQLiteRepository {
                 ]
             )
             try advanceSession(database, sessionID: props.sessionID, now: props.now)
-            return try loadSessionDetail(database, sessionID: props.sessionID)
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return .content(detail)
         }
     }
 }

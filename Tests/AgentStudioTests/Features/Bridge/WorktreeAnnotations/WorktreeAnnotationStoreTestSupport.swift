@@ -58,7 +58,7 @@ func makeSourceFingerprint(identity: String) -> WorktreeAnnotationSourceFingerpr
 
 func makeLocatedCommittedDetail() throws -> WorktreeAnnotationSessionDetail {
     let repository = try makeAnnotationRepository()
-    return try repository.createRootDraft(makeLocatedRootDraftProps())
+    return try repository.createRootDraft(makeLocatedRootDraftProps()).canonicalResult
 }
 
 func makeSourceUpdatedDetail(
@@ -84,7 +84,7 @@ func makeSourceUpdatedDetail(
 
 func makeCommittedDetail() throws -> WorktreeAnnotationSessionDetail {
     let repository = try makeAnnotationRepository()
-    return try repository.createRootDraft(makeCreateRootDraftProps())
+    return try repository.createRootDraft(makeCreateRootDraftProps()).canonicalResult
 }
 
 func makeAnnotationRepository() throws -> WorktreeAnnotationSQLiteRepository {

@@ -400,14 +400,14 @@ private actor ControllableSourceRefreshAnnotationAccess: WorktreeAnnotationRepos
     }
 
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
-        return initialDetail
+        return .catalog(initialDetail)
     }
 
     func setSourceRelationship(_ props: WorktreeAnnotationSQLiteRepository.SetSourceRelationshipProps)
-        async throws -> WorktreeAnnotationSessionDetail
+        async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         didStartCommit = true
@@ -415,7 +415,7 @@ private actor ControllableSourceRefreshAnnotationAccess: WorktreeAnnotationRepos
         commitStartedContinuation = nil
         await withCheckedContinuation { commitContinuation = $0 }
         sourceCommitCount += 1
-        return committedDetail
+        return .control(committedDetail, reason: .discovery)
     }
 
     func fetchUnacknowledgedRecoveryProvenance() async throws -> WorktreeAnnotationRecoveryProvenance? { nil }
@@ -466,7 +466,7 @@ private actor ControllableDemandDetailLoadAccess: WorktreeAnnotationRepositoryAc
     }
 
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         throw WorktreeAnnotationSourceRefreshTestError.unexpectedOperation
@@ -521,18 +521,18 @@ private actor ControllableSourceRefreshDetailLoadAccess: WorktreeAnnotationRepos
     }
 
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         throw WorktreeAnnotationSourceRefreshTestError.unexpectedOperation
     }
 
     func setSourceRelationship(_ props: WorktreeAnnotationSQLiteRepository.SetSourceRelationshipProps)
-        async throws -> WorktreeAnnotationSessionDetail
+        async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         sourceCommitCount += 1
-        return detail
+        return .control(detail, reason: .discovery)
     }
 
     func fetchUnacknowledgedRecoveryProvenance() async throws -> WorktreeAnnotationRecoveryProvenance? { nil }
@@ -556,6 +556,10 @@ actor RepositoryBackedWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAcce
         try repository.discoverSessions(worktreeID: worktreeID)
     }
 
+    func fetchCatalogCapture(worktreeID: String) async throws -> WorktreeAnnotationCatalogCapture {
+        try repository.fetchCatalogCapture(worktreeID: worktreeID)
+    }
+
     func fetchSessionDetail(sessionID: WorktreeAnnotationSessionID) async throws
         -> WorktreeAnnotationSessionDetail
     {
@@ -563,73 +567,69 @@ actor RepositoryBackedWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAcce
     }
 
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try repository.createRootDraft(props)
     }
 
     func flushDraft(_ props: WorktreeAnnotationSQLiteRepository.FlushDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try repository.flushDraft(props)
     }
 
     func saveDraft(_ props: WorktreeAnnotationSQLiteRepository.SaveDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try repository.saveDraft(props)
     }
 
     func revertDraft(_ props: WorktreeAnnotationSQLiteRepository.RevertDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try repository.revertDraft(props)
     }
 
     func acquireEditToken(_ props: WorktreeAnnotationSQLiteRepository.AcquireEditTokenProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try repository.acquireEditToken(props)
     }
 
     func releaseEditToken(_ props: WorktreeAnnotationSQLiteRepository.ReleaseEditTokenProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try repository.releaseEditToken(props)
     }
 
     func createReplyDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateReplyDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try repository.createReplyDraft(props)
     }
 
     func setThreadResolution(_ props: WorktreeAnnotationSQLiteRepository.SetThreadResolutionProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try repository.setThreadResolution(props)
     }
 
     func setSessionLifecycle(_ props: WorktreeAnnotationSQLiteRepository.SetSessionLifecycleProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try repository.setSessionLifecycle(props)
     }
 
     func setSourceRelationship(_ props: WorktreeAnnotationSQLiteRepository.SetSourceRelationshipProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try repository.setSourceRelationship(props)
     }
 
     func prepareOutput(_ props: WorktreeAnnotationSQLiteRepository.PrepareOutputProps) async throws
-        -> WorktreeAnnotationOutputMutationResult
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput>
     {
-        let preparedOutput = try repository.prepareOutput(props)
-        return try WorktreeAnnotationOutputMutationResult(
-            preparedOutput: preparedOutput,
-            sessionDetail: repository.fetchSessionDetail(sessionID: props.sessionID)
-        )
+        try repository.prepareOutput(props)
     }
 
     func inspectOutputAttempt(attemptID: WorktreeAnnotationOutputAttemptID) async throws
@@ -641,31 +641,25 @@ actor RepositoryBackedWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAcce
     func cancelOutputAttempt(
         attemptID: WorktreeAnnotationOutputAttemptID,
         now: Date
-    ) async throws -> WorktreeAnnotationOutputMutationResult {
-        let preparedOutput = try repository.cancelOutputAttempt(attemptID: attemptID, now: now)
-        return try WorktreeAnnotationOutputMutationResult(
-            preparedOutput: preparedOutput,
-            sessionDetail: repository.fetchSessionDetail(sessionID: preparedOutput.attempt.sessionID)
-        )
+    ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput> {
+        try repository.cancelOutputAttempt(attemptID: attemptID, now: now)
     }
 
     func finalizeOutputAttempt(
         attemptID: WorktreeAnnotationOutputAttemptID,
         eventKind: WorktreeAnnotationOutputEventKind,
         now: Date
-    ) async throws -> WorktreeAnnotationOutputMutationResult {
-        let preparedOutput = try repository.finalizeOutputAttempt(
+    ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput> {
+        try repository.finalizeOutputAttempt(
             attemptID: attemptID,
             eventKind: eventKind,
             now: now
         )
-        return try WorktreeAnnotationOutputMutationResult(
-            preparedOutput: preparedOutput,
-            sessionDetail: repository.fetchSessionDetail(sessionID: preparedOutput.attempt.sessionID)
-        )
     }
 
-    func markPreparedOutputAttemptsUnknown(now: Date) async throws -> Int {
+    func markPreparedOutputAttemptsUnknown(now: Date) async throws
+        -> WorktreeAnnotationCommittedMutation<Int>
+    {
         try repository.markPreparedOutputAttemptsUnknown(now: now)
     }
 

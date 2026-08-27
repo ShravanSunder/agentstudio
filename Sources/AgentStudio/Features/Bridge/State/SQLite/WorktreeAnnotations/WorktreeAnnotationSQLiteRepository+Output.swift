@@ -73,10 +73,22 @@ extension WorktreeAnnotationSQLiteRepository {
         }
     }
 
-    func prepareOutput(_ props: PrepareOutputProps) throws -> PreparedOutput {
+    func prepareOutput(_ props: PrepareOutputProps) throws
+        -> WorktreeAnnotationCommittedMutation<PreparedOutput>
+    {
         let snapshotJSONString = try validateOutputPreparation(props)
         return try databaseWriter.write { database in
-            try insertPreparedOutput(database, props: props, snapshotJSONString: snapshotJSONString)
+            let preparedOutput = try insertPreparedOutput(
+                database,
+                props: props,
+                snapshotJSONString: snapshotJSONString
+            )
+            try advanceSession(database, sessionID: props.sessionID, now: props.now)
+            return try outputContentMutation(
+                database,
+                canonicalResult: preparedOutput,
+                sessionID: props.sessionID
+            )
         }
     }
 
@@ -240,7 +252,7 @@ extension WorktreeAnnotationSQLiteRepository {
         repeatedAttemptID: WorktreeAnnotationOutputAttemptID,
         destinationPath: String?,
         now: Date
-    ) throws -> PreparedOutput {
+    ) throws -> WorktreeAnnotationCommittedMutation<PreparedOutput> {
         try databaseWriter.write { database in
             let source = try loadPreparedOutput(database, attemptID: sourceAttemptID)
             guard source.attempt.state == .unknown else {
@@ -299,7 +311,12 @@ extension WorktreeAnnotationSQLiteRepository {
                     ]
                 )
             }
-            return try loadPreparedOutput(database, attemptID: repeatedAttemptID)
+            try advanceSession(database, sessionID: source.attempt.sessionID, now: now)
+            return try outputContentMutation(
+                database,
+                canonicalResult: loadPreparedOutput(database, attemptID: repeatedAttemptID),
+                sessionID: source.attempt.sessionID
+            )
         }
     }
 
@@ -313,10 +330,15 @@ extension WorktreeAnnotationSQLiteRepository {
         attemptID: WorktreeAnnotationOutputAttemptID,
         effectError: String? = nil,
         now: Date
-    ) throws -> PreparedOutput {
+    ) throws -> WorktreeAnnotationCommittedMutation<PreparedOutput> {
         try databaseWriter.write { database in
             let current = try loadPreparedOutput(database, attemptID: attemptID)
-            if current.attempt.state == .cancelled { return current }
+            if current.attempt.state == .cancelled {
+                return WorktreeAnnotationCommittedMutation(
+                    canonicalResult: current,
+                    change: .noChange
+                )
+            }
             guard current.attempt.state == .prepared else {
                 throw WorktreeAnnotationRepositoryError.invalidState
             }
@@ -328,7 +350,12 @@ extension WorktreeAnnotationSQLiteRepository {
                     """,
                 arguments: [effectError, now.timeIntervalSince1970, attemptID.databaseValue]
             )
-            return try loadPreparedOutput(database, attemptID: attemptID)
+            try advanceSession(database, sessionID: current.attempt.sessionID, now: now)
+            return try outputContentMutation(
+                database,
+                canonicalResult: loadPreparedOutput(database, attemptID: attemptID),
+                sessionID: current.attempt.sessionID
+            )
         }
     }
 
@@ -336,7 +363,7 @@ extension WorktreeAnnotationSQLiteRepository {
         attemptID: WorktreeAnnotationOutputAttemptID,
         eventKind: WorktreeAnnotationOutputEventKind,
         now: Date
-    ) throws -> PreparedOutput {
+    ) throws -> WorktreeAnnotationCommittedMutation<PreparedOutput> {
         try databaseWriter.write { database in
             let current = try loadPreparedOutput(database, attemptID: attemptID)
             let expectedEventKind: WorktreeAnnotationOutputEventKind =
@@ -348,7 +375,10 @@ extension WorktreeAnnotationSQLiteRepository {
                 guard event.eventKind == eventKind else {
                     throw WorktreeAnnotationRepositoryError.invalidState
                 }
-                return current
+                return WorktreeAnnotationCommittedMutation(
+                    canonicalResult: current,
+                    change: .noChange
+                )
             }
             guard current.attempt.state == .prepared || current.attempt.state == .finalizationFailed else {
                 throw WorktreeAnnotationRepositoryError.invalidState
@@ -370,38 +400,63 @@ extension WorktreeAnnotationSQLiteRepository {
                 sql: "UPDATE annotation_output_attempt SET state = 'succeeded', updated_at = ? WHERE id = ?",
                 arguments: [now.timeIntervalSince1970, attemptID.databaseValue]
             )
-            try markOutputMessagesHandled(
+            _ = try markOutputMessagesHandled(
                 database,
                 attemptID: attemptID,
-                sessionID: current.attempt.sessionID,
                 now: now
             )
-            return try loadPreparedOutput(database, attemptID: attemptID)
+            try advanceSession(database, sessionID: current.attempt.sessionID, now: now)
+            return try outputContentMutation(
+                database,
+                canonicalResult: loadPreparedOutput(database, attemptID: attemptID),
+                sessionID: current.attempt.sessionID
+            )
         }
     }
 
-    func markPreparedOutputAttemptsUnknown(now: Date) throws -> Int {
+    func markPreparedOutputAttemptsUnknown(now: Date) throws
+        -> WorktreeAnnotationCommittedMutation<Int>
+    {
         try databaseWriter.write { database in
             let preparedAttemptIDs = try String.fetchAll(
                 database,
-                sql: "SELECT id FROM annotation_output_attempt WHERE state = 'prepared'"
+                sql: "SELECT id FROM annotation_output_attempt WHERE state = 'prepared' ORDER BY id ASC"
             )
             try database.execute(
                 sql: "UPDATE annotation_output_attempt SET state = 'unknown', updated_at = ? WHERE state = 'prepared'",
                 arguments: [now.timeIntervalSince1970]
             )
             let changedCount = database.changesCount
+            var changedSessionIDs: Set<WorktreeAnnotationSessionID> = []
             for attemptID in preparedAttemptIDs {
                 let typedAttemptID: WorktreeAnnotationOutputAttemptID = try decodeIdentity(attemptID)
                 let sessionID = try requireOutputAttemptSessionID(database, attemptID: typedAttemptID)
-                try lockOutputMessages(
+                _ = try lockOutputMessages(
                     database,
                     attemptID: typedAttemptID,
-                    sessionID: sessionID,
                     now: now
                 )
+                changedSessionIDs.insert(sessionID)
             }
-            return changedCount
+            guard changedCount > 0 else {
+                return WorktreeAnnotationCommittedMutation(
+                    canonicalResult: 0,
+                    change: .noChange
+                )
+            }
+            let orderedSessionIDs = changedSessionIDs.sorted {
+                $0.rawValue.uuidString < $1.rawValue.uuidString
+            }
+            for sessionID in orderedSessionIDs {
+                try advanceSession(database, sessionID: sessionID, now: now)
+            }
+            let sessionChanges = try orderedSessionIDs.map {
+                try loadCommittedSessionChange(database, sessionID: $0)
+            }
+            return WorktreeAnnotationCommittedMutation(
+                canonicalResult: changedCount,
+                change: .content(sessionChanges: sessionChanges)
+            )
         }
     }
 
@@ -409,7 +464,7 @@ extension WorktreeAnnotationSQLiteRepository {
         attemptID: WorktreeAnnotationOutputAttemptID,
         cleanupError: String,
         now: Date
-    ) throws -> PreparedOutput {
+    ) throws -> WorktreeAnnotationCommittedMutation<PreparedOutput> {
         try databaseWriter.write { database in
             let current = try loadPreparedOutput(database, attemptID: attemptID)
             guard current.attempt.state == .prepared || current.attempt.state == .finalizationFailed else {
@@ -423,13 +478,17 @@ extension WorktreeAnnotationSQLiteRepository {
                     """,
                 arguments: [cleanupError, now.timeIntervalSince1970, attemptID.databaseValue]
             )
-            try lockOutputMessages(
+            _ = try lockOutputMessages(
                 database,
                 attemptID: attemptID,
-                sessionID: current.attempt.sessionID,
                 now: now
             )
-            return try loadPreparedOutput(database, attemptID: attemptID)
+            try advanceSession(database, sessionID: current.attempt.sessionID, now: now)
+            return try outputContentMutation(
+                database,
+                canonicalResult: loadPreparedOutput(database, attemptID: attemptID),
+                sessionID: current.attempt.sessionID
+            )
         }
     }
 
@@ -482,7 +541,7 @@ extension WorktreeAnnotationSQLiteRepository {
         attemptID: WorktreeAnnotationOutputAttemptID,
         expectedSessionRevision: Int,
         now: Date
-    ) throws -> WorktreeAnnotationSessionDetail {
+    ) throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail> {
         try databaseWriter.write { database in
             guard
                 let attempt = try Row.fetchOne(
@@ -520,10 +579,17 @@ extension WorktreeAnnotationSQLiteRepository {
                     """,
                 arguments: [now.timeIntervalSince1970, attemptID.databaseValue]
             )
-            if database.changesCount > 0 {
+            let changed = database.changesCount > 0
+            if changed {
                 try advanceSession(database, sessionID: sessionID, now: now)
             }
-            return try loadSessionDetail(database, sessionID: sessionID)
+            let detail = try loadSessionDetail(database, sessionID: sessionID)
+            return changed
+                ? .content(detail)
+                : WorktreeAnnotationCommittedMutation(
+                    canonicalResult: detail,
+                    change: .noChange
+                )
         }
     }
 
@@ -670,9 +736,8 @@ extension WorktreeAnnotationSQLiteRepository {
     private func lockOutputMessages(
         _ database: Database,
         attemptID: WorktreeAnnotationOutputAttemptID,
-        sessionID: WorktreeAnnotationSessionID,
         now: Date
-    ) throws {
+    ) throws -> Bool {
         try database.execute(
             sql: """
                 UPDATE annotation_message
@@ -683,17 +748,14 @@ extension WorktreeAnnotationSQLiteRepository {
                 """,
             arguments: [now.timeIntervalSince1970, attemptID.databaseValue]
         )
-        if database.changesCount > 0 {
-            try advanceSession(database, sessionID: sessionID, now: now)
-        }
+        return database.changesCount > 0
     }
 
     private func markOutputMessagesHandled(
         _ database: Database,
         attemptID: WorktreeAnnotationOutputAttemptID,
-        sessionID: WorktreeAnnotationSessionID,
         now: Date
-    ) throws {
+    ) throws -> Bool {
         try database.execute(
             sql: """
                 UPDATE annotation_message AS message
@@ -713,9 +775,42 @@ extension WorktreeAnnotationSQLiteRepository {
                 """,
             arguments: [now.timeIntervalSince1970, attemptID.databaseValue]
         )
-        if database.changesCount > 0 {
-            try advanceSession(database, sessionID: sessionID, now: now)
+        return database.changesCount > 0
+    }
+
+    private func outputContentMutation(
+        _ database: Database,
+        canonicalResult: PreparedOutput,
+        sessionID: WorktreeAnnotationSessionID
+    ) throws -> WorktreeAnnotationCommittedMutation<PreparedOutput> {
+        WorktreeAnnotationCommittedMutation(
+            canonicalResult: canonicalResult,
+            change: .content(
+                sessionChanges: [
+                    try loadCommittedSessionChange(database, sessionID: sessionID)
+                ]
+            )
+        )
+    }
+
+    private func loadCommittedSessionChange(
+        _ database: Database,
+        sessionID: WorktreeAnnotationSessionID
+    ) throws -> WorktreeAnnotationCommittedSessionChange {
+        guard
+            let row = try Row.fetchOne(
+                database,
+                sql: "SELECT worktree_id, semantic_revision FROM annotation_session WHERE id = ?",
+                arguments: [sessionID.databaseValue]
+            )
+        else {
+            throw WorktreeAnnotationRepositoryError.notFound
         }
+        return WorktreeAnnotationCommittedSessionChange(
+            worktreeID: row["worktree_id"],
+            sessionID: sessionID,
+            semanticRevision: row["semantic_revision"]
+        )
     }
 
     private func requireOutputAttemptSessionID(

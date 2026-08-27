@@ -2,7 +2,9 @@ import Foundation
 import GRDB
 
 extension WorktreeAnnotationSQLiteRepository {
-    func setSessionLifecycle(_ props: SetSessionLifecycleProps) throws -> WorktreeAnnotationSessionDetail {
+    func setSessionLifecycle(_ props: SetSessionLifecycleProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
         try databaseWriter.write { database in
             try validateSessionRevision(
                 database,
@@ -35,11 +37,14 @@ extension WorktreeAnnotationSQLiteRepository {
                     props.sessionID.databaseValue,
                 ]
             )
-            return try loadSessionDetail(database, sessionID: props.sessionID)
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return .control(detail, reason: .discovery)
         }
     }
 
-    func setSourceRelationship(_ props: SetSourceRelationshipProps) throws -> WorktreeAnnotationSessionDetail {
+    func setSourceRelationship(_ props: SetSourceRelationshipProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
         try databaseWriter.write { database in
             try validateSessionRevision(
                 database,
@@ -68,13 +73,14 @@ extension WorktreeAnnotationSQLiteRepository {
                     props.sessionID.databaseValue,
                 ]
             )
-            return try loadSessionDetail(database, sessionID: props.sessionID)
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return .control(detail, reason: .discovery)
         }
     }
 
     func acceptCurrentAssociation(
         _ props: AcceptCurrentAssociationProps
-    ) throws -> AssociationMutationResult {
+    ) throws -> WorktreeAnnotationCommittedMutation<AssociationMutationResult> {
         try databaseWriter.write { database in
             guard
                 let row = try Row.fetchOne(
@@ -118,10 +124,24 @@ extension WorktreeAnnotationSQLiteRepository {
             guard database.changesCount == 1 else {
                 throw WorktreeAnnotationRepositoryError.invalidState
             }
-            return AssociationMutationResult(
+            let canonicalResult = AssociationMutationResult(
                 detail: try loadSessionDetail(database, sessionID: props.sessionID),
                 previousWorktreeID: props.previousWorktreeID,
                 currentWorktreeID: props.currentWorktreeID
+            )
+            let worktreeIDs = Set([props.previousWorktreeID, props.currentWorktreeID])
+            let sessionChanges = [canonicalResult.detail.committedSessionChange]
+            let change: WorktreeAnnotationCommittedChange =
+                props.previousWorktreeID == props.currentWorktreeID
+                ? .control(
+                    worktreeIDs: worktreeIDs,
+                    reason: .discovery,
+                    sessionChanges: sessionChanges
+                )
+                : .catalog(worktreeIDs: worktreeIDs, sessionChanges: sessionChanges)
+            return WorktreeAnnotationCommittedMutation(
+                canonicalResult: canonicalResult,
+                change: change
             )
         }
     }

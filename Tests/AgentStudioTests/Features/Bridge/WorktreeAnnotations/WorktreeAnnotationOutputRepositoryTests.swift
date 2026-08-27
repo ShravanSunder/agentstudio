@@ -12,8 +12,11 @@ struct WorktreeAnnotationOutputRepositoryTests {
     func preparePersistsCanonicalSemanticsAndExactMaterialization() throws {
         let fixture = try makeOutputRepositoryFixture()
 
-        let prepared = try fixture.repository.prepareOutput(fixture.prepareProps())
+        let preparedMutation = try fixture.repository.prepareOutput(fixture.prepareProps())
+        let prepared = preparedMutation.canonicalResult
 
+        let preparedRevision = try contentSessionRevision(preparedMutation)
+        #expect(preparedRevision == fixture.detail.session.semanticRevision + 1)
         #expect(prepared.canonicalSnapshot == .v2(fixture.snapshot))
         #expect(prepared.attempt.exactBytes == fixture.exactBytes)
         #expect(
@@ -64,11 +67,11 @@ struct WorktreeAnnotationOutputRepositoryTests {
     @Test("historical v1 inspection and repeat preserve exact stored document and effect bytes")
     func historicalV1InspectionAndRepeatPreserveExactBytes() throws {
         let fixture = try makeOutputRepositoryFixture()
-        let prepared = try fixture.repository.prepareOutput(fixture.prepareProps())
+        let prepared = try fixture.repository.prepareOutput(fixture.prepareProps()).canonicalResult
         #expect(
             try fixture.repository.markPreparedOutputAttemptsUnknown(
                 now: Date(timeIntervalSince1970: 4)
-            ) == 1
+            ).canonicalResult == 1
         )
         let v2SnapshotJSONString = try #require(String(data: fixture.snapshotJSON, encoding: .utf8))
         let v1SnapshotJSONString = v2SnapshotJSONString.replacingOccurrences(
@@ -102,7 +105,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
             repeatedAttemptID: repeatedAttemptID,
             destinationPath: nil,
             now: Date(timeIntervalSince1970: 5)
-        )
+        ).canonicalResult
         #expect(repeated.attempt.formatVersion == 1)
         #expect(repeated.attempt.exactBytes == historicalExactBytes)
 
@@ -196,7 +199,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
                 editToken: "reply-editor",
                 now: Date(timeIntervalSince1970: 4)
             )
-        )
+        ).canonicalResult
         let replyDraft = try #require(detailWithReply.threads.first?.messages.last)
         detailWithReply = try fixture.repository.saveDraft(
             .init(
@@ -207,7 +210,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
                 expectedDraftRevision: 0,
                 now: Date(timeIntervalSince1970: 5)
             )
-        )
+        ).canonicalResult
         let reply = try #require(detailWithReply.threads.first?.messages.last)
         let replySavedRevision = try #require(reply.savedRevision)
         let nextAttemptID = WorktreeAnnotationOutputAttemptID(rawValue: testUUID(72))
@@ -254,7 +257,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
     @Test("finalization rejects an event kind that contradicts the prepared output kind")
     func finalizationRejectsMismatchedEventKind() throws {
         let fixture = try makeOutputRepositoryFixture()
-        let prepared = try fixture.repository.prepareOutput(fixture.prepareProps())
+        let prepared = try fixture.repository.prepareOutput(fixture.prepareProps()).canonicalResult
 
         #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
             try fixture.repository.finalizeOutputAttempt(
@@ -268,7 +271,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
     @Test("explicit repetition rejects attempts whose external effect is known")
     func explicitRepetitionRejectsKnownAttempts() throws {
         let preparedFixture = try makeOutputRepositoryFixture()
-        let prepared = try preparedFixture.repository.prepareOutput(preparedFixture.prepareProps())
+        let prepared = try preparedFixture.repository.prepareOutput(preparedFixture.prepareProps()).canonicalResult
         #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
             try preparedFixture.repository.repeatOutputAttempt(
                 sourceAttemptID: prepared.attempt.id,
@@ -281,12 +284,12 @@ struct WorktreeAnnotationOutputRepositoryTests {
         let succeededFixture = try makeOutputRepositoryFixture()
         let succeededPrepared = try succeededFixture.repository.prepareOutput(
             succeededFixture.prepareProps()
-        )
+        ).canonicalResult
         let succeeded = try succeededFixture.repository.finalizeOutputAttempt(
             attemptID: succeededPrepared.attempt.id,
             eventKind: .copied,
             now: Date(timeIntervalSince1970: 4)
-        )
+        ).canonicalResult
         #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
             try succeededFixture.repository.repeatOutputAttempt(
                 sourceAttemptID: succeeded.attempt.id,
@@ -299,12 +302,12 @@ struct WorktreeAnnotationOutputRepositoryTests {
         let cancelledFixture = try makeOutputRepositoryFixture()
         let cancelledPrepared = try cancelledFixture.repository.prepareOutput(
             cancelledFixture.prepareProps()
-        )
+        ).canonicalResult
         let cancelled = try cancelledFixture.repository.cancelOutputAttempt(
             attemptID: cancelledPrepared.attempt.id,
             effectError: "cancelled",
             now: Date(timeIntervalSince1970: 4)
-        )
+        ).canonicalResult
         #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
             try cancelledFixture.repository.repeatOutputAttempt(
                 sourceAttemptID: cancelled.attempt.id,
@@ -317,13 +320,13 @@ struct WorktreeAnnotationOutputRepositoryTests {
         let finalizationFailedFixture = try makeOutputRepositoryFixture()
         let finalizationPrepared = try finalizationFailedFixture.repository.prepareOutput(
             finalizationFailedFixture.prepareProps()
-        )
+        ).canonicalResult
         let finalizationFailed = try finalizationFailedFixture.repository
             .markOutputAttemptFinalizationFailed(
                 attemptID: finalizationPrepared.attempt.id,
                 cleanupError: "history failed",
                 now: Date(timeIntervalSince1970: 4)
-            )
+            ).canonicalResult
         #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
             try finalizationFailedFixture.repository.repeatOutputAttempt(
                 sourceAttemptID: finalizationFailed.attempt.id,
@@ -337,7 +340,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
     @Test("history is bounded, newest first, and excludes cancelled attempts")
     func historyIsBoundedAndExcludesCancelledAttempts() throws {
         let fixture = try makeOutputRepositoryFixture()
-        let cancelled = try fixture.repository.prepareOutput(fixture.prepareProps())
+        let cancelled = try fixture.repository.prepareOutput(fixture.prepareProps()).canonicalResult
         _ = try fixture.repository.cancelOutputAttempt(
             attemptID: cancelled.attempt.id,
             effectError: "clipboard unavailable",
@@ -347,22 +350,22 @@ struct WorktreeAnnotationOutputRepositoryTests {
         let unknownAttemptID = WorktreeAnnotationOutputAttemptID(rawValue: testUUID(73))
         let unknown = try fixture.repository.prepareOutput(
             fixture.prepareProps(attemptID: unknownAttemptID, now: Date(timeIntervalSince1970: 5))
-        )
+        ).canonicalResult
         #expect(
             try fixture.repository.markPreparedOutputAttemptsUnknown(
                 now: Date(timeIntervalSince1970: 6)
-            ) == 1
+            ).canonicalResult == 1
         )
         let repeated = try fixture.repository.repeatOutputAttempt(
             sourceAttemptID: unknown.attempt.id,
             repeatedAttemptID: .init(rawValue: testUUID(74)),
             destinationPath: nil,
             now: Date(timeIntervalSince1970: 7)
-        )
+        ).canonicalResult
         #expect(
             try fixture.repository.markPreparedOutputAttemptsUnknown(
                 now: Date(timeIntervalSince1970: 8)
-            ) == 1
+            ).canonicalResult == 1
         )
 
         let history = try fixture.repository.fetchOutputHistory(
@@ -384,17 +387,20 @@ struct WorktreeAnnotationOutputRepositoryTests {
         let prepared = try fixture.repository.prepareOutput(fixture.prepareProps())
 
         let failed = try fixture.repository.markOutputAttemptFinalizationFailed(
-            attemptID: prepared.attempt.id,
+            attemptID: prepared.canonicalResult.attempt.id,
             cleanupError: "forced finalization failure",
             now: Date(timeIntervalSince1970: 4)
         )
 
+        let preparedRevision = try contentSessionRevision(prepared)
+        let failedRevision = try contentSessionRevision(failed)
+        #expect(failedRevision == preparedRevision + 1)
         let message = try #require(
             fixture.repository.fetchSessionDetail(sessionID: fixture.detail.session.id)
                 .threads.first?.messages.first
         )
-        #expect(failed.attempt.state == .finalizationFailed)
-        #expect(failed.event == nil)
+        #expect(failed.canonicalResult.attempt.state == .finalizationFailed)
+        #expect(failed.canonicalResult.event == nil)
         #expect(message.status == .locked)
         #expect(message.handled == false)
         #expect(
@@ -417,11 +423,14 @@ struct WorktreeAnnotationOutputRepositoryTests {
             fixture.prepareProps(sessionDetail: agentDetail)
         )
 
-        _ = try fixture.repository.finalizeOutputAttempt(
-            attemptID: prepared.attempt.id,
+        let finalized = try fixture.repository.finalizeOutputAttempt(
+            attemptID: prepared.canonicalResult.attempt.id,
             eventKind: .copied,
             now: Date(timeIntervalSince1970: 4)
         )
+        let preparedRevision = try contentSessionRevision(prepared)
+        let finalizedRevision = try contentSessionRevision(finalized)
+        #expect(finalizedRevision == preparedRevision + 1)
 
         let message = try #require(
             fixture.repository.fetchSessionDetail(sessionID: fixture.detail.session.id)
@@ -437,18 +446,20 @@ struct WorktreeAnnotationOutputRepositoryTests {
         let fixture = try makeOutputRepositoryFixture()
         let prepared = try fixture.repository.prepareOutput(fixture.prepareProps())
 
-        #expect(
-            try fixture.repository.markPreparedOutputAttemptsUnknown(
-                now: Date(timeIntervalSince1970: 4)
-            ) == 1
+        let changed = try fixture.repository.markPreparedOutputAttemptsUnknown(
+            now: Date(timeIntervalSince1970: 4)
         )
-        #expect(
-            try fixture.repository.markPreparedOutputAttemptsUnknown(
-                now: Date(timeIntervalSince1970: 5)
-            ) == 0
+        #expect(changed.canonicalResult == 1)
+        let preparedRevision = try contentSessionRevision(prepared)
+        let changedRevision = try contentSessionRevision(changed)
+        #expect(changedRevision == preparedRevision + 1)
+        let unchanged = try fixture.repository.markPreparedOutputAttemptsUnknown(
+            now: Date(timeIntervalSince1970: 5)
         )
+        #expect(unchanged.canonicalResult == 0)
+        #expect(unchanged.change == .noChange)
 
-        let recovered = try fixture.repository.inspectOutputAttempt(attemptID: prepared.attempt.id)
+        let recovered = try fixture.repository.inspectOutputAttempt(attemptID: prepared.canonicalResult.attempt.id)
         let message = try #require(
             fixture.repository.fetchSessionDetail(sessionID: fixture.detail.session.id)
                 .threads.first?.messages.first
@@ -556,7 +567,7 @@ private func makeOutputRepositoryFixture() throws -> OutputRepositoryFixture {
             editToken: "editor-1",
             now: Date(timeIntervalSince1970: 1)
         )
-    )
+    ).canonicalResult
     let draftMessage = try #require(detail.threads.first?.messages.first)
     detail = try repository.saveDraft(
         .init(
@@ -567,7 +578,7 @@ private func makeOutputRepositoryFixture() throws -> OutputRepositoryFixture {
             expectedDraftRevision: 0,
             now: Date(timeIntervalSince1970: 2)
         )
-    )
+    ).canonicalResult
     let message = try #require(detail.threads.first?.messages.first)
     let savedRevision = try #require(message.savedRevision)
     let attemptID = WorktreeAnnotationOutputAttemptID(rawValue: testUUID(71))
@@ -627,4 +638,14 @@ private func outputRepositoryPlacements(
 
 private func testUUID(_ suffix: Int) -> UUID {
     UUID(uuidString: String(format: "00000000-0000-7000-8000-%012d", suffix))!
+}
+
+private func contentSessionRevision<TCanonicalResult: Sendable>(
+    _ mutation: WorktreeAnnotationCommittedMutation<TCanonicalResult>
+) throws -> Int {
+    guard case .content(let sessionChanges) = mutation.change else {
+        Issue.record("Expected content classification")
+        return -1
+    }
+    return try #require(sessionChanges.first).semanticRevision
 }

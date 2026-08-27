@@ -20,7 +20,7 @@ struct WorktreeAnnotationSQLiteRepositoryConcurrencyTests {
                 expectedDraftRevision: 0,
                 now: Date(timeIntervalSince1970: 2)
             )
-        )
+        ).canonicalResult
         let firstSavedMessageRevision = try #require(
             detail.threads.first?.messages.first?.semanticRevision
         )
@@ -37,7 +37,7 @@ struct WorktreeAnnotationSQLiteRepositoryConcurrencyTests {
                 editToken: "editor-second",
                 now: Date(timeIntervalSince1970: 3)
             )
-        )
+        ).canonicalResult
         let secondMessage = try #require(detail.threads.last?.messages.first)
         detail = try repository.saveDraft(
             .init(
@@ -48,7 +48,7 @@ struct WorktreeAnnotationSQLiteRepositoryConcurrencyTests {
                 expectedDraftRevision: 0,
                 now: Date(timeIntervalSince1970: 4)
             )
-        )
+        ).canonicalResult
 
         detail = try repository.flushDraft(
             .init(
@@ -60,7 +60,7 @@ struct WorktreeAnnotationSQLiteRepositoryConcurrencyTests {
                 body: "First independent edit",
                 now: Date(timeIntervalSince1970: 5)
             )
-        )
+        ).canonicalResult
         #expect(detail.threads.first?.messages.first?.draft?.body == "First independent edit")
 
         detail = try repository.createReplyDraft(
@@ -72,7 +72,7 @@ struct WorktreeAnnotationSQLiteRepositoryConcurrencyTests {
                 editToken: "editor-reply-after-unrelated",
                 now: Date(timeIntervalSince1970: 6)
             )
-        )
+        ).canonicalResult
         #expect(detail.threads.first?.messages.map(\.ordinal) == [0, 1])
     }
 }

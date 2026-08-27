@@ -8,6 +8,16 @@ private struct BridgeWorktreeAnnotationSubscriptionOpenRequest {
     let surface: BridgeProductSurface
 }
 
+struct BridgeWorktreeAnnotationEnqueueRequest: Sendable {
+    let event: BridgeProductWorktreeAnnotationEvent
+    let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    let operationCorrelationID: String
+    let productAdmission: BridgeProductAdmissionContext
+    let session: BridgeProductSession
+    let subscriptionID: String
+    let subscriptionKind: BridgeProductSubscriptionKind
+}
+
 private struct BridgeReviewMetadataDeliveryContext {
     let activeStream: BridgePaneProductMetadataCoordinator.ActiveStream
     let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
@@ -159,20 +169,41 @@ extension BridgePaneProductMetadataCoordinator {
     ) async throws {
         try await annotationSource.open(
             subscription: request.subscription,
-            surface: request.surface
-        ) { event in
-            guard request.foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-            }
-            try await Self.enqueue(
-                event: event,
-                subscriptionKind: request.subscription.subscriptionKind,
-                subscriptionId: request.subscription.subscriptionId,
-                productAdmission: request.productAdmission,
-                foregroundWorkAdmission: request.foregroundWorkAdmission,
-                session: request.activeStream.session
+            surface: request.surface,
+            delivery: .init(
+                enqueue: { event, operationCorrelationID in
+                    guard request.foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+                        throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
+                    }
+                    return try await Self.enqueueAnnotationEvent(
+                        .init(
+                            event: event,
+                            foregroundWorkAdmission: request.foregroundWorkAdmission,
+                            operationCorrelationID: operationCorrelationID,
+                            productAdmission: request.productAdmission,
+                            session: request.activeStream.session,
+                            subscriptionID: request.subscription.subscriptionId,
+                            subscriptionKind: request.subscription.subscriptionKind
+                        )
+                    )
+                },
+                makeProspectiveMetadataFrame: { event, operationCorrelationID in
+                    try Self.makeProspectiveMetadataFrame(
+                        event: event,
+                        operationCorrelationID: operationCorrelationID,
+                        stream: request.activeStream.correlation,
+                        subscription: request.subscription
+                    )
+                },
+                waitUntilObserved: { sequence in
+                    await request.activeStream.session.waitUntilProducerFrameSequenceObserved(
+                        for: request.activeStream.lease,
+                        sequence: sequence,
+                        productAdmission: request.productAdmission
+                    )
+                }
             )
-        }
+        )
     }
 
     private func openFileMetadataSubscription(

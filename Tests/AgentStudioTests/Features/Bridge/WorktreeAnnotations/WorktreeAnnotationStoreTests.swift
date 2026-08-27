@@ -9,8 +9,8 @@ import Testing
 @MainActor
 @Suite("Worktree annotation Store")
 struct WorktreeAnnotationStoreTests {
-    @Test("coalesced observer delivery terminates the displaced correlation as stale")
-    func coalescedObserverDeliveryTerminatesDisplacedCorrelation() async throws {
+    @Test("coalesced observer delivery merges the displaced session revision")
+    func coalescedObserverDeliveryMergesDisplacedSessionRevision() async throws {
         let recorder = AnnotationServiceLifecycleTraceRecorder()
         let service = WorktreeAnnotationServiceActor(
             repositoryAccess: ImmediateWorktreeAnnotationAccess(detail: try makeCommittedDetail()),
@@ -20,21 +20,38 @@ struct WorktreeAnnotationStoreTests {
         var iterator = observer.stream.makeAsyncIterator()
         let predecessorID = String(repeating: "a", count: 64)
         let successorID = String(repeating: "b", count: 64)
+        let predecessorSessionID = WorktreeAnnotationSessionID.generate()
+        let successorSessionID = WorktreeAnnotationSessionID.generate()
 
-        await service.publishSnapshotRequired(
-            worktreeID: "worktree-1",
+        await service.applyCommittedChange(
+            .content(
+                sessionChanges: [
+                    .init(
+                        worktreeID: "worktree-1",
+                        sessionID: predecessorSessionID,
+                        semanticRevision: 2
+                    )
+                ]
+            ),
             operationCorrelationID: predecessorID
         )
-        await service.publishSnapshotRequired(
-            worktreeID: "worktree-1",
+        await service.applyCommittedChange(
+            .content(
+                sessionChanges: [
+                    .init(
+                        worktreeID: "worktree-1",
+                        sessionID: successorSessionID,
+                        semanticRevision: 3
+                    )
+                ]
+            ),
             operationCorrelationID: successorID
         )
 
-        guard case .snapshotRequired(_, let deliveredID, _) = await iterator.next() else {
-            Issue.record("Expected the coalesced successor")
-            return
-        }
-        #expect(deliveredID == successorID)
+        let deliveredChange = try #require(await iterator.next())
+        #expect(deliveredChange.operationCorrelationID == successorID)
+        #expect(deliveredChange.sessionSemanticRevisionByID[predecessorSessionID] == 2)
+        #expect(deliveredChange.sessionSemanticRevisionByID[successorSessionID] == 3)
         #expect(
             await recorder.snapshot().contains {
                 $0.operationCorrelationID == predecessorID
@@ -63,18 +80,12 @@ struct WorktreeAnnotationStoreTests {
 
         let changeA = try #require(await iteratorA.next())
         let changeB = try #require(await iteratorB.next())
-        guard case .snapshotRequired(let worktreeID, let operationCorrelationID, _) = changeA else {
-            Issue.record("Expected snapshot-required change")
-            return
-        }
-        #expect(worktreeID == "worktree-1")
-        #expect(operationCorrelationID.count == 64)
-        guard case .snapshotRequired(let worktreeIDB, let operationCorrelationIDB, _) = changeB else {
-            Issue.record("Expected second snapshot-required change")
-            return
-        }
-        #expect(worktreeIDB == worktreeID)
-        #expect(operationCorrelationIDB == operationCorrelationID)
+        #expect(changeA.worktreeID == "worktree-1")
+        #expect(changeA.disposition == .catalog)
+        #expect(changeA.operationCorrelationID.count == 64)
+        #expect(changeB.worktreeID == changeA.worktreeID)
+        #expect(changeB.disposition == .catalog)
+        #expect(changeB.operationCorrelationID == changeA.operationCorrelationID)
         await service.removeChangeObserver(token: observerA.token)
         await service.removeChangeObserver(token: observerB.token)
         #expect(await service.changeObserverCount() == 0)
@@ -189,15 +200,13 @@ struct WorktreeAnnotationStoreTests {
         let returnedDetail = try await mutation.value
 
         #expect(returnedDetail == committedDetail)
-        guard
-            case .snapshotRequired(let worktreeID, let operationCorrelationID, _) =
-                await committedIterator.next()
-        else {
+        guard let committedChange = await committedIterator.next() else {
             Issue.record("Expected correlated committed invalidation")
             return
         }
-        #expect(worktreeID == "worktree-1")
-        #expect(operationCorrelationID == startedEvents.first?.operationCorrelationID)
+        #expect(committedChange.worktreeID == "worktree-1")
+        #expect(committedChange.disposition == .catalog)
+        #expect(committedChange.operationCorrelationID == startedEvents.first?.operationCorrelationID)
         #expect(
             await traceRecorder.snapshot().map(\.stage)
                 == [.nativeWorkStarted, .nativeWorkTerminal, .notificationDeliveryStarted]
@@ -284,15 +293,15 @@ struct WorktreeAnnotationStoreTests {
 
         await store.restoreRecoveryState()
 
-        #expect(isSnapshotRequired(await iterator.next(), worktreeID: "worktree-1"))
+        #expect(isCatalogChange(await iterator.next(), worktreeID: "worktree-1"))
         await #expect(throws: WorktreeAnnotationServiceError.recoveryAcknowledgementRequired) {
             try await store.createRootDraft(makeCreateRootDraftProps())
         }
 
         try await store.acknowledgeRecovery(at: Date(timeIntervalSince1970: 11))
-        #expect(isSnapshotRequired(await iterator.next(), worktreeID: "worktree-1"))
+        #expect(isRecoveryControlChange(await iterator.next(), worktreeID: "worktree-1"))
         _ = try await store.createRootDraft(makeCreateRootDraftProps())
-        #expect(isSnapshotRequired(await iterator.next(), worktreeID: "worktree-1"))
+        #expect(isCatalogChange(await iterator.next(), worktreeID: "worktree-1"))
         #expect(await access.mutationCount == 1)
         await store.removeChangeObserver(token: observer.token)
     }
@@ -492,7 +501,7 @@ struct WorktreeAnnotationStoreTests {
                 now: Date(timeIntervalSince1970: 5)
             )
         )
-        let prepared = preparedCommit.preparedOutput
+        let prepared = preparedCommit.canonicalResult
 
         #expect(prepared.attempt.exactBytes == exactBytes)
         let durableDetail = try repository.fetchSessionDetail(sessionID: detail.session.id)
@@ -679,28 +688,28 @@ private enum TestAnnotationAccessError: Error {
 
 extension WorktreeAnnotationRepositoryAccess {
     func flushDraft(_ props: WorktreeAnnotationSQLiteRepository.FlushDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         throw TestAnnotationAccessError.unexpectedOperation
     }
 
     func saveDraft(_ props: WorktreeAnnotationSQLiteRepository.SaveDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         throw TestAnnotationAccessError.unexpectedOperation
     }
 
     func revertDraft(_ props: WorktreeAnnotationSQLiteRepository.RevertDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         throw TestAnnotationAccessError.unexpectedOperation
     }
 
     func createReplyDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateReplyDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         throw TestAnnotationAccessError.unexpectedOperation
@@ -708,7 +717,7 @@ extension WorktreeAnnotationRepositoryAccess {
 
     func setThreadResolution(_ props: WorktreeAnnotationSQLiteRepository.SetThreadResolutionProps)
         async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         throw TestAnnotationAccessError.unexpectedOperation
@@ -716,7 +725,7 @@ extension WorktreeAnnotationRepositoryAccess {
 
     func setSessionLifecycle(_ props: WorktreeAnnotationSQLiteRepository.SetSessionLifecycleProps)
         async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         throw TestAnnotationAccessError.unexpectedOperation
@@ -724,14 +733,14 @@ extension WorktreeAnnotationRepositoryAccess {
 
     func setSourceRelationship(_ props: WorktreeAnnotationSQLiteRepository.SetSourceRelationshipProps)
         async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         throw TestAnnotationAccessError.unexpectedOperation
     }
 
     func prepareOutput(_ props: WorktreeAnnotationSQLiteRepository.PrepareOutputProps) async throws
-        -> WorktreeAnnotationOutputMutationResult
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput>
     {
         _ = props
         throw TestAnnotationAccessError.unexpectedOperation
@@ -747,7 +756,7 @@ extension WorktreeAnnotationRepositoryAccess {
     func cancelOutputAttempt(
         attemptID: WorktreeAnnotationOutputAttemptID,
         now: Date
-    ) async throws -> WorktreeAnnotationOutputMutationResult {
+    ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput> {
         _ = (attemptID, now)
         throw TestAnnotationAccessError.unexpectedOperation
     }
@@ -756,19 +765,22 @@ extension WorktreeAnnotationRepositoryAccess {
         attemptID: WorktreeAnnotationOutputAttemptID,
         eventKind: WorktreeAnnotationOutputEventKind,
         now: Date
-    ) async throws -> WorktreeAnnotationOutputMutationResult {
+    ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput> {
         _ = (attemptID, eventKind, now)
         throw TestAnnotationAccessError.unexpectedOperation
     }
 
-    func markPreparedOutputAttemptsUnknown(now: Date) async throws -> Int {
+    func markPreparedOutputAttemptsUnknown(now: Date) async throws
+        -> WorktreeAnnotationCommittedMutation<Int>
+    {
         _ = now
         throw TestAnnotationAccessError.unexpectedOperation
     }
 }
 
 private actor ControllableWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAccess {
-    private var createContinuation: CheckedContinuation<WorktreeAnnotationSessionDetail, any Error>?
+    private var createContinuation:
+        CheckedContinuation<WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>, any Error>?
     private var createStartedContinuation: CheckedContinuation<Void, Never>?
     private var didStartCreate = false
 
@@ -778,7 +790,7 @@ private actor ControllableWorktreeAnnotationAccess: WorktreeAnnotationRepository
     }
 
     func completeCreateRootDraft(with result: Result<WorktreeAnnotationSessionDetail, any Error>) {
-        createContinuation?.resume(with: result)
+        createContinuation?.resume(with: result.map { .catalog($0) })
         createContinuation = nil
     }
 
@@ -791,7 +803,7 @@ private actor ControllableWorktreeAnnotationAccess: WorktreeAnnotationRepository
     }
 
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         didStartCreate = true
@@ -831,11 +843,11 @@ private actor ImmediateWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAcc
     }
 
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         mutationCount += 1
-        return detail
+        return .catalog(detail)
     }
 
     func fetchUnacknowledgedRecoveryProvenance() async throws -> WorktreeAnnotationRecoveryProvenance? {
@@ -867,7 +879,7 @@ private actor FailingHydrationWorktreeAnnotationAccess: WorktreeAnnotationReposi
     }
 
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         _ = props
         throw WorktreeAnnotationRepositoryError.invalidState
@@ -900,12 +912,20 @@ private actor AnnotationServiceLifecycleTraceRecorder: BridgeProductMetadataLife
     func snapshot() -> [BridgeAnnotationLifecycleTraceEvent] { events }
 }
 
-private func isSnapshotRequired(
+private func isCatalogChange(
     _ change: WorktreeAnnotationChange?,
     worktreeID: String
 ) -> Bool {
-    guard case .snapshotRequired(let changedWorktreeID, let operationCorrelationID, _) = change else {
-        return false
-    }
-    return changedWorktreeID == worktreeID && operationCorrelationID.count == 64
+    change?.worktreeID == worktreeID
+        && change?.disposition == .catalog
+        && change?.operationCorrelationID.count == 64
+}
+
+private func isRecoveryControlChange(
+    _ change: WorktreeAnnotationChange?,
+    worktreeID: String
+) -> Bool {
+    change?.worktreeID == worktreeID
+        && change?.disposition == .control(.recovery)
+        && change?.operationCorrelationID.count == 64
 }

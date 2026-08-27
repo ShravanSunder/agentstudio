@@ -538,47 +538,47 @@ private actor ProjectionSnapshotRepositoryAccess: WorktreeAnnotationRepositoryAc
         return detail
     }
     func createRootDraft(_: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try unsupportedProjectionMutation()
     }
     func flushDraft(_: WorktreeAnnotationSQLiteRepository.FlushDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try unsupportedProjectionMutation()
     }
     func saveDraft(_: WorktreeAnnotationSQLiteRepository.SaveDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try unsupportedProjectionMutation()
     }
     func revertDraft(_: WorktreeAnnotationSQLiteRepository.RevertDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try unsupportedProjectionMutation()
     }
     func createReplyDraft(_: WorktreeAnnotationSQLiteRepository.CreateReplyDraftProps) async throws
-        -> WorktreeAnnotationSessionDetail
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try unsupportedProjectionMutation()
     }
     func setThreadResolution(_: WorktreeAnnotationSQLiteRepository.SetThreadResolutionProps)
-        async throws -> WorktreeAnnotationSessionDetail
+        async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try unsupportedProjectionMutation()
     }
     func setSessionLifecycle(_: WorktreeAnnotationSQLiteRepository.SetSessionLifecycleProps)
-        async throws -> WorktreeAnnotationSessionDetail
+        async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try unsupportedProjectionMutation()
     }
     func setSourceRelationship(_: WorktreeAnnotationSQLiteRepository.SetSourceRelationshipProps)
-        async throws -> WorktreeAnnotationSessionDetail
+        async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     {
         try unsupportedProjectionMutation()
     }
     func prepareOutput(_: WorktreeAnnotationSQLiteRepository.PrepareOutputProps) async throws
-        -> WorktreeAnnotationOutputMutationResult
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput>
     {
         try unsupportedProjectionMutation()
     }
@@ -590,17 +590,21 @@ private actor ProjectionSnapshotRepositoryAccess: WorktreeAnnotationRepositoryAc
     func cancelOutputAttempt(
         attemptID _: WorktreeAnnotationOutputAttemptID,
         now _: Date
-    ) async throws -> WorktreeAnnotationOutputMutationResult {
+    ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput> {
         try unsupportedProjectionMutation()
     }
     func finalizeOutputAttempt(
         attemptID _: WorktreeAnnotationOutputAttemptID,
         eventKind _: WorktreeAnnotationOutputEventKind,
         now _: Date
-    ) async throws -> WorktreeAnnotationOutputMutationResult {
+    ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput> {
         try unsupportedProjectionMutation()
     }
-    func markPreparedOutputAttemptsUnknown(now _: Date) async throws -> Int { 0 }
+    func markPreparedOutputAttemptsUnknown(now _: Date) async throws
+        -> WorktreeAnnotationCommittedMutation<Int>
+    {
+        .init(canonicalResult: 0, change: .noChange)
+    }
     func fetchUnacknowledgedRecoveryProvenance() async throws
         -> WorktreeAnnotationRecoveryProvenance?
     {

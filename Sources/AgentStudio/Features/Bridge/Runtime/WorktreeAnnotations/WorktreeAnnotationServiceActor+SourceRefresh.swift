@@ -1,3 +1,8 @@
+struct WorktreeAnnotationSourceRefreshCommittedResult: Sendable {
+    let detail: WorktreeAnnotationSessionDetail
+    let remainsCurrent: Bool
+}
+
 extension WorktreeAnnotationServiceActor {
     static func sourceRefreshSnapshot(
         from detail: WorktreeAnnotationSessionDetail

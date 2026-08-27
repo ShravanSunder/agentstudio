@@ -21,7 +21,7 @@ struct WorktreeAnnotationSQLiteAssociationRepositoryTests {
                 editToken: "foreign-editor",
                 now: Date(timeIntervalSince1970: 1)
             )
-        )
+        ).canonicalResult
         _ = try repository.createRootDraft(
             .init(
                 admission: .implicitOrSingle,
@@ -72,7 +72,7 @@ struct WorktreeAnnotationSQLiteAssociationRepositoryTests {
                 editToken: "move-editor",
                 now: Date(timeIntervalSince1970: 1)
             )
-        )
+        ).canonicalResult
         let currentEvidence = try WorktreeAnnotationReviewedSubjectEvidence(
             branchName: "feature/x",
             reviewedHeadOID: "2222222222222222222222222222222222222222"
@@ -89,7 +89,7 @@ struct WorktreeAnnotationSQLiteAssociationRepositoryTests {
                 acceptedSourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-b"),
                 now: Date(timeIntervalSince1970: 2)
             )
-        )
+        ).canonicalResult
 
         #expect(moved.previousWorktreeID == "worktree-a")
         #expect(moved.currentWorktreeID == "worktree-b")
@@ -135,7 +135,7 @@ struct WorktreeAnnotationSQLiteAssociationRepositoryTests {
                 editToken: "second-root-editor",
                 now: Date(timeIntervalSince1970: 2)
             )
-        )
+        ).canonicalResult
 
         #expect(secondRoot.session.id == first.session.id)
         #expect(secondRoot.threads.count == 2)
@@ -182,5 +182,5 @@ func makeRootDraft(repository: WorktreeAnnotationSQLiteRepository) throws -> Wor
             editToken: "editor-root",
             now: Date(timeIntervalSince1970: 1)
         )
-    )
+    ).canonicalResult
 }

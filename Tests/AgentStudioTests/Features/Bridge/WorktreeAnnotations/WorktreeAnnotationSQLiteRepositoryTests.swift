@@ -24,8 +24,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 body: "  \n\t",
                 now: Date(timeIntervalSince1970: 2)
             )
-        )
-
+        ).canonicalResult
         #expect(committed.threads.isEmpty)
         #expect(try repository.fetchSessionDetail(sessionID: detail.session.id).threads.isEmpty)
     }
@@ -61,7 +60,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 liveEditTokens: [],
                 now: Date(timeIntervalSince1970: 3)
             )
-        )
+        ).canonicalResult
         let reclaimed = try #require(detail.threads.first?.messages.first?.draft)
         #expect(reclaimed.body == originalDraft.body)
         #expect(reclaimed.activeEditToken == "editor-reclaimed")
@@ -90,7 +89,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 expectedDraftRevision: reclaimed.draftRevision,
                 now: Date(timeIntervalSince1970: 5)
             )
-        )
+        ).canonicalResult
         let released = try #require(detail.threads.first?.messages.first?.draft)
         #expect(released.activeEditToken == nil)
         #expect(released.draftRevision == reclaimed.draftRevision + 1)
@@ -113,7 +112,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 liveEditTokens: [],
                 now: Date(timeIntervalSince1970: 2)
             )
-        )
+        ).canonicalResult
 
         #expect(reclaimed.threads.first?.messages.first?.draft?.draftRevision == draft.draftRevision + 1)
     }
@@ -136,7 +135,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 editToken: "editor-a",
                 now: Date(timeIntervalSince1970: 10)
             )
-        )
+        ).canonicalResult
         let discovery = try repository.discoverSessions(worktreeID: "worktree-1")
         #expect(discovery.map(\.id) == [first.session.id])
 
@@ -149,7 +148,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 confirmsUnresolvedWork: true,
                 now: Date(timeIntervalSince1970: 15)
             )
-        )
+        ).canonicalResult
         let second = try repository.createRootDraft(
             .init(
                 admission: .newSession,
@@ -161,7 +160,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 editToken: "editor-b",
                 now: Date(timeIntervalSince1970: 20)
             )
-        )
+        ).canonicalResult
         _ = try repository.setSessionLifecycle(
             .init(
                 sessionID: completedFirst.session.id,
@@ -208,7 +207,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 editToken: "editor-c",
                 now: Date(timeIntervalSince1970: 40)
             )
-        )
+        ).canonicalResult
         #expect(selected.session.id == first.session.id)
         #expect(selected.threads.count == 2)
     }
@@ -226,7 +225,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 confirmsUnresolvedWork: true,
                 now: Date(timeIntervalSince1970: 1.5)
             )
-        )
+        ).canonicalResult
         let second = try repository.createRootDraft(
             .init(
                 admission: .newSession,
@@ -238,7 +237,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 editToken: "editor-second",
                 now: Date(timeIntervalSince1970: 2)
             )
-        )
+        ).canonicalResult
         _ = try repository.setSessionLifecycle(
             .init(
                 sessionID: completedFirst.session.id,
@@ -305,7 +304,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 editToken: "editor-review",
                 now: Date(timeIntervalSince1970: 1)
             )
-        )
+        ).canonicalResult
 
         let mixedDetail = try repository.createRootDraft(
             .init(
@@ -330,7 +329,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 editToken: "editor-file",
                 now: Date(timeIntervalSince1970: 2)
             )
-        )
+        ).canonicalResult
 
         #expect(mixedDetail.session.acceptedSourceFingerprint.fileSourceIdentity == "file-source-1")
         #expect(
@@ -351,7 +350,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 expectedSessionRevision: detail.session.semanticRevision,
                 now: Date(timeIntervalSince1970: 2)
             )
-        )
+        ).canonicalResult
 
         #expect(
             throws: WorktreeAnnotationRepositoryError.sessionSelectionRequired(
@@ -392,7 +391,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 expectedDraftRevision: 0,
                 now: Date(timeIntervalSince1970: 2)
             )
-        )
+        ).canonicalResult
         let savedRoot = try #require(detail.threads.first?.messages.first)
         #expect(savedRoot.savedBody == "Root draft")
         #expect(savedRoot.savedRevision == 1)
@@ -409,7 +408,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 body: "Root edit",
                 now: Date(timeIntervalSince1970: 3)
             )
-        )
+        ).canonicalResult
         let editedRoot = try #require(detail.threads.first?.messages.first)
         #expect(editedRoot.draft?.body == "Root edit")
 
@@ -436,7 +435,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 expectedDraftRevision: try #require(editedRoot.draft?.draftRevision),
                 now: Date(timeIntervalSince1970: 5)
             )
-        )
+        ).canonicalResult
         #expect(detail.threads.first?.messages.first?.draft == nil)
 
         let threadID = try #require(detail.threads.first?.thread.id)
@@ -449,7 +448,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 editToken: "editor-reply",
                 now: Date(timeIntervalSince1970: 6)
             )
-        )
+        ).canonicalResult
         #expect(detail.threads.first?.messages.map(\.ordinal) == [0, 1])
 
         detail = try repository.setThreadResolution(
@@ -460,7 +459,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 expectedThreadRevision: try #require(detail.threads.first?.thread.semanticRevision),
                 now: Date(timeIntervalSince1970: 7)
             )
-        )
+        ).canonicalResult
         #expect(detail.threads.first?.thread.resolution == .resolved)
         #expect(detail.threads.first?.messages.count == 2)
 
@@ -495,7 +494,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 expectedDraftRevision: 0,
                 now: Date(timeIntervalSince1970: 2)
             )
-        )
+        ).canonicalResult
         let savedMessage = try #require(detail.threads.first?.messages.first)
         let savedRevision = try #require(savedMessage.savedRevision)
         let firstAttemptID = WorktreeAnnotationOutputAttemptID.generate()
@@ -530,22 +529,27 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 now: Date(timeIntervalSince1970: 3)
             )
         )
-        #expect(attempt.attempt.exactBytes == exactBytes)
-        #expect(attempt.selectedSavedRevisions == [savedRevision])
+        let preparedRevision = try repositoryTestContentSessionRevision(attempt)
+        #expect(preparedRevision == detail.session.semanticRevision + 1)
+        #expect(attempt.canonicalResult.attempt.exactBytes == exactBytes)
+        #expect(attempt.canonicalResult.selectedSavedRevisions == [savedRevision])
         #expect(
             try repository.fetchSessionDetail(sessionID: detail.session.id).threads.first?.messages.first?.status
                 == .editable)
 
         attempt = try repository.cancelOutputAttempt(
-            attemptID: attempt.attempt.id,
+            attemptID: attempt.canonicalResult.attempt.id,
             now: Date(timeIntervalSince1970: 4)
         )
+        let cancelledRevision = try repositoryTestContentSessionRevision(attempt)
+        #expect(cancelledRevision == preparedRevision + 1)
         let repeatedCancellation = try repository.cancelOutputAttempt(
-            attemptID: attempt.attempt.id,
+            attemptID: attempt.canonicalResult.attempt.id,
             now: Date(timeIntervalSince1970: 5)
         )
-        #expect(attempt.attempt.state == .cancelled)
-        #expect(repeatedCancellation == attempt)
+        #expect(attempt.canonicalResult.attempt.state == .cancelled)
+        #expect(repeatedCancellation.canonicalResult == attempt.canonicalResult)
+        #expect(repeatedCancellation.change == .noChange)
         #expect(
             try repository.fetchSessionDetail(sessionID: detail.session.id).threads.first?.messages.first?.status
                 == .editable)
@@ -584,7 +588,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 confirmsUnresolvedWork: true,
                 now: Date(timeIntervalSince1970: 3)
             )
-        )
+        ).canonicalResult
         detail = try repository.setSourceRelationship(
             .init(
                 sessionID: detail.session.id,
@@ -593,7 +597,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 expectedSessionRevision: detail.session.semanticRevision,
                 now: Date(timeIntervalSince1970: 4)
             )
-        )
+        ).canonicalResult
         detail = try repository.setSessionLifecycle(
             .init(
                 sessionID: detail.session.id,
@@ -603,7 +607,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 confirmsUnresolvedWork: false,
                 now: Date(timeIntervalSince1970: 5)
             )
-        )
+        ).canonicalResult
         #expect(detail.session.lifecycle == .living)
         #expect(detail.session.sourceRelationship == .detached)
 
@@ -639,7 +643,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 confirmsUnresolvedWork: true,
                 now: Date(timeIntervalSince1970: 2)
             )
-        )
+        ).canonicalResult
 
         assertCompletedSessionRejectsAuthoring(
             repository: repository,
@@ -656,7 +660,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 confirmsUnresolvedWork: false,
                 now: Date(timeIntervalSince1970: 4)
             )
-        )
+        ).canonicalResult
         detail = try repository.setSourceRelationship(
             .init(
                 sessionID: detail.session.id,
@@ -665,7 +669,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 expectedSessionRevision: detail.session.semanticRevision,
                 now: Date(timeIntervalSince1970: 5)
             )
-        )
+        ).canonicalResult
 
         #expect(throws: WorktreeAnnotationRepositoryError.sessionReadOnly) {
             try repository.createReplyDraft(
@@ -688,7 +692,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 expectedSessionRevision: detail.session.semanticRevision,
                 now: Date(timeIntervalSince1970: 7)
             )
-        )
+        ).canonicalResult
         #expect(throws: WorktreeAnnotationRepositoryError.sessionReadOnly) {
             try repository.setThreadResolution(
                 .init(
@@ -709,7 +713,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 expectedSessionRevision: detail.session.semanticRevision,
                 now: Date(timeIntervalSince1970: 9)
             )
-        )
+        ).canonicalResult
         detail = try repository.createReplyDraft(
             .init(
                 sessionID: detail.session.id,
@@ -719,7 +723,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 editToken: "resumed-reply",
                 now: Date(timeIntervalSince1970: 10)
             )
-        )
+        ).canonicalResult
 
         #expect(detail.threads.first?.messages.map(\.draft?.body) == ["Root draft", "Authoring resumed"])
     }
@@ -797,17 +801,17 @@ private func verifyFinalizedOutputLocksSavedMessage(
         )
     )
     let finalized = try repository.finalizeOutputAttempt(
-        attemptID: attempt.attempt.id,
+        attemptID: attempt.canonicalResult.attempt.id,
         eventKind: .copied,
         now: Date(timeIntervalSince1970: 7)
     )
     let repeatedFinalization = try repository.finalizeOutputAttempt(
-        attemptID: attempt.attempt.id,
+        attemptID: attempt.canonicalResult.attempt.id,
         eventKind: .copied,
         now: Date(timeIntervalSince1970: 8)
     )
-    #expect(finalized == repeatedFinalization)
-    #expect(finalized.attempt.state == .succeeded)
+    try assertFinalizationRevisionSequence(attempt, finalized, repeatedFinalization)
+    #expect(finalized.canonicalResult.attempt.state == .succeeded)
     let finalizedDetail = try repository.fetchSessionDetail(sessionID: detail.session.id)
     let outputMessage = finalizedDetail.threads.first?.messages.first
     #expect(outputMessage?.status == .locked)
@@ -822,31 +826,32 @@ private func verifyFinalizedOutputLocksSavedMessage(
         )
     ) {
         try repository.clearOutputHandled(
-            attemptID: attempt.attempt.id,
+            attemptID: attempt.canonicalResult.attempt.id,
             expectedSessionRevision: finalizedDetail.session.semanticRevision - 1,
             now: Date(timeIntervalSince1970: 9)
         )
     }
     let clearedDetail = try repository.clearOutputHandled(
-        attemptID: attempt.attempt.id,
+        attemptID: attempt.canonicalResult.attempt.id,
         expectedSessionRevision: finalizedDetail.session.semanticRevision,
         now: Date(timeIntervalSince1970: 9)
     )
-    #expect(clearedDetail.threads.first?.messages.first?.handled == false)
-    #expect(clearedDetail.threads.first?.messages.first?.status == .locked)
+    #expect(clearedDetail.canonicalResult.threads.first?.messages.first?.handled == false)
+    #expect(clearedDetail.canonicalResult.threads.first?.messages.first?.status == .locked)
     #expect(
         try repository.fetchOutputHistory(sessionID: detail.session.id, limit: 10)
             .first?.canMarkNotHandled == false
     )
     #expect(
-        try repository.inspectOutputAttempt(attemptID: attempt.attempt.id) == finalized
+        try repository.inspectOutputAttempt(attemptID: attempt.canonicalResult.attempt.id)
+            == finalized.canonicalResult
     )
     let rehandledDetail = try verifyLaterSuccessHandlesClearedRevision(
         repository: repository,
-        clearedDetail: clearedDetail,
+        clearedDetail: clearedDetail.canonicalResult,
         savedMessage: savedMessage,
         savedRevision: savedRevision,
-        priorAttemptID: attempt.attempt.id,
+        priorAttemptID: attempt.canonicalResult.attempt.id,
         markdownPresentation: markdownPresentation
     )
     #expect(throws: WorktreeAnnotationRepositoryError.messageLocked) {
@@ -879,7 +884,11 @@ private func verifyLaterSuccessHandlesClearedRevision(
         expectedSessionRevision: clearedDetail.session.semanticRevision,
         now: Date(timeIntervalSince1970: 10)
     )
-    #expect(repeatedClearDetail.session.semanticRevision == clearedDetail.session.semanticRevision)
+    #expect(
+        repeatedClearDetail.canonicalResult.session.semanticRevision
+            == clearedDetail.session.semanticRevision
+    )
+    #expect(repeatedClearDetail.change == .noChange)
     let repeatedAttemptID = WorktreeAnnotationOutputAttemptID.generate()
     let repeatedSnapshot = try makeOutputSnapshot(
         attemptID: repeatedAttemptID,
@@ -907,7 +916,7 @@ private func verifyLaterSuccessHandlesClearedRevision(
             selectedMessages: [
                 .init(messageID: savedMessage.id, expectedSavedRevision: savedRevision)
             ],
-            expectedSessionRevision: repeatedClearDetail.session.semanticRevision,
+            expectedSessionRevision: repeatedClearDetail.canonicalResult.session.semanticRevision,
             now: Date(timeIntervalSince1970: 11)
         )
     )
@@ -959,4 +968,26 @@ private func makeOutputSnapshot(
 
 private func testMarkdownPresentation() -> WorktreeAnnotationMarkdownPresentationContext {
     .init(worktreeLabel: "agent-studio.review-comments", comparisonLabel: nil)
+}
+
+private func repositoryTestContentSessionRevision<TCanonicalResult: Sendable>(
+    _ mutation: WorktreeAnnotationCommittedMutation<TCanonicalResult>
+) throws -> Int {
+    guard case .content(let sessionChanges) = mutation.change else {
+        Issue.record("Expected content classification")
+        return -1
+    }
+    return try #require(sessionChanges.first).semanticRevision
+}
+
+private func assertFinalizationRevisionSequence(
+    _ prepared: WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput>,
+    _ finalized: WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput>,
+    _ repeatedFinalization: WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput>
+) throws {
+    let preparedRevision = try repositoryTestContentSessionRevision(prepared)
+    let finalizedRevision = try repositoryTestContentSessionRevision(finalized)
+    #expect(finalizedRevision == preparedRevision + 1)
+    #expect(repeatedFinalization.canonicalResult == finalized.canonicalResult)
+    #expect(repeatedFinalization.change == .noChange)
 }

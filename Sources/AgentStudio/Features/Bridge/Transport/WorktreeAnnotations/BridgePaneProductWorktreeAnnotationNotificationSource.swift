@@ -1,8 +1,27 @@
 import AgentStudioInfrastructure
 import Foundation
 
+struct BridgePaneAnnotationNotificationDelivery: Sendable {
+    typealias Enqueue =
+        @Sendable (BridgeProductWorktreeAnnotationEvent, String) async throws ->
+        BridgeProductProducerEnqueueResult
+    typealias MakeProspectiveMetadataFrame =
+        @Sendable (BridgeProductWorktreeAnnotationEvent, String) throws -> BridgeProductMetadataFrame
+    typealias WaitUntilObserved = @Sendable (Int) async -> Bool
+
+    let enqueue: Enqueue
+    let makeProspectiveMetadataFrame: MakeProspectiveMetadataFrame
+    let waitUntilObserved: WaitUntilObserved
+}
+
 actor BridgePaneAnnotationNotificationSource {
-    typealias EventSink = @Sendable (BridgeProductWorktreeAnnotationEvent) async throws -> Void
+    private struct DeliveryLifecycleContext {
+        let deliveryAttempt: Int
+        let deliveryStartWasRecorded: Bool
+        let operationCorrelationID: String
+        let sourceGeneration: Int
+        let surface: BridgeProductSurface
+    }
 
     private let service: WorktreeAnnotationServiceActor?
     private let worktreeID: String
@@ -25,54 +44,88 @@ actor BridgePaneAnnotationNotificationSource {
     }
 
     func open(
-        subscription: BridgeProductSubscriptionSnapshot,
+        subscription _: BridgeProductSubscriptionSnapshot,
         surface: BridgeProductSurface,
-        emit: @escaping EventSink
+        delivery: BridgePaneAnnotationNotificationDelivery
     ) async throws {
         guard let service else { throw WorktreeAnnotationServiceError.unavailable }
         let observer = await service.registerChangeObserver(worktreeID: worktreeID)
         do {
-            var sourceGeneration = 0
-            let bootstrapEvent = try BridgeProductWorktreeAnnotationEvent(
-                operationCorrelationID: BridgeOperationCorrelation.mintScrubbedID(),
-                sourceGeneration: sourceGeneration,
-                worktreeID: worktreeID
-            )
-            try await emitLifecycleEvent(
-                bootstrapEvent,
+            let bootstrapContext = DeliveryLifecycleContext(
                 deliveryAttempt: 0,
                 deliveryStartWasRecorded: false,
-                subscription: subscription,
-                surface: surface,
-                emit: emit
+                operationCorrelationID: BridgeOperationCorrelation.mintScrubbedID(),
+                sourceGeneration: 0,
+                surface: surface
             )
+            var publishedApplicationSourceGeneration = try await publishCurrentCatalog(
+                context: bootstrapContext,
+                delivery: delivery,
+                service: service
+            )
+
             for await change in observer.stream {
                 try Task.checkCancellation()
-                guard
-                    case .snapshotRequired(
-                        let changedWorktreeID,
-                        let operationCorrelationID,
-                        let deliveryAttempt
-                    ) = change,
-                    changedWorktreeID == worktreeID,
-                    sourceGeneration < BridgeProductWireContract.maximumSafeInteger
-                else {
+                guard change.worktreeID == worktreeID else {
                     throw WorktreeAnnotationServiceError.unavailable
                 }
-                sourceGeneration += 1
-                let event = try BridgeProductWorktreeAnnotationEvent(
-                    operationCorrelationID: operationCorrelationID,
-                    sourceGeneration: sourceGeneration,
-                    worktreeID: worktreeID
-                )
-                try await emitLifecycleEvent(
-                    event,
-                    deliveryAttempt: deliveryAttempt,
+                guard change.applicationSourceGeneration > publishedApplicationSourceGeneration else {
+                    continue
+                }
+                let context = DeliveryLifecycleContext(
+                    deliveryAttempt: change.deliveryAttempt,
                     deliveryStartWasRecorded: true,
-                    subscription: subscription,
-                    surface: surface,
-                    emit: emit
+                    operationCorrelationID: change.operationCorrelationID,
+                    sourceGeneration: change.applicationSourceGeneration,
+                    surface: surface
                 )
+                switch change.disposition {
+                case .catalog:
+                    publishedApplicationSourceGeneration = try await publishCurrentCatalog(
+                        context: context,
+                        delivery: delivery,
+                        service: service
+                    )
+                case .control(let reason):
+                    let event = BridgeProductWorktreeAnnotationEvent.controlChanged(
+                        .init(
+                            authority: try eventAuthority(
+                                applicationSourceGeneration: change.applicationSourceGeneration
+                            ),
+                            reason: controlChangedReason(reason)
+                        )
+                    )
+                    try await deliver(context: context) {
+                        _ = try Self.requireEnqueued(
+                            try await delivery.enqueue(event, change.operationCorrelationID)
+                        )
+                    }
+                    publishedApplicationSourceGeneration = change.applicationSourceGeneration
+                case .content:
+                    let orderedSessionRevisions = change.sessionSemanticRevisionByID.sorted {
+                        $0.key.rawValue.uuidString < $1.key.rawValue.uuidString
+                    }
+                    guard !orderedSessionRevisions.isEmpty else {
+                        throw WorktreeAnnotationServiceError.unavailable
+                    }
+                    try await deliver(context: context) {
+                        for (sessionID, semanticRevision) in orderedSessionRevisions {
+                            let event = BridgeProductWorktreeAnnotationEvent.sessionChanged(
+                                try .init(
+                                    authority: eventAuthority(
+                                        applicationSourceGeneration: change.applicationSourceGeneration
+                                    ),
+                                    sessionID: sessionID,
+                                    semanticRevision: semanticRevision
+                                )
+                            )
+                            _ = try Self.requireEnqueued(
+                                try await delivery.enqueue(event, change.operationCorrelationID)
+                            )
+                        }
+                    }
+                    publishedApplicationSourceGeneration = change.applicationSourceGeneration
+                }
             }
             await service.removeChangeObserver(token: observer.token)
         } catch {
@@ -87,47 +140,163 @@ actor BridgePaneAnnotationNotificationSource {
 
     func closeAndDrain() async {}
 
-    private func emitLifecycleEvent(
-        _ event: BridgeProductWorktreeAnnotationEvent,
-        deliveryAttempt: Int,
-        deliveryStartWasRecorded: Bool,
-        subscription: BridgeProductSubscriptionSnapshot,
-        surface: BridgeProductSurface,
-        emit: EventSink
+    private func publishCurrentCatalog(
+        context: DeliveryLifecycleContext,
+        delivery: BridgePaneAnnotationNotificationDelivery,
+        service: WorktreeAnnotationServiceActor
+    ) async throws -> Int {
+        let capture = try await captureCurrentCatalog(service: service)
+        let publicationContext = DeliveryLifecycleContext(
+            deliveryAttempt: context.deliveryAttempt,
+            deliveryStartWasRecorded: context.deliveryStartWasRecorded,
+            operationCorrelationID: context.operationCorrelationID,
+            sourceGeneration: capture.applicationSourceGeneration,
+            surface: context.surface
+        )
+        let authority = try eventAuthority(
+            applicationSourceGeneration: capture.applicationSourceGeneration
+        )
+        let entries = try Self.catalogEntries(from: capture.repositoryCapture)
+        let transferID = UUIDv7.generate().uuidString.lowercased()
+        try await deliver(context: publicationContext) {
+            _ = try await BridgeProductMetadataCatalogWriter<WorktreeAnnotationCatalogEntry>().write(
+                entries: entries,
+                catalogRevision: capture.applicationSourceGeneration,
+                transferID: transferID,
+                makeProspectiveMetadataFrame: { transfer in
+                    try delivery.makeProspectiveMetadataFrame(
+                        .catalog(try .init(authority: authority, transfer: transfer)),
+                        context.operationCorrelationID
+                    )
+                },
+                enqueue: { transfer in
+                    try await delivery.enqueue(
+                        .catalog(try .init(authority: authority, transfer: transfer)),
+                        context.operationCorrelationID
+                    )
+                },
+                waitUntilObserved: delivery.waitUntilObserved
+            )
+        }
+        return capture.applicationSourceGeneration
+    }
+
+    private func captureCurrentCatalog(
+        service: WorktreeAnnotationServiceActor
+    ) async throws -> WorktreeAnnotationServiceCatalogCapture {
+        while true {
+            do {
+                return try await service.captureCatalog(worktreeID: worktreeID)
+            } catch WorktreeAnnotationServiceError.staleSourceEpoch {
+                try Task.checkCancellation()
+            }
+        }
+    }
+
+    private func eventAuthority(
+        applicationSourceGeneration: Int
+    ) throws -> BridgeProductWorktreeAnnotationEvent.Authority {
+        try .init(
+            worktreeID: worktreeID,
+            applicationSourceGeneration: applicationSourceGeneration
+        )
+    }
+
+    private static func catalogEntries(
+        from capture: WorktreeAnnotationCatalogCapture
+    ) throws -> [WorktreeAnnotationCatalogEntry] {
+        var entries: [WorktreeAnnotationCatalogEntry] = []
+        entries.reserveCapacity(capture.sessions.count + capture.threads.count + capture.messages.count)
+        entries.append(
+            contentsOf: try capture.sessions.map {
+                .session(try .init(sessionID: $0.sessionID, semanticRevision: $0.semanticRevision))
+            }
+        )
+        entries.append(
+            contentsOf: try capture.threads.map {
+                .thread(
+                    try .init(
+                        threadID: $0.threadID,
+                        sessionID: $0.sessionID,
+                        scope: $0.scope,
+                        createdOrdinal: $0.createdOrdinal
+                    )
+                )
+            }
+        )
+        entries.append(
+            contentsOf: try capture.messages.map {
+                .message(
+                    try .init(
+                        messageID: $0.messageID,
+                        threadID: $0.threadID,
+                        ordinal: $0.ordinal
+                    )
+                )
+            }
+        )
+        return entries
+    }
+
+    private func controlChangedReason(
+        _ reason: WorktreeAnnotationControlChangeReason
+    ) -> BridgeProductWorktreeAnnotationEvent.ControlChangedReason {
+        switch reason {
+        case .discovery: .discovery
+        case .recovery: .recovery
+        }
+    }
+
+    private static func requireEnqueued(
+        _ result: BridgeProductProducerEnqueueResult
+    ) throws -> BridgeProductQueuedProducerFrame {
+        switch result {
+        case .enqueued(let frame):
+            frame
+        case .queueReset:
+            throw BridgeProductMetadataCatalogWriterError.frameQueueReset
+        case .rejected(let rejection):
+            throw BridgeProductMetadataCatalogWriterError.frameRejected(rejection)
+        }
+    }
+
+    private func deliver(
+        context: DeliveryLifecycleContext,
+        operation: () async throws -> Void
     ) async throws {
-        if !deliveryStartWasRecorded {
+        if !context.deliveryStartWasRecorded {
             await lifecycleTraceRecorder?.record(
                 .init(
-                    operationCorrelationID: event.operationCorrelationID,
+                    operationCorrelationID: context.operationCorrelationID,
                     result: .started,
-                    sourceGeneration: event.sourceGeneration,
-                    stageAttempt: deliveryAttempt,
+                    sourceGeneration: context.sourceGeneration,
+                    stageAttempt: context.deliveryAttempt,
                     stage: .notificationDeliveryStarted,
-                    surface: surface
+                    surface: context.surface
                 )
             )
         }
         do {
-            try await emit(event)
+            try await operation()
             await lifecycleTraceRecorder?.record(
                 .init(
-                    operationCorrelationID: event.operationCorrelationID,
+                    operationCorrelationID: context.operationCorrelationID,
                     result: .success,
-                    sourceGeneration: event.sourceGeneration,
-                    stageAttempt: deliveryAttempt,
+                    sourceGeneration: context.sourceGeneration,
+                    stageAttempt: context.deliveryAttempt,
                     stage: .notificationDeliveryTerminal,
-                    surface: surface
+                    surface: context.surface
                 )
             )
         } catch {
             await lifecycleTraceRecorder?.record(
                 .init(
-                    operationCorrelationID: event.operationCorrelationID,
+                    operationCorrelationID: context.operationCorrelationID,
                     result: .failure,
-                    sourceGeneration: event.sourceGeneration,
-                    stageAttempt: deliveryAttempt,
+                    sourceGeneration: context.sourceGeneration,
+                    stageAttempt: context.deliveryAttempt,
                     stage: .notificationDeliveryTerminal,
-                    surface: surface
+                    surface: context.surface
                 )
             )
             throw error

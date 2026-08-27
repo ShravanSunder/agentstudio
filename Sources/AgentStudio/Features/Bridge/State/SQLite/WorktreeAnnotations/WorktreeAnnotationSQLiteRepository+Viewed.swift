@@ -20,7 +20,9 @@ extension WorktreeAnnotationSQLiteRepository {
         let worktreeID: String
     }
 
-    func markMessagesViewed(_ props: MarkMessagesViewedProps) throws -> ViewedMutationResult {
+    func markMessagesViewed(_ props: MarkMessagesViewedProps) throws
+        -> WorktreeAnnotationCommittedMutation<ViewedMutationResult>
+    {
         guard (1...256).contains(props.items.count), Set(props.items).count == props.items.count,
             props.items.allSatisfy({ $0.expectedSavedRevision > 0 })
         else {
@@ -110,13 +112,39 @@ extension WorktreeAnnotationSQLiteRepository {
                 }
             }
 
-            return ViewedMutationResult(
+            let canonicalResult = ViewedMutationResult(
                 changed: changed,
                 results: evaluations.map { $0.result(committedSessionRevision: committedSessionRevision) },
                 sessionID: props.sessionID,
                 worktreeID: worktreeID
             )
+            return Self.committedViewedMutation(
+                canonicalResult,
+                semanticRevision: committedSessionRevision
+            )
         }
+    }
+
+    private static func committedViewedMutation(
+        _ canonicalResult: ViewedMutationResult,
+        semanticRevision: Int
+    ) -> WorktreeAnnotationCommittedMutation<ViewedMutationResult> {
+        let change: WorktreeAnnotationCommittedChange =
+            canonicalResult.changed
+            ? .content(
+                sessionChanges: [
+                    WorktreeAnnotationCommittedSessionChange(
+                        worktreeID: canonicalResult.worktreeID,
+                        sessionID: canonicalResult.sessionID,
+                        semanticRevision: semanticRevision
+                    )
+                ]
+            )
+            : .noChange
+        return WorktreeAnnotationCommittedMutation(
+            canonicalResult: canonicalResult,
+            change: change
+        )
     }
 }
 

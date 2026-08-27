@@ -61,7 +61,7 @@ struct WorktreeAnnotationTypedHydrationTests {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(databaseQueue)
         let repository = WorktreeAnnotationSQLiteRepository(databaseWriter: databaseQueue)
-        let detail = try repository.createRootDraft(makeLocatedRootDraftProps())
+        let detail = try repository.createRootDraft(makeLocatedRootDraftProps()).canonicalResult
         let message = try #require(detail.threads.first?.messages.first)
         try databaseQueue.write { database in
             try database.execute(
@@ -80,7 +80,7 @@ struct WorktreeAnnotationTypedHydrationTests {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(databaseQueue)
         let repository = WorktreeAnnotationSQLiteRepository(databaseWriter: databaseQueue)
-        let detail = try repository.createRootDraft(makeLocatedRootDraftProps())
+        let detail = try repository.createRootDraft(makeLocatedRootDraftProps()).canonicalResult
         let threadID = try #require(detail.threads.first?.thread.id)
 
         try databaseQueue.write { database in
@@ -100,7 +100,7 @@ struct WorktreeAnnotationTypedHydrationTests {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(databaseQueue)
         let repository = WorktreeAnnotationSQLiteRepository(databaseWriter: databaseQueue)
-        let detail = try repository.createRootDraft(makeLocatedRootDraftProps())
+        let detail = try repository.createRootDraft(makeLocatedRootDraftProps()).canonicalResult
         let threadID = try #require(detail.threads.first?.thread.id)
 
         try databaseQueue.write { database in
@@ -173,7 +173,7 @@ private func makeSavedHydrationFixture() throws -> SavedHydrationFixture {
     let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
     try WorkspaceLocalMigrations.migrate(databaseQueue)
     let repository = WorktreeAnnotationSQLiteRepository(databaseWriter: databaseQueue)
-    let draftDetail = try repository.createRootDraft(makeLocatedRootDraftProps())
+    let draftDetail = try repository.createRootDraft(makeLocatedRootDraftProps()).canonicalResult
     let draftMessage = try #require(draftDetail.threads.first?.messages.first)
     let savedDetail = try repository.saveDraft(
         .init(
@@ -184,7 +184,7 @@ private func makeSavedHydrationFixture() throws -> SavedHydrationFixture {
             expectedDraftRevision: 0,
             now: Date(timeIntervalSince1970: 3)
         )
-    )
+    ).canonicalResult
     let savedMessage = try #require(savedDetail.threads.first?.messages.first)
     return SavedHydrationFixture(
         databaseQueue: databaseQueue,
