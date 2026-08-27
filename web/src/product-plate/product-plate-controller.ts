@@ -99,6 +99,7 @@ function renderStaticContract(contract: ProductPlateDomContract): void {
     selector.removeAttribute("aria-controls");
     selector.removeAttribute("aria-selected");
     panel.hidden = storyId !== "watch-folder";
+    panel.tabIndex = -1;
     panel.removeAttribute("role");
     panel.removeAttribute("aria-labelledby");
   }
@@ -133,6 +134,7 @@ function renderActiveState(contract: ProductPlateDomContract, state: ProductPlat
     selector.setAttribute("aria-selected", String(isSelected));
     panel.id = `product-plate-panel-${storyId}`;
     panel.hidden = !isSelected;
+    panel.tabIndex = isSelected ? 0 : -1;
     panel.setAttribute("role", "tabpanel");
     panel.setAttribute("aria-labelledby", selector.id);
   }

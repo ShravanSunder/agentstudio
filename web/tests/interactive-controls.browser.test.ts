@@ -225,6 +225,7 @@ describe("interactive website controllers", () => {
     expect(root.dataset["enhanced"]).toBe("true");
     expect(selectorGroup.getAttribute("role")).toBe("tablist");
     expect(watchSelector.getAttribute("aria-selected")).toBe("true");
+    expect(requiredHtmlElement(root, '[data-product-plate-panel="watch-folder"]').tabIndex).toBe(0);
 
     requiredButton(root, "[data-product-plate-next]").click();
 
@@ -232,8 +233,14 @@ describe("interactive website controllers", () => {
     expect(requiredHtmlElement(root, '[data-product-plate-panel="parallel-work"]').hidden).toBe(
       false,
     );
+    expect(requiredHtmlElement(root, '[data-product-plate-panel="parallel-work"]').tabIndex).toBe(
+      0,
+    );
     expect(requiredHtmlElement(root, '[data-product-plate-panel="watch-folder"]').hidden).toBe(
       true,
+    );
+    expect(requiredHtmlElement(root, '[data-product-plate-panel="watch-folder"]').tabIndex).toBe(
+      -1,
     );
 
     watchSelector.focus();
@@ -247,6 +254,9 @@ describe("interactive website controllers", () => {
     expect(root.dataset["enhanced"]).toBe("false");
     expect(selectorGroup.hasAttribute("role")).toBe(false);
     expect(parallelSelector.disabled).toBe(true);
+    expect(requiredHtmlElement(root, '[data-product-plate-panel="watch-folder"]').tabIndex).toBe(
+      -1,
+    );
   });
 
   it("keeps persistence buttons and frames synchronized", () => {
@@ -300,5 +310,27 @@ describe("interactive website controllers", () => {
     );
 
     dispose();
+  });
+
+  it("reports copy failure when the Clipboard API is unavailable", async () => {
+    const fixture = addFixture(`
+      <div data-install-root data-install-command="brew install --cask agent-studio">
+        <button data-install-copy>Copy</button>
+        <span data-install-status></span>
+      </div>
+    `);
+    const root = requiredHtmlElement(fixture, "[data-install-root]");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    const dispose = initializeInstallCommand(root);
+    const button = requiredButton(root, "[data-install-copy]");
+    const status = requiredHtmlElement(root, "[data-install-status]");
+
+    button.click();
+
+    await vi.waitFor(() =>
+      expect(status.textContent).toBe(marketingCopy.installation.failedStatus),
+    );
+    dispose();
+    Reflect.deleteProperty(navigator, "clipboard");
   });
 });

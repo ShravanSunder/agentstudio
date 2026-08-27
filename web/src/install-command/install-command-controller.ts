@@ -53,7 +53,17 @@ export function initializeInstallCommand(root: HTMLElement): () => void {
         return;
       }
 
-      void navigator.clipboard
+      const clipboard = navigator.clipboard;
+      if (clipboard === undefined) {
+        state = reduceInstallCommandState(state, {
+          kind: "copy-failed",
+          message: marketingCopy.installation.failedStatus,
+        });
+        status.textContent = copyStatusText(state);
+        return;
+      }
+
+      void clipboard
         .writeText(command)
         .then((): void => {
           state = reduceInstallCommandState(state, { kind: "copy-succeeded" });

@@ -108,6 +108,8 @@ const mediaByFeatureId = {
                       <source
                         media="(max-width: 620px)"
                         srcset={mediaByFeatureId[item.id].phoneImage?.src}
+                        width={mediaByFeatureId[item.id].phoneImage?.width}
+                        height={mediaByFeatureId[item.id].phoneImage?.height}
                       />
                     )
                   }

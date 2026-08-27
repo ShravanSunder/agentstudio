@@ -139,7 +139,12 @@ import { productPlateStories } from "./product-plate-fixture";
             <picture class="scroll-material-pane product-plate__image-frame block p-1 max-lg:rounded-material-pane max-lg:border max-lg:border-line">
               {
                 "phoneImage" in story && story.phoneImage !== undefined && (
-                  <source media="(max-width: 620px)" srcset={story.phoneImage.src} />
+                  <source
+                    media="(max-width: 620px)"
+                    srcset={story.phoneImage.src}
+                    width={story.phoneImage.width}
+                    height={story.phoneImage.height}
+                  />
                 )
               }
               <Image
