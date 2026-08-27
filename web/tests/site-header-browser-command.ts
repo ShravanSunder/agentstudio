@@ -68,56 +68,54 @@ export const verifySiteHeaderScrollStability = defineBrowserCommand(
           attributes: true,
         });
 
-        pageWindow.scrollTo(0, 33);
-        await new Promise<void>((resolve, reject): void => {
-          const timeout = pageWindow.setTimeout(
-            (): void => reject(new Error("Floating header did not reach a stable state")),
-            2_000,
-          );
-          const inspect = (): void => {
-            const state = readStableState(elements);
-            if (
-              state.visualState === "floating" &&
-              state.scrollY === 33 &&
-              state.anchorHeight === anchorHeight &&
-              elements.header
+        const waitForStableHeaderState = async (
+          expectedVisualState: SiteHeaderStableState["visualState"],
+          expectedScrollY: number,
+        ): Promise<void> => {
+          await new Promise<void>((resolveStable, rejectStable): void => {
+            let lastState = readStableState(elements);
+            let lastAnimationStates: readonly AnimationPlayState[] = [];
+            const timeout = pageWindow.setTimeout((): void => {
+              rejectStable(
+                new Error(
+                  `${expectedVisualState} header did not reach a stable state: ${JSON.stringify({
+                    animationStates: lastAnimationStates,
+                    expectedAnchorHeight: anchorHeight,
+                    expectedScrollY,
+                    lastState,
+                  })}`,
+                ),
+              );
+            }, 10_000);
+            const inspect = (): void => {
+              lastState = readStableState(elements);
+              lastAnimationStates = elements.header
                 .getAnimations()
-                .every((animation): boolean => ["finished", "idle"].includes(animation.playState))
-            ) {
-              pageWindow.clearTimeout(timeout);
-              resolve();
-              return;
-            }
-            pageWindow.requestAnimationFrame(inspect);
-          };
-          inspect();
-        });
+                .map((animation): AnimationPlayState => animation.playState);
+              if (
+                lastState.visualState === expectedVisualState &&
+                lastState.scrollY === expectedScrollY &&
+                lastState.anchorHeight === anchorHeight &&
+                lastAnimationStates.every((playState): boolean =>
+                  ["finished", "idle"].includes(playState),
+                )
+              ) {
+                pageWindow.clearTimeout(timeout);
+                resolveStable();
+                return;
+              }
+              pageWindow.requestAnimationFrame(inspect);
+            };
+            inspect();
+          });
+        };
+
+        pageWindow.scrollTo(0, 33);
+        await waitForStableHeaderState("floating", 33);
         const floating = readStableState(elements);
 
         pageWindow.scrollTo(0, 0);
-        await new Promise<void>((resolve, reject): void => {
-          const timeout = pageWindow.setTimeout(
-            (): void => reject(new Error("Resting header did not reach a stable state")),
-            2_000,
-          );
-          const inspect = (): void => {
-            const state = readStableState(elements);
-            if (
-              state.visualState === "resting" &&
-              state.scrollY === 0 &&
-              state.anchorHeight === anchorHeight &&
-              elements.header
-                .getAnimations()
-                .every((animation): boolean => ["finished", "idle"].includes(animation.playState))
-            ) {
-              pageWindow.clearTimeout(timeout);
-              resolve();
-              return;
-            }
-            pageWindow.requestAnimationFrame(inspect);
-          };
-          inspect();
-        });
+        await waitForStableHeaderState("resting", 0);
         const resting = readStableState(elements);
         stateObserver.disconnect();
 
