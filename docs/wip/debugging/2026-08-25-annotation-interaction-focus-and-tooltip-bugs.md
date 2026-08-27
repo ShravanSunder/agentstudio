@@ -304,6 +304,32 @@ Date: 2026-08-25
       `tmp/debug-workflows/2026-08-27-agent-studio-review-comments-new-annotation-flicker/fixed-single-owner-saved-reply.png`.
     - Status: implemented and browser-verified; live owner acceptance remains.
 
+18. **Annotation actions imply the wrong owner and lack cohesive shortcuts**
+    - Previous actual: Reply was repeated on every annotation; Resolve/Reopen
+      appeared inside the latest annotation even though it mutated the thread;
+      a direct-action ellipsis edited only the latest annotation; earlier
+      editable annotations had no Edit control; circular rails gave unrelated
+      actions equal visual weight.
+    - Expected: one stable header owns thread actions. Each eligible annotation
+      owns only Edit. An active editor owns Revert and Save. Action identity,
+      icon, accessible name, tooltip, and canonical shortcut copy come from one
+      typed descriptor.
+    - Shortcuts: `R` and `Control-R` reply to the active thread. `E` and
+      `Control-E` edit the exact keyboard-focused human editable annotation.
+      Text input, content-editable surfaces, menus, text selection, and
+      system-modified chords retain authority. Tooltips show canonical `R`,
+      `E`, and `Command-Enter`; Control forms are aliases.
+    - Visual treatment: quiet rounded owned shadcn buttons; no circular action
+      chrome; Edit reveals on hover or keyboard focus; Resolve/Reopen and Save
+      retain primary tint.
+    - Proof: failing-first Vitest Browser lookup for the new annotation-header
+      contract failed against the old `messages`/per-message rail. The focused
+      thread suite passes 25/25, geometry/focus passes 9/9, shortcut-spec unit
+      coverage passes 6/6, and the seven-file annotation/Pierre set passes
+      53/53 after the busy-Save accessible name and shortcut-owner corrections.
+    - Status: implemented and automated-browser verified; live visual owner
+      acceptance remains.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component

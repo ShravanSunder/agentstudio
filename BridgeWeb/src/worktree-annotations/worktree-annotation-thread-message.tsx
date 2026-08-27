@@ -1,4 +1,3 @@
-import { Check, Undo2 } from 'lucide-react';
 import {
 	useCallback,
 	useEffect,
@@ -12,6 +11,10 @@ import {
 
 import { Textarea } from '@/components/ui/textarea.js';
 
+import {
+	matchesWorktreeAnnotationActionShortcut,
+	worktreeAnnotationShortcutTargetOwnsTextInput,
+} from './worktree-annotation-action-spec.js';
 import {
 	browserWorktreeAnnotationDraftClock,
 	WorktreeAnnotationDraftScheduler,
@@ -91,7 +94,7 @@ export function WorktreeAnnotationThreadSummary(
 					<span aria-hidden="true">·</span>
 					<span>{props.resolution === 'open' ? 'Open' : 'Resolved'}</span>
 					<span aria-hidden="true">·</span>
-					<span>{props.messageCount} messages</span>
+					<span>{props.messageCount} annotations</span>
 					{!props.hasDraft ? null : (
 						<span className="inline-flex items-center gap-1 font-medium text-warning">
 							<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
@@ -302,21 +305,17 @@ export function WorktreeAnnotationMessageEditor(
 	const messageCommands = props.isEditing ? (
 		<>
 			<WorktreeAnnotationCommandButton
-				label="Revert draft"
+				action="revertDraft"
 				onClick={() => void revert()}
 				preserveEditorFocus
-			>
-				<Undo2 />
-			</WorktreeAnnotationCommandButton>
+			/>
 			<WorktreeAnnotationCommandButton
+				action="saveAnnotation"
 				disabled={!validation.ok || !editOwnershipReady}
-				label="Save annotation"
 				onClick={() => void save()}
 				preserveEditorFocus
 				appearance="primary"
-			>
-				<Check />
-			</WorktreeAnnotationCommandButton>
+			/>
 		</>
 	) : (
 		props.commands
@@ -374,15 +373,25 @@ export function WorktreeAnnotationMessageEditor(
 				</>
 			}
 			onKeyDownCapture={(event) => {
+				const shortcutTargetIsBlocked =
+					worktreeAnnotationShortcutTargetOwnsTextInput(event.target) ||
+					window.getSelection()?.isCollapsed === false;
+				const beginsEditingFromEnter =
+					event.key === 'Enter' &&
+					!event.altKey &&
+					!event.ctrlKey &&
+					!event.metaKey &&
+					!event.shiftKey;
+				const beginsEditingFromShortcut = matchesWorktreeAnnotationActionShortcut(
+					event,
+					'editAnnotation',
+				);
 				if (
 					!messageCanBeginEditing ||
 					props.isEditing ||
-					event.key !== 'Enter' ||
 					event.target !== event.currentTarget ||
-					event.altKey ||
-					event.ctrlKey ||
-					event.metaKey ||
-					event.shiftKey
+					(!beginsEditingFromEnter && !beginsEditingFromShortcut) ||
+					shortcutTargetIsBlocked
 				)
 					return;
 				event.preventDefault();
@@ -466,7 +475,7 @@ export function annotationMessageStateLabel(message: WorktreeAnnotationMessageEn
 }
 
 function annotationMessageRoleLabel(ordinal: number): string {
-	return ordinal === 1 ? 'Root comment' : `Reply ${ordinal - 1}`;
+	return ordinal === 1 ? 'Root annotation' : `Reply ${ordinal - 1}`;
 }
 
 function annotationPlainTextExcerpt(markdown: string): string {

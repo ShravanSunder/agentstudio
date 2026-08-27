@@ -1,4 +1,3 @@
-import { Check, LoaderCircle, Undo2 } from 'lucide-react';
 import {
 	useCallback,
 	useEffect,
@@ -391,22 +390,19 @@ export function WorktreeAnnotationNewMessageComposer(
 						committedCursor === null ? (
 							<>
 								<WorktreeAnnotationCommandButton
+									action="revertDraft"
 									disabled={savePhase !== 'idle'}
-									label="Revert draft"
 									onClick={() => void revert()}
 									preserveEditorFocus
-								>
-									<Undo2 />
-								</WorktreeAnnotationCommandButton>
+								/>
 								<WorktreeAnnotationCommandButton
+									action="saveAnnotation"
+									busy={savePhase !== 'idle'}
 									disabled={!validation.ok || savePhase !== 'idle'}
-									label={savePhase === 'saving' ? 'Saving annotation' : 'Save annotation'}
 									onClick={() => void save()}
 									preserveEditorFocus
 									appearance="primary"
-								>
-									{savePhase === 'idle' ? <Check /> : <LoaderCircle className="animate-spin" />}
-								</WorktreeAnnotationCommandButton>
+								/>
 							</>
 						) : undefined
 					}
@@ -432,7 +428,7 @@ export function WorktreeAnnotationNewMessageComposer(
 									<span>saved locally</span>
 								</>
 							) : (
-								<span>New comment</span>
+								<span>New annotation</span>
 							)}
 							{projection.readStatus.kind === 'unavailable' ? (
 								<span>Updates unavailable</span>
