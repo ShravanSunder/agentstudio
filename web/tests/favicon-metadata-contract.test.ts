@@ -1,4 +1,7 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import { extname, resolve, sep } from "node:path";
 
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -11,9 +14,19 @@ import {
 const canonicalHomeUrl = "https://getagentstudio.dev/";
 const canonicalSitemapUrl = "https://getagentstudio.dev/sitemap.xml";
 const expectedMetadataTitle = "Agent Studio: Native macOS IDE for parallel coding agents";
-const previewPort = 20_000 + (process.pid % 10_000);
-const previewOrigin = `http://127.0.0.1:${previewPort}`;
-let previewProcess: ChildProcess | undefined;
+const productionOutputDirectory = resolve(process.cwd(), "dist");
+const productionOutputPrefix = `${productionOutputDirectory}${sep}`;
+const contentTypeByExtension = new Map<string, string>([
+  [".html", "text/html; charset=utf-8"],
+  [".jpg", "image/jpeg"],
+  [".mp4", "video/mp4"],
+  [".png", "image/png"],
+  [".svg", "image/svg+xml"],
+  [".txt", "text/plain; charset=utf-8"],
+  [".xml", "application/xml; charset=utf-8"],
+]);
+let previewOrigin = "";
+let previewServer: Server | undefined;
 
 const parseAttributes = (tag: string): ReadonlyMap<string, string> => {
   const attributes = new Map<string, string>();
@@ -38,24 +51,48 @@ const findTagAttributes = (
     .find((attributes) => attributes.get(selectorName) === selectorValue);
 };
 
-const waitForPreview = async (deadline = Date.now() + 10_000): Promise<void> => {
-  try {
-    const response = await fetch(previewOrigin);
-    if (response.ok) {
+const startProductionArtifactServer = async (): Promise<void> => {
+  previewServer = createServer((request, response): void => {
+    void (async (): Promise<void> => {
+      const requestPath = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+      const outputPath = requestPath.endsWith("/") ? `${requestPath}index.html` : requestPath;
+      const filePath = resolve(productionOutputDirectory, outputPath.replace(/^\/+/, ""));
+      if (filePath !== productionOutputDirectory && !filePath.startsWith(productionOutputPrefix)) {
+        response.writeHead(404).end();
+        return;
+      }
+
+      try {
+        const fileBytes = await readFile(filePath);
+        response.writeHead(200, {
+          "Content-Type":
+            contentTypeByExtension.get(extname(filePath)) ?? "application/octet-stream",
+        });
+        response.end(fileBytes);
+      } catch {
+        response.writeHead(404).end();
+      }
+    })();
+  });
+
+  await new Promise<void>((resolveListen, rejectListen): void => {
+    const server = previewServer;
+    if (server === undefined) {
+      rejectListen(new Error("Production artifact server was not created"));
       return;
     }
-  } catch {
-    // The preview server is still starting.
-  }
-
-  if (Date.now() >= deadline) {
-    throw new Error("Production artifact server did not become ready within 10 seconds");
-  }
-
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, 25);
+    server.once("error", rejectListen);
+    server.listen(0, "127.0.0.1", (): void => {
+      server.off("error", rejectListen);
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        rejectListen(new Error("Production artifact server did not bind a TCP port"));
+        return;
+      }
+      previewOrigin = `http://127.0.0.1:${address.port}`;
+      resolveListen();
+    });
   });
-  await waitForPreview(deadline);
 };
 
 describe("site discovery metadata", () => {
@@ -69,20 +106,20 @@ describe("site discovery metadata", () => {
       throw new Error(`Website build failed:\n${buildResult.stdout}\n${buildResult.stderr}`);
     }
 
-    previewProcess = spawn(
-      "python3",
-      ["-m", "http.server", String(previewPort), "--bind", "127.0.0.1", "--directory", "dist"],
-      {
-        cwd: process.cwd(),
-        stdio: "ignore",
-      },
-    );
-    await waitForPreview();
+    await startProductionArtifactServer();
   }, 30_000);
 
-  afterAll((): void => {
-    if (previewProcess?.pid !== undefined) {
-      previewProcess.kill("SIGTERM");
+  afterAll(async (): Promise<void> => {
+    if (previewServer !== undefined) {
+      await new Promise<void>((resolveClose, rejectClose): void => {
+        previewServer?.close((error?: Error): void => {
+          if (error === undefined) {
+            resolveClose();
+          } else {
+            rejectClose(error);
+          }
+        });
+      });
     }
   });
 
