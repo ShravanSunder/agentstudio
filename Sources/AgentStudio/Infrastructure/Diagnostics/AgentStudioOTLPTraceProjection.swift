@@ -696,6 +696,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.row_mounted",
         "agentstudio.bridge.scroll.active",
         "agentstudio.performance.repo_explorer.scroll_active",
+        "agentstudio.startup_diagnostic.sidebar_proof.control_root_present",
         "agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present",
         "agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present",
         "agentstudio.bridge.selected",

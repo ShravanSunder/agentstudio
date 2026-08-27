@@ -13,6 +13,43 @@ struct AgentStudioOTLPStartupDiagnosticProjectionTests {
         #expect(projection.attributes["agentstudio.startup_diagnostic.pane.id"] == nil)
     }
 
+    @Test
+    func sidebarProofFixtureProjectionKeepsEveryScrubbedRootVerdict() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 101,
+            severityText: .info,
+            body: "app.startup_diagnostic.sidebar_proof.fixture_ready",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.app.startup", version: "0.1.0"),
+            attributes: [
+                "agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present": .bool(true),
+                "agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present": .bool(true),
+                "agentstudio.startup_diagnostic.sidebar_proof.control_root_present": .bool(true),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present"
+            ] == .bool(true)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present"
+            ] == .bool(true)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.control_root_present"
+            ] == .bool(true)
+        )
+    }
+
     private func assertStartupDiagnosticProjectionKeepsExpectedAttributes(
         _ projection: AgentStudioOTLPProjectedLogRecord
     ) {
