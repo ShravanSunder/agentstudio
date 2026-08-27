@@ -274,6 +274,18 @@ its envelope, fits the current metadata-frame ceiling. It packs as many
 complete entries as fit, never splits one entry, and waits on the existing
 producer/acknowledgement path before advancing.
 
+Before emitting `begin`, the writer rejects a catalog with more than 200,000
+entries or more than 8 MiB of encoded application entry bytes and proves that
+each individual entry can fit inside one complete prospective metadata frame.
+An oversized catalog or indivisible entry therefore emits no partial transfer.
+
+The existing metadata observation owner retains multiple sequence waits per
+producer lease. An acknowledgement advances one monotonic observed high-water
+mark and completes every wait at or below that sequence. A Review final-barrier
+wait and a catalog-window wait on the shared pane metadata stream therefore
+cannot supersede or falsely fail one another. This extends the existing
+observation owner; it adds no port, queue, timer, scheduler, or emission owner.
+
 The writer owns no queue and retains no durable transfer. Cancellation,
 producer replacement, reset, and pane close use existing task and metadata
 producer lifecycles.
@@ -296,8 +308,11 @@ stateDiagram-v2
     Complete --> Idle: authority retired; numeric baseline cleared
 ```
 
-The helper owns one candidate's identity, revision, next ordinal, entries, and
-counts. Within one lifecycle-admitted subscription/source authority, a `begin`
+The helper owns one candidate's identity, revision, next ordinal, entries,
+encoded application-entry byte count, and entry/window counts. It rejects a
+`begin` above 200,000 expected entries and discards the current candidate before
+any accepted window would exceed 200,000 entries or 8 MiB of encoded application
+entry bytes. Within one lifecycle-admitted subscription/source authority, a `begin`
 replaces that candidate only when its revision is newer than both the active and
 candidate revisions. Authority retirement discards the candidate and clears the
 numeric comparison baseline while the application may retain the prior active
@@ -494,11 +509,13 @@ membership.
 The worker-to-main staging unit uses the same generic begin/window/commit
 semantics with an application-defined normalized catalog entry. It is a new
 message family on the existing port and existing port FIFO, not a new route,
-queue, scheduler, or persistence owner. Each unit is independently bounded by
-the existing worker-message budget. The hidden main candidate bank applies the
+queue, scheduler, or persistence owner. Each complete staging message is
+independently bounded by the 128 KiB metadata-frame ceiling; no pre-existing
+generic worker-message budget is assumed. The hidden main candidate bank applies the
 same authority-scoped revision rule: a lifecycle-admitted worker/source
 replacement clears the comparison baseline, while an unexpected authority is
-rejected.
+rejected. It enforces the same 8 MiB and 200,000-entry aggregate candidate
+limits as the worker assembler.
 
 The existing store is evolved, not duplicated:
 
@@ -739,6 +756,7 @@ replacement for both associations.
 | frame and event generation disagree | registered generation reader comparison fails | subscription recovery reopens current source |
 | catalog window exceeds frame ceiling | writer cannot admit prospective encoded frame | application producer fails current candidate; prior catalog remains active |
 | catalog entry cannot fit alone | writer reports bounded application encoding failure | annotation catalog remains stale/unavailable; no partial replacement |
+| catalog exceeds 8 MiB or 200,000 entries | writer preflight or worker/Main candidate capacity guard rejects the replacement | retain the last complete catalog and await a later admissible replacement |
 | defect in the current candidate | assembler ordinal/count/revision/entry guard fails | discard that candidate; retain active catalog and await current replacement |
 | late frame from a superseded transfer | transfer identity differs from current candidate | reject frame without changing newer candidate or active catalog |
 | reset/reconnect during candidate | generic reset retires worker and main candidates, clears their numeric revision baselines, and marks retained active catalog stale | register observer, capture current catalog, and accept the first replacement only for the lifecycle-admitted new authority regardless of the stale catalog's revision |
@@ -754,6 +772,8 @@ Ordering and atomicity rules:
 
 - generic stream and subscription sequences remain contiguous FIFO delivery
   authority;
+- one monotonic observation high-water mark may settle multiple independent
+  same-lease waits; registering a later wait never retires an earlier wait;
 - catalog window ordinal is an application-transfer invariant inside that FIFO;
 - SQLite transaction commit precedes the corresponding session-change or
   catalog-required publication;
@@ -810,9 +830,12 @@ Performance:
 - content-only mutations emit one bounded session-change fact;
 - undemanded sessions cause no rich query;
 - catalog transfer uses existing metadata acknowledgement/backpressure;
+- the shared observation owner releases every eligible same-lease sequence wait
+  without serializing application producers;
 - generic writer measures the full prospective encoded frame, not an estimated
   payload-only size;
-- worker stages at most one candidate beside one active catalog;
+- worker and Main each stage at most one candidate beside one active catalog;
+  every candidate is bounded to 8 MiB of encoded entries and 200,000 entries;
 - catalog normalization and validation run in the communication worker;
 - the worker sends bounded normalized staging units over the existing main
   port, and the existing projection store holds at most one hidden main
@@ -895,7 +918,7 @@ the development-browser proof.
 | Requirement | Structural realization | Proof seam |
 | --- | --- | --- |
 | MAP-R1, R2, R3 | generic raw envelope; static typed registries owning surface/source lifecycle, option/open and interest/delta transforms, schemas, and generation reader; preserved generic batching/barrier/transport state machine | fixture application plus schema/type and native/worker subscription integration |
-| MAP-R4, R5 | generic full-frame-measured writer, precedence-aware candidate assembler, authority-bound active/stale catalog, bounded worker-to-main hidden staging | packing and transfer state-machine tests including late superseded frames, replay rejection, reset, failure, and main-bank commit |
+| MAP-R4, R5 | generic full-frame-measured writer, multi-waiter observation high-water, precedence-aware capacity-bounded candidate assembler, authority-bound active/stale catalog, bounded worker-to-main hidden staging | packing, concurrent observation, aggregate-capacity, and transfer state-machine tests including late superseded frames, replay rejection, reset, failure, and main-bank commit |
 | MAP-R6 | File/Review registrations wrap existing contracts and feed existing applicators | existing regression suites plus wire/application parity fixtures |
 | MAP-R7, R8 | service-generation-fenced lightweight SQLite catalog rows, common annotation authority, relationship applicator, existing store catalog/control/content banks | real repository, worker, store, recovery/session-selection, and browser catalog-only tests |
 | MAP-R9, R10 | existing control/rich projection demand, session-change revision coalescing, and discovery/recovery control invalidation | empty-demand control selection, demanded/undemanded rich content, control refresh, and equal/older/newer revision integration |

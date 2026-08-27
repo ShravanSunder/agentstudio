@@ -300,9 +300,10 @@ Stop/replan:
   only application transformation/source binding;
 - a future fixture still requires edits to generic transport mechanics.
 
-## S2 — Generic bounded catalog transfer across both process boundaries
+## S2a — Generic bounded catalog contracts, writer, and assembler
 
-Type: reusable vertical contract slice; first consumed by S4.
+Type: reusable contract/concurrency slice; first consumed by S3 and completed
+across the existing worker-to-main boundary in S4.
 
 Obligations: MAP-R4, MAP-R5, and MAP-R14.
 
@@ -310,20 +311,19 @@ Primary write surfaces:
 
 - new Swift metadata catalog transfer contracts and writer beside current
   metadata frame/producer contracts;
-- new TypeScript catalog transfer schema, assembler, and bounded staging helper
+- new TypeScript catalog transfer schema, packer, and assembler
   under `BridgeWeb/src/core/comm-worker/`;
-- worker-to-main contracts in `bridge-worker-annotation-contracts.ts`,
-  `bridge-worker-contracts.ts`, and RPC client/server routing;
-- candidate-bank behavior in the existing annotation projection store test
-  surface; application-specific production wiring waits for S4.
+- the existing metadata observation owner and focused pacing tests;
+- no worker-message union, annotation projection store, or UI-owned exhaustive
+  switch changes in S2a; those require the real annotation application in S4.
 
 RED first:
 
 - multi-frame catalogs have no generic begin/window/commit contract;
 - late B frames can damage an unmodeled newer C candidate;
-- one native multi-window result can only become one whole worker-to-main
-  annotation convergence publication today;
-- reset during main staging has no hidden candidate to discard.
+- a later same-lease observation wait currently supersedes and falsely fails
+  its predecessor;
+- frame limits do not bound total candidate entries or bytes.
 
 Implementation behavior:
 
@@ -334,46 +334,50 @@ Implementation behavior:
 3. Worker assembler implements the reviewed precedence rules: newer begin may
    supersede; noncurrent frames have no state effect; current-candidate defects
    discard only that candidate; committed replay is rejected.
-4. Reuse the same semantics for bounded worker-to-main normalized staging on
-   the existing port.
-5. Main candidate bank remains hidden until a lightweight final commit; reset
-   discards candidate and preserves active state as stale.
-6. Scope revision precedence to one lifecycle-admitted authority. Replacement
-   clears the worker and main numeric comparison baselines; the first begin for
-   the expected new authority is admitted even when its revision is equal to or
+4. Extend the existing observation owner to retain multiple sequence waits per
+   producer lease and settle every wait at or below the observed high-water.
+5. Enforce 8 MiB encoded-entry and 200,000-entry aggregate limits in writer
+   preflight and assembler admission; each encoded transfer frame remains at
+   most 128 KiB.
+6. Scope worker revision precedence to one lifecycle-admitted authority.
+   Replacement clears its numeric comparison baseline; the first begin for the
+   expected new authority is admitted even when its revision is equal to or
    lower than the retained stale catalog, while unexpected authorities remain
-   rejected.
+   rejected. S4 applies the same rule to the Main candidate bank.
 
 Focused proof:
 
 - deterministic writer packing at/over the frame ceiling and an entry that
   cannot fit alone;
+- exact-at/over 8 MiB and 200,000-entry aggregate boundaries;
+- concurrent Review and catalog observation waits both settle from one
+  monotonic high-water without supersession;
 - assembler table/state-machine tests covering A/B/C supersession and replay;
 - authority replacement tests covering a high retained revision followed by an
   equal or lower revision under the expected new authority, plus rejection of
   equal/older same-authority and unexpected-authority begins;
-- bounded worker port units, hidden main candidate, one final presentation
-  revision, and reset during staging;
-- resource inspection: one active plus at most one candidate per boundary.
+- resource inspection: assembler owns at most one bounded candidate and no
+  application domain fields.
 
-Integration gate G2:
+Integration gate G2a:
 
-A fixture catalog much larger than one metadata frame traverses native writer,
-generic stream, worker assembler, bounded existing worker port, hidden main
-bank, and final commit without exposing partial state or creating a main-thread
-long task.
+A shared fixture catalog much larger than one metadata frame proves exact
+Swift/TypeScript contract parity, full-frame packing, authority-scoped
+assembler completion, aggregate capacity, and A/B/C supersession. A focused
+native pacing test proves concurrent same-lease waits settle independently.
+The real registered annotation stream and worker-to-main hidden bank are
+completed at G3/G4 after their application schemas and owners exist.
 
 Safe checkpoint:
 
-Commit generic transfer only after G2 is green and no annotation, File, or
+Commit generic transfer only after G2a is green and no annotation, File, or
 Review domain fields appear in generic helpers.
 
 Stop/replan:
 
-- the existing worker port cannot stage bounded units without another queue or
-  route;
-- atomic visibility requires an additional presentation store;
-- a total-size policy or transfer lifecycle remains undefined.
+- multi-waiter observation cannot remain in the existing owner;
+- the 8 MiB/200,000-entry policy cannot be enforced symmetrically without
+  application knowledge in generic helpers.
 
 ## S3 — Native Worktree Annotation catalog and classified changes
 
@@ -479,6 +483,8 @@ Implementation behavior:
 1. Validate typed annotation authority and event union behind the registry.
 2. Assemble/validate worker catalog, then send bounded normalized staging units
    to the existing main store candidate bank.
+   Every fully encoded staging message remains at most 128 KiB; worker and Main
+   candidates independently enforce 8 MiB and 200,000-entry aggregate limits.
 3. Split existing store into authority-bound catalog, demand-independent
    control, per-session rich content, command overlays, read/recovery, and
    output history banks.
@@ -512,6 +518,12 @@ Production comm-worker tests drive registered annotation metadata and finite
 content together: catalog commits first, control selects a session, demand loads
 only that session, Save settles immediately, topology stages bounded replacement,
 and reset retains last-complete state without false currentness.
+
+G4 also completes the deferred real-port portion of G2: a large registered
+annotation catalog traverses the native writer, generic metadata stream, worker
+assembler, existing MessagePort, and hidden Main candidate; no partial state is
+published, each staging message is at most 128 KiB, aggregate limits hold, and
+one final commit advances presentation once.
 
 Safe checkpoint:
 

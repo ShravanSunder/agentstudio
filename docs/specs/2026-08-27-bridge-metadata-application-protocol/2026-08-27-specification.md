@@ -176,6 +176,12 @@ Each physical frame MUST remain within the existing metadata-frame ceiling.
 One catalog entry MUST remain a complete semantic entry and MUST NOT be split
 across windows. A sender MAY pack several complete entries into one window.
 
+One complete catalog candidate across all of its windows MUST contain no more
+than 200,000 application entries and no more than 8 MiB of encoded application
+entry bytes. The first exceeded limit MUST reject the replacement before it can
+become active. The same aggregate limits apply independently to native-to-worker
+assembly and worker-to-main hidden staging.
+
 A receiver MUST expose the candidate only when commit proves contiguous
 windows and matching entry/window counts. Until then, the active catalog MUST
 remain unchanged.
@@ -421,10 +427,19 @@ The metadata route MUST remain body-free for Worktree Annotations. Each catalog
 window MUST fit the existing metadata-frame ceiling, and the receiver MUST own
 at most one active and one candidate catalog per annotation subscription.
 
+Every fully encoded worker-to-main catalog staging message MUST also fit the
+128 KiB metadata-frame ceiling. The worker and Main candidate banks MUST enforce
+the 8 MiB encoded-entry and 200,000-entry aggregate limits before accepting a
+window that would cross either limit.
+
 Normal content-state mutations MUST transfer one bounded session-change event,
 not the complete catalog. Catalog replacement cost is admitted only for
 bootstrap/reset/recovery or topology/association change. Existing metadata
 acknowledgement and producer backpressure MUST apply to every catalog window.
+Concurrent application producers waiting for observation on the same metadata
+stream MUST NOT supersede or falsely fail one another. Advancing the observed
+stream high-water mark MUST settle every eligible wait whose target sequence is
+at or below that mark.
 
 If measurement later proves topology replacement cost unacceptable, a typed
 catalog-delta extension MAY be designed separately. This specification does not
@@ -540,6 +555,8 @@ active catalog A
   worker-to-main staging units on the existing port and a hidden candidate
   bank. React MUST continue reading the prior active bank until one lightweight
   final commit swaps the candidate active.
+- A catalog that exceeds 8 MiB of encoded application entries or 200,000 entries
+  MUST fail the replacement without displacing the last complete catalog.
 - This change introduces no external network dependency and no new security or
   authorization behavior.
 
