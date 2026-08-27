@@ -225,6 +225,7 @@ package actor GitWorkingDirectoryProjector {
                 rootPath: rootPath
             )
         }
+        exactCleanAuthorityByWorktreeId.removeAll(keepingCapacity: false)
         flushAggregatePerformanceSnapshot()
         capacityRetryWorktreeIds.removeAll(keepingCapacity: false)
         capacityRetryReasonByWorktreeId.removeAll(keepingCapacity: false)
@@ -267,7 +268,6 @@ package actor GitWorkingDirectoryProjector {
         lastEmittedSnapshotByWorktreeId.removeAll(keepingCapacity: false)
         lastStatusEntriesByWorktreeId.removeAll(keepingCapacity: false)
         lastAcceptedStatusFactsByWorktreeId.removeAll(keepingCapacity: false)
-        exactCleanAuthorityByWorktreeId.removeAll(keepingCapacity: false)
         lastAcceptedLineDetailByWorktreeId.removeAll(keepingCapacity: false)
         lastAcceptedLineDetailAtByWorktreeId.removeAll(keepingCapacity: false)
         lastAcceptedStatusAtByWorktreeId.removeAll(keepingCapacity: false)
@@ -301,7 +301,9 @@ package actor GitWorkingDirectoryProjector {
             let worktreeId = changeset.worktreeId
             guard !suppressedWorktreeIds.contains(worktreeId) else { return }
             guard acceptsFilesystemChanges(changeset) else { return }
-            exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId)
+            if exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId) != nil {
+                recordExactCleanMutationInvalidatedTelemetry()
+            }
             guard Self.shouldRefresh(for: changeset) else {
                 aggregatePerformance.increment(\.suppressedInput)
                 flushAggregatePerformanceSnapshotIfNeeded()

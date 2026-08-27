@@ -608,6 +608,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     private static func isCounterMetricLabel(_ label: String) -> Bool {
         counterMetricLabels.contains(label)
             || (label.hasPrefix("agentstudio_performance_forge_") && label.hasSuffix("_count"))
+            || (label.hasPrefix("agentstudio_performance_git_aggregate_") && label.hasSuffix("_count"))
     }
 
     private static func doubleValue(_ value: AgentStudioTraceValue?) -> Double? {

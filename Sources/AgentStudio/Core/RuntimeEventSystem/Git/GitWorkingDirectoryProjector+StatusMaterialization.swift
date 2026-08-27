@@ -26,6 +26,7 @@ extension GitWorkingDirectoryProjector {
         let contentWasInvalidated = !changeset.paths.isEmpty
         let isExplicit = refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] == "explicit"
         if facts.exactCleanAuthority != nil {
+            recordAvoidedPhysicalDetailReadTelemetry()
             let exactEmptyDetail = GitWorkingTreeLineDetail(linesAdded: 0, linesDeleted: 0)
             return MaterializedGitStatus(
                 result: .available(facts.composing(exactEmptyDetail)),

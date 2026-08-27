@@ -43,21 +43,29 @@ extension GitWorkingDirectoryProjector {
         case .full:
             let result: GitWorkingTreeStatusFactsResult
             if let exactCleanProvider = gitWorkingTreeProvider as? any GitExactCleanStatusProviding {
+                recordExactCleanBaselinePreparedTelemetry()
                 switch await exactCleanProvider.exactCleanStatusFactsResult(
                     for: changeset.worktreeId,
                     rootPath: changeset.rootPath
                 ) {
                 case .available(let facts):
+                    if facts.exactCleanAuthority == nil {
+                        recordExactCleanBaselineRejectedTelemetry()
+                    }
                     result = .available(facts)
-                case .requiresExact:
+                case .requiresExact(let reason):
                     // The observed scan raced a mutation or uncertainty. Publish
                     // nothing from it and run exactly one ordinary full fallback
                     // inside the already admitted priority/capacity flow.
+                    recordExactCleanBaselineRejectedTelemetry()
+                    recordContinuityUncertaintyTelemetry(reason)
+                    recordExactFallbackTelemetry(admitted: true)
                     result = await gitWorkingTreeProvider.statusFactsResult(
                         for: changeset.rootPath,
                         pathspecs: nil
                     )
                 case .unavailable(let unavailable):
+                    recordExactCleanBaselineRejectedTelemetry()
                     result = .unavailable(unavailable)
                 }
             } else {

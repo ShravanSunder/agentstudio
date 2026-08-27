@@ -84,15 +84,78 @@ extension GitWorkingDirectoryProjector {
         )
     }
 
+    func recordExactCleanBaselinePreparedTelemetry() {
+        aggregatePerformance.recordExactCleanBaselinePrepared()
+    }
+
+    func recordExactCleanBaselineRejectedTelemetry() {
+        aggregatePerformance.recordExactCleanBaselineRejected()
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordExactCleanBaselineAcceptedTelemetry() {
+        aggregatePerformance.recordExactCleanBaselineAccepted()
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordExactCleanContinuityRenewedTelemetry() {
+        aggregatePerformance.recordExactCleanContinuityRenewed()
+        aggregatePerformance.recordAvoidedPhysicalFactsRead()
+        aggregatePerformance.recordAvoidedPhysicalDetailRead()
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordExactCleanMutationInvalidatedTelemetry() {
+        aggregatePerformance.recordExactCleanMutationInvalidated()
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordContinuityUncertaintyTelemetry(
+        _ reason: GitCleanContinuityFailureReason
+    ) {
+        aggregatePerformance.recordContinuityUncertainty(reason)
+    }
+
+    func recordExactFallbackTelemetry(admitted: Bool) {
+        if admitted {
+            aggregatePerformance.recordExactFallbackAdmitted()
+        } else {
+            aggregatePerformance.recordExactFallbackCoalesced()
+        }
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordAvoidedPhysicalDetailReadTelemetry() {
+        aggregatePerformance.recordAvoidedPhysicalDetailRead()
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
     func flushAggregatePerformanceSnapshotIfNeeded() {
         guard aggregatePerformance.eventCount >= AppPolicies.GitRefresh.telemetryFlushEventCount else { return }
         flushAggregatePerformanceSnapshot()
     }
 
     func flushAggregatePerformanceSnapshot() {
+        recordExactCleanContinuityState()
         let snapshot = aggregatePerformance.takeSnapshot()
         guard !snapshot.isEmpty else { return }
         performanceTraceRecorder?.recordGitWorkingDirectoryPerformanceSnapshot(snapshot)
+    }
+
+    private func recordExactCleanContinuityState() {
+        let acceptedCheckpointInstants = exactCleanAuthorityByWorktreeId.keys.compactMap {
+            lastAcceptedStatusAtByWorktreeId[$0]
+        }
+        let oldestCheckpointAge =
+            acceptedCheckpointInstants.min().map { acceptedAt in
+                max(Duration.zero, deadlineClock.now - acceptedAt)
+            } ?? .zero
+        aggregatePerformance.recordExactCleanContinuityState(
+            authorityCount: exactCleanAuthorityByWorktreeId.count,
+            oldestCheckpointAgeMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                from: oldestCheckpointAge
+            )
+        )
     }
 
     func demandClass(for worktreeId: UUID) -> String {

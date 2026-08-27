@@ -179,6 +179,63 @@ struct AgentStudioOTLPDemandAdmissionPerformanceTests {
     }
 
     @Test
+    func gitContinuityAggregateProjectsFixedOutcomesAsCountersAndStateAsGauges() throws {
+        let counterAttributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.git.aggregate.continuity.baseline.prepared.count": .int(1),
+            "agentstudio.performance.git.aggregate.continuity.baseline.accepted.count": .int(2),
+            "agentstudio.performance.git.aggregate.continuity.baseline.rejected.count": .int(3),
+            "agentstudio.performance.git.aggregate.continuity.renewed.count": .int(4),
+            "agentstudio.performance.git.aggregate.continuity.mutation_invalidated.count": .int(5),
+            "agentstudio.performance.git.aggregate.continuity.uncertainty.unsupported_observation.count": .int(6),
+            "agentstudio.performance.git.aggregate.continuity.uncertainty.registration_missing.count": .int(7),
+            "agentstudio.performance.git.aggregate.continuity.uncertainty.registration_replaced.count": .int(8),
+            "agentstudio.performance.git.aggregate.continuity.uncertainty.identity_changed.count": .int(9),
+            "agentstudio.performance.git.aggregate.continuity.uncertainty.mutation_observed.count": .int(10),
+            "agentstudio.performance.git.aggregate.continuity.uncertainty.event_stream_uncertain.count": .int(11),
+            "agentstudio.performance.git.aggregate.continuity.uncertainty.stream_start_failed.count": .int(12),
+            "agentstudio.performance.git.aggregate.continuity.uncertainty.shutdown.count": .int(13),
+            "agentstudio.performance.git.aggregate.continuity.fallback.admitted.count": .int(14),
+            "agentstudio.performance.git.aggregate.continuity.fallback.coalesced.count": .int(15),
+            "agentstudio.performance.git.aggregate.continuity.physical.fact_read_avoided.count": .int(16),
+            "agentstudio.performance.git.aggregate.continuity.physical.detail_read_avoided.count": .int(17),
+        ]
+        let gaugeAttributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.git.aggregate.continuity.authority.current": .int(18),
+            "agentstudio.performance.git.aggregate.continuity.authority.oldest_checkpoint_age_ms": .double(1250),
+        ]
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 299,
+            severityText: .info,
+            body: "performance.git.aggregate",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: counterAttributes.merging(gaugeAttributes) { _, right in right }
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: projection))
+
+        #expect(counterAttributes.keys.allSatisfy { projection.attributes[$0] != nil })
+        #expect(gaugeAttributes.keys.allSatisfy { projection.attributes[$0] != nil })
+        #expect(metricEvent.measurements.count == counterAttributes.count + gaugeAttributes.count)
+        #expect(
+            metricEvent.measurements.filter {
+                guard case .counter = $0 else { return false }
+                return true
+            }.count == counterAttributes.count
+        )
+        #expect(
+            metricEvent.measurements.filter {
+                guard case .gauge = $0 else { return false }
+                return true
+            }.count == gaugeAttributes.count
+        )
+    }
+
+    @Test
     func remoteReferenceAndForgeCurrentSettlementFieldsProjectAsGaugesIncludingZero() throws {
         let settlementAttributesByEvent: [(String, [String: AgentStudioTraceValue])] = [
             (

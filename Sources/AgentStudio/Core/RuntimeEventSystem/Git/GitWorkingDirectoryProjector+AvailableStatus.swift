@@ -124,6 +124,7 @@ extension GitWorkingDirectoryProjector {
         let worktreeId = changeset.worktreeId
         if scope == .full, let authority {
             exactCleanAuthorityByWorktreeId[worktreeId] = authority
+            recordExactCleanBaselineAcceptedTelemetry()
         } else {
             exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId)
         }

@@ -4,7 +4,7 @@ import Foundation
 extension GitWorkingDirectoryProjector {
     private enum ExactCleanRenewalDisposition {
         case renewed
-        case requiresExact
+        case requiresExact(GitCleanContinuityFailureReason?)
         case stale
     }
 
@@ -146,11 +146,16 @@ extension GitWorkingDirectoryProjector {
                 ) {
                 case .renewed, .stale:
                     continue
-                case .requiresExact:
-                    break
+                case .requiresExact(let uncertaintyReason):
+                    let admitted = prepareAutomaticRefreshIfCurrent(worktreeId: entry.worktreeId)
+                    if let uncertaintyReason {
+                        recordContinuityUncertaintyTelemetry(uncertaintyReason)
+                        recordExactFallbackTelemetry(admitted: admitted)
+                    }
+                    guard admitted else { continue }
+                    tierEligibleWorktreeIds.insert(entry.worktreeId)
+                    continue
                 }
-                guard prepareAutomaticRefreshIfCurrent(worktreeId: entry.worktreeId) else { continue }
-                tierEligibleWorktreeIds.insert(entry.worktreeId)
             case .failure:
                 expireStatusBackoff(worktreeId: entry.worktreeId)
             case .capacityFallback:
@@ -172,7 +177,7 @@ extension GitWorkingDirectoryProjector {
             let authority = exactCleanAuthorityByWorktreeId[worktreeId],
             let exactCleanProvider = gitWorkingTreeProvider as? any GitExactCleanStatusProviding
         else {
-            return .requiresExact
+            return .requiresExact(nil)
         }
 
         let renewal = await exactCleanProvider.renewExactCleanAuthority(authority)
@@ -195,10 +200,11 @@ extension GitWorkingDirectoryProjector {
             lastAcceptedLineDetailAtByWorktreeId[worktreeId] = acceptedAt
             unchangedStatusResultCountByWorktreeId[worktreeId, default: 0] += 1
             scheduleAutomaticRefresh(worktreeId: worktreeId)
+            recordExactCleanContinuityRenewedTelemetry()
             return .renewed
-        case .requiresExact:
+        case .requiresExact(let reason):
             exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId)
-            return .requiresExact
+            return .requiresExact(reason)
         }
     }
 

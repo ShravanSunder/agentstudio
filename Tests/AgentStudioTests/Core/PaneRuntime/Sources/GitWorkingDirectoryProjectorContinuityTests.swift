@@ -13,7 +13,13 @@ struct GitWorkingDirectoryProjectorContinuityTests {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let provider = VerifiedCleanProjectorProvider(initialOutcome: .clean)
-        let actor = makeProjector(bus: bus, clock: clock, provider: provider)
+        let performanceRecorder = ContinuityPerformanceRecorder()
+        let actor = makeProjector(
+            bus: bus,
+            clock: clock,
+            provider: provider,
+            performanceRecorder: performanceRecorder
+        )
         await actor.start()
         let worktreeId = UUIDv7.generate()
         let rootPath = URL(fileURLWithPath: "/tmp/verified-clean-\(worktreeId.uuidString)")
@@ -34,6 +40,14 @@ struct GitWorkingDirectoryProjectorContinuityTests {
         #expect(provider.ordinaryFactsReadCount == 0)
         #expect(provider.detailReadCount == 0)
         #expect(await actor.pendingByWorktreeId[worktreeId] == nil)
+        await actor.flushAggregatePerformanceSnapshot()
+        let aggregate = performanceRecorder.lastGitAggregateSnapshot
+        #expect(aggregate?.exactCleanBaselinePrepared == 1)
+        #expect(aggregate?.exactCleanBaselineAccepted == 1)
+        #expect(aggregate?.exactCleanContinuityRenewed == 1)
+        #expect(aggregate?.avoidedPhysicalFactsRead == 1)
+        #expect(aggregate?.avoidedPhysicalDetailRead == 2)
+        #expect(aggregate?.exactCleanAuthorityCurrent == 1)
         await actor.shutdown()
     }
 
@@ -42,7 +56,13 @@ struct GitWorkingDirectoryProjectorContinuityTests {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let provider = VerifiedCleanProjectorProvider(initialOutcome: .requiresExact)
-        let actor = makeProjector(bus: bus, clock: clock, provider: provider)
+        let performanceRecorder = ContinuityPerformanceRecorder()
+        let actor = makeProjector(
+            bus: bus,
+            clock: clock,
+            provider: provider,
+            performanceRecorder: performanceRecorder
+        )
         await actor.start()
         let worktreeId = UUIDv7.generate()
         let rootPath = URL(fileURLWithPath: "/tmp/verified-clean-race-\(worktreeId.uuidString)")
@@ -59,6 +79,11 @@ struct GitWorkingDirectoryProjectorContinuityTests {
         #expect(provider.ordinaryFactsReadCount == 1)
         #expect(provider.detailReadCount == 1)
         await actor.shutdown()
+        let aggregate = performanceRecorder.lastGitAggregateSnapshot
+        #expect(aggregate?.exactCleanBaselinePrepared == 1)
+        #expect(aggregate?.exactCleanBaselineRejected == 1)
+        #expect(aggregate?.continuityUncertaintyEventStreamUncertain == 1)
+        #expect(aggregate?.exactFallbackAdmitted == 1)
     }
 
     @Test("unregistration while renewal is suspended creates no fallback debt")
@@ -106,7 +131,13 @@ struct GitWorkingDirectoryProjectorContinuityTests {
             initialOutcome: .clean,
             renewalOutcome: .requiresExact
         )
-        let actor = makeProjector(bus: bus, clock: clock, provider: provider)
+        let performanceRecorder = ContinuityPerformanceRecorder()
+        let actor = makeProjector(
+            bus: bus,
+            clock: clock,
+            provider: provider,
+            performanceRecorder: performanceRecorder
+        )
         await actor.start()
         let worktreeId = UUIDv7.generate()
         let rootPath = URL(fileURLWithPath: "/tmp/verified-clean-uncertain-\(worktreeId.uuidString)")
@@ -135,12 +166,61 @@ struct GitWorkingDirectoryProjectorContinuityTests {
         #expect(await actor.exactCleanAuthorityByWorktreeId[worktreeId] != nil)
         #expect(await actor.pendingByWorktreeId[worktreeId] == nil)
         await actor.shutdown()
+        let aggregate = performanceRecorder.lastGitAggregateSnapshot
+        #expect(aggregate?.exactCleanBaselinePrepared == 2)
+        #expect(aggregate?.exactCleanBaselineAccepted == 2)
+        #expect(aggregate?.continuityUncertaintyEventStreamUncertain == 1)
+        #expect(aggregate?.exactFallbackAdmitted == 1)
+        #expect(aggregate?.avoidedPhysicalFactsRead == 0)
+        #expect(aggregate?.avoidedPhysicalDetailRead == 2)
+    }
+
+    @Test("filesystem mutation records one authority invalidation")
+    func filesystemMutationRecordsOneAuthorityInvalidation() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let provider = VerifiedCleanProjectorProvider(initialOutcome: .clean)
+        let performanceRecorder = ContinuityPerformanceRecorder()
+        let actor = makeProjector(
+            bus: bus,
+            clock: clock,
+            provider: provider,
+            performanceRecorder: performanceRecorder
+        )
+        await actor.start()
+        let worktreeId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/verified-clean-mutation-\(worktreeId.uuidString)")
+        await actor.setActivePaneWorktree(worktreeId: worktreeId)
+        await bus.post(registrationEnvelope(sequence: 1, worktreeId: worktreeId, rootPath: rootPath))
+        #expect(
+            await eventually {
+                await actor.exactCleanAuthorityByWorktreeId[worktreeId] != nil
+            }
+        )
+
+        await bus.post(
+            filesChangedEnvelope(
+                sequence: 2,
+                worktreeId: worktreeId,
+                rootPath: rootPath
+            )
+        )
+        #expect(
+            await eventually {
+                guard provider.ordinaryFactsReadCount == 1 else { return false }
+                return await actor.exactCleanAuthorityByWorktreeId[worktreeId] == nil
+            }
+        )
+
+        await actor.shutdown()
+        #expect(performanceRecorder.lastGitAggregateSnapshot?.exactCleanMutationInvalidated == 1)
     }
 
     private func makeProjector(
         bus: EventBus<RuntimeEnvelope>,
         clock: TestPushClock,
-        provider: VerifiedCleanProjectorProvider
+        provider: VerifiedCleanProjectorProvider,
+        performanceRecorder: ContinuityPerformanceRecorder? = nil
     ) -> GitWorkingDirectoryProjector {
         GitWorkingDirectoryProjector(
             bus: bus,
@@ -153,7 +233,8 @@ struct GitWorkingDirectoryProjectorContinuityTests {
                 openPaneCadence: .seconds(3),
                 backgroundCadence: .seconds(4),
                 lineDetailFreshnessInterval: .seconds(1)
-            )
+            ),
+            performanceTraceRecorder: performanceRecorder
         )
     }
 
@@ -189,6 +270,34 @@ struct GitWorkingDirectoryProjectorContinuityTests {
         )
     }
 
+    private func filesChangedEnvelope(
+        sequence: UInt64,
+        worktreeId: UUID,
+        rootPath: URL
+    ) -> RuntimeEnvelope {
+        .worktree(
+            WorktreeEnvelope.test(
+                event: .filesystem(
+                    .filesChanged(
+                        changeset: FileChangeset(
+                            worktreeId: worktreeId,
+                            repoId: worktreeId,
+                            rootPath: rootPath,
+                            paths: ["Sources/Changed.swift"],
+                            containsGitInternalChanges: false,
+                            timestamp: ContinuousClock().now,
+                            batchSeq: 1
+                        )
+                    )
+                ),
+                repoId: worktreeId,
+                worktreeId: worktreeId,
+                source: .system(.builtin(.filesystemWatcher)),
+                seq: sequence
+            )
+        )
+    }
+
     private func eventually(
         maximumTurns: Int = 10_000,
         condition: @escaping @Sendable () async -> Bool
@@ -198,6 +307,34 @@ struct GitWorkingDirectoryProjectorContinuityTests {
             await Task.yield()
         }
         return await condition()
+    }
+}
+
+private final class ContinuityPerformanceRecorder: GitProjectorPerformanceRecording, @unchecked Sendable {
+    private let lock = NSLock()
+    private var gitAggregateSnapshots: [GitWorkingDirectoryPerformanceSnapshot] = []
+
+    var isEnabled: Bool { true }
+
+    var lastGitAggregateSnapshot: GitWorkingDirectoryPerformanceSnapshot? {
+        lock.withLock { gitAggregateSnapshots.last }
+    }
+
+    func record(
+        _: AgentStudioPerformanceTraceRecorder.Event,
+        attributes _: @autoclosure () -> [String: AgentStudioTraceValue]
+    ) {}
+
+    func recordDuration(
+        _: AgentStudioPerformanceTraceRecorder.Event,
+        duration _: Duration,
+        attributes _: @autoclosure () -> [String: AgentStudioTraceValue]
+    ) {}
+
+    func recordGitWorkingDirectoryPerformanceSnapshot(
+        _ snapshot: GitWorkingDirectoryPerformanceSnapshot
+    ) {
+        lock.withLock { gitAggregateSnapshots.append(snapshot) }
     }
 }
 
