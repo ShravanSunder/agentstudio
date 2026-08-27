@@ -105,6 +105,71 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
     }
 }
 
+package struct DarwinFSEventClassifiedRawEvent: Sendable {
+    package let eventId: FSEventStreamEventId
+    package let flags: FSEventStreamEventFlags
+    package let hasRelevantMutation: Bool
+}
+
+package struct DarwinFSEventClassification: Sendable {
+    package let rawEvents: [DarwinFSEventClassifiedRawEvent]
+    package let ordinaryPaths: [String]
+}
+
+package enum DarwinFSEventPathClassifier {
+    package static func classify(
+        rawEvents: [(path: String, eventId: FSEventStreamEventId, flags: FSEventStreamEventFlags)],
+        ordinaryPaths: [String],
+        rootPath: String,
+        observationScopes: [AgentStudioGit.GitStatusObservationScope],
+        canonicalize: (String) -> String = canonicalPath
+    ) -> DarwinFSEventClassification {
+        var canonicalPathByRawPath: [String: String] = [:]
+        canonicalPathByRawPath.reserveCapacity(rawEvents.count)
+
+        func canonicalPath(for rawPath: String) -> String {
+            if let existing = canonicalPathByRawPath[rawPath] {
+                return existing
+            }
+            let canonicalPath = canonicalize(rawPath)
+            canonicalPathByRawPath[rawPath] = canonicalPath
+            return canonicalPath
+        }
+
+        let canonicalScopes = observationScopes.map { scope in
+            (kind: scope.kind, path: scope.path.path)
+        }
+        let classifiedRawEvents = rawEvents.map { event in
+            let candidate = canonicalPath(for: event.path)
+            let hasRelevantMutation = canonicalScopes.contains { scope in
+                switch scope.kind {
+                case .item:
+                    return candidate == scope.path
+                case .subtree:
+                    return candidate == scope.path || candidate.hasPrefix(scope.path + "/")
+                }
+            }
+            return DarwinFSEventClassifiedRawEvent(
+                eventId: event.eventId,
+                flags: event.flags,
+                hasRelevantMutation: hasRelevantMutation
+            )
+        }
+        let ordinaryWorktreePaths = ordinaryPaths.filter { path in
+            let candidate = canonicalPath(for: path)
+            return candidate == rootPath || candidate.hasPrefix(rootPath + "/")
+        }
+        return DarwinFSEventClassification(
+            rawEvents: classifiedRawEvents,
+            ordinaryPaths: ordinaryWorktreePaths
+        )
+    }
+
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+    }
+}
+
 /// Production filesystem event client wiring point.
 ///
 /// This implementation keeps lifecycle and registration semantics concrete and
@@ -458,31 +523,60 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
     ) {
         guard !rawEvents.isEmpty else { return }
 
+        var registrationWasReplaced = false
+        let classificationInput = lifecycleLock.withLock {
+            guard !hasShutdown, let registration = streamByWorktreeId[worktreeId] else {
+                return Optional<
+                    (rootPath: String, observesContinuity: Bool, scopes: [AgentStudioGit.GitStatusObservationScope])
+                >.none
+            }
+            guard registration.lifecycleGeneration == lifecycleGeneration else {
+                registrationWasReplaced = true
+                return nil
+            }
+            return (
+                rootPath: registration.rootPath.path,
+                observesContinuity: registration.observationIdentity != nil,
+                scopes: registration.observationScopes
+            )
+        }
+        if registrationWasReplaced {
+            continuityLedger.markUncertain(registrationId: worktreeId)
+        }
+        guard let classificationInput else { return }
+
+        let classification = DarwinFSEventPathClassifier.classify(
+            rawEvents: rawEvents,
+            ordinaryPaths: ordinaryPaths,
+            rootPath: classificationInput.rootPath,
+            observationScopes: classificationInput.scopes
+        )
+
+        var registrationChangedDuringClassification = false
         lifecycleLock.withLock {
             guard !hasShutdown, let registration = streamByWorktreeId[worktreeId] else { return }
             guard registration.lifecycleGeneration == lifecycleGeneration else {
-                continuityLedger.markUncertain(registrationId: worktreeId)
+                registrationChangedDuringClassification = true
                 return
             }
-            if registration.observationIdentity != nil {
-                for event in rawEvents {
+            if classificationInput.observesContinuity {
+                for event in classification.rawEvents {
                     continuityLedger.recordRawEvent(
                         registrationId: worktreeId,
                         eventId: event.eventId,
                         flags: event.flags,
-                        hasRelevantMutation: Self.isRelevant(
-                            path: event.path,
-                            scopes: registration.observationScopes
-                        )
+                        hasRelevantMutation: event.hasRelevantMutation
                     )
                 }
             }
-            let ordinaryWorktreePaths = ordinaryPaths.filter { path in
-                Self.isWithinRoot(path: path, rootPath: registration.rootPath)
+            if !classification.ordinaryPaths.isEmpty {
+                ingressBuffer.yield(
+                    FSEventBatch(worktreeId: worktreeId, paths: classification.ordinaryPaths)
+                )
             }
-            if !ordinaryWorktreePaths.isEmpty {
-                ingressBuffer.yield(FSEventBatch(worktreeId: worktreeId, paths: ordinaryWorktreePaths))
-            }
+        }
+        if registrationChangedDuringClassification {
+            continuityLedger.markUncertain(registrationId: worktreeId)
         }
     }
 
@@ -554,28 +648,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             return attributes?[.systemNumber] as? NSNumber
         }
         return volumeNumbers.count == paths.count && Set(volumeNumbers).count == 1
-    }
-
-    private static func isRelevant(
-        path: String,
-        scopes: [AgentStudioGit.GitStatusObservationScope]
-    ) -> Bool {
-        let candidate = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
-        return scopes.contains { scope in
-            let scopePath = scope.path.path
-            switch scope.kind {
-            case .item:
-                return candidate == scopePath
-            case .subtree:
-                return candidate == scopePath || candidate.hasPrefix(scopePath + "/")
-            }
-        }
-    }
-
-    private static func isWithinRoot(path: String, rootPath: URL) -> Bool {
-        let candidate = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
-        let root = rootPath.path
-        return candidate == root || candidate.hasPrefix(root + "/")
     }
 
     private func allocateLifecycleGeneration() -> UInt64 {

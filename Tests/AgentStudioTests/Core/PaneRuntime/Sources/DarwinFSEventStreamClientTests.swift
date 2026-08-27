@@ -8,6 +8,37 @@ import Testing
 
 @Suite("DarwinFSEventStreamClient")
 struct DarwinFSEventStreamClientTests {
+    @Test("event classification canonicalizes each unique callback path once")
+    func eventClassificationCanonicalizesEachUniqueCallbackPathOnce() {
+        let rootPath = "/tmp/repo"
+        let changedPath = "/tmp/repo/Sources/Changed.swift"
+        let ignoredPath = "/tmp/outside/Other.swift"
+        var canonicalizationCountByPath: [String: Int] = [:]
+
+        let classification = DarwinFSEventPathClassifier.classify(
+            rawEvents: [
+                (path: changedPath, eventId: 41, flags: 0),
+                (path: ignoredPath, eventId: 42, flags: 0),
+            ],
+            ordinaryPaths: [changedPath, ignoredPath],
+            rootPath: rootPath,
+            observationScopes: [
+                AgentStudioGit.GitStatusObservationScope(
+                    kind: .subtree,
+                    path: URL(fileURLWithPath: rootPath)
+                )
+            ],
+            canonicalize: { path in
+                canonicalizationCountByPath[path, default: 0] += 1
+                return path
+            }
+        )
+
+        #expect(canonicalizationCountByPath == [changedPath: 1, ignoredPath: 1])
+        #expect(classification.rawEvents.map(\.hasRelevantMutation) == [true, false])
+        #expect(classification.ordinaryPaths == [changedPath])
+    }
+
     @Test("continuity ledger rejects a baseline when mutation crosses its barrier")
     func continuityLedgerRejectsMutationAcrossBaselineBarrier() throws {
         let ledger = GitCleanContinuityLedger()
