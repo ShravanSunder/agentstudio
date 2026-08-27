@@ -12,6 +12,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let calls = VisibleTierCallRecorder()
+        let gate = VisibleTierStatusGate()
         let policy = AppPolicies.GitRefresh.Policy(
             activePaneCadence: .milliseconds(20),
             visibleSidebarCadence: .milliseconds(40),
@@ -24,6 +25,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         )
         let provider = StubGitWorkingTreeStatusProvider { rootPath in
             _ = await calls.record(rootPath.lastPathComponent)
+            await gate.recordAndWait(rootPath.lastPathComponent)
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
                 branch: "main",
@@ -70,6 +72,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         clock.advance(to: thirdStartDeadline)
         #expect(await visibleTierWaitUntil { await calls.count == 3 })
 
+        await gate.releaseAllAndRemainOpen()
         await actor.shutdown()
     }
 
@@ -477,8 +480,8 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             clock.advance(by: policy.visibleSidebarCadence * 2)
             #expect(await calls.count == 4)
         }
-        let pendingDeadline = try #require(clock.pendingSleepDeadlines.min())
-        clock.advance(to: pendingDeadline)
+        let deadlineClockNow = await actor.deadlineClock.now
+        clock.advance(by: max(.zero, scheduledDeadline - deadlineClockNow))
         #expect(await visibleTierWaitUntil { await calls.count == 5 })
 
         await actor.shutdown()

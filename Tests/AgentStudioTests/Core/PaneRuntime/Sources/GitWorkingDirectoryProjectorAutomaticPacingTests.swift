@@ -56,19 +56,10 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
     ) async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
-        let calls = AutomaticPacingCallRecorder()
-        let policy = AppPolicies.GitRefresh.Policy(
-            activePaneCadence: .milliseconds(500),
-            visibleSidebarCadence: .seconds(1),
-            openPaneCadence: .seconds(2),
-            backgroundCadence: .seconds(4),
-            backgroundStripeCount: 1,
-            maxConcurrentStatusComputes: 4,
-            visibleSidebarMaxConcurrent: 2,
-            minimumAutomaticStartInterval: .milliseconds(10)
-        )
+        let gate = AutomaticPacingStatusGate()
+        let policy = automaticPacingPolicy()
         let provider = StubGitWorkingTreeStatusProvider { rootPath in
-            _ = await calls.record(rootPath.lastPathComponent)
+            await gate.recordAndWait(rootPath.lastPathComponent)
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
                 branch: "main",
@@ -99,11 +90,12 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
                 )
             )
         }
-        #expect(await automaticPacingWaitUntil { await calls.count == 1 })
-        #expect(await automaticPacingWaitUntil { await actor.worktreeTasks.isEmpty })
+        #expect(await automaticPacingWaitUntil { await gate.count == 1 })
         await clock.waitForPendingSleepCount(atLeast: 1)
         clock.advance(by: policy.minimumAutomaticStartInterval)
-        #expect(await automaticPacingWaitUntil { await calls.count == 2 })
+        #expect(await automaticPacingWaitUntil { await gate.count == 2 })
+        #expect(await automaticPacingWaitUntil { await gate.waitingCount == 2 })
+        await gate.releaseAll()
         #expect(
             await automaticPacingWaitUntil {
                 await actor.worktreeTasks.isEmpty
@@ -137,35 +129,66 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             )
         }
 
-        #expect(await calls.count == 2)
-        guard await calls.count == 2 else {
+        #expect(await gate.count == 2)
+        guard await gate.count == 2 else {
+            await gate.releaseAll()
             await actor.shutdown()
             return
         }
         await clock.waitForPendingSleepCount(atLeast: 1, fromGeneration: sleepGeneration)
         let secondStartSleepGeneration = clock.scheduledSleepGeneration
-        clock.advance(by: policy.minimumAutomaticStartInterval)
-        #expect(await automaticPacingWaitUntil { await calls.count == 3 })
+        let nextAutomaticStartAt = await actor.nextAutomaticStartAt
+        let deadlineClockNow = await actor.deadlineClock.now
+        clock.advance(by: max(.zero, nextAutomaticStartAt - deadlineClockNow))
+        #expect(await automaticPacingWaitUntil { await gate.count == 3 })
         await clock.waitForPendingSleepCount(
             atLeast: 1,
             fromGeneration: secondStartSleepGeneration
         )
         clock.advance(by: policy.minimumAutomaticStartInterval - .milliseconds(1))
-        #expect(await calls.count == 3)
+        #expect(await gate.count == 3)
         clock.advance(by: .milliseconds(1))
-        #expect(await automaticPacingWaitUntil { await calls.count == 4 })
+        #expect(await automaticPacingWaitUntil { await gate.count == 4 })
 
+        #expect(await automaticPacingWaitUntil { await gate.waitingCount == 2 })
+        await gate.releaseAll()
         await actor.shutdown()
     }
 }
 
-private actor AutomaticPacingCallRecorder {
+private func automaticPacingPolicy() -> AppPolicies.GitRefresh.Policy {
+    AppPolicies.GitRefresh.Policy(
+        activePaneCadence: .milliseconds(500),
+        visibleSidebarCadence: .seconds(1),
+        openPaneCadence: .seconds(2),
+        backgroundCadence: .seconds(4),
+        backgroundStripeCount: 1,
+        maxConcurrentStatusComputes: 4,
+        visibleSidebarMaxConcurrent: 2,
+        minimumAutomaticStartInterval: .milliseconds(10)
+    )
+}
+
+private actor AutomaticPacingStatusGate {
     private var labels: [String] = []
+    private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
 
     var count: Int { labels.count }
+    var waitingCount: Int { waiters.count }
 
-    func record(_ label: String) {
+    func recordAndWait(_ label: String) async {
         labels.append(label)
+        await withCheckedContinuation { continuation in
+            waiters[label] = continuation
+        }
+    }
+
+    func releaseAll() {
+        let continuations = Array(waiters.values)
+        waiters.removeAll(keepingCapacity: true)
+        for continuation in continuations {
+            continuation.resume()
+        }
     }
 }
 

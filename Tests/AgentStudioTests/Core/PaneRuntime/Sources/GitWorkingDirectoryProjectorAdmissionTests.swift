@@ -138,6 +138,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 4)
         let blockingReadStarted = AdmissionAsyncReceipt()
         let blockingReadGate = AdmissionAsyncGate()
+        let activeReadGate = AdmissionAsyncGate()
         let statusSnapshot = admissionCompleteStatusSnapshot()
         let contendedWorktreeId = UUIDv7.generate()
         let activeWorktreeId = UUIDv7.generate()
@@ -157,6 +158,9 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             physicalGate: physicalGate
         ) { rootPath, _ in
             await projectorStatusCalls.record(rootPath)
+            if rootPath == activeRootPath {
+                await activeReadGate.waitUntilOpen()
+            }
             return statusSnapshot
         }
         let pathProbe = RootPathProbeRecorder()
@@ -181,14 +185,9 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
         await actor.setActivity(worktreeId: contendedWorktreeId, isActiveInApp: true)
         await actor.assertTopology(
-            FilesystemTopologyAssertion(
+            admissionTopologyAssertion(
                 generation: 1,
-                contextsByWorktreeId: [
-                    contendedWorktreeId: WorktreeFilesystemContext(
-                        repoId: contendedWorktreeId,
-                        rootPath: contendedRootPath
-                    )
-                ]
+                rootPathsByWorktreeId: [contendedWorktreeId: contendedRootPath]
             )
         )
         #expect(
@@ -203,17 +202,11 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
         await actor.setActivePaneWorktree(worktreeId: activeWorktreeId)
         await actor.assertTopology(
-            FilesystemTopologyAssertion(
+            admissionTopologyAssertion(
                 generation: 2,
-                contextsByWorktreeId: [
-                    contendedWorktreeId: WorktreeFilesystemContext(
-                        repoId: contendedWorktreeId,
-                        rootPath: contendedRootPath
-                    ),
-                    activeWorktreeId: WorktreeFilesystemContext(
-                        repoId: activeWorktreeId,
-                        rootPath: activeRootPath
-                    ),
+                rootPathsByWorktreeId: [
+                    contendedWorktreeId: contendedRootPath,
+                    activeWorktreeId: activeRootPath,
                 ]
             )
         )
@@ -223,6 +216,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         #expect(await actor.capacityRetryWorktreeIds == Set([contendedWorktreeId]))
         #expect(pathProbe.recordedRootPaths.filter { $0 == contendedRootPath }.count == 1)
 
+        await activeReadGate.open()
         await blockingReadGate.open()
         _ = await blockingRead.value
         #expect(

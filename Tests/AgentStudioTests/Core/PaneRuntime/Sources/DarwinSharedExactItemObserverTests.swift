@@ -404,7 +404,11 @@ struct DarwinSharedExactItemObserverTests {
                 observationPlan: observationPlan
             )
         )
-        let authority = try #require(await client.commit(barrier).authority)
+        let commitValidation = await client.commit(barrier)
+        let authority = try #require(
+            commitValidation.authority,
+            "commit rejected: \(commitValidation)"
+        )
         let renewal = await client.renew(authority)
 
         #expect(renewal == .authoritative(authority))
