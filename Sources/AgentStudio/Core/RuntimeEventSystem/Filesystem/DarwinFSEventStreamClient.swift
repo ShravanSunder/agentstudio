@@ -174,13 +174,7 @@ package enum DarwinFSEventPathClassifier {
 
     private static func lexicallyNormalizedAbsolutePath(_ path: String) -> String {
         guard path.hasPrefix("/") else { return path }
-        let requiresNormalization =
-            path.contains("//")
-            || path.contains("/./")
-            || path.hasSuffix("/.")
-            || path.contains("/../")
-            || path.hasSuffix("/..")
-        guard requiresNormalization else { return path }
+        guard containsNonCanonicalPathComponent(path) else { return path }
 
         var normalizedComponents: [Substring] = []
         for component in path.split(separator: "/", omittingEmptySubsequences: true) {
@@ -197,6 +191,38 @@ package enum DarwinFSEventPathClassifier {
         }
         guard !normalizedComponents.isEmpty else { return "/" }
         return "/" + normalizedComponents.joined(separator: "/")
+    }
+
+    private static func containsNonCanonicalPathComponent(_ path: String) -> Bool {
+        let separator = UInt8(ascii: "/")
+        let dot = UInt8(ascii: ".")
+        var hasConsumedLeadingSeparator = false
+        var componentLength = 0
+        var componentContainsOnlyDots = true
+
+        for byte in path.utf8 {
+            if byte == separator {
+                if !hasConsumedLeadingSeparator {
+                    hasConsumedLeadingSeparator = true
+                    continue
+                }
+                if componentLength == 0
+                    || componentContainsOnlyDots && componentLength <= 2
+                {
+                    return true
+                }
+                componentLength = 0
+                componentContainsOnlyDots = true
+                continue
+            }
+
+            componentLength += 1
+            if byte != dot {
+                componentContainsOnlyDots = false
+            }
+        }
+
+        return componentContainsOnlyDots && (componentLength == 1 || componentLength == 2)
     }
 }
 
