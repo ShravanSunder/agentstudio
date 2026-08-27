@@ -195,13 +195,25 @@ package enum DarwinFSEventPathClassifier {
     }
 
     private static func containsNonCanonicalPathComponent(_ path: String) -> Bool {
+        if let result = path.utf8.withContiguousStorageIfAvailable(scanNonCanonicalPathComponents) {
+            return result
+        }
+        return Array(path.utf8).withUnsafeBufferPointer(scanNonCanonicalPathComponents)
+    }
+
+    private static func scanNonCanonicalPathComponents(
+        _ bytes: UnsafeBufferPointer<UInt8>
+    ) -> Bool {
         let separator = UInt8(ascii: "/")
         let dot = UInt8(ascii: ".")
         var hasConsumedLeadingSeparator = false
         var componentLength = 0
         var componentContainsOnlyDots = true
+        var index = 0
 
-        for byte in path.utf8 {
+        while index < bytes.count {
+            let byte = bytes[index]
+            index += 1
             if byte == separator {
                 if !hasConsumedLeadingSeparator {
                     hasConsumedLeadingSeparator = true
