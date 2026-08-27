@@ -364,9 +364,13 @@ Date: 2026-08-25
       accessibility-name checks; live visual owner acceptance.
     - Status: implemented in the UI lane. Failing-first browser evidence caught
       the old 36 px geometry, hidden Edit, old header treatment, and old Save
-      admission. Focused browser reruns are temporarily blocked because the
-      configured Chrome process aborts before loading any test; unit dirty-state
-      proof passes 2/2. Updated screenshots and final owner feel remain pending.
+      admission. Seven focused headed-Chromium interaction/style cases pass,
+      including permanent Edit, guarded double click, link/selection protection,
+      and Resolve/Reopen color state. The geometry case is still blocked from a
+      fresh result: headless Chrome aborts before discovery, while headed Chrome
+      triggers an unrelated Tooltip `act(...)` warning from the physical pointer.
+      Unit dirty-state proof passes 2/2. Updated screenshots and final owner feel
+      remain pending.
 
 20. **Unchanged annotation Edit exposes a storage-mechanism Save error**
     - Actual: entering Edit without changing the saved body leaves Save enabled.
@@ -391,9 +395,10 @@ Date: 2026-08-25
       the unchanged cases; focused scheduler/unit coverage only if new pure
       derivation logic warrants it.
     - Status: root cause fixed with pure dirty-state admission and button/
-      shortcut gating. Pure unit proof passes 2/2. The focused browser journey
-      reached the intended failing assertion before the correction; its green
-      rerun is pending the same pre-test Chrome launch blocker above.
+      shortcut gating. Pure unit proof passes 2/2. The focused Chromium journey
+      passes 1/1 and proves Edit emits no ownership mutation for an unchanged
+      saved body, Save remains disabled, Command-Enter is inert, and the first
+      actual body change enters the durable draft path.
 
 ## Scope classification
 

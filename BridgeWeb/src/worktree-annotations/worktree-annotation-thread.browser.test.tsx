@@ -781,19 +781,14 @@ describe('worktree annotation inline thread', () => {
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Edit annotation' }).click();
 		});
-		await settleBrowserCondition(
-			(): boolean =>
-				surface.sentOperations.some((operation) => operation.kind === 'draft.edit.acquire'),
-			'Expected Edit to acquire annotation ownership.',
-		);
-		await act(async (): Promise<void> => {
-			surface.settleMostRecentCommitted();
-			await Promise.resolve();
-		});
 		const editor = rendered.getByRole('textbox', { name: 'Annotation Markdown' });
 		const saveButton = rendered.getByRole('button', { name: 'Save annotation' });
 		await expect.element(editor).toHaveValue('Unchanged saved body.');
+		await expect.element(editor).toBeEnabled();
 		await expect.element(saveButton).toBeDisabled();
+		expect(
+			surface.sentOperations.some((operation) => operation.kind === 'draft.edit.acquire'),
+		).toBe(false);
 		const operationCountBeforeShortcut = surface.sentOperations.length;
 
 		await act(async (): Promise<void> => {
