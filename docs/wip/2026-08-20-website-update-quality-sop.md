@@ -229,4 +229,3 @@ At any checkpoint, report:
 - open owner decisions;
 - current result: `NOT ACCEPTED`, `READY FOR OWNER REVIEW`, or
   `APPROVED FOR RELEASE`.
-

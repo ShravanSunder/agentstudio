@@ -28,4 +28,3 @@ without changing homepage copy, media, layout, interaction, or install behavior.
    perform one controlled campaign-path visit, and retain visible Path-report
    and Security Analytics evidence.
 10. Verify the exact X campaign route in the real composer without publishing.
-

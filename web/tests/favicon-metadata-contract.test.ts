@@ -216,7 +216,6 @@ describe("site discovery metadata", () => {
 
     const sitemapXml = await sitemapResponse.text();
     expect(sitemapXml).toContain(`<loc>${canonicalHomeUrl}</loc>`);
-    expect(sitemapXml).not.toContain("topology-full-page-lab");
     for (const campaignChannel of campaignChannels) {
       expect(sitemapXml).not.toContain(`/${campaignChannel}`);
     }

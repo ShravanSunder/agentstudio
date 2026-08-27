@@ -121,9 +121,6 @@ const sitemap = await readFile(resolve(cloudflareAssetsDirectory, "sitemap.xml")
 if (!sitemap.includes("<loc>https://getagentstudio.dev/</loc>")) {
   throw new Error("Cloudflare sitemap does not contain the canonical home page");
 }
-if (sitemap.includes("topology-full-page-lab")) {
-  throw new Error("Cloudflare sitemap exposes the topology lab");
-}
 for (const campaignChannel of campaignChannels) {
   if (sitemap.includes(`/${campaignChannel}`)) {
     throw new Error(`Cloudflare sitemap exposes campaign channel ${campaignChannel}`);

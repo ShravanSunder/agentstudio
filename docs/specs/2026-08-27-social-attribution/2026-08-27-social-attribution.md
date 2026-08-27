@@ -100,4 +100,3 @@ be reconsidered only for an approved server-side custom-reporting requirement.
 - Security Analytics supplies the bounded request crosscheck;
 - the real X composer shows the exact title, approved card, and clean campaign
   path without publishing the proof post.
-
