@@ -407,15 +407,14 @@ final class RepoExplorerTableMaterializer: NSObject,
         tableView.layoutSubtreeIfNeeded()
         let represented = representedRowIndexes()
         let visibleReloadRows = pendingReloadRows.intersection(represented)
-        let visibleHeightRows = pendingHeightRows.intersection(represented)
         if !visibleReloadRows.isEmpty {
             tableView.reloadData(
                 forRowIndexes: visibleReloadRows,
                 columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
             )
         }
-        if !visibleHeightRows.isEmpty {
-            tableView.noteHeightOfRows(withIndexesChanged: visibleHeightRows)
+        if !pendingHeightRows.isEmpty {
+            tableView.noteHeightOfRows(withIndexesChanged: pendingHeightRows)
         }
         rebindRepresentedCells()
         pendingReloadRows.removeAll()
