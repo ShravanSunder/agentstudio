@@ -174,13 +174,13 @@ export function WorktreeAnnotationThread(
 		<>
 			<WorktreeAnnotationCommandButton
 				action="replyToThread"
-				appearance="toolbar"
+				appearance="thread"
 				disabled={!canReply}
 				onClick={(event) => startReply(event.currentTarget)}
 			/>
 			<WorktreeAnnotationCommandButton
 				action={props.thread.context.resolution === 'open' ? 'resolveThread' : 'reopenThread'}
-				appearance="primary"
+				appearance={props.thread.context.resolution === 'open' ? 'success' : 'thread'}
 				disabled={!canSetThreadResolution}
 				onClick={() => void setResolution()}
 			/>

@@ -112,8 +112,12 @@ describe('worktree annotation inline shell', () => {
 		expect(commandButtons[0]?.getAttribute('aria-label')).toBe('Edit annotation');
 		expect(latestCardContent.classList).toContain('p-2');
 		expect(latestCardContent.classList).toContain('pr-10');
-		expect(expandedThreadBounds.right - latestCardBounds.right).toBeCloseTo(36, 1);
-		expect(expandedThreadBounds.bottom - latestCardBounds.bottom).toBeCloseTo(36, 1);
+		expect(thread.classList).toContain('pr-4');
+		expect(thread.classList).toContain('pb-4');
+		expect(thread.classList).not.toContain('pr-9');
+		expect(thread.classList).not.toContain('pb-9');
+		expect(expandedThreadBounds.right - latestCardBounds.right).toBeCloseTo(16, 1);
+		expect(expandedThreadBounds.bottom - latestCardBounds.bottom).toBeCloseTo(16, 1);
 		expect(compactThread.getBoundingClientRect().height).toBeGreaterThan(compactThreadHeight);
 		expect(followingDiffRow.getBoundingClientRect().top).toBeGreaterThan(followingDiffRowTop);
 		await page.screenshot({ path: '../../../tmp/bridgeweb-inline-thread-expanded.png' });
@@ -361,26 +365,40 @@ describe('worktree annotation inline shell', () => {
 		);
 	});
 
-	test('keeps local Edit, Reply, and primary Resolve in the compact rail and edits from the body', async () => {
+	test('keeps permanent local Edit and outlined thread actions at their exact owners', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderInlineShell(surface);
 		await publishTwoMessageThread(surface);
 
 		const thread = rendered.getByTestId('worktree-annotation-thread');
-		await expect.element(thread.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
+		const editButton = thread.getByRole('button', { name: 'Edit annotation' });
+		await expect.element(editButton).toBeVisible();
+		const editCommands = editButton
+			.element()
+			.closest<HTMLElement>('[aria-label="Annotation commands"]');
+		if (editCommands === null) throw new Error('Expected permanent annotation Edit commands.');
+		expect(getComputedStyle(editCommands).opacity).toBe('1');
 		await expect
 			.element(thread.getByRole('button', { name: 'Reply to annotation thread' }))
 			.toBeVisible();
+		const replyButton = thread
+			.getByRole('button', { name: 'Reply to annotation thread' })
+			.element();
+		expect(replyButton.classList).toContain('border-border');
+		expect(replyButton.classList).toContain('size-7');
 		const resolveButton = thread.getByRole('button', { name: 'Resolve annotation thread' });
 		await expect.element(resolveButton).toBeVisible();
-		expect(resolveButton.element().className).toContain('bg-primary/15');
+		expect(resolveButton.element().classList).toContain('border-success/50');
+		expect(resolveButton.element().classList).toContain('text-success');
+		expect(resolveButton.element().classList).toContain('size-7');
 
 		await act(async (): Promise<void> => {
 			await thread.getByText('Latest message.').click();
 		});
 		await expect.element(rendered.getByText('Root message.')).toBeVisible();
+		expect(rendered.getByRole('textbox', { name: 'Annotation Markdown' }).all()).toHaveLength(0);
 		await act(async (): Promise<void> => {
-			await thread.getByText('Latest message.').click();
+			await userEvent.dblClick(thread.getByText('Latest message.').element());
 		});
 		await expect
 			.element(rendered.getByRole('textbox', { name: 'Annotation Markdown' }))
@@ -451,7 +469,7 @@ describe('worktree annotation inline shell', () => {
 		messageText.append(syntheticLink);
 
 		await act(async (): Promise<void> => {
-			syntheticLink.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			syntheticLink.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
 		});
 		expect(document.querySelector('[aria-label="Annotation Markdown"]')).toBeNull();
 
@@ -461,7 +479,8 @@ describe('worktree annotation inline shell', () => {
 		selection?.removeAllRanges();
 		selection?.addRange(selectionRange);
 		await act(async (): Promise<void> => {
-			messageText.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			messageText.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, detail: 1 }));
+			messageText.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
 		});
 		expect(document.querySelector('[aria-label="Annotation Markdown"]')).toBeNull();
 		selection?.removeAllRanges();

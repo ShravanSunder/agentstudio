@@ -33,7 +33,7 @@ describe('worktree annotation browser edit ownership', () => {
 		);
 
 		await act(async (): Promise<void> => {
-			await rendered.getByText('Durable draft').click();
+			await rendered.getByRole('button', { name: 'Edit annotation' }).click();
 			await settleInteraction();
 		});
 		await waitForOperationKind(surface, 'draft.edit.acquire');
@@ -86,7 +86,7 @@ describe('worktree annotation browser edit ownership', () => {
 		);
 
 		await act(async (): Promise<void> => {
-			await rendered.getByText('Durable draft').click();
+			await rendered.getByRole('button', { name: 'Edit annotation' }).click();
 			await settleInteraction();
 		});
 		await waitForOperationKind(surface, 'draft.edit.acquire');

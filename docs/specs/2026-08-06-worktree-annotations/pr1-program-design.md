@@ -737,21 +737,23 @@ copy, and shortcut matching. `WorktreeAnnotationThread` owns placement and
 admission against the current thread/message projection. The owned shadcn
 Button and Tooltip wrapper renders the resolved descriptor; call sites do not
 repeat labels, icons, or shortcut strings. The wrapper gives thread-header,
-annotation-local, and editor actions the non-circular rounded treatment while
-preserving primary tint for Resolve/Reopen and Save. Keyboard focus on an annotation
-entry supplies the exact Edit target without adding another persisted or
-shared selection state.
+annotation-local, and editor actions the non-circular rounded treatment. Reply
+and Resolve/Reopen use the owned outlined 28 px thread-action scale; Resolve
+selects the success semantic variant while Reply and Reopen remain neutral.
+Save retains primary treatment. Keyboard focus on an annotation entry supplies
+the exact Edit target without adding another persisted or shared selection
+state.
 
 Core command ownership remains:
 
 | Surface | Commands |
 | --- | --- |
-| every thread header | status, one Reply, one primary-tint Resolve/Reopen; Expand/Collapse only when multi-message |
-| human editable message right column | Edit only, revealed by hover or keyboard focus |
+| every thread header | status, one outlined Reply, one outlined Resolve/Reopen; Resolve uses success color, Reply/Reopen neutral; Expand/Collapse only when multi-message |
+| human editable message right column | one permanently visible Edit |
 | locked or agent-authored message right column | no Edit action |
 | composer right column | Revert, primary Save |
 | File/Review header | Share comments entry; in-flow New/All, Copy Markdown, Export JSON, Done, and collapsed History disclosure |
-| expanded message | Edit when human-authored and editable; guarded body click or focused Enter also edits |
+| expanded message | Edit when human-authored and editable; guarded body double-click or focused Enter also edits |
 
 Focus activates the thread and paints its complete stored range. Focus alone
 does not expand the chronology. Expand/Edit/Reply expand the same Pierre
@@ -764,6 +766,27 @@ focus returns to the invoking control. Sticky controls for threads taller than
 the viewport are deferred until this basic inline interaction is accepted.
 Expanded message nodes use a 4 px comment-owned gap and a neutral semantic rail;
 they do not add an outer bordered surface.
+
+The active standalone frame uses the established 8 px top/left inset and 16 px
+right/bottom clearance. Message metadata derives one compact visible line from
+author, relative time, and meaningful state only: pending human work includes
+`Pending`, handled human work has no redundant saved label, and newly arrived
+agent work includes `New` with the primary-blue cue. Root/reply ordinals stay in
+the message surface's accessible label rather than visible metadata.
+
+Body interaction records whether a non-collapsed selection existed at the
+first pointer-down of the gesture. Single click activates the thread/range only.
+Double click begins editing when that gesture did not start with a selection
+and the target is not a link or control. This distinguishes a browser-created
+word selection during a normal double click from a user selection that must be
+preserved; the `E`/Control-E and explicit Edit routes remain equivalent exact
+edit admission paths.
+
+The message editor derives `hasUnsavedChanges` by comparing its current body
+with the one current saved body. Save admission and Command-Enter both require
+that derivation in addition to Markdown validity and acquired edit ownership;
+returning to the saved body disables the command without issuing draft/save
+transport or surfacing an internal durability error.
 
 One shared pre-match guard rejects input, textarea, content-editable, menu, and
 non-collapsed-selection ownership for both shortcut families. After that guard,
@@ -789,7 +812,8 @@ annotation row on `--diffs-annotation-bg`. The active standalone thread frame
 uses `--comment-active-surface`, a 14% translucent overlay derived from the
 inherited `--diffs-selection-base`, and caps responsively at 48rem. The
 discoverable Edit action remains annotation-local outside Share mode;
-non-interactive body click and focused Enter also begin Edit outside Share mode.
+non-interactive body double-click and focused Enter also begin Edit outside
+Share mode; single click activates only.
 
 When no complete server projection exists, Share shows unknown membership and
 keeps Copy/Export disabled; it never derives `0` from the empty initialization
@@ -1134,8 +1158,8 @@ remain Swift-owned; SQLite gains no product-enum checks.
 | Requirements | Realization | Required proof |
 | --- | --- | --- |
 | P1-U1/U8/U13; R-P1-001/008/009 | repository identities, service discovery/admission/lifecycle, worktree-lineage queries | zero/one/several session admission, restart, File/Review convergence, no persistent session UI |
-| P1-U2/U3; R-P1-003/004/006 | draft scheduler, message-scoped CAS, thread-scoped reply creation with atomic ordinal allocation, complete canonical message receipts, command-confirmed overlays, service edit ownership, last-complete finite refresh | first-character red/green, debounce/max-wait clock tests, focus loss, immediate Save presentation, same-session different-message Save/reply without conflict, same-thread reply/resolution conflict, overlay reconciliation/failure, restart, multi-pane invalidation during active editor |
-| P1-U4/U14; R-P1-005/016/017 | 16 KiB policy, complete-message finite-content record cursor, flat threads, compact/expanded inline UI, typed annotation action descriptors, thread-header versus annotation-local placement, focus-scoped shortcut routing | H2-H6/H1/raw HTML/unsafe link tests, 16/64/128 KiB framing, no split message, M1 vs summary+last, singular thread actions, per-annotation Edit eligibility, canonical tooltip/shortcut descriptors, `R`/`Control-R` and exact-focused `E`/`Control-E` with input/selection guards, inline chronology and Pierre remeasurement |
+| P1-U2/U3; R-P1-003/004/006 | draft scheduler, pure unsaved-change derivation, message-scoped CAS, thread-scoped reply creation with atomic ordinal allocation, complete canonical message receipts, command-confirmed overlays, service edit ownership, last-complete finite refresh | first-character red/green, debounce/max-wait clock tests, focus loss, unchanged-body Save disabled and Command-Enter no-op, changed/returned-body derivation, immediate Save presentation, same-session different-message Save/reply without conflict, same-thread reply/resolution conflict, overlay reconciliation/failure, restart, multi-pane invalidation during active editor |
+| P1-U4/U14; R-P1-005/016/017 | 16 KiB policy, complete-message finite-content record cursor, flat threads, compact/expanded inline UI, typed annotation action descriptors, thread-header versus annotation-local placement, focus-scoped shortcut routing, gesture-start selection admission | H2-H6/H1/raw HTML/unsafe link tests, 16/64/128 KiB framing, no split message, M1 vs summary+last, single-click activation, double-click exact Edit with link/pre-existing-selection guards, 16 px frame clearance, outlined neutral/success thread states, permanent per-annotation Edit eligibility, metadata/accessibility separation, canonical tooltip/shortcut descriptors, `R`/`Control-R` and exact-focused `E`/`Control-E` with input/selection guards, inline chronology and Pierre remeasurement |
 | P1-U5/U6/U7; R-P1-002/007/008 | native source capture/evaluator, pane-scoped placement, reviewer continuity choice, Pierre adapters | File/Review range creation, exact/relocated/outdated/unavailable, same/uncertain/detached, active-only range paint |
 | P1-U9/U10/U11/U12; R-P1-010/011/012/013 | shared BridgeViewer shadcn trigger/action toolbar and in-flow History disclosure, explicit membership readiness, projection/session/source-fenced New/All scope assembler, prepared-membership write fence, message handled column and attempt-membership reduction, filtered inline/Other presentation, immutable batch projectors, output coordinator actor, App effects, exact history | File/Review screenshot and geometry parity; unknown-not-zero; peer-neutral Copy/Export; History rediscovery after toast expiry; exact inspection/unhandle/unknown repetition; stale displayed scope conflicts with no effect; mixed-thread New/All matrix including locked/draft/unavailable placement; prepare-vs-edit fence, cancellation release, success lock+handled, partial success, restart unknown; exact Markdown/JSON; real clipboard/save file; success dismissal |
 | R-P1-014 | service multicast observer registry, per-observer aggregate coalescence, pane notifications, explicit Unknown state, snapshot-consistent paged query, worker query fencing/stale-source transition, command overlay reconciliation, real development-browser harness | register-two-before-bootstrap, mutation during initial query reaches both, invalidation 11...15 coalesces, reset/reopen current query, >2 MiB page identity/ordering, stale query rejection, exact observer cleanup, last-complete/overlay retention, and real Chrome/Vite/comm-worker/Swift/SQLite create-flush-save-two-message-restart journey |

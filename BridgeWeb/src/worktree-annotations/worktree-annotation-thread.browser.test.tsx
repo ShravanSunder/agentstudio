@@ -58,6 +58,10 @@ describe('worktree annotation inline thread', () => {
 		await expect
 			.element(rendered.getByTestId('worktree-annotation-message-pending-status'))
 			.toHaveTextContent('Pending');
+		const annotationMessage = rendered.getByTestId('worktree-annotation-message').element();
+		expect(annotationMessage.getAttribute('aria-label')).toBe('Root annotation by You');
+		expect(annotationMessage.textContent).not.toContain('Root annotation');
+		expect(annotationMessage.textContent).not.toContain('Saved');
 		expect(document.querySelector('[aria-label="Expand 1 annotation"]')).toBeNull();
 		expect(rendered.getByRole('button', { name: 'More comment actions' }).all()).toHaveLength(0);
 		expect(document.querySelector('[aria-label^="Show source range"]')).toBeNull();
@@ -76,16 +80,12 @@ describe('worktree annotation inline thread', () => {
 			.closest<HTMLElement>('[aria-label="Annotation commands"]');
 		if (editCommands === null) throw new Error('Expected annotation-local commands.');
 		expect(editButton.element().classList).not.toContain('rounded-full');
-		expect(getComputedStyle(editCommands).opacity).toBe('0');
+		expect(getComputedStyle(editCommands).opacity).toBe('1');
 
 		await act(async (): Promise<void> => {
 			editButton.element().focus();
 			await Promise.resolve();
 		});
-		await settleBrowserCondition(
-			(): boolean => getComputedStyle(editCommands).opacity === '1',
-			'Expected keyboard focus to reveal the exact annotation Edit action.',
-		);
 		expect(getComputedStyle(editCommands).opacity).toBe('1');
 		expect(editButton.element().getAttribute('data-tooltip')).toBe('Edit annotation (E)');
 
@@ -94,6 +94,33 @@ describe('worktree annotation inline thread', () => {
 			'Reply to annotation thread (R)',
 		);
 		await page.screenshot({ path: '../../../tmp/bridgeweb-annotation-action-ownership.png' });
+	});
+
+	test('uses success outline only while the thread can be resolved', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+		const message = makeSavedMessage({ body: 'Resolution style.', messageId: rootMessageId });
+
+		await publishThreadMessages(surface, [message]);
+		const resolveButton = rendered.getByRole('button', { name: 'Resolve annotation thread' });
+		expect(resolveButton.element().classList).toContain('border-success/50');
+		expect(resolveButton.element().classList).toContain('text-success');
+
+		await publishThreadMessages(surface, [message], {
+			...locatedContext,
+			resolution: 'resolved',
+		});
+		const reopenButton = rendered.getByRole('button', { name: 'Reopen annotation thread' });
+		expect(reopenButton.element().classList).toContain('border-border');
+		expect(reopenButton.element().classList).not.toContain('border-success/50');
+
+		await publishThreadMessages(surface, [message]);
+		expect(
+			rendered
+				.getByRole('button', { name: 'Resolve annotation thread' })
+				.element()
+				.classList.contains('border-success/50'),
+		).toBe(true);
 	});
 
 	test('renders a one-message agent thread as New and read-only while retaining Reply', async () => {
@@ -665,7 +692,7 @@ describe('worktree annotation inline thread', () => {
 
 		await publishThreadMessages(surface, [draftMessage]);
 		await act(async (): Promise<void> => {
-			await rendered.getByText('Reviewed body.').click();
+			await rendered.getByRole('button', { name: 'Edit annotation' }).click();
 		});
 		await settleBrowserCondition(
 			(): boolean =>
@@ -744,6 +771,53 @@ describe('worktree annotation inline thread', () => {
 		).toBe(true);
 	});
 
+	test('keeps unchanged saved annotations unsaveable without exposing draft internals', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Unchanged saved body.', messageId: rootMessageId }),
+		]);
+
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Edit annotation' }).click();
+		});
+		await settleBrowserCondition(
+			(): boolean =>
+				surface.sentOperations.some((operation) => operation.kind === 'draft.edit.acquire'),
+			'Expected Edit to acquire annotation ownership.',
+		);
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommitted();
+			await Promise.resolve();
+		});
+		const editor = rendered.getByRole('textbox', { name: 'Annotation Markdown' });
+		const saveButton = rendered.getByRole('button', { name: 'Save annotation' });
+		await expect.element(editor).toHaveValue('Unchanged saved body.');
+		await expect.element(saveButton).toBeDisabled();
+		const operationCountBeforeShortcut = surface.sentOperations.length;
+
+		await act(async (): Promise<void> => {
+			editor.element().focus();
+			await userEvent.keyboard('{Meta>}{Enter}{/Meta}');
+			await Promise.resolve();
+		});
+		expect(surface.sentOperations).toHaveLength(operationCountBeforeShortcut);
+		expect(document.body.textContent).not.toContain('No durable draft');
+
+		await act(async (): Promise<void> => {
+			await editor.fill('Changed saved body.');
+		});
+		await expect.element(saveButton).toBeEnabled();
+		await settleBrowserCondition(
+			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'draft.flush'),
+			'Expected the first changed edit to create a durable draft.',
+		);
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommitted();
+			await Promise.resolve();
+		});
+	});
+
 	test('anchors Reply to the shared tooltip and shows the editor focus surface', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
@@ -772,7 +846,7 @@ describe('worktree annotation inline thread', () => {
 
 		await publishThreadMessages(surface, [savedMessage]);
 		await act(async (): Promise<void> => {
-			await rendered.getByText('Saved body.').click();
+			await rendered.getByRole('button', { name: 'Edit annotation' }).click();
 			await rendered.getByRole('textbox', { name: 'Annotation Markdown' }).fill('');
 			await userEvent.keyboard('{Escape}');
 		});

@@ -132,12 +132,15 @@ treatment does not require a visible text label.
 
 When the thread contains exactly one message, M1 is the inline body; there is
 no synthetic message summary. The stable thread header presents one annotation
-count, status, Reply, and primary-tint Resolve/Reopen. The body is top-aligned
+count and status, plus outlined Reply and Resolve/Reopen actions. Resolve uses
+the success color role; Reply and Reopen remain neutral. The body is top-aligned
 and content-sized. Its annotation-local command column contains only Edit when
 M1 is human-authored and editable, and its height never sets the body height.
-Clicking non-interactive body content or pressing Enter on the focused message
-begins Edit. A one-message thread has no disclosure control; focus never implies
-expansion.
+Clicking non-interactive body content activates the thread and its complete
+source range without editing. Double-clicking that content or pressing Enter
+on the focused message begins Edit. Links and a text selection that existed
+before the gesture remain undisturbed. A one-message thread has no disclosure
+control; focus never implies expansion.
 
 ### Compact multi-message thread
 
@@ -157,9 +160,10 @@ activity, resolution, and any hidden Draft, placement, or lock state
 needed to avoid a false compact representation. M-last presents a bounded view
 of the latest actual message. M-summary is not authored Markdown, not another
 message, and not independently selectable or output content. The thread header
-contains one Reply and one primary-tint Resolve/Reopen. The M-last
+contains one outlined Reply and one outlined Resolve/Reopen. The M-last
 annotation-local command column contains only Edit when it is human-authored
-and editable. Body click and focused Enter also edit M-last.
+and editable. Single body click activates M-last without editing. Double-click
+and focused Enter edit M-last.
 
 ### Expanded inline complete thread
 
@@ -185,8 +189,9 @@ M1 through Mn exactly once in one flat timeline. The compact M-last DOM remains
 the same keyed message when expansion adds the missing earlier messages. Pierre
 remeasures the annotation row and remains the sole scroll owner, so later diff
 rows move down without a nested thread scrollbar. Every expanded
-human-authored editable message exposes Edit in its annotation-local command
-column and supports guarded body-click or focused Enter editing. Reply and
+human-authored editable message exposes a permanently visible Edit in its
+annotation-local command column and supports guarded body-double-click or
+focused Enter editing. Reply and
 Resolve/Reopen remain singular thread-header commands, never independent
 message states.
 
@@ -236,7 +241,7 @@ output interaction
   File/Review header → Share comments → New | All · Copy Markdown · Export JSON
 
 edit interaction
-  guarded body click · focused Enter · E / Control-E → Edit exact annotation
+  guarded body double-click · focused Enter · E / Control-E → Edit exact annotation
 
 reply interaction
   thread-header Reply · R / Control-R → Reply to active thread
@@ -532,6 +537,10 @@ on a never-saved message MUST remove its draft and unsaved message. Pane closure
 focus loss,
 autosave, copy, export, placement change, and restart MUST NOT perform Save.
 Command+Enter MUST invoke Save; Enter and Shift+Enter MUST insert a newline.
+When the editor body is byte-equivalent to the current saved body, Save MUST be
+disabled and Command+Enter MUST perform no mutation and show no error. Changing
+the body MUST enable Save when the remaining validation and edit-ownership
+conditions hold; returning it to the saved body MUST disable Save again.
 
 Save progress MUST begin when the explicit Save mutation is requested and MUST
 end when its exact typed command response reports committed or failed. A
@@ -1113,18 +1122,23 @@ projection of the actual latest message.
 The inline surface MUST own one rounded visual boundary composed from the
 product's owned shadcn primitives. Its message body MUST be top-aligned and
 content-sized; its annotation-local right command column MUST NOT determine
-body height. Every human-authored editable message MUST expose exactly Edit in
-that local column; locked and agent-authored messages MUST expose no Edit.
-Editable message bodies MUST also begin Edit on a non-interactive body click or
-focused Enter, while links and non-collapsed text selection remain undisturbed.
+body height. Every human-authored editable message MUST expose exactly one
+permanently visible Edit in that local column; locked and agent-authored
+messages MUST expose no Edit. A single click on non-interactive message content
+MUST activate the thread and paint its complete source range without beginning
+Edit. Editable message bodies MUST begin Edit on a double click or focused
+Enter, while links and a non-collapsed text selection that existed before the
+pointer gesture remain undisturbed.
 Composer right columns MUST contain Revert and the primary-treated Save. These
 core controls MUST be icon-only controls with a canonical identity, tooltip,
 and accessible name. Thread-header, annotation-local, and composer commands
 MUST use the quiet rounded owned shadcn treatment rather than circular chrome.
 
 Every thread MUST expose one stable thread header, including a one-message
-thread. That header MUST own status plus exactly one Reply and one
-primary-tint Resolve/Reopen. Only a multi-message thread MUST add Expand or
+thread. That header MUST own status plus exactly one outlined Reply and one
+outlined Resolve/Reopen. Resolve MUST use the success semantic color; Reply and
+Reopen MUST use the neutral thread-action treatment. These thread-header
+controls MUST be 28 px square. Only a multi-message thread MUST add Expand or
 Collapse in that header. PR1 MUST present no direct-action ellipsis or
 annotation-local More menu. Copy and Export
 MUST remain owned by the File/Review header Share comments mode. The annotation
@@ -1150,6 +1164,14 @@ chronology layer, or duplicate nested timeline. Long-thread sticky summary
 controls are deferred follow-up design work. Expanded message nodes use the
 comment spacing scale at 4 px between nodes, and their shared neutral timeline
 rail provides grouping without an outer bordered thread card.
+
+The active standalone thread frame MUST retain 16 px of right and bottom
+clearance beyond its message content while preserving the existing 8 px top and
+left inset. Normal visible annotation metadata MUST show author and relative
+time, plus only meaningful state: pending human work shows `Pending`, handled
+human work omits a redundant saved/handled label, and newly arrived agent work
+shows `New` with a blue semantic cue. Root/reply ordinals MUST remain exposed in
+accessible annotation labels but MUST NOT be repeated in visible metadata.
 
 Selected source lines MUST retain Pierre's selection paint while the full
 annotation row retains Pierre's neutral annotation background. The active
@@ -1302,13 +1324,13 @@ authorization to prebuild PR2 delivery machinery.
 | --- | --- |
 | R-P1-001, R-P1-008, R-P1-009 | automated lifecycle/thread behavior plus manual cross-view interaction |
 | R-P1-002, R-P1-007 | automated selection/admission and placement-state behavior using real source evidence plus manual pending-range and endpoint/gutter `+` proof; focus each compact thread and its controls, move activity between threads, keep expanded-thread activity, and clear comment activity to prove exactly one full stored range is painted through `selectedLines`, inactive cards retain no range paint, and no location command exists |
-| R-P1-003, R-P1-004, R-P1-006 | automated draft/save/revert behavior with controlled time and restart state inspection, plus same-session different-message mutation proof and a real-thread Reply/Edit projection-reconciliation case proving the first character, editor identity, local value, focus, containing thread, immediate command-confirmed saved presentation, and single editing authority remain continuous while state and content updates arrive separately |
+| R-P1-003, R-P1-004, R-P1-006 | automated draft/save/revert behavior with controlled time and restart state inspection, unchanged-body Save disablement and Command-Enter no-op plus changed/returned-body derivation, same-session different-message mutation proof, and a real-thread Reply/Edit projection-reconciliation case proving the first character, editor identity, local value, focus, containing thread, immediate command-confirmed saved presentation, and single editing authority remain continuous while state and content updates arrive separately |
 | R-P1-005, R-P1-017 | automated Markdown/size/frame admission plus manual visual inspection and boundary rejection |
 | R-P1-010, R-P1-011 | deterministic New/All scope and Markdown behavior; File/Review browser plus screenshot/geometry proof that both use one shared 24 px BridgeViewer/shadcn composition with peer neutral Copy/Export actions, viewer-header roles, no checklist/popover/nested scroll, unknown-before-first-read rather than false zero, body range activation without editing, empty-scope disablement, Other saved comments, Escape/Done, and actual clipboard inspection |
 | R-P1-012 | schema validation, encode/decode, malformed-input, and unsupported-version evidence |
 | R-P1-013 | automated Copy/Export success dismissal, default handled transition, toast/history Mark as not handled, failure/cancellation retention, partial-success behavior, actual file/clipboard effect inspection, and File/Review proof that reopening Share after toast expiry exposes in-flow History with exact inspection and explicit unknown-byte repetition |
 | R-P1-014 | real Vite + comm worker + Swift development-backend behavior for create, repeated flush, Save, exact command-confirmed presentation, invalidation, projection query/content completion, two different messages in one session, stream reset/retry, File/Review convergence, and restart with canonical SQLite/projection inspection; mocked browser and direct HTTP tests remain lower layers and cannot substitute for this boundary |
-| R-P1-016 | automated M1-only and collapsed M-summary-plus-M-last rendering, focus activation without expansion, expanded-thread active range, one inline M-summary-plus-M1-through-Mn chronology, Pierre row growth with stable row top/scroll anchor, singular thread-header Reply/Resolve, annotation-local Edit eligibility, canonical tooltip copy, `R`/`Control-R` and exact-focused `E`/`Control-E` routing with text-input/selection guards, independent same-coordinate threads, inline authoring, Escape/outside-click/focus-return behavior, and collapsed-content accessibility exclusion plus manual File/Review, narrow-width, 200% text, reduced-motion, and packaged VoiceOver interaction |
+| R-P1-016 | automated M1-only and collapsed M-summary-plus-M-last rendering, focus and single-click activation without editing or expansion, guarded double-click editing with link/pre-existing-selection preservation, expanded-thread active range, one inline M-summary-plus-M1-through-Mn chronology, Pierre row growth with stable row top/scroll anchor, 16 px active-frame right/bottom clearance, singular outlined thread-header Reply/Resolve/Reopen with success-only Resolve state, permanent annotation-local Edit eligibility, visible metadata/accessibility separation, canonical tooltip copy, `R`/`Control-R` and exact-focused `E`/`Control-E` routing with text-input/selection guards, independent same-coordinate threads, inline authoring, Escape/outside-click/focus-return behavior, and collapsed-content accessibility exclusion plus manual File/Review, narrow-width, 200% text, reduced-motion, and packaged VoiceOver interaction |
 | R-P1-015 | dependency/surface inspection proving the complete journey without PR2 machinery |
 | Reliability obligations | corrupt-local-database recovery proving visible pre-acknowledgement degradation, rejected mutations, retained recovery witness, and retained quarantined files |
 

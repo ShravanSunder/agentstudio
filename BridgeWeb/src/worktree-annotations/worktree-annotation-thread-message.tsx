@@ -32,6 +32,7 @@ import {
 	messageCommandCursorFromProjection,
 	newestMessageCommandCursor,
 } from './worktree-annotation-message-command-cursor.js';
+import { worktreeAnnotationMessageHasUnsavedChanges } from './worktree-annotation-message-edit-state.js';
 import { deriveWorktreeAnnotationMessageState } from './worktree-annotation-message-state.js';
 import type {
 	WorktreeAnnotationMessageEntry,
@@ -140,6 +141,7 @@ export function WorktreeAnnotationMessageEditor(
 	const [body, setBody] = useState(initialBody);
 	const [operationError, setOperationError] = useState<string | null>(null);
 	const derivedState = deriveWorktreeAnnotationMessageState(props.message);
+	const bodyGestureStartedWithTextSelectionRef = useRef(false);
 	const inactiveEditTokenRef = useRef(createWorktreeAnnotationEditToken());
 	const editToken = props.editToken ?? inactiveEditTokenRef.current;
 	useWorktreeAnnotationEditSurfaceToken(props.isEditing ? editToken : null, 'message');
@@ -210,9 +212,13 @@ export function WorktreeAnnotationMessageEditor(
 		if (!canEdit && isEditing) onFinishEdit();
 	}, [canEdit, isEditing, onFinishEdit]);
 	const validation = validateWorktreeAnnotationMarkdown(body);
+	const hasUnsavedChanges = worktreeAnnotationMessageHasUnsavedChanges(
+		body,
+		props.message.savedBody,
+	);
 	const messageCanBeginEditing =
 		props.canEdit && props.message.authorKind === 'human' && props.message.status === 'editable';
-	const beginEditingFromBody = (event: ReactMouseEvent<HTMLDivElement>): void => {
+	const activateFromBody = (event: ReactMouseEvent<HTMLDivElement>): void => {
 		if (props.message.authorKind === 'agent') props.onActivate?.();
 		if (
 			event.target instanceof Element &&
@@ -221,6 +227,17 @@ export function WorktreeAnnotationMessageEditor(
 			return;
 		if (window.getSelection()?.isCollapsed === false) return;
 		if (props.message.authorKind === 'human') props.onActivate?.();
+	};
+	const beginEditingFromBodyDoubleClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
+		activateFromBody(event);
+		if (
+			event.target instanceof Element &&
+			event.target.closest('a, button, input, select, textarea, [role="button"]') !== null
+		)
+			return;
+		const gestureStartedWithTextSelection = bodyGestureStartedWithTextSelectionRef.current;
+		bodyGestureStartedWithTextSelectionRef.current = false;
+		if (gestureStartedWithTextSelection) return;
 		if (!messageCanBeginEditing || props.isEditing) return;
 		props.onBeginEdit(event.currentTarget);
 	};
@@ -239,7 +256,7 @@ export function WorktreeAnnotationMessageEditor(
 		return registerExitHandler(flushAndFinish);
 	}, [flushAndFinish, isEditing, registerExitHandler]);
 	const save = async (): Promise<void> => {
-		if (!props.canEdit) return;
+		if (!props.canEdit || !hasUnsavedChanges) return;
 		setOperationError(null);
 		try {
 			if (!validation.ok) throw new Error(annotationMarkdownValidationMessage(validation.code));
@@ -254,7 +271,7 @@ export function WorktreeAnnotationMessageEditor(
 				);
 				if (cursor === null) throw new Error('Annotation command cursor is unavailable.');
 				if (cursor.draftRevision === null) {
-					throw new Error('No durable draft is available to save.');
+					throw new Error('Annotation changes are not ready to save.');
 				}
 				const outcome = await annotationClient.execute({
 					editToken,
@@ -311,7 +328,7 @@ export function WorktreeAnnotationMessageEditor(
 			/>
 			<WorktreeAnnotationCommandButton
 				action="saveAnnotation"
-				disabled={!validation.ok || !editOwnershipReady}
+				disabled={!validation.ok || !editOwnershipReady || !hasUnsavedChanges}
 				onClick={() => void save()}
 				preserveEditorFocus
 				appearance="primary"
@@ -324,6 +341,7 @@ export function WorktreeAnnotationMessageEditor(
 		<WorktreeAnnotationInlineSurface
 			active={props.active}
 			appearance={props.appearance}
+			ariaLabel={`${annotationMessageRoleLabel(props.ordinal)} by ${props.message.authorKind === 'agent' ? 'Agent' : 'You'}`}
 			authorKind={props.message.authorKind}
 			commands={messageCommands}
 			continueTimeline={props.continueTimeline}
@@ -334,18 +352,25 @@ export function WorktreeAnnotationMessageEditor(
 					<span className="font-medium text-comment-foreground">
 						{props.message.authorKind === 'agent' ? 'Agent' : 'You'}
 					</span>
-					<span>{annotationMessageRoleLabel(props.ordinal)}</span>
 					<span aria-hidden="true">·</span>
 					<span>{annotationRelativeTime(props.message.createdAt)}</span>
-					<span aria-hidden="true">·</span>
-					{props.message.draft === null ? (
-						<span>{annotationMessageStateLabel(props.message)}</span>
-					) : (
-						<span className="inline-flex items-center gap-1 font-medium text-warning">
-							<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
-							{annotationMessageStateLabel(props.message)}
-						</span>
-					)}
+					{annotationMessageHasExceptionalState(props.message) ? (
+						<>
+							<span aria-hidden="true">·</span>
+							<span
+								className={
+									props.message.draft === null
+										? undefined
+										: 'inline-flex items-center gap-1 font-medium text-warning'
+								}
+							>
+								{props.message.draft === null ? null : (
+									<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
+								)}
+								{annotationMessageStateLabel(props.message)}
+							</span>
+						</>
+					) : null}
 					{!derivedState.isNew ? null : (
 						<>
 							<span aria-hidden="true">·</span>
@@ -428,7 +453,14 @@ export function WorktreeAnnotationMessageEditor(
 			) : (
 				<div
 					className={props.compact === true ? 'line-clamp-3' : undefined}
-					onClick={beginEditingFromBody}
+					onClick={activateFromBody}
+					onDoubleClick={beginEditingFromBodyDoubleClick}
+					onMouseDown={(event) => {
+						if (event.detail === 1) {
+							bodyGestureStartedWithTextSelectionRef.current =
+								window.getSelection()?.isCollapsed === false;
+						}
+					}}
 				>
 					<WorktreeAnnotationMessageBody
 						body={props.message.draft?.body ?? props.message.savedBody ?? ''}
@@ -472,6 +504,10 @@ export function annotationMessageStateLabel(message: WorktreeAnnotationMessageEn
 	if (message.savedBody === null) return 'Draft';
 	if (message.draft !== null) return 'Draft changes · saved locally';
 	return 'Saved';
+}
+
+function annotationMessageHasExceptionalState(message: WorktreeAnnotationMessageEntry): boolean {
+	return message.status === 'locked' || message.savedBody === null || message.draft !== null;
 }
 
 function annotationMessageRoleLabel(ordinal: number): string {

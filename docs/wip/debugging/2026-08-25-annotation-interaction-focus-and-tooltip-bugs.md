@@ -330,6 +330,71 @@ Date: 2026-08-25
     - Status: implemented and automated-browser verified; live visual owner
       acceptance remains.
 
+19. **Active-thread spacing, header contrast, and metadata hierarchy need a
+    final visual pass**
+    - Owner-observed geometry: the current 36 px right/bottom active-background
+      reserve leaves an oversized empty shelf. Change only those two sides to
+      the Tailwind 16 px scale (`pr-4 pb-4`); retain the existing 8 px top/left
+      inset unless the live comparison disproves it.
+    - Owner-confirmed header controls: Reply and Resolve/Reopen both use visible
+      outlines. Reply uses normal foreground contrast and a distinct
+      message-reply glyph rather than the faint Undo-like arrow. Resolve uses a
+      green success outline/icon/tint; Reopen returns to the neutral outline.
+      Thread-header controls remain 28 px so they share one target size with
+      Expand/Collapse.
+    - Owner-confirmed Edit visibility: every eligible annotation keeps its
+      pencil permanently visible. Hover, focus, activation, and editor
+      transitions must not flash the icon in or out.
+    - Owner-confirmed direct interaction: a single click activates the
+      annotation/thread range without entering Edit; a double click enters Edit
+      for the exact eligible annotation. The gesture preserves links and text
+      selection that existed before pointer-down, while the word selection the
+      browser creates as part of a normal double click does not block Edit.
+    - Owner-observed metadata problem: visible `Root annotation`, `Reply 1`,
+      `Reply 2`, repeated `Saved`, and numbering create a noisy hierarchy even
+      though the timeline and thread count already communicate order.
+    - Confirmed metadata correction: normal pending
+      rows show `You · now · Pending`; handled human rows show `You · now`;
+      Draft, Output locked, and agent New remain visible exception states. Root
+      and reply ordinals remain accessibility/data semantics, not visible copy.
+    - Required proof: failing-first Vitest Browser geometry and computed-style
+      assertions; one- and multi-annotation File/Review screenshots; open →
+      resolved → reopened state proof; permanent Edit visibility across pointer,
+      keyboard focus, body activation, and editor entry/exit; tooltip and
+      accessibility-name checks; live visual owner acceptance.
+    - Status: implemented in the UI lane. Failing-first browser evidence caught
+      the old 36 px geometry, hidden Edit, old header treatment, and old Save
+      admission. Focused browser reruns are temporarily blocked because the
+      configured Chrome process aborts before loading any test; unit dirty-state
+      proof passes 2/2. Updated screenshots and final owner feel remain pending.
+
+20. **Unchanged annotation Edit exposes a storage-mechanism Save error**
+    - Actual: entering Edit without changing the saved body leaves Save enabled.
+      Activating it reaches `draft.save` preparation with no draft revision and
+      displays `No durable draft is available to save.`
+    - Expected: unchanged saved content is not saveable. Save remains disabled,
+      `Command-Enter` sends no command and shows no error, and changing the body
+      enables Save immediately. Returning the body to the exact saved value
+      disables Save again.
+    - Root cause: `WorktreeAnnotationMessageEditor` enables and invokes Save
+      from Markdown validity plus edit-ownership readiness only. It does not
+      derive whether the current body differs from `savedBody`; the resulting
+      missing draft revision is presented as a user error instead of being
+      rejected before command construction.
+    - Fix boundary: derive message dirty state from the exact current body and
+      saved body, use it for button and keyboard admission, and retain the
+      internal missing-revision guard only as an unreachable invariant failure.
+      No persistence, transport, or schema change is required.
+    - Required proof: failing-first Vitest Browser journey covering unchanged
+      pointer Save, unchanged `Command-Enter`, changed enablement, return-to-
+      original disablement, and zero annotation mutation commands/errors for
+      the unchanged cases; focused scheduler/unit coverage only if new pure
+      derivation logic warrants it.
+    - Status: root cause fixed with pure dirty-state admission and button/
+      shortcut gating. Pure unit proof passes 2/2. The focused browser journey
+      reached the intended failing assertion before the correction; its green
+      rerun is pending the same pre-test Chrome launch blocker above.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component

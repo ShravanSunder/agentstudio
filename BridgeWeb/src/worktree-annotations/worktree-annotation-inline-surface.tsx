@@ -16,6 +16,7 @@ const annotationEditingSurfaceClassName =
 
 export interface WorktreeAnnotationInlineSurfaceProps {
 	readonly active?: boolean | undefined;
+	readonly ariaLabel?: string | undefined;
 	readonly appearance?: 'card' | 'chronology' | undefined;
 	readonly authorKind?: 'agent' | 'human' | undefined;
 	readonly children: ReactNode;
@@ -40,6 +41,7 @@ export function WorktreeAnnotationInlineSurface(
 	if (props.embedded === true) {
 		return (
 			<section
+				aria-label={props.ariaLabel}
 				className="group/annotation-entry relative min-w-0"
 				data-annotation-active={props.active === true ? 'true' : 'false'}
 				data-annotation-draft={props.draft === true ? 'present' : 'absent'}
@@ -66,7 +68,7 @@ export function WorktreeAnnotationInlineSurface(
 				{props.commands === undefined ? null : (
 					<div
 						aria-label="Annotation commands"
-						className="absolute right-0 bottom-0 flex flex-col items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/annotation-entry:opacity-100 group-data-[annotation-editing=true]/annotation-entry:opacity-100"
+						className="absolute right-0 bottom-0 flex flex-col items-center gap-1"
 					>
 						{props.commands}
 					</div>
@@ -76,6 +78,7 @@ export function WorktreeAnnotationInlineSurface(
 	}
 	return (
 		<article
+			aria-label={props.ariaLabel}
 			className="group/annotation-entry grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2"
 			data-annotation-active={props.active === true ? 'true' : 'false'}
 			data-annotation-draft={props.draft === true ? 'present' : 'absent'}
@@ -119,7 +122,7 @@ export function WorktreeAnnotationInlineSurface(
 					{props.commands === undefined ? null : (
 						<div
 							aria-label="Annotation commands"
-							className="absolute right-0 bottom-0 flex flex-col items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/annotation-entry:opacity-100 group-data-[annotation-editing=true]/annotation-entry:opacity-100"
+							className="absolute right-0 bottom-0 flex flex-col items-center gap-1"
 						>
 							{props.commands}
 						</div>
@@ -153,7 +156,7 @@ function WorktreeAnnotationSurfaceCard(props: WorktreeAnnotationSurfaceCardProps
 			{props.commands === undefined ? null : (
 				<div
 					aria-label="Annotation commands"
-					className="absolute right-2 bottom-2 flex flex-col items-center gap-2 opacity-0 transition-opacity focus-within:opacity-100 group-hover/annotation-entry:opacity-100 group-data-[annotation-editing=true]/annotation-entry:opacity-100"
+					className="absolute right-2 bottom-2 flex flex-col items-center gap-2"
 				>
 					{props.commands}
 				</div>
@@ -165,7 +168,14 @@ function WorktreeAnnotationSurfaceCard(props: WorktreeAnnotationSurfaceCardProps
 export interface WorktreeAnnotationCommandButtonProps {
 	readonly action: WorktreeAnnotationActionId;
 	readonly annotationCount?: number | undefined;
-	readonly appearance?: 'message' | 'primary' | 'timeline' | 'toolbar' | undefined;
+	readonly appearance?:
+		| 'message'
+		| 'primary'
+		| 'success'
+		| 'thread'
+		| 'timeline'
+		| 'toolbar'
+		| undefined;
 	readonly busy?: boolean | undefined;
 	readonly buttonRef?: Ref<HTMLButtonElement> | undefined;
 	readonly disabled?: boolean | undefined;
@@ -194,19 +204,33 @@ export function WorktreeAnnotationCommandButton(
 						aria-expanded={props.expanded}
 						data-tooltip={actionSpec.tooltip}
 						className={
-							appearance === 'primary'
+							appearance === 'primary' || appearance === 'success'
 								? undefined
 								: appearance === 'timeline'
 									? 'text-comment-muted aria-expanded:bg-transparent aria-expanded:text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
 									: appearance === 'toolbar'
 										? 'text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
-										: 'text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
+										: appearance === 'thread'
+											? 'text-comment-foreground hover:bg-comment-hover hover:text-comment-foreground'
+											: 'text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
 						}
 						disabled={props.disabled}
 						ref={props.buttonRef}
 						shape="default"
-						size={appearance === 'timeline' ? 'icon' : 'icon-sm'}
-						variant={appearance === 'primary' ? 'tint' : 'ghost'}
+						size={
+							appearance === 'timeline' || appearance === 'thread' || appearance === 'success'
+								? 'icon'
+								: 'icon-sm'
+						}
+						variant={
+							appearance === 'primary'
+								? 'tint'
+								: appearance === 'success'
+									? 'success-outline'
+									: appearance === 'thread'
+										? 'outline'
+										: 'ghost'
+						}
 						onClick={props.onClick}
 						onPointerDown={(event) => {
 							if (props.preserveEditorFocus === true) event.preventDefault();

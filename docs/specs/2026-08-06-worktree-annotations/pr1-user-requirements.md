@@ -169,7 +169,11 @@ PR1 human boundary
   clears the draft to restore the current saved body, or removes an unsaved new
   message draft. A message does not retain a pre-output history of saved bodies.
   Command+Enter invokes Save; Enter and Shift+Enter insert a newline. Save
-  progress ends when the exact Save command reports committed or failed; later
+  remains unavailable when the editor body equals the current saved body;
+  invoking its shortcut in that state performs no mutation and shows no error.
+  Returning a changed body to the current saved body restores that unavailable
+  state. Save progress ends when the exact Save command reports committed or
+  failed; later
   cross-view/read-model convergence is separate and must not leave a committed
   Save looking busy or turn it into a failure. While that read model refreshes
   or is unavailable, the last complete annotation state plus any exact
@@ -434,11 +438,22 @@ Resolve whole thread
   Interaction controls follow the state they change. Every thread, including a
   one-annotation thread, has one stable header that owns Reply and
   Resolve/Reopen; a multi-annotation thread also owns Expand/Collapse there.
-  Each editable human annotation owns one Edit affordance, revealed by hover,
-  keyboard focus, or active editing, while locked and agent-authored
-  annotations expose no Edit action. A direct-action ellipsis is not used.
+  Each editable human annotation owns one permanently visible Edit affordance,
+  while locked and agent-authored annotations expose no Edit action. A single
+  click on non-interactive annotation content activates the thread and its
+  complete source range without editing. A double click begins Edit for that
+  exact eligible annotation; links and a text selection that existed before
+  the gesture remain undisturbed. A direct-action ellipsis is not used.
   Thread-header, annotation-local, and editor actions all use the quiet rounded
-  owned shadcn treatment rather than circular action chrome.
+  owned shadcn treatment rather than circular action chrome. Reply and
+  Resolve/Reopen are outlined 28 px thread-header controls; Resolve uses the
+  success color role, while Reply and Reopen remain neutral. The active thread
+  keeps 16 px of breathing room between its message content and the frame's
+  right and bottom edges. Normal annotation metadata shows author, relative
+  time, and only meaningful state: human work awaiting output shows `Pending`,
+  handled human work omits a redundant status, and newly arrived agent work
+  shows `New` with a blue cue. Root/reply ordinals remain available to
+  accessibility but are not repeated in the visible metadata.
   `R` and `Control-R` reply to the active thread. `E` and `Control-E` edit the
   exact keyboard-focused editable annotation. These shortcuts never override
   text input, text selection, menus, or system-modified shortcuts. Tooltips
@@ -533,7 +548,10 @@ thread history
   replies form one flat chronological sequence
   one message is shown directly
   two or more show compact M-summary + M-last inline
-  explicit Expand/Edit/Reply expands the same inline row; focus alone does not
+  explicit Expand/Edit/Reply expands the same inline row; focus alone does not expand it
+  single click activates only; double click edits the exact eligible annotation
+  Edit remains permanently visible for every eligible human annotation
+  unchanged saved body keeps Save disabled and Command+Enter inert
   expanded chronology is M-summary + M1...Mn exactly once, with no nested scroll
   Reply/Edit authoring lives at the end; Save/Revert keeps the row expanded
   Escape exits editing before collapse; outside click safely flushes and
