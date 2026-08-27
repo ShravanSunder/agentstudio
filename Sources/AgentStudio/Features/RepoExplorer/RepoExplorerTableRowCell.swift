@@ -112,7 +112,6 @@ final class RepoExplorerTableRowCell: NSTableCellView {
     private var trackedMenuIdentities: Set<ObjectIdentifier> = []
     private var deferredBinding: DeferredBinding?
     private var deferredBindingApplicationTask: Task<Void, Never>?
-    private var menuTrackingObservers: [NSObjectProtocol] = []
 
     var currentBindingIdentity: RepoExplorerTableRowBindingIdentity? {
         slot.binding?.identity
@@ -146,11 +145,6 @@ final class RepoExplorerTableRowCell: NSTableCellView {
             hostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         setAccessibilityRole(.row)
-        observeMenuTracking()
-    }
-
-    isolated deinit {
-        menuTrackingObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     @available(*, unavailable)
@@ -226,48 +220,20 @@ final class RepoExplorerTableRowCell: NSTableCellView {
     }
 
     func clearBindingForReuse() {
-        deferredBindingApplicationTask?.cancel()
-        deferredBindingApplicationTask = nil
-        deferredBinding = nil
+        cancelContextMenuTracking()
         slot.clear()
         setAccessibilityLabel(nil)
     }
 
-    private func observeMenuTracking() {
-        menuTrackingObservers = [
-            NotificationCenter.default.addObserver(
-                forName: NSMenu.didBeginTrackingNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                guard let menu = notification.object as? NSMenu else { return }
-                let menuIdentity = ObjectIdentifier(menu)
-                MainActor.assumeIsolated {
-                    self?.menuDidBeginTracking(menuIdentity)
-                }
-            },
-            NotificationCenter.default.addObserver(
-                forName: NSMenu.didEndTrackingNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                guard let menu = notification.object as? NSMenu else { return }
-                let menuIdentity = ObjectIdentifier(menu)
-                MainActor.assumeIsolated {
-                    self?.menuDidEndTracking(menuIdentity)
-                }
-            },
-        ]
-    }
-
-    private func menuDidBeginTracking(_ menuIdentity: ObjectIdentifier) {
+    func beginContextMenuTracking(_ menuIdentity: ObjectIdentifier) {
+        guard slot.binding != nil else { return }
         deferredBindingApplicationTask?.cancel()
         deferredBindingApplicationTask = nil
         trackedMenuIdentities.insert(menuIdentity)
     }
 
-    private func menuDidEndTracking(_ menuIdentity: ObjectIdentifier) {
-        trackedMenuIdentities.remove(menuIdentity)
+    func endContextMenuTracking(_ menuIdentity: ObjectIdentifier) {
+        guard trackedMenuIdentities.remove(menuIdentity) != nil else { return }
         guard trackedMenuIdentities.isEmpty, deferredBinding != nil else { return }
         deferredBindingApplicationTask?.cancel()
         deferredBindingApplicationTask = Task { @MainActor [weak self] in
@@ -283,6 +249,13 @@ final class RepoExplorerTableRowCell: NSTableCellView {
                 commandPresentationSnapshot: deferredBinding.commandPresentationSnapshot
             )
         }
+    }
+
+    func cancelContextMenuTracking() {
+        trackedMenuIdentities.removeAll(keepingCapacity: false)
+        deferredBindingApplicationTask?.cancel()
+        deferredBindingApplicationTask = nil
+        deferredBinding = nil
     }
 
     @discardableResult

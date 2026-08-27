@@ -7,6 +7,93 @@ import Testing
 @MainActor
 @Suite("Repo Explorer table materializer", .serialized)
 struct RepoExplorerTableMaterializerTests {
+    @Test("unrelated application menus do not defer represented rows")
+    func unrelatedApplicationMenusDoNotDeferRepresentedRows() throws {
+        let snapshot = nativePlanSnapshot(["A", "B"])
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: { _ in }
+        )
+        let window = makeMaterializerWindow(materializer, height: 120)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+                snapshot: snapshot,
+                requestGeneration: 1
+            )
+        ) { _ in }
+        let scrollView = try #require(materializer.view as? NSScrollView)
+        let tableView = try #require(scrollView.documentView as? NSTableView)
+        materializeVisibleCells(in: tableView, visibleRect: scrollView.contentView.documentVisibleRect)
+        let firstCell = try #require(
+            tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? RepoExplorerTableRowCell
+        )
+        let secondCell = try #require(
+            tableView.view(atColumn: 0, row: 1, makeIfNecessary: false)
+                as? RepoExplorerTableRowCell
+        )
+        let unrelatedMenu = NSMenu()
+
+        let unrelatedMenuIdentity = ObjectIdentifier(unrelatedMenu)
+        materializer.menuDidBeginTracking(unrelatedMenuIdentity, clickedRow: -1)
+        _ = firstCell.bind(row: snapshot.rows[0], visibleGeneration: 2)
+        _ = secondCell.bind(row: snapshot.rows[1], visibleGeneration: 2)
+
+        #expect(firstCell.currentBindingIdentity?.visibleGeneration == 2)
+        #expect(secondCell.currentBindingIdentity?.visibleGeneration == 2)
+        materializer.menuDidEndTracking(unrelatedMenuIdentity)
+    }
+
+    @Test("context menu tracking defers only its represented origin row")
+    func contextMenuTrackingDefersOnlyOriginRow() async throws {
+        let snapshot = nativePlanSnapshot(["A", "B"])
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: { _ in }
+        )
+        let window = makeMaterializerWindow(materializer, height: 120)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+                snapshot: snapshot,
+                requestGeneration: 1
+            )
+        ) { _ in }
+        let scrollView = try #require(materializer.view as? NSScrollView)
+        let tableView = try #require(scrollView.documentView as? NSTableView)
+        materializeVisibleCells(in: tableView, visibleRect: scrollView.contentView.documentVisibleRect)
+        let firstCell = try #require(
+            tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? RepoExplorerTableRowCell
+        )
+        let secondCell = try #require(
+            tableView.view(atColumn: 0, row: 1, makeIfNecessary: false)
+                as? RepoExplorerTableRowCell
+        )
+        let menu = NSMenu()
+
+        let menuIdentity = ObjectIdentifier(menu)
+        materializer.menuDidBeginTracking(menuIdentity, clickedRow: 0)
+        _ = firstCell.bind(row: snapshot.rows[0], visibleGeneration: 2)
+        _ = secondCell.bind(row: snapshot.rows[1], visibleGeneration: 2)
+
+        #expect(firstCell.currentBindingIdentity?.visibleGeneration == 1)
+        #expect(secondCell.currentBindingIdentity?.visibleGeneration == 2)
+
+        materializer.menuDidEndTracking(menuIdentity)
+        await waitForVisibleGeneration(2, in: firstCell)
+        #expect(firstCell.currentBindingIdentity?.visibleGeneration == 2)
+    }
+
     @Test("native table reveals the established sidebar chrome background")
     func nativeTableRevealsSidebarChromeBackground() throws {
         let materializer = RepoExplorerTableMaterializer(
@@ -459,9 +546,12 @@ struct RepoExplorerTableMaterializerTests {
         #expect(materializer.currentTopVisibleAnchor?.offset == 2)
     }
 
-    private func makeMaterializerWindow(_ materializer: RepoExplorerTableMaterializer) -> NSWindow {
+    private func makeMaterializerWindow(
+        _ materializer: RepoExplorerTableMaterializer,
+        height: CGFloat = 36
+    ) -> NSWindow {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 36),
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: height),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -563,6 +653,20 @@ struct RepoExplorerTableMaterializerTests {
             }
         )
     }
+}
+
+@MainActor
+private func waitForVisibleGeneration(
+    _ visibleGeneration: UInt64,
+    in cell: RepoExplorerTableRowCell
+) async {
+    for _ in 0..<100 {
+        if cell.currentBindingIdentity?.visibleGeneration == visibleGeneration {
+            return
+        }
+        await Task.yield()
+    }
+    #expect(cell.currentBindingIdentity?.visibleGeneration == visibleGeneration)
 }
 
 @MainActor

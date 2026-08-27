@@ -77,6 +77,12 @@ final class RepoExplorerTableMaterializer: NSObject,
     private var pendingReloadRows = IndexSet()
     private var pendingHeightRows = IndexSet()
     private var boundsObserver: NSObjectProtocol?
+    private var menuTrackingObservers: [NSObjectProtocol] = []
+    private weak var contextMenuSessionCell: RepoExplorerTableRowCell?
+    private var contextMenuSessionBindingIdentity: RepoExplorerTableRowBindingIdentity?
+    private var trackedContextMenuIdentities: Set<ObjectIdentifier> = []
+    private var contextMenuSessionReleaseTask: Task<Void, Never>?
+    private var contextMenuSessionSequence: UInt64 = 0
     private var isDetached = false
     private var isDemandActive = true
 
@@ -132,7 +138,12 @@ final class RepoExplorerTableMaterializer: NSObject,
                 self?.boundsDidChange()
             }
         }
+        observeMenuTracking()
         updateTableFrame()
+    }
+
+    isolated deinit {
+        menuTrackingObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -167,6 +178,11 @@ final class RepoExplorerTableMaterializer: NSObject,
                 interactions: interactions
             )
             hostedCellCreationCount += 1
+        }
+        if contextMenuSessionCell === cell,
+            contextMenuSessionBindingIdentity?.rowID != row.id
+        {
+            cancelContextMenuSession()
         }
         cell.bind(
             row: row,
@@ -311,6 +327,7 @@ final class RepoExplorerTableMaterializer: NSObject,
     func detach() {
         guard !isDetached else { return }
         isDetached = true
+        cancelContextMenuSession()
         invalidateScheduledViewportPublication()
         clearRepresentedCellsForReuse()
         clearViewportDemand()
@@ -318,11 +335,68 @@ final class RepoExplorerTableMaterializer: NSObject,
             NotificationCenter.default.removeObserver(boundsObserver)
             self.boundsObserver = nil
         }
+        menuTrackingObservers.forEach(NotificationCenter.default.removeObserver)
+        menuTrackingObservers.removeAll(keepingCapacity: false)
         tableView.dataSource = nil
         tableView.delegate = nil
         scrollView.documentView = nil
         snapshot = nil
         heightByRowID.removeAll(keepingCapacity: false)
+    }
+
+    func menuDidBeginTracking(_ menuIdentity: ObjectIdentifier, clickedRow: Int) {
+        guard !isDetached else { return }
+        if let contextMenuSessionCell, let contextMenuSessionBindingIdentity {
+            guard contextMenuSessionCell.currentBindingIdentity == contextMenuSessionBindingIdentity
+            else {
+                cancelContextMenuSession()
+                return
+            }
+            contextMenuSessionSequence &+= 1
+            contextMenuSessionReleaseTask?.cancel()
+            contextMenuSessionReleaseTask = nil
+            trackedContextMenuIdentities.insert(menuIdentity)
+            contextMenuSessionCell.beginContextMenuTracking(menuIdentity)
+            return
+        }
+        guard clickedRow >= 0, clickedRow < tableView.numberOfRows,
+            let cell = tableView.view(
+                atColumn: 0,
+                row: clickedRow,
+                makeIfNecessary: false
+            ) as? RepoExplorerTableRowCell,
+            let bindingIdentity = cell.currentBindingIdentity
+        else { return }
+
+        contextMenuSessionCell = cell
+        contextMenuSessionBindingIdentity = bindingIdentity
+        trackedContextMenuIdentities = [menuIdentity]
+        contextMenuSessionSequence &+= 1
+        cell.beginContextMenuTracking(menuIdentity)
+    }
+
+    func menuDidEndTracking(_ menuIdentity: ObjectIdentifier) {
+        guard !isDetached, let contextMenuSessionCell,
+            let contextMenuSessionBindingIdentity,
+            contextMenuSessionCell.currentBindingIdentity == contextMenuSessionBindingIdentity
+        else {
+            cancelContextMenuSession()
+            return
+        }
+        guard trackedContextMenuIdentities.remove(menuIdentity) != nil else { return }
+        contextMenuSessionCell.endContextMenuTracking(menuIdentity)
+        guard trackedContextMenuIdentities.isEmpty else { return }
+
+        contextMenuSessionReleaseTask?.cancel()
+        let scheduledSequence = contextMenuSessionSequence
+        contextMenuSessionReleaseTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, !Task.isCancelled,
+                self.contextMenuSessionSequence == scheduledSequence,
+                self.trackedContextMenuIdentities.isEmpty
+            else { return }
+            self.releaseContextMenuSession()
+        }
     }
 
     func scroll(to rowID: RepoExplorerRowID, offset: CGFloat) {
@@ -446,6 +520,52 @@ final class RepoExplorerTableMaterializer: NSObject,
         }
         guard let targetRowID else { return }
         scroll(to: targetRowID, offset: anchor.offset)
+    }
+
+    private func observeMenuTracking() {
+        menuTrackingObservers = [
+            NotificationCenter.default.addObserver(
+                forName: NSMenu.didBeginTrackingNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let menu = notification.object as? NSMenu else { return }
+                let menuIdentity = ObjectIdentifier(menu)
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.menuDidBeginTracking(
+                        menuIdentity,
+                        clickedRow: self.tableView.clickedRow
+                    )
+                }
+            },
+            NotificationCenter.default.addObserver(
+                forName: NSMenu.didEndTrackingNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let menu = notification.object as? NSMenu else { return }
+                let menuIdentity = ObjectIdentifier(menu)
+                MainActor.assumeIsolated {
+                    self?.menuDidEndTracking(menuIdentity)
+                }
+            },
+        ]
+    }
+
+    private func cancelContextMenuSession() {
+        contextMenuSessionSequence &+= 1
+        contextMenuSessionReleaseTask?.cancel()
+        contextMenuSessionReleaseTask = nil
+        contextMenuSessionCell?.cancelContextMenuTracking()
+        releaseContextMenuSession()
+    }
+
+    private func releaseContextMenuSession() {
+        contextMenuSessionCell = nil
+        contextMenuSessionBindingIdentity = nil
+        trackedContextMenuIdentities.removeAll(keepingCapacity: false)
+        contextMenuSessionReleaseTask = nil
     }
 
     private func scroll(toRowAt rowIndex: Int, offset: CGFloat) {

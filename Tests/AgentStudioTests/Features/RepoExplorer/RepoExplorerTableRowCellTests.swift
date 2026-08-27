@@ -65,6 +65,29 @@ struct RepoExplorerTableRowCellTests {
         #expect(!cell.performIfCurrent(binding) {})
     }
 
+    @Test("cell reuse cancels menu ownership and ignores a late menu end")
+    func cellReuseCancelsMenuOwnershipAndIgnoresLateEnd() async {
+        let cell = RepoExplorerTableRowCell(
+            octiconLoader: makeRepoExplorerTestOcticonLoader()
+        )
+        let firstRow = hostedCellRow(id: "A", title: "First")
+        let reusedRow = hostedCellRow(id: "B", title: "Reused")
+        let menu = NSMenu()
+        let menuIdentity = ObjectIdentifier(menu)
+        _ = cell.bind(row: firstRow, visibleGeneration: 1)
+        cell.beginContextMenuTracking(menuIdentity)
+
+        cell.clearBindingForReuse()
+        let reusedBinding = cell.bind(row: reusedRow, visibleGeneration: 2)
+        cell.endContextMenuTracking(menuIdentity)
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        #expect(cell.currentBindingIdentity == reusedBinding)
+        #expect(cell.accessibilityLabel() == "Reused")
+    }
+
     @Test("same row command update preserves reuse identity and rejects the prior command generation")
     func sameRowCommandUpdatePreservesIdentityAndRejectsPriorGeneration() {
         let cell = RepoExplorerTableRowCell(
@@ -118,15 +141,11 @@ struct RepoExplorerTableRowCellTests {
         )
         let trackedMenu = NSMenu()
         let trackedSubmenu = NSMenu()
+        let trackedMenuIdentity = ObjectIdentifier(trackedMenu)
+        let trackedSubmenuIdentity = ObjectIdentifier(trackedSubmenu)
 
-        NotificationCenter.default.post(
-            name: NSMenu.didBeginTrackingNotification,
-            object: trackedMenu
-        )
-        NotificationCenter.default.post(
-            name: NSMenu.didBeginTrackingNotification,
-            object: trackedSubmenu
-        )
+        cell.beginContextMenuTracking(trackedMenuIdentity)
+        cell.beginContextMenuTracking(trackedSubmenuIdentity)
         _ = cell.bind(
             row: updatedRow,
             visibleGeneration: 8,
@@ -142,19 +161,13 @@ struct RepoExplorerTableRowCellTests {
         #expect(cell.currentCommandGeneration == initialSnapshot.generation)
         #expect(cell.accessibilityLabel() == "Initial")
 
-        NotificationCenter.default.post(
-            name: NSMenu.didEndTrackingNotification,
-            object: trackedSubmenu
-        )
+        cell.endContextMenuTracking(trackedSubmenuIdentity)
 
         #expect(cell.currentBindingIdentity == initialBinding)
         #expect(cell.currentCommandGeneration == initialSnapshot.generation)
         #expect(cell.accessibilityLabel() == "Initial")
 
-        NotificationCenter.default.post(
-            name: NSMenu.didEndTrackingNotification,
-            object: trackedMenu
-        )
+        cell.endContextMenuTracking(trackedMenuIdentity)
 
         #expect(cell.currentBindingIdentity == initialBinding)
         #expect(cell.currentCommandGeneration == initialSnapshot.generation)
@@ -201,19 +214,14 @@ struct RepoExplorerTableRowCellTests {
         menuItem.target = actionTarget
         menu.addItem(menuItem)
 
-        NotificationCenter.default.post(
-            name: NSMenu.didBeginTrackingNotification,
-            object: menu
-        )
+        let menuIdentity = ObjectIdentifier(menu)
+        cell.beginContextMenuTracking(menuIdentity)
         _ = cell.bind(
             row: updatedRow,
             visibleGeneration: 8,
             commandPresentationSnapshot: updatedSnapshot
         )
-        NotificationCenter.default.post(
-            name: NSMenu.didEndTrackingNotification,
-            object: menu
-        )
+        cell.endContextMenuTracking(menuIdentity)
         menu.performActionForItem(at: 0)
 
         #expect(dispatchCount == 1)
@@ -243,23 +251,16 @@ struct RepoExplorerTableRowCellTests {
         let rootMenu = NSMenu()
         let submenu = NSMenu()
 
-        NotificationCenter.default.post(
-            name: NSMenu.didBeginTrackingNotification,
-            object: rootMenu
-        )
+        let rootMenuIdentity = ObjectIdentifier(rootMenu)
+        let submenuIdentity = ObjectIdentifier(submenu)
+        cell.beginContextMenuTracking(rootMenuIdentity)
         _ = cell.bind(
             row: updatedRow,
             visibleGeneration: 8,
             commandPresentationSnapshot: updatedSnapshot
         )
-        NotificationCenter.default.post(
-            name: NSMenu.didEndTrackingNotification,
-            object: rootMenu
-        )
-        NotificationCenter.default.post(
-            name: NSMenu.didBeginTrackingNotification,
-            object: submenu
-        )
+        cell.endContextMenuTracking(rootMenuIdentity)
+        cell.beginContextMenuTracking(submenuIdentity)
         await expectBindingRemains(
             cell,
             identity: openingBinding,
@@ -270,10 +271,7 @@ struct RepoExplorerTableRowCellTests {
         #expect(cell.currentCommandGeneration == initialSnapshot.generation)
         #expect(cell.accessibilityLabel() == "Initial")
 
-        NotificationCenter.default.post(
-            name: NSMenu.didEndTrackingNotification,
-            object: submenu
-        )
+        cell.endContextMenuTracking(submenuIdentity)
         await waitForBinding(
             cell,
             visibleGeneration: 8,

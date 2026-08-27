@@ -66,7 +66,8 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             atLeast: 1,
             fromGeneration: thirdStartSleepGeneration
         )
-        clock.advance(by: .milliseconds(10))
+        let thirdStartDeadline = try #require(clock.pendingSleepDeadlines.min())
+        clock.advance(to: thirdStartDeadline)
         #expect(await visibleTierWaitUntil { await calls.count == 3 })
 
         await actor.shutdown()
@@ -461,13 +462,23 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         }
 
         await clock.waitForPendingSleepCount(atLeast: 1)
+        let expectedCadence =
+            completeFactsChanged
+            ? policy.visibleSidebarCadence
+            : policy.visibleSidebarCadence * 4
+        let lastAutomaticStart = try #require(
+            await actor.lastAutomaticStartAtByWorktreeId[worktreeId]
+        )
+        let scheduledDeadline = try #require(
+            await actor.automaticRefreshDeadlineByWorktreeId[worktreeId]
+        )
+        #expect(scheduledDeadline >= lastAutomaticStart + expectedCadence)
         if !completeFactsChanged {
             clock.advance(by: policy.visibleSidebarCadence * 2)
             #expect(await calls.count == 4)
-            clock.advance(by: policy.visibleSidebarCadence * 2)
-        } else {
-            clock.advance(by: policy.visibleSidebarCadence)
         }
+        let pendingDeadline = try #require(clock.pendingSleepDeadlines.min())
+        clock.advance(to: pendingDeadline)
         #expect(await visibleTierWaitUntil { await calls.count == 5 })
 
         await actor.shutdown()

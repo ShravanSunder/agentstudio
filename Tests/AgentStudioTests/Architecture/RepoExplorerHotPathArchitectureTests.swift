@@ -151,7 +151,11 @@ struct RepoExplorerHotPathArchitectureTests {
 
         #expect(materializer.contains("RepoExplorerNativeTransactionApplier.apply("))
         #expect(materializer.contains("pendingReloadRows.intersection(represented)"))
-        #expect(materializer.contains("pendingHeightRows.intersection(represented)"))
+        #expect(
+            materializer.contains(
+                "tableView.noteHeightOfRows(withIndexesChanged: pendingHeightRows)"
+            )
+        )
         #expect(materializer.contains("membership.anchorFallbacks.targetRowID("))
         #expect(nativePlan.contains("private static func makeAnchorFallbacks("))
         #expect(!materializer.contains("tableView.reloadData()"))
