@@ -174,6 +174,24 @@ struct DarwinSharedExactItemObserverTests {
         #expect(fixture.effectRecorder.fullGitRefreshSources == [.sharedExact, .sharedExact])
 
         fixture.effectRecorder.reset()
+        #expect(
+            bind(
+                fixture.registry,
+                worktreeId: firstWorktreeId,
+                bindingGeneration: 2,
+                parentKey: parentKey,
+                itemName: "configuration"
+            )
+        )
+        #expect(
+            bind(
+                fixture.registry,
+                worktreeId: secondWorktreeId,
+                bindingGeneration: 2,
+                parentKey: parentKey,
+                itemName: "configuration"
+            )
+        )
         receive(
             fixture.registry,
             parentKey: parentKey,
@@ -189,6 +207,75 @@ struct DarwinSharedExactItemObserverTests {
         #expect(uncertaintySnapshot.sharedUncertaintySubscriberCount == 2)
         #expect(uncertaintySnapshot.sharedFullRefreshEmissionCount == 2)
         #expect(fixture.effectRecorder.fullGitRefreshSources == [.sharedUncertainty, .sharedUncertainty])
+        fixture.registry.shutdown()
+    }
+
+    @Test("shared uncertainty coalesces delivery until the dependent rebinds")
+    func sharedUncertaintyCoalescesDeliveryUntilDependentRebinds() throws {
+        let parentKey = makeSharedParentKey("coalesced-delivery-parent")
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+        let fixture = makeSharedExactItemFixture()
+
+        #expect(
+            bind(
+                fixture.registry,
+                worktreeId: firstWorktreeId,
+                bindingGeneration: 1,
+                parentKey: parentKey,
+                itemName: "configuration"
+            )
+        )
+        #expect(
+            bind(
+                fixture.registry,
+                worktreeId: secondWorktreeId,
+                bindingGeneration: 1,
+                parentKey: parentKey,
+                itemName: "ignore"
+            )
+        )
+        let generation = try #require(fixture.registry.snapshot().generationByParent[parentKey])
+        let uncertaintyFlags = FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+
+        for eventId in FSEventStreamEventId(100)...FSEventStreamEventId(101) {
+            receive(
+                fixture.registry,
+                parentKey: parentKey,
+                streamGeneration: generation,
+                path: "\(parentKey.parentPath)/unrelated",
+                eventId: eventId,
+                flags: uncertaintyFlags
+            )
+        }
+
+        #expect(fixture.effectRecorder.uncertainWorktreeIds.count == 4)
+        #expect(
+            fixture.effectRecorder.fullGitRefreshWorktreeIds.sorted(by: sortWorktreeIds)
+                == [firstWorktreeId, secondWorktreeId].sorted(by: sortWorktreeIds)
+        )
+
+        fixture.effectRecorder.reset()
+        #expect(
+            bind(
+                fixture.registry,
+                worktreeId: firstWorktreeId,
+                bindingGeneration: 2,
+                parentKey: parentKey,
+                itemName: "configuration"
+            )
+        )
+        receive(
+            fixture.registry,
+            parentKey: parentKey,
+            streamGeneration: generation,
+            path: "\(parentKey.parentPath)/unrelated",
+            eventId: 102,
+            flags: uncertaintyFlags
+        )
+
+        #expect(fixture.effectRecorder.uncertainWorktreeIds.count == 2)
+        #expect(fixture.effectRecorder.fullGitRefreshWorktreeIds == [firstWorktreeId])
         fixture.registry.shutdown()
     }
 
@@ -509,15 +596,20 @@ struct DarwinSharedExactItemObserverTests {
     private func bind(
         _ registry: DarwinSharedExactItemObserverRegistry,
         worktreeId: UUID,
+        bindingGeneration: UInt64 = 1,
         parentKey: DarwinSharedExactItemParentKey,
         itemName: String
     ) -> Bool {
         registry.bind(
             worktreeId: worktreeId,
-            bindingGeneration: 1,
+            bindingGeneration: bindingGeneration,
             exactItemsByParent: [parentKey: ["\(parentKey.parentPath)/\(itemName)"]],
             bindingIsCurrent: { true }
         )
+    }
+
+    private func sortWorktreeIds(_ lhs: UUID, _ rhs: UUID) -> Bool {
+        lhs.uuidString < rhs.uuidString
     }
 
     private func receive(

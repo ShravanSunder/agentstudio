@@ -187,6 +187,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     private var exactItemsByParentByWorktreeId: [UUID: [DarwinSharedExactItemParentKey: Set<String>]] = [:]
     private var bindingValidationByWorktreeId: [UUID: BindingValidation] = [:]
     private var sharedDependentWorktreeIds: Set<UUID> = []
+    private var fullRefreshDeliveryOutstandingWorktreeIds: Set<UUID> = []
     private var startingParentKeys: Set<DarwinSharedExactItemParentKey> = []
     private var hasShutdown = false
 
@@ -487,6 +488,12 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             }
         }
 
+        let fullGitRefreshCandidates = exactSubscriberWorktreeIds.union(uncertainWorktreeIds)
+        let fullGitRefreshWorktreeIds = fullGitRefreshCandidates.subtracting(
+            fullRefreshDeliveryOutstandingWorktreeIds
+        )
+        fullRefreshDeliveryOutstandingWorktreeIds.formUnion(fullGitRefreshWorktreeIds)
+
         var retiredStreamLifetime: (any DarwinSharedExactItemStreamLifetime)?
         if shouldRetireObserver {
             retiredStreamLifetime = retireObserverLocked(parentKey: parentKey)
@@ -495,7 +502,6 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         }
         lifecycleCondition.unlock()
 
-        let fullGitRefreshWorktreeIds = exactSubscriberWorktreeIds.union(uncertainWorktreeIds)
         performanceAccumulator.recordSharedFanout(
             exactSubscriberCount: exactSubscriberWorktreeIds.count,
             uncertaintySubscriberCount: uncertainWorktreeIds.count,
@@ -532,6 +538,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         exactItemsByParentByWorktreeId.removeAll(keepingCapacity: false)
         bindingValidationByWorktreeId.removeAll(keepingCapacity: false)
         sharedDependentWorktreeIds.removeAll(keepingCapacity: false)
+        fullRefreshDeliveryOutstandingWorktreeIds.removeAll(keepingCapacity: false)
         lifecycleCondition.broadcast()
         lifecycleCondition.unlock()
         retire(streamLifetimes)
@@ -543,6 +550,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         bindingIsCurrent: (@Sendable () -> Bool)?,
         desiredExactItemsByParent: [DarwinSharedExactItemParentKey: Set<String>]
     ) -> [any DarwinSharedExactItemStreamLifetime] {
+        fullRefreshDeliveryOutstandingWorktreeIds.remove(worktreeId)
         let previousExactItemsByParent = exactItemsByParentByWorktreeId[worktreeId] ?? [:]
         let allParentKeys = Set(previousExactItemsByParent.keys)
             .union(desiredExactItemsByParent.keys)

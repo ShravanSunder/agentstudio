@@ -94,8 +94,14 @@ enum RepoExplorerWorktreeStatusPresentation {
     }
 
     static func reservesStatusLine(_ branchStatus: GitBranchStatus) -> Bool {
-        showsPendingIndicator(branchStatus)
-            || SidebarGitStatusChips.hasContent(branchStatus: branchStatus)
+        branchStatus.prCount == nil && !branchStatus.pullRequestDataUnavailable
+            || (branchStatus.prCount ?? 0) > 0 && !branchStatus.pullRequestDataUnavailable
+            || SidebarGitStatusChips.diffDetail(branchStatus: branchStatus) != nil
+            || SidebarGitStatusChips.showsSync(branchStatus: branchStatus)
+    }
+
+    static func showsPendingIndicatorInMetadataLine(_ branchStatus: GitBranchStatus) -> Bool {
+        showsPendingIndicator(branchStatus) && !reservesStatusLine(branchStatus)
     }
 }
 

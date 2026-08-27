@@ -312,6 +312,53 @@ struct RepoExplorerMaterializationSnapshotTests {
         )
     }
 
+    @Test("refreshing confirmed-empty status preserves compact worktree layout")
+    func refreshingConfirmedEmptyStatusPreservesCompactWorktreeLayout() {
+        let confirmedEmptyStatus = GitBranchStatus(
+            isDirty: false,
+            syncState: .synced,
+            prCount: 0,
+            pullRequestIsLoading: false,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+        let refreshingConfirmedEmptyStatus = GitBranchStatus(
+            isDirty: false,
+            syncState: .synced,
+            prCount: 0,
+            pullRequestIsLoading: true,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+
+        let confirmedEmptyLayout = RepoExplorerRowLayout.make(
+            for: worktreePresentation(branchStatus: confirmedEmptyStatus)
+        )
+        let refreshingConfirmedEmptyLayout = RepoExplorerRowLayout.make(
+            for: worktreePresentation(branchStatus: refreshingConfirmedEmptyStatus)
+        )
+
+        #expect(
+            RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(
+                refreshingConfirmedEmptyStatus
+            )
+        )
+        #expect(
+            RepoExplorerWorktreeStatusPresentation.showsPendingIndicatorInMetadataLine(
+                refreshingConfirmedEmptyStatus
+            )
+        )
+        #expect(!RepoExplorerWorktreeStatusPresentation.reservesStatusLine(confirmedEmptyStatus))
+        #expect(
+            !RepoExplorerWorktreeStatusPresentation.reservesStatusLine(
+                refreshingConfirmedEmptyStatus
+            )
+        )
+        #expect(confirmedEmptyLayout.metrics == refreshingConfirmedEmptyLayout.metrics)
+    }
+
     @Test("fixed native row slots never undercut their rendered controls or text")
     func fixedNativeRowSlotsNeverUndercutRenderedContent() throws {
         let mainResult = try RepoExplorerProjectionWorker.project(

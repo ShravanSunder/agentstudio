@@ -107,10 +107,17 @@ struct RepoExplorerWorktreeRowContent: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            SidebarMetadataLine(
-                icon: .octicon(name: "octicon-git-branch", loader: octiconLoader),
-                text: branchName
-            )
+            HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
+                SidebarMetadataLine(
+                    icon: .octicon(name: "octicon-git-branch", loader: octiconLoader),
+                    text: branchName
+                )
+                if RepoExplorerWorktreeStatusPresentation.showsPendingIndicatorInMetadataLine(
+                    branchStatus
+                ) {
+                    SidebarPendingPullRequestIndicator()
+                }
+            }
 
             if !placementText.isEmpty {
                 SidebarMetadataLine(

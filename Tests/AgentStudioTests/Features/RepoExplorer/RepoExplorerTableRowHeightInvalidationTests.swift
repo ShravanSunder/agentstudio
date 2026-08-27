@@ -209,6 +209,83 @@ struct RepoExplorerTableRowHeightInvalidationTests {
         #expect(materializer.currentTopVisibleAnchor?.offset == -partialRowOffset)
     }
 
+    @Test("repeated confirmed-empty refresh cycles preserve every row rect and scroll anchor")
+    func repeatedConfirmedEmptyRefreshCyclesPreserveGeometry() throws {
+        let fixtures = (0..<6).map(makeWorktreeFixture(index:))
+        let anchorFixture = fixtures[2]
+        let confirmedEmptySnapshot = worktreeSnapshot(
+            fixtures: fixtures,
+            statusesByWorktreeID: confirmedEmptyStatuses(for: fixtures)
+        )
+        let refreshingSnapshot = worktreeSnapshot(
+            fixtures: fixtures,
+            statusesByWorktreeID: refreshingConfirmedEmptyStatuses(for: fixtures)
+        )
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: { _ in }
+        )
+        let window = makeMaterializerWindow(materializer)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+
+        try apply(
+            snapshot: confirmedEmptySnapshot,
+            baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+            requestGeneration: 1,
+            to: materializer
+        )
+        let scrollView = try #require(materializer.view as? NSScrollView)
+        let tableView = try #require(scrollView.documentView as? NSTableView)
+        let anchorIndex = try #require(confirmedEmptySnapshot.rowIndexByID[anchorFixture.rowID])
+        let partialRowOffset: CGFloat = 10
+        scrollView.contentView.scroll(
+            to: NSPoint(
+                x: 0,
+                y: tableView.rect(ofRow: anchorIndex).minY + partialRowOffset
+            )
+        )
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+
+        let baselineRects = fixtures.map { fixture in
+            tableView.rect(
+                ofRow: confirmedEmptySnapshot.rowIndexByID[fixture.rowID] ?? -1
+            )
+        }
+        let baselineAnchor = try #require(materializer.currentTopVisibleAnchor)
+        var currentSnapshot = confirmedEmptySnapshot
+        var currentGeneration: UInt64 = 1
+
+        for _ in 0..<4 {
+            for nextSnapshot in [refreshingSnapshot, confirmedEmptySnapshot] {
+                let nextGeneration = currentGeneration + 1
+                try apply(
+                    snapshot: nextSnapshot,
+                    baseline: nativePlanBaseline(
+                        snapshot: currentSnapshot,
+                        revision: currentGeneration,
+                        visibleGeneration: currentGeneration
+                    ),
+                    requestGeneration: nextGeneration,
+                    to: materializer
+                )
+
+                #expect(materializer.currentTopVisibleAnchor == baselineAnchor)
+                #expect(
+                    fixtures.map { fixture in
+                        tableView.rect(
+                            ofRow: nextSnapshot.rowIndexByID[fixture.rowID] ?? -1
+                        )
+                    } == baselineRects
+                )
+                currentSnapshot = nextSnapshot
+                currentGeneration = nextGeneration
+            }
+        }
+    }
+
     private func loadingStatus() -> GitBranchStatus {
         GitBranchStatus(
             isDirty: false,
@@ -248,6 +325,27 @@ struct RepoExplorerTableRowHeightInvalidationTests {
     ) -> [UUID: GitBranchStatus] {
         Dictionary(
             uniqueKeysWithValues: fixtures.map { ($0.worktree.id, confirmedEmptyStatus()) }
+        )
+    }
+
+    private func refreshingConfirmedEmptyStatuses(
+        for fixtures: [WorktreeHeightFixture]
+    ) -> [UUID: GitBranchStatus] {
+        Dictionary(
+            uniqueKeysWithValues: fixtures.map { fixture in
+                (
+                    fixture.worktree.id,
+                    GitBranchStatus(
+                        isDirty: false,
+                        syncState: .synced,
+                        prCount: 0,
+                        pullRequestIsLoading: true,
+                        linesAdded: 0,
+                        linesDeleted: 0,
+                        untrackedFileCount: 0
+                    )
+                )
+            }
         )
     }
 
