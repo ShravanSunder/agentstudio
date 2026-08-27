@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import Foundation
 
@@ -120,6 +121,8 @@ enum WorkspaceLauncherProjector {
                 checkoutColorHexByRepoId: checkoutColorHexByRepoId
             )
         }
+        .prefix(AppPolicies.EntityRecency.maximumApplicationPresentationCountPerKind)
+        .map(\.self)
     }
 
     private static func projectCard(

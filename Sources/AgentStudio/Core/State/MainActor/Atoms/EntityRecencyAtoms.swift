@@ -6,11 +6,18 @@ import Observation
 @Observable
 package final class ApplicationEntityRecencyAtom {
     package private(set) var recentEntities: [ApplicationEntityRecency] = []
+    package private(set) var hydrationDisposition: ApplicationEntityRecencyHydrationDisposition = .pending
+    @ObservationIgnored private let now: @MainActor @Sendable () -> Date
 
-    package init() {}
+    package init(now: @escaping @MainActor @Sendable () -> Date = Date.init) {
+        self.now = now
+    }
 
     package func record(_ recency: ApplicationEntityRecency) {
-        recentEntities = Self.normalized(recentEntities + [recency])
+        recentEntities = Self.normalized(
+            recentEntities + [recency],
+            referenceDate: now()
+        )
     }
 
     package func recordOpened(
@@ -28,11 +35,15 @@ package final class ApplicationEntityRecencyAtom {
             interaction: .opened,
             lastInteractedAt: timestamp
         )
-        recentEntities = Self.normalized(recentEntities + [repositoryRecency, worktreeRecency])
+        recentEntities = Self.normalized(
+            recentEntities + [repositoryRecency, worktreeRecency],
+            referenceDate: now()
+        )
     }
 
     package func hydrate(_ recentEntities: [ApplicationEntityRecency]) {
-        self.recentEntities = Self.normalized(recentEntities)
+        self.recentEntities = Self.normalized(recentEntities, referenceDate: now())
+        hydrationDisposition = .authoritative
     }
 
     package func remove(_ entity: ApplicationRecentEntity) {
@@ -41,10 +52,12 @@ package final class ApplicationEntityRecencyAtom {
 
     package func clear() {
         recentEntities = []
+        hydrationDisposition = .authoritative
     }
 
     private static func normalized(
-        _ recentEntities: [ApplicationEntityRecency]
+        _ recentEntities: [ApplicationEntityRecency],
+        referenceDate: Date
     ) -> [ApplicationEntityRecency] {
         var newestByIdentity: [ApplicationRecentEntity: ApplicationEntityRecency] = [:]
         for recency in recentEntities {
@@ -57,17 +70,12 @@ package final class ApplicationEntityRecencyAtom {
             }
         }
 
-        let sorted = newestByIdentity.values.sorted(by: recencyPrecedes)
-        var retainedCountByKind: [String: Int] = [:]
-        return sorted.filter { recency in
-            let kind = recency.entity.storageKind
-            let retainedCount = retainedCountByKind[kind, default: 0]
-            guard retainedCount < AppPolicies.EntityRecency.maximumRetainedEntityCountPerKind else {
-                return false
-            }
-            retainedCountByKind[kind] = retainedCount + 1
-            return true
-        }
+        let cutoff = referenceDate.addingTimeInterval(
+            -AppPolicies.EntityRecency.applicationActivityHorizon
+        )
+        return newestByIdentity.values
+            .filter { $0.lastInteractedAt >= cutoff }
+            .sorted(by: recencyPrecedes)
     }
 
     private static func recencyPrecedes(
@@ -153,7 +161,7 @@ package final class WorkspaceEntityRecencyAtom {
                 }
                 return $0.entity.storageKey < $1.entity.storageKey
             }
-            .prefix(AppPolicies.EntityRecency.maximumRetainedEntityCountPerKind)
+            .prefix(AppPolicies.EntityRecency.maximumWorkspaceRetainedEntityCount)
             .map(\.self)
     }
 }

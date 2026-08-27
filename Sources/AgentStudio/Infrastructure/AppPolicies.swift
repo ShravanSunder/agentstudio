@@ -16,7 +16,9 @@ package enum AppPolicies {
     }
 
     package enum EntityRecency {
-        package static let maximumRetainedEntityCountPerKind: Int = 15
+        package static let maximumApplicationPresentationCountPerKind: Int = 15
+        package static let maximumWorkspaceRetainedEntityCount: Int = 15
+        package static let applicationActivityHorizon: TimeInterval = 60 * 24 * 60 * 60
         package static let strongBlueDuration: TimeInterval = 10 * 60
         package static let mediumBlueDuration: TimeInterval = 60 * 60
         package static let mutedBlueDuration: TimeInterval = 12 * 60 * 60
