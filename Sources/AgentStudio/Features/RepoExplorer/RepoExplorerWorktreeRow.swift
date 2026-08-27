@@ -62,9 +62,7 @@ struct RepoExplorerWorktreeRowContent: View {
     }
 
     private var hasStatusMetadata: Bool {
-        Self.shouldShowDiffChip(branchStatus: branchStatus)
-            || Self.shouldShowSyncChip(branchStatus: branchStatus)
-            || Self.shouldShowPullRequestChip(branchStatus: branchStatus)
+        RepoExplorerWorktreeStatusPresentation.reservesStatusLine(branchStatus)
     }
 
     var body: some View {
@@ -123,9 +121,8 @@ struct RepoExplorerWorktreeRowContent: View {
 
             if hasStatusMetadata {
                 SidebarStatusChipRow(
-                    isPendingPullRequestFacts: SidebarGitStatusChips.showsPendingPullRequestFacts(
-                        branchStatus: branchStatus
-                    )
+                    isPendingPullRequestFacts:
+                        RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(branchStatus)
                 ) {
                     if SidebarGitStatusChips.hasContent(branchStatus: branchStatus) {
                         SidebarGitStatusChips(branchStatus: branchStatus, octiconLoader: octiconLoader)

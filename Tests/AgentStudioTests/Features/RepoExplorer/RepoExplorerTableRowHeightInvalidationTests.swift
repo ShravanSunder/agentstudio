@@ -13,7 +13,10 @@ struct RepoExplorerTableRowHeightInvalidationTests {
         let fixtures = (0..<6).map(makeWorktreeFixture(index:))
         let loadingFixture = fixtures[4]
         let resolvedFixture = fixtures[5]
-        let initialSnapshot = worktreeSnapshot(fixtures: fixtures)
+        let initialSnapshot = worktreeSnapshot(
+            fixtures: fixtures,
+            statusesByWorktreeID: confirmedEmptyStatuses(for: fixtures)
+        )
         let enrichedStatuses = [
             loadingFixture.worktree.id: GitBranchStatus(
                 isDirty: false,
@@ -117,7 +120,10 @@ struct RepoExplorerTableRowHeightInvalidationTests {
     func contentHeightChangesPreservePartiallyVisibleTopRow() throws {
         let fixtures = (0..<6).map(makeWorktreeFixture(index:))
         let anchorFixture = fixtures[2]
-        let initialSnapshot = worktreeSnapshot(fixtures: fixtures)
+        let initialSnapshot = worktreeSnapshot(
+            fixtures: fixtures,
+            statusesByWorktreeID: confirmedEmptyStatuses(for: fixtures)
+        )
         let loadingStatuses = Dictionary(
             uniqueKeysWithValues: fixtures.map { ($0.worktree.id, loadingStatus()) }
         )
@@ -223,6 +229,25 @@ struct RepoExplorerTableRowHeightInvalidationTests {
             linesAdded: 184,
             linesDeleted: 19,
             untrackedFileCount: 1
+        )
+    }
+
+    private func confirmedEmptyStatus() -> GitBranchStatus {
+        GitBranchStatus(
+            isDirty: false,
+            syncState: .synced,
+            prCount: 0,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+    }
+
+    private func confirmedEmptyStatuses(
+        for fixtures: [WorktreeHeightFixture]
+    ) -> [UUID: GitBranchStatus] {
+        Dictionary(
+            uniqueKeysWithValues: fixtures.map { ($0.worktree.id, confirmedEmptyStatus()) }
         )
     }
 

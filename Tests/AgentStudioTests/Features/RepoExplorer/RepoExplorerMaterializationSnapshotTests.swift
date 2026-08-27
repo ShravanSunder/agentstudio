@@ -189,8 +189,8 @@ struct RepoExplorerMaterializationSnapshotTests {
         )
         #expect(
             worktreeRow.layout.metrics.fallbackHeight
-                == expectedMetadataHeight(
-                    metadataLineCount: 1,
+                == expectedWorktreeHeight(
+                    reservesStatusLine: true,
                     metrics: worktreeRow.layout.metrics
                 )
         )
@@ -258,6 +258,58 @@ struct RepoExplorerMaterializationSnapshotTests {
 
         #expect(faultMaterialization.rows.map(\.layout.rowClass) == [.fault])
         #expect(faultMaterialization.rows.allSatisfy { $0.layout.requiresVisibleWidthMeasurement })
+    }
+
+    @Test("pending and resolved worktree status reserve one stable chip line")
+    func pendingAndResolvedWorktreeStatusReserveStableChipLine() {
+        let pendingStatus = GitBranchStatus(
+            isDirty: false,
+            syncState: .unknown,
+            prCount: nil,
+            pullRequestIsLoading: false,
+            pullRequestDataUnavailable: false,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+        let resolvedStatus = GitBranchStatus(
+            isDirty: true,
+            syncState: .diverged(ahead: 7, behind: 3),
+            prCount: 2,
+            linesAdded: 0,
+            linesDeleted: 116,
+            untrackedFileCount: 0
+        )
+        let confirmedEmptyStatus = GitBranchStatus(
+            isDirty: false,
+            syncState: .synced,
+            prCount: 0,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+
+        let pendingLayout = RepoExplorerRowLayout.make(
+            for: worktreePresentation(branchStatus: pendingStatus)
+        )
+        let resolvedLayout = RepoExplorerRowLayout.make(
+            for: worktreePresentation(branchStatus: resolvedStatus)
+        )
+        let confirmedEmptyLayout = RepoExplorerRowLayout.make(
+            for: worktreePresentation(branchStatus: confirmedEmptyStatus)
+        )
+
+        #expect(RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(pendingStatus))
+        #expect(RepoExplorerWorktreeStatusPresentation.reservesStatusLine(pendingStatus))
+        #expect(RepoExplorerWorktreeStatusPresentation.reservesStatusLine(resolvedStatus))
+        #expect(!RepoExplorerWorktreeStatusPresentation.reservesStatusLine(confirmedEmptyStatus))
+        #expect(pendingLayout.metrics.fallbackHeight == resolvedLayout.metrics.fallbackHeight)
+        #expect(
+            pendingLayout.metrics.fallbackHeight
+                == confirmedEmptyLayout.metrics.fallbackHeight
+                + pendingLayout.metrics.chipLineHeight
+                + pendingLayout.metrics.contentSpacing
+        )
     }
 
     @Test("fixed native row slots never undercut their rendered controls or text")
@@ -522,6 +574,55 @@ struct RepoExplorerMaterializationSnapshotTests {
             + metrics.metadataLineHeight * metadataLineCount
             + metrics.contentSpacing * metadataLineCount
             + metrics.verticalInset * 2
+    }
+
+    private func expectedWorktreeHeight(
+        reservesStatusLine: Bool,
+        metrics: RepoExplorerRowLayoutMetrics
+    ) -> CGFloat {
+        expectedMetadataHeight(metadataLineCount: 1, metrics: metrics)
+            + (reservesStatusLine ? metrics.chipLineHeight + metrics.contentSpacing : 0)
+    }
+
+    private func worktreePresentation(
+        branchStatus: GitBranchStatus
+    ) -> RepoExplorerMaterializedRowPresentation {
+        let repoID = UUIDv7.generate()
+        let worktree = Worktree(
+            id: UUIDv7.generate(),
+            repoId: repoID,
+            name: "main",
+            path: URL(fileURLWithPath: "/tmp/repo-explorer-stable-pending-status-line"),
+            isMainWorktree: true
+        )
+        let repo = RepoPresentationItem(
+            id: repoID,
+            name: "agent-studio",
+            repoPath: worktree.path,
+            stableKey: "agent-studio",
+            worktrees: [worktree]
+        )
+        let rowID = RepoExplorerRowID.worktree(
+            groupID: "remote:askluna/agent-studio",
+            repoID: repoID,
+            worktreeID: worktree.id
+        )
+        return .worktree(
+            RepoExplorerMaterializedWorktreePresentation(
+                rowID: rowID,
+                groupID: "remote:askluna/agent-studio",
+                repo: repo,
+                worktree: worktree,
+                checkoutTitle: "agent-studio",
+                isMainCheckout: true,
+                checkoutColorHex: "#F5C451",
+                placementText: "",
+                branchStatus: branchStatus,
+                branchName: "main",
+                bridgeCommandResolution: .create,
+                paneDestinations: []
+            )
+        )
     }
 
     private func makeRepoRequest(

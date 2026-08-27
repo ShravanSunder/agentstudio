@@ -87,6 +87,18 @@ struct RepoExplorerRowContentRevision: Equatable, Sendable {
     let presentation: RepoExplorerMaterializedRowPresentation
 }
 
+enum RepoExplorerWorktreeStatusPresentation {
+    static func showsPendingIndicator(_ branchStatus: GitBranchStatus) -> Bool {
+        !branchStatus.pullRequestDataUnavailable
+            && (branchStatus.pullRequestIsLoading || branchStatus.prCount == nil)
+    }
+
+    static func reservesStatusLine(_ branchStatus: GitBranchStatus) -> Bool {
+        showsPendingIndicator(branchStatus)
+            || SidebarGitStatusChips.hasContent(branchStatus: branchStatus)
+    }
+}
+
 enum RepoExplorerRowLayoutClass: Equatable, Sendable {
     case sectionHeader
     case loadingSectionHeader
@@ -188,8 +200,8 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
             facts.leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
             facts.metadataLineCount = worktree.placementText.isEmpty ? 1 : 2
             facts.chipLineCount =
-                SidebarGitStatusChips.hasContent(
-                    branchStatus: worktree.branchStatus
+                RepoExplorerWorktreeStatusPresentation.reservesStatusLine(
+                    worktree.branchStatus
                 ) ? 1 : 0
             facts.verticalInset = AppStyles.Shell.Sidebar.nativeRowVerticalInset
             return facts

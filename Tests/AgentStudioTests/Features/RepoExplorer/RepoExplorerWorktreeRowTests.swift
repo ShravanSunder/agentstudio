@@ -258,6 +258,11 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!sharedSource.contains("Pull request facts not fetched"))
         #expect(!sharedSource.contains("pendingPullRequestGlyph"))
         #expect(worktreeSource.contains("SidebarStatusChipRow("))
+        #expect(
+            worktreeSource.contains(
+                "RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(branchStatus)"
+            )
+        )
         #expect(paneSource.contains("SidebarStatusChipRow("))
         #expect(paneSource.contains("icon: .system(.playCircleFill)"))
         #expect(paneSource.contains("text: nil"))
@@ -294,6 +299,8 @@ struct RepoExplorerWorktreeRowTests {
 
         #expect(!branchedIdleStatus.pullRequestDataUnavailable)
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: branchedIdleStatus))
+        #expect(RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(branchedIdleStatus))
+        #expect(RepoExplorerWorktreeStatusPresentation.reservesStatusLine(branchedIdleStatus))
     }
 
     @Test("resolved-unavailable pull request state renders neither the pending glyph nor a chip")
@@ -329,12 +336,15 @@ struct RepoExplorerWorktreeRowTests {
         )
 
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: idleWithoutFacts))
+        #expect(RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(idleWithoutFacts))
         #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: activeRequest))
         #expect(SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: activeRequest))
         // Resolved-unavailable (no remote, or repeated failures past the
         // honesty threshold) must never render as still-pending.
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: terminallyUnavailable))
         #expect(!SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: terminallyUnavailable))
+        #expect(!RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(terminallyUnavailable))
+        #expect(!RepoExplorerWorktreeStatusPresentation.reservesStatusLine(terminallyUnavailable))
     }
 
     @Test("a stale positive PR count never renders once the repo resolves unavailable")
