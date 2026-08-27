@@ -8,7 +8,13 @@ const cloudflareAssetsDirectory = resolve(
   projectDirectory,
   ".cloudflare/output/v0/workers/default/assets",
 );
-const expectedFiles = ["agent-studio-social-card.png", "robots.txt", "sitemap.xml"];
+const expectedFiles = [
+  "agent-studio-social-card.png",
+  "agent-studio-x-profile-banner.png",
+  "agent-studio-youtube-channel-banner.png",
+  "robots.txt",
+  "sitemap.xml",
+];
 
 await Promise.all(
   expectedFiles.map(async (assetName): Promise<void> => {
@@ -28,6 +34,24 @@ if (socialCardMetadata.width !== 1200 || socialCardMetadata.height !== 630) {
   );
 }
 
+const youtubeBannerMetadata = await sharp(
+  resolve(cloudflareAssetsDirectory, "agent-studio-youtube-channel-banner.png"),
+).metadata();
+if (youtubeBannerMetadata.width !== 2560 || youtubeBannerMetadata.height !== 1440) {
+  throw new Error(
+    `Cloudflare YouTube banner must be 2560x1440; received ${youtubeBannerMetadata.width ?? "unknown"}x${youtubeBannerMetadata.height ?? "unknown"}`,
+  );
+}
+
+const xProfileBannerMetadata = await sharp(
+  resolve(cloudflareAssetsDirectory, "agent-studio-x-profile-banner.png"),
+).metadata();
+if (xProfileBannerMetadata.width !== 1500 || xProfileBannerMetadata.height !== 500) {
+  throw new Error(
+    `Cloudflare X profile banner must be 1500x500; received ${xProfileBannerMetadata.width ?? "unknown"}x${xProfileBannerMetadata.height ?? "unknown"}`,
+  );
+}
+
 const sitemap = await readFile(resolve(cloudflareAssetsDirectory, "sitemap.xml"), "utf8");
 if (!sitemap.includes("<loc>https://getagentstudio.dev/</loc>")) {
   throw new Error("Cloudflare sitemap does not contain the canonical home page");
@@ -41,4 +65,4 @@ if (!robots.includes("Sitemap: https://getagentstudio.dev/sitemap.xml")) {
   throw new Error("Cloudflare robots file does not advertise the canonical sitemap");
 }
 
-console.log("Verified Cloudflare social card, sitemap, and origin robots assets.");
+console.log("Verified Cloudflare campaign images, sitemap, and origin robots assets.");

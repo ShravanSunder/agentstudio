@@ -6,12 +6,18 @@ const sourceConfigPath = resolve(projectDirectory, "cloudflare.config.ts");
 const stagedConfigPath = resolve(projectDirectory, "dist", "cloudflare.config.ts");
 const stagedPublicDirectory = resolve(projectDirectory, "dist", "public");
 const buildOutputLinkPath = resolve(projectDirectory, ".cloudflare");
-const rootDiscoveryAssets = ["agent-studio-social-card.png", "robots.txt", "sitemap.xml"];
+const rootPublicAssets = [
+  "agent-studio-social-card.png",
+  "agent-studio-x-profile-banner.png",
+  "agent-studio-youtube-channel-banner.png",
+  "robots.txt",
+  "sitemap.xml",
+];
 
 await copyFile(sourceConfigPath, stagedConfigPath);
 await mkdir(stagedPublicDirectory, { recursive: true });
 await Promise.all(
-  rootDiscoveryAssets.map((assetName): Promise<void> =>
+  rootPublicAssets.map((assetName): Promise<void> =>
     copyFile(
       resolve(projectDirectory, "dist", assetName),
       resolve(stagedPublicDirectory, assetName),
