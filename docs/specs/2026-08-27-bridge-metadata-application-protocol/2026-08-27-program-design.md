@@ -119,17 +119,25 @@ Bridge metadata transport
     changes when: generic replacement-transfer semantics change
 
 Application protocols
+  File annotation protocol
+    owns: current File annotation kind/surface/source authority
+    consumes: shared Worktree Annotation event/source implementation
+
   File metadata protocol
     owns: current File surface, options/open conversion, interests/deltas,
           source lifecycle, event schema, generation extraction
+
+  Review annotation protocol
+    owns: current Review annotation kind/surface/source authority
+    consumes: shared Worktree Annotation event/source implementation
 
   Review metadata protocol
     owns: current Review surface, options/open conversion, interests/deltas,
           source lifecycle, event schema, generation extraction
 
-  Worktree Annotation metadata protocol
-    owns: annotation surface, empty interests, source lifecycle,
-          catalog/control/session-change event schemas and generation extraction
+  Shared Worktree Annotation application protocol implementation
+    owns: empty interests, catalog/control/session-change event schemas,
+          generation extraction, and reusable native source behavior
 
 Worktree Annotation application
   Repository catalog projection
@@ -197,6 +205,10 @@ Each language-specific `MetadataApplicationProtocol<Options, Interest, Event>`
 owns the Specification's full registration contract: kind, surface/source
 authority, options and initial-open conversion, empty/target interest state and
 delta accounting, event validation/generation, and native source lifecycle.
+The registration adapts an existing native authority owner; it cannot create or
+widen pane, surface, worktree, provider, Review publication, mutation, or
+content authority. Generic admission runs before the registered adapter, and
+the adapter preserves its application's existing authority fences.
 
 TypeScript exposes a typed definition factory and uses its protocol value as
 the generic parameter to `transport.subscribe(protocol, options)`. The returned
@@ -273,26 +285,32 @@ producer lifecycles.
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Receiving: begin newer than active accepted
+    Idle --> Receiving: first begin for expected authority accepted
     Receiving --> Receiving: next contiguous window accepted
     Receiving --> Complete: matching commit and counts accepted
-    Receiving --> Receiving: newer begin supersedes candidate
+    Receiving --> Receiving: same-authority newer begin supersedes candidate
     Receiving --> Receiving: late frame for noncurrent transfer rejected
     Receiving --> Idle: reset, error, cancellation, or current-candidate defect
-    Complete --> Receiving: begin newer than active accepted
+    Complete --> Receiving: same-authority begin newer than active accepted
     Complete --> Complete: committed replay rejected without state change
-    Complete --> Idle: source/subscription authority retired
+    Complete --> Idle: authority retired; numeric baseline cleared
 ```
 
 The helper owns one candidate's identity, revision, next ordinal, entries, and
-counts. A `begin` replaces that candidate only when its revision is newer than
-both the active and candidate revisions. A window or commit for any noncurrent
-transfer identity is rejected without changing the current candidate. An
-ordinal, count, revision, or entry defect belonging to the current transfer
-discards only that transfer. A committed replay is rejected without state
-effect; no retained equivalence digest is required. The helper returns a
-complete candidate only after commit. It never installs application state. The
-application validates relationships and performs the active-state swap.
+counts. Within one lifecycle-admitted subscription/source authority, a `begin`
+replaces that candidate only when its revision is newer than both the active and
+candidate revisions. Authority retirement discards the candidate and clears the
+numeric comparison baseline while the application may retain the prior active
+catalog visibly stale. After the generic lifecycle admits the expected new
+authority, its first `begin` is accepted regardless of the retained stale
+catalog's revision. A `begin` from any other authority is rejected. A window or
+commit for any noncurrent transfer identity is rejected without changing the
+current candidate. An ordinal, count, revision, or entry defect belonging to
+the current transfer discards only that transfer. A committed replay is rejected
+without state effect; no retained equivalence digest is required. The helper
+returns a complete candidate only after commit. It never installs application
+state. The application validates relationships and performs the active-state
+swap.
 
 The application retains at most one active catalog and one candidate. A
 malformed candidate is discarded without changing active state.
@@ -477,7 +495,10 @@ The worker-to-main staging unit uses the same generic begin/window/commit
 semantics with an application-defined normalized catalog entry. It is a new
 message family on the existing port and existing port FIFO, not a new route,
 queue, scheduler, or persistence owner. Each unit is independently bounded by
-the existing worker-message budget.
+the existing worker-message budget. The hidden main candidate bank applies the
+same authority-scoped revision rule: a lifecycle-admitted worker/source
+replacement clears the comparison baseline, while an unexpected authority is
+rejected.
 
 The existing store is evolved, not duplicated:
 
@@ -720,7 +741,7 @@ replacement for both associations.
 | catalog entry cannot fit alone | writer reports bounded application encoding failure | annotation catalog remains stale/unavailable; no partial replacement |
 | defect in the current candidate | assembler ordinal/count/revision/entry guard fails | discard that candidate; retain active catalog and await current replacement |
 | late frame from a superseded transfer | transfer identity differs from current candidate | reject frame without changing newer candidate or active catalog |
-| reset/reconnect during candidate | generic reset retires worker and main candidates and marks retained active catalog stale | register observer, capture current catalog, begin fresh authority-bound replacement |
+| reset/reconnect during candidate | generic reset retires worker and main candidates, clears their numeric revision baselines, and marks retained active catalog stale | register observer, capture current catalog, and accept the first replacement only for the lifecycle-admitted new authority regardless of the stale catalog's revision |
 | newer topology change during candidate | newer begin supersedes candidate; older frames are noncurrent | producer sends newest complete catalog; worker rejects obsolete frames without damaging it |
 | content change during catalog capture | service revision fence and registered observer expose newest change | catalog contains it or later session-change/catalog replacement converges it |
 | rich response finishes after catalog removed session | catalog/content authority check rejects retired session result | no install; current demand reconciles from active catalog |
@@ -741,6 +762,9 @@ Ordering and atomicity rules:
 - only catalog commit swaps active relationships;
 - catalog commit binds subscription, worker, worktree, and application source
   authority; reset/source replacement marks retained active state stale;
+- revision precedence applies only within one admitted authority; replacement
+  clears the numeric comparison baseline but does not admit an unexpected
+  authority;
 - native-to-worker and worker-to-main catalog transfers both use bounded staging
   and final commit; React never observes either candidate;
 - only complete rich response swaps session content;
@@ -757,7 +781,7 @@ Swift and BridgeWeb cut over together in one wire version/build:
 
 ```text
 1. introduce registry and generic envelope/application boundaries
-2. register current File and Review protocols with unchanged events
+2. register all four current File/Review metadata and annotation protocols with unchanged events
 3. move annotation subscription to its registered protocol
 4. add generic catalog writer/assembler
 5. publish and install Worktree Annotation catalogs

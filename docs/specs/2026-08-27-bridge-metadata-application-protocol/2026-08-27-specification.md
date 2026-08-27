@@ -119,6 +119,12 @@ acknowledgement/backpressure, reset/end/error, or content transport.
 Registration is static product composition. The wire MUST NOT register,
 replace, or provide executable application protocols.
 
+A registration MUST adapt an already-authorized native application owner. It
+MUST NOT establish or widen pane, surface, worktree, provider, Review
+publication, mutation, or content authority. Generic admission remains
+mandatory, and the registered source MUST preserve its existing application
+authority fences.
+
 A fixture application with empty interests MUST be addable through one
 registration in each language without changing generic surface maps,
 subscription open/update state, interest batching/barriers, producer source
@@ -186,6 +192,12 @@ catalog.
 A newer catalog transfer MAY supersede an older incomplete candidate. A replay
 of an already committed transfer identity and revision MUST either validate as
 equivalent or be rejected; it MUST NOT mutate the active catalog differently.
+
+Catalog revision ordering applies only within one lifecycle-admitted
+subscription/source authority. After that authority retires, the retained
+active catalog's numeric revision MUST NOT block the first complete replacement
+for the expected new authority. A transfer from an authority that the generic
+lifecycle has not admitted MUST be rejected.
 
 After subscription reset, stream replacement, or reconnect disposition that
 requires a snapshot, the application MUST receive a complete replacement

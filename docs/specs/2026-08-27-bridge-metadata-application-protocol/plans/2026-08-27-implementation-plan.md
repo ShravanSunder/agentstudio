@@ -176,6 +176,11 @@ Read before any edit:
   their association tests;
 - current Review main-publication/store files changed by the UI/publication
   agent;
+- current render-disposition admission and fulfillment clock/replacement paths
+  in `bridge-main-render-disposition-admission.ts`,
+  `bridge-main-render-fulfillment-coordinator.ts`,
+  `bridge-worker-render-fulfillment.ts`, and
+  `bridge-worker-render-fulfillment-registry.ts`;
 - this complete plan and all three governing artifacts.
 
 Required state:
@@ -184,11 +189,22 @@ Required state:
   focused proof or is committed as its existing green checkpoint;
 - transport implementation does not begin in a second worktree copy of those
   same uncommitted files;
-- later concurrent commits are re-anchored before every slice.
+- later concurrent commits are re-anchored before every slice;
+- a separately accepted transport correction eliminates the existing
+  cross-realm receipt-lease clock comparison and includes an offset-clock
+  worker-replacement proof;
+- the existing render-disposition `stalled` state has an implemented recovery
+  owner and proof that delivery resumes;
+- those transport-remediation checkpoints land before S1; this plan consumes
+  them and does not redesign receipt delivery as metadata-application work.
 
 Proof:
 
 - current repository/association focused tests remain 15/15 or better;
+- offset-clock worker-replacement regression proves the receipt lease cannot
+  compare unrelated Main/worker clock origins;
+- stalled-disposition recovery regression proves queued receipts resume under
+  the separately accepted recovery owner;
 - format/lint/diff checks reported by that slice remain reproducible;
 - no unrelated file appears in the transport slice diff.
 
@@ -245,7 +261,10 @@ Implementation behavior:
    generation reader into registrations.
 3. Keep generic batching, barriers, queueing, sequence, acknowledgement,
    backpressure, reset/end/error, task replacement, and drain in current owners.
-4. Register File and Review using unchanged wire/event contracts.
+4. Register `file.annotations`, `file.metadata`, `review.annotations`, and
+   `review.metadata` using unchanged wire/event contracts. The two annotation
+   registrations share their existing event schema/source helper while
+   retaining distinct kind, surface, and source authority.
 5. Decode the generic raw envelope before registry validation; no application
    consumer accepts `unknown`.
 6. Remove central application payload/control/source switches in the same
@@ -258,6 +277,7 @@ Focused proof:
   comm-worker entry tests;
 - fixture application proof in both languages;
 - File and Review metadata applicator/source/publication regression tests;
+- File and Review annotation `snapshot.required` subscription parity tests;
 - exact raw/typed fixtures and interest hash/delta parity.
 
 Integration gate G1:
@@ -318,12 +338,20 @@ Implementation behavior:
    the existing port.
 5. Main candidate bank remains hidden until a lightweight final commit; reset
    discards candidate and preserves active state as stale.
+6. Scope revision precedence to one lifecycle-admitted authority. Replacement
+   clears the worker and main numeric comparison baselines; the first begin for
+   the expected new authority is admitted even when its revision is equal to or
+   lower than the retained stale catalog, while unexpected authorities remain
+   rejected.
 
 Focused proof:
 
 - deterministic writer packing at/over the frame ceiling and an entry that
   cannot fit alone;
 - assembler table/state-machine tests covering A/B/C supersession and replay;
+- authority replacement tests covering a high retained revision followed by an
+  equal or lower revision under the expected new authority, plus rejection of
+  equal/older same-authority and unexpected-authority begins;
 - bounded worker port units, hidden main candidate, one final presentation
   revision, and reset during staging;
 - resource inspection: one active plus at most one candidate per boundary.
