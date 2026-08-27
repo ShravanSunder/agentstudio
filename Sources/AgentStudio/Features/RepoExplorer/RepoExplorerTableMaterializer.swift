@@ -30,18 +30,23 @@ final class RepoExplorerTableMaterializer: NSObject,
         let visibleRect = scrollView.contentView.documentVisibleRect
         let visibleRange = tableView.rows(in: visibleRect)
         guard visibleRange.location != NSNotFound else { return nil }
+        var firstIntersectingAnchor: RepoExplorerTableScrollAnchor?
         for rowIndex in visibleRange.location..<NSMaxRange(visibleRange) {
             guard snapshot.rows.indices.contains(rowIndex) else { continue }
             let rowRect = tableView.rect(ofRow: rowIndex)
-            guard rowRect.minY >= visibleRect.minY, rowRect.maxY <= visibleRect.maxY else {
-                continue
-            }
-            return RepoExplorerTableScrollAnchor(
+            guard rowRect.intersects(visibleRect) else { continue }
+            let anchor = RepoExplorerTableScrollAnchor(
                 rowID: snapshot.rows[rowIndex].id,
                 offset: rowRect.minY - visibleRect.minY
             )
+            if rowRect.minY >= visibleRect.minY, rowRect.maxY <= visibleRect.maxY {
+                return anchor
+            }
+            if firstIntersectingAnchor == nil {
+                firstIntersectingAnchor = anchor
+            }
         }
-        return nil
+        return firstIntersectingAnchor
     }
 
     private struct HeightCacheEntry {
@@ -448,7 +453,7 @@ final class RepoExplorerTableMaterializer: NSObject,
         let rowRect = tableView.rect(ofRow: rowIndex)
         let documentVisibleRect = scrollView.contentView.documentVisibleRect
         let maximumOriginY = max(0, tableView.bounds.height - documentVisibleRect.height)
-        let requestedOriginY = rowRect.minY - max(0, offset)
+        let requestedOriginY = rowRect.minY - offset
         scrollView.contentView.scroll(
             to: NSPoint(
                 x: documentVisibleRect.minX,

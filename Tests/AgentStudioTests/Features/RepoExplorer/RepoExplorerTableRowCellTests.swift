@@ -102,7 +102,7 @@ struct RepoExplorerTableRowCellTests {
     }
 
     @Test("menu tracking retains one represented row binding and applies the latest update on close")
-    func menuTrackingRetainsRepresentedBindingUntilClose() {
+    func menuTrackingRetainsRepresentedBindingUntilClose() async {
         let cell = RepoExplorerTableRowCell(
             octiconLoader: makeRepoExplorerTestOcticonLoader()
         )
@@ -156,8 +156,116 @@ struct RepoExplorerTableRowCellTests {
             object: trackedMenu
         )
 
+        #expect(cell.currentBindingIdentity == initialBinding)
+        #expect(cell.currentCommandGeneration == initialSnapshot.generation)
+        await cell.drainDeferredMenuBindingApplication()
+
         #expect(cell.currentBindingIdentity?.visibleGeneration == 9)
         #expect(cell.currentCommandGeneration == latestSnapshot.generation)
+        #expect(cell.accessibilityLabel() == "Updated")
+    }
+
+    @Test("selected context-menu command dispatches before deferred binding replacement")
+    func selectedContextMenuCommandDispatchesBeforeDeferredBindingReplacement() async {
+        let cell = RepoExplorerTableRowCell(
+            octiconLoader: makeRepoExplorerTestOcticonLoader()
+        )
+        let initialRow = hostedCellRow(id: "A", title: "Initial")
+        let updatedRow = hostedCellRow(id: "A", title: "Updated")
+        let initialSnapshot = RepoExplorerCommandPresentationSnapshot(generation: 3, results: [:])
+        let updatedSnapshot = RepoExplorerCommandPresentationSnapshot(generation: 4, results: [:])
+        let capturedBinding = cell.bind(
+            row: initialRow,
+            visibleGeneration: 7,
+            commandPresentationSnapshot: initialSnapshot
+        )
+        var dispatchCount = 0
+        let actionTarget = ContextMenuActionTarget {
+            _ = cell.performCommandIfCurrent(
+                capturedBinding,
+                commandGeneration: initialSnapshot.generation
+            ) {
+                dispatchCount += 1
+            }
+        }
+        let menu = NSMenu()
+        let menuItem = NSMenuItem(
+            title: "Terminal",
+            action: #selector(ContextMenuActionTarget.performMenuItemAction(_:)),
+            keyEquivalent: ""
+        )
+        menuItem.target = actionTarget
+        menu.addItem(menuItem)
+
+        NotificationCenter.default.post(
+            name: NSMenu.didBeginTrackingNotification,
+            object: menu
+        )
+        _ = cell.bind(
+            row: updatedRow,
+            visibleGeneration: 8,
+            commandPresentationSnapshot: updatedSnapshot
+        )
+        NotificationCenter.default.post(
+            name: NSMenu.didEndTrackingNotification,
+            object: menu
+        )
+        menu.performActionForItem(at: 0)
+
+        #expect(dispatchCount == 1)
+        await cell.drainDeferredMenuBindingApplication()
+        #expect(cell.currentBindingIdentity?.visibleGeneration == 8)
+        #expect(cell.currentCommandGeneration == updatedSnapshot.generation)
+    }
+
+    @Test("submenu handoff retains the opening binding until nested tracking ends")
+    func submenuHandoffRetainsOpeningBindingUntilNestedTrackingEnds() async {
+        let cell = RepoExplorerTableRowCell(
+            octiconLoader: makeRepoExplorerTestOcticonLoader()
+        )
+        let initialRow = hostedCellRow(id: "A", title: "Initial")
+        let updatedRow = hostedCellRow(id: "A", title: "Updated")
+        let initialSnapshot = RepoExplorerCommandPresentationSnapshot(generation: 3, results: [:])
+        let updatedSnapshot = RepoExplorerCommandPresentationSnapshot(generation: 4, results: [:])
+        let openingBinding = cell.bind(
+            row: initialRow,
+            visibleGeneration: 7,
+            commandPresentationSnapshot: initialSnapshot
+        )
+        let rootMenu = NSMenu()
+        let submenu = NSMenu()
+
+        NotificationCenter.default.post(
+            name: NSMenu.didBeginTrackingNotification,
+            object: rootMenu
+        )
+        _ = cell.bind(
+            row: updatedRow,
+            visibleGeneration: 8,
+            commandPresentationSnapshot: updatedSnapshot
+        )
+        NotificationCenter.default.post(
+            name: NSMenu.didEndTrackingNotification,
+            object: rootMenu
+        )
+        NotificationCenter.default.post(
+            name: NSMenu.didBeginTrackingNotification,
+            object: submenu
+        )
+        await cell.drainDeferredMenuBindingApplication()
+
+        #expect(cell.currentBindingIdentity == openingBinding)
+        #expect(cell.currentCommandGeneration == initialSnapshot.generation)
+        #expect(cell.accessibilityLabel() == "Initial")
+
+        NotificationCenter.default.post(
+            name: NSMenu.didEndTrackingNotification,
+            object: submenu
+        )
+        await cell.drainDeferredMenuBindingApplication()
+
+        #expect(cell.currentBindingIdentity?.visibleGeneration == 8)
+        #expect(cell.currentCommandGeneration == updatedSnapshot.generation)
         #expect(cell.accessibilityLabel() == "Updated")
     }
 
@@ -215,6 +323,19 @@ struct RepoExplorerTableRowCellTests {
 
         #expect(toggledGroupIDs == ["current"])
         #expect(focusedPaneIDs == [paneID])
+    }
+}
+
+@MainActor
+private final class ContextMenuActionTarget: NSObject {
+    private let action: () -> Void
+
+    init(action: @escaping () -> Void) {
+        self.action = action
+    }
+
+    @objc func performMenuItemAction(_: NSMenuItem) {
+        action()
     }
 }
 

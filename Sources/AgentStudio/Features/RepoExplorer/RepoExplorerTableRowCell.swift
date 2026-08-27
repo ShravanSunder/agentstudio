@@ -111,6 +111,7 @@ final class RepoExplorerTableRowCell: NSTableCellView {
     private var reuseSequence: UInt64 = 0
     private var trackedMenuIdentities: Set<ObjectIdentifier> = []
     private var deferredBinding: DeferredBinding?
+    private var deferredBindingApplicationTask: Task<Void, Never>?
     private var menuTrackingObservers: [NSObjectProtocol] = []
 
     var currentBindingIdentity: RepoExplorerTableRowBindingIdentity? {
@@ -171,7 +172,7 @@ final class RepoExplorerTableRowCell: NSTableCellView {
             return currentBinding.identity
         }
         if let currentBinding = slot.binding,
-            !trackedMenuIdentities.isEmpty,
+            !trackedMenuIdentities.isEmpty || deferredBindingApplicationTask != nil,
             currentBinding.identity.rowID == row.id
         {
             deferredBinding = DeferredBinding(
@@ -225,6 +226,8 @@ final class RepoExplorerTableRowCell: NSTableCellView {
     }
 
     func clearBindingForReuse() {
+        deferredBindingApplicationTask?.cancel()
+        deferredBindingApplicationTask = nil
         deferredBinding = nil
         slot.clear()
         setAccessibilityLabel(nil)
@@ -258,18 +261,32 @@ final class RepoExplorerTableRowCell: NSTableCellView {
     }
 
     private func menuDidBeginTracking(_ menuIdentity: ObjectIdentifier) {
+        deferredBindingApplicationTask?.cancel()
+        deferredBindingApplicationTask = nil
         trackedMenuIdentities.insert(menuIdentity)
     }
 
     private func menuDidEndTracking(_ menuIdentity: ObjectIdentifier) {
         trackedMenuIdentities.remove(menuIdentity)
-        guard trackedMenuIdentities.isEmpty, let deferredBinding else { return }
-        self.deferredBinding = nil
-        _ = installBinding(
-            row: deferredBinding.row,
-            visibleGeneration: deferredBinding.visibleGeneration,
-            commandPresentationSnapshot: deferredBinding.commandPresentationSnapshot
-        )
+        guard trackedMenuIdentities.isEmpty, deferredBinding != nil else { return }
+        deferredBindingApplicationTask?.cancel()
+        deferredBindingApplicationTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, !Task.isCancelled, self.trackedMenuIdentities.isEmpty,
+                let deferredBinding = self.deferredBinding
+            else { return }
+            self.deferredBindingApplicationTask = nil
+            self.deferredBinding = nil
+            _ = self.installBinding(
+                row: deferredBinding.row,
+                visibleGeneration: deferredBinding.visibleGeneration,
+                commandPresentationSnapshot: deferredBinding.commandPresentationSnapshot
+            )
+        }
+    }
+
+    func drainDeferredMenuBindingApplication() async {
+        await deferredBindingApplicationTask?.value
     }
 
     @discardableResult

@@ -113,6 +113,119 @@ struct RepoExplorerTableRowHeightInvalidationTests {
         #expect(resolvedFilteredRect.maxY == filteredSnapshot.fallbackContentHeight)
     }
 
+    @Test("loading and chip height changes preserve a partially visible top row")
+    func contentHeightChangesPreservePartiallyVisibleTopRow() throws {
+        let fixtures = (0..<6).map(makeWorktreeFixture(index:))
+        let anchorFixture = fixtures[2]
+        let initialSnapshot = worktreeSnapshot(fixtures: fixtures)
+        let loadingStatuses = Dictionary(
+            uniqueKeysWithValues: fixtures.map { ($0.worktree.id, loadingStatus()) }
+        )
+        let resolvedStatuses = Dictionary(
+            uniqueKeysWithValues: fixtures.map { ($0.worktree.id, resolvedStatus()) }
+        )
+        let loadingSnapshot = worktreeSnapshot(
+            fixtures: fixtures,
+            statusesByWorktreeID: loadingStatuses
+        )
+        let resolvedSnapshot = worktreeSnapshot(
+            fixtures: fixtures,
+            statusesByWorktreeID: resolvedStatuses
+        )
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: { _ in }
+        )
+        let window = makeMaterializerWindow(materializer)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+
+        try apply(
+            snapshot: initialSnapshot,
+            baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+            requestGeneration: 1,
+            to: materializer
+        )
+        let scrollView = try #require(materializer.view as? NSScrollView)
+        let tableView = try #require(scrollView.documentView as? NSTableView)
+        let anchorIndex = try #require(initialSnapshot.rowIndexByID[anchorFixture.rowID])
+        let partialRowOffset: CGFloat = 10
+        scrollView.contentView.scroll(
+            to: NSPoint(
+                x: 0,
+                y: tableView.rect(ofRow: anchorIndex).minY + partialRowOffset
+            )
+        )
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+
+        #expect(materializer.currentTopVisibleAnchor?.rowID == anchorFixture.rowID)
+        #expect(materializer.currentTopVisibleAnchor?.offset == -partialRowOffset)
+
+        try apply(
+            snapshot: loadingSnapshot,
+            baseline: nativePlanBaseline(
+                snapshot: initialSnapshot,
+                revision: 1,
+                visibleGeneration: 1
+            ),
+            requestGeneration: 2,
+            to: materializer
+        )
+        #expect(materializer.currentTopVisibleAnchor?.rowID == anchorFixture.rowID)
+        #expect(materializer.currentTopVisibleAnchor?.offset == -partialRowOffset)
+
+        try apply(
+            snapshot: resolvedSnapshot,
+            baseline: nativePlanBaseline(
+                snapshot: loadingSnapshot,
+                revision: 2,
+                visibleGeneration: 2
+            ),
+            requestGeneration: 3,
+            to: materializer
+        )
+        #expect(materializer.currentTopVisibleAnchor?.rowID == anchorFixture.rowID)
+        #expect(materializer.currentTopVisibleAnchor?.offset == -partialRowOffset)
+
+        try apply(
+            snapshot: initialSnapshot,
+            baseline: nativePlanBaseline(
+                snapshot: resolvedSnapshot,
+                revision: 3,
+                visibleGeneration: 3
+            ),
+            requestGeneration: 4,
+            to: materializer
+        )
+        #expect(materializer.currentTopVisibleAnchor?.rowID == anchorFixture.rowID)
+        #expect(materializer.currentTopVisibleAnchor?.offset == -partialRowOffset)
+    }
+
+    private func loadingStatus() -> GitBranchStatus {
+        GitBranchStatus(
+            isDirty: false,
+            syncState: .unknown,
+            prCount: nil,
+            pullRequestIsLoading: true,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+    }
+
+    private func resolvedStatus() -> GitBranchStatus {
+        GitBranchStatus(
+            isDirty: true,
+            syncState: .diverged(ahead: 7, behind: 3),
+            prCount: 2,
+            linesAdded: 184,
+            linesDeleted: 19,
+            untrackedFileCount: 1
+        )
+    }
+
     private func apply(
         snapshot: RepoExplorerMaterializationSnapshot,
         baseline: RepoExplorerMaterializationBaseline,
