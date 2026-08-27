@@ -157,10 +157,14 @@ MAY admit exactly one later receipt batch as a recovery probe. A correlated
 ready or degraded outcome for that probe proves that the worker handled both
 main-to-worker predecessors and that their outcomes reached main, but it does
 not by itself prove that worker-to-main render predecessor work stayed bounded.
-If the probe also times out, receipt dispatch MUST pause until worker
-replacement clears the debt. Urgent actions remain direct and are not held by
-the receipt latch. Existing lease expiry, retry, and worker-replacement owners
-remain authoritative.
+If the probe also times out, receipt admission MUST close for that worker
+lifetime and MUST invoke the existing pane-session worker-replacement lifecycle
+exactly once. It MUST NOT replay either unknown-delivery batch, accept a late
+outcome for either timed-out request as recovery, or add another recovery timer
+or protocol. Replacement clears the debt before fresh receipt dispatch
+resumes. Urgent actions remain direct and are not held by the receipt latch.
+Existing lease expiry, retry, and worker-replacement owners remain
+authoritative.
 
 Basis: U-CWA-003, U-CWA-004, U-CWA-007.
 

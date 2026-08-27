@@ -135,6 +135,15 @@ demand uses the existing currentness and source-revalidation owners to reuse
 valid delivered material or begin a fresh publication when it is actually
 missing, stale, rejected, or superseded.
 
+Production render-receipt lease and retry timestamps share one cross-realm
+clock domain. `BridgeMainRenderFulfillmentCoordinator` stamps
+`receivedAtMilliseconds` and terminal `retryAtMilliseconds`, and
+`BridgeWorkerRenderFulfillmentRegistry` computes publication, lease-expiry, and
+retry deadlines using `readBridgeCommWorkerAbsoluteNowMilliseconds`
+(`performance.timeOrigin + performance.now()`). Injected proof clocks supply
+values in that same absolute domain. Realm-local `performance.now()` remains
+valid only for durations that are never compared across the product port.
+
 `dispatchBridgeCommWorkerRuntimeProductControl` synchronously posts the
 correlated response. Only after that call succeeds does the runtime apply any
 lifecycle-eligible matching Review/File effects and request the corresponding
@@ -301,7 +310,7 @@ it does not own admission state or recovery.
 | in flight | typed ready or degraded lifecycle settles | Release the batch lifecycle and dispatch the next pending batch, if any. |
 | in flight | timeout | Retain one unknown-delivery debt latch; do not replay the mixed batch; permit at most one later batch as the existing recovery probe. |
 | unknown debt | probe returns ready or degraded | Clear the debt and resume ordered dispatch. |
-| unknown debt | probe also times out | Pause receipt dispatch and request existing worker replacement. |
+| unknown debt | probe also times out | Finish the probe lifecycle record, then invoke the existing runtime replacement callback exactly once. Runtime preparation closes and clears old-lifetime admission before session retirement. |
 | any | replacement, disposal, or document teardown | Clear old-lifetime pending and in-flight state before fresh bootstrap. |
 | pending ceiling reached | first overload | Close old-lifetime receipt admission, emit one scrubbed overload outcome, and request existing worker replacement once. |
 
@@ -438,7 +447,9 @@ position or operation held in that old lifetime is cleared by replacement.
 
 - A receipt-batch timeout remains unknown delivery, not permission to replay a
   mixed batch.
-- A second/probe timeout requests existing replacement exactly once.
+- A second/probe timeout finishes the in-flight lifecycle observation, then
+  requests existing replacement exactly once. The admission does not pre-mark
+  itself closing before the existing runtime preparation callback clears it.
 - Receipt pending overflow closes old-lifetime admission and requests existing
   replacement; it does not drop ordered facts or increase the ceiling.
 - Existing fulfillment lease expiry and retry policy remain authoritative.
@@ -618,6 +629,13 @@ semantics. Current evidence does not justify either expansion.
 - Receipt batching preserves order, duplicate suppression, the 64 maximum,
   one in-flight batch, timeout/probe behavior, capacity containment, and
   disposal/replacement clearing.
+- Main and worker clocks with different time origins still accept an in-lease
+  queued receipt, make a terminal retry ready at the normalized deadline, and
+  accept the replacement worker's first receipt without expiry amplification.
+- An ordinary timeout followed by one probe timeout invokes existing worker
+  replacement exactly once, closes and clears old-lifetime admission, ignores
+  later outcomes for the timed-out requests, and resumes only after replacement
+  bootstrap.
 - Review fills all three reserved plus nine dynamic positions, publishes them,
   and proves item thirteen waits until a correlated response containing first
   exact queued or terminal rejected/superseded posts.
