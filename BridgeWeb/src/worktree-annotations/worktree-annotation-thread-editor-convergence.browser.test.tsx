@@ -30,6 +30,131 @@ import {
 import { WorktreeAnnotationNewMessageComposer } from './worktree-annotation-thread.js';
 
 describe('worktree annotation editor convergence', () => {
+	test('keeps foreground annotation metadata stable during projection refresh', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+		const root = makeSavedMessage({ body: 'Root body.', messageId: rootMessageId });
+		const reply = makeSavedMessage({
+			body: 'Saved reply.',
+			messageId: secondRootMessageId,
+			ordinal: 1,
+		});
+
+		await publishThreadMessages(surface, [root, reply]);
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Reply to thread' }).last().click();
+			surface.publishRefreshing();
+			await Promise.resolve();
+		});
+
+		expect(document.body).not.toHaveTextContent('Refreshing');
+		await expect
+			.element(rendered.getByRole('textbox', { name: 'Reply with Markdown' }))
+			.toBeVisible();
+	});
+
+	test('keeps the composer as the only reply owner until saved projection converges', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+		const root = makeSavedMessage({ body: 'Root body.', messageId: rootMessageId });
+		await publishThreadMessages(surface, [root]);
+
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Reply to thread' }).click();
+			await rendered
+				.getByRole('textbox', { name: 'Reply with Markdown' })
+				.fill('Single-owner reply');
+		});
+		await settleBrowserCondition(
+			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'reply.create'),
+			'Expected the reply edit to create its durable draft.',
+		);
+		const createOperation = surface.sentOperations.find(
+			(operation) => operation.kind === 'reply.create',
+		);
+		if (createOperation?.kind !== 'reply.create') throw new Error('Expected reply.create.');
+
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommitted(annotationSessionId, 1);
+			surface.publishThreadMessages({
+				context: locatedContext,
+				messages: [
+					{ ...root, sessionRevision: 4 },
+					{
+						...annotationMessage({
+							messageId: secondRootMessageId,
+							ordinal: 1,
+							sessionRevision: 4,
+							threadId: annotationHeadThreadId,
+							threadRevision: 2,
+						}),
+						draft: {
+							activeEditToken: createOperation.editToken,
+							body: 'Single-owner reply',
+							revision: 0,
+						},
+						savedBody: null,
+						savedRevision: null,
+					},
+				],
+			});
+			await Promise.resolve();
+			await rendered.getByRole('button', { name: 'Save annotation' }).click();
+		});
+		await settleBrowserCondition(
+			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'draft.save'),
+			'Expected reply Save to issue draft.save.',
+		);
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'draft.save');
+			await Promise.resolve();
+		});
+
+		await expect
+			.element(rendered.getByTestId('worktree-annotation-committed-pending-projection'))
+			.toBeVisible();
+		expect(rendered.getByRole('button', { name: 'Reply to thread' }).all()).toHaveLength(1);
+
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				expectedThreadCount: 1,
+				revision: 5,
+				sessions: [annotationSessionSummary({ revision: 5, sessionId: annotationSessionId })],
+			});
+			surface.publishThreadMessages({
+				context: locatedContext,
+				messages: [
+					{ ...root, sessionRevision: 5 },
+					{
+						...annotationMessage({
+							messageId: secondRootMessageId,
+							ordinal: 1,
+							sessionRevision: 5,
+							threadId: annotationHeadThreadId,
+							threadRevision: 2,
+						}),
+						draft: null,
+						savedBody: 'Single-owner reply',
+						savedRevision: 1,
+					},
+				],
+			});
+			await Promise.resolve();
+		});
+		await settleBrowserCondition(
+			(): boolean =>
+				document.querySelector(
+					'[data-testid="worktree-annotation-committed-pending-projection"]',
+				) === null,
+			'Expected the saved annotation message to replace its committed preview.',
+		);
+
+		expect(
+			document.querySelector('[data-testid="worktree-annotation-committed-pending-projection"]'),
+		).toBeNull();
+		expect(rendered.getByRole('button', { name: 'Reply to thread' }).all()).toHaveLength(2);
+	});
+
 	test('reverts a durable reply draft instead of only hiding its composer', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderRemountingAnnotationProjection(surface);

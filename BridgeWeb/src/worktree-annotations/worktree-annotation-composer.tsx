@@ -119,9 +119,7 @@ export function WorktreeAnnotationNewMessageComposer(
 			: messageCommandCursorFromProjection(initialDurableMessage),
 	);
 	useWorktreeAnnotationEditSurfaceToken(
-		committedCursor === null && props.editSurfaceRegistrationOwner !== 'parent'
-			? editTokenRef.current
-			: null,
+		props.editSurfaceRegistrationOwner !== 'parent' ? editTokenRef.current : null,
 	);
 	useWorktreeAnnotationSessionDemand(demandedSessionId);
 	const releaseWhenEditInactive = useWorktreeAnnotationDeferredEditRelease();
@@ -272,7 +270,7 @@ export function WorktreeAnnotationNewMessageComposer(
 	}, [isDurable, projectedDurableMessage, scheduler]);
 	const projectedCommittedMessage =
 		committedCursor === null ? null : currentMessageById(projection, committedCursor.messageId);
-	useEffect((): void => {
+	useLayoutEffect((): void => {
 		if (
 			committedCursor === null ||
 			projectedCommittedMessage === null ||
@@ -436,7 +434,6 @@ export function WorktreeAnnotationNewMessageComposer(
 							) : (
 								<span>New comment</span>
 							)}
-							{projection.readStatus.kind === 'refreshing' ? <span>Refreshing</span> : null}
 							{projection.readStatus.kind === 'unavailable' ? (
 								<span>Updates unavailable</span>
 							) : null}

@@ -230,6 +230,18 @@ export class RecordingAnnotationBrowserSurface {
 		this.#publishAnnotationEvent(event, subscriptionId);
 	}
 
+	publishRefreshing(): void {
+		this.#publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: null,
+			state: { kind: 'refreshing' },
+			surface: this.client.surface,
+			transferDescriptors: [],
+			wireVersion: 1,
+		});
+	}
+
 	publishHealth(requestId: string, status: 'degraded' | 'ready'): void {
 		this.#publish({
 			direction: 'serverWorkerToMain',

@@ -275,6 +275,35 @@ Date: 2026-08-25
       and zero after clicking outside it.
     - Status: fixed; owner acceptance remains.
 
+17. **Typing and saving a new Reply flickers annotation presentation**
+    - Actual: ordinary draft persistence flashes `Refreshing` inside the thread
+      summary and composer. After Save commits, the projected Draft reply can
+      become visible while the composer still owns the same reply through its
+      committed preview, producing a transient duplicate ownership handoff.
+    - Expected: projection convergence keeps the last usable annotation paint
+      stable. The composer remains the only owner until the authoritative saved
+      message replaces it; per-annotation metadata does not expose background
+      projection refresh state.
+    - Evidence: owner recording
+      `/Users/shravansunder/Downloads/[capture]/2026-08-27.0800.Brave Browser.Bridge.mp4`,
+      duration 6.692 s, 363 frames. `Refreshing` flashes during ordinary typing
+      near 1.1 s and 3.1 s; the Save handoff begins near 3.8 s.
+    - Root cause: `readStatus=refreshing` was projected into foreground inline
+      metadata, while `WorktreeAnnotationNewMessageComposer` unregistered its
+      new-message edit token at committed receipt. That made the projected
+      Draft eligible for `WorktreeAnnotationThread` before the saved projection
+      replaced the committed preview.
+    - Fix: inline annotation surfaces retain their stable content during
+      projection refresh; the composer keeps its edit-token presentation claim
+      through the committed-preview interval; authoritative saved projection
+      completes the parent handoff in a layout effect before paint.
+    - Proof: failing-first browser assertions observed foreground `Refreshing`
+      and two Reply owners. The focused convergence file passes 7/7; the six-file
+      annotation browser set passes 35/35; full BridgeWeb TypeScript and
+      type-aware lint exit 0. Fixed browser witness:
+      `tmp/debug-workflows/2026-08-27-agent-studio-review-comments-new-annotation-flicker/fixed-single-owner-saved-reply.png`.
+    - Status: implemented and browser-verified; live owner acceptance remains.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component

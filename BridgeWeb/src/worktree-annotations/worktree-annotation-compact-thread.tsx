@@ -401,7 +401,6 @@ function WorktreeAnnotationTimelineSummary(
 					{!props.hasDraft ? null : <span className="font-medium text-warning">Draft</span>}
 					{props.hasLockedMessage ? <span>Contains locked output</span> : null}
 					{props.readStatus === 'unknown' ? <span>Membership unknown</span> : null}
-					{props.readStatus === 'refreshing' ? <span>Refreshing</span> : null}
 					{props.readStatus === 'unavailable' ? <span>Updates unavailable</span> : null}
 					{props.placement === 'relocated' ? <span>Relocated</span> : null}
 					{props.placement === 'outdated' ? <span>Outdated</span> : null}
