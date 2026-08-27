@@ -391,21 +391,27 @@ The transport and generic assembler never construct these maps.
 
 ### Committed-change classification
 
-Repository mutations return a compact committed-change description beside the
-existing canonical result:
+Repository mutations return the existing canonical result beside one compact
+committed-change description. The primary description uses
+`catalog > control > content > none` precedence and retains newest affected
+session revisions when a control or catalog transaction also changes rich
+content:
 
 ```text
+none
+  no durable semantic change
+
 contentChanged
-  worktree ID
-  session ID
-  committed session semantic revision
+  newest committed revision per affected session
 
 controlChanged
   affected worktree IDs
   reason: discovery | recovery
+  newest committed revision per affected session, when applicable
 
 catalogChanged
   affected worktree IDs
+  newest committed revision per affected session, when applicable
 ```
 
 The repository transaction is the only place that knows whether it inserted,
@@ -420,6 +426,16 @@ session/thread/message, changing catalog parent/scope, session reassociation,
 recovery replacement, and bootstrap/reset require `catalogChanged`. A topology
 transaction may also advance rich session content; catalog commit reconciles
 that revision and causes current demanded content to refresh.
+
+Every successful transaction that changes session-scoped rich content advances
+that session's semantic revision exactly once. Rich content includes output
+attempt, history, and event state as well as bodies, drafts, message state,
+placement inputs, and handled/viewed state. An idempotent replay or zero-row
+mutation advances the revision zero times and returns `none`. Output message
+helpers report whether they changed rows; the owning outer output transaction
+performs the single session revision advancement when either output history or
+member-message state changed. This prevents both an equal-revision change from
+being suppressed and one transaction from incrementing twice.
 
 The existing service projection revision remains the monotonic application
 source generation and capture fence. Every annotation event carries a common
@@ -762,6 +778,8 @@ replacement for both associations.
 | reset/reconnect during candidate | generic reset retires worker and main candidates, clears their numeric revision baselines, and marks retained active catalog stale | register observer, capture current catalog, and accept the first replacement only for the lifecycle-admitted new authority regardless of the stale catalog's revision |
 | newer topology change during candidate | newer begin supersedes candidate; older frames are noncurrent | producer sends newest complete catalog; worker rejects obsolete frames without damaging it |
 | content change during catalog capture | service revision fence and registered observer expose newest change | catalog contains it or later session-change/catalog replacement converges it |
+| output history changes without a member-message change | owning output transaction treats attempt/history/event state as rich content and advances the session revision once | session-change publication refreshes demanded output history; no second query or revision owner |
+| idempotent or zero-row annotation mutation | repository returns `none` and does not advance session or application generation | command returns its existing canonical result; no publication is scheduled |
 | rich response finishes after catalog removed session | catalog/content authority check rejects retired session result | no install; current demand reconciles from active catalog |
 | catalog commit while editor open | store retains ready/stale content and exact command overlay for retained session | content refresh replaces only after complete current response |
 | reset while bounded worker-to-main staging is incomplete | main candidate authority no longer matches | discard hidden candidate; retain active catalog visibly stale until replacement commit |
@@ -777,6 +795,10 @@ Ordering and atomicity rules:
 - catalog window ordinal is an application-transfer invariant inside that FIFO;
 - SQLite transaction commit precedes the corresponding session-change or
   catalog-required publication;
+- one transaction advances each affected session semantic revision at most
+  once; its committed classification carries the post-commit revision;
+- `none` advances neither session semantic revision nor application source
+  generation and emits no annotation change;
 - service projection revision fences a coherent catalog capture;
 - session semantic revision fences rich content, not catalog membership;
 - only catalog commit swaps active relationships;

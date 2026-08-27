@@ -401,6 +401,8 @@ RED first:
 - service currently publishes only `snapshot.required`;
 - repository/service mutation results do not classify content, control, and
   catalog effects;
+- output attempt/history/event transactions can change demanded rich content
+  without advancing the session revision that fences `sessionChanged`;
 - current annotation event authority cannot express reviewed worktree plus
   service-owned application generation across every event;
 - reassociation does not publish catalog replacement for both associations.
@@ -411,14 +413,22 @@ Implementation behavior:
    semantic revision in one SQLite read transaction; do not decode rich columns.
 2. Keep application source generation in `WorktreeAnnotationServiceActor`:
    capture/recheck around repository read and wrap immutable rows.
-3. Return compact committed-change classification from mutation transactions:
-   content, control, or catalog plus affected IDs/worktrees/revisions.
-4. Aggregate one catalog-required flag, one control-changed flag/reason, and
+3. Return the unchanged canonical result plus one compact committed-change
+   classification from each mutation transaction. Primary precedence is
+   catalog, control, content, then none; catalog/control effects retain newest
+   affected session revisions instead of discarding simultaneous rich-content
+   changes.
+4. Advance each affected session semantic revision exactly once whenever one
+   transaction changes session-scoped rich content, including output
+   attempt/history/event state. Idempotent or zero-row mutations advance zero
+   times and classify as none. Output message helpers report row changes while
+   their outer transaction owns the one revision advancement.
+5. Aggregate one catalog-required flag, one control-changed flag/reason, and
    newest session revision per changed session.
-5. Register observer before bootstrap capture and publish authority-bound
+6. Register observer before bootstrap capture and publish authority-bound
    catalog transfers, `annotation.sessionChanged`, or
    `annotation.controlChanged` through S1/S2.
-6. Reassociation emits catalog replacement for previous and current worktrees
+7. Reassociation emits catalog replacement for previous and current worktrees
    while preserving descendant IDs.
 
 Focused proof:
@@ -426,6 +436,9 @@ Focused proof:
 - repository ordering, uniqueness, body/origin/draft/history exclusion, empty
   catalog, and existing identity preservation;
 - mutation classification matrix;
+- output transition matrix proving prepare/repeat/first terminal/failure/unknown
+  advance the session revision exactly once, while idempotent replay and
+  zero-row mutations advance zero times and emit no change;
 - observer-before-capture race, coalescing, multi-observer delivery, cleanup;
 - envelope/event generation mismatch and worktree mismatch rejection;
 - old/new reassociation, restart, and recovery replacement.
@@ -447,7 +460,9 @@ Stop/replan:
 
 - current association owner changes transaction result/identity semantics;
 - topology cannot be classified at the committing repository boundary;
-- a new database field or migration appears necessary.
+- a new database field or migration appears necessary;
+- output history cannot use the existing session semantic revision as its
+  rich-content freshness fence.
 
 ## S4 — Annotation worker, control read, catalog/content store, and UI continuity
 
