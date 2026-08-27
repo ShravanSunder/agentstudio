@@ -308,8 +308,8 @@ struct DarwinSharedExactItemObserverTests {
         )
     }
 
-    @Test("shared-dependent preparation cannot mint local-only continuity authority")
-    func sharedDependentPreparationFailsAuthorityClosed() async throws {
+    @Test("stable shared-dependent preparation mints and renews composite authority")
+    func stableSharedDependentPreparationMintsAndRenewsAuthority() async throws {
         let fixtureRoot = FileManager.default.temporaryDirectory.appending(
             path: "darwin-fsevent-shared-authority-\(UUIDv7.generate().uuidString)",
             directoryHint: .isDirectory
@@ -337,14 +337,19 @@ struct DarwinSharedExactItemObserverTests {
             support: .supported
         )
 
-        let barrier = await client.prepare(
-            worktreeId: worktreeId,
-            rootPath: worktreeRoot,
-            observationPlan: observationPlan
+        let barrier = try #require(
+            await client.prepare(
+                worktreeId: worktreeId,
+                rootPath: worktreeRoot,
+                observationPlan: observationPlan
+            )
         )
+        let authority = try #require(await client.commit(barrier).authority)
+        let renewal = await client.renew(authority)
 
-        #expect(barrier == nil)
+        #expect(renewal == .authoritative(authority))
         #expect(streamFactory.startCount == 1)
+        #expect(streamFactory.flushCount == 3)
         client.unregister(worktreeId: worktreeId)
         #expect(streamFactory.retirementCount == 1)
     }
@@ -538,6 +543,7 @@ private final class RecordingSharedExactItemStreamFactory: @unchecked Sendable {
     private let lock = NSLock()
     private let startsSuccessfully: Bool
     private var startedStreamCount = 0
+    private var flushedStreamCount = 0
     private var retiredStreamCount = 0
 
     init(startsSuccessfully: Bool = true) {
@@ -552,6 +558,10 @@ private final class RecordingSharedExactItemStreamFactory: @unchecked Sendable {
         lock.withLock { retiredStreamCount }
     }
 
+    var flushCount: Int {
+        lock.withLock { flushedStreamCount }
+    }
+
     func makeStream(
         parentKey _: DarwinSharedExactItemParentKey,
         streamGeneration _: UInt64,
@@ -561,11 +571,19 @@ private final class RecordingSharedExactItemStreamFactory: @unchecked Sendable {
             startedStreamCount += 1
         }
         guard startsSuccessfully else { return nil }
-        return RecordingSharedExactItemStreamLifetime { [weak self] in
-            self?.lock.withLock {
-                self?.retiredStreamCount += 1
+        return RecordingSharedExactItemStreamLifetime(
+            onFlush: { [weak self] in
+                self?.lock.withLock {
+                    self?.flushedStreamCount += 1
+                }
+                return true
+            },
+            onRetire: { [weak self] in
+                self?.lock.withLock {
+                    self?.retiredStreamCount += 1
+                }
             }
-        }
+        )
     }
 }
 
@@ -573,11 +591,20 @@ private final class RecordingSharedExactItemStreamLifetime:
     DarwinSharedExactItemStreamLifetime, @unchecked Sendable
 {
     private let lock = NSLock()
+    private let onFlush: @Sendable () -> Bool
     private let onRetire: @Sendable () -> Void
     private var hasRetired = false
 
-    init(onRetire: @escaping @Sendable () -> Void) {
+    init(
+        onFlush: @escaping @Sendable () -> Bool = { true },
+        onRetire: @escaping @Sendable () -> Void
+    ) {
+        self.onFlush = onFlush
         self.onRetire = onRetire
+    }
+
+    func flush() -> Bool {
+        onFlush()
     }
 
     func retire() {
@@ -640,10 +667,19 @@ private final class ControllableSharedExactItemStreamFactory: @unchecked Sendabl
             condition.wait()
         }
         condition.unlock()
-        return RecordingSharedExactItemStreamLifetime { [weak self] in
-            self?.condition.withLock {
-                self?.retiredStreamCount += 1
+        return RecordingSharedExactItemStreamLifetime(
+            onRetire: { [weak self] in
+                self?.condition.withLock {
+                    self?.retiredStreamCount += 1
+                }
             }
-        }
+        )
+    }
+}
+
+extension GitCleanContinuityAuthorityValidation {
+    fileprivate var authority: GitCleanContinuityAuthority? {
+        guard case .authoritative(let authority) = self else { return nil }
+        return authority
     }
 }

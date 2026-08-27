@@ -1,7 +1,6 @@
 import AgentStudioGit
 import AgentStudioInfrastructure
 import CoreServices
-import Darwin
 import Foundation
 
 package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
@@ -113,80 +112,7 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
     }
 }
 
-package struct DarwinFSEventClassifiedRawEvent: Sendable {
-    package let eventId: FSEventStreamEventId
-    package let flags: FSEventStreamEventFlags
-    package let hasRelevantMutation: Bool
-}
-
-package struct DarwinFSEventClassification: Sendable {
-    package let rawEvents: [DarwinFSEventClassifiedRawEvent]
-    package let ordinaryPaths: [String]
-}
-
-package enum DarwinFSEventPathClassifier {
-    package static func classify(
-        rawEvents: [(path: String, eventId: FSEventStreamEventId, flags: FSEventStreamEventFlags)],
-        ordinaryPaths: [String],
-        rootPath: String,
-        observationScopes: [AgentStudioGit.GitStatusObservationScope],
-        normalize: (String) -> String = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath
-    ) -> DarwinFSEventClassification {
-        var normalizedPathByRawPath: [String: String] = [:]
-        normalizedPathByRawPath.reserveCapacity(rawEvents.count)
-
-        func normalizedPath(for rawPath: String) -> String {
-            if let existing = normalizedPathByRawPath[rawPath] {
-                return existing
-            }
-            let normalizedPath = normalize(rawPath)
-            normalizedPathByRawPath[rawPath] = normalizedPath
-            return normalizedPath
-        }
-
-        let canonicalScopes = observationScopes.map { scope in
-            let path = scope.path.path
-            return (
-                kind: scope.kind,
-                path: path,
-                subtreePrefix: scope.kind == .subtree ? path + "/" : nil
-            )
-        }
-        let rootPrefix = rootPath + "/"
-        let classifiedRawEvents = rawEvents.map { event in
-            let candidate = normalizedPath(for: event.path)
-            let hasRelevantMutation = canonicalScopes.contains { scope in
-                switch scope.kind {
-                case .item:
-                    return candidate == scope.path
-                case .subtree:
-                    return candidate == scope.path
-                        || scope.subtreePrefix.map { candidate.hasPrefix($0) } == true
-                }
-            }
-            return DarwinFSEventClassifiedRawEvent(
-                eventId: event.eventId,
-                flags: event.flags,
-                hasRelevantMutation: hasRelevantMutation
-            )
-        }
-        let ordinaryWorktreePaths = ordinaryPaths.filter { path in
-            let candidate = normalizedPath(for: path)
-            return candidate == rootPath || candidate.hasPrefix(rootPrefix)
-        }
-        return DarwinFSEventClassification(
-            rawEvents: classifiedRawEvents,
-            ordinaryPaths: ordinaryWorktreePaths
-        )
-    }
-
-}
-
 /// Production filesystem event client wiring point.
-///
-/// This implementation keeps lifecycle and registration semantics concrete and
-/// deterministic at runtime while event ingestion remains routed through actor
-/// seams (`enqueueRawPaths`) during this migration phase.
 package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanContinuityWitness,
     @unchecked Sendable
 {
@@ -211,6 +137,11 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         let stream: FSEventStreamRef
         let queue: DispatchQueue
         let callbackContextPtr: UnsafeMutableRawPointer
+    }
+
+    private struct CompositeStreamRetention {
+        let registration: StreamRegistration
+        let sharedBindingLease: DarwinSharedExactItemBindingLease?
     }
 
     private static let callback: FSEventStreamCallback = { _, info, count, paths, flags, ids in
@@ -301,7 +232,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
     }
 
     package func register(worktreeId: UUID, repoId _: UUID, rootPath: URL) {
-        let canonicalRootPath = Self.kernelCanonicalURL(rootPath)
+        let canonicalRootPath = DarwinFSEventPathCanonicalizer.canonicalURL(rootPath)
 
         var registrationToTearDown: StreamRegistration?
         lifecycleLock.lock()
@@ -399,8 +330,11 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         observationPlan: AgentStudioGit.GitStatusObservationPlan
     ) async -> GitCleanContinuityBarrier? {
         guard observationPlan.support == .supported else { return nil }
-        let canonicalRootPath = Self.kernelCanonicalURL(rootPath)
-        guard let binding = bindingPlan(for: observationPlan) else { return nil }
+        let canonicalRootPath = DarwinFSEventPathCanonicalizer.canonicalURL(rootPath)
+        guard
+            let binding = DarwinFSEventBindingPlanner.plan(observationPlan: observationPlan)
+        else { return nil }
+        let observationIdentity = observationPlan.identity
 
         let currentRegistration = retainedRegistration(worktreeId: worktreeId)
         guard let currentRegistration, currentRegistration.rootPath == canonicalRootPath else { return nil }
@@ -408,23 +342,22 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
 
         continuityLedger.unregister(registrationId: worktreeId)
         let registration: StreamRegistration
-        if currentRegistration.observationIdentity == observationPlan.identity,
+        if currentRegistration.observationIdentity == observationIdentity,
             currentRegistration.watchedPaths == binding.localWatchedPaths,
-            Self.scopesMatch(currentRegistration.observationScopes, binding.localScopes)
-        {
-            continuityLedger.register(
-                registrationId: worktreeId,
-                identity: observationPlan.identity
+            DarwinFSEventBindingPlanner.scopesMatch(
+                currentRegistration.observationScopes,
+                binding.localScopes
             )
+        {
+            continuityLedger.register(registrationId: worktreeId, identity: observationIdentity)
             registration = currentRegistration
         } else {
-            continuityLedger.unregister(registrationId: worktreeId)
             guard
                 let replacement = makeRegistration(
                     worktreeId: worktreeId,
                     lifecycleGeneration: allocateLifecycleGeneration(),
                     rootPath: canonicalRootPath,
-                    observationIdentity: observationPlan.identity,
+                    observationIdentity: observationIdentity,
                     observationScopes: binding.localScopes,
                     watchedPaths: binding.localWatchedPaths
                 )
@@ -452,81 +385,104 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         }
 
         guard
-            sharedExactItemObserverRegistry.bind(
+            installSharedBinding(
                 worktreeId: worktreeId,
-                bindingGeneration: registration.lifecycleGeneration,
-                exactItemsByParent: binding.sharedExactItemsByParent,
-                bindingIsCurrent: { [weak self] in
-                    self?.registrationIsCurrent(
-                        worktreeId: worktreeId,
-                        lifecycleGeneration: registration.lifecycleGeneration
-                    ) == true
-                }
+                registration: registration,
+                exactItemsByParent: binding.sharedExactItemsByParent
             )
         else {
-            continuityLedger.unregister(registrationId: worktreeId)
             return nil
         }
         guard
-            registrationIsCurrent(
+            let preFlushBarrier = continuityLedger.beginBarrier(
+                registrationId: worktreeId,
+                identity: observationIdentity
+            ),
+            let streamRetention = retainCompositeStreams(
                 worktreeId: worktreeId,
-                lifecycleGeneration: registration.lifecycleGeneration
+                observationIdentity: observationIdentity,
+                requiresSharedBinding: !binding.sharedExactItemsByParent.isEmpty
             )
         else {
-            sharedExactItemObserverRegistry.unbind(
-                worktreeId: worktreeId,
-                bindingGeneration: registration.lifecycleGeneration
-            )
-            continuityLedger.unregister(registrationId: worktreeId)
             return nil
         }
-        guard binding.sharedExactItemsByParent.isEmpty else {
-            // S3 will compose local and shared stream barriers. Until then a
-            // shared-dependent plan must never mint local-only authority.
-            return nil
-        }
+        defer { FSEventStreamRelease(streamRetention.registration.stream) }
 
-        // A flush may synchronously wait for the callback queue. Never hold the
-        // lifecycle lock while flushing because callbacks acquire that lock.
-        FSEventStreamFlushSync(registration.stream)
-        return continuityLedger.beginBarrier(
-            registrationId: worktreeId,
-            identity: observationPlan.identity
-        )
+        guard flush(streamRetention) else { return nil }
+        guard
+            let postFlushBarrier = continuityLedger.beginBarrier(
+                registrationId: worktreeId,
+                identity: observationIdentity
+            ),
+            postFlushBarrier == preFlushBarrier,
+            compositeStreamsAreCurrent(
+                worktreeId: worktreeId,
+                streamRetention: streamRetention
+            )
+        else {
+            return nil
+        }
+        return postFlushBarrier
     }
 
     @concurrent
     nonisolated package func commit(
         _ barrier: GitCleanContinuityBarrier
     ) async -> GitCleanContinuityAuthorityValidation {
-        guard !sharedExactItemObserverRegistry.hasBinding(worktreeId: barrier.registrationId) else {
-            return .requiresExact(.unsupportedObservation)
-        }
-        guard let registration = retainedRegistration(for: barrier) else {
+        guard
+            let streamRetention = retainCompositeStreams(
+                worktreeId: barrier.registrationId,
+                observationIdentity: barrier.observationIdentity,
+                requiresSharedBinding: nil
+            )
+        else {
             return .requiresExact(.registrationMissing)
         }
-        defer { FSEventStreamRelease(registration.stream) }
-        FSEventStreamFlushSync(registration.stream)
-        return continuityLedger.commitBarrier(barrier)
+        defer { FSEventStreamRelease(streamRetention.registration.stream) }
+        guard flush(streamRetention) else { return .requiresExact(.streamStartFailed) }
+        let validation = continuityLedger.commitBarrier(barrier)
+        guard case .authoritative = validation else { return validation }
+        guard
+            compositeStreamsAreCurrent(
+                worktreeId: barrier.registrationId,
+                streamRetention: streamRetention
+            )
+        else {
+            return .requiresExact(.registrationReplaced)
+        }
+        return validation
     }
 
     @concurrent
     nonisolated package func renew(
         _ authority: GitCleanContinuityAuthority
     ) async -> GitCleanContinuityAuthorityValidation {
-        guard !sharedExactItemObserverRegistry.hasBinding(worktreeId: authority.registrationId) else {
-            return .requiresExact(.unsupportedObservation)
-        }
-        guard let registration = retainedRegistration(for: authority) else {
+        guard
+            let streamRetention = retainCompositeStreams(
+                worktreeId: authority.registrationId,
+                observationIdentity: authority.observationIdentity,
+                requiresSharedBinding: nil
+            )
+        else {
             return .requiresExact(.registrationMissing)
         }
-        defer { FSEventStreamRelease(registration.stream) }
-        FSEventStreamFlushSync(registration.stream)
-        return continuityLedger.renew(authority)
+        defer { FSEventStreamRelease(streamRetention.registration.stream) }
+        guard flush(streamRetention) else { return .requiresExact(.streamStartFailed) }
+        let validation = continuityLedger.renew(authority)
+        guard case .authoritative = validation else { return validation }
+        guard
+            compositeStreamsAreCurrent(
+                worktreeId: authority.registrationId,
+                streamRetention: streamRetention
+            )
+        else {
+            return .requiresExact(.registrationReplaced)
+        }
+        return validation
     }
 
     package func retire(worktreeId: UUID, rootPath: URL) {
-        let canonicalRootPath = Self.kernelCanonicalURL(rootPath)
+        let canonicalRootPath = DarwinFSEventPathCanonicalizer.canonicalURL(rootPath)
         let matches = lifecycleLock.withLock {
             streamByWorktreeId[worktreeId]?.rootPath == canonicalRootPath
         }
@@ -700,6 +656,113 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         }
     }
 
+    private func retainCompositeStreams(
+        worktreeId: UUID,
+        observationIdentity: AgentStudioGit.GitStatusObservationIdentity,
+        requiresSharedBinding: Bool?
+    ) -> CompositeStreamRetention? {
+        guard let registration = retainedRegistration(worktreeId: worktreeId) else { return nil }
+        guard registration.observationIdentity == observationIdentity else {
+            FSEventStreamRelease(registration.stream)
+            return nil
+        }
+
+        switch sharedExactItemObserverRegistry.retainBinding(
+            worktreeId: worktreeId,
+            bindingGeneration: registration.lifecycleGeneration
+        ) {
+        case .localOnly:
+            guard requiresSharedBinding != true else {
+                FSEventStreamRelease(registration.stream)
+                return nil
+            }
+            return CompositeStreamRetention(
+                registration: registration,
+                sharedBindingLease: nil
+            )
+        case .shared(let sharedBindingLease):
+            guard requiresSharedBinding != false else {
+                FSEventStreamRelease(registration.stream)
+                return nil
+            }
+            return CompositeStreamRetention(
+                registration: registration,
+                sharedBindingLease: sharedBindingLease
+            )
+        case .invalid:
+            FSEventStreamRelease(registration.stream)
+            return nil
+        }
+    }
+
+    private func installSharedBinding(
+        worktreeId: UUID,
+        registration: StreamRegistration,
+        exactItemsByParent: [DarwinSharedExactItemParentKey: Set<String>]
+    ) -> Bool {
+        let lifecycleGeneration = registration.lifecycleGeneration
+        guard
+            sharedExactItemObserverRegistry.bind(
+                worktreeId: worktreeId,
+                bindingGeneration: lifecycleGeneration,
+                exactItemsByParent: exactItemsByParent,
+                bindingIsCurrent: { [weak self] in
+                    self?.registrationIsCurrent(
+                        worktreeId: worktreeId,
+                        lifecycleGeneration: lifecycleGeneration
+                    ) == true
+                }
+            )
+        else {
+            continuityLedger.unregister(registrationId: worktreeId)
+            return false
+        }
+        guard
+            registrationIsCurrent(
+                worktreeId: worktreeId,
+                lifecycleGeneration: lifecycleGeneration
+            )
+        else {
+            sharedExactItemObserverRegistry.unbind(
+                worktreeId: worktreeId,
+                bindingGeneration: lifecycleGeneration
+            )
+            continuityLedger.unregister(registrationId: worktreeId)
+            return false
+        }
+        return true
+    }
+
+    private func flush(_ streamRetention: CompositeStreamRetention) -> Bool {
+        // Flushes may synchronously wait for callback queues. The registration
+        // and shared leases were retained under their owners' locks, but no
+        // lifecycle or registry lock remains held while either flush executes.
+        FSEventStreamFlushSync(streamRetention.registration.stream)
+        return streamRetention.sharedBindingLease?.flush() ?? true
+    }
+
+    private func compositeStreamsAreCurrent(
+        worktreeId: UUID,
+        streamRetention: CompositeStreamRetention
+    ) -> Bool {
+        guard
+            registrationMatches(
+                worktreeId: worktreeId,
+                lifecycleGeneration: streamRetention.registration.lifecycleGeneration,
+                observationIdentity: streamRetention.registration.observationIdentity
+            )
+        else {
+            return false
+        }
+        if let sharedBindingLease = streamRetention.sharedBindingLease {
+            return sharedExactItemObserverRegistry.bindingIsCurrent(
+                worktreeId: worktreeId,
+                lease: sharedBindingLease
+            )
+        }
+        return sharedExactItemObserverRegistry.hasNoSharedBinding(worktreeId: worktreeId)
+    }
+
     private func registrationIsCurrent(
         worktreeId: UUID,
         lifecycleGeneration: UInt64
@@ -707,6 +770,20 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         lifecycleLock.withLock {
             !hasShutdown
                 && streamByWorktreeId[worktreeId]?.lifecycleGeneration == lifecycleGeneration
+        }
+    }
+
+    private func registrationMatches(
+        worktreeId: UUID,
+        lifecycleGeneration: UInt64,
+        observationIdentity: AgentStudioGit.GitStatusObservationIdentity?
+    ) -> Bool {
+        lifecycleLock.withLock {
+            guard !hasShutdown, let registration = streamByWorktreeId[worktreeId] else {
+                return false
+            }
+            return registration.lifecycleGeneration == lifecycleGeneration
+                && registration.observationIdentity == observationIdentity
         }
     }
 
@@ -750,102 +827,10 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         Self.scheduleTeardown(retiredRegistration)
     }
 
-    private func retainedRegistration(for barrier: GitCleanContinuityBarrier) -> StreamRegistration? {
-        lifecycleLock.withLock {
-            guard !hasShutdown,
-                let registration = streamByWorktreeId[barrier.registrationId],
-                registration.observationIdentity == barrier.observationIdentity
-            else {
-                return nil
-            }
-            FSEventStreamRetain(registration.stream)
-            return registration
-        }
-    }
-
-    private func retainedRegistration(for authority: GitCleanContinuityAuthority) -> StreamRegistration? {
-        lifecycleLock.withLock {
-            guard !hasShutdown,
-                let registration = streamByWorktreeId[authority.registrationId],
-                registration.observationIdentity == authority.observationIdentity
-            else {
-                return nil
-            }
-            FSEventStreamRetain(registration.stream)
-            return registration
-        }
-    }
-
-    private func bindingPlan(
-        for plan: AgentStudioGit.GitStatusObservationPlan
-    ) -> DarwinFSEventBindingPlan? {
-        guard !plan.scopes.isEmpty else { return nil }
-        let scopes = plan.scopes.map { scope in
-            AgentStudioGit.GitStatusObservationScope(
-                kind: scope.kind,
-                path: Self.kernelCanonicalURL(scope.path)
-            )
-        }
-        guard let binding = DarwinFSEventBindingPlanner.plan(scopes: scopes) else { return nil }
-        guard pathsShareVolume(binding.localWatchedPaths) else { return nil }
-        return binding
-    }
-
-    private func pathsShareVolume(_ paths: [String]) -> Bool {
-        let volumeNumbers = paths.compactMap { path -> NSNumber? in
-            var candidate = URL(fileURLWithPath: path)
-            while candidate.path != "/", !FileManager.default.fileExists(atPath: candidate.path) {
-                candidate.deleteLastPathComponent()
-            }
-            let attributes = try? FileManager.default.attributesOfFileSystem(forPath: candidate.path)
-            return attributes?[.systemNumber] as? NSNumber
-        }
-        return volumeNumbers.count == paths.count && Set(volumeNumbers).count == 1
-    }
-
     private func allocateLifecycleGeneration() -> UInt64 {
         lifecycleLock.withLock {
             nextLifecycleGeneration &+= 1
             return nextLifecycleGeneration
-        }
-    }
-
-    private static func scopesMatch(
-        _ lhs: [AgentStudioGit.GitStatusObservationScope],
-        _ rhs: [AgentStudioGit.GitStatusObservationScope]
-    ) -> Bool {
-        lhs.count == rhs.count
-            && zip(lhs, rhs).allSatisfy { lhsScope, rhsScope in
-                lhsScope.kind == rhsScope.kind && lhsScope.path == rhsScope.path
-            }
-    }
-
-    private static func kernelCanonicalURL(_ url: URL) -> URL {
-        let standardizedURL = url.standardizedFileURL
-        var existingAncestor = standardizedURL
-        var unresolvedComponents: [String] = []
-
-        while true {
-            if let resolvedPath = realPath(existingAncestor.path) {
-                return unresolvedComponents.reversed().reduce(
-                    URL(fileURLWithPath: resolvedPath)
-                ) { resolvedURL, component in
-                    resolvedURL.appending(path: component)
-                }
-            }
-            guard existingAncestor.path != "/" else {
-                return standardizedURL.resolvingSymlinksInPath()
-            }
-            unresolvedComponents.append(existingAncestor.lastPathComponent)
-            existingAncestor.deleteLastPathComponent()
-        }
-    }
-
-    private static func realPath(_ path: String) -> String? {
-        path.withCString { pathPointer in
-            guard let resolvedPointer = Darwin.realpath(pathPointer, nil) else { return nil }
-            defer { free(resolvedPointer) }
-            return String(cString: resolvedPointer)
         }
     }
 

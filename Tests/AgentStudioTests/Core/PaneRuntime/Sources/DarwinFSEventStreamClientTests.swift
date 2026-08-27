@@ -547,8 +547,12 @@ struct DarwinFSEventStreamClientTests {
                 observationPlan: observationPlan
             )
         )
-        var eventIterator = client.events().makeAsyncIterator()
-        let eventTask = Task { await eventIterator.next() }
+        let eventTask = Task<FSEventBatch?, Never> {
+            for await batch in client.events() where batch.requiresFullGitRefresh {
+                return batch
+            }
+            return nil
+        }
         let canonicalFixturePath = try #require(
             fixtureRoot.withUnsafeFileSystemRepresentation { pathPointer -> String? in
                 guard let pathPointer, let resolvedPointer = Darwin.realpath(pathPointer, nil) else {

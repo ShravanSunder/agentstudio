@@ -1,3 +1,4 @@
+import AgentStudioGit
 import CoreServices
 import Foundation
 
@@ -16,7 +17,76 @@ package struct DarwinSharedExactItemRawEvent: Sendable {
     package let flags: FSEventStreamEventFlags
 }
 
+package struct DarwinFSEventClassifiedRawEvent: Sendable {
+    package let eventId: FSEventStreamEventId
+    package let flags: FSEventStreamEventFlags
+    package let hasRelevantMutation: Bool
+}
+
+package struct DarwinFSEventClassification: Sendable {
+    package let rawEvents: [DarwinFSEventClassifiedRawEvent]
+    package let ordinaryPaths: [String]
+}
+
+package enum DarwinFSEventPathClassifier {
+    package static func classify(
+        rawEvents: [(path: String, eventId: FSEventStreamEventId, flags: FSEventStreamEventFlags)],
+        ordinaryPaths: [String],
+        rootPath: String,
+        observationScopes: [AgentStudioGit.GitStatusObservationScope],
+        normalize: (String) -> String = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath
+    ) -> DarwinFSEventClassification {
+        var normalizedPathByRawPath: [String: String] = [:]
+        normalizedPathByRawPath.reserveCapacity(rawEvents.count)
+
+        func normalizedPath(for rawPath: String) -> String {
+            if let existing = normalizedPathByRawPath[rawPath] {
+                return existing
+            }
+            let normalizedPath = normalize(rawPath)
+            normalizedPathByRawPath[rawPath] = normalizedPath
+            return normalizedPath
+        }
+
+        let canonicalScopes = observationScopes.map { scope in
+            let path = scope.path.path
+            return (
+                kind: scope.kind,
+                path: path,
+                subtreePrefix: scope.kind == .subtree ? path + "/" : nil
+            )
+        }
+        let rootPrefix = rootPath + "/"
+        let classifiedRawEvents = rawEvents.map { event in
+            let candidate = normalizedPath(for: event.path)
+            let hasRelevantMutation = canonicalScopes.contains { scope in
+                switch scope.kind {
+                case .item:
+                    return candidate == scope.path
+                case .subtree:
+                    return candidate == scope.path
+                        || scope.subtreePrefix.map { candidate.hasPrefix($0) } == true
+                }
+            }
+            return DarwinFSEventClassifiedRawEvent(
+                eventId: event.eventId,
+                flags: event.flags,
+                hasRelevantMutation: hasRelevantMutation
+            )
+        }
+        let ordinaryWorktreePaths = ordinaryPaths.filter { path in
+            let candidate = normalizedPath(for: path)
+            return candidate == rootPath || candidate.hasPrefix(rootPrefix)
+        }
+        return DarwinFSEventClassification(
+            rawEvents: classifiedRawEvents,
+            ordinaryPaths: ordinaryWorktreePaths
+        )
+    }
+}
+
 package protocol DarwinSharedExactItemStreamLifetime: AnyObject, Sendable {
+    func flush() -> Bool
     func retire()
 }
 
@@ -32,6 +102,49 @@ package struct DarwinSharedExactItemObservationSnapshot: Sendable {
     package let bindingCount: Int
     package let generationByParent: [DarwinSharedExactItemParentKey: UInt64]
     package let referenceCountByParent: [DarwinSharedExactItemParentKey: Int]
+}
+
+package struct DarwinSharedExactItemBindingLease: Sendable {
+    package let bindingGeneration: UInt64
+    package let exactItemsByParent: [DarwinSharedExactItemParentKey: Set<String>]
+    package let streamGenerationByParent: [DarwinSharedExactItemParentKey: UInt64]
+    private let streamLifetimeByParent: [DarwinSharedExactItemParentKey: any DarwinSharedExactItemStreamLifetime]
+
+    fileprivate init(
+        bindingGeneration: UInt64,
+        exactItemsByParent: [DarwinSharedExactItemParentKey: Set<String>],
+        streamGenerationByParent: [DarwinSharedExactItemParentKey: UInt64],
+        streamLifetimeByParent:
+            [DarwinSharedExactItemParentKey: any DarwinSharedExactItemStreamLifetime]
+    ) {
+        self.bindingGeneration = bindingGeneration
+        self.exactItemsByParent = exactItemsByParent
+        self.streamGenerationByParent = streamGenerationByParent
+        self.streamLifetimeByParent = streamLifetimeByParent
+    }
+
+    package func flush() -> Bool {
+        for parentKey in streamLifetimeByParent.keys.sorted(by: Self.sortParentKeys) {
+            guard streamLifetimeByParent[parentKey]?.flush() == true else { return false }
+        }
+        return true
+    }
+
+    private static func sortParentKeys(
+        _ lhs: DarwinSharedExactItemParentKey,
+        _ rhs: DarwinSharedExactItemParentKey
+    ) -> Bool {
+        if lhs.volumeSystemNumber != rhs.volumeSystemNumber {
+            return lhs.volumeSystemNumber < rhs.volumeSystemNumber
+        }
+        return lhs.parentPath < rhs.parentPath
+    }
+}
+
+package enum DarwinSharedExactItemBindingRetention: Sendable {
+    case localOnly
+    case shared(DarwinSharedExactItemBindingLease)
+    case invalid
 }
 
 package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
@@ -227,6 +340,74 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         lifecycleCondition.withLock {
             sharedDependentWorktreeIds.contains(worktreeId)
                 && bindingValidationByWorktreeId[worktreeId]?.isCurrent() == true
+        }
+    }
+
+    package func retainBinding(
+        worktreeId: UUID,
+        bindingGeneration: UInt64
+    ) -> DarwinSharedExactItemBindingRetention {
+        lifecycleCondition.withLock {
+            guard !hasShutdown else { return .invalid }
+            guard sharedDependentWorktreeIds.contains(worktreeId) else { return .localOnly }
+            guard
+                let bindingValidation = bindingValidationByWorktreeId[worktreeId],
+                bindingValidation.generation == bindingGeneration,
+                bindingValidation.isCurrent(),
+                let exactItemsByParent = exactItemsByParentByWorktreeId[worktreeId],
+                !exactItemsByParent.isEmpty
+            else {
+                return .invalid
+            }
+
+            var streamGenerationByParent: [DarwinSharedExactItemParentKey: UInt64] = [:]
+            var streamLifetimeByParent: [DarwinSharedExactItemParentKey: any DarwinSharedExactItemStreamLifetime] = [:]
+            for (parentKey, exactItems) in exactItemsByParent {
+                guard
+                    let observer = observerByParent[parentKey],
+                    observer.exactPathsByWorktreeId[worktreeId] == exactItems
+                else {
+                    return .invalid
+                }
+                streamGenerationByParent[parentKey] = observer.generation
+                streamLifetimeByParent[parentKey] = observer.streamLifetime
+            }
+            return .shared(
+                DarwinSharedExactItemBindingLease(
+                    bindingGeneration: bindingGeneration,
+                    exactItemsByParent: exactItemsByParent,
+                    streamGenerationByParent: streamGenerationByParent,
+                    streamLifetimeByParent: streamLifetimeByParent
+                )
+            )
+        }
+    }
+
+    package func bindingIsCurrent(
+        worktreeId: UUID,
+        lease: DarwinSharedExactItemBindingLease
+    ) -> Bool {
+        lifecycleCondition.withLock {
+            guard !hasShutdown,
+                sharedDependentWorktreeIds.contains(worktreeId),
+                let bindingValidation = bindingValidationByWorktreeId[worktreeId],
+                bindingValidation.generation == lease.bindingGeneration,
+                bindingValidation.isCurrent(),
+                exactItemsByParentByWorktreeId[worktreeId] == lease.exactItemsByParent
+            else {
+                return false
+            }
+            return lease.streamGenerationByParent.allSatisfy { parentKey, generation in
+                observerByParent[parentKey]?.generation == generation
+                    && observerByParent[parentKey]?.exactPathsByWorktreeId[worktreeId]
+                        == lease.exactItemsByParent[parentKey]
+            }
+        }
+    }
+
+    package func hasNoSharedBinding(worktreeId: UUID) -> Bool {
+        lifecycleCondition.withLock {
+            !hasShutdown && !sharedDependentWorktreeIds.contains(worktreeId)
         }
     }
 
@@ -531,6 +712,18 @@ package enum DarwinSharedExactItemNativeStream {
                 Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
                 _ = queue
             }
+        }
+
+        func flush() -> Bool {
+            let retainedStream = lock.withLock { () -> FSEventStreamRef? in
+                guard !hasScheduledRetirement else { return nil }
+                FSEventStreamRetain(stream)
+                return stream
+            }
+            guard let retainedStream else { return false }
+            defer { FSEventStreamRelease(retainedStream) }
+            FSEventStreamFlushSync(retainedStream)
+            return lock.withLock { !hasScheduledRetirement }
         }
     }
 
