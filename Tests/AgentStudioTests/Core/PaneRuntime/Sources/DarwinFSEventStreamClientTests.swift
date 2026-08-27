@@ -8,6 +8,41 @@ import Testing
 
 @Suite("DarwinFSEventStreamClient")
 struct DarwinFSEventStreamClientTests {
+    @Test("real stream delivers events from a temporary-directory root")
+    func realStreamDeliversTemporaryDirectoryEvents() async throws {
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "darwin-fsevent-real-stream-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let client = DarwinFSEventStreamClient()
+        defer { client.shutdown() }
+        let worktreeId = UUIDv7.generate()
+        let createdFile = fixtureRoot.appending(path: "created.txt")
+        client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: fixtureRoot)
+
+        let batchTask = Task<FSEventBatch?, Never> {
+            for await batch in client.events() {
+                if batch.worktreeId == worktreeId,
+                    batch.paths.contains(where: { URL(fileURLWithPath: $0).lastPathComponent == "created.txt" })
+                {
+                    return batch
+                }
+            }
+            return nil
+        }
+        try Data("created".utf8).write(to: createdFile)
+
+        let batch = await firstCompletedValue(from: batchTask, timeout: .seconds(5))
+
+        #expect(batch?.worktreeId == worktreeId)
+        #expect(
+            batch?.paths.contains(where: { URL(fileURLWithPath: $0).lastPathComponent == "created.txt" }) == true
+        )
+    }
+
     @Test("event classification retains an in-root symlink object whose target is outside the root")
     func eventClassificationRetainsInRootSymlinkObject() throws {
         let fixtureRoot = FileManager.default.temporaryDirectory.appending(
@@ -419,5 +454,25 @@ struct DarwinFSEventStreamClientTests {
             rootPath: URL(fileURLWithPath: "/tmp/darwin-fsevents-post-shutdown-\(UUID().uuidString)")
         )
         client.unregister(worktreeId: UUID())
+    }
+
+    private func firstCompletedValue<Value: Sendable>(
+        from task: Task<Value?, Never>,
+        timeout: Duration
+    ) async -> Value? {
+        await withTaskGroup(of: Value?.self) { group in
+            group.addTask { await task.value }
+            group.addTask {
+                try? await AsyncDelay.taskSleep.wait(timeout)
+                return nil
+            }
+            guard let value = await group.next() else {
+                task.cancel()
+                return nil
+            }
+            group.cancelAll()
+            task.cancel()
+            return value
+        }
     }
 }

@@ -1,6 +1,7 @@
 import AgentStudioGit
 import AgentStudioInfrastructure
 import CoreServices
+import Darwin
 import Foundation
 
 package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
@@ -320,7 +321,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
     }
 
     package func register(worktreeId: UUID, repoId _: UUID, rootPath: URL) {
-        let canonicalRootPath = rootPath.standardizedFileURL.resolvingSymlinksInPath()
+        let canonicalRootPath = Self.kernelCanonicalURL(rootPath)
 
         var registrationToTearDown: StreamRegistration?
         lifecycleLock.lock()
@@ -407,7 +408,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         observationPlan: AgentStudioGit.GitStatusObservationPlan
     ) async -> GitCleanContinuityBarrier? {
         guard observationPlan.support == .supported else { return nil }
-        let canonicalRootPath = rootPath.standardizedFileURL.resolvingSymlinksInPath()
+        let canonicalRootPath = Self.kernelCanonicalURL(rootPath)
         guard let binding = bindingPaths(for: observationPlan) else { return nil }
 
         let currentRegistration = retainedRegistration(worktreeId: worktreeId)
@@ -491,7 +492,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
     }
 
     package func retire(worktreeId: UUID, rootPath: URL) {
-        let canonicalRootPath = rootPath.standardizedFileURL.resolvingSymlinksInPath()
+        let canonicalRootPath = Self.kernelCanonicalURL(rootPath)
         let matches = lifecycleLock.withLock {
             streamByWorktreeId[worktreeId]?.rootPath == canonicalRootPath
         }
@@ -673,7 +674,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         let scopes = plan.scopes.map { scope in
             AgentStudioGit.GitStatusObservationScope(
                 kind: scope.kind,
-                path: scope.path.standardizedFileURL.resolvingSymlinksInPath()
+                path: Self.kernelCanonicalURL(scope.path)
             )
         }
         let watchedPaths = Set(
@@ -706,6 +707,35 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         lifecycleLock.withLock {
             nextLifecycleGeneration &+= 1
             return nextLifecycleGeneration
+        }
+    }
+
+    private static func kernelCanonicalURL(_ url: URL) -> URL {
+        let standardizedURL = url.standardizedFileURL
+        var existingAncestor = standardizedURL
+        var unresolvedComponents: [String] = []
+
+        while true {
+            if let resolvedPath = realPath(existingAncestor.path) {
+                return unresolvedComponents.reversed().reduce(
+                    URL(fileURLWithPath: resolvedPath)
+                ) { resolvedURL, component in
+                    resolvedURL.appending(path: component)
+                }
+            }
+            guard existingAncestor.path != "/" else {
+                return standardizedURL.resolvingSymlinksInPath()
+            }
+            unresolvedComponents.append(existingAncestor.lastPathComponent)
+            existingAncestor.deleteLastPathComponent()
+        }
+    }
+
+    private static func realPath(_ path: String) -> String? {
+        path.withCString { pathPointer in
+            guard let resolvedPointer = Darwin.realpath(pathPointer, nil) else { return nil }
+            defer { free(resolvedPointer) }
+            return String(cString: resolvedPointer)
         }
     }
 
