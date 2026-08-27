@@ -34,11 +34,15 @@ Each fact must come from the cheapest source capable of satisfying its promise: 
 
 ### U-GIT-SELF-HEAL-1 — Lost events do not permanently stale facts
 
-Every registered, available worktree must retain an eventual local Git backstop even when filesystem or visibility events are lost. Exact line counts must refresh promptly after known content changes and retain a finite slower self-heal deadline. Remote facts may stop automatic work without demand but must refresh at the first demanded checkpoint when their accepted cache is too old.
+Every warm registered, available worktree must retain an eventual local Git backstop even when filesystem or visibility events are lost. Exact line counts must refresh promptly after known content changes and retain a finite slower self-heal deadline while warm. A relevant filesystem mutation in a cold repository must still admit the required local Git refresh, but cold repositories do not retain periodic local deadlines. Remote facts may stop automatic work without demand but must refresh at the first warm or explicit checkpoint when their accepted cache is too old.
+
+### U-GIT-COLD-1 — Long-unused repositories consume no scheduled source work
+
+A repository whose worktrees have not been opened in Agent Studio for sixty days and that has no associated open pane must become locally inactive without leaving canonical watched-folder or sidebar membership. While locally inactive, it must run no periodic local Git, remote-reference, or GitHub refresh. Its repository header must replace ordinary Git and PR chips with one compact inline clock icon plus `Locally inactive` text and a separate icon-only update chip. Activating that chip must warm and update the complete repository through the normal local Git, remote-reference, and GitHub admission, capacity, failure, and currentness rules. Missing recency counts as locally inactive; search, grouping, scrolling, disclosure, and row materialization never change this classification.
 
 ### U-GIT-FOREGROUND-1 — Current work outranks background inventory
 
-The active pane, sidebar-attended worktrees, visible panes in the active tab, and explicit refreshes must retain priority over background correctness work. While the sidebar is attended, its worktree membership is the semantic membership eligible for that sidebar before search, grouping, scrolling, or row materialization; those presentation operations do not add or remove demand. A slow or unhealthy background worktree, remote fetch, or GitHub request must not block the repository facts the user is actively inspecting.
+The active pane, sidebar-attended warm worktrees, visible panes in the active tab, and explicit refreshes must retain priority over background correctness work. While the sidebar is attended, its complete worktree membership is captured before search, grouping, scrolling, or row materialization; those presentation operations do not add or remove membership or demand. Repository recency and open-pane state then admit or suppress source work independently of presentation. A slow or unhealthy background worktree, remote fetch, or GitHub request must not block the repository facts the user is actively inspecting.
 
 ### U-GIT-ADMISSION-1 — Debounce contracts bursts; admission decides usefulness
 
@@ -50,11 +54,11 @@ Local Git refresh must use safe path scope before full-repository scope and stat
 
 ### U-GIT-REMOTE-REF-1 — Ahead/behind is immediate and demand-refreshed
 
-Ahead/behind must be immediately available from accepted local remote-tracking refs. Active or visible demand may refresh those refs from the remote after the cache freshness floor; explicit refresh may accelerate eligibility. Hidden repositories must not be fetched fleet-wide merely to keep server-current counts.
+Ahead/behind must be immediately available from accepted local remote-tracking refs. Active or warm visible demand may refresh those refs from the remote after the cache freshness floor; explicit refresh may accelerate eligibility. Hidden or locally inactive repositories must not be fetched fleet-wide merely to keep server-current counts.
 
 ### U-GIT-FORGE-1 — Remote PR/check facts follow demanded branch scope
 
-PR, check, review, mergeability, and merge-state facts must remain repository+branch facts shared by every matching worktree. Active and visible demanded branches refresh after the three-minute successful-result floor; hidden branches retain accepted facts without automatic GitHub work. Remote query shape and concurrency must remain bounded by demanded scope.
+PR, check, review, mergeability, and merge-state facts must remain repository+branch facts shared by every matching worktree. Active and warm visible demanded branches refresh after the three-minute successful-result floor; hidden or locally inactive branches retain accepted runtime facts without automatic GitHub work. Remote query shape and concurrency must remain bounded by demanded scope.
 
 ### U-GIT-CURRENTNESS-1 — Performance repair never trades away truth
 
@@ -78,10 +82,11 @@ Performance acceptance must exercise both complete watched roots through product
 - O2: ordinary sidebar and tab interactions remain below 20% process CPU at p95 on the same fixture.
 - O3: UI and derived projections read keyed accepted atoms and never call Git, GitHub, or remote sources from rendering.
 - O4: local facts, server-current remote refs, and Forge facts have explicit source and freshness meaning.
-- O5: local self-heal remains finite, while hidden remote work stops until demand.
+- O5: warm local self-heal remains finite, while hidden or locally inactive source work stops until warm or explicit demand.
 - O6: physical work is paced and bounded across all consumers of the same source class.
 - O7: no stale, partial, cross-origin, or lost publication is introduced.
 - O8: exact-marker telemetry and exact-debug identity make the verdict reproducible.
+- O9: a sixty-day locally inactive repository remains in canonical membership, performs no scheduled Git or GitHub work, and exposes one compact truthful update affordance.
 
 ## Explicit non-goals
 
@@ -91,6 +96,8 @@ Performance acceptance must exercise both complete watched roots through product
 - Do not add persistence, a generic scheduler framework, a remote service, or a second owner for an existing fact.
 - Do not broaden the shared physical status budget into general Bridge review/tree/content/diff policy without evidence from those lanes.
 - Do not make zero future eligibility or zero aggregate Git debt the definition of settled idle.
+- Do not scan repository trees or rely on repository-root modification time to classify inactivity.
+- Do not add persisted local-status or PR/check snapshots merely to populate locally inactive rows after restart.
 
 ## Open evidence, not owner decisions
 
