@@ -328,7 +328,7 @@ retire_debug_candidate() {
     actual_executable="$(process_executable_path "$state_pid" || true)"
     actual_app="$(bundle_path_for_executable "$actual_executable")"
     actual_bundle_identifier="$(bundle_identifier_for_executable "$actual_executable")"
-    actual_data_dir="$expected_debug_root"
+    actual_data_dir="$expected_data_root"
     actual_zmx_dir="$expected_zmx_dir"
   fi
 

@@ -26,6 +26,17 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         #expect(outcome.result.stdout.contains("candidate_retirement=graceful"))
     }
 
+    @Test("production candidate identity preserves the explicit data root")
+    func productionCandidateIdentityPreservesExplicitDataRoot() throws {
+        let source = try String(
+            contentsOfFile: "scripts/run-debug-observability.sh",
+            encoding: .utf8
+        )
+
+        #expect(source.contains("actual_data_dir=\"$expected_data_root\""))
+        #expect(!source.contains("actual_data_dir=\"$expected_debug_root\""))
+    }
+
     @Test("candidate retirement treats an absent process as already retired")
     func candidateRetirementDoesNotSignalAbsentProcess() throws {
         let outcome = try runCandidateRetirementContract(
