@@ -691,10 +691,11 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	}): Promise<void> {
 		let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 		let responseAdmissionLease: BridgeProductContentResponseAdmissionLease | null = null;
-		const abortReader = (): void => {
+		const abortResponse = (): void => {
 			void reader?.cancel(props.abortSignal.reason).catch((): void => {});
+			responseAdmissionLease?.release();
 		};
-		props.abortSignal.addEventListener('abort', abortReader, { once: true });
+		props.abortSignal.addEventListener('abort', abortResponse, { once: true });
 		try {
 			props.abortSignal.throwIfAborted();
 			await this.#authority.open;
@@ -713,6 +714,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				method: 'POST',
 				signal: props.abortSignal,
 			});
+			props.abortSignal.throwIfAborted();
 			if (!response.ok || response.body === null) {
 				throw new Error(`Bridge product content stream failed with status ${response.status}.`);
 			}
@@ -743,7 +745,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			props.frames.fail(error, true);
 			props.terminal.reject(error);
 		} finally {
-			props.abortSignal.removeEventListener('abort', abortReader);
+			props.abortSignal.removeEventListener('abort', abortResponse);
 			reader?.releaseLock();
 			responseAdmissionLease?.release();
 		}

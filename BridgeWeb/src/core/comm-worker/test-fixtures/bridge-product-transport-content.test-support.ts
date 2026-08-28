@@ -98,6 +98,7 @@ export class TestContentProductServer {
 	readonly controlRequests: BridgeProductControlRequest[] = [];
 	readonly frameAcknowledgements: BridgeProductFrameAcknowledgementRequest[] = [];
 	holdContentResponses = false;
+	holdNextContentRequestBeforeResponse = false;
 	leaveContentOpenAfterAcceptance = false;
 	nextContentRequestFailure: Error | null = null;
 	nextContentResponseKind: 'ordinary' | 'read-error' | 'unexpected-eof' = 'ordinary';
@@ -107,6 +108,7 @@ export class TestContentProductServer {
 	#heldContentRequestId: string | null = null;
 	#metadataController: ReadableStreamDefaultController<Uint8Array> | null = null;
 	#metadataRequest: BridgeProductMetadataStreamRequest | null = null;
+	#releaseHeldContentRequestBeforeResponse: (() => void) | null = null;
 	#releaseHeldAcknowledgement: (() => void) | null = null;
 
 	readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -114,6 +116,12 @@ export class TestContentProductServer {
 		this.requestRoutes.push(url);
 		if (url === 'agentstudio://rpc/content') {
 			this.contentRequestInvocationCount += 1;
+			if (this.holdNextContentRequestBeforeResponse) {
+				this.holdNextContentRequestBeforeResponse = false;
+				await new Promise<void>((resolve): void => {
+					this.#releaseHeldContentRequestBeforeResponse = resolve;
+				});
+			}
 			const requestFailure = this.nextContentRequestFailure;
 			this.nextContentRequestFailure = null;
 			if (requestFailure !== null) throw requestFailure;
@@ -151,6 +159,13 @@ export class TestContentProductServer {
 		this.#heldAcknowledgement = null;
 		this.#heldContentRequestId = null;
 		this.#releaseHeldAcknowledgement = null;
+		release();
+	}
+
+	releaseHeldContentRequestBeforeResponse(): void {
+		const release = this.#releaseHeldContentRequestBeforeResponse;
+		if (release === null) throw new Error('No content request is held before response.');
+		this.#releaseHeldContentRequestBeforeResponse = null;
 		release();
 	}
 
