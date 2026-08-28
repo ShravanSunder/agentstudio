@@ -95,8 +95,11 @@ struct RepoExplorerCommandPresentationTests {
         #expect(request.surface == .inlineControl)
         #expect(request.target == repoID)
         #expect(request.targetType == .repo)
-        #expect(presentation?.commandSpec.label == "Update Repository")
-        #expect(presentation?.commandSpec.helpText == "Update local Git, remote references, and pull request facts")
+        #expect(presentation?.commandSpec.label == "Refresh")
+        #expect(
+            presentation?.commandSpec.helpText
+                == "Fetch latest remote references and refresh repository facts"
+        )
         #expect(presentation?.isEnabled == false)
     }
 

@@ -12,9 +12,9 @@ struct AppCommandSidebarCommandsTests {
     func repositoryFactUpdateIsTargetedInlineOnlyAndNotExposedToIPC() {
         let definition = AppCommandDispatcher.shared.definition(for: .updateRepositoryFacts)
 
-        #expect(definition.label == "Update Repository")
+        #expect(definition.label == "Refresh")
         #expect(definition.icon == .system(.arrowClockwise))
-        #expect(definition.helpText == "Update local Git, remote references, and pull request facts")
+        #expect(definition.helpText == "Fetch latest remote references and refresh repository facts")
         #expect(definition.surfacePolicy == .exposed([.inlineControl]))
         #expect(definition.targeting == .targeted([.repo]))
         #expect(definition.ipcExposure.executionModes.isEmpty)

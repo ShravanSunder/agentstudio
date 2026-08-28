@@ -5,6 +5,12 @@ import AppKit
 import SwiftUI
 
 struct RepoExplorerMaterializedRowView: View {
+    static let inactiveRepositoryStatus = ActionSpec(
+        label: "Locally inactive",
+        helpText: "Locally inactive",
+        icon: .system(.memorychip)
+    )
+
     let row: RepoExplorerMaterializedRow
     let commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
     let octiconLoader: OcticonLoader
@@ -62,7 +68,7 @@ struct RepoExplorerMaterializedRowView: View {
                     {
                         repositoryActivityTrailingContent(
                             repoID: repoID,
-                            isUpdating: RepoExplorerRepositoryUpdatePresentation.isLoading(
+                            isUpdating: RepoExplorerRepositoryUpdatePresentation.keepsActivitySlotVisible(
                                 group.repositoryFactUpdateProgress
                             )
                         )
@@ -183,61 +189,13 @@ struct RepoExplorerMaterializedRowView: View {
             repoID: repoID,
             snapshot: commandPresentationSnapshot
         )
-        let inactivityStatus = ActionSpec(
-            label: "Locally inactive",
-            helpText: "No repository or worktree has been opened in Agent Studio for 60 days",
-            icon: .system(.clock)
+        RepoExplorerInactiveRepositoryControl(
+            octiconLoader: octiconLoader,
+            inactivityStatus: Self.inactiveRepositoryStatus,
+            commandPresentation: commandPresentation,
+            isUpdating: isUpdating,
+            onCommandRequest: onCommandRequest
         )
-        HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
-            if isUpdating {
-                HStack(spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Updating")
-                }
-                .font(.system(size: AppStyles.General.Typography.textSm))
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Updating repository facts")
-            } else {
-                HStack(spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
-                    inactivityStatus.icon.swiftUIImage(
-                        loader: octiconLoader,
-                        size: AppStyles.General.Icon.compact
-                    )
-                    Text(inactivityStatus.label)
-                }
-                .font(.system(size: AppStyles.General.Typography.textSm))
-                .foregroundStyle(.secondary)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(inactivityStatus.helpText)
-                .controlHelp(
-                    inactivityStatus.controlTooltipRenderValue(
-                        provenance: .localAction(rawValue: "repositoryLocallyInactive")
-                    )
-                )
-            }
-
-            if let commandPresentation {
-                let actionSpec = commandPresentation.commandSpec
-                Button {
-                    onCommandRequest(commandPresentation.request)
-                } label: {
-                    actionSpec.icon.swiftUIImage(
-                        loader: octiconLoader,
-                        size: AppStyles.General.Icon.compact
-                    )
-                    .frame(
-                        width: AppStyles.General.Button.compact,
-                        height: AppStyles.General.Button.compact
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(actionSpec.label)
-                .controlHelp(actionSpec.controlTooltipRenderValue())
-                .disabled(!commandPresentation.isEnabled)
-            }
-        }
     }
 
     private func dispatch(
@@ -295,6 +253,126 @@ struct RepoExplorerMaterializedRowView: View {
         case .topologyFault, .unresolved:
             "Repository data unavailable"
         }
+    }
+}
+
+struct RepoExplorerInactiveRepositoryControlState: Equatable {
+    private(set) var revealsRefresh = false
+
+    mutating func revealRefresh() {
+        revealsRefresh = true
+    }
+
+    mutating func hideRefresh() {
+        revealsRefresh = false
+    }
+}
+
+private struct RepoExplorerInactiveRepositoryControl: View {
+    let octiconLoader: OcticonLoader
+    let inactivityStatus: ActionSpec
+    let commandPresentation: RepoExplorerPresentedCommand?
+    let isUpdating: Bool
+    let onCommandRequest: (RepoExplorerCommandPresentationRequest) -> Void
+
+    @State private var controlState = RepoExplorerInactiveRepositoryControlState()
+    @State private var revealGeneration: UInt64 = 0
+
+    var body: some View {
+        HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
+            if isUpdating {
+                updatingIndicator
+            } else {
+                inactiveButton
+                if controlState.revealsRefresh, let commandPresentation {
+                    refreshButton(commandPresentation)
+                }
+            }
+        }
+        .task(id: revealGeneration) {
+            guard controlState.revealsRefresh else { return }
+            do {
+                try await Task.sleep(
+                    nanoseconds: AppPolicies.RepoExplorer.inactiveRefreshRevealDuration
+                        .nanosecondsForTaskSleep
+                )
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            controlState.hideRefresh()
+        }
+        .onChange(of: isUpdating) { _, updating in
+            if updating {
+                controlState.hideRefresh()
+            }
+        }
+    }
+
+    private var inactiveButton: some View {
+        Button {
+            controlState.revealRefresh()
+            revealGeneration &+= 1
+        } label: {
+            inactivityStatus.icon.swiftUIImage(
+                loader: octiconLoader,
+                size: AppStyles.General.Icon.compact
+            )
+            .foregroundStyle(.secondary)
+            .frame(
+                width: AppStyles.General.Button.compact,
+                height: AppStyles.General.Button.compact
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(inactivityStatus.label)
+        .controlHelp(
+            inactivityStatus.controlTooltipRenderValue(
+                provenance: .localAction(rawValue: "repositoryLocallyInactive"),
+                textOverride: inactivityStatus.label
+            )
+        )
+    }
+
+    private var updatingIndicator: some View {
+        let updatingStatus = ActionSpec(
+            label: "Updating repo",
+            helpText: "Updating repo",
+            icon: .system(.arrowClockwise)
+        )
+        return ProgressView()
+            .controlSize(.small)
+            .frame(
+                width: AppStyles.General.Button.compact,
+                height: AppStyles.General.Button.compact
+            )
+            .accessibilityLabel(updatingStatus.label)
+            .controlHelp(
+                updatingStatus.controlTooltipRenderValue(
+                    provenance: .localAction(rawValue: "repositoryUpdating"),
+                    textOverride: updatingStatus.label
+                )
+            )
+    }
+
+    private func refreshButton(_ presentation: RepoExplorerPresentedCommand) -> some View {
+        let actionSpec = presentation.commandSpec
+        return Button {
+            controlState.hideRefresh()
+            onCommandRequest(presentation.request)
+        } label: {
+            SidebarChip(
+                icon: .system(.arrowClockwise),
+                octiconLoader: octiconLoader,
+                text: actionSpec.label,
+                style: .neutral
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(actionSpec.label)
+        .controlHelp(actionSpec.controlTooltipRenderValue())
+        .disabled(!presentation.isEnabled)
     }
 }
 

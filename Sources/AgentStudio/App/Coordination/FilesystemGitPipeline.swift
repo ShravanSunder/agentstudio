@@ -264,24 +264,12 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             repoId: repoId,
             attemptId: attemptId,
             handlers: [
-                RepositoryFactUpdateSourceAdmissionHandler(source: .localGit) { [self] repoId, attemptId in
-                    await gitWorkingDirectoryProjector.startExplicitRepositoryUpdate(
-                        repoId: repoId,
-                        attemptId: attemptId
-                    )
-                },
                 RepositoryFactUpdateSourceAdmissionHandler(source: .remoteReferences) { [self] repoId, attemptId in
                     await remoteReferenceRefreshActor.startExplicitRepositoryUpdate(
                         repoId: repoId,
                         attemptId: attemptId
                     )
-                },
-                RepositoryFactUpdateSourceAdmissionHandler(source: .forge) { [forgeActor] repoId, attemptId in
-                    await forgeActor.startExplicitRepositoryUpdate(
-                        repoId: repoId,
-                        attemptId: attemptId
-                    )
-                },
+                }
             ]
         )
     }

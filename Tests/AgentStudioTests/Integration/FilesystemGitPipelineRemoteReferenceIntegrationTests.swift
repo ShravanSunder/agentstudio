@@ -72,7 +72,7 @@ struct FilesystemGitRemoteReferenceTests {
         await pipeline.shutdown()
     }
 
-    @Test("production adapter stages without canonical mutation and promotes the complete update")
+    @Test("production adapter promotes remote refs without mutating checked-out HEAD")
     func productionAdapterStagesThenPromotesDisposableRemote() async throws {
         let sourceRepository = try FilesystemTestGitRepo.create(named: "remote-adapter-source")
         let fixtureRoot = sourceRepository.deletingLastPathComponent()
@@ -105,6 +105,10 @@ struct FilesystemGitRemoteReferenceTests {
         let initialCanonicalOID = try FilesystemTestGitRepo.runGit(
             at: localClone,
             args: ["rev-parse", "refs/remotes/origin/main"]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let checkedOutHeadOID = try FilesystemTestGitRepo.runGit(
+            at: localClone,
+            args: ["rev-parse", "HEAD"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
 
         try "first\nsecond\n".write(
@@ -150,7 +154,12 @@ struct FilesystemGitRemoteReferenceTests {
             at: localClone,
             args: ["rev-parse", "refs/remotes/origin/main"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let checkedOutHeadOIDAfterPromotion = try FilesystemTestGitRepo.runGit(
+            at: localClone,
+            args: ["rev-parse", "HEAD"]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(canonicalOIDAfterPromotion == expectedPromotedOID)
+        #expect(checkedOutHeadOIDAfterPromotion == checkedOutHeadOID)
         try await provider.cleanupStagedFetch(stagedFetch.handle)
         let retainedStagingRefs = try FilesystemTestGitRepo.runGit(
             at: localClone,

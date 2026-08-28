@@ -7,6 +7,28 @@ import Testing
 
 @Suite("FilesystemGitPipeline repository fact update")
 struct FilesystemGitPipelineRepositoryFactUpdateTests {
+    @Test("repository refresh admits remote fetch only")
+    func repositoryRefreshAdmitsRemoteFetchOnly() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/App/Coordination/FilesystemGitPipeline.swift",
+            encoding: .utf8
+        )
+        let functionStart = try #require(
+            source.range(of: "func startRepositoryFactUpdate(")
+        )
+        let nextFunction = try #require(
+            source.range(
+                of: "static func admitRepositoryFactUpdateSources(",
+                range: functionStart.upperBound..<source.endIndex
+            )
+        )
+        let functionSource = source[functionStart.lowerBound..<nextFunction.lowerBound]
+
+        #expect(functionSource.contains("source: .remoteReferences"))
+        #expect(!functionSource.contains("source: .localGit"))
+        #expect(!functionSource.contains("source: .forge"))
+    }
+
     @Test("all source owners receive admission concurrently before settlement")
     func allSourcesAdmitConcurrentlyBeforeSettlement() async throws {
         let admissionGate = RepositoryFactUpdateTestGate(requiredArrivalCount: 3)

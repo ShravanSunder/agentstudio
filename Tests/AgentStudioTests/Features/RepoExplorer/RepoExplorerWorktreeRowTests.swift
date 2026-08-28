@@ -390,6 +390,39 @@ struct RepoExplorerWorktreeRowTests {
         #expect(RepoExplorerWorktreeRowContent.favoriteActionSpec(isFavorite: true).icon == .system(.bookmarkFill))
     }
 
+    @Test("inactive repository header uses one icon and compact hover copy")
+    func inactiveRepositoryHeaderUsesIconOnlyPresentation() throws {
+        let presentation = RepoExplorerMaterializedRowView.inactiveRepositoryStatus
+
+        #expect(presentation.icon == .system(.memorychip))
+        #expect(presentation.label == "Locally inactive")
+        #expect(presentation.helpText == "Locally inactive")
+
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift",
+            encoding: .utf8
+        )
+        let functionStart = try #require(
+            source.range(of: "private func repositoryActivityTrailingContent")
+        )
+        let functionSource = source[functionStart.lowerBound...]
+        #expect(!functionSource.contains("Text(inactivityStatus.label)"))
+        #expect(!functionSource.contains("Text(\"Updating\")"))
+        #expect(functionSource.contains("if controlState.revealsRefresh, let commandPresentation"))
+    }
+
+    @Test("inactive repository refresh reveal is local and explicitly dismissible")
+    func inactiveRepositoryRefreshRevealStateIsLocal() {
+        var state = RepoExplorerInactiveRepositoryControlState()
+
+        #expect(!state.revealsRefresh)
+        state.revealRefresh()
+        #expect(state.revealsRefresh)
+        state.hideRefresh()
+        #expect(!state.revealsRefresh)
+        #expect(AppPolicies.RepoExplorer.inactiveRefreshRevealDuration == .seconds(30))
+    }
+
     @Test("favorite control visibility uses main worktree identity for every action")
     func favoriteControlVisibilityUsesMainWorktreeIdentity() {
         let mainVisibility = RepoExplorerFavoriteControlVisibility(isMainWorktree: true)

@@ -25,6 +25,10 @@ package enum AppPolicies {
         package static let faintBlueDuration: TimeInterval = 24 * 60 * 60
     }
 
+    package enum RepoExplorer {
+        package static let inactiveRefreshRevealDuration: Duration = .seconds(30)
+    }
+
     package enum SidebarProjection {
         package static let cancellationItemStride: Int = 256
         package static let cancellationGroupStride: Int = 64

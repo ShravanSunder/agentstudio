@@ -53,6 +53,7 @@ package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case longTextPageAndPencil = "long.text.page.and.pencil"
     case macwindowBadgePlus = "macwindow.badge.plus"
     case magnifyingglass = "magnifyingglass"
+    case memorychip = "memorychip"
     case minusCircle = "minus.circle"
     case paintpalette = "paintpalette"
     case paintpaletteFill = "paintpalette.fill"

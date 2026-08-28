@@ -122,9 +122,9 @@ extension AppCommand {
     func repositoryFactUpdateDefinition() -> AppCommandSpec {
         AppCommandSpec(
             command: self,
-            label: "Update Repository",
+            label: "Refresh",
             icon: .system(.arrowClockwise),
-            helpText: "Update local Git, remote references, and pull request facts",
+            helpText: "Fetch latest remote references and refresh repository facts",
             surfacePolicy: .exposed([.inlineControl]),
             targeting: .targeted([.repo]),
             commandBarGroupName: "Repo",
