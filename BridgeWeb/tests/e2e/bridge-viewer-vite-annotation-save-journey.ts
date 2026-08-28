@@ -337,67 +337,69 @@ export async function runAnnotationSaveJourney(props: {
 
 async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<number> {
 	const statusUrl = new URL('/__bridge-dev-telemetry/status', page.url()).toString();
-	const handle = await page.waitForFunction(
-		async ({ expectedStages, url }): Promise<number | false> => {
-			const response = await fetch(url);
-			if (!response.ok) return false;
-			const body: unknown = await response.json();
-			if (typeof body !== 'object' || body === null || !('recentSamples' in body)) return false;
-			const recentSamples = body.recentSamples;
-			const operationLifecycle = Reflect.get(body, 'operationLifecycle');
-			if (!Array.isArray(recentSamples)) return false;
-			const stagesByOperation = new Map<string, Set<string>>();
-			for (const sample of recentSamples) {
-				if (typeof sample !== 'object' || sample === null || !('stringAttributes' in sample)) {
-					continue;
+	let completedStageCount: number | null = null;
+	await expect
+		.poll(
+			async (): Promise<boolean> => {
+				const response = await fetch(statusUrl, { cache: 'no-store' });
+				if (!response.ok) return false;
+				const body: unknown = await response.json();
+				if (typeof body !== 'object' || body === null || !('recentSamples' in body)) return false;
+				const recentSamples = body.recentSamples;
+				const operationLifecycle = Reflect.get(body, 'operationLifecycle');
+				if (!Array.isArray(recentSamples)) return false;
+				const stagesByOperation = new Map<string, Set<string>>();
+				for (const sample of recentSamples) {
+					if (typeof sample !== 'object' || sample === null || !('stringAttributes' in sample)) {
+						continue;
+					}
+					const attributes = sample.stringAttributes;
+					if (typeof attributes !== 'object' || attributes === null) continue;
+					const operationId = Reflect.get(attributes, 'agentstudio.bridge.operation.id');
+					const phase = Reflect.get(attributes, 'agentstudio.bridge.phase');
+					if (typeof operationId !== 'string' || typeof phase !== 'string') continue;
+					const stages = stagesByOperation.get(operationId) ?? new Set<string>();
+					stages.add(phase);
+					stagesByOperation.set(operationId, stages);
 				}
-				const attributes = sample.stringAttributes;
-				if (typeof attributes !== 'object' || attributes === null) continue;
-				const operationId = Reflect.get(attributes, 'agentstudio.bridge.operation.id');
-				const phase = Reflect.get(attributes, 'agentstudio.bridge.phase');
-				if (typeof operationId !== 'string' || typeof phase !== 'string') continue;
-				const stages = stagesByOperation.get(operationId) ?? new Set<string>();
-				stages.add(phase);
-				stagesByOperation.set(operationId, stages);
-			}
-			for (const [operationId, stages] of stagesByOperation) {
-				if (!expectedStages.every((stage) => stages.has(stage))) continue;
-				if (typeof operationLifecycle !== 'object' || operationLifecycle === null) continue;
-				const completedOperationIds = Reflect.get(operationLifecycle, 'completedOperationIds');
-				const malformed = Reflect.get(operationLifecycle, 'malformed');
-				const missingTerminals = Reflect.get(operationLifecycle, 'missingTerminals');
-				const matchingMalformed = Array.isArray(malformed)
-					? malformed.filter(
-							(entry): boolean =>
-								typeof entry === 'object' &&
-								entry !== null &&
-								Reflect.get(entry, 'operationCorrelationId') === operationId,
-						)
-					: null;
-				const matchingMissingTerminals = Array.isArray(missingTerminals)
-					? missingTerminals.filter(
-							(entry): boolean =>
-								typeof entry === 'object' &&
-								entry !== null &&
-								Reflect.get(entry, 'operationCorrelationId') === operationId,
-						)
-					: null;
-				if (
-					Array.isArray(completedOperationIds) &&
-					completedOperationIds.includes(operationId) &&
-					matchingMalformed?.length === 0 &&
-					matchingMissingTerminals?.length === 0
-				) {
-					return expectedStages.length;
+				for (const [operationId, stages] of stagesByOperation) {
+					if (!requiredAnnotationLifecycleStages.every((stage) => stages.has(stage))) continue;
+					if (typeof operationLifecycle !== 'object' || operationLifecycle === null) continue;
+					const completedOperationIds = Reflect.get(operationLifecycle, 'completedOperationIds');
+					const malformed = Reflect.get(operationLifecycle, 'malformed');
+					const missingTerminals = Reflect.get(operationLifecycle, 'missingTerminals');
+					const matchingMalformed = Array.isArray(malformed)
+						? malformed.filter(
+								(entry): boolean =>
+									typeof entry === 'object' &&
+									entry !== null &&
+									Reflect.get(entry, 'operationCorrelationId') === operationId,
+							)
+						: null;
+					const matchingMissingTerminals = Array.isArray(missingTerminals)
+						? missingTerminals.filter(
+								(entry): boolean =>
+									typeof entry === 'object' &&
+									entry !== null &&
+									Reflect.get(entry, 'operationCorrelationId') === operationId,
+							)
+						: null;
+					if (
+						Array.isArray(completedOperationIds) &&
+						completedOperationIds.includes(operationId) &&
+						matchingMalformed?.length === 0 &&
+						matchingMissingTerminals?.length === 0
+					) {
+						completedStageCount = requiredAnnotationLifecycleStages.length;
+						return true;
+					}
 				}
-			}
-			return false;
-		},
-		{ expectedStages: requiredAnnotationLifecycleStages, url: statusUrl },
-		{ timeout: annotationProjectionResponseTimeoutMilliseconds },
-	);
-	const completedStageCount = await handle.jsonValue();
-	if (completedStageCount === false) {
+				return false;
+			},
+			{ timeout: annotationProjectionResponseTimeoutMilliseconds },
+		)
+		.toBe(true);
+	if (completedStageCount === null) {
 		throw new Error('Annotation lifecycle telemetry completed without a stage count');
 	}
 	return completedStageCount;

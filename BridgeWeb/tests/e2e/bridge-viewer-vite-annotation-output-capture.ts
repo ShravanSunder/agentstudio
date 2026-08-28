@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Page } from 'playwright';
+import type { Locator, Page } from 'playwright';
 import { expect } from 'vitest';
 
 interface AnnotationOutputCaptureJourneyProps {
@@ -19,9 +19,10 @@ export async function verifyAnnotationOutputCaptures(
 	const markdownNamesBefore = await outputCaptureNames(outputDirectory, '.md');
 
 	await props.page.getByRole('button', { name: 'Share comments' }).press('Enter');
-	const pendingScope = props.page.locator('[aria-label^="Pending comments, "]');
-	await pendingScope.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
-	await props.page.getByRole('button', { name: 'Copy Markdown' }).press('Enter');
+	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count > 0);
+	const copyButton = props.page.getByRole('button', { name: 'Copy Markdown' });
+	await waitForEnabledOutputButton(copyButton, props.timeoutMilliseconds);
+	await copyButton.press('Enter');
 	await props.page
 		.getByRole('region', { name: 'Share comments' })
 		.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds });
@@ -37,6 +38,7 @@ export async function verifyAnnotationOutputCaptures(
 	expect(markdown.match(/^# /gmu)).toHaveLength(1);
 
 	await props.page.getByRole('button', { name: 'Share comments' }).press('Enter');
+	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count === 0);
 	const history = props.page.getByRole('button', { name: /^History \([1-9][0-9]*\)$/u });
 	await history.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
 	await history.press('Enter');
@@ -45,10 +47,12 @@ export async function verifyAnnotationOutputCaptures(
 		.getByRole('button', { name: 'Mark as not handled' })
 		.first()
 		.press('Enter');
-	await waitForPendingCommentMembership(props.page, props.timeoutMilliseconds);
+	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count > 0);
 
 	const jsonNamesBefore = await outputCaptureNames(outputDirectory, '.json');
-	await props.page.getByRole('button', { name: 'Export JSON' }).press('Enter');
+	const exportButton = props.page.getByRole('button', { name: 'Export JSON' });
+	await waitForEnabledOutputButton(exportButton, props.timeoutMilliseconds);
+	await exportButton.press('Enter');
 	await props.page
 		.getByRole('region', { name: 'Share comments' })
 		.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds });
@@ -87,6 +91,7 @@ export async function verifyAnnotationOutputCaptures(
 	expect(bodies).toContain(props.savedBody);
 
 	await props.page.getByRole('button', { name: 'Share comments' }).press('Enter');
+	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count === 0);
 	const completedHistory = props.page.getByRole('button', { name: /^History \([2-9][0-9]*\)$/u });
 	await completedHistory.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
 	await completedHistory.press('Enter');
@@ -95,7 +100,7 @@ export async function verifyAnnotationOutputCaptures(
 		.getByRole('button', { name: 'Mark as not handled' })
 		.first()
 		.press('Enter');
-	await waitForPendingCommentMembership(props.page, props.timeoutMilliseconds);
+	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count > 0);
 }
 
 async function outputCaptureNames(
@@ -127,22 +132,33 @@ async function requireNewOutputCapture(props: {
 	return join(props.outputDirectory, createdNames[0] ?? '');
 }
 
-async function waitForPendingCommentMembership(
+async function waitForPendingCommentCount(
 	page: Page,
 	timeoutMilliseconds: number,
+	accept: (count: number) => boolean,
 ): Promise<void> {
-	await page.waitForFunction(
-		(): boolean => {
-			const label = document
-				.querySelector('[aria-label^="Pending comments, "]')
-				?.getAttribute('aria-label');
-			if (label === undefined || label === null) return false;
-			const count = Number(label.slice('Pending comments, '.length));
-			return Number.isInteger(count) && count > 0;
-		},
-		undefined,
-		{ timeout: timeoutMilliseconds },
-	);
+	await expect
+		.poll(
+			async (): Promise<number | null> => {
+				const label = await page
+					.locator('[aria-label^="Pending comments, "]')
+					.getAttribute('aria-label');
+				if (label === null) return null;
+				const count = Number(label.slice('Pending comments, '.length));
+				return Number.isInteger(count) && accept(count) ? count : null;
+			},
+			{ timeout: timeoutMilliseconds },
+		)
+		.not.toBeNull();
+}
+
+async function waitForEnabledOutputButton(
+	button: Locator,
+	timeoutMilliseconds: number,
+): Promise<void> {
+	await expect
+		.poll(async (): Promise<boolean> => button.isEnabled(), { timeout: timeoutMilliseconds })
+		.toBe(true);
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
