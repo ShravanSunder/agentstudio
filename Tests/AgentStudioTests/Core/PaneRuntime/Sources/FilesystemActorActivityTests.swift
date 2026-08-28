@@ -8,6 +8,38 @@ import Testing
 
 @Suite("FilesystemActor repository activity", .serialized)
 struct FilesystemActorActivityTests {
+    @Test("stable-key topology enrichment preserves the existing stream registration")
+    func stableKeyTopologyEnrichmentPreservesExistingStreamRegistration() async {
+        // Arrange
+        let streamClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: EventBus<RuntimeEnvelope>(),
+            fseventStreamClient: streamClient,
+            sleepClock: TestPushClock()
+        )
+        let worktreeId = UUIDv7.generate()
+        let repoId = UUIDv7.generate()
+        let rootPath = URL(filePath: "/tmp/activity-stable-key-\(worktreeId)")
+        await actor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+
+        // Act
+        await actor.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: 1,
+                contextsByWorktreeId: [
+                    worktreeId: WorktreeFilesystemContext(repoId: repoId, rootPath: rootPath)
+                ],
+                repositoryStableKeysByWorktreeId: [worktreeId: "stable-repository-key"]
+            )
+        )
+
+        // Assert
+        #expect(streamClient.registeredWorktreeIds == [worktreeId])
+        #expect(streamClient.unregisteredWorktreeIds.isEmpty)
+        #expect(await actor.repositoryStableKeysByWorktreeId[worktreeId] == "stable-repository-key")
+        await actor.shutdown()
+    }
+
     @Test("shutdown commits accepted activity before retiring streams")
     func shutdownCommitsAcceptedActivityBeforeRetiringStreams() async throws {
         let fixtureRoot = FileManager.default.temporaryDirectory.appending(

@@ -33,6 +33,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - [x] Prove cached facts remain visible throughout explicit refresh and loading terminates.
 - [x] Prevent FSEvent activity-barrier flush from racing native stream retirement during the loaded startup baseline.
 - [x] Preserve canonical topology membership through source assertion; bulk reconciliation no longer re-probes and silently unregisters owned worktrees.
+- [x] Keep repository stable-key enrichment metadata-only; it no longer unregisters and re-registers unchanged filesystem roots or erases their pending Git baseline.
 - [x] Rerun focused Git-demand, cache-convergence, projection, materialization, row-height, and mounted-row tests.
 - [ ] Relaunch the same `lbim` data root without resetting watch folders, tabs, panes, or beta/production state.
 - [ ] Capture PID-bound visual proof for By Repo, By Pane, and By Tab showing real branches and cached chips; prove search and scrolling do not collapse, clip, overlap, or move rows.
@@ -51,6 +52,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - Existing presentation tests explicitly encode cold status suppression; those expectations conflict with the confirmed product contract and must be replaced, not preserved.
 - `95289e288` correctly stops treating absent PR facts as permanent loading and removes fabricated `Unknown branch`, but it exposed the missing-baseline defect and is not sufficient by itself.
 - Fresh marker `debug-observability-lbim-1787955213-90463` proved 146 warm worktrees created baseline debt, then 145 intents disappeared without running Git because `FilesystemGitPipeline.assertTopology` re-probed and filtered canonical membership. The 146-worktree ownership integration now proves assertion performs zero secondary discovery calls while direct candidate registration still rejects certain non-repositories.
+- Fresh marker `debug-observability-lbim-1787956797-50268` isolated the remaining identical collapse after the assertion-owner fix: stable-key enrichment alone forced 146 filesystem unregister/register cycles. The focused lifecycle test now proves the stable-key map updates while the existing stream registration remains unchanged.
 
 ## Non-Goals
 

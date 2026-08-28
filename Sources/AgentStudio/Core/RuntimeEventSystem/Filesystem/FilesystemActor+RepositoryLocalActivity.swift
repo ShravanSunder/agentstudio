@@ -39,18 +39,10 @@ extension FilesystemActor {
         for (worktreeId, context) in assertion.contextsByWorktreeId.sorted(by: { lhs, rhs in
             Self.sortWorktreeIds(lhs.key, rhs.key)
         }) {
-            let repositoryIdentityChanged =
-                previousRepositoryStableKeysByWorktreeId[worktreeId]
-                != desiredRepositoryStableKeysByWorktreeId[worktreeId]
             let filesystemIdentityChanged =
                 roots[worktreeId]?.repoId != context.repoId
                 || roots[worktreeId]?.rootPath != context.rootPath
-            guard repositoryIdentityChanged || filesystemIdentityChanged else {
-                continue
-            }
-            if repositoryIdentityChanged, roots[worktreeId] != nil {
-                await unregister(worktreeId: worktreeId)
-            }
+            guard filesystemIdentityChanged else { continue }
             await register(worktreeId: worktreeId, repoId: context.repoId, rootPath: context.rootPath)
         }
         repositoryStableKeysByWorktreeId = desiredRepositoryStableKeysByWorktreeId
