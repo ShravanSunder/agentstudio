@@ -12,6 +12,7 @@ enum RepoExplorerObservationToken: Hashable, Sendable {
     case tabStructure(UUID)
     case tab(UUID)
     case attention
+    case activity
 }
 
 enum RepoExplorerInputInvalidation: Equatable, Sendable {
@@ -22,6 +23,7 @@ enum RepoExplorerInputInvalidation: Equatable, Sendable {
     case pane(UUID)
     case tab(UUID)
     case attention
+    case activity
 }
 
 struct RepoExplorerScopedCapture: Sendable {
@@ -50,6 +52,7 @@ extension RepoExplorerProjectionInputCapture {
             _ = repoCache.repoEnrichment(for: repositoryID)
             _ = repoCache.isPullRequestLoading(forRepository: repositoryID)
             _ = repoCache.isPullRequestDataUnavailable(forRepository: repositoryID)
+            _ = repoCache.repositoryFactUpdateProgress(for: repositoryID)
         case .worktree(let worktreeID):
             _ = store.repositoryTopologyAtom.worktree(worktreeID)
             let enrichment = repoCache.worktreeEnrichment(for: worktreeID)
@@ -84,13 +87,16 @@ extension RepoExplorerProjectionInputCapture {
                 transientKeyboardSurface: coreAtoms.transientKeyboardSurface
             )
             _ = coreAtoms.attendedPane.attendedPaneId
+        case .activity:
+            _ = coreAtoms.applicationEntityRecency.hydrationDisposition
+            _ = coreAtoms.applicationEntityRecency.recentEntities
         }
     }
 
     func observationTokens(for request: RepoExplorerProjectionRequest) -> Set<RepoExplorerObservationToken> {
         let structuralPaneIDs = demandedPaneIDs(in: request.snapshot)
         let structuralTabIDs = demandedTabIDs(in: request.snapshot)
-        var tokens: Set<RepoExplorerObservationToken> = [.demand, .presentation, .membership]
+        var tokens: Set<RepoExplorerObservationToken> = [.demand, .presentation, .membership, .activity]
         tokens.formUnion(request.snapshot.repos.map { .repository($0.id) })
         tokens.formUnion(request.snapshot.repos.flatMap(\.worktrees).map { .worktree($0.id) })
         tokens.formUnion(structuralPaneIDs.map(RepoExplorerObservationToken.paneStructure))
@@ -121,6 +127,8 @@ extension RepoExplorerProjectionInputCapture {
             .tab(tabID)
         case .attention:
             .attention
+        case .activity:
+            .activity
         }
     }
 }

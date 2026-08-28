@@ -27,6 +27,7 @@ struct RepoExplorerWorktreeRowContent: View {
     let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
+    var showsRepositoryFactStatus = true
     let showsFavoriteControl: Bool
     var isFavorite = false
     var favoriteCommandPresentation: RepoExplorerPresentedCommand?
@@ -112,9 +113,11 @@ struct RepoExplorerWorktreeRowContent: View {
                     icon: .octicon(name: "octicon-git-branch", loader: octiconLoader),
                     text: branchName
                 )
-                if RepoExplorerWorktreeStatusPresentation.showsPendingIndicatorInMetadataLine(
-                    branchStatus
-                ) {
+                if showsRepositoryFactStatus,
+                    RepoExplorerWorktreeStatusPresentation.showsPendingIndicatorInMetadataLine(
+                        branchStatus
+                    )
+                {
                     SidebarPendingPullRequestIndicator()
                 }
             }
@@ -128,10 +131,12 @@ struct RepoExplorerWorktreeRowContent: View {
 
             if hasStatusMetadata {
                 SidebarStatusChipRow(
-                    isPendingPullRequestFacts:
-                        RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(branchStatus)
+                    isPendingPullRequestFacts: showsRepositoryFactStatus
+                        && RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(branchStatus)
                 ) {
-                    if SidebarGitStatusChips.hasContent(branchStatus: branchStatus) {
+                    if showsRepositoryFactStatus,
+                        SidebarGitStatusChips.hasContent(branchStatus: branchStatus)
+                    {
                         SidebarGitStatusChips(branchStatus: branchStatus, octiconLoader: octiconLoader)
                     }
                 }
@@ -163,6 +168,7 @@ package struct RepoExplorerWorktreeRow: View {
     let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
+    var showsRepositoryFactStatus = true
     var bridgeCommandResolution: BridgePaneCommandResolution = .create
     var isFavorite = false
     let commandPresentation: RepoExplorerWorktreeCommandPresentation
@@ -189,6 +195,7 @@ package struct RepoExplorerWorktreeRow: View {
         checkoutIconKind: RepoExplorerCheckoutIconKind,
         iconColor: Color,
         branchStatus: GitBranchStatus,
+        showsRepositoryFactStatus: Bool = true,
         bridgeCommandResolution: BridgePaneCommandResolution = .create,
         isFavorite: Bool = false,
         commandPresentation: RepoExplorerWorktreeCommandPresentation,
@@ -211,6 +218,7 @@ package struct RepoExplorerWorktreeRow: View {
         self.checkoutIconKind = checkoutIconKind
         self.iconColor = iconColor
         self.branchStatus = branchStatus
+        self.showsRepositoryFactStatus = showsRepositoryFactStatus
         self.bridgeCommandResolution = bridgeCommandResolution
         self.isFavorite = isFavorite
         self.commandPresentation = commandPresentation
@@ -243,6 +251,7 @@ package struct RepoExplorerWorktreeRow: View {
                 checkoutIconKind: checkoutIconKind,
                 iconColor: iconColor,
                 branchStatus: branchStatus,
+                showsRepositoryFactStatus: showsRepositoryFactStatus,
                 showsFavoriteControl: favoriteControlVisibility.showsInlineButton,
                 isFavorite: isFavorite,
                 favoriteCommandPresentation: inlineFavorite,

@@ -102,7 +102,17 @@ final class RepoExplorerProjectionInputCapture {
             },
             loadingPullRequestRepoIds: repositoryIDs.filter {
                 repoCache.isPullRequestLoading(forRepository: $0)
-            }
+            },
+            activityHydrationDisposition: coreAtoms.applicationEntityRecency.hydrationDisposition,
+            applicationRecency: coreAtoms.applicationEntityRecency.recentEntities,
+            repositoryFactUpdateProgressByRepoId: Dictionary(
+                uniqueKeysWithValues: repos.compactMap { repository in
+                    repoCache.repositoryFactUpdateProgress(for: repository.id).map {
+                        (repository.id, $0)
+                    }
+                }
+            ),
+            activityReferenceDate: referenceDate
         )
     }
 
@@ -160,7 +170,7 @@ final class RepoExplorerProjectionInputCapture {
     ) -> RepoExplorerScopedCapture? {
         scopedCaptureCount += 1
         switch invalidation {
-        case .structural, .presentation:
+        case .structural, .presentation, .activity:
             return nil
         case .repository(let repositoryID):
             return captureRepositoryChange(repositoryID, previous: previous)
@@ -227,9 +237,14 @@ final class RepoExplorerProjectionInputCapture {
         )
         let repositoryPresentationChanged = previousRepository != updatedRepository
         let repoEnrichmentChanged = previousRepoEnrichment != repoEnrichment[repositoryID]
+        let progressChanged =
+            previous.repositoryFactUpdateProgressByRepoId[repositoryID]
+            != request.repositoryFactUpdateProgressByRepoId[repositoryID]
         let worktreeChanges = Set(
             updatedRepository.worktrees.map { RepoExplorerScopedProjectionChange.worktreeFact($0.id) })
-        let changes = worktreeChanges.union(repositoryPresentationChanged ? [.repo(repositoryID)] : [])
+        let changes = worktreeChanges.union(
+            repositoryPresentationChanged || progressChanged ? [.repo(repositoryID)] : []
+        )
         return RepoExplorerScopedCapture(
             request: request,
             changes: changes,
@@ -276,6 +291,7 @@ final class RepoExplorerProjectionInputCapture {
         }
         var unavailableRepositories = previous.unavailablePullRequestRepoIds
         var loadingRepositories = previous.loadingPullRequestRepoIds
+        var progressByRepositoryID = previous.repositoryFactUpdateProgressByRepoId
         if repoCache.isPullRequestDataUnavailable(forRepository: repositoryID) {
             unavailableRepositories.insert(repositoryID)
         } else {
@@ -286,11 +302,13 @@ final class RepoExplorerProjectionInputCapture {
         } else {
             loadingRepositories.remove(repositoryID)
         }
+        progressByRepositoryID[repositoryID] = repoCache.repositoryFactUpdateProgress(for: repositoryID)
         return previous.replacing(
             worktreeEnrichmentSnapshot: worktreeEnrichment,
             pullRequestFactsSnapshot: pullRequestFacts,
             unavailablePullRequestRepoIds: unavailableRepositories,
-            loadingPullRequestRepoIds: loadingRepositories
+            loadingPullRequestRepoIds: loadingRepositories,
+            repositoryFactUpdateProgressByRepoId: progressByRepositoryID
         )
     }
 

@@ -50,7 +50,24 @@ struct RepoExplorerMaterializedRowView: View {
                 icon: group.icon,
                 repoTitle: group.title,
                 organizationName: group.organizationName,
-                onToggle: { onToggleGroup(group.groupID) }
+                onToggle: { onToggleGroup(group.groupID) },
+                trailingContent: {
+                    if group.presentsRepositoryActivity,
+                        group.repositoryActivityDisposition == .locallyInactive
+                            || RepoExplorerRepositoryUpdatePresentation.keepsActivitySlotVisible(
+                                group.repositoryFactUpdateProgress
+                            ),
+                        group.repoIDs.count == 1,
+                        let repoID = group.repoIDs.first
+                    {
+                        repositoryActivityTrailingContent(
+                            repoID: repoID,
+                            isUpdating: RepoExplorerRepositoryUpdatePresentation.isLoading(
+                                group.repositoryFactUpdateProgress
+                            )
+                        )
+                    }
+                }
             )
             .padding(.top, AppStyles.Shell.Sidebar.nativeGroupHeaderTopPadding)
             .padding(.bottom, AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding)
@@ -98,6 +115,7 @@ struct RepoExplorerMaterializedRowView: View {
                         ?? AppStyles.General.Accent.primaryNSColor
                 ),
                 branchStatus: worktree.branchStatus,
+                showsRepositoryFactStatus: worktree.showsRepositoryFactStatus,
                 bridgeCommandResolution: worktree.bridgeCommandResolution,
                 isFavorite: isFavorite,
                 commandPresentation: commandPresentation,
@@ -159,6 +177,69 @@ struct RepoExplorerMaterializedRowView: View {
         }
     }
 
+    @ViewBuilder
+    private func repositoryActivityTrailingContent(repoID: UUID, isUpdating: Bool) -> some View {
+        let commandPresentation = RepoExplorerRepositoryCommandPresentation.resolve(
+            repoID: repoID,
+            snapshot: commandPresentationSnapshot
+        )
+        let inactivityStatus = ActionSpec(
+            label: "Locally inactive",
+            helpText: "No repository or worktree has been opened in Agent Studio for 60 days",
+            icon: .system(.clock)
+        )
+        HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
+            if isUpdating {
+                HStack(spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Updating")
+                }
+                .font(.system(size: AppStyles.General.Typography.textSm))
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Updating repository facts")
+            } else {
+                HStack(spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+                    inactivityStatus.icon.swiftUIImage(
+                        loader: octiconLoader,
+                        size: AppStyles.General.Icon.compact
+                    )
+                    Text(inactivityStatus.label)
+                }
+                .font(.system(size: AppStyles.General.Typography.textSm))
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(inactivityStatus.helpText)
+                .controlHelp(
+                    inactivityStatus.controlTooltipRenderValue(
+                        provenance: .localAction(rawValue: "repositoryLocallyInactive")
+                    )
+                )
+            }
+
+            if let commandPresentation {
+                let actionSpec = commandPresentation.commandSpec
+                Button {
+                    onCommandRequest(commandPresentation.request)
+                } label: {
+                    actionSpec.icon.swiftUIImage(
+                        loader: octiconLoader,
+                        size: AppStyles.General.Icon.compact
+                    )
+                    .frame(
+                        width: AppStyles.General.Button.compact,
+                        height: AppStyles.General.Button.compact
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(actionSpec.label)
+                .controlHelp(actionSpec.controlTooltipRenderValue())
+                .disabled(!commandPresentation.isEnabled)
+            }
+        }
+    }
+
     private func dispatch(
         _ command: AppCommand,
         surface: AppCommandSurface,
@@ -214,5 +295,15 @@ struct RepoExplorerMaterializedRowView: View {
         case .topologyFault, .unresolved:
             "Repository data unavailable"
         }
+    }
+}
+
+enum RepoExplorerRepositoryUpdatePresentation {
+    static func keepsActivitySlotVisible(_ progress: RepositoryFactUpdateProgress?) -> Bool {
+        progress?.phase == .captured || progress?.isLoading == true
+    }
+
+    static func isLoading(_ progress: RepositoryFactUpdateProgress?) -> Bool {
+        progress?.isLoading == true
     }
 }

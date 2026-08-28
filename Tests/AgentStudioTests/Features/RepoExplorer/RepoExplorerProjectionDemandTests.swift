@@ -2,6 +2,7 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import AppKit
+import Darwin
 import Foundation
 import Observation
 import Testing
@@ -36,6 +37,34 @@ private final class RepoExplorerProjectionExecutionRecorder: @unchecked Sendable
                 storedDeltaExecutionCount += 1
             }
         }
+    }
+}
+
+private actor RepoExplorerRecencyDelayGate {
+    private var waits: [(Duration, Bool, CheckedContinuation<Void, Never>)] = []
+
+    var waitCount: Int { waits.count }
+
+    func wait(duration: Duration, ranOnMainThread: Bool) async {
+        await withCheckedContinuation { continuation in
+            waits.append((duration, ranOnMainThread, continuation))
+        }
+    }
+
+    func releaseNext() -> (Duration, Bool)? {
+        guard !waits.isEmpty else { return nil }
+        let (duration, ranOnMainThread, continuation) = waits.removeFirst()
+        continuation.resume()
+        return (duration, ranOnMainThread)
+    }
+}
+
+@MainActor
+private final class RepoExplorerRecencyDateBox {
+    var value: Date
+
+    init(_ value: Date) {
+        self.value = value
     }
 }
 
@@ -592,6 +621,62 @@ struct RepoExplorerProjectionDemandTests {
         #expect(!registration.requiresRecencyDeadline)
     }
 
+    @MainActor
+    @Test("By Repository activity deadline waits off-main and rejects a stale observation generation")
+    func repositoryActivityDeadlineUsesGenerationCheckedOffMainWait() async throws {
+        let initialDate = Date(timeIntervalSince1970: 100_000)
+        let transitionDate = initialDate.addingTimeInterval(60)
+        let dateBox = RepoExplorerRecencyDateBox(initialDate)
+        let delayGate = RepoExplorerRecencyDelayGate()
+        let adapter = RepoExplorerProjectionAdapter(
+            recencyNow: { dateBox.value },
+            recencyDelay: AsyncDelay { duration in
+                await delayGate.wait(
+                    duration: duration,
+                    ranOnMainThread: pthread_main_np() == 1
+                )
+            }
+        )
+        defer { adapter.stop() }
+        adapter.isDemanded = true
+        adapter.observationRegistration = RepoExplorerObservationRegistration.make(
+            isVisible: true,
+            groupingMode: .repo,
+            repositoryIDs: [UUIDv7.generate()],
+            worktreeIDs: [],
+            paneIDs: [],
+            tabIDs: []
+        )
+        #expect(!adapter.observationRegistration.requiresRecencyDeadline)
+        adapter.observationGeneration = 1
+
+        adapter.scheduleRecencyDeadline(
+            for: repositoryActivityDeadlineResult(transitionAt: transitionDate)
+        )
+        for _ in 0..<300 where await delayGate.waitCount == 0 { await Task.yield() }
+        adapter.observationGeneration = 2
+        dateBox.value = transitionDate
+        let staleWait = try #require(await delayGate.releaseNext())
+        for _ in 0..<100 { await Task.yield() }
+        #expect(staleWait.0 == .seconds(60))
+        #expect(!staleWait.1)
+        #expect(adapter.recencyReferenceDate != transitionDate)
+        #expect(adapter.pendingInvalidation.isEmpty)
+
+        dateBox.value = initialDate
+        adapter.scheduleRecencyDeadline(
+            for: repositoryActivityDeadlineResult(transitionAt: transitionDate)
+        )
+        for _ in 0..<300 where await delayGate.waitCount == 0 { await Task.yield() }
+        dateBox.value = transitionDate
+        let currentWait = try #require(await delayGate.releaseNext())
+        for _ in 0..<300 where adapter.recencyReferenceDate != transitionDate { await Task.yield() }
+        #expect(currentWait.0 == .seconds(60))
+        #expect(!currentWait.1)
+        #expect(adapter.recencyReferenceDate == transitionDate)
+        #expect(adapter.pendingInvalidation.includesActivity)
+    }
+
     @Test("By Pane observes demanded panes but not tab display")
     func byPaneRegistersPaneInputs() {
         let paneID = UUIDv7.generate()
@@ -681,6 +766,31 @@ struct RepoExplorerProjectionDemandTests {
             collapsedGroupIds: [],
             isFiltering: false,
             trigger: .dataRefresh
+        )
+    }
+
+    private func repositoryActivityDeadlineResult(transitionAt: Date) -> RepoExplorerProjectionResult {
+        let empty = RepoExplorerProjectionResult.empty
+        return RepoExplorerProjectionResult(
+            generation: empty.generation,
+            snapshot: empty.snapshot,
+            collapsedGroupIds: empty.collapsedGroupIds,
+            isFiltering: empty.isFiltering,
+            trigger: empty.trigger,
+            projection: empty.projection,
+            rowIndex: empty.rowIndex,
+            materializationSnapshot: empty.materializationSnapshot,
+            workerDuration: empty.workerDuration,
+            projectionDuration: empty.projectionDuration,
+            rowIndexDuration: empty.rowIndexDuration,
+            branchStatusByWorktreeId: empty.branchStatusByWorktreeId,
+            branchNameByWorktreeId: empty.branchNameByWorktreeId,
+            bridgeCommandResolutionByWorktreeId: empty.bridgeCommandResolutionByWorktreeId,
+            paneRowFactsByPaneId: [:],
+            tabGroupFactsByTabId: empty.tabGroupFactsByTabId,
+            repositoryActivityDispositionByRepoId: empty.repositoryActivityDispositionByRepoId,
+            nextRepositoryActivityTransitionAt: transitionAt,
+            semanticBaselineSequence: empty.semanticBaselineSequence
         )
     }
 }

@@ -17,6 +17,7 @@ struct SidebarRootViewDependencies {
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
+    let onRepositoryFactUpdateProgressPresented: @MainActor @Sendable (UUID, UUID) -> Void
 }
 
 final class ShellSplitView: NSSplitView {
@@ -47,7 +48,9 @@ class MainSplitViewController: NSSplitViewController {
                 performanceTraceRecorder: dependencies.performanceTraceRecorder,
                 onRefocusActivePane: dependencies.onRefocusActivePane,
                 onSidebarVisibleWorktreesChanged: dependencies.onSidebarVisibleWorktreesChanged,
-                onPerformanceProofReadback: dependencies.onPerformanceProofReadback
+                onPerformanceProofReadback: dependencies.onPerformanceProofReadback,
+                onRepositoryFactUpdateProgressPresented: dependencies
+                    .onRepositoryFactUpdateProgressPresented
             )
         )
     }
@@ -83,6 +86,7 @@ class MainSplitViewController: NSSplitViewController {
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     private let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
+    private let onRepositoryFactUpdateProgressPresented: @MainActor @Sendable (UUID, UUID) -> Void
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let paneTabRegistersAsCommandHandler: Bool
@@ -121,6 +125,8 @@ class MainSplitViewController: NSSplitViewController {
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void = {},
         onPerformanceProofReadback:
             @escaping @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void = { _ in },
+        onRepositoryFactUpdateProgressPresented:
+            @escaping @MainActor @Sendable (UUID, UUID) -> Void = { _, _ in },
         sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController
             .defaultSidebarRootViewBuilder,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
@@ -144,6 +150,7 @@ class MainSplitViewController: NSSplitViewController {
         self.performanceTraceRecorder = performanceTraceRecorder
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
         self.onPerformanceProofReadback = onPerformanceProofReadback
+        self.onRepositoryFactUpdateProgressPresented = onRepositoryFactUpdateProgressPresented
         self.sidebarRootViewBuilder = sidebarRootViewBuilder
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.paneTabRegistersAsCommandHandler = paneTabRegistersAsCommandHandler
@@ -219,7 +226,8 @@ class MainSplitViewController: NSSplitViewController {
                     paneTabVC?.refocusActivePane()
                 },
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
-                onPerformanceProofReadback: onPerformanceProofReadback
+                onPerformanceProofReadback: onPerformanceProofReadback,
+                onRepositoryFactUpdateProgressPresented: onRepositoryFactUpdateProgressPresented
             )
         )
         let sidebarHosting = NSHostingController(

@@ -27,6 +27,10 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
     /// explicitly — otherwise that transition compares equal and silently skips re-projection.
     let unavailablePullRequestRepoIds: Set<UUID>
     let loadingPullRequestRepoIds: Set<UUID>
+    let activityHydrationDisposition: ApplicationEntityRecencyHydrationDisposition
+    let applicationRecency: [ApplicationEntityRecency]
+    let repositoryFactUpdateProgressByRepoId: [UUID: RepositoryFactUpdateProgress]
+    let activityReferenceDate: Date
 
     init(
         generation: Int,
@@ -39,7 +43,11 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts] = [:],
         tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts] = [:],
         unavailablePullRequestRepoIds: Set<UUID> = [],
-        loadingPullRequestRepoIds: Set<UUID> = []
+        loadingPullRequestRepoIds: Set<UUID> = [],
+        activityHydrationDisposition: ApplicationEntityRecencyHydrationDisposition = .pending,
+        applicationRecency: [ApplicationEntityRecency] = [],
+        repositoryFactUpdateProgressByRepoId: [UUID: RepositoryFactUpdateProgress] = [:],
+        activityReferenceDate: Date = .distantPast
     ) {
         self.generation = generation
         self.snapshot = snapshot
@@ -52,6 +60,10 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         self.tabGroupFactsByTabId = tabGroupFactsByTabId
         self.unavailablePullRequestRepoIds = unavailablePullRequestRepoIds
         self.loadingPullRequestRepoIds = loadingPullRequestRepoIds
+        self.activityHydrationDisposition = activityHydrationDisposition
+        self.applicationRecency = applicationRecency
+        self.repositoryFactUpdateProgressByRepoId = repositoryFactUpdateProgressByRepoId
+        self.activityReferenceDate = activityReferenceDate
     }
 
     func generated(
@@ -69,7 +81,11 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
             paneRowFactsByPaneId: paneRowFactsByPaneId,
             tabGroupFactsByTabId: tabGroupFactsByTabId,
             unavailablePullRequestRepoIds: unavailablePullRequestRepoIds,
-            loadingPullRequestRepoIds: loadingPullRequestRepoIds
+            loadingPullRequestRepoIds: loadingPullRequestRepoIds,
+            activityHydrationDisposition: activityHydrationDisposition,
+            applicationRecency: applicationRecency,
+            repositoryFactUpdateProgressByRepoId: repositoryFactUpdateProgressByRepoId,
+            activityReferenceDate: activityReferenceDate
         )
     }
 
@@ -82,7 +98,11 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]? = nil,
         tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]? = nil,
         unavailablePullRequestRepoIds: Set<UUID>? = nil,
-        loadingPullRequestRepoIds: Set<UUID>? = nil
+        loadingPullRequestRepoIds: Set<UUID>? = nil,
+        activityHydrationDisposition: ApplicationEntityRecencyHydrationDisposition? = nil,
+        applicationRecency: [ApplicationEntityRecency]? = nil,
+        repositoryFactUpdateProgressByRepoId: [UUID: RepositoryFactUpdateProgress]? = nil,
+        activityReferenceDate: Date? = nil
     ) -> Self {
         Self(
             generation: generation,
@@ -96,7 +116,12 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
             tabGroupFactsByTabId: tabGroupFactsByTabId ?? self.tabGroupFactsByTabId,
             unavailablePullRequestRepoIds: unavailablePullRequestRepoIds
                 ?? self.unavailablePullRequestRepoIds,
-            loadingPullRequestRepoIds: loadingPullRequestRepoIds ?? self.loadingPullRequestRepoIds
+            loadingPullRequestRepoIds: loadingPullRequestRepoIds ?? self.loadingPullRequestRepoIds,
+            activityHydrationDisposition: activityHydrationDisposition ?? self.activityHydrationDisposition,
+            applicationRecency: applicationRecency ?? self.applicationRecency,
+            repositoryFactUpdateProgressByRepoId: repositoryFactUpdateProgressByRepoId
+                ?? self.repositoryFactUpdateProgressByRepoId,
+            activityReferenceDate: activityReferenceDate ?? self.activityReferenceDate
         )
     }
 
@@ -117,7 +142,23 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
             previous.pullRequestFactsSnapshot == pullRequestFactsSnapshot
                 && previous.paneRowFactsByPaneId == paneRowFactsByPaneId
                 && previous.tabGroupFactsByTabId == tabGroupFactsByTabId
+                && previous.activityHydrationDisposition == activityHydrationDisposition
+                && previous.applicationRecency == applicationRecency
+                && previous.activityReferenceDate == activityReferenceDate
         else { return nil }
+
+        let changedProgressRepositoryIDs = Set(previous.repositoryFactUpdateProgressByRepoId.keys)
+            .union(repositoryFactUpdateProgressByRepoId.keys)
+            .filter {
+                previous.repositoryFactUpdateProgressByRepoId[$0]
+                    != repositoryFactUpdateProgressByRepoId[$0]
+            }
+        if changedProgressRepositoryIDs.count == 1,
+            let repositoryID = changedProgressRepositoryIDs.first
+        {
+            return .repo(repositoryID)
+        }
+        guard changedProgressRepositoryIDs.isEmpty else { return nil }
 
         if previous.snapshot.repos == snapshot.repos {
             let changedWorktreeIds = Set(previous.worktreeEnrichmentSnapshot.keys)
@@ -180,6 +221,8 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
     let bridgeCommandResolutionByWorktreeId: [UUID: BridgePaneCommandResolution]
     let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
     let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
+    let repositoryActivityDispositionByRepoId: [UUID: RepositoryActivityDisposition]
+    let nextRepositoryActivityTransitionAt: Date?
     let semanticBaselineSequence: UInt64?
 
     static let empty: Self = {
@@ -217,6 +260,8 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
             bridgeCommandResolutionByWorktreeId: [:],
             paneRowFactsByPaneId: [:],
             tabGroupFactsByTabId: [:],
+            repositoryActivityDispositionByRepoId: [:],
+            nextRepositoryActivityTransitionAt: nil,
             semanticBaselineSequence: nil
         )
     }()
@@ -366,13 +411,32 @@ actor RepoExplorerProjectionWorker {
             worktreeEnrichmentByWorktreeId: request.worktreeEnrichmentSnapshot,
             cancellationCheck: { try Task.checkCancellation() }
         )
+        let activity = RepositoryActivityClassifier.classify(
+            RepositoryActivityClassificationInput(
+                hydrationDisposition: request.activityHydrationDisposition,
+                repositories: request.snapshot.repos.map { repository in
+                    RepositoryActivityTopology(
+                        repositoryID: repository.id,
+                        repositoryStableKey: repository.stableKey,
+                        worktreeStableKeysByID: repository.worktreeStableKeysByID
+                    )
+                },
+                openWorktreeIDs: Set(request.snapshot.paneLocationsByWorktreeId.keys),
+                recency: request.applicationRecency,
+                referenceDate: request.activityReferenceDate,
+                inactivityHorizon: AppPolicies.EntityRecency.applicationActivityHorizon
+            )
+        )
+        let branchStatusForPaneProjection = branchStatusByWorktreeId.filter { worktreeID, _ in
+            !activity.locallyInactiveWorktreeIDs.contains(worktreeID)
+        }
         let projectionStart = clock.now
         let projection = try RepoExplorerProjection.projectCancellable(
             request.snapshot,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
             branchNameByWorktreeId: branchNameByWorktreeId,
-            branchStatusByWorktreeId: branchStatusByWorktreeId,
+            branchStatusByWorktreeId: branchStatusForPaneProjection,
             cancellationCheck: { try Task.checkCancellation() }
         )
         let projectionDuration = projectionStart.duration(to: clock.now)
@@ -398,7 +462,9 @@ actor RepoExplorerProjectionWorker {
                 branchStatusByWorktreeID: branchStatusByWorktreeId,
                 branchNameByWorktreeID: branchNameByWorktreeId,
                 bridgeCommandResolutionByWorktreeID: bridgeCommandResolutionByWorktreeId,
-                paneRowFactsByPaneID: request.paneRowFactsByPaneId
+                paneRowFactsByPaneID: request.paneRowFactsByPaneId,
+                repositoryActivityDispositionByRepoID: activity.dispositionByRepositoryID,
+                repositoryFactUpdateProgressByRepoID: request.repositoryFactUpdateProgressByRepoId
             )
         )
         try Task.checkCancellation()
@@ -419,6 +485,8 @@ actor RepoExplorerProjectionWorker {
             bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
+            repositoryActivityDispositionByRepoId: activity.dispositionByRepositoryID,
+            nextRepositoryActivityTransitionAt: activity.nextTransitionAt,
             semanticBaselineSequence: nil
         )
     }
@@ -609,7 +677,9 @@ actor RepoExplorerProjectionWorker {
                 branchStatusByWorktreeID: branchStatuses,
                 branchNameByWorktreeID: branchNames,
                 bridgeCommandResolutionByWorktreeID: bridgeCommandResolutions,
-                paneRowFactsByPaneID: request.paneRowFactsByPaneId
+                paneRowFactsByPaneID: request.paneRowFactsByPaneId,
+                repositoryActivityDispositionByRepoID: previous.repositoryActivityDispositionByRepoId,
+                repositoryFactUpdateProgressByRepoID: request.repositoryFactUpdateProgressByRepoId
             )
         )
         return RepoExplorerProjectionResult(
@@ -629,6 +699,8 @@ actor RepoExplorerProjectionWorker {
             bridgeCommandResolutionByWorktreeId: bridgeCommandResolutions,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
+            repositoryActivityDispositionByRepoId: previous.repositoryActivityDispositionByRepoId,
+            nextRepositoryActivityTransitionAt: previous.nextRepositoryActivityTransitionAt,
             semanticBaselineSequence: nil
         )
     }
@@ -806,7 +878,9 @@ actor RepoExplorerProjectionWorker {
                 branchStatusByWorktreeID: previous.branchStatusByWorktreeId,
                 branchNameByWorktreeID: previous.branchNameByWorktreeId,
                 bridgeCommandResolutionByWorktreeID: previous.bridgeCommandResolutionByWorktreeId,
-                paneRowFactsByPaneID: request.paneRowFactsByPaneId
+                paneRowFactsByPaneID: request.paneRowFactsByPaneId,
+                repositoryActivityDispositionByRepoID: previous.repositoryActivityDispositionByRepoId,
+                repositoryFactUpdateProgressByRepoID: request.repositoryFactUpdateProgressByRepoId
             )
         )
         return RepoExplorerProjectionResult(
@@ -826,6 +900,8 @@ actor RepoExplorerProjectionWorker {
             bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
+            repositoryActivityDispositionByRepoId: previous.repositoryActivityDispositionByRepoId,
+            nextRepositoryActivityTransitionAt: previous.nextRepositoryActivityTransitionAt,
             semanticBaselineSequence: nil
         )
     }
@@ -850,6 +926,8 @@ extension RepoExplorerProjectionResult {
             bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId,
             paneRowFactsByPaneId: paneRowFactsByPaneId,
             tabGroupFactsByTabId: tabGroupFactsByTabId,
+            repositoryActivityDispositionByRepoId: repositoryActivityDispositionByRepoId,
+            nextRepositoryActivityTransitionAt: nextRepositoryActivityTransitionAt,
             semanticBaselineSequence: semanticBaselineSequence
         )
     }

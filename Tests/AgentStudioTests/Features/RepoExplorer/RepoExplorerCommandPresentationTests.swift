@@ -8,6 +8,28 @@ import Testing
 @MainActor
 @Suite("Repo Explorer command presentation")
 struct RepoExplorerCommandPresentationTests {
+    @Test("captured repository updates reserve the control slot without claiming loading")
+    func capturedRepositoryUpdateDoesNotClaimLoading() {
+        let repoID = UUIDv7.generate()
+        let captured = RepositoryFactUpdateProgress.captured(
+            repoId: repoID,
+            attemptId: UUIDv7.generate()
+        )
+        let inProgress = RepositoryFactUpdateProgress.admitted(
+            repoId: repoID,
+            attemptId: UUIDv7.generate(),
+            applicableSources: [.localGit],
+            terminalResultsBySource: [:]
+        )
+        let settled = inProgress.settled([.localGit: .completed])
+
+        #expect(RepoExplorerRepositoryUpdatePresentation.keepsActivitySlotVisible(captured))
+        #expect(!RepoExplorerRepositoryUpdatePresentation.isLoading(captured))
+        #expect(RepoExplorerRepositoryUpdatePresentation.isLoading(inProgress))
+        #expect(!RepoExplorerRepositoryUpdatePresentation.keepsActivitySlotVisible(settled))
+        #expect(!RepoExplorerRepositoryUpdatePresentation.isLoading(settled))
+    }
+
     @Test("typed presentation requests keep grouping and sort choices distinct")
     func typedPresentationRequestsKeepArgumentChoicesDistinct() {
         let groupingRepo = RepoExplorerCommandPresentationRequest(
@@ -55,6 +77,29 @@ struct RepoExplorerCommandPresentationTests {
         #expect(requests.allSatisfy { $0.target != nil })
     }
 
+    @Test("repository update presentation uses one exact targeted command request")
+    func repositoryUpdatePresentationUsesExactTarget() {
+        let repoID = UUIDv7.generate()
+        let request = RepoExplorerRepositoryCommandPresentation.request(repoID: repoID)
+        let disabledSnapshot = RepoExplorerCommandPresentationSnapshot(
+            generation: 1,
+            results: [request: false]
+        )
+
+        let presentation = RepoExplorerRepositoryCommandPresentation.resolve(
+            repoID: repoID,
+            snapshot: disabledSnapshot
+        )
+
+        #expect(request.command == .updateRepositoryFacts)
+        #expect(request.surface == .inlineControl)
+        #expect(request.target == repoID)
+        #expect(request.targetType == .repo)
+        #expect(presentation?.commandSpec.label == "Update Repository")
+        #expect(presentation?.commandSpec.helpText == "Update local Git, remote references, and pull request facts")
+        #expect(presentation?.isEnabled == false)
+    }
+
     @Test("immutable snapshot distinguishes absent disabled and enabled presentation")
     func immutableSnapshotDistinguishesPresentationStates() {
         let worktreeId = UUID()
@@ -100,7 +145,8 @@ struct RepoExplorerCommandPresentationTests {
                 materializationGeneration: 4,
                 visibleRevision: 7
             ),
-            worktreeIDs: [worktreeID]
+            worktreeIDs: [worktreeID],
+            repositoryIDs: []
         )
         let retargeted = RepoExplorerVisibleWorktreeSnapshot(
             target: RepoExplorerCommandPresentationTarget(
@@ -108,7 +154,8 @@ struct RepoExplorerCommandPresentationTests {
                 materializationGeneration: 4,
                 visibleRevision: 7
             ),
-            worktreeIDs: [worktreeID]
+            worktreeIDs: [worktreeID],
+            repositoryIDs: []
         )
 
         #expect(first != retargeted)

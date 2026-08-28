@@ -252,7 +252,8 @@ final class RepoExplorerTableMaterializer: NSObject,
         if priorVisibleGeneration != candidate.visibleGeneration {
             advanceVisibleTarget(
                 materializationGeneration: candidate.visibleGeneration,
-                worktreeIDs: priorVisibleSnapshot.worktreeIDs
+                worktreeIDs: priorVisibleSnapshot.worktreeIDs,
+                repositoryIDs: priorVisibleSnapshot.repositoryIDs
             )
             acceptedCommandPresentationSnapshot = .empty
             acceptedCommandGeneration = 0
@@ -316,7 +317,8 @@ final class RepoExplorerTableMaterializer: NSObject,
         isDemandActive = true
         advanceVisibleTarget(
             materializationGeneration: visibleGeneration,
-            worktreeIDs: currentVisibleSnapshot.worktreeIDs
+            worktreeIDs: currentVisibleSnapshot.worktreeIDs,
+            repositoryIDs: currentVisibleSnapshot.repositoryIDs
         )
         acceptedCommandPresentationSnapshot = .empty
         acceptedCommandGeneration = 0
@@ -634,10 +636,38 @@ final class RepoExplorerTableMaterializer: NSObject,
                 snapshot.rows[safe: rowIndex]?.representedWorktreeID
             }
         )
-        if worktreeIDs != currentVisibleSnapshot.worktreeIDs {
+        let repositoryIDs = Set(
+            representedRowIndexes().compactMap { rowIndex -> UUID? in
+                guard let row = snapshot.rows[safe: rowIndex],
+                    case .groupHeader(let group) = row.presentation,
+                    group.presentsRepositoryActivity,
+                    group.repoIDs.count == 1
+                else { return nil }
+                return group.repoIDs[0]
+            }
+        )
+        let settledUpdateAttemptByRepositoryID = Dictionary(
+            uniqueKeysWithValues: representedRowIndexes().compactMap { rowIndex -> (UUID, UUID)? in
+                guard let row = snapshot.rows[safe: rowIndex],
+                    case .groupHeader(let group) = row.presentation,
+                    group.presentsRepositoryActivity,
+                    let progress = group.repositoryFactUpdateProgress,
+                    progress.phase == .settled,
+                    group.repoIDs == [progress.repoId]
+                else { return nil }
+                return (progress.repoId, progress.attemptId)
+            }
+        )
+        if worktreeIDs != currentVisibleSnapshot.worktreeIDs
+            || repositoryIDs != currentVisibleSnapshot.repositoryIDs
+            || settledUpdateAttemptByRepositoryID
+                != currentVisibleSnapshot.settledUpdateAttemptByRepositoryID
+        {
             advanceVisibleTarget(
                 materializationGeneration: visibleGeneration ?? 0,
-                worktreeIDs: worktreeIDs
+                worktreeIDs: worktreeIDs,
+                repositoryIDs: repositoryIDs,
+                settledUpdateAttemptByRepositoryID: settledUpdateAttemptByRepositoryID
             )
         }
         guard lastPublishedVisibleSnapshot != currentVisibleSnapshot else { return }
@@ -646,14 +676,22 @@ final class RepoExplorerTableMaterializer: NSObject,
     }
 
     private func clearViewportDemand() {
-        guard !currentVisibleSnapshot.worktreeIDs.isEmpty else { return }
+        guard
+            !currentVisibleSnapshot.worktreeIDs.isEmpty
+                || !currentVisibleSnapshot.repositoryIDs.isEmpty
+                || !currentVisibleSnapshot.settledUpdateAttemptByRepositoryID.isEmpty
+        else {
+            return
+        }
         publishClearedViewportDemand()
     }
 
     private func publishClearedViewportDemand() {
         advanceVisibleTarget(
             materializationGeneration: visibleGeneration ?? 0,
-            worktreeIDs: []
+            worktreeIDs: [],
+            repositoryIDs: [],
+            settledUpdateAttemptByRepositoryID: [:]
         )
         lastPublishedVisibleSnapshot = currentVisibleSnapshot
         onVisibleWorktreeSnapshotChange(currentVisibleSnapshot)
@@ -661,7 +699,9 @@ final class RepoExplorerTableMaterializer: NSObject,
 
     private func advanceVisibleTarget(
         materializationGeneration: UInt64,
-        worktreeIDs: Set<UUID>
+        worktreeIDs: Set<UUID>,
+        repositoryIDs: Set<UUID> = [],
+        settledUpdateAttemptByRepositoryID: [UUID: UUID] = [:]
     ) {
         visibleRevision &+= 1
         currentVisibleSnapshot = RepoExplorerVisibleWorktreeSnapshot(
@@ -670,7 +710,9 @@ final class RepoExplorerTableMaterializer: NSObject,
                 materializationGeneration: materializationGeneration,
                 visibleRevision: visibleRevision
             ),
-            worktreeIDs: worktreeIDs
+            worktreeIDs: worktreeIDs,
+            repositoryIDs: repositoryIDs,
+            settledUpdateAttemptByRepositoryID: settledUpdateAttemptByRepositoryID
         )
     }
 

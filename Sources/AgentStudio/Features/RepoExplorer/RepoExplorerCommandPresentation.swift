@@ -59,13 +59,19 @@ package struct RepoExplorerCommandPresentationTarget: Equatable, Sendable {
 package struct RepoExplorerVisibleWorktreeSnapshot: Equatable, Sendable {
     package let target: RepoExplorerCommandPresentationTarget
     package let worktreeIDs: Set<UUID>
+    package let repositoryIDs: Set<UUID>
+    package let settledUpdateAttemptByRepositoryID: [UUID: UUID]
 
     package init(
         target: RepoExplorerCommandPresentationTarget,
-        worktreeIDs: Set<UUID>
+        worktreeIDs: Set<UUID>,
+        repositoryIDs: Set<UUID> = [],
+        settledUpdateAttemptByRepositoryID: [UUID: UUID] = [:]
     ) {
         self.target = target
         self.worktreeIDs = worktreeIDs
+        self.repositoryIDs = repositoryIDs
+        self.settledUpdateAttemptByRepositoryID = settledUpdateAttemptByRepositoryID
     }
 }
 
@@ -117,10 +123,10 @@ struct RepoExplorerTableInteractions {
     let onFocusPane: (UUID) -> Void
 }
 
-struct RepoExplorerPresentedCommand {
-    let request: RepoExplorerCommandPresentationRequest
-    let commandSpec: AppCommandSpec
-    let isEnabled: Bool
+package struct RepoExplorerPresentedCommand {
+    package let request: RepoExplorerCommandPresentationRequest
+    package let commandSpec: AppCommandSpec
+    package let isEnabled: Bool
 
     var command: AppCommand {
         commandSpec.command
@@ -137,6 +143,28 @@ enum RepoExplorerCommandPresentation {
             request: request,
             commandSpec: request.command.definition,
             isEnabled: isEnabled
+        )
+    }
+}
+
+package struct RepoExplorerRepositoryCommandPresentation {
+    package static func request(repoID: UUID) -> RepoExplorerCommandPresentationRequest {
+        RepoExplorerCommandPresentationRequest(
+            command: .updateRepositoryFacts,
+            surface: .inlineControl,
+            target: repoID,
+            targetType: .repo,
+            arguments: .noArguments
+        )
+    }
+
+    package static func resolve(
+        repoID: UUID,
+        snapshot: RepoExplorerCommandPresentationSnapshot
+    ) -> RepoExplorerPresentedCommand? {
+        RepoExplorerCommandPresentation.presentedCommand(
+            for: request(repoID: repoID),
+            snapshot: snapshot
         )
     }
 }

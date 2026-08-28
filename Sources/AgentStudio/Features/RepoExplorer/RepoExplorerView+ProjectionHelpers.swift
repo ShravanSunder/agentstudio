@@ -16,6 +16,10 @@ struct RepoExplorerProjectionRequestKey: Equatable {
     /// compare equal and silently skip re-projection.
     let unavailablePullRequestRepoIds: Set<UUID>
     let loadingPullRequestRepoIds: Set<UUID>
+    let activityHydrationDisposition: ApplicationEntityRecencyHydrationDisposition
+    let applicationRecency: [ApplicationEntityRecency]
+    let repositoryFactUpdateProgressByRepoId: [UUID: RepositoryFactUpdateProgress]
+    let activityReferenceDate: Date
 }
 
 extension RepoExplorerView {
@@ -58,7 +62,11 @@ extension RepoExplorerView {
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
             unavailablePullRequestRepoIds: request.unavailablePullRequestRepoIds,
-            loadingPullRequestRepoIds: request.loadingPullRequestRepoIds
+            loadingPullRequestRepoIds: request.loadingPullRequestRepoIds,
+            activityHydrationDisposition: request.activityHydrationDisposition,
+            applicationRecency: request.applicationRecency,
+            repositoryFactUpdateProgressByRepoId: request.repositoryFactUpdateProgressByRepoId,
+            activityReferenceDate: request.activityReferenceDate
         )
     }
 

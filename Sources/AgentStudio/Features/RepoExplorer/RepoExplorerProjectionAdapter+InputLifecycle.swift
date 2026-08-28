@@ -10,6 +10,7 @@ struct RepoExplorerPendingInvalidation {
     var paneIDs = Set<UUID>()
     var tabIDs = Set<UUID>()
     var includesAttention = false
+    var includesActivity = false
 
     var isEmpty: Bool {
         !requiresStructuralCapture
@@ -19,6 +20,7 @@ struct RepoExplorerPendingInvalidation {
             && paneIDs.isEmpty
             && tabIDs.isEmpty
             && !includesAttention
+            && !includesActivity
     }
 
     mutating func insert(_ invalidation: RepoExplorerInputInvalidation) {
@@ -37,6 +39,8 @@ struct RepoExplorerPendingInvalidation {
             tabIDs.insert(tabID)
         case .attention:
             includesAttention = true
+        case .activity:
+            includesActivity = true
         }
     }
 }
@@ -155,6 +159,11 @@ extension RepoExplorerProjectionAdapter {
         }
         if pending.requiresPresentationCapture {
             capturePresentationProjection()
+            return
+        }
+        if pending.includesActivity {
+            recencyReferenceDate = recencyNow()
+            captureFullProjection(force: false)
             return
         }
         guard var request = cachedProjectionRequest else {
@@ -291,7 +300,7 @@ extension RepoExplorerProjectionAdapter {
     func scheduleRecencyDeadline(for result: RepoExplorerProjectionResult) {
         recencyDeadlineTask?.cancel()
         recencyDeadlineTask = nil
-        guard isDemanded, observationRegistration.requiresRecencyDeadline else { return }
+        guard isDemanded else { return }
 
         let now = recencyNow()
         let nextDatesByPaneID = result.paneRowFactsByPaneId.mapValues { facts in
@@ -300,25 +309,49 @@ extension RepoExplorerProjectionAdapter {
                 now: now
             )
         }
-        guard let nextDeadline = nextDatesByPaneID.values.min() else { return }
+        let nextPaneDeadline =
+            observationRegistration.requiresRecencyDeadline
+            ? nextDatesByPaneID.values.min()
+            : nil
+        guard
+            let nextDeadline = [nextPaneDeadline, result.nextRepositoryActivityTransitionAt]
+                .compactMap(\.self).min()
+        else { return }
         let deadlinePaneIDs = Set(
             nextDatesByPaneID.compactMap { paneID, deadline in deadline == nextDeadline ? paneID : nil }
         )
         let delayNanoseconds = Int64(max(0, nextDeadline.timeIntervalSince(now)) * 1_000_000_000)
-        recencyDeadlineTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+        let generation = observationGeneration
+        let delay = recencyDelay
+        recencyDeadlineTask = Task { [weak self] in
             do {
-                try await recencyDelay.wait(.nanoseconds(delayNanoseconds))
+                try await Self.waitForRecencyDeadline(
+                    delay: delay,
+                    duration: .nanoseconds(delayNanoseconds)
+                )
             } catch {
                 return
             }
-            guard !Task.isCancelled, isDemanded else { return }
-            recencyReferenceDate = recencyNow()
-            for paneID in deadlinePaneIDs {
-                pendingInvalidation.insert(.pane(paneID))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, self.isDemanded, self.observationGeneration == generation else { return }
+                self.recencyReferenceDate = self.recencyNow()
+                if result.nextRepositoryActivityTransitionAt == nextDeadline {
+                    self.pendingInvalidation.insert(.activity)
+                }
+                for paneID in deadlinePaneIDs {
+                    self.pendingInvalidation.insert(.pane(paneID))
+                }
+                self.enqueuePendingInvalidationTurn()
             }
-            enqueuePendingInvalidationTurn()
         }
+    }
+
+    @concurrent nonisolated private static func waitForRecencyDeadline(
+        delay: AsyncDelay,
+        duration: Duration
+    ) async throws {
+        try await delay.wait(duration)
     }
 
     private func enqueuePendingInvalidationTurn() {

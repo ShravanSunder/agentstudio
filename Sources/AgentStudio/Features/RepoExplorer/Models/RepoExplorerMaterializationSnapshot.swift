@@ -13,6 +13,9 @@ struct RepoExplorerMaterializedGroupHeaderPresentation: Equatable, Sendable {
     let repoIDs: [UUID]
     let semanticRepoPath: URL?
     let paneDestinations: [RepoExplorerPaneDestination]
+    var presentsRepositoryActivity = false
+    var repositoryActivityDisposition: RepositoryActivityDisposition = .unclassified
+    var repositoryFactUpdateProgress: RepositoryFactUpdateProgress?
 }
 
 struct RepoExplorerMaterializedWorktreePresentation: Equatable, Sendable {
@@ -28,6 +31,7 @@ struct RepoExplorerMaterializedWorktreePresentation: Equatable, Sendable {
     let branchName: String
     let bridgeCommandResolution: BridgePaneCommandResolution
     let paneDestinations: [RepoExplorerPaneDestination]
+    var showsRepositoryFactStatus = true
 
     /// Equality covers only values consumed by the materialized row. The full
     /// source models are retained for rendering actions, but dormant metadata
@@ -50,6 +54,7 @@ struct RepoExplorerMaterializedWorktreePresentation: Equatable, Sendable {
             && lhs.branchName == rhs.branchName
             && lhs.bridgeCommandResolution == rhs.bridgeCommandResolution
             && lhs.paneDestinations == rhs.paneDestinations
+            && lhs.showsRepositoryFactStatus == rhs.showsRepositoryFactStatus
     }
 }
 
@@ -292,6 +297,28 @@ struct RepoExplorerMaterializationInputs: Sendable {
     let branchNameByWorktreeID: [UUID: String]
     let bridgeCommandResolutionByWorktreeID: [UUID: BridgePaneCommandResolution]
     let paneRowFactsByPaneID: [UUID: RepoExplorerPaneRowFacts]
+    let repositoryActivityDispositionByRepoID: [UUID: RepositoryActivityDisposition]
+    let repositoryFactUpdateProgressByRepoID: [UUID: RepositoryFactUpdateProgress]
+
+    init(
+        snapshot: RepoExplorerSnapshot,
+        projection: RepoExplorerSidebarProjection,
+        branchStatusByWorktreeID: [UUID: GitBranchStatus],
+        branchNameByWorktreeID: [UUID: String],
+        bridgeCommandResolutionByWorktreeID: [UUID: BridgePaneCommandResolution],
+        paneRowFactsByPaneID: [UUID: RepoExplorerPaneRowFacts],
+        repositoryActivityDispositionByRepoID: [UUID: RepositoryActivityDisposition] = [:],
+        repositoryFactUpdateProgressByRepoID: [UUID: RepositoryFactUpdateProgress] = [:]
+    ) {
+        self.snapshot = snapshot
+        self.projection = projection
+        self.branchStatusByWorktreeID = branchStatusByWorktreeID
+        self.branchNameByWorktreeID = branchNameByWorktreeID
+        self.bridgeCommandResolutionByWorktreeID = bridgeCommandResolutionByWorktreeID
+        self.paneRowFactsByPaneID = paneRowFactsByPaneID
+        self.repositoryActivityDispositionByRepoID = repositoryActivityDispositionByRepoID
+        self.repositoryFactUpdateProgressByRepoID = repositoryFactUpdateProgressByRepoID
+    }
 }
 
 struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
@@ -335,6 +362,15 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
 
     func row(id: RepoExplorerRowID) -> RepoExplorerMaterializedRow? {
         rowIndexByID[id].map { rows[$0] }
+    }
+
+    func groupHeader(repoID: UUID) -> RepoExplorerMaterializedGroupHeaderPresentation? {
+        rows.lazy.compactMap { row in
+            guard case .groupHeader(let group) = row.presentation,
+                group.repoIDs == [repoID]
+            else { return nil }
+            return group
+        }.first
     }
 
     static func build(
@@ -391,24 +427,7 @@ extension RepoExplorerMaterializationSnapshot {
                 isStatusUnavailable: isStatusUnavailable
             )
         case .resolvedGroupHeader(let group):
-            let semanticRepo = semanticRepo(for: group, groupingMode: inputs.snapshot.groupingMode)
-            let paneDestinations =
-                inputs.snapshot.groupingMode != .tab && group.repos.count == 1
-                ? inputs.projection.paneDestinationsByRepoId[group.repos[0].id] ?? []
-                : []
-            return .groupHeader(
-                RepoExplorerMaterializedGroupHeaderPresentation(
-                    groupID: group.id,
-                    icon: inputs.snapshot.groupingMode == .tab ? .tabGroup : .repo,
-                    title: group.repoTitle,
-                    organizationName: group.organizationName,
-                    colorHex: RepoPresentationColoring.sourceGroupColorHex(for: group),
-                    isExpanded: rowIndex.isGroupExpanded(group.id),
-                    repoIDs: group.repos.map(\.id),
-                    semanticRepoPath: semanticRepo?.repoPath,
-                    paneDestinations: paneDestinations
-                )
-            )
+            return groupHeaderPresentation(group, rowIndex: rowIndex, inputs: inputs)
         case .resolvedWorktreeRow(let groupID, let repoID, let worktreeID, let rowID):
             guard
                 let context = rowIndex.resolve(
@@ -432,7 +451,9 @@ extension RepoExplorerMaterializationSnapshot {
                     branchName: inputs.branchNameByWorktreeID[worktreeID] ?? "detached HEAD",
                     bridgeCommandResolution: inputs.bridgeCommandResolutionByWorktreeID[worktreeID]
                         ?? .create,
-                    paneDestinations: inputs.projection.paneDestinationsByWorktreeId[worktreeID] ?? []
+                    paneDestinations: inputs.projection.paneDestinationsByWorktreeId[worktreeID] ?? [],
+                    showsRepositoryFactStatus:
+                        inputs.repositoryActivityDispositionByRepoID[repoID] != .locallyInactive
                 )
             )
         case .resolvedPaneRow(let groupID, let identity, let rowID):
@@ -463,6 +484,39 @@ extension RepoExplorerMaterializationSnapshot {
         case .topologyFault(let fault):
             return .topologyFault(fault)
         }
+    }
+
+    private static func groupHeaderPresentation(
+        _ group: RepoPresentationGroup,
+        rowIndex: RepoExplorerRowIndex,
+        inputs: RepoExplorerMaterializationInputs
+    ) -> RepoExplorerMaterializedRowPresentation {
+        let semanticRepo = semanticRepo(for: group, groupingMode: inputs.snapshot.groupingMode)
+        let activityRepo = inputs.snapshot.groupingMode == .repo ? semanticRepo : nil
+        let paneDestinations =
+            inputs.snapshot.groupingMode != .tab && group.repos.count == 1
+            ? inputs.projection.paneDestinationsByRepoId[group.repos[0].id] ?? []
+            : []
+        return .groupHeader(
+            RepoExplorerMaterializedGroupHeaderPresentation(
+                groupID: group.id,
+                icon: inputs.snapshot.groupingMode == .tab ? .tabGroup : .repo,
+                title: group.repoTitle,
+                organizationName: group.organizationName,
+                colorHex: RepoPresentationColoring.sourceGroupColorHex(for: group),
+                isExpanded: rowIndex.isGroupExpanded(group.id),
+                repoIDs: group.repos.map(\.id),
+                semanticRepoPath: semanticRepo?.repoPath,
+                paneDestinations: paneDestinations,
+                presentsRepositoryActivity: activityRepo != nil,
+                repositoryActivityDisposition: activityRepo.map {
+                    inputs.repositoryActivityDispositionByRepoID[$0.id] ?? .unclassified
+                } ?? .unclassified,
+                repositoryFactUpdateProgress: activityRepo.flatMap {
+                    inputs.repositoryFactUpdateProgressByRepoID[$0.id]
+                }
+            )
+        )
     }
 
     private static func representedIdentities(

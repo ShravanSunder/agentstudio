@@ -8,6 +8,42 @@ import Testing
 
 @Suite("RepoExplorerMaterializationSnapshotTests")
 struct RepoExplorerMaterializationSnapshotTests {
+    @Test("cold status suppression preserves worktree geometry and identity")
+    func coldStatusSuppressionPreservesWorktreeGeometryAndIdentity() throws {
+        let repoID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let base = try RepoExplorerProjectionWorker.project(
+            makeRepoRequest(repoID: repoID, worktreeID: worktreeID)
+        )
+        let warmPresentation = try #require(
+            base.materializationSnapshot.rows.compactMap { row -> RepoExplorerMaterializedWorktreePresentation? in
+                guard case .worktree(let worktree) = row.presentation else { return nil }
+                return worktree
+            }.first
+        )
+        let coldPresentation = RepoExplorerMaterializedWorktreePresentation(
+            rowID: warmPresentation.rowID,
+            groupID: warmPresentation.groupID,
+            repo: warmPresentation.repo,
+            worktree: warmPresentation.worktree,
+            checkoutTitle: warmPresentation.checkoutTitle,
+            isMainCheckout: warmPresentation.isMainCheckout,
+            checkoutColorHex: warmPresentation.checkoutColorHex,
+            placementText: warmPresentation.placementText,
+            branchStatus: warmPresentation.branchStatus,
+            branchName: warmPresentation.branchName,
+            bridgeCommandResolution: warmPresentation.bridgeCommandResolution,
+            paneDestinations: warmPresentation.paneDestinations,
+            showsRepositoryFactStatus: false
+        )
+
+        #expect(warmPresentation.showsRepositoryFactStatus)
+        #expect(!coldPresentation.showsRepositoryFactStatus)
+        #expect(
+            RepoExplorerRowLayout.make(for: .worktree(warmPresentation))
+                == RepoExplorerRowLayout.make(for: .worktree(coldPresentation))
+        )
+    }
     @Test("worker stores ordered rows with O(1) identity and occurrence indexes")
     func workerStoresOrderedRowsAndOccurrenceIndexes() throws {
         let repoID = UUIDv7.generate()
@@ -48,6 +84,11 @@ struct RepoExplorerMaterializationSnapshotTests {
         let worktreeID = UUIDv7.generate()
         let request = makeRepoRequest(repoID: repoID, worktreeID: worktreeID)
         let result = try RepoExplorerProjectionWorker.project(request)
+        let updateAttemptID = UUIDv7.generate()
+        let settledProgress = RepositoryFactUpdateProgress.captured(
+            repoId: repoID,
+            attemptId: updateAttemptID
+        ).settled([:])
         let repoGroup = try #require(
             result.materializationSnapshot.rows.compactMap { row -> RepoExplorerMaterializedGroupHeaderPresentation? in
                 guard case .groupHeader(let group) = row.presentation else { return nil }
@@ -68,7 +109,9 @@ struct RepoExplorerMaterializationSnapshotTests {
                 branchStatusByWorktreeID: result.branchStatusByWorktreeId,
                 branchNameByWorktreeID: result.branchNameByWorktreeId,
                 bridgeCommandResolutionByWorktreeID: result.bridgeCommandResolutionByWorktreeId,
-                paneRowFactsByPaneID: result.paneRowFactsByPaneId
+                paneRowFactsByPaneID: result.paneRowFactsByPaneId,
+                repositoryActivityDispositionByRepoID: [repoID: .locallyInactive],
+                repositoryFactUpdateProgressByRepoID: [repoID: settledProgress]
             )
         )
         let tabGroup = try #require(
@@ -77,9 +120,41 @@ struct RepoExplorerMaterializationSnapshotTests {
                 return group
             }.first
         )
+        let paneSnapshot = RepoExplorerSnapshot(
+            repos: request.snapshot.repos,
+            repoEnrichmentByRepoId: request.snapshot.repoEnrichmentSnapshotByRepoId,
+            groupingMode: .pane,
+            query: request.snapshot.query
+        )
+        let paneMaterialization = RepoExplorerMaterializationSnapshot.build(
+            rowIndex: result.rowIndex,
+            inputs: RepoExplorerMaterializationInputs(
+                snapshot: paneSnapshot,
+                projection: result.projection,
+                branchStatusByWorktreeID: result.branchStatusByWorktreeId,
+                branchNameByWorktreeID: result.branchNameByWorktreeId,
+                bridgeCommandResolutionByWorktreeID: result.bridgeCommandResolutionByWorktreeId,
+                paneRowFactsByPaneID: result.paneRowFactsByPaneId,
+                repositoryActivityDispositionByRepoID: [repoID: .locallyInactive],
+                repositoryFactUpdateProgressByRepoID: [repoID: settledProgress]
+            )
+        )
+        let paneGroup = try #require(
+            paneMaterialization.rows.compactMap { row -> RepoExplorerMaterializedGroupHeaderPresentation? in
+                guard case .groupHeader(let group) = row.presentation else { return nil }
+                return group
+            }.first
+        )
 
         #expect(repoGroup.icon == .repo)
+        #expect(repoGroup.presentsRepositoryActivity)
         #expect(tabGroup.icon == .tabGroup)
+        #expect(!tabGroup.presentsRepositoryActivity)
+        #expect(tabGroup.repositoryActivityDisposition == .unclassified)
+        #expect(tabGroup.repositoryFactUpdateProgress == nil)
+        #expect(!paneGroup.presentsRepositoryActivity)
+        #expect(paneGroup.repositoryActivityDisposition == .unclassified)
+        #expect(paneGroup.repositoryFactUpdateProgress == nil)
     }
 
     @Test("every grouping mode materializes group and child rows on the shared native grid")

@@ -40,6 +40,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void = {},
         onPerformanceProofReadback:
             @escaping @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void = { _ in },
+        onRepositoryFactUpdateProgressPresented:
+            @escaping @MainActor @Sendable (UUID, UUID) -> Void = { _, _ in },
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
         let window = NSWindow(
@@ -106,6 +108,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             performanceTraceRecorder: performanceTraceRecorder,
             onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
             onPerformanceProofReadback: onPerformanceProofReadback,
+            onRepositoryFactUpdateProgressPresented: onRepositoryFactUpdateProgressPresented,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         self.splitViewController = splitVC

@@ -251,6 +251,16 @@ extension AppDelegate: ShellCommandHandling {
         }
     }
 
+    func acknowledgePresentedRepositoryFactUpdate(repoId: UUID, attemptId: UUID) {
+        guard
+            repositoryFactUpdateTasksByRepoId[repoId] == nil,
+            let progress = repoCache?.repositoryFactUpdateProgress(for: repoId),
+            progress.attemptId == attemptId,
+            progress.phase == .settled
+        else { return }
+        repoCache.removeRepositoryFactUpdateProgress(for: repoId)
+    }
+
     private func executeRepositoryFactUpdate(repoId: UUID, targetType: SearchItemType) -> Bool {
         guard
             canExecute(.updateRepositoryFacts, target: repoId, targetType: targetType),
@@ -291,14 +301,19 @@ extension AppDelegate: ShellCommandHandling {
                 applicableSources: admission.acceptedSources,
                 terminalResultsBySource: admission.terminalResultsBySource
             )
-            self?.repoCache.setRepositoryFactUpdateProgress(admittedProgress)
+            if !admission.acceptedSources.isEmpty {
+                self?.repoCache.setRepositoryFactUpdateProgress(admittedProgress)
+            }
             let outcomesBySource = await admission.settlement()
-            if self?.isCurrentRepositoryFactUpdate(repoId: repoId, attemptId: attemptId) == true {
-                self?.repoCache.setRepositoryFactUpdateProgress(
+            guard let self else { return }
+            if self.isCurrentRepositoryFactUpdate(repoId: repoId, attemptId: attemptId) {
+                self.finishRepositoryFactUpdateTask(repoId: repoId, attemptId: attemptId)
+                self.repoCache.setRepositoryFactUpdateProgress(
                     admittedProgress.settled(outcomesBySource)
                 )
+                return
             }
-            self?.finishRepositoryFactUpdateTask(repoId: repoId, attemptId: attemptId)
+            self.finishRepositoryFactUpdateTask(repoId: repoId, attemptId: attemptId)
         }
         return true
     }

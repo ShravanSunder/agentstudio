@@ -114,6 +114,9 @@ extension AppDelegate {
             onPerformanceProofReadback: { [weak self] readback in
                 self?.receiveSidebarPerformanceProofReadback(readback)
             },
+            onRepositoryFactUpdateProgressPresented: { [weak self] repoID, attemptID in
+                self?.acknowledgePresentedRepositoryFactUpdate(repoId: repoID, attemptId: attemptID)
+            },
             closeTransitionCoordinator: dependencies.closeTransitionCoordinator
         )
         workspaceSurfaceCoordinator.bindBridgePaneActivities(

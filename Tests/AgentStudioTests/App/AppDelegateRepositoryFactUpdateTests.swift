@@ -163,6 +163,62 @@ struct AppDelegateRepositoryFactUpdateTests {
         #expect(progress.applicableSources.isEmpty)
         #expect(progress.unsettledSources.isEmpty)
         #expect(!progress.isLoading)
+        #expect(fixture.delegate.repositoryFactUpdateTasksByRepoId[fixture.repository.id] == nil)
+
+        fixture.delegate.acknowledgePresentedRepositoryFactUpdate(
+            repoId: fixture.repository.id,
+            attemptId: progress.attemptId
+        )
+        #expect(
+            fixture.delegate.repoCache.repositoryFactUpdateProgress(for: fixture.repository.id)
+                == nil
+        )
+    }
+
+    @Test("presentation acknowledgement clears only the exact settled attempt after task custody ends")
+    func presentationAcknowledgementValidatesAttemptPhaseAndTaskCustody() async {
+        let fixture = makeFixture(admissions: [:])
+        let repoID = fixture.repository.id
+        let settledAttemptID = UUIDv7.generate()
+        let newerAttemptID = UUIDv7.generate()
+        let settledProgress = RepositoryFactUpdateProgress.captured(
+            repoId: repoID,
+            attemptId: settledAttemptID
+        ).settled([:])
+
+        fixture.delegate.repoCache.setRepositoryFactUpdateProgress(settledProgress)
+        fixture.delegate.repositoryFactUpdateTasksByRepoId[repoID] = Task {}
+        fixture.delegate.acknowledgePresentedRepositoryFactUpdate(
+            repoId: repoID,
+            attemptId: settledAttemptID
+        )
+        #expect(fixture.delegate.repoCache.repositoryFactUpdateProgress(for: repoID) == settledProgress)
+
+        fixture.delegate.repositoryFactUpdateTasksByRepoId.removeValue(forKey: repoID)
+        fixture.delegate.repoCache.setRepositoryFactUpdateProgress(
+            .captured(repoId: repoID, attemptId: newerAttemptID)
+        )
+        fixture.delegate.acknowledgePresentedRepositoryFactUpdate(
+            repoId: repoID,
+            attemptId: settledAttemptID
+        )
+        #expect(
+            fixture.delegate.repoCache.repositoryFactUpdateProgress(for: repoID)?.attemptId
+                == newerAttemptID
+        )
+
+        fixture.delegate.repoCache.setRepositoryFactUpdateProgress(settledProgress)
+        fixture.delegate.acknowledgePresentedRepositoryFactUpdate(
+            repoId: repoID,
+            attemptId: settledAttemptID
+        )
+        #expect(fixture.delegate.repoCache.repositoryFactUpdateProgress(for: repoID) == nil)
+
+        fixture.delegate.acknowledgePresentedRepositoryFactUpdate(
+            repoId: repoID,
+            attemptId: settledAttemptID
+        )
+        #expect(fixture.delegate.repoCache.repositoryFactUpdateProgress(for: repoID) == nil)
     }
 
     @Test("repository removal clears progress and rejects late settlement")

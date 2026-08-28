@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AgentStudioInfrastructure
 import AppKit
 import Testing
@@ -7,6 +8,143 @@ import Testing
 @MainActor
 @Suite("Repo Explorer table materializer", .serialized)
 struct RepoExplorerTableMaterializerTests {
+    @Test("represented By Repo settlement publishes exact receipt without moving its anchor")
+    func representedByRepoSettlementPublishesExactReceiptWithoutMovingAnchor() async throws {
+        let repoID = UUIDv7.generate()
+        let attemptID = UUIDv7.generate()
+        let capturedProgress = RepositoryFactUpdateProgress.captured(
+            repoId: repoID,
+            attemptId: attemptID
+        )
+        let inactiveSnapshot = repositoryActivityMaterializerSnapshot(
+            repoID: repoID,
+            progress: nil
+        )
+        let capturedSnapshot = repositoryActivityMaterializerSnapshot(
+            repoID: repoID,
+            progress: capturedProgress
+        )
+        let settledSnapshot = repositoryActivityMaterializerSnapshot(
+            repoID: repoID,
+            progress: capturedProgress.settled([:])
+        )
+        let recorder = VisibleWorktreeSnapshotRecorder()
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: recorder.record
+        )
+        let window = makeMaterializerWindow(materializer, height: 20)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+                snapshot: inactiveSnapshot,
+                requestGeneration: 1
+            )
+        ) { _ in }
+        let tableView = try #require((materializer.view as? NSScrollView)?.documentView as? NSTableView)
+        let inactiveRect = tableView.rect(ofRow: 0)
+
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanBaseline(
+                    snapshot: inactiveSnapshot,
+                    revision: 1,
+                    visibleGeneration: 1
+                ),
+                snapshot: capturedSnapshot,
+                requestGeneration: 2
+            )
+        ) { _ in }
+        materializer.scroll(to: .group(groupID: "repo-activity"), offset: -3)
+        await materializer.drainViewportPublication()
+        #expect(recorder.snapshots.last?.settledUpdateAttemptByRepositoryID.isEmpty == true)
+        let capturedRect = tableView.rect(ofRow: 0)
+
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanBaseline(
+                    snapshot: capturedSnapshot,
+                    revision: 2,
+                    visibleGeneration: 2
+                ),
+                snapshot: settledSnapshot,
+                requestGeneration: 3
+            )
+        ) { _ in }
+        await materializer.drainViewportPublication()
+
+        #expect(inactiveRect == capturedRect)
+        #expect(capturedRect == tableView.rect(ofRow: 0))
+        #expect(materializer.currentTopVisibleAnchor?.rowID == .group(groupID: "repo-activity"))
+        #expect(materializer.currentTopVisibleAnchor?.offset == -3)
+        #expect(recorder.snapshots.last?.repositoryIDs == [repoID])
+        #expect(recorder.snapshots.last?.settledUpdateAttemptByRepositoryID == [repoID: attemptID])
+    }
+
+    @Test("nonrepresented and non-Repo headers publish no repository control or settlement receipt")
+    func hiddenAndNonRepoHeadersPublishNoRepositoryControlOrSettlementReceipt() async throws {
+        let repoID = UUIDv7.generate()
+        let attemptID = UUIDv7.generate()
+        let settledProgress = RepositoryFactUpdateProgress.captured(
+            repoId: repoID,
+            attemptId: attemptID
+        ).settled([:])
+        let hiddenHeader = repositoryActivityMaterializerSnapshot(
+            repoID: repoID,
+            progress: settledProgress
+        ).rows[0]
+        let representedRows = nativePlanSnapshot(["A", "B", "C", "D"]).rows
+        let hiddenSnapshot = RepoExplorerMaterializationSnapshot(
+            rows: representedRows + [hiddenHeader]
+        )
+        let nonRepoSnapshot = repositoryActivityMaterializerSnapshot(
+            repoID: repoID,
+            presentsRepositoryActivity: false,
+            progress: settledProgress
+        )
+        let recorder = VisibleWorktreeSnapshotRecorder()
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: recorder.record
+        )
+        let window = makeMaterializerWindow(materializer)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+                snapshot: hiddenSnapshot,
+                requestGeneration: 1
+            )
+        ) { _ in }
+        await materializer.drainViewportPublication()
+        #expect(recorder.snapshots.last?.repositoryIDs.isEmpty == true)
+        #expect(recorder.snapshots.last?.settledUpdateAttemptByRepositoryID.isEmpty == true)
+
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanBaseline(
+                    snapshot: hiddenSnapshot,
+                    revision: 1,
+                    visibleGeneration: 1
+                ),
+                snapshot: nonRepoSnapshot,
+                requestGeneration: 2
+            )
+        ) { _ in }
+        await materializer.drainViewportPublication()
+        #expect(recorder.snapshots.last?.repositoryIDs.isEmpty == true)
+        #expect(recorder.snapshots.last?.settledUpdateAttemptByRepositoryID.isEmpty == true)
+    }
+
     @Test("unrelated application menus do not defer represented rows")
     func unrelatedApplicationMenusDoNotDeferRepresentedRows() throws {
         let snapshot = nativePlanSnapshot(["A", "B"])
@@ -619,6 +757,38 @@ struct RepoExplorerTableMaterializerTests {
                     representedWorktreeID: nil
                 )
             }
+        )
+    }
+
+    private func repositoryActivityMaterializerSnapshot(
+        repoID: UUID,
+        presentsRepositoryActivity: Bool = true,
+        progress: RepositoryFactUpdateProgress?
+    ) -> RepoExplorerMaterializationSnapshot {
+        let group = RepoExplorerMaterializedGroupHeaderPresentation(
+            groupID: "repo-activity",
+            icon: .repo,
+            title: "Repository",
+            organizationName: nil,
+            colorHex: nil,
+            isExpanded: true,
+            repoIDs: [repoID],
+            semanticRepoPath: URL(filePath: "/tmp/repository"),
+            paneDestinations: [],
+            presentsRepositoryActivity: presentsRepositoryActivity,
+            repositoryActivityDisposition: .locallyInactive,
+            repositoryFactUpdateProgress: progress
+        )
+        let presentation = RepoExplorerMaterializedRowPresentation.groupHeader(group)
+        let activityRow = RepoExplorerMaterializedRow(
+            id: .group(groupID: group.groupID),
+            contentRevision: RepoExplorerRowContentRevision(presentation: presentation),
+            layout: RepoExplorerRowLayout.make(for: presentation),
+            representedRepoID: repoID,
+            representedWorktreeID: nil
+        )
+        return RepoExplorerMaterializationSnapshot(
+            rows: [activityRow] + nativePlanSnapshot(["trailing-row"]).rows
         )
     }
 

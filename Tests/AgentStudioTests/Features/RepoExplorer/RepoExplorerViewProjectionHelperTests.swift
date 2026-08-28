@@ -129,6 +129,51 @@ struct RepoExplorerViewProjectionHelperTests {
         installTestCoreAtomsIfNeeded()
     }
 
+    @Test("activity and progress inputs are exhaustive in the admitted request key")
+    func activityAndProgressInputsAreExhaustiveInRequestKey() throws {
+        let repoID = UUIDv7.generate()
+        let attemptID = UUIDv7.generate()
+        let referenceDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let baseline = RepoExplorerProjectionRequest(
+            generation: 0,
+            snapshot: RepoExplorerSnapshot(repos: [], repoEnrichmentByRepoId: [:], query: ""),
+            collapsedGroupIds: [],
+            isFiltering: false,
+            trigger: .startupDiagnostic
+        )
+        let baselineKey = RepoExplorerView.projectionRequestKey(for: baseline)
+        let recency = try ApplicationEntityRecency(
+            entity: .repository(repositoryStableKey: "0123456789abcdef"),
+            interaction: .opened,
+            lastInteractedAt: referenceDate
+        )
+
+        #expect(
+            RepoExplorerView.projectionRequestKey(
+                for: baseline.replacing(activityHydrationDisposition: .authoritative)
+            ) != baselineKey
+        )
+        #expect(
+            RepoExplorerView.projectionRequestKey(
+                for: baseline.replacing(applicationRecency: [recency])
+            ) != baselineKey
+        )
+        #expect(
+            RepoExplorerView.projectionRequestKey(
+                for: baseline.replacing(
+                    repositoryFactUpdateProgressByRepoId: [
+                        repoID: .captured(repoId: repoID, attemptId: attemptID)
+                    ]
+                )
+            ) != baselineKey
+        )
+        #expect(
+            RepoExplorerView.projectionRequestKey(
+                for: baseline.replacing(activityReferenceDate: referenceDate)
+            ) != baselineKey
+        )
+    }
+
     @Test("pane title keeps activity titles and falls back to the shell for path-shaped titles")
     func paneSecondaryTextUsesShortFallbackVocabulary() {
         #expect(

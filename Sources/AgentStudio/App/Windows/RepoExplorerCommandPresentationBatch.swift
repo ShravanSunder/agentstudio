@@ -41,6 +41,8 @@ final class RepoExplorerCommandPresentationBatch {
 
     private struct ObservationCapture {
         let visibleWorktreeIDs: Set<UUID>
+        let visibleRepositoryIDs: Set<UUID>
+        let progressByRepositoryID: [UUID: RepositoryFactUpdateProgress]
         let capabilityFactsFingerprint: CapabilityFactsFingerprint
         let requests: Set<RepoExplorerCommandPresentationRequest>
         let favoriteStateByRepositoryID: [UUID: Bool]
@@ -69,6 +71,8 @@ final class RepoExplorerCommandPresentationBatch {
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     @ObservationIgnored private var observationID: UUID?
     @ObservationIgnored private var lastVisibleWorktreeIDs: Set<UUID> = []
+    @ObservationIgnored private var lastVisibleRepositoryIDs: Set<UUID> = []
+    @ObservationIgnored private var lastProgressByRepositoryID: [UUID: RepositoryFactUpdateProgress] = [:]
     @ObservationIgnored private var lastRequests: Set<RepoExplorerCommandPresentationRequest> = []
     @ObservationIgnored private var lastCapabilityFactsFingerprint: CapabilityFactsFingerprint?
     @ObservationIgnored private var currentVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
@@ -90,6 +94,8 @@ final class RepoExplorerCommandPresentationBatch {
         let observationID = UUID()
         self.observationID = observationID
         lastVisibleWorktreeIDs = []
+        lastVisibleRepositoryIDs = []
+        lastProgressByRepositoryID = [:]
         lastRequests = []
         lastCapabilityFactsFingerprint = nil
         currentVisibleSnapshot = nil
@@ -114,12 +120,24 @@ final class RepoExplorerCommandPresentationBatch {
         else { return }
         let capture = withObservationTracking {
             let visibleWorktreeIDs = capturedVisibleSnapshot.worktreeIDs
+            let progressByRepositoryID = Dictionary(
+                uniqueKeysWithValues: capturedVisibleSnapshot.repositoryIDs.compactMap { repositoryID in
+                    atom(\.repoCache).repositoryFactUpdateProgress(for: repositoryID).map {
+                        (repositoryID, $0)
+                    }
+                }
+            )
             return ObservationCapture(
                 visibleWorktreeIDs: visibleWorktreeIDs,
+                visibleRepositoryIDs: capturedVisibleSnapshot.repositoryIDs,
+                progressByRepositoryID: progressByRepositoryID,
                 capabilityFactsFingerprint: observeApprovedCapabilityFacts(
                     visibleWorktreeIDs: visibleWorktreeIDs
                 ),
-                requests: commandPresentationRequests(visibleWorktreeIDs: visibleWorktreeIDs),
+                requests: commandPresentationRequests(
+                    visibleWorktreeIDs: visibleWorktreeIDs,
+                    visibleRepositoryIDs: capturedVisibleSnapshot.repositoryIDs
+                ),
                 favoriteStateByRepositoryID: favoriteStateByRepositoryID(
                     visibleWorktreeIDs: visibleWorktreeIDs
                 )
@@ -156,6 +174,9 @@ final class RepoExplorerCommandPresentationBatch {
                 )
             } ?? survivingVisibleWorktreeIDs
         let retainedResults = snapshot.results.filter { capture.requests.contains($0.key) }
+        let changedProgressRepositoryIDs = Set(lastProgressByRepositoryID.keys)
+            .union(capture.progressByRepositoryID.keys)
+            .filter { lastProgressByRepositoryID[$0] != capture.progressByRepositoryID[$0] }
         let requestsToResolve: Set<RepoExplorerCommandPresentationRequest>
         if snapshot.generation == 0 || !globalCapabilitiesMatch {
             requestsToResolve = capture.requests
@@ -164,6 +185,11 @@ final class RepoExplorerCommandPresentationBatch {
             affectedRequests.formUnion(
                 worktreeCommandPresentationRequests(worktreeIDs: changedWorktreeIDs)
                     .intersection(capture.requests)
+            )
+            affectedRequests.formUnion(
+                changedProgressRepositoryIDs.map { repositoryID in
+                    RepoExplorerRepositoryCommandPresentation.request(repoID: repositoryID)
+                }
             )
             requestsToResolve = affectedRequests
         }
@@ -251,6 +277,14 @@ final class RepoExplorerCommandPresentationBatch {
 
     private func publish(_ resolvedBatch: ResolvedBatch) {
         lastVisibleWorktreeIDs = resolvedBatch.visibleSnapshot.worktreeIDs
+        lastVisibleRepositoryIDs = resolvedBatch.visibleSnapshot.repositoryIDs
+        lastProgressByRepositoryID = Dictionary(
+            uniqueKeysWithValues: resolvedBatch.visibleSnapshot.repositoryIDs.compactMap { repositoryID in
+                atom(\.repoCache).repositoryFactUpdateProgress(for: repositoryID).map {
+                    (repositoryID, $0)
+                }
+            }
+        )
         lastRequests = resolvedBatch.requests
         lastCapabilityFactsFingerprint = resolvedBatch.capabilityFactsFingerprint
         lastResolvedVisibleSnapshot = resolvedBatch.visibleSnapshot
@@ -361,11 +395,17 @@ final class RepoExplorerCommandPresentationBatch {
     }
 
     private func commandPresentationRequests(
-        visibleWorktreeIDs: Set<UUID>
+        visibleWorktreeIDs: Set<UUID>,
+        visibleRepositoryIDs: Set<UUID>
     ) -> Set<RepoExplorerCommandPresentationRequest> {
         let nextSortOrder = repoExplorerPrefs.sortOrder.toggled
         var requests = RepoExplorerToolbarCommandPresentation.requests(
             nextSortOrder: nextSortOrder
+        )
+        requests.formUnion(
+            visibleRepositoryIDs.map { repositoryID in
+                RepoExplorerRepositoryCommandPresentation.request(repoID: repositoryID)
+            }
         )
 
         for worktreeID in visibleWorktreeIDs {

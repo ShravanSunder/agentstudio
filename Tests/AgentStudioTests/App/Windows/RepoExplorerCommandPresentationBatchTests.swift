@@ -10,6 +10,60 @@ import Testing
 @MainActor
 @Suite("Repo Explorer command presentation batch", .serialized)
 struct RepoExplorerCommandPresentationBatchTests {
+    @Test("keyed repository progress re-resolves only the visible update control")
+    func keyedRepositoryProgressReresolvesVisibleUpdateControl() async throws {
+        let handler = RepoExplorerCommandPresentationRecordingHandler()
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = handler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                await withAsyncTestCoreAtoms { coreAtoms in
+                    let store = WorkspaceStore()
+                    let repository = store.addRepo(
+                        at: FileManager.default.temporaryDirectory.appending(
+                            path: "repo-command-progress-\(UUIDv7.generate().uuidString)"
+                        )
+                    )
+                    let request = RepoExplorerRepositoryCommandPresentation.request(
+                        repoID: repository.id
+                    )
+                    let batch = RepoExplorerCommandPresentationBatch(
+                        store: store,
+                        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                        dispatcher: .shared
+                    )
+                    batch.start()
+                    defer { batch.stop() }
+                    batch.acceptVisibleWorktreeSnapshot(
+                        makeVisibleWorktreeSnapshot(
+                            worktreeIDs: [],
+                            repositoryIDs: [repository.id]
+                        )
+                    )
+
+                    _ = await handler.batchArrivals.wait { $0.contains(request) }
+                    #expect(batch.snapshot.results[request] == true)
+                    handler.repoExplorerCapabilityRequestBatches.removeAll()
+                    handler.capabilityResult = false
+                    coreAtoms.repoCache.setRepositoryFactUpdateProgress(
+                        .captured(repoId: repository.id, attemptId: UUIDv7.generate())
+                    )
+
+                    let progressRequests = await handler.batchArrivals.wait { requests in
+                        requests.contains(request) && requests.count == 1
+                    }
+                    #expect(progressRequests == [request])
+                    #expect(batch.snapshot.results[request] == false)
+                    #expect(batch.latestDelta?.affectedRepositoryIDs == [repository.id])
+                    #expect(batch.latestDelta?.affectedWorktreeIDs.isEmpty == true)
+                }
+            }
+        )
+    }
+
     @Test("equal command results retarget to a newer native materialization target")
     func equalCommandResultsRetargetToNewerNativeTarget() async throws {
         await withAsyncTestCoreAtoms { _ in
@@ -605,6 +659,7 @@ private func makeVisibleWorktreeSnapshot(
         rawValue: UUIDv7.generate()
     ),
     worktreeIDs: Set<UUID>,
+    repositoryIDs: Set<UUID> = [],
     materializationGeneration: UInt64 = 1,
     visibleRevision: UInt64 = 1
 ) -> RepoExplorerVisibleWorktreeSnapshot {
@@ -614,7 +669,8 @@ private func makeVisibleWorktreeSnapshot(
             materializationGeneration: materializationGeneration,
             visibleRevision: visibleRevision
         ),
-        worktreeIDs: worktreeIDs
+        worktreeIDs: worktreeIDs,
+        repositoryIDs: repositoryIDs
     )
 }
 
@@ -622,6 +678,7 @@ private func makeVisibleWorktreeSnapshot(
 private final class RepoExplorerCommandPresentationRecordingHandler: WorkspaceCommandHandling {
     let batchArrivals = ExactEventAcknowledgement<Set<RepoExplorerCommandPresentationRequest>>()
     var repoExplorerCapabilityRequestBatches: [Set<RepoExplorerCommandPresentationRequest>] = []
+    var capabilityResult = true
 
     func execute(_: AppCommand) {}
 
@@ -640,6 +697,6 @@ private final class RepoExplorerCommandPresentationRecordingHandler: WorkspaceCo
     ) -> [RepoExplorerCommandPresentationRequest: Bool] {
         repoExplorerCapabilityRequestBatches.append(requests)
         batchArrivals.record(requests)
-        return Dictionary(uniqueKeysWithValues: requests.map { ($0, true) })
+        return Dictionary(uniqueKeysWithValues: requests.map { ($0, capabilityResult) })
     }
 }

@@ -52,6 +52,7 @@ struct SidebarSurfaceHost: View {
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
+    let onRepositoryFactUpdateProgressPresented: @MainActor @Sendable (UUID, UUID) -> Void
     @State private var repoCommandPresentationBatch: RepoExplorerCommandPresentationBatch?
 
     static var surfaceChromePolicy: SidebarSurfaceChromePolicy {
@@ -82,6 +83,9 @@ struct SidebarSurfaceHost: View {
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
                 onVisibleWorktreeSnapshotChanged: { snapshot in
                     repoCommandPresentationBatch?.acceptVisibleWorktreeSnapshot(snapshot)
+                    for (repoID, attemptID) in snapshot.settledUpdateAttemptByRepositoryID {
+                        onRepositoryFactUpdateProgressPresented(repoID, attemptID)
+                    }
                 },
                 onPerformanceProofReadback: onPerformanceProofReadback,
                 latestPaneMessageSnapshot: { paneId in

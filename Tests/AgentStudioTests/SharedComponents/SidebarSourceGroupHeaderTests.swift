@@ -29,6 +29,36 @@ struct SidebarSourceGroupHeaderTests {
         )
     }
 
+    @Test("trailing actions are siblings of the collapse button")
+    func trailingActionsAreOutsideCollapseButton() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarSourceGroupHeader.swift",
+            encoding: .utf8
+        )
+        let body = try #require(source.range(of: "package var body: some View"))
+        let extensionStart = try #require(source.range(of: "extension SidebarSourceGroupHeader"))
+        let bodySource = String(source[body.lowerBound..<extensionStart.lowerBound])
+
+        #expect(bodySource.contains("SidebarSectionHeaderRow(isCollapsed: isCollapsed, onToggle: onToggle)"))
+        #expect(bodySource.contains("} trailingContent: {\n            trailingContent()\n        }"))
+        #expect(!bodySource.contains("Button(action: onToggle)"))
+
+        let rowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarSectionHeader.swift",
+            encoding: .utf8
+        )
+        let rowBody = try #require(rowSource.range(of: "package var body: some View"))
+        let indicator = try #require(rowSource.range(of: "private var collapseIndicator"))
+        let rowBodySource = String(rowSource[rowBody.lowerBound..<indicator.lowerBound])
+        let collapseButton = try #require(rowBodySource.range(of: "Button(action: onToggle)"))
+        let collapseIndicator = try #require(rowBodySource.range(of: "collapseIndicator"))
+        let leadingContent = try #require(rowBodySource.range(of: "content()"))
+        let trailingContent = try #require(rowBodySource.range(of: "trailingContent()"))
+        #expect(collapseButton.lowerBound < collapseIndicator.lowerBound)
+        #expect(collapseIndicator.lowerBound < leadingContent.lowerBound)
+        #expect(leadingContent.lowerBound < trailingContent.lowerBound)
+    }
+
     @Test("app entity icons describe fixed sidebar icon slots")
     func appEntityIconsDescribeFixedSidebarIconSlots() {
         #expect(AppEntityIcon.repo.symbol == .octicon(.repo))

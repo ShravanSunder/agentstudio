@@ -19,7 +19,121 @@ struct RepoExplorerProjectionWorkerTests {
     private enum CancellationProbe: Error {
         case cancelled
     }
+}
 
+extension RepoExplorerProjectionWorkerTests {
+    @Test("authoritative activity classifies inactive and updating repositories off-main")
+    func authoritativeActivityClassifiesInactiveAndUpdatingRepositories() throws {
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let repository = repo(id: repoId, worktreeId: worktreeId, name: "agent-studio")
+        let attemptId = UUIDv7.generate()
+        let inactiveRequest = request(
+            repos: [repository],
+            generation: 1,
+            activityHydrationDisposition: .authoritative,
+            repositoryFactUpdateProgressByRepoId: [:]
+        )
+        let updatingRequest = request(
+            repos: [repository],
+            generation: 2,
+            activityHydrationDisposition: .authoritative,
+            repositoryFactUpdateProgressByRepoId: [
+                repoId: .captured(repoId: repoId, attemptId: attemptId)
+            ]
+        )
+
+        let inactive = try RepoExplorerProjectionWorker.project(inactiveRequest)
+        let updating = try RepoExplorerProjectionWorker.project(updatingRequest)
+
+        #expect(inactive.repositoryActivityDispositionByRepoId[repoId] == .locallyInactive)
+        #expect(updating.repositoryActivityDispositionByRepoId[repoId] == .locallyInactive)
+        let inactiveHeader = try #require(inactive.materializationSnapshot.groupHeader(repoID: repoId))
+        let updatingHeader = try #require(updating.materializationSnapshot.groupHeader(repoID: repoId))
+        #expect(inactiveHeader.repositoryActivityDisposition == .locallyInactive)
+        #expect(inactiveHeader.repositoryFactUpdateProgress == nil)
+        #expect(updatingHeader.repositoryFactUpdateProgress?.phase == .captured)
+        #expect(inactiveHeader.groupID == updatingHeader.groupID)
+        #expect(
+            inactive.materializationSnapshot.rowIDsByRepoID[repoId]
+                == updating.materializationSnapshot.rowIDsByRepoID[repoId]
+        )
+        #expect(
+            inactive.materializationSnapshot.fallbackContentHeight
+                == updating.materializationSnapshot.fallbackContentHeight)
+    }
+
+    @Test("pre-hydration activity remains unclassified and never claims local inactivity")
+    func preHydrationActivityRemainsUnclassified() throws {
+        let repoId = UUIDv7.generate()
+        let result = try RepoExplorerProjectionWorker.project(
+            request(
+                repos: [repo(id: repoId, name: "agent-studio")],
+                generation: 1,
+                activityHydrationDisposition: .pending
+            )
+        )
+
+        #expect(result.repositoryActivityDispositionByRepoId[repoId] == .unclassified)
+        #expect(
+            result.materializationSnapshot.groupHeader(repoID: repoId)?.repositoryActivityDisposition == .unclassified)
+    }
+
+    @Test("warm repository publishes its exact activity cutoff and reclassifies after it")
+    func warmRepositoryPublishesCutoffAndReclassifiesAfterIt() throws {
+        let repositoryWithoutStableKeys = repo(id: UUIDv7.generate(), name: "agent-studio")
+        let worktree = repositoryWithoutStableKeys.worktrees[0]
+        let repository = RepoPresentationItem(
+            id: repositoryWithoutStableKeys.id,
+            name: repositoryWithoutStableKeys.name,
+            repoPath: repositoryWithoutStableKeys.repoPath,
+            stableKey: repositoryWithoutStableKeys.stableKey,
+            worktrees: [worktree],
+            worktreeStableKeysByID: [worktree.id: worktree.stableKey]
+        )
+        let referenceDate = Date(timeIntervalSince1970: 10_000_000)
+        let openedAt = referenceDate.addingTimeInterval(
+            -AppPolicies.EntityRecency.applicationActivityHorizon
+        )
+        let recency = try ApplicationEntityRecency(
+            entity: .worktree(worktreeStableKey: worktree.stableKey),
+            interaction: .opened,
+            lastInteractedAt: openedAt
+        )
+        let expiration = openedAt.addingTimeInterval(
+            AppPolicies.EntityRecency.applicationActivityHorizon
+        )
+        let transition = Date(
+            timeIntervalSinceReferenceDate: expiration.timeIntervalSinceReferenceDate.nextUp
+        )
+
+        let warm = try RepoExplorerProjectionWorker.project(
+            request(
+                repos: [repository],
+                generation: 1,
+                activityHydrationDisposition: .authoritative,
+                applicationRecency: [recency],
+                activityReferenceDate: referenceDate
+            )
+        )
+        let inactive = try RepoExplorerProjectionWorker.project(
+            request(
+                repos: [repository],
+                generation: 2,
+                activityHydrationDisposition: .authoritative,
+                applicationRecency: [recency],
+                activityReferenceDate: transition
+            )
+        )
+
+        #expect(warm.repositoryActivityDispositionByRepoId[repository.id] == .warm)
+        #expect(warm.nextRepositoryActivityTransitionAt == transition)
+        #expect(inactive.repositoryActivityDispositionByRepoId[repository.id] == .locallyInactive)
+        #expect(inactive.nextRepositoryActivityTransitionAt == nil)
+    }
+}
+
+extension RepoExplorerProjectionWorkerTests {
     @Test("one rendered repo favorite change is classified as a scoped row delta")
     func renderedRepoFavoriteChangeIsScoped() {
         let repoId = UUID()
@@ -785,7 +899,11 @@ struct RepoExplorerProjectionWorkerTests {
         bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:],
         paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:],
         unavailablePullRequestRepoIds: Set<UUID> = [],
-        loadingPullRequestRepoIds: Set<UUID> = []
+        loadingPullRequestRepoIds: Set<UUID> = [],
+        activityHydrationDisposition: ApplicationEntityRecencyHydrationDisposition = .pending,
+        applicationRecency: [ApplicationEntityRecency] = [],
+        repositoryFactUpdateProgressByRepoId: [UUID: RepositoryFactUpdateProgress] = [:],
+        activityReferenceDate: Date = Date(timeIntervalSince1970: 10_000_000)
     ) -> RepoExplorerProjectionRequest {
         RepoExplorerProjectionRequest(
             generation: generation,
@@ -827,7 +945,11 @@ struct RepoExplorerProjectionWorkerTests {
                 }
             ),
             unavailablePullRequestRepoIds: unavailablePullRequestRepoIds,
-            loadingPullRequestRepoIds: loadingPullRequestRepoIds
+            loadingPullRequestRepoIds: loadingPullRequestRepoIds,
+            activityHydrationDisposition: activityHydrationDisposition,
+            applicationRecency: applicationRecency,
+            repositoryFactUpdateProgressByRepoId: repositoryFactUpdateProgressByRepoId,
+            activityReferenceDate: activityReferenceDate
         )
     }
 
