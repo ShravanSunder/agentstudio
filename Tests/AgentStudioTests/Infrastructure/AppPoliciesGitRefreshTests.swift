@@ -34,6 +34,10 @@ struct AppPoliciesGitRefreshTests {
         #expect(AppPolicies.GitRefresh.filesystemDerivedCoalescingWindow == .milliseconds(500))
         #expect(AppPolicies.GitRefresh.visibilityChangeCoalescingWindow == .milliseconds(200))
         #expect(
+            AppPolicies.FilesystemIngress.maximumRetainedActivityOverflowParticipantScopes
+                == 256
+        )
+        #expect(
             RepoScanner.AgentStudioGitRepositoryDiscoveryProvider.defaultTimeout
                 == AppPolicies.GitRefresh.defaultDiscoveryReadTimeout
         )

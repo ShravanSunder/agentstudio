@@ -459,6 +459,53 @@ struct DarwinFSEventStreamClientTests {
         ingressBuffer.finish()
     }
 
+    @Test("activity overflow scope churn collapses to bounded coverage loss")
+    func activityOverflowScopeChurnCollapsesToBoundedCoverageLoss() {
+        let ingressBuffer = DarwinFSEventIngressBuffer(
+            capacity: 1,
+            maximumRetainedActivityOverflowParticipantScopes: 1
+        )
+        let retainedWorktreeId = UUIDv7.generate()
+        let firstLostWorktreeId = UUIDv7.generate()
+        let secondLostWorktreeId = UUIDv7.generate()
+        ingressBuffer.yield(
+            FSEventBatch(worktreeId: retainedWorktreeId, paths: ["retained"])
+        )
+        ingressBuffer.yieldActivityObservations(
+            FSEventActivityObservationBatch(
+                participant: FSEventParticipant(
+                    scopeKey: "shared:first",
+                    generation: 1,
+                    volumeIdentifier: "1"
+                ),
+                processedThroughEventID: 10,
+                participantWorktreeIds: [firstLostWorktreeId],
+                qualifyingWorktreeIds: [],
+                coverageLostWorktreeIds: []
+            )
+        )
+        ingressBuffer.yieldActivityObservations(
+            FSEventActivityObservationBatch(
+                participant: FSEventParticipant(
+                    scopeKey: "shared:second",
+                    generation: 1,
+                    volumeIdentifier: "1"
+                ),
+                processedThroughEventID: 11,
+                participantWorktreeIds: [secondLostWorktreeId],
+                qualifyingWorktreeIds: [],
+                coverageLostWorktreeIds: []
+            )
+        )
+
+        #expect(ingressBuffer.consumeActivityOverflowRecoveries().isEmpty)
+        #expect(
+            ingressBuffer.consumeCoarseActivityOverflowWorktreeIds()
+                == [firstLostWorktreeId, secondLostWorktreeId]
+        )
+        ingressBuffer.finish()
+    }
+
     @Test("overflow debt coalesces per affected worktree and stays isolated")
     func overflowDebtCoalescesPerAffectedWorktree() {
         let ingressBuffer = DarwinFSEventIngressBuffer(capacity: 1)

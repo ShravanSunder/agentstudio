@@ -33,7 +33,7 @@ struct DarwinSharedExactItemAncestorRecheckSnapshot: Equatable, Sendable {
 }
 
 struct DarwinSharedExactItemReceiveEffects {
-    let participant: FSEventParticipant
+    let activityObservationBatch: FSEventActivityObservationBatch
     let mutationEventsByWorktreeId: [UUID: [DarwinFSEventClassifiedRawEvent]]
     let uncertainWorktreeIds: Set<UUID>
     let exactSubscriberWorktreeIds: Set<UUID>
@@ -43,25 +43,37 @@ struct DarwinSharedExactItemReceiveEffects {
 }
 
 extension DarwinSharedExactItemObserverRegistry {
+    static func makeActivityObservationBatch(
+        parentKey: DarwinSharedExactItemParentKey,
+        streamGeneration: UInt64,
+        rawEvents: [DarwinSharedExactItemRawEvent],
+        participantWorktreeIds: Set<UUID>,
+        qualifyingWorktreeIds: Set<UUID>,
+        coverageLostWorktreeIds: Set<UUID>
+    ) -> FSEventActivityObservationBatch {
+        let processedThroughEventID = rawEvents.map(\.eventId).max() ?? 0
+        return FSEventActivityObservationBatch(
+            participant: FSEventParticipant(
+                scopeKey: "shared:\(parentKey.volumeSystemNumber):\(parentKey.parentPath)",
+                generation: streamGeneration,
+                volumeIdentifier: String(parentKey.volumeSystemNumber)
+            ),
+            processedThroughEventID: UInt64(processedThroughEventID),
+            participantWorktreeIds: participantWorktreeIds,
+            qualifyingWorktreeIds: qualifyingWorktreeIds,
+            coverageLostWorktreeIds: coverageLostWorktreeIds
+        )
+    }
+
     func emitReceiveEffects(_ effects: DarwinSharedExactItemReceiveEffects) {
         performanceAccumulator.recordSharedFanout(
             exactSubscriberCount: effects.exactSubscriberWorktreeIds.count,
             uncertaintySubscriberCount: effects.uncertainWorktreeIds.count,
             fullRefreshEmissionCount: effects.fullGitRefreshWorktreeIds.count
         )
+        yieldActivityObservations(effects.activityObservationBatch)
         for worktreeId in effects.mutationEventsByWorktreeId.keys.sorted(by: Self.sortWorktreeIds) {
             guard let events = effects.mutationEventsByWorktreeId[worktreeId] else { continue }
-            yieldObservations(
-                worktreeId,
-                effects.participant,
-                events.map { event in
-                    FSEventObservation(
-                        path: event.path,
-                        eventID: UInt64(event.eventId),
-                        flags: UInt32(event.flags)
-                    )
-                }
-            )
             recordRawEvents(worktreeId, events)
         }
         for worktreeId in effects.uncertainWorktreeIds.sorted(by: Self.sortWorktreeIds) {

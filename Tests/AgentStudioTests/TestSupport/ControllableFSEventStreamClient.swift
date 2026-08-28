@@ -10,6 +10,8 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
     private var continuation: AsyncStream<FSEventIngressItem>.Continuation?
     private var stream: AsyncStream<FSEventIngressItem>?
     private var overflowRecoveryByWorktreeId: [UUID: FSEventOverflowRecovery] = [:]
+    private var activityOverflowRecoveryByParticipant: [FSEventParticipant: FSEventActivityOverflowRecovery] = [:]
+    private var acknowledgedActivityProcessingFenceIds: [FSEventActivityProcessingFenceID] = []
 
     package init() {
         let (stream, continuation) = AsyncStream<FSEventIngressItem>.makeStream(
@@ -27,6 +29,10 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
         lock.withLock { unregisteredIds }
     }
 
+    package var acknowledgedActivityProcessingFenceIDs: [FSEventActivityProcessingFenceID] {
+        lock.withLock { acknowledgedActivityProcessingFenceIds }
+    }
+
     package func events() -> AsyncStream<FSEventIngressItem> {
         lock.withLock { stream! }
     }
@@ -36,6 +42,18 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
             defer { overflowRecoveryByWorktreeId.removeAll(keepingCapacity: true) }
             return overflowRecoveryByWorktreeId.values.sorted {
                 $0.worktreeId.uuidString < $1.worktreeId.uuidString
+            }
+        }
+    }
+
+    package func consumeActivityOverflowRecoveries() -> [FSEventActivityOverflowRecovery] {
+        lock.withLock {
+            defer { activityOverflowRecoveryByParticipant.removeAll(keepingCapacity: true) }
+            return activityOverflowRecoveryByParticipant.values.sorted {
+                if $0.participant.scopeKey != $1.participant.scopeKey {
+                    return $0.participant.scopeKey < $1.participant.scopeKey
+                }
+                return $0.participant.generation < $1.participant.generation
             }
         }
     }
@@ -62,6 +80,25 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
         }
     }
 
+    package func sendActivityOverflowRecovery(
+        participant: FSEventParticipant,
+        processedThroughEventID: UInt64,
+        coverageLostWorktreeIds: Set<UUID>
+    ) {
+        lock.withLock {
+            let existing = activityOverflowRecoveryByParticipant[participant]
+            activityOverflowRecoveryByParticipant[participant] = FSEventActivityOverflowRecovery(
+                participant: participant,
+                processedThroughEventID: max(
+                    existing?.processedThroughEventID ?? 0,
+                    processedThroughEventID
+                ),
+                coverageLostWorktreeIds: (existing?.coverageLostWorktreeIds ?? [])
+                    .union(coverageLostWorktreeIds)
+            )
+        }
+    }
+
     package func register(worktreeId: UUID, repoId: UUID, rootPath: URL) {
         lock.withLock { registeredIds.append(worktreeId) }
     }
@@ -74,7 +111,17 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
         continuation?.finish()
     }
 
+    package func acknowledgeActivityProcessingFence(
+        _ fenceID: FSEventActivityProcessingFenceID
+    ) {
+        lock.withLock { acknowledgedActivityProcessingFenceIds.append(fenceID) }
+    }
+
     package func send(_ batch: FSEventBatch) {
         continuation?.yield(.batch(batch))
+    }
+
+    package func sendActivityProcessingFence(_ fenceID: FSEventActivityProcessingFenceID) {
+        continuation?.yield(.activityProcessingFence(fenceID))
     }
 }

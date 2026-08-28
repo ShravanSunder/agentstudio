@@ -2,12 +2,20 @@ import Foundation
 
 package struct FilesystemProjectionTopologyEntry: Sendable, Equatable {
     package let repoId: UUID
+    package let repositoryStableKey: String
     package let worktreeId: UUID
     package let rootPath: URL
     package let isUnavailable: Bool
 
-    package init(repoId: UUID, worktreeId: UUID, rootPath: URL, isUnavailable: Bool) {
+    package init(
+        repoId: UUID,
+        repositoryStableKey: String,
+        worktreeId: UUID,
+        rootPath: URL,
+        isUnavailable: Bool
+    ) {
         self.repoId = repoId
+        self.repositoryStableKey = repositoryStableKey
         self.worktreeId = worktreeId
         self.rootPath = rootPath
         self.isUnavailable = isUnavailable
@@ -113,6 +121,7 @@ package struct FilesystemSourceSyncDiff: Sendable, Equatable {
 
     package let requestGeneration: UInt64
     package let contextsByWorktreeId: [UUID: WorktreeFilesystemContext]
+    package let repositoryStableKeysByWorktreeId: [UUID: String]
     package let unregisterWorktreeIds: [UUID]
     package let registerWorktrees: [Registration]
     package let activityUpdates: [ActivityUpdate]
@@ -127,6 +136,7 @@ package struct FilesystemSourceSyncDiff: Sendable, Equatable {
     package init(
         requestGeneration: UInt64,
         contextsByWorktreeId: [UUID: WorktreeFilesystemContext],
+        repositoryStableKeysByWorktreeId: [UUID: String],
         unregisterWorktreeIds: [UUID],
         registerWorktrees: [Registration],
         activityUpdates: [ActivityUpdate],
@@ -140,6 +150,7 @@ package struct FilesystemSourceSyncDiff: Sendable, Equatable {
     ) {
         self.requestGeneration = requestGeneration
         self.contextsByWorktreeId = contextsByWorktreeId
+        self.repositoryStableKeysByWorktreeId = repositoryStableKeysByWorktreeId
         self.unregisterWorktreeIds = unregisterWorktreeIds
         self.registerWorktrees = registerWorktrees
         self.activityUpdates = activityUpdates

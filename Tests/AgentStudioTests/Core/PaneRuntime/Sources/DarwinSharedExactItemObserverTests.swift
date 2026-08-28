@@ -8,6 +8,35 @@ import Testing
 
 @Suite("DarwinSharedExactItemObserver", .serialized)
 struct DarwinSharedExactItemObserverTests {
+    @Test("activity barrier rejects shared binding topology changes")
+    func activityBarrierRejectsSharedBindingTopologyChanges() throws {
+        let parentKey = makeSharedParentKey("activity-barrier-topology")
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+        let fixture = makeSharedExactItemFixture()
+        #expect(
+            bind(
+                fixture.registry,
+                worktreeId: firstWorktreeId,
+                parentKey: parentKey,
+                itemName: "config"
+            )
+        )
+        let snapshot = try #require(fixture.registry.captureActivityBarrierSnapshot())
+
+        #expect(
+            bind(
+                fixture.registry,
+                worktreeId: secondWorktreeId,
+                parentKey: parentKey,
+                itemName: "ignore"
+            )
+        )
+
+        #expect(!fixture.registry.activityBarrierIsCurrent(snapshot))
+        fixture.registry.shutdown()
+    }
+
     @Test("shared exact observer routes hits selectively after unrelated misses")
     func sharedExactObserverRoutesOnlyExactSubscribers() throws {
         let parentKey = makeSharedParentKey()
@@ -280,15 +309,18 @@ struct DarwinSharedExactItemObserverTests {
     }
 
     @Test("shared exact observer uses one parent stream for 148 dependent plans")
-    func sharedExactObserverContractsSharedParentTopology() {
+    func sharedExactObserverContractsSharedParentTopology() throws {
         let parentKey = makeSharedParentKey()
         let fixture = makeSharedExactItemFixture()
+        var worktreeIds: Set<UUID> = []
 
         for _ in 0..<148 {
+            let worktreeId = UUIDv7.generate()
+            worktreeIds.insert(worktreeId)
             #expect(
                 bind(
                     fixture.registry,
-                    worktreeId: UUIDv7.generate(),
+                    worktreeId: worktreeId,
                     parentKey: parentKey,
                     itemName: "configuration"
                 )
@@ -300,6 +332,23 @@ struct DarwinSharedExactItemObserverTests {
         #expect(snapshot.bindingCount == 148)
         #expect(snapshot.referenceCountByParent[parentKey] == 148)
         #expect(fixture.streamFactory.startCount == 1)
+        let generation = try #require(snapshot.generationByParent[parentKey])
+        receive(
+            fixture.registry,
+            parentKey: parentKey,
+            streamGeneration: generation,
+            path: "\(parentKey.parentPath)/unrelated",
+            eventId: 41
+        )
+        #expect(fixture.effectRecorder.activityObservationBatches.count == 1)
+        #expect(
+            fixture.effectRecorder.activityObservationBatches.first?.participantWorktreeIds
+                == worktreeIds
+        )
+        #expect(
+            fixture.effectRecorder.activityObservationBatches.first?.qualifyingWorktreeIds.isEmpty
+                == true
+        )
         fixture.registry.shutdown()
         #expect(fixture.streamFactory.retirementCount == 1)
     }
@@ -492,26 +541,21 @@ struct DarwinSharedExactItemObserverTests {
         )
 
         // Assert
+        let activityBatch = try #require(fixture.effectRecorder.activityObservationBatches.first)
+        #expect(activityBatch.processedThroughEventID == 51)
         #expect(
-            fixture.effectRecorder.observationsByWorktreeId[worktreeId]
-                == [
-                    FSEventObservation(
-                        path: exactPath,
-                        eventID: 51,
-                        flags: UInt32(flags)
-                    )
-                ]
-        )
-        #expect(
-            fixture.effectRecorder.participantByWorktreeId[worktreeId]
+            activityBatch.participant
                 == FSEventParticipant(
                     scopeKey: "shared:1:\(parentKey.parentPath)",
                     generation: streamGeneration,
                     volumeIdentifier: "1"
                 )
         )
+        #expect(activityBatch.participantWorktreeIds == [worktreeId])
+        #expect(activityBatch.qualifyingWorktreeIds.isEmpty)
+        #expect(activityBatch.coverageLostWorktreeIds.isEmpty)
         let barrier = try #require(fixture.registry.captureActivityBarrier())
-        let participant = try #require(fixture.effectRecorder.participantByWorktreeId[worktreeId])
+        let participant = activityBatch.participant
         #expect(barrier.deliveredEventIDByParticipant[participant] == 51)
         #expect(
             barrier.bindings
@@ -630,7 +674,7 @@ struct DarwinSharedExactItemObserverTests {
             recordRawEvents: effectRecorder.recordRawEvents,
             markUncertain: effectRecorder.markUncertain,
             yieldFullGitRefresh: effectRecorder.yieldFullGitRefresh,
-            yieldObservations: effectRecorder.recordObservations,
+            yieldActivityObservations: effectRecorder.recordActivityObservations,
             performanceAccumulator: performanceAccumulator
         )
     }
@@ -718,8 +762,7 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var recordedActions: [SharedExactItemRecordedAction] = []
     private var recordedFullGitRefreshSources: [DarwinFSEventIngressSource] = []
-    private var recordedObservationsByWorktreeId: [UUID: [FSEventObservation]] = [:]
-    private var recordedParticipantByWorktreeId: [UUID: FSEventParticipant] = [:]
+    private var recordedActivityObservationBatches: [FSEventActivityObservationBatch] = []
 
     var actions: [SharedExactItemRecordedAction] {
         lock.withLock { recordedActions }
@@ -743,12 +786,8 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
         lock.withLock { recordedFullGitRefreshSources }
     }
 
-    var observationsByWorktreeId: [UUID: [FSEventObservation]] {
-        lock.withLock { recordedObservationsByWorktreeId }
-    }
-
-    var participantByWorktreeId: [UUID: FSEventParticipant] {
-        lock.withLock { recordedParticipantByWorktreeId }
+    var activityObservationBatches: [FSEventActivityObservationBatch] {
+        lock.withLock { recordedActivityObservationBatches }
     }
 
     func recordRawEvents(
@@ -779,14 +818,9 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
         }
     }
 
-    func recordObservations(
-        worktreeId: UUID,
-        participant: FSEventParticipant,
-        observations: [FSEventObservation]
-    ) {
+    func recordActivityObservations(_ batch: FSEventActivityObservationBatch) {
         lock.withLock {
-            recordedParticipantByWorktreeId[worktreeId] = participant
-            recordedObservationsByWorktreeId[worktreeId, default: []].append(contentsOf: observations)
+            recordedActivityObservationBatches.append(batch)
         }
     }
 
@@ -794,8 +828,7 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
         lock.withLock {
             recordedActions.removeAll(keepingCapacity: true)
             recordedFullGitRefreshSources.removeAll(keepingCapacity: true)
-            recordedObservationsByWorktreeId.removeAll(keepingCapacity: true)
-            recordedParticipantByWorktreeId.removeAll(keepingCapacity: true)
+            recordedActivityObservationBatches.removeAll(keepingCapacity: true)
         }
     }
 }

@@ -74,14 +74,15 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
 
     private static let defaultLatency: CFTimeInterval = 0.1
 
-    private let lifecycleLock = NSLock()
+    let lifecycleLock = NSLock()
     private var hasShutdown = false
+    var hasStoppedActivityAdmission = false
     private var nextLifecycleGeneration: UInt64 = 0
     private var streamByWorktreeId: [UUID: StreamRegistration] = [:]
     private var latestEventIDByParticipant: [FSEventParticipant: UInt64] = [:]
-    private let ingressBuffer: DarwinFSEventIngressBuffer
+    let ingressBuffer: DarwinFSEventIngressBuffer
     private let continuityLedger: GitCleanContinuityLedger
-    private let sharedExactItemObserverRegistry: DarwinSharedExactItemObserverRegistry
+    let sharedExactItemObserverRegistry: DarwinSharedExactItemObserverRegistry
     private let sharedExactItemFingerprintReader: DarwinSharedExactItemFingerprintReader
     private let ingressPerformanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
 
@@ -142,16 +143,8 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                     source: source
                 )
             },
-            yieldObservations: { worktreeId, participant, observations in
-                ingressBuffer.yield(
-                    FSEventBatch(
-                        worktreeId: worktreeId,
-                        paths: [],
-                        participant: participant,
-                        observations: observations
-                    ),
-                    source: .sharedExact
-                )
+            yieldActivityObservations: { activityBatch in
+                ingressBuffer.yieldActivityObservations(activityBatch)
             },
             performanceAccumulator: ingressPerformanceAccumulator,
             fingerprintReader: sharedExactItemFingerprintReader
@@ -168,12 +161,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
 
     package func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] {
         ingressBuffer.consumeOverflowRecoveries()
-    }
-
-    package func acknowledgeActivityProcessingFence(
-        _ fenceID: FSEventActivityProcessingFenceID
-    ) {
-        ingressBuffer.acknowledgeActivityProcessingFence(fenceID)
     }
 
     package func snapshotAndResetIngressPerformance() -> DarwinFSEventIngressPerformanceSnapshot {
@@ -617,6 +604,9 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         ordinaryPaths: [String]
     ) {
         guard !rawEvents.isEmpty else { return }
+        guard lifecycleLock.withLock({ !hasShutdown && !hasStoppedActivityAdmission }) else {
+            return
+        }
 
         if rawEvents.contains(where: { event in
             event.flags & FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged) != 0
@@ -632,7 +622,9 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
 
         var registrationWasReplaced = false
         let classificationInput = lifecycleLock.withLock {
-            guard !hasShutdown, let registration = streamByWorktreeId[worktreeId] else {
+            guard !hasShutdown, !hasStoppedActivityAdmission,
+                let registration = streamByWorktreeId[worktreeId]
+            else {
                 return Optional<LocalEventClassificationInput>.none
             }
             guard registration.lifecycleGeneration == lifecycleGeneration else {
@@ -666,7 +658,9 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
 
         var registrationChangedDuringClassification = false
         lifecycleLock.withLock {
-            guard !hasShutdown, let registration = streamByWorktreeId[worktreeId] else { return }
+            guard !hasShutdown, !hasStoppedActivityAdmission,
+                let registration = streamByWorktreeId[worktreeId]
+            else { return }
             guard registration.lifecycleGeneration == lifecycleGeneration else {
                 registrationChangedDuringClassification = true
                 return
@@ -677,19 +671,14 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                     events: classification.rawEvents
                 )
             }
-            if !classification.ordinaryPaths.isEmpty {
-                ingressBuffer.yield(
-                    FSEventBatch(
-                        worktreeId: worktreeId,
-                        paths: classification.ordinaryPaths,
-                        participant: classificationInput.participant,
-                        observations: Self.observations(
-                            rawEvents: rawEvents,
-                            admittedPaths: classification.ordinaryPaths
-                        )
-                    )
+            ingressBuffer.yield(
+                FSEventBatch(
+                    worktreeId: worktreeId,
+                    paths: classification.ordinaryPaths,
+                    participant: classificationInput.participant,
+                    observations: Self.observations(rawEvents: rawEvents)
                 )
-            }
+            )
         }
         if registrationChangedDuringClassification {
             continuityLedger.markUncertain(registrationId: worktreeId)
@@ -871,10 +860,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 worktreeId: worktreeId,
                 paths: classification.ordinaryPaths,
                 participant: retiredRegistration.participant,
-                observations: Self.observations(
-                    rawEvents: rawEvents,
-                    admittedPaths: classification.ordinaryPaths
-                ),
+                observations: Self.observations(rawEvents: rawEvents),
                 requiresFullGitRefresh: true
             )
         )
@@ -891,13 +877,10 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
 
 extension DarwinFSEventStreamClient {
     private static func observations(
-        rawEvents: [(path: String, eventId: FSEventStreamEventId, flags: FSEventStreamEventFlags)],
-        admittedPaths: [String]
+        rawEvents: [(path: String, eventId: FSEventStreamEventId, flags: FSEventStreamEventFlags)]
     ) -> [FSEventObservation] {
-        let admittedPathSet = Set(admittedPaths)
-        return rawEvents.compactMap { event in
-            guard admittedPathSet.contains(event.path) else { return nil }
-            return FSEventObservation(
+        rawEvents.map { event in
+            FSEventObservation(
                 path: event.path,
                 eventID: UInt64(event.eventId),
                 flags: UInt32(event.flags)
@@ -941,9 +924,14 @@ extension DarwinFSEventStreamClient {
         for (_, registration) in registrations {
             FSEventStreamFlushSync(registration.stream)
         }
-        guard let sharedBarrier = sharedExactItemObserverRegistry.captureActivityBarrier() else {
+        guard
+            let sharedBarrierSnapshot =
+                sharedExactItemObserverRegistry
+                .captureActivityBarrierSnapshot()
+        else {
             return nil
         }
+        let sharedBarrier = sharedBarrierSnapshot.barrier
 
         let localBarrier = lifecycleLock.withLock { () -> FSEventActivityBarrier? in
             guard !hasShutdown else { return nil }
@@ -956,7 +944,7 @@ extension DarwinFSEventStreamClient {
                 else { return nil }
                 let deliveredEventID =
                     latestEventIDByParticipant[retainedRegistration.participant]
-                    ?? UInt64(FSEventStreamGetLatestEventId(retainedRegistration.stream))
+                    ?? 0
                 bindings.append(
                     FSEventParticipantBinding(
                         worktreeId: worktreeId,
@@ -984,6 +972,25 @@ extension DarwinFSEventStreamClient {
             )
         )
         guard await ingressBuffer.enqueueActivityProcessingFence() else { return nil }
+        guard localActivityBarrierIsCurrent(registrations: registrations),
+            sharedExactItemObserverRegistry.activityBarrierIsCurrent(sharedBarrierSnapshot)
+        else {
+            return nil
+        }
         return barrier
+    }
+
+    private func localActivityBarrierIsCurrent(
+        registrations: [(UUID, StreamRegistration)]
+    ) -> Bool {
+        lifecycleLock.withLock {
+            guard !hasShutdown, streamByWorktreeId.count == registrations.count else {
+                return false
+            }
+            return registrations.allSatisfy { worktreeId, capturedRegistration in
+                streamByWorktreeId[worktreeId]?.lifecycleGeneration
+                    == capturedRegistration.lifecycleGeneration
+            }
+        }
     }
 }

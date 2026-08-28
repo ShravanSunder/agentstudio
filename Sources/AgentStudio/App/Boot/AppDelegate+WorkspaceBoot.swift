@@ -211,6 +211,7 @@ extension AppDelegate {
             workspaceAtom: atomStore.core.workspaceEntityRecency,
             sqliteDatastore: sqliteDatastore
         )
+        repositoryLocalActivityStore = makeRepositoryLocalActivityStore(sqliteDatastore: sqliteDatastore)
         sidebarCacheStore = SidebarCacheStore(
             atom: atomStore.core.sidebarCache,
             sqliteDatastore: sqliteDatastore,
@@ -293,6 +294,7 @@ extension AppDelegate {
     private func bootLoadCacheStore() async {
         await entityRecencyStore.restoreApplicationAsync()
         await entityRecencyStore.restoreWorkspaceAsync(for: store.identityAtom.workspaceId)
+        await repositoryLocalActivityStore.restoreAsync()
         await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
         await refreshTraceIdentitySnapshot()
         await sidebarCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
@@ -326,6 +328,7 @@ extension AppDelegate {
         let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         let fseventStreamClient = DarwinFSEventStreamClient()
         bootRegisterFilesystemIngressPerformanceReporter(for: fseventStreamClient)
+        let repositoryLocalActivityProjector = makeRepositoryLocalActivityProjector()
         let gitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(
             physicalGate: gitStatusPhysicalGate,
             continuityWitness: fseventStreamClient
@@ -334,6 +337,7 @@ extension AppDelegate {
             bus: paneRuntimeBus,
             gitWorkingTreeProvider: gitWorkingTreeStatusProvider,
             fseventStreamClient: fseventStreamClient,
+            repositoryLocalActivityProjector: repositoryLocalActivityProjector,
             performanceTraceRecorder: performanceTraceRecorder
         )
         filesystemSource = pipeline
@@ -404,6 +408,22 @@ extension AppDelegate {
         bootStartTerminalActivityRouter(bus: paneRuntimeBus)
         AppCommandDispatcher.shared.appCommandRouter = self
         oauthService = OAuthService()
+    }
+
+    private func makeRepositoryLocalActivityStore(
+        sqliteDatastore: WorkspaceSQLiteDatastore
+    ) -> RepositoryLocalActivityStore {
+        RepositoryLocalActivityStore(
+            atom: atomStore.core.repositoryLocalActivity,
+            sqliteDatastore: sqliteDatastore
+        )
+    }
+
+    private func makeRepositoryLocalActivityProjector() -> RepositoryLocalActivityProjector {
+        let localActivityStore = repositoryLocalActivityStore!
+        return RepositoryLocalActivityProjector { commit in
+            _ = try await localActivityStore.commitAsync(commit)
+        }
     }
 
     private func bootRegisterFilesystemIngressPerformanceReporter(

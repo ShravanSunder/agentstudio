@@ -5,6 +5,47 @@ import Testing
 
 @Suite("Repository local activity projector")
 struct RepositoryLocalActivityProjectorTests {
+    @Test("stale participant generation cannot credit the current repository")
+    func staleParticipantGenerationCannotCreditCurrentRepository() async throws {
+        let recorder = RepositoryLocalActivityCommitRecorder()
+        let projector = RepositoryLocalActivityProjector { commit in
+            await recorder.record(commit)
+        }
+        let repositoryStableKey = "ccccccccdddddddd"
+        let currentParticipant = RepositoryLocalActivityParticipant(
+            scopeKey: "local-a",
+            generation: 2,
+            volumeIdentifier: "volume-7",
+            repositoryStableKeys: [repositoryStableKey]
+        )
+        await projector.replaceParticipants(
+            [currentParticipant],
+            coverageRestartedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        await projector.ingest(
+            RepositoryLocalActivityObservedEvent(
+                scopeKey: currentParticipant.scopeKey,
+                generation: 1,
+                eventID: 50,
+                qualifyingRepositoryStableKeys: [repositoryStableKey],
+                observedAt: Date(timeIntervalSince1970: 110)
+            )
+        )
+        let didCommit = try await projector.commitBarrier(
+            RepositoryLocalActivityBarrier(
+                deliveredEventIDByParticipant: [currentParticipant.identity: 0],
+                completedAt: Date(timeIntervalSince1970: 120)
+            )
+        )
+
+        #expect(didCommit)
+        let commit = try #require(await recorder.commits.first)
+        #expect(commit.repositoryUpdates.first?.repositoryStableKey == repositoryStableKey)
+        #expect(commit.repositoryUpdates.first?.qualifyingActivityAt == nil)
+        #expect(commit.cursorWatermarks.first?.lastEventID == 0)
+    }
+
     @Test("commits the slowest processed participant watermark per volume")
     func commitsSlowestProcessedParticipantWatermarkPerVolume() async throws {
         // Arrange
@@ -35,7 +76,7 @@ struct RepositoryLocalActivityProjectorTests {
                 scopeKey: localParticipant.scopeKey,
                 generation: localParticipant.generation,
                 eventID: 100,
-                disposition: .qualifying,
+                qualifyingRepositoryStableKeys: [repositoryA],
                 observedAt: Date(timeIntervalSince1970: 110)
             )
         )
@@ -44,7 +85,6 @@ struct RepositoryLocalActivityProjectorTests {
                 scopeKey: sharedParticipant.scopeKey,
                 generation: sharedParticipant.generation,
                 eventID: 80,
-                disposition: .progressOnly,
                 observedAt: Date(timeIntervalSince1970: 111)
             )
         )
@@ -104,7 +144,6 @@ struct RepositoryLocalActivityProjectorTests {
                 scopeKey: localA1.scopeKey,
                 generation: localA1.generation,
                 eventID: 10,
-                disposition: .progressOnly,
                 observedAt: Date(timeIntervalSince1970: 101)
             )
         )
@@ -113,7 +152,6 @@ struct RepositoryLocalActivityProjectorTests {
                 scopeKey: localB1.scopeKey,
                 generation: localB1.generation,
                 eventID: 10,
-                disposition: .progressOnly,
                 observedAt: Date(timeIntervalSince1970: 101)
             )
         )
@@ -139,7 +177,6 @@ struct RepositoryLocalActivityProjectorTests {
                 scopeKey: localA2.scopeKey,
                 generation: localA2.generation,
                 eventID: 20,
-                disposition: .progressOnly,
                 observedAt: Date(timeIntervalSince1970: 201)
             )
         )
@@ -148,7 +185,6 @@ struct RepositoryLocalActivityProjectorTests {
                 scopeKey: localB1.scopeKey,
                 generation: localB1.generation,
                 eventID: 20,
-                disposition: .progressOnly,
                 observedAt: Date(timeIntervalSince1970: 201)
             )
         )

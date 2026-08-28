@@ -563,7 +563,8 @@ extension WorkspaceSurfaceCoordinator {
             await filesystemSource.assertTopology(
                 FilesystemTopologyAssertion(
                     generation: filesystemTopologyAssertionGeneration,
-                    contextsByWorktreeId: syncDiff.contextsByWorktreeId
+                    contextsByWorktreeId: syncDiff.contextsByWorktreeId,
+                    repositoryStableKeysByWorktreeId: syncDiff.repositoryStableKeysByWorktreeId
                 )
             )
             recordAppliedFilesystemTopologyAssertion(syncDiff.contextsByWorktreeId)
@@ -659,10 +660,14 @@ extension WorkspaceSurfaceCoordinator {
     private func filesystemProjectionTopologyEntries() -> [FilesystemProjectionTopologyEntry] {
         var entries: [FilesystemProjectionTopologyEntry] = []
         for repo in store.repositoryTopologyAtom.repos where !store.repositoryTopologyAtom.isRepoUnavailable(repo.id) {
+            guard
+                let repositoryStableKey = store.repositoryTopologyAtom.repositoryStableKey(for: repo.id)
+            else { continue }
             for worktree in repo.worktrees {
                 entries.append(
                     FilesystemProjectionTopologyEntry(
                         repoId: repo.id,
+                        repositoryStableKey: repositoryStableKey,
                         worktreeId: worktree.id,
                         rootPath: worktree.path,
                         isUnavailable: false

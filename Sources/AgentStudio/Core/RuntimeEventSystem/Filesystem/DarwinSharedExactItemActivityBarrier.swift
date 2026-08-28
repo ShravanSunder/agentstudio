@@ -1,22 +1,39 @@
 import CoreServices
 import Foundation
 
+struct DarwinSharedExactItemActivityBarrierSnapshot {
+    let barrier: FSEventActivityBarrier
+    let topologyRevision: UInt64
+}
+
 extension DarwinSharedExactItemObserverRegistry {
     func captureActivityBarrier() -> FSEventActivityBarrier? {
+        captureActivityBarrierSnapshot()?.barrier
+    }
+
+    func captureActivityBarrierSnapshot() -> DarwinSharedExactItemActivityBarrierSnapshot? {
         let retainedParticipants = lifecycleCondition.withLock {
-            () -> [(DarwinSharedExactItemParentKey, UInt64, any DarwinSharedExactItemStreamLifetime)]? in
+            () -> (UInt64, [(DarwinSharedExactItemParentKey, UInt64, any DarwinSharedExactItemStreamLifetime)])? in
             guard !hasShutdown else { return nil }
-            return observerByParent.keys.sorted(by: Self.sortParentKeys).compactMap { parentKey in
-                guard let observer = observerByParent[parentKey] else { return nil }
-                return (parentKey, observer.generation, observer.streamLifetime)
-            }
+            let participants:
+                [(
+                    DarwinSharedExactItemParentKey,
+                    UInt64,
+                    any DarwinSharedExactItemStreamLifetime
+                )] = observerByParent.keys.sorted(by: Self.sortParentKeys).compactMap { parentKey in
+                    guard let observer = observerByParent[parentKey] else { return nil }
+                    return (parentKey, observer.generation, observer.streamLifetime)
+                }
+            return (activityTopologyRevision, participants)
         }
-        guard let retainedParticipants else { return nil }
+        guard let (capturedTopologyRevision, retainedParticipants) = retainedParticipants else {
+            return nil
+        }
         for (_, _, streamLifetime) in retainedParticipants {
             guard streamLifetime.flush() else { return nil }
         }
 
-        return lifecycleCondition.withLock {
+        return lifecycleCondition.withLock { () -> DarwinSharedExactItemActivityBarrierSnapshot? in
             guard !hasShutdown else { return nil }
             var bindings: [FSEventParticipantBinding] = []
             var deliveredEventIDByParticipant: [FSEventParticipant: UInt64] = [:]
@@ -43,10 +60,21 @@ extension DarwinSharedExactItemObserverRegistry {
                     )
                 }
             }
-            return FSEventActivityBarrier(
-                bindings: bindings,
-                deliveredEventIDByParticipant: deliveredEventIDByParticipant
+            return DarwinSharedExactItemActivityBarrierSnapshot(
+                barrier: FSEventActivityBarrier(
+                    bindings: bindings,
+                    deliveredEventIDByParticipant: deliveredEventIDByParticipant
+                ),
+                topologyRevision: capturedTopologyRevision
             )
+        }
+    }
+
+    func activityBarrierIsCurrent(
+        _ snapshot: DarwinSharedExactItemActivityBarrierSnapshot
+    ) -> Bool {
+        lifecycleCondition.withLock {
+            !hasShutdown && activityTopologyRevision == snapshot.topologyRevision
         }
     }
 }

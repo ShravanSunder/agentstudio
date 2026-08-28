@@ -93,6 +93,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             AgentStudioGitRemoteReferenceRefreshProvider(),
         forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
+        repositoryLocalActivityProjector: RepositoryLocalActivityProjector? = nil,
         filesystemDebounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
         filesystemMaxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
         gitCoalescingWindow: Duration = AppPolicies.GitRefresh.filesystemDerivedCoalescingWindow,
@@ -103,6 +104,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         self.filesystemActor = FilesystemActor(
             bus: bus,
             fseventStreamClient: fseventStreamClient,
+            repositoryLocalActivityProjector: repositoryLocalActivityProjector,
             debounceWindow: filesystemDebounceWindow,
             maxFlushLatency: filesystemMaxFlushLatency,
             performanceTraceRecorder: performanceTraceRecorder
@@ -229,7 +231,10 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         }
         let validatedAssertion = FilesystemTopologyAssertion(
             generation: assertion.generation,
-            contextsByWorktreeId: validatedContextsByWorktreeId
+            contextsByWorktreeId: validatedContextsByWorktreeId,
+            repositoryStableKeysByWorktreeId: assertion.repositoryStableKeysByWorktreeId.filter {
+                validatedContextsByWorktreeId[$0.key] != nil
+            }
         )
         await filesystemActor.assertTopology(validatedAssertion)
         await remoteReferenceRefreshActor.assertTopology(validatedContextsByWorktreeId)

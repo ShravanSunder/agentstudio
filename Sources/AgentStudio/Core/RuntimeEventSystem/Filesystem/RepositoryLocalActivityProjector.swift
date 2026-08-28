@@ -33,30 +33,27 @@ package struct RepositoryLocalActivityParticipant: Equatable, Sendable {
     }
 }
 
-package enum RepositoryLocalActivityObservationDisposition: Equatable, Sendable {
-    case progressOnly
-    case qualifying
-    case coverageLost
-}
-
 package struct RepositoryLocalActivityObservedEvent: Equatable, Sendable {
     package let scopeKey: String
     package let generation: UInt64
     package let eventID: UInt64
-    package let disposition: RepositoryLocalActivityObservationDisposition
+    package let qualifyingRepositoryStableKeys: Set<String>
+    package let coverageLostRepositoryStableKeys: Set<String>
     package let observedAt: Date
 
     package init(
         scopeKey: String,
         generation: UInt64,
         eventID: UInt64,
-        disposition: RepositoryLocalActivityObservationDisposition,
+        qualifyingRepositoryStableKeys: Set<String> = [],
+        coverageLostRepositoryStableKeys: Set<String> = [],
         observedAt: Date
     ) {
         self.scopeKey = scopeKey
         self.generation = generation
         self.eventID = eventID
-        self.disposition = disposition
+        self.qualifyingRepositoryStableKeys = qualifyingRepositoryStableKeys
+        self.coverageLostRepositoryStableKeys = coverageLostRepositoryStableKeys
         self.observedAt = observedAt
     }
 }
@@ -77,6 +74,12 @@ package struct RepositoryLocalActivityBarrier: Equatable, Sendable {
 package actor RepositoryLocalActivityProjector {
     package typealias CommitSink = @Sendable (RepositoryLocalActivityCommit) async throws -> Void
 
+    private struct BufferedObservation {
+        var processedEventID: UInt64
+        var qualifyingActivityByRepositoryStableKey: [String: Date]
+        var coverageRestartByRepositoryStableKey: [String: Date]
+    }
+
     private struct DeferredParticipantReplacement {
         let participants: [RepositoryLocalActivityParticipant]
         let coverageRestartedAt: Date
@@ -84,6 +87,8 @@ package actor RepositoryLocalActivityProjector {
 
     private let commitSink: CommitSink
     private var participantByScopeKey: [String: RepositoryLocalActivityParticipant] = [:]
+    private var bufferedObservationByParticipant: [RepositoryLocalActivityParticipantIdentity: BufferedObservation] =
+        [:]
     private var processedEventIDByParticipant: [RepositoryLocalActivityParticipantIdentity: UInt64] = [:]
     private var pendingQualifyingActivityByRepositoryStableKey: [String: Date] = [:]
     private var pendingCoverageRestartByRepositoryStableKey: [String: Date] = [:]
@@ -112,32 +117,71 @@ package actor RepositoryLocalActivityProjector {
     }
 
     package func ingest(_ observation: RepositoryLocalActivityObservedEvent) {
-        guard
-            let participant = participantByScopeKey[observation.scopeKey],
-            participant.generation == observation.generation
-        else { return }
+        let identity = RepositoryLocalActivityParticipantIdentity(
+            scopeKey: observation.scopeKey,
+            generation: observation.generation
+        )
+        guard let participant = participantByScopeKey[observation.scopeKey],
+            participant.identity == identity
+        else {
+            bufferUnverifiedObservation(observation, identity: identity)
+            return
+        }
+        applyObservation(observation, participant: participant)
+    }
+
+    private func applyObservation(
+        _ observation: RepositoryLocalActivityObservedEvent,
+        participant: RepositoryLocalActivityParticipant
+    ) {
         let identity = participant.identity
         processedEventIDByParticipant[identity] = max(
             processedEventIDByParticipant[identity] ?? 0,
             observation.eventID
         )
-        switch observation.disposition {
-        case .progressOnly:
-            break
-        case .qualifying:
-            for repositoryStableKey in participant.repositoryStableKeys {
-                pendingQualifyingActivityByRepositoryStableKey[repositoryStableKey] = max(
-                    pendingQualifyingActivityByRepositoryStableKey[repositoryStableKey]
-                        ?? observation.observedAt,
-                    observation.observedAt
-                )
-            }
-        case .coverageLost:
-            restartCoverage(
-                for: participant.repositoryStableKeys,
-                at: observation.observedAt
+        for repositoryStableKey in observation.qualifyingRepositoryStableKeys
+        where participant.repositoryStableKeys.contains(repositoryStableKey) {
+            pendingQualifyingActivityByRepositoryStableKey[repositoryStableKey] = max(
+                pendingQualifyingActivityByRepositoryStableKey[repositoryStableKey]
+                    ?? observation.observedAt,
+                observation.observedAt
             )
         }
+        restartCoverage(
+            for: observation.coverageLostRepositoryStableKeys.intersection(
+                participant.repositoryStableKeys
+            ),
+            at: observation.observedAt
+        )
+    }
+
+    private func bufferUnverifiedObservation(
+        _ observation: RepositoryLocalActivityObservedEvent,
+        identity: RepositoryLocalActivityParticipantIdentity
+    ) {
+        var buffered =
+            bufferedObservationByParticipant[identity]
+            ?? BufferedObservation(
+                processedEventID: 0,
+                qualifyingActivityByRepositoryStableKey: [:],
+                coverageRestartByRepositoryStableKey: [:]
+            )
+        buffered.processedEventID = max(buffered.processedEventID, observation.eventID)
+        for repositoryStableKey in observation.qualifyingRepositoryStableKeys {
+            buffered.qualifyingActivityByRepositoryStableKey[repositoryStableKey] = max(
+                buffered.qualifyingActivityByRepositoryStableKey[repositoryStableKey]
+                    ?? observation.observedAt,
+                observation.observedAt
+            )
+        }
+        for repositoryStableKey in observation.coverageLostRepositoryStableKeys {
+            buffered.coverageRestartByRepositoryStableKey[repositoryStableKey] = max(
+                buffered.coverageRestartByRepositoryStableKey[repositoryStableKey]
+                    ?? observation.observedAt,
+                observation.observedAt
+            )
+        }
+        bufferedObservationByParticipant[identity] = buffered
     }
 
     @discardableResult
@@ -216,6 +260,31 @@ package actor RepositoryLocalActivityProjector {
         processedEventIDByParticipant = processedEventIDByParticipant.filter {
             currentIdentities.contains($0.key)
         }
+        for identity in currentIdentities where processedEventIDByParticipant[identity] == nil {
+            processedEventIDByParticipant[identity] = 0
+        }
+        for participant in replacement.values {
+            guard let buffered = bufferedObservationByParticipant[participant.identity] else {
+                continue
+            }
+            processedEventIDByParticipant[participant.identity] = max(
+                processedEventIDByParticipant[participant.identity] ?? 0,
+                buffered.processedEventID
+            )
+            for (repositoryStableKey, timestamp) in buffered.qualifyingActivityByRepositoryStableKey
+            where participant.repositoryStableKeys.contains(repositoryStableKey) {
+                pendingQualifyingActivityByRepositoryStableKey[repositoryStableKey] = max(
+                    pendingQualifyingActivityByRepositoryStableKey[repositoryStableKey]
+                        ?? timestamp,
+                    timestamp
+                )
+            }
+            for (repositoryStableKey, timestamp) in buffered.coverageRestartByRepositoryStableKey
+            where participant.repositoryStableKeys.contains(repositoryStableKey) {
+                restartCoverage(for: [repositoryStableKey], at: timestamp)
+            }
+        }
+        bufferedObservationByParticipant.removeAll(keepingCapacity: true)
     }
 
     private func restartCoverage(for repositoryStableKeys: Set<String>, at timestamp: Date) {

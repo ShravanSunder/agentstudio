@@ -11,9 +11,12 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
     private let eventsStream: AsyncStream<FSEventIngressItem>
     private let eventsContinuation: AsyncStream<FSEventIngressItem>.Continuation
     private let maximumRetainedOverflowPathsPerRegistration: Int
+    private let maximumRetainedActivityOverflowParticipantScopes: Int
     private let overflowHandler: @Sendable (UUID) -> Void
     private let performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
     private var overflowRecoveryByWorktreeId: [UUID: FSEventOverflowRecovery] = [:]
+    private var activityOverflowRecoveryByParticipantScope: [String: FSEventActivityOverflowRecovery] = [:]
+    private var coarseActivityOverflowWorktreeIds: Set<UUID> = []
     private var nextActivityProcessingFenceID: UInt64 = 0
     private var pendingActivityProcessingFence: PendingActivityProcessingFence?
 
@@ -21,12 +24,15 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         capacity: Int,
         maximumRetainedOverflowPathsPerRegistration: Int =
             AppPolicies.FilesystemIngress.maximumRetainedOverflowPathsPerRegistration,
+        maximumRetainedActivityOverflowParticipantScopes: Int =
+            AppPolicies.FilesystemIngress.maximumRetainedActivityOverflowParticipantScopes,
         performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator =
             DarwinFSEventIngressPerformanceAccumulator(),
         overflowHandler: @escaping @Sendable (UUID) -> Void = { _ in }
     ) {
         precondition(capacity > 0)
         precondition(maximumRetainedOverflowPathsPerRegistration > 0)
+        precondition(maximumRetainedActivityOverflowParticipantScopes > 0)
         let (stream, continuation) = AsyncStream.makeStream(
             of: FSEventIngressItem.self,
             bufferingPolicy: .bufferingOldest(capacity)
@@ -35,6 +41,8 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         eventsContinuation = continuation
         self.maximumRetainedOverflowPathsPerRegistration =
             maximumRetainedOverflowPathsPerRegistration
+        self.maximumRetainedActivityOverflowParticipantScopes =
+            maximumRetainedActivityOverflowParticipantScopes
         self.performanceAccumulator = performanceAccumulator
         self.overflowHandler = overflowHandler
     }
@@ -65,6 +73,8 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
                 overflowHandler(droppedBatch.worktreeId)
             case .dropped(.activityProcessingFence):
                 preconditionFailure("batch yield cannot drop a previously buffered fence")
+            case .dropped(.activityObservations):
+                preconditionFailure("batch yield cannot drop previously buffered activity")
             case .terminated:
                 performanceAccumulator.recordIngress(
                     source: source,
@@ -79,6 +89,28 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
                 )
                 retainOverflowRecovery(batch)
                 overflowHandler(batch.worktreeId)
+            }
+        }
+    }
+
+    package func yieldActivityObservations(
+        _ activityBatch: FSEventActivityObservationBatch
+    ) {
+        lock.withLock {
+            switch eventsContinuation.yield(.activityObservations(activityBatch)) {
+            case .enqueued:
+                break
+            case .dropped(.activityObservations(let droppedBatch)):
+                retainActivityOverflowRecovery(droppedBatch)
+            case .dropped(.batch(let droppedBatch)):
+                retainOverflowRecovery(droppedBatch)
+                overflowHandler(droppedBatch.worktreeId)
+            case .dropped(.activityProcessingFence):
+                preconditionFailure("activity yield cannot drop a previously buffered fence")
+            case .terminated:
+                retainActivityOverflowRecovery(activityBatch)
+            @unknown default:
+                retainActivityOverflowRecovery(activityBatch)
             }
         }
     }
@@ -103,6 +135,9 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
                 case .dropped(.batch(let droppedBatch)):
                     retainOverflowRecovery(droppedBatch)
                     overflowHandler(droppedBatch.worktreeId)
+                    return true
+                case .dropped(.activityObservations(let droppedBatch)):
+                    retainActivityOverflowRecovery(droppedBatch)
                     return true
                 case .terminated:
                     return true
@@ -142,7 +177,39 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         }
     }
 
+    package func consumeActivityOverflowRecoveries() -> [FSEventActivityOverflowRecovery] {
+        lock.withLock {
+            defer { activityOverflowRecoveryByParticipantScope.removeAll(keepingCapacity: true) }
+            return activityOverflowRecoveryByParticipantScope.values.sorted {
+                if $0.participant.scopeKey != $1.participant.scopeKey {
+                    return $0.participant.scopeKey < $1.participant.scopeKey
+                }
+                return $0.participant.generation < $1.participant.generation
+            }
+        }
+    }
+
+    package func consumeCoarseActivityOverflowWorktreeIds() -> Set<UUID> {
+        lock.withLock {
+            defer { coarseActivityOverflowWorktreeIds.removeAll(keepingCapacity: true) }
+            return coarseActivityOverflowWorktreeIds
+        }
+    }
+
     private func retainOverflowRecovery(_ batch: FSEventBatch) {
+        if let participant = batch.participant,
+            let processedThroughEventID = batch.observations.map(\.eventID).max()
+        {
+            retainActivityOverflowRecovery(
+                FSEventActivityObservationBatch(
+                    participant: participant,
+                    processedThroughEventID: processedThroughEventID,
+                    participantWorktreeIds: [batch.worktreeId],
+                    qualifyingWorktreeIds: [],
+                    coverageLostWorktreeIds: [batch.worktreeId]
+                )
+            )
+        }
         let batchContainsGitTopologyPath = batch.paths.contains(where: Self.isGitTopologyPath)
         if let existing = overflowRecoveryByWorktreeId[batch.worktreeId], existing.paths == nil {
             overflowRecoveryByWorktreeId[batch.worktreeId] = FSEventOverflowRecovery(
@@ -182,6 +249,46 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
             paths: retainedPaths,
             containsGitTopologyPath: containsGitTopologyPath,
             requiresFullGitRefresh: requiresFullGitRefresh
+        )
+    }
+
+    private func retainActivityOverflowRecovery(
+        _ batch: FSEventActivityObservationBatch
+    ) {
+        let scopeKey = batch.participant.scopeKey
+        if !coarseActivityOverflowWorktreeIds.isEmpty {
+            coarseActivityOverflowWorktreeIds.formUnion(batch.participantWorktreeIds)
+            return
+        }
+        if activityOverflowRecoveryByParticipantScope[scopeKey] == nil,
+            activityOverflowRecoveryByParticipantScope.count
+                >= maximumRetainedActivityOverflowParticipantScopes
+        {
+            coarseActivityOverflowWorktreeIds = Set(
+                activityOverflowRecoveryByParticipantScope.values.flatMap(
+                    \.coverageLostWorktreeIds
+                )
+            )
+            coarseActivityOverflowWorktreeIds.formUnion(batch.participantWorktreeIds)
+            activityOverflowRecoveryByParticipantScope.removeAll(keepingCapacity: true)
+            return
+        }
+        let existing = activityOverflowRecoveryByParticipantScope[scopeKey]
+        let retainedParticipant: FSEventParticipant
+        if let existing, existing.participant.generation > batch.participant.generation {
+            retainedParticipant = existing.participant
+        } else {
+            retainedParticipant = batch.participant
+        }
+        activityOverflowRecoveryByParticipantScope[scopeKey] = FSEventActivityOverflowRecovery(
+            participant: retainedParticipant,
+            processedThroughEventID: max(
+                retainedParticipant == existing?.participant
+                    ? existing?.processedThroughEventID ?? 0 : 0,
+                retainedParticipant == batch.participant ? batch.processedThroughEventID : 0
+            ),
+            coverageLostWorktreeIds: (existing?.coverageLostWorktreeIds ?? [])
+                .union(batch.participantWorktreeIds)
         )
     }
 

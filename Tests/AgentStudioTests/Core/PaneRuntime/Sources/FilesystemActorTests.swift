@@ -1,5 +1,4 @@
 import AgentStudioTestSupport
-import CoreServices
 import Foundation
 import Testing
 
@@ -8,52 +7,6 @@ import Testing
 
 @Suite(.serialized)
 struct FilesystemActorTests {
-    @Test("activity barrier waits for FilesystemActor ingress acknowledgement")
-    func activityBarrierWaitsForFilesystemActorIngressAcknowledgement() async throws {
-        // Arrange
-        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
-            path: "filesystem-activity-fence-\(UUIDv7.generate().uuidString)",
-            directoryHint: .isDirectory
-        )
-        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let streamClient = DarwinFSEventStreamClient()
-        let actor = FilesystemActor(
-            bus: EventBus<RuntimeEnvelope>(),
-            fseventStreamClient: streamClient,
-            sleepClock: TestPushClock(),
-            debounceWindow: .seconds(60),
-            maxFlushLatency: .seconds(120)
-        )
-        let worktreeId = UUIDv7.generate()
-        await actor.register(
-            worktreeId: worktreeId,
-            repoId: UUIDv7.generate(),
-            rootPath: fixtureRoot
-        )
-        let changedPath = fixtureRoot.appending(path: "Sources/Changed.swift").path
-        streamClient.receiveLocalRawEvents(
-            worktreeId: worktreeId,
-            rawEvents: [
-                (
-                    path: changedPath,
-                    eventId: 42,
-                    flags: FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified)
-                )
-            ]
-        )
-
-        // Act
-        let barrier = try #require(await streamClient.captureActivityBarrier())
-
-        // Assert
-        let participant = try #require(
-            barrier.bindings.first(where: { $0.worktreeId == worktreeId })?.participant
-        )
-        #expect(barrier.deliveredEventIDByParticipant[participant] ?? 0 >= 42)
-        await actor.shutdown()
-    }
-
     @Test("logical debt trace identity suppresses internal custody-only transitions")
     func logicalDebtTraceIdentitySuppressesInternalCustodyTransitions() {
         let activeQuantum = FilesystemLogicalDebtSnapshot(

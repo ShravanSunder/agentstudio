@@ -206,7 +206,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         @Sendable (GitCleanContinuityAuthority, UInt64) -> GitCleanContinuityAuthorityValidation
     let markUncertain: @Sendable (UUID) -> Void
     let yieldFullGitRefresh: @Sendable (UUID, DarwinFSEventIngressSource) -> Void
-    let yieldObservations: @Sendable (UUID, FSEventParticipant, [FSEventObservation]) -> Void
+    let yieldActivityObservations: @Sendable (FSEventActivityObservationBatch) -> Void
     let performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
     let fingerprintReader: DarwinSharedExactItemFingerprintReader
     private var nextStreamGeneration: UInt64 = 0
@@ -219,6 +219,8 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     var authorityBaselines = DarwinSharedExactItemAuthorityBaselines()
     private var startingParentKeys: Set<DarwinSharedExactItemParentKey> = []
     var hasShutdown = false
+    private var hasStoppedActivityAdmission = false
+    var activityTopologyRevision: UInt64 = 0
 
     package init(
         streamFactory: @escaping DarwinSharedExactItemStreamFactory,
@@ -241,7 +243,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             },
         markUncertain: @escaping @Sendable (UUID) -> Void,
         yieldFullGitRefresh: @escaping @Sendable (UUID, DarwinFSEventIngressSource) -> Void,
-        yieldObservations: @escaping @Sendable (UUID, FSEventParticipant, [FSEventObservation]) -> Void,
+        yieldActivityObservations: @escaping @Sendable (FSEventActivityObservationBatch) -> Void,
         performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator,
         fingerprintReader: DarwinSharedExactItemFingerprintReader = .init()
     ) {
@@ -253,7 +255,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         self.resolveAncestorAmbiguity = resolveAncestorAmbiguity
         self.markUncertain = markUncertain
         self.yieldFullGitRefresh = yieldFullGitRefresh
-        self.yieldObservations = yieldObservations
+        self.yieldActivityObservations = yieldActivityObservations
         self.performanceAccumulator = performanceAccumulator
         self.fingerprintReader = fingerprintReader
     }
@@ -276,6 +278,12 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         )
     }
 
+    package func stopActivityAdmission() {
+        lifecycleCondition.withLock {
+            hasStoppedActivityAdmission = true
+        }
+    }
+
     private func bindCurrent(
         worktreeId: UUID,
         bindingGeneration: UInt64,
@@ -287,7 +295,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
 
         while true {
             lifecycleCondition.lock()
-            guard !hasShutdown else {
+            guard !hasShutdown, !hasStoppedActivityAdmission else {
                 lifecycleCondition.unlock()
                 retire(startedObservers.values.map(\.streamLifetime))
                 return false
@@ -545,7 +553,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         performanceAccumulator.recordSharedRawCallback(eventCount: rawEvents.count)
 
         lifecycleCondition.lock()
-        guard !hasShutdown,
+        guard !hasShutdown, !hasStoppedActivityAdmission,
             var observer = observerByParent[parentKey],
             observer.generation == streamGeneration
         else {
@@ -557,6 +565,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         var uncertainWorktreeIds: Set<UUID> = []
         var ancestorItemsByWorktreeId: [UUID: Set<String>] = [:]
         var exactSubscriberWorktreeIds: Set<UUID> = []
+        var activityQualifyingWorktreeIds: Set<UUID> = []
         var shouldRetireObserver = false
         let dependentWorktreeIds = Set(
             observer.exactPathsByWorktreeId.keys.filter {
@@ -583,6 +592,9 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                 )
             }
             exactSubscriberWorktreeIds.formUnion(exactSubscribers)
+            if RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath(normalizedPath) {
+                activityQualifyingWorktreeIds.formUnion(exactSubscribers)
+            }
 
             let hasUncertainFlags = rawEvent.flags & Self.uncertaintyFlags != 0
             if hasUncertainFlags || cursorRegressed {
@@ -598,11 +610,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                     }
                 }
             }
-            if rawEvent.flags
-                & FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged) != 0
-            {
-                shouldRetireObserver = true
-            }
+            shouldRetireObserver = shouldRetireObserver || Self.isRootChange(rawEvent)
         }
 
         for worktreeId in exactSubscriberWorktreeIds.union(uncertainWorktreeIds) {
@@ -628,10 +636,13 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         lifecycleCondition.unlock()
         emitReceiveEffects(
             DarwinSharedExactItemReceiveEffects(
-                participant: FSEventParticipant(
-                    scopeKey: "shared:\(parentKey.volumeSystemNumber):\(parentKey.parentPath)",
-                    generation: streamGeneration,
-                    volumeIdentifier: String(parentKey.volumeSystemNumber)
+                activityObservationBatch: Self.makeActivityObservationBatch(
+                    parentKey: parentKey,
+                    streamGeneration: streamGeneration,
+                    rawEvents: rawEvents,
+                    participantWorktreeIds: dependentWorktreeIds,
+                    qualifyingWorktreeIds: activityQualifyingWorktreeIds,
+                    coverageLostWorktreeIds: uncertainWorktreeIds
                 ),
                 mutationEventsByWorktreeId: mutationEventsByWorktreeId,
                 uncertainWorktreeIds: uncertainWorktreeIds,
@@ -695,6 +706,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         bindingIsCurrent: (@Sendable () -> Bool)?,
         desiredExactItemsByParent: [DarwinSharedExactItemParentKey: Set<String>]
     ) -> [any DarwinSharedExactItemStreamLifetime] {
+        activityTopologyRevision &+= 1
         fullRefreshDeliveryOutstandingWorktreeIds.remove(worktreeId)
         authorityBaselines.remove(worktreeId: worktreeId)
         let previousExactItemsByParent = exactItemsByParentByWorktreeId[worktreeId] ?? [:]
@@ -754,6 +766,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         parentKey: DarwinSharedExactItemParentKey
     ) -> (any DarwinSharedExactItemStreamLifetime)? {
         guard let observer = observerByParent.removeValue(forKey: parentKey) else { return nil }
+        activityTopologyRevision &+= 1
         for worktreeId in observer.exactPathsByWorktreeId.keys {
             authorityBaselines.remove(worktreeId: worktreeId)
             exactItemsByParentByWorktreeId[worktreeId]?.removeValue(forKey: parentKey)
@@ -790,19 +803,6 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         }
     }
 
-    package static func sortWorktreeIds(_ lhs: UUID, _ rhs: UUID) -> Bool {
-        lhs.uuidString < rhs.uuidString
-    }
-
-    package static func sortParentKeys(
-        _ lhs: DarwinSharedExactItemParentKey,
-        _ rhs: DarwinSharedExactItemParentKey
-    ) -> Bool {
-        if lhs.volumeSystemNumber != rhs.volumeSystemNumber {
-            return lhs.volumeSystemNumber < rhs.volumeSystemNumber
-        }
-        return lhs.parentPath < rhs.parentPath
-    }
 }
 
 package enum DarwinFSEventPathNormalizer {

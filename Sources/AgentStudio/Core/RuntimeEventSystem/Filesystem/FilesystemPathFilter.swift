@@ -149,6 +149,54 @@ package struct FilesystemPathFilter: Sendable {
     }
 }
 
+package enum RepositoryLocalActivityPathClassifier {
+    package static func qualifiesWorktreePath(
+        relativePath: String,
+        disposition: FilesystemPathDisposition
+    ) -> Bool {
+        let normalizedPath = normalized(relativePath)
+        if normalizedPath == ".gitignore" {
+            return true
+        }
+        if FilesystemPathFilter.isGitInternal(relativePath: normalizedPath) {
+            return qualifiesGitMetadataPath(normalizedPath)
+        }
+        return disposition == .projected
+    }
+
+    package static func qualifiesGitMetadataPath(_ path: String) -> Bool {
+        let normalizedPath = normalized(path)
+        guard !isAgentStudioStagingRef(normalizedPath) else { return false }
+        guard !normalizedPath.hasSuffix(".lock") else { return false }
+
+        let components = normalizedPath.split(separator: "/")
+        guard let leaf = components.last else { return false }
+        if leaf == "HEAD" || leaf == "index" || leaf == "FETCH_HEAD" || leaf == "packed-refs" {
+            return true
+        }
+        return normalizedPath.contains("/refs/heads/")
+            || normalizedPath.contains("/refs/remotes/")
+            || normalizedPath.hasPrefix("refs/heads/")
+            || normalizedPath.hasPrefix("refs/remotes/")
+    }
+
+    private static func isAgentStudioStagingRef(_ path: String) -> Bool {
+        path.contains("/refs/agentstudio/staged/")
+            || path.hasPrefix("refs/agentstudio/staged/")
+    }
+
+    private static func normalized(_ path: String) -> String {
+        var normalizedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        while normalizedPath.hasPrefix("./") {
+            normalizedPath.removeFirst(2)
+        }
+        while normalizedPath.hasSuffix("/") && normalizedPath.count > 1 {
+            normalizedPath.removeLast()
+        }
+        return normalizedPath
+    }
+}
+
 // NSRegularExpression is immutable and safe to share for matching after initialization.
 // @unchecked Sendable is required specifically because compiledRegex is a Foundation reference type.
 private struct GitIgnoreRule: @unchecked Sendable {
