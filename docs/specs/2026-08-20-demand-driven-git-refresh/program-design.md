@@ -95,6 +95,8 @@ The structural crux is where “good enough” becomes a decision. Putting that 
 | Repeat every shared exact-item parent in every worktree stream | Reuses one stream shape | A shared config parent recursively wakes and classifies once per worktree for unrelated events | Reject |
 | Shared exact-item parent observers with selective subscriber fan-out | One recursive callback and one exact-path lookup for unrelated parent activity | Adds internal composite-binding and shared-observer lifecycle | Select |
 | Per-file vnode observers or metadata-only validation | Narrow apparent wake or simple checkpoint read | Replacement/re-arm ambiguity or loss of uninterrupted observation proof | Reject |
+| Unconditionally fail every shared-parent ancestor event to exact Git | Simple fail-closed disposition | The strict real-root run never reached quiescence, while exact-PID sampling showed concurrent full status work and repeated UI layout | Reject |
+| Authority-bound stable exact-item fingerprints for ancestor-only ambiguity | Resolves ordinary shared-parent noise before full Git while preserving exact fallback for change, loss, unsupported state, or race | Adds bounded off-executor file reads, content digests, ambiguity epochs, and interleaving proof inside the continuity owner | Select |
 | Repository-root mtime or tree scan determines inactivity | No recency integration | Git/internal metadata and unrelated files misclassify use; scan creates the work being removed | Reject |
 | Persist local Git/PR snapshots for inactive rows | Rich chips survive restart | New schema and stale facts look current; storage work exceeds the compact UX need | Reject |
 | Existing open-recency persistence plus pure repository classifier | No new schema/owner; exact product-use meaning; missing safely means inactive | First upgrade may conservatively classify an evicted recent identity inactive until use | Select |
@@ -229,7 +231,7 @@ The package observation plan records a complete dependency identity rather than 
 
 ### Darwin Git clean continuity capability
 
-Current HEAD's `DarwinFSEventStreamClient` provides the narrow `GitCleanContinuityWitness` capability consumed directly by the local status provider. App composition creates exactly one process-scoped client and injects the same object into both `FilesystemActor` and `AgentStudioGitWorkingTreeStatusProvider`; production defaults cannot silently construct a second witness. It is not routed through `FilesystemActor` or EventBus, because those lossy presentation/invalidation paths cannot prove the absence of a mutation. This existing foundation adds no atom, store, EventBus case, generic scheduler, helper process, persistence owner, or coordinator responsibility, and the cold slice leaves it unchanged.
+Current HEAD's `DarwinFSEventStreamClient` provides the narrow `GitCleanContinuityWitness` capability consumed directly by the local status provider. App composition creates exactly one process-scoped client and injects the same object into both `FilesystemActor` and `AgentStudioGitWorkingTreeStatusProvider`; production defaults cannot silently construct a second witness. It is not routed through `FilesystemActor` or EventBus, because those lossy presentation/invalidation paths cannot prove the absence of a mutation. This existing foundation adds no atom, store, EventBus case, generic scheduler, helper process, persistence owner, or coordinator responsibility.
 
 For each admitted observation scope the witness retains registration generation, per-volume event cursor, mutation epoch, uncertainty epoch, stable barriers, and coverage state. Start and post-scan barriers flush the stream without holding the lifecycle lock, then revalidate every generation and epoch so delayed kernel delivery cannot create a false-clean interval. Relevant mutations advance the mutation epoch before ordinary filesystem delivery. FSEvent IDs and flags remain intact through classification. `MustScanSubDirs`, user/kernel drops, event-ID wrap, root change, mount/unmount discontinuity, stream-start failure, buffer overflow, registration replacement, and unsupported scope advance uncertainty and fail renewal closed. Git administrative mutations use the existing full-scope Git-internal invalidation semantics rather than a new EventBus fact. Shutdown first drains projector/provider renewal and retires all authorities, then shuts down the shared witness.
 
@@ -251,7 +253,11 @@ exact item not covered by a local subtree
        exact path -> dependent worktree registrations
 ```
 
-`DarwinFSEventStreamClient` remains the one process-scoped owner. Each internal worktree continuity binding retains its root, observation identity, binding generation, local stream generation, local scopes, and participating shared-parent generations. Each shared parent observer retains its canonical parent and volume identity, stream generation, event cursor, coverage state, exact-path subscriber index, and subscriber references. This state is runtime-only. It adds no atom, store, coordinator, EventBus case, timer, persistence, or second Git-fact authority.
+`DarwinFSEventStreamClient` remains the one process-scoped owner. Each internal worktree continuity binding retains its root, observation identity, binding generation, local stream generation, local scopes, participating shared-parent generations, mutation and uncertainty epochs, observed/resolved ancestor-ambiguity epochs, and witness-owned fingerprints for its current verified-clean authority. Each shared parent observer retains its canonical parent and volume identity, stream generation, event cursor, coverage state, exact-path subscriber index, subscriber references, one active recheck snapshot, and one complete unresolved-scope map from which the next snapshot is derived. The compact `GitCleanContinuityAuthority` token exposed to the provider/projector carries generations and epochs, not raw paths, metadata, digests, or the fingerprint map; those remain private to the witness. This state is runtime-only. It adds no atom, store, coordinator, EventBus case, timer, persistence, helper process, or second Git-fact authority.
+
+The package remains the only owner of Git dependency identity: Agent Studio fingerprints only package-declared `.item` scopes realized through a shared parent and never infers another Git input. A private filesystem helper reads those exact items `@concurrent nonisolated`; it owns no Git fact, admission policy, or mutable lifecycle. For one parent/ambiguity generation, the helper reads each unique canonical exact item once regardless of dependent-worktree count, and the witness compares that one result with every dependent authority baseline. It never repeats the same shared-file read or digest once per worktree. Fingerprint equality uses versioned SHA-256 over the exact bytes; process-randomized `Hasher` and metadata-only equality are forbidden. The initial `AppPolicies` envelope is 8 MiB per item, 64 unique items, and 32 MiB total bytes per recheck. The helper streams bytes without allocating the declared maximum, stops before reading beyond any bound, and classifies an exceeded item/count/transaction bound as unsupported so the witness retains exact fallback.
+
+A stable regular-file fingerprint includes canonical scope identity, missing/present state, file type and mode, device and inode identity, generation when exposed, native-resolution birth/change/modify times, length, the `sha256-v1` digest, and the digest algorithm version. Stable-read validation compares pre-read `lstat(path)`, the opened descriptor's pre/post `fstat`, and post-read `lstat(path)` and requires every identity/type/size/change field to describe the same still-current path object; an atomic path replacement therefore cannot hide behind a stable descriptor for the old inode. A symbolic-link fingerprint includes exact `readlink` bytes and matching pre/post `lstat(path)` identity and uses the same versioned SHA-256 equality for target bytes. Unsupported type, unreadable or unstable state, policy-bound exhaustion, and every `.subtree` scope fail closed. Fingerprints are process-local authority evidence: they are not persisted, rendered, or exported, and raw paths, metadata, digests, and algorithm inputs never cross OTLP.
 
 The changed callback path is selective:
 
@@ -264,23 +270,36 @@ shared exact-item path
                -> unrelated exact-path miss -> no worktree ledger mutation
                -> exact-path hit -> record mutation for indexed dependents
                                  -> enqueue existing full-scope Git invalidation
-               -> ambiguous/loss event -> mark that parent's dependents uncertain
+               -> loss/cursor/root/mount event -> mark dependents uncertain
+                                               -> enqueue exact fallback
+               -> ancestor-only ambiguity -> capture authority/binding/stream/epoch
+                                          -> coalesced off-executor item recheck
+                                          -> equal stable sequence end: no Git
+                                          -> changed/error/race: exact fallback
 ```
 
 An actual shared-file mutation may invalidate many worktrees because those authorities genuinely depend on that file. For every exact-path hit, the shared callback first advances the dependent continuity-ledger mutation epochs and then submits one coalescible full-scope Git-internal invalidation per dependent through the existing filesystem ingress and debounce boundary. That scheduling disposition carries no fabricated filesystem path and introduces no EventBus case or second authority. Ingress overflow retains its full-scope disposition so a dropped presentation/invalidation batch cannot narrow the pending exact fallback. Unrelated activity under the same recursive parent touches neither worktree mutation epochs nor ordinary ingress.
 
-The shared observer tracks cursor regression, wrap, drop, root, mount, and coverage uncertainty even for events that miss the exact-path index; uncertainty fans out only to registrations dependent on that parent. Every local or shared FSEvents hierarchy stream participating in continuity uses `WatchRoot` in addition to file-level delivery. `RootChanged` advances uncertainty and retires the affected stream and binding generation before ordinary routing; no new authority may mint until complete rebinding and a current exact scan. An ancestor or coalesced event that cannot prove which indexed item changed likewise fails that parent's dependents closed rather than consulting metadata and claiming uninterrupted continuity.
+The shared observer tracks cursor regression, wrap, drop, root, mount, and coverage uncertainty even for events that miss the exact-path index; those signals bypass fingerprint recheck and fan out uncertainty only to registrations dependent on that parent. Every local or shared FSEvents hierarchy stream participating in continuity uses `WatchRoot` in addition to file-level delivery. `RootChanged` advances uncertainty and retires the affected stream and binding generation before ordinary routing; no new authority may mint until complete rebinding and a current exact scan.
 
-Binding and barriers form one composite coverage transaction. A shared parent stream must start and establish coverage before its subscriber is installed or any baseline barrier may begin. `prepare`, post-scan `commit`, and `renew` retain and flush the worktree-local stream plus every shared parent participating in the binding without holding the lifecycle lock, then revalidate the binding generation, observation identity, all contributing stream generations, mutation epoch, and uncertainty epoch before authority can mint or freshness can advance. Plan replacement, subscriber remapping, late callbacks from retired generations, shared-stream start failure, or a mutation during any barrier makes the affected registration require exact Git. There is no fallback that recreates one broad parent stream per worktree.
+An ancestor-only event with otherwise healthy stream continuity is initially ambiguous. Before a verified-clean authority exists, it fails closed to exact Git; that later exact scan may supersede ambiguity already captured by its start barrier. An ancestor event arriving after the barrier while the baseline is preparing rejects commit. After authority exists, the callback advances the registration's monotonic observed-ambiguity epoch, captures immutable authority/binding/stream/scope evidence, and returns without filesystem I/O or a MainActor hop. The continuity owner may advance the resolved-ambiguity epoch only after the off-executor recheck proves every affected declared exact item equals its committed fingerprint and a sequence-end validation proves no newer ambiguity, mutation, uncertainty, authority, binding, stream, plan, scope, removal, or shutdown change. Equality resolves only that captured ambiguity; it does not advance freshness, decrement an epoch, create a Git fact, or overwrite a newer event. Any changed item, missing fingerprint coverage, unsupported state, read error, unstable read, stale generation, concurrent event, cancellation, or shutdown advances uncertainty once for that generation and retains the existing one coalesced exact fallback.
+
+The unresolved-scope map is keyed by dependent registration and stores its latest observed ambiguity epoch plus the union of affected canonical exact items. An active recheck captures one complete snapshot of that map. New A, B, then A events while it runs update epochs and union scope in the map; they never replace the pending value with the final event packet or narrow B away. Completion removes or resolves an entry only when its current epoch and scope still equal the captured snapshot. Any newer or disjoint unresolved entry remains in the map, and the parent starts exactly one successor from the newest complete unresolved snapshot. Binding replacement/removal may delete only the entries whose authority no longer exists. A failed recheck advances uncertainty and requests at most one fallback per affected worktree uncertainty generation through the existing outstanding-delivery gate.
+
+Binding and barriers form one composite coverage transaction. A shared parent stream must start and establish coverage before its subscriber is installed or any baseline barrier may begin. `prepare` flushes coverage and captures the current observed-ambiguity epoch before exact Git begins. Post-scan `commit` retains the same composite streams, flushes delayed delivery, requires the observed ambiguity to remain equal to the prepared epoch, captures current mutation/uncertainty epochs, reads complete shared-item fingerprints off-executor, flushes again, and then revalidates the binding generation, observation identity, contributing stream generations, mutation/uncertainty epochs, and unchanged prepared ambiguity epoch. A successful exact commit atomically sets the resolved-ambiguity epoch to that prepared observed epoch and attaches the fingerprints; the exact scan, not fingerprint equality, is the authority for pre-barrier ambiguity. An event during the scan, fingerprint read, or either flush advances the observed epoch and prevents commit. `renew` likewise requires no pending recheck, equal observed/resolved ambiguity epochs, and an authority carrying the current resolved epoch. No file I/O occurs while holding the lifecycle condition or continuity-ledger lock. Plan replacement, subscriber remapping, late callbacks from retired generations, shared-stream start failure, mutation, or unresolved ambiguity during any barrier makes the affected registration require exact Git. There is no fallback that recreates one broad parent stream per worktree.
 
 Unregister performs one lifecycle-serialized retirement: it first advances the worktree binding generation and retires authority so no new barrier or renewal can begin, then removes exact-path subscriber references and tears down the local registration. A shared parent observer remains live while any subscriber depends on it and stops at zero references. Shutdown first forbids new bindings and drains witness consumers, then retires worktree and shared-parent generations and tears down both stream classes. The cutover is internal and runtime-only: existing authorities are invalid after a binding-topology change, and the next accepted exact scan may mint authority only through the complete new composite binding.
 
-The proof boundary must demonstrate selective ownership rather than only final Git correctness:
+The AgentStudioCore proof boundary must demonstrate selective ownership rather than only final Git correctness:
 
 - many worktree plans sharing one external exact-item parent create one shared parent stream, and no worktree-local stream retains that broad parent;
-- unrelated activity under the parent produces one callback/index miss, no ordinary worktree batch, and no dependent mutation epoch change;
+- unrelated activity under the parent produces one callback/index miss, or one equal ancestor recheck that reads each unique shared item once regardless of dependent count, with no ordinary worktree batch, dependent mutation epoch change, or Git read;
 - an exact-item mutation advances each indexed dependent's ledger before one coalesced full-scope invalidation enters existing ingress; overflow preserves that scope and unrelated misses enqueue nothing;
-- loss, cursor, mount, or ambiguous coverage invalidates all dependents of that parent;
+- loss, cursor, mount, root, and unresolved ancestor coverage invalidate all dependents of that parent without taking the equality path;
+- content change with equal length, deletion, atomic replacement, symbolic-link replacement, unreadable/unsupported or policy-bound-exhausted state, stale binding, and a second event during recheck each preserve one exact fallback;
+- a blocked A recheck followed by B then A retains the complete unresolved A+B scope and resolves or falls back exactly once per affected worktree generation;
+- no-authority and exact-scan-preparing ancestor events reject equality, while committed authority plus unchanged fingerprints preserves authority;
+- `commit` and `renew` cannot pass while applicable ancestor ambiguity remains unresolved;
 - every continuity hierarchy stream requests root-change delivery; watched-parent or ancestor rename/deletion retires authority before routing and recovers only through rebinding plus exact Git;
 - delete, rename, atomic replacement, stream-start failure, plan replacement, late-generation callback, unregister/renew overlap, and mutation across every barrier fail authority closed;
 - local subtree delivery, deepest-owner routing, and ordinary filesystem debounce remain unchanged;
@@ -304,7 +323,9 @@ Per repository it owns:
 
 It calls a typed `agentstudio-git` staged-fetch contract with noninteractive prompt policy. Registration first captures the current remote configuration and canonical ref tips as one immutable local snapshot, establishing the immediate last-fetched acceptance token without claiming server freshness. Admission captures that exact origin URL, remote name, repository identity, and topology generation. The child fetches captured remote refs into a reserved generation-scoped private namespace without updating `FETCH_HEAD` or canonical `refs/remotes/*`. After child exit, the actor revalidates origin and generation; only a current completion may promote the complete staged update/delete set to canonical remote-tracking refs in one ref transaction and create a new `RemoteReferenceAcceptance` token for that exact origin/generation. Stale, cancelled, removed, or shutdown completions clean their staging namespace and cannot promote. Startup and shutdown also sweep abandoned refs under only that reserved namespace; cleanup failure remains observable and retryable, while staged refs stay invisible to canonical readers. Default automatic freshness is three minutes for active/visible demand, aligned with the confirmed product promise and PR freshness floor. Hidden or locally inactive automatic demand stops future fetches without deleting current-origin accepted remote refs or ahead/behind facts. Explicit repository-update scope is a bounded attempt-scoped demand lease for the captured current repository identity; it may start before the recency-derived automatic-demand snapshot arrives and ends when that attempt settles. Explicit refresh bypasses freshness but not identity, capacity, active single-flight, or failure/rate policy.
 
-One successfully promoted repository fetch refreshes shared remote refs once, then requests targeted local status recomputation for all currently represented worktrees in that repository. The recomputation carries the accepted remote-reference token; local ahead/behind composition publishes counts only while that token still matches the repository's current origin/topology generation. Origin change invalidates the prior token and ahead/behind publication authority before any new local self-heal can read old refs. The actor does not emit ahead/behind directly or duplicate local Git materialization authority.
+One successfully promoted repository fetch refreshes shared remote refs exactly once per repository, independent of the number of represented worktrees or their `.git` indirection. `RemoteReferenceRefreshActor` is keyed by `repoId` and owns one active operation plus one pending repository intent; canonicalized worktree Git-directory paths never create another network-fetch key. After promotion, the actor requests targeted local status recomputation for all currently represented worktrees because each may have a different `HEAD`, index, branch, or dirty state. The recomputation carries the accepted remote-reference token; local ahead/behind composition publishes counts only while that token still matches the repository's current origin/topology generation. Origin change invalidates the prior token and ahead/behind publication authority before any new local self-heal can read old refs. The actor does not emit ahead/behind directly or duplicate local Git materialization authority.
+
+Deterministic remote proof registers one canonical repository with multiple linked worktrees using distinct roots and `.git` indirection, demands one refresh, and observes exactly one staged network fetch, one promotion, and one accepted repository authority token followed by targeted local recomputation for the complete represented-worktree set. Reordering the topology input must not create a second fetch key.
 
 The selected initial physical policy is one automatic fetch process at a time, a 120-second child-process timeout inherited from the current `agentstudio-git` remote contract, and the three-minute automatic retry floor. These are `AppPolicies` values at composition; provider defaults are not hidden product policy.
 
@@ -490,8 +511,15 @@ cold FSEvent / known mutation
   [removed] cold mutation creating remote-reference or Forge demand
 
 warm checkpoint and exact-clean continuity
-  -> [unchanged] current package/provider/witness/projector path
-  <- renewed without Git or fail-closed exact fallback
+  -> [unchanged] package-declared dependency identity and exact baseline
+  -> [changed] shared-parent ancestor-only ambiguity
+       -> committed authority + stable equal exact-item fingerprints
+            -> preserve authority; no Git and no publication
+       -> no authority / changed / loss / unsupported / error / race
+            -> one fail-closed exact fallback
+  -> [unchanged] projector renewal and currentness validation advance freshness
+  [unchanged] exact hit, stream loss, root/mount change, and subtree ambiguity
+              bypass equality and require exact Git
 ```
 
 ### Demanded remote-reference path
@@ -563,15 +591,16 @@ Verified-clean continuity adds the following local substates without changing th
 | Local continuity state | Meaning | Valid transition |
 | --- | --- | --- |
 | No baseline | No accepted exact-clean authority | full exact scan, removal |
-| Exact clean preparing | Observation barrier surrounds a full exact scan | verified clean current, exact fallback pending, removal |
+| Exact clean preparing | Observation barrier surrounds a full exact scan and captures its starting ambiguity epoch | verified clean current when that epoch remains unchanged, exact fallback pending, removal |
 | Verified clean current | Accepted exact-clean facts and matching witness authority | continuity renewal, mutation, uncertainty, explicit refresh, identity change |
 | Continuity renewed | Checkpoint accepted with no physical Git | verified clean current at next deadline, mutation, uncertainty |
+| Ancestor recheck pending | One authority-bound complete unresolved-scope snapshot is being fingerprinted off-executor while newer/disjoint scope unions in the parent-owned map; freshness cannot advance | verified clean current with newer resolved epoch, one successor snapshot, exact fallback pending/running, removal |
 | Mutated | Relevant dependency changed | exact fallback pending/running |
 | Uncertain | Coverage, cursor, registration, or dependency proof failed | exact fallback pending/running |
 | Exact fallback pending/running | One retained exact intent owns recovery | verified clean current, accepted non-clean, failure recovery, removal |
 | Removed | No baseline or publication authority | new authoritative registration only |
 
-Renewal without an exact baseline, renewal across epoch or identity mismatch, uncertainty treated as unchanged, a path-scoped result minting a baseline, fallback loss during coalescing, and late authority advancing freshness are illegal and fail closed.
+Renewal without an exact baseline, renewal across epoch or identity mismatch, unresolved ambiguity treated as unchanged, metadata-only or subtree equality, a path-scoped result minting a baseline, fallback loss during coalescing, and late authority advancing freshness are illegal and fail closed. An equal authority-bound ancestor recheck resolves only its captured ambiguity; it does not itself renew freshness.
 
 Repository activity is a derived lifecycle, not stored truth:
 
@@ -649,7 +678,7 @@ The one-second local threshold becomes slow observation rather than physical com
 
 Fact success followed by detail failure publishes nothing partial. The prior complete candidate remains visible, complete-detail demand survives, and genuine failure recovery owns the next eligible attempt.
 
-Observer uncertainty preserves the last accepted facts and retains exactly one exact fallback intent. One uncertainty generation cannot enqueue fleet duplicates. A global observer restart may invalidate many authorities, but recovery still flows through the existing attention priority, automatic governor, process capacity, and same-root exclusion. Mutation during the baseline scan or either renewal barrier rejects the authority. Any non-clean exact result clears it. Worktree removal and shutdown clear both authority and observer scope. Continuity outcomes are validation outcomes and never enter source-failure backoff.
+Observer uncertainty preserves the last accepted facts and retains exactly one exact fallback intent. One uncertainty generation cannot enqueue fleet duplicates. Direct exact-item mutation, loss, cursor regression/wrap, root or mount lifecycle change, stream failure, unsupported scope, and unresolved ancestor ambiguity retain that fail-closed behavior. A healthy ancestor-only event may be resolved only against a committed authority's complete shared-item fingerprints at a stable sequence end; no authority, baseline preparation, changed content or identity, read instability/error, unsupported type, subtree scope, stale generation, concurrent ambiguity, removal, cancellation, or shutdown retains exact fallback. A global observer restart may invalidate many authorities, but recovery still flows through the existing attention priority, automatic governor, process capacity, and same-root exclusion. Mutation or unresolved ambiguity during the baseline scan, fingerprint transaction, or either renewal barrier rejects the authority. Any non-clean exact result clears it. Worktree removal and shutdown clear authority, fingerprints, pending recheck, and observer scope. Continuity outcomes are validation outcomes and never enter source-failure backoff.
 
 ### Remote fetch failure
 
@@ -684,6 +713,7 @@ Required outcome families:
 - physical: started, slow, caller-cancelled, settled, truly completed/exited, failed, active-at-shutdown;
 - query: path/full, fact/detail, avoided-fact-read, avoided-detail-read, fetch-staged/promoted/abandoned/cleaned, demanded-branch alias count, fallback-wide, returned node/result count, atomic-plan completeness;
 - validation: current, stale-generation, stale-root/origin/branch/demand, exact-clean-baseline prepared/accepted/rejected, continuity-renewed, mutation-invalidated, uncertainty by bounded reason, exact-fallback admitted/coalesced, removed, shutdown;
+- shared-ancestor continuity: candidate, equal-resolved, changed, missing-baseline, unsupported, policy-bound-exhausted, unstable, raced, stale-generation, fail-closed, active-recheck count, unresolved registration/item count, latest pending epoch, bytes/items read, and resulting full-refresh emission count;
 - publication: published, content-equal, partial-rejected;
 - recovery: capacity-rearmed, failure-opened/closed, rate-limited, unavailable/available;
 - explicit repository update: captured, source-applicable, source-admitted, source-settled by bounded outcome, composite-settled, superseded;
@@ -698,21 +728,40 @@ injected clocks + controllable local/child providers
   -> cache hit/no-call, debounce, freshness, capacity, generation flows
   -> positive continuity renewal makes zero physical calls
   -> uncertainty retains exactly one exact fallback and foreground priority
+  -> committed authority plus unchanged shared-item fingerprints resolves ancestor-only
+     ambiguity with zero Git; no authority, ambiguity during baseline preparation, same-length content
+     change, delete, atomic/symlink replacement, unsupported/error/oversized state, loss flags,
+     stale generation, and overlapping ambiguity each retain one exact fallback
+  -> blocked A recheck followed by B then A preserves complete unresolved A+B scope
+     and one fallback maximum per affected worktree uncertainty generation
+  -> SHA-256 known vectors and item/count/transaction limits prove deterministic equality
+     and bounded unique bytes/items read
+  -> commit/renew cannot certify authority while an ancestor recheck is pending
+  -> one repo with multiple linked worktrees issues one staged network fetch and promotion,
+     then recomputes every represented worktree under one accepted repository token
   -> explicit source admission leases, admission-before-loading, physical settlement,
      partial outcomes, observed starts, query scopes, pending intent, publication, recovery
 
-PACKAGE PROOF
+AGENTSTUDIO-GIT PACKAGE PROOF
 agentstudio-git real disposable repositories/remotes
   -> status-fact versus detail cost/contract
   -> differential exact-clean cases: nested untracked, staged, conflict, rename,
      type change, unreadable, linked index, HEAD/ref/config/ignore mutation,
      and transitive submodule HEAD/index/worktree/config/ignore/Git-directory mutation
-  -> observer drop/wrap/root-change/start-failure/re-registration/barrier races fail closed
-  -> mutation before registration, during scan, between scan and post-barrier,
-     during renewal, and between provider return and freshness acceptance fails closed
+  -> package observation-plan completeness/identity and exact-clean compatibility
   -> path/full compatibility and zero detail read for exact clean
   -> staged noninteractive fetch, current promotion, stale cleanup, and cancellation/timeout
   -> complete package check before revision consumption
+
+AGENTSTUDIOCORE FILESYSTEM PROOF
+real Darwin streams plus package-backed disposable repository plans
+  -> observer drop/wrap/root-change/start-failure/re-registration/barrier races fail closed
+  -> real shared-parent ancestor delivery plus stable exact-item fingerprint differential
+     against immediate exact Git; subtree scopes never take the fingerprint path
+  -> mutation before registration, during scan, between scan and post-barrier,
+     during renewal, and between provider return and freshness acceptance fails closed
+  -> exact-item stable-read identity/content cases, SHA-256 vectors, policy bounds,
+     unique-read cardinality, A→B→A scope union, and shutdown/cancellation settlement
 
 RUNTIME PROOF
 strict verifier
@@ -737,12 +786,12 @@ Immediately before the timed idle interval, the verifier injects one controlled 
 | U-GIT-ACTION-CPU-1 | content-equal demand, fresh-cache suppression, keyed projections | native action/read-back populations with exact-PID samples |
 | U-GIT-CACHE-FIRST-1 | RepoCacheAtom families, source-owner freshness, keyed eager reads | cache hit/no-source and keyed revision proof |
 | U-GIT-SOURCE-SUFFICIENCY-1 | three source owners consuming one demand snapshot | source-selection behavior and end-to-end fact provenance |
-| U-GIT-SELF-HEAL-1 | finite local/detail deadlines, verified-clean renewal, fail-closed exact fallback, and first-demand remote deadlines | injected-clock renewal/fallback longitudinal and demanded-checkpoint proof |
+| U-GIT-SELF-HEAL-1 | finite local/detail deadlines, verified-clean renewal, authority-bound ancestor resolution, fail-closed exact fallback, and first-demand remote deadlines | injected-clock renewal/fallback longitudinal, ancestor race/loss, and demanded-checkpoint proof |
 | U-GIT-COLD-1 | existing recency persistence, shared activity classifier, warm-only automatic demand/deadlines, targeted command join, keyed progress, stable inactive header | retention/classifier/deadline tests, cold mutation and no-work integration, native update/partial-failure/geometry proof, marker CPU evidence |
 | U-GIT-FOREGROUND-1 | shared demand class, immutable admission, source capacity/reservation | blocked-background/remote interleavings and stressed action proof |
 | U-GIT-ADMISSION-1 | bounded contraction, one active/one pending, deadline owners | outcome-accounted state tests and telemetry ratios |
-| U-GIT-LOCAL-EFFICIENCY-1 | fact/detail package cutover, exact-clean baseline, loss-aware continuity, safe pathspec, complete materialization | package differential/observer proof, compatibility/timing, and app zero-call renewal proof |
-| U-GIT-REMOTE-REF-1 | RemoteReferenceRefreshActor and targeted local recomputation | demanded fetch/cache/failure integration and read-back |
+| U-GIT-LOCAL-EFFICIENCY-1 | fact/detail package cutover, exact-clean baseline, loss-aware continuity, shared exact-item fingerprint admission, safe pathspec, complete materialization | package differential/observer/fingerprint proof, compatibility/timing, and app zero-call renewal proof |
+| U-GIT-REMOTE-REF-1 | repoId-keyed RemoteReferenceRefreshActor and targeted per-worktree local recomputation | demanded fetch/cache/failure integration plus one-fetch/multi-worktree cardinality proof and read-back |
 | U-GIT-FORGE-1 | existing branch cache plus alias query plan/global CLI capacity | GraphQL plan, recovery, cache, and toolbar/sidebar agreement |
 | U-GIT-CURRENTNESS-1 | per-source captured generations/scopes and changed-only applier | A/B/C identity/invalidation interleavings and integration publication |
 | U-GIT-PHYSICAL-BOUND-1 | shared status gate, exact-settling `DefaultProcessExecutor`, and child-process capacity owners | non-cooperative native plus cancellation/timeout exact child-exit lifecycle proof |
@@ -760,7 +809,7 @@ The current checkpoint foundation is preservation-critical and is not remaining 
 - process execution, changed-only cache publication, bounded telemetry, and reasoned preparation/physical debt proof already exist;
 - `Package.swift` already pins `agentstudio-git` at `29d0d93a99c300881c166f8aad3878f9259451b4` with the package contracts consumed by current HEAD.
 
-The remaining cold-repository hard cutover is:
+The remaining hard cutover is:
 
 - application-open recency retention changes from newest-fifteen storage to the complete unique sixty-day activity horizon; command-bar presentation remains free to select its newest fifteen;
 - application-recency hydration becomes an explicit precondition for automatic repository-fact eligibility and inactivity presentation;
@@ -769,10 +818,11 @@ The remaining cold-repository hard cutover is:
 - locally inactive repositories/worktrees stop contributing automatic remote-reference and Forge demand while accepted facts remain retained;
 - one targeted repository command replaces the unused partial remote/Forge refresh seam for this UX, obtains source-owned admission/settlement leases, and joins progress without creating a cross-source transaction;
 - Repo Explorer gains the By Repo header status/update control and grouping-specific cold-chip suppression through existing keyed/off-main materialization.
+- shared-parent ancestor-only ambiguity changes from unconditional fleet fallback to one authority-bound, coalesced, off-executor exact-item fingerprint recheck; every unresolved case preserves the existing exact fallback.
 
-There is no schema migration, package revision change, dual runtime scheduler, or compatibility path. Deadline, demand, capacity, activity, and physical state rebuild from current topology, hydrated recency, and accepted runtime facts at launch. Existing Git/Forge EventBus facts and source-fact shapes remain stable; only recency retention, activity/demand input, keyed command progress, and Repo Explorer presentation shapes change.
+There is no schema migration, package revision change, dual runtime scheduler, or compatibility path. Deadline, demand, capacity, activity, continuity fingerprints/epochs, and physical state rebuild from current topology, hydrated recency, package-declared observation plans, and accepted runtime facts at launch. Existing Git/Forge EventBus facts and source-fact shapes remain stable; only runtime recency/activity/demand/command/projection shapes and the private continuity-authority evidence change.
 
-The current exact package pin remains `29d0d93a99c300881c166f8aad3878f9259451b4`. The cold slice changes no `agentstudio-git` API or revision. Rollback restores the prior App activity/demand/command/projection behavior while leaving the current package and already-landed performance foundation intact.
+The current exact package pin remains `29d0d93a99c300881c166f8aad3878f9259451b4`. The hard cutover changes no `agentstudio-git` API or revision. There is no simultaneous old/new ancestor-disposition path: the witness either runs the authority-bound recheck contract or fails closed under that same contract. Rollback restores the prior App activity/demand/command/projection behavior and unconditional ancestor fallback while leaving the package pin intact.
 
 Architecture enforcement prevents:
 
@@ -782,9 +832,15 @@ Architecture enforcement prevents:
 - a second local fleet timer or generic cross-source scheduler;
 - hidden line-detail work inside status-fact reads;
 - a path-scoped, non-clean, raced, unsupported, or observation-uncertain result minting or renewing exact-clean authority;
+- an ancestor fingerprint originating a Git fact, advancing freshness directly, covering a subtree, running on MainActor/callback/lifecycle lock, exporting raw evidence, or suppressing a changed, unresolved, raced, or loss-bearing event;
+- more than one active ancestor recheck or one complete unresolved-scope map per shared parent/scope generation;
+- replacing the unresolved scope with a latest event packet, narrowing an A→B→A union, or leaving an observed epoch without a scheduled successor/fallback;
+- fingerprint equality using process-randomized hashing, an unversioned/non-collision-resistant digest, or reads beyond the policy item/count/transaction envelope;
+- repeated reads or digests of one canonical shared exact item per dependent worktree within the same ancestor generation;
 - treating missing events, event loss, observer restart, or identity drift as proof of no Git change;
 - independent production status providers bypassing the shared physical gate;
 - automatic remote work without demand;
+- a remote-reference network fetch keyed by worktree ID, Git-directory path, symlink target, or anything other than the canonical repository identity;
 - a locally inactive repository retaining periodic local/detail deadlines or automatic remote/Forge demand;
 - search, grouping, scrolling, disclosure, viewport, or materialization affecting activity classification;
 - repository-root mtime, tree scanning, or missing persisted Git/PR facts being used as activity truth;
