@@ -9,6 +9,7 @@ extension ForgeActor {
         var lastAttemptAt: Duration?
         var backoffUntil: Duration?
         var activeRequestId: UInt64?
+        var activeRequestSignature: ProviderRequestSignature?
         var pendingFollowUp = false
         var pendingFollowUpRequiresRefresh = false
         var pendingFollowUpHasUnconfirmedScopeChange = false
@@ -36,10 +37,19 @@ extension ForgeActor {
         let demandedBranches: Set<String>
         let trigger: RefreshTrigger
         let correlationId: UUID?
+        let explicitAttemptIds: Set<UUID>
 
         var signature: ProviderRequestSignature {
             ProviderRequestSignature(origin: origin, demandedBranches: demandedBranches)
         }
+    }
+
+    struct ExplicitRepositoryUpdateAttempt {
+        let repoId: UUID
+        let generation: UInt64
+        let origin: String
+        var branches: Set<String>
+        let settlement: RepositoryFactSourceUpdateSettlement
     }
 
     struct ProviderRequestSignature: Equatable, Sendable {

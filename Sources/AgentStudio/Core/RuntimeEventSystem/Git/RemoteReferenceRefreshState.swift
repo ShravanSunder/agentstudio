@@ -39,6 +39,13 @@ struct RemoteReferenceAttempt: Sendable {
     let stagingId: UUID
 }
 
+struct RemoteReferenceExplicitUpdateAttempt {
+    let repoId: UUID
+    let topologyGeneration: UInt64
+    let expectedOrigin: String
+    let settlement: RepositoryFactSourceUpdateSettlement
+}
+
 enum RemoteReferenceStagingOutcome: Sendable {
     case failed(RemoteReferenceAttempt)
     case obsolete(RemoteReferenceAttempt)

@@ -21,7 +21,118 @@ struct GitRefreshAttributionState {
     var nextRequiredIntentGeneration: UInt64 = 0
 }
 
+struct GitExplicitRepositoryUpdateAttempt {
+    let repositoryId: UUID
+    let settlement: RepositoryFactSourceUpdateSettlement
+    var requiredIntentGenerationByWorktreeId: [UUID: UInt64]
+    var outcomesByWorktreeId: [UUID: RepositoryFactSourceUpdateOutcome] = [:]
+}
+
 extension GitWorkingDirectoryProjector {
+    package func startExplicitRepositoryUpdate(
+        repoId: UUID,
+        attemptId: UUID
+    ) -> RepositoryFactSourceUpdateAdmission {
+        guard !isShuttingDown else { return .obsolete }
+        let worktreeIds = repoIdByWorktreeId.compactMap { worktreeId, candidateRepoId in
+            candidateRepoId == repoId && registeredContext(for: worktreeId) != nil ? worktreeId : nil
+        }
+        guard !worktreeIds.isEmpty else { return .notApplicable }
+
+        let settlement = RepositoryFactSourceUpdateSettlement(
+            source: .localGit,
+            attemptId: attemptId
+        )
+        var requiredIntentGenerationByWorktreeId: [UUID: UInt64] = [:]
+        for worktreeId in worktreeIds.sorted(by: { $0.uuidString < $1.uuidString }) {
+            if worktreeTasks[worktreeId] != nil,
+                refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] == "explicit",
+                let admittedGeneration =
+                    refreshAttribution.admittedRequiredIntentGenerationByWorktreeId[worktreeId]
+            {
+                requiredIntentGenerationByWorktreeId[worktreeId] = admittedGeneration
+                continue
+            }
+
+            enqueueImmediateRefreshIfRegistered(
+                worktreeId: worktreeId,
+                triggerSource: .visibilityChange,
+                isExplicit: true
+            )
+            guard
+                let requiredGeneration =
+                    refreshAttribution.pendingRequiredIntentGenerationByWorktreeId[worktreeId]
+                    ?? refreshAttribution.admittedRequiredIntentGenerationByWorktreeId[worktreeId]
+            else {
+                continue
+            }
+            requiredIntentGenerationByWorktreeId[worktreeId] = requiredGeneration
+        }
+
+        guard requiredIntentGenerationByWorktreeId.count == worktreeIds.count else {
+            settlement.resolve(.obsolete)
+            return .obsolete
+        }
+        explicitRepositoryUpdateAttemptsById[attemptId] = GitExplicitRepositoryUpdateAttempt(
+            repositoryId: repoId,
+            settlement: settlement,
+            requiredIntentGenerationByWorktreeId: requiredIntentGenerationByWorktreeId
+        )
+        return .accepted(settlement.lease)
+    }
+
+    func settleExplicitRepositoryUpdateTarget(
+        worktreeId: UUID,
+        requiredIntentGeneration: UInt64?,
+        outcome: RepositoryFactSourceUpdateOutcome
+    ) {
+        for attemptId in explicitRepositoryUpdateAttemptsById.keys {
+            guard var attempt = explicitRepositoryUpdateAttemptsById[attemptId],
+                let expectedGeneration = attempt.requiredIntentGenerationByWorktreeId[worktreeId],
+                requiredIntentGeneration == nil || expectedGeneration == requiredIntentGeneration,
+                attempt.outcomesByWorktreeId[worktreeId] == nil
+            else { continue }
+            attempt.outcomesByWorktreeId[worktreeId] = outcome
+            guard attempt.outcomesByWorktreeId.count == attempt.requiredIntentGenerationByWorktreeId.count else {
+                explicitRepositoryUpdateAttemptsById[attemptId] = attempt
+                continue
+            }
+            explicitRepositoryUpdateAttemptsById.removeValue(forKey: attemptId)
+            attempt.settlement.resolve(
+                Self.compositeExplicitRepositoryUpdateOutcome(attempt.outcomesByWorktreeId.values)
+            )
+        }
+    }
+
+    func settleCompletedExplicitRepositoryUpdateTarget(worktreeId: UUID) {
+        guard
+            let requiredIntentGeneration =
+                refreshAttribution.admittedRequiredIntentGenerationByWorktreeId[worktreeId]
+        else { return }
+        settleExplicitRepositoryUpdateTarget(
+            worktreeId: worktreeId,
+            requiredIntentGeneration: requiredIntentGeneration,
+            outcome: .completed
+        )
+    }
+
+    func settleAllExplicitRepositoryUpdates(_ outcome: RepositoryFactSourceUpdateOutcome) {
+        let attempts = explicitRepositoryUpdateAttemptsById.values
+        explicitRepositoryUpdateAttemptsById.removeAll(keepingCapacity: false)
+        for attempt in attempts {
+            attempt.settlement.resolve(outcome)
+        }
+    }
+
+    private nonisolated static func compositeExplicitRepositoryUpdateOutcome(
+        _ outcomes: Dictionary<UUID, RepositoryFactSourceUpdateOutcome>.Values
+    ) -> RepositoryFactSourceUpdateOutcome {
+        if outcomes.contains(.failed) { return .failed }
+        if outcomes.contains(.obsolete) { return .obsolete }
+        if outcomes.contains(.cancelled) { return .cancelled }
+        return .completed
+    }
+
     func recordRequiredIntent(
         changeset: FileChangeset,
         triggerSource: GitRefreshTriggerSource,

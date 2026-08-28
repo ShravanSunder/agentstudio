@@ -107,6 +107,7 @@ package actor GitWorkingDirectoryProjector {
     var nextEnvelopeSequence: UInt64 = 0
     var lastRecordedLogicalDebtSnapshot: GitLogicalDebtSnapshot?
     var aggregatePerformance = GitWorkingDirectoryPerformanceAccumulator()
+    var explicitRepositoryUpdateAttemptsById: [UUID: GitExplicitRepositoryUpdateAttempt] = [:]
     var isShuttingDown = false
 
     var queuedLogicalDebtCount: Int {
@@ -220,6 +221,7 @@ package actor GitWorkingDirectoryProjector {
         for task in tasksToAwait {
             await task.value
         }
+        settleAllExplicitRepositoryUpdates(.cancelled)
         for (worktreeId, rootPath) in rootPathByWorktreeId {
             (gitWorkingTreeProvider as? any GitExactCleanStatusProviding)?.retireExactCleanAuthority(
                 worktreeId: worktreeId,
@@ -457,6 +459,11 @@ package actor GitWorkingDirectoryProjector {
             return
         }
         if previousContext != nil, previousContext != context {
+            settleExplicitRepositoryUpdateTarget(
+                worktreeId: worktreeId,
+                requiredIntentGeneration: nil,
+                outcome: .obsolete
+            )
             if let previousContext {
                 (gitWorkingTreeProvider as? any GitExactCleanStatusProviding)?.retireExactCleanAuthority(
                     worktreeId: worktreeId,
@@ -515,6 +522,11 @@ package actor GitWorkingDirectoryProjector {
     }
 
     private func applyUnregistration(worktreeId: UUID, repoId: UUID) {
+        settleExplicitRepositoryUpdateTarget(
+            worktreeId: worktreeId,
+            requiredIntentGeneration: nil,
+            outcome: .obsolete
+        )
         if let rootPath = rootPathByWorktreeId[worktreeId] {
             (gitWorkingTreeProvider as? any GitExactCleanStatusProviding)?.retireExactCleanAuthority(
                 worktreeId: worktreeId,
@@ -783,6 +795,15 @@ package actor GitWorkingDirectoryProjector {
         guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
         guard isCurrentForPublication(changeset) else { return }
         admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
+        if let requiredIntentGeneration =
+            refreshAttribution.admittedRequiredIntentGenerationByWorktreeId[changeset.worktreeId]
+        {
+            settleExplicitRepositoryUpdateTarget(
+                worktreeId: changeset.worktreeId,
+                requiredIntentGeneration: requiredIntentGeneration,
+                outcome: .failed
+            )
+        }
         openOrAdvanceStatusBackoff(for: changeset, reason: unavailable.reason)
         await emitGitWorkingDirectoryEvent(
             worktreeId: changeset.worktreeId,

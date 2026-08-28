@@ -46,7 +46,7 @@ extension ForgeActor {
 
     func currentSettlementSnapshot() -> ForgePerformanceSnapshot.Settlement {
         let now = monotonicNow()
-        let demandedRepositoryIds = demandedRepoIds()
+        let demandedRepositoryIds = repositoryFactRefreshRepoIds()
         let capacityOccupyingRepositoryIds = providerCapacityOccupyingRepoIds
         var pendingFuture = 0
         var pendingReady = 0
@@ -94,14 +94,14 @@ extension ForgeActor {
     }
 
     func deadlineCandidates() -> [Duration] {
-        demandedRepoIds().compactMap(deadlineCandidate(repoId:))
+        repositoryFactRefreshRepoIds().compactMap(deadlineCandidate(repoId:))
     }
 
     func deadlineCandidate(repoId: UUID) -> Duration? {
         guard let state = refreshStateByRepoId[repoId],
             state.origin != nil,
             state.activeRequestId == nil,
-            !demandedBranches(repoId: repoId).isEmpty
+            !repositoryFactRefreshBranches(repoId: repoId).isEmpty
         else { return nil }
         if state.pendingFollowUp {
             return state.pendingFollowUpEligibleAt
@@ -115,7 +115,7 @@ extension ForgeActor {
         }
 
         var consumedFallback = false
-        for repoId in demandedRepoIds() {
+        for repoId in repositoryFactRefreshRepoIds() {
             guard let deadline = deadlineCandidate(repoId: repoId),
                 deadline <= now,
                 var state = refreshStateByRepoId[repoId]

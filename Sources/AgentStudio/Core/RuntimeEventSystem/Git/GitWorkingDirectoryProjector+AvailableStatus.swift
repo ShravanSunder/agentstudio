@@ -74,6 +74,7 @@ extension GitWorkingDirectoryProjector {
             aggregatePerformance.increment(\.snapshotEqual)
             flushAggregatePerformanceSnapshotIfNeeded()
         }
+        settleCompletedExplicitRepositoryUpdateTarget(worktreeId: changeset.worktreeId)
         completeAdmittedRequiredIntent(worktreeId: changeset.worktreeId)
         recordAutomaticCompletion(worktreeId: changeset.worktreeId, duty: statusDuration)
 

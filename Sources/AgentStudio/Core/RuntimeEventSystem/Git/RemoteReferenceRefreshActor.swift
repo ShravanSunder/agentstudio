@@ -41,6 +41,7 @@ package actor RemoteReferenceRefreshActor {
     private var demandedRepositoryIds: Set<UUID> = []
     private var pendingRepositoryIds: Set<UUID> = []
     private var explicitRepositoryIds: Set<UUID> = []
+    private var explicitUpdateAttemptsById: [UUID: RemoteReferenceExplicitUpdateAttempt] = [:]
     private var activeOperationsByRepoId: [UUID: RemoteReferenceActiveOperation] = [:]
     private var invalidatingRepositoryIds: Set<UUID> = []
     private var acceptedReferenceByRepoId: [UUID: RemoteReferenceAcceptance] = [:]
@@ -114,6 +115,7 @@ package actor RemoteReferenceRefreshActor {
             let nextGeneration = nextTopologyGeneration(repoId: repoId)
             await invalidateAuthority(repoId: repoId, topologyGeneration: nextGeneration)
             await revokeActiveOperation(repoId: repoId)
+            settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
             registration.repositoryPath = nextRepositoryPath
             registration.remoteName = remoteName
             registration.expectedOrigin = nextExpectedOrigin
@@ -149,6 +151,7 @@ package actor RemoteReferenceRefreshActor {
         let nextGeneration = nextTopologyGeneration(repoId: repoId)
         await invalidateAuthority(repoId: repoId, topologyGeneration: nextGeneration)
         await revokeActiveOperation(repoId: repoId)
+        settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
         registration.worktreeIds.remove(worktreeId)
         registration.topologyGeneration = nextGeneration
         lastSuccessfulFetchAtByRepoId.removeValue(forKey: repoId)
@@ -192,6 +195,7 @@ package actor RemoteReferenceRefreshActor {
                 let nextGeneration = nextTopologyGeneration(repoId: repoId)
                 await invalidateAuthority(repoId: repoId, topologyGeneration: nextGeneration)
                 await revokeActiveOperation(repoId: repoId)
+                settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
                 registrationsByRepoId.removeValue(forKey: repoId)
                 demandedRepositoryIds.remove(repoId)
                 pendingRepositoryIds.remove(repoId)
@@ -220,6 +224,7 @@ package actor RemoteReferenceRefreshActor {
             if currentRegistration != nil {
                 await invalidateAuthority(repoId: repoId, topologyGeneration: nextGeneration)
                 await revokeActiveOperation(repoId: repoId)
+                settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
             }
             registrationsByRepoId[repoId] = RemoteReferenceRegistration(
                 repoId: repoId,
@@ -249,6 +254,7 @@ package actor RemoteReferenceRefreshActor {
         let nextGeneration = nextTopologyGeneration(repoId: repoId)
         await invalidateAuthority(repoId: repoId, topologyGeneration: nextGeneration)
         await revokeActiveOperation(repoId: repoId, alreadyInvalidating: true)
+        settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
         registration.expectedOrigin = expectedOrigin
         registration.topologyGeneration = nextGeneration
         registrationsByRepoId[repoId] = registration
@@ -272,9 +278,11 @@ package actor RemoteReferenceRefreshActor {
         }
         let removedRepositoryIds = demandedRepositoryIds.subtracting(repositoryIds)
         demandedRepositoryIds = repositoryIds
-        pendingRepositoryIds.subtract(removedRepositoryIds)
-        explicitRepositoryIds.subtract(removedRepositoryIds)
+        let removedWithoutExplicitInterest = removedRepositoryIds.filter { !hasExplicitInterest(repoId: $0) }
+        pendingRepositoryIds.subtract(removedWithoutExplicitInterest)
         for repoId in removedRepositoryIds.sorted(by: { $0.uuidString < $1.uuidString }) {
+            guard !hasExplicitInterest(repoId: repoId) else { continue }
+            explicitRepositoryIds.remove(repoId)
             currentnessRetryAtByRepoId.removeValue(forKey: repoId)
             await revokeActiveOperation(repoId: repoId)
         }
@@ -282,23 +290,6 @@ package actor RemoteReferenceRefreshActor {
         admitPendingAttempts()
         rescheduleDeadline()
         flushPerformanceSnapshot()
-    }
-
-    package func refresh(repoId: UUID) {
-        guard !isShuttingDown, demandedRepositoryIds.contains(repoId), registrationsByRepoId[repoId] != nil else {
-            return
-        }
-        explicitRepositoryIds.insert(repoId)
-        pendingRepositoryIds.insert(repoId)
-        admitPendingAttempts()
-        rescheduleDeadline()
-    }
-
-    package func waitUntilIdle() async {
-        guard hasOutstandingPhysicalWork else { return }
-        await withCheckedContinuation { continuation in
-            idleWaiters.append(continuation)
-        }
     }
 
     package func shutdown() async {
@@ -316,6 +307,7 @@ package actor RemoteReferenceRefreshActor {
         for repoId in activeOperationsByRepoId.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
             await revokeActiveOperation(repoId: repoId)
         }
+        settleAllExplicitUpdateAttempts(.cancelled)
         for repoId in cleanupDebtByRepoId.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
             await retryCleanupDebt(repoId: repoId)
         }
@@ -379,7 +371,7 @@ package actor RemoteReferenceRefreshActor {
                     .min(by: { $0.uuidString < $1.uuidString }),
                 let registration = registrationsByRepoId[repoId],
                 let expectedOrigin = registration.expectedOrigin,
-                demandedRepositoryIds.contains(repoId),
+                hasEffectiveInterest(repoId: repoId),
                 !invalidatingRepositoryIds.contains(repoId)
             else { break }
             pendingRepositoryIds.remove(repoId)
@@ -414,7 +406,7 @@ package actor RemoteReferenceRefreshActor {
     }
 
     private func isEligible(repoId: UUID, now: Duration) -> Bool {
-        guard demandedRepositoryIds.contains(repoId), registrationsByRepoId[repoId] != nil else { return false }
+        guard hasEffectiveInterest(repoId: repoId), registrationsByRepoId[repoId] != nil else { return false }
         guard cleanupDebtByRepoId[repoId] == nil else { return false }
         if let currentnessRetryAt = currentnessRetryAtByRepoId[repoId], currentnessRetryAt > now {
             return false
@@ -532,6 +524,7 @@ package actor RemoteReferenceRefreshActor {
             await onAuthorityUpdate(
                 .promoted(acceptance, representedWorktreeIds: registration.worktreeIds)
             )
+            settleExplicitUpdateAttempts(matching: attempt, outcome: .completed)
             admitPendingAttempts()
             flushPerformanceSnapshot()
         }
@@ -541,7 +534,7 @@ package actor RemoteReferenceRefreshActor {
         guard activeOperationsByRepoId[attempt.repoId]?.attempt.stagingId == attempt.stagingId else { return }
         activeOperationsByRepoId.removeValue(forKey: attempt.repoId)
         performanceAccumulator.increment(\.executionFailed)
-        explicitRepositoryIds.remove(attempt.repoId)
+        settleExplicitUpdateAttempts(matching: attempt, outcome: .failed)
         currentnessRetryAtByRepoId.removeValue(forKey: attempt.repoId)
         if demandedRepositoryIds.contains(attempt.repoId) {
             failureDeadlineByRepoId[attempt.repoId] = monotonicNow() + automaticFailureBackoff
@@ -554,7 +547,8 @@ package actor RemoteReferenceRefreshActor {
     private func finishObsoleteAttempt(_ attempt: RemoteReferenceAttempt) {
         guard activeOperationsByRepoId[attempt.repoId]?.attempt.stagingId == attempt.stagingId else { return }
         activeOperationsByRepoId.removeValue(forKey: attempt.repoId)
-        if demandedRepositoryIds.contains(attempt.repoId), registrationsByRepoId[attempt.repoId] != nil {
+        settleExplicitUpdateAttempts(matching: attempt, outcome: .obsolete)
+        if hasEffectiveInterest(repoId: attempt.repoId), registrationsByRepoId[attempt.repoId] != nil {
             pendingRepositoryIds.insert(attempt.repoId)
             currentnessRetryAtByRepoId[attempt.repoId] =
                 monotonicNow() + AppPolicies.RemoteReferenceRefresh.capacityRecheckDelay
@@ -623,7 +617,7 @@ package actor RemoteReferenceRefreshActor {
 
     private func accepts(_ attempt: RemoteReferenceAttempt) -> Bool {
         guard !isShuttingDown, !invalidatingRepositoryIds.contains(attempt.repoId),
-            demandedRepositoryIds.contains(attempt.repoId),
+            hasEffectiveInterest(repoId: attempt.repoId),
             let registration = registrationsByRepoId[attempt.repoId]
         else { return false }
         return registration.topologyGeneration == attempt.topologyGeneration
@@ -720,7 +714,7 @@ package actor RemoteReferenceRefreshActor {
         if let cleanupRetryAt = cleanupRetryAtByRepoId[repoId], cleanupRetryAt > now {
             deadlines.append(cleanupRetryAt)
         }
-        if demandedRepositoryIds.contains(repoId), registrationsByRepoId[repoId] != nil,
+        if hasEffectiveInterest(repoId: repoId), registrationsByRepoId[repoId] != nil,
             let currentnessRetryAt = currentnessRetryAtByRepoId[repoId], currentnessRetryAt > now
         {
             deadlines.append(currentnessRetryAt)
@@ -781,12 +775,12 @@ package actor RemoteReferenceRefreshActor {
         var deadlines = cleanupRetryAtByRepoId.values.map { $0 }
         deadlines.append(
             contentsOf: currentnessRetryAtByRepoId.compactMap { repoId, deadline in
-                demandedRepositoryIds.contains(repoId) && registrationsByRepoId[repoId] != nil
+                hasEffectiveInterest(repoId: repoId) && registrationsByRepoId[repoId] != nil
                     ? deadline
                     : nil
             })
         deadlines.append(
-            contentsOf: demandedRepositoryIds.compactMap { repoId -> Duration? in
+            contentsOf: effectiveInterestRepositoryIds.compactMap { repoId -> Duration? in
                 guard activeOperationsByRepoId[repoId] == nil, registrationsByRepoId[repoId] != nil else { return nil }
                 if let failureDeadline = failureDeadlineByRepoId[repoId], failureDeadline > now {
                     return failureDeadline
@@ -810,7 +804,7 @@ package actor RemoteReferenceRefreshActor {
         where cleanupRetryAtByRepoId[repoId].map({ $0 <= now }) == true {
             await retryCleanupDebt(repoId: repoId)
         }
-        for repoId in demandedRepositoryIds where isEligible(repoId: repoId, now: now) {
+        for repoId in effectiveInterestRepositoryIds where isEligible(repoId: repoId, now: now) {
             pendingRepositoryIds.insert(repoId)
         }
         admitPendingAttempts()
@@ -822,5 +816,108 @@ package actor RemoteReferenceRefreshActor {
         let waiters = idleWaiters
         idleWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
+    }
+
+    private var effectiveInterestRepositoryIds: Set<UUID> {
+        demandedRepositoryIds.union(explicitRepositoryIds)
+    }
+
+    private func hasEffectiveInterest(repoId: UUID) -> Bool {
+        demandedRepositoryIds.contains(repoId) || hasExplicitInterest(repoId: repoId)
+    }
+
+    private func hasExplicitInterest(repoId: UUID) -> Bool {
+        explicitUpdateAttemptsById.values.contains { $0.repoId == repoId }
+    }
+
+    private func settleExplicitUpdateAttempts(
+        matching physicalAttempt: RemoteReferenceAttempt,
+        outcome: RepositoryFactSourceUpdateOutcome
+    ) {
+        for attemptId in explicitUpdateAttemptsById.keys {
+            guard let attempt = explicitUpdateAttemptsById[attemptId],
+                attempt.repoId == physicalAttempt.repoId,
+                attempt.topologyGeneration == physicalAttempt.topologyGeneration,
+                attempt.expectedOrigin == physicalAttempt.expectedOrigin
+            else { continue }
+            explicitUpdateAttemptsById.removeValue(forKey: attemptId)
+            attempt.settlement.resolve(outcome)
+        }
+        contractExplicitInterest(repoId: physicalAttempt.repoId)
+    }
+
+    private func settleExplicitUpdateAttempts(
+        repoId: UUID,
+        outcome: RepositoryFactSourceUpdateOutcome
+    ) {
+        for attemptId in explicitUpdateAttemptsById.keys {
+            guard let attempt = explicitUpdateAttemptsById[attemptId], attempt.repoId == repoId else { continue }
+            explicitUpdateAttemptsById.removeValue(forKey: attemptId)
+            attempt.settlement.resolve(outcome)
+        }
+        contractExplicitInterest(repoId: repoId)
+    }
+
+    private func settleAllExplicitUpdateAttempts(_ outcome: RepositoryFactSourceUpdateOutcome) {
+        let attempts = explicitUpdateAttemptsById.values
+        explicitUpdateAttemptsById.removeAll(keepingCapacity: false)
+        explicitRepositoryIds.removeAll(keepingCapacity: false)
+        for attempt in attempts {
+            attempt.settlement.resolve(outcome)
+        }
+    }
+
+    private func contractExplicitInterest(repoId: UUID) {
+        guard !hasExplicitInterest(repoId: repoId) else { return }
+        explicitRepositoryIds.remove(repoId)
+        if !demandedRepositoryIds.contains(repoId) {
+            pendingRepositoryIds.remove(repoId)
+        }
+    }
+}
+
+extension RemoteReferenceRefreshActor {
+    package func refresh(repoId: UUID) {
+        guard !isShuttingDown, demandedRepositoryIds.contains(repoId), registrationsByRepoId[repoId] != nil else {
+            return
+        }
+        explicitRepositoryIds.insert(repoId)
+        pendingRepositoryIds.insert(repoId)
+        admitPendingAttempts()
+        rescheduleDeadline()
+    }
+
+    package func waitUntilIdle() async {
+        guard hasOutstandingPhysicalWork else { return }
+        await withCheckedContinuation { continuation in
+            idleWaiters.append(continuation)
+        }
+    }
+
+    package func startExplicitRepositoryUpdate(
+        repoId: UUID,
+        attemptId: UUID
+    ) -> RepositoryFactSourceUpdateAdmission {
+        guard !isShuttingDown else { return .obsolete }
+        guard let registration = registrationsByRepoId[repoId], let expectedOrigin = registration.expectedOrigin else {
+            return .notApplicable
+        }
+        let settlement = RepositoryFactSourceUpdateSettlement(
+            source: .remoteReferences,
+            attemptId: attemptId
+        )
+        explicitUpdateAttemptsById[attemptId] = RemoteReferenceExplicitUpdateAttempt(
+            repoId: repoId,
+            topologyGeneration: registration.topologyGeneration,
+            expectedOrigin: expectedOrigin,
+            settlement: settlement
+        )
+        explicitRepositoryIds.insert(repoId)
+        if activeOperationsByRepoId[repoId] == nil {
+            pendingRepositoryIds.insert(repoId)
+        }
+        admitPendingAttempts()
+        rescheduleDeadline()
+        return .accepted(settlement.lease)
     }
 }

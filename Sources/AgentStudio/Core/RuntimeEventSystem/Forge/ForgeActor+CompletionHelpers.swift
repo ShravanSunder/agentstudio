@@ -2,6 +2,85 @@ import AgentStudioInfrastructure
 import Foundation
 
 extension ForgeActor {
+    func validatedStateForProviderCompletion(
+        _ request: ProviderRequest
+    ) async -> RepositoryRefreshState? {
+        guard let state = refreshStateByRepoId[request.repoId] else {
+            await rejectObsoleteProviderCompletion(request, validation: .staleGeneration)
+            return nil
+        }
+        guard state.generation == request.generation else {
+            await rejectObsoleteProviderCompletion(request, validation: .staleGeneration)
+            return nil
+        }
+        guard state.origin == request.origin else {
+            await rejectObsoleteProviderCompletion(request, validation: .staleOrigin)
+            return nil
+        }
+        guard state.activeRequestId == request.id else {
+            performanceAccumulator.recordExecution(.superseded)
+            settleExplicitUpdateAttempts(matching: request, outcome: .obsolete, requiresMatchingScope: false)
+            await rearmAfterProviderPhysicalCompletion()
+            return nil
+        }
+        return state
+    }
+
+    private func rejectObsoleteProviderCompletion(
+        _ request: ProviderRequest,
+        validation: ForgePerformanceValidationOutcome
+    ) async {
+        performanceAccumulator.recordExecution(.superseded)
+        performanceAccumulator.recordValidation(validation)
+        settleExplicitUpdateAttempts(matching: request, outcome: .obsolete, requiresMatchingScope: false)
+        await rearmAfterProviderPhysicalCompletion()
+    }
+
+    func settleExplicitUpdateAttempts(
+        matching request: ProviderRequest,
+        outcome: RepositoryFactSourceUpdateOutcome,
+        requiresMatchingScope: Bool
+    ) {
+        let matchingCurrentAttemptIds: [UUID] = explicitUpdateAttemptsById.compactMap { attemptId, attempt in
+            guard attempt.repoId == request.repoId,
+                attempt.generation == request.generation,
+                attempt.origin == request.origin,
+                !requiresMatchingScope || attempt.branches == request.demandedBranches
+            else { return nil }
+            return attemptId
+        }
+        let candidateAttemptIds = request.explicitAttemptIds.union(matchingCurrentAttemptIds)
+        for attemptId in candidateAttemptIds {
+            guard let attempt = explicitUpdateAttemptsById[attemptId] else { continue }
+            if requiresMatchingScope,
+                attempt.generation == request.generation,
+                attempt.origin == request.origin,
+                attempt.branches != request.demandedBranches
+            {
+                continue
+            }
+            explicitUpdateAttemptsById.removeValue(forKey: attemptId)
+            attempt.settlement.resolve(outcome)
+        }
+    }
+
+    func settleAllExplicitUpdateAttempts(_ outcome: RepositoryFactSourceUpdateOutcome) {
+        let attempts = explicitUpdateAttemptsById.values
+        explicitUpdateAttemptsById.removeAll(keepingCapacity: false)
+        for attempt in attempts {
+            attempt.settlement.resolve(outcome)
+        }
+    }
+
+    func settleExplicitUpdateAttemptsAfterLogicalInvalidation(repoId: UUID) {
+        guard !providerRepoIdByRequestId.values.contains(repoId) else { return }
+        for attemptId in explicitUpdateAttemptsById.keys {
+            guard let attempt = explicitUpdateAttemptsById[attemptId], attempt.repoId == repoId else { continue }
+            explicitUpdateAttemptsById.removeValue(forKey: attemptId)
+            attempt.settlement.resolve(.obsolete)
+        }
+    }
+
     func captureFollowUpDecision(
         state: inout RepositoryRefreshState,
         request: ProviderRequest,
@@ -11,7 +90,7 @@ extension ForgeActor {
         let currentSignature = state.origin.map {
             ProviderRequestSignature(
                 origin: $0,
-                demandedBranches: demandedBranches(repoId: request.repoId)
+                demandedBranches: repositoryFactRefreshBranches(repoId: request.repoId)
             )
         }
         if state.pendingFollowUpRequiresRefresh {
@@ -39,7 +118,7 @@ extension ForgeActor {
 
     func rearmAfterProviderPhysicalCompletion() async {
         guard !isShuttingDown else { return }
-        let deferredRepoIds = demandedRepoIds().sorted { lhs, rhs in
+        let deferredRepoIds = repositoryFactRefreshRepoIds().sorted { lhs, rhs in
             lhs.uuidString < rhs.uuidString
         }
         for repoId in deferredRepoIds {
@@ -79,7 +158,7 @@ extension ForgeActor {
             currentState.origin == request.origin
         else { return false }
 
-        return demandedBranches(repoId: request.repoId) == request.demandedBranches
+        return repositoryFactRefreshBranches(repoId: request.repoId) == request.demandedBranches
             && request.demandedBranches.isSubset(
                 of: representedBranches(repoId: request.repoId)
             )

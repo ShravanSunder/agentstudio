@@ -1,0 +1,303 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
+import Foundation
+import Testing
+
+@testable import AgentStudioCore
+
+@Suite("GitWorkingDirectoryProjector explicit updates")
+struct GitWorkingDirectoryProjectorExplicitUpdateTests {
+    @Test("explicit repository update joins sufficient active local work without a follower")
+    func explicitRepositoryUpdateJoinsSufficientActiveWork() async throws {
+        let statusGate = ExplicitUpdateStatusGate()
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/explicit-local-join-\(worktreeID)")
+        let actor = makeActor(statusGate: statusGate, returnsStatus: true)
+        await register(actor: actor, repositoryID: repositoryID, worktreeID: worktreeID, rootPath: rootPath)
+        await actor.enqueueImmediateRefresh(
+            FileChangeset(
+                worktreeId: worktreeID,
+                repoId: repositoryID,
+                rootPath: rootPath,
+                paths: ["tracked.txt"],
+                timestamp: ContinuousClock().now,
+                batchSeq: 1
+            ),
+            triggerSource: .visibilityChange,
+            isExplicit: true
+        )
+        #expect(await explicitUpdateWaitUntil { await statusGate.callCount == 1 })
+
+        let lease = try #require(
+            await actor.startExplicitRepositoryUpdate(repoId: repositoryID, attemptId: UUIDv7.generate())
+                .acceptedLease
+        )
+        await statusGate.releaseFirst()
+
+        #expect(await lease.settlement() == .completed)
+        #expect(await statusGate.callCount == 1)
+        await actor.shutdown()
+    }
+
+    @Test("explicit repository update reports a genuine local status failure")
+    func explicitRepositoryUpdateReportsStatusFailure() async throws {
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/explicit-local-failure-\(worktreeID)")
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            coalescingWindow: .zero,
+            pathExistenceProbe: { _ in true }
+        )
+        await register(actor: actor, repositoryID: repositoryID, worktreeID: worktreeID, rootPath: rootPath)
+
+        let lease = try #require(
+            await actor.startExplicitRepositoryUpdate(repoId: repositoryID, attemptId: UUIDv7.generate())
+                .acceptedLease
+        )
+
+        #expect(await lease.settlement() == .failed)
+        await actor.shutdown()
+    }
+
+    @Test("explicit repository update cancellation settles after local provider return")
+    func explicitRepositoryUpdateCancellationWaitsForProviderReturn() async throws {
+        let statusGate = ExplicitUpdateStatusGate()
+        let eventRecorder = ExplicitUpdateSettlementEventRecorder()
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/explicit-local-cancellation-\(worktreeID)")
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { rootPath in
+                await statusGate.recordAndWaitIfFirst(rootPath)
+                await eventRecorder.record(.providerReturned)
+                return Self.cleanStatus
+            },
+            coalescingWindow: .zero,
+            pathExistenceProbe: { _ in true }
+        )
+        await register(actor: actor, repositoryID: repositoryID, worktreeID: worktreeID, rootPath: rootPath)
+
+        let lease = try #require(
+            await actor.startExplicitRepositoryUpdate(repoId: repositoryID, attemptId: UUIDv7.generate())
+                .acceptedLease
+        )
+        #expect(await explicitUpdateWaitUntil { await statusGate.callCount == 1 })
+        let settlementTask = Task {
+            let outcome = await lease.settlement()
+            await eventRecorder.record(.settled(outcome))
+        }
+        let shutdownTask = Task { await actor.shutdown() }
+
+        await statusGate.releaseFirst()
+        await shutdownTask.value
+        await settlementTask.value
+
+        #expect(await eventRecorder.events == [.providerReturned, .settled(.cancelled)])
+    }
+
+    @Test("explicit repository update remains unsettled across local capacity retry")
+    func explicitRepositoryUpdateRemainsUnsettledAcrossCapacityRetry() async throws {
+        let eventRecorder = ExplicitUpdateSettlementEventRecorder()
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/explicit-local-capacity-\(worktreeID)")
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: ExplicitUpdateCapacityProvider(),
+            coalescingWindow: .zero,
+            pathExistenceProbe: { _ in true }
+        )
+        await register(actor: actor, repositoryID: repositoryID, worktreeID: worktreeID, rootPath: rootPath)
+
+        let lease = try #require(
+            await actor.startExplicitRepositoryUpdate(repoId: repositoryID, attemptId: UUIDv7.generate())
+                .acceptedLease
+        )
+        let settlementTask = Task {
+            let outcome = await lease.settlement()
+            await eventRecorder.record(.settled(outcome))
+        }
+        #expect(
+            await explicitUpdateWaitUntil {
+                await actor.capacityRetryWorktreeIds == Set([worktreeID])
+            }
+        )
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+        #expect(await eventRecorder.events.isEmpty)
+
+        await actor.shutdown()
+        await settlementTask.value
+        #expect(await eventRecorder.events == [.settled(.cancelled)])
+    }
+
+    @Test("explicit repository update without registered worktrees is not applicable")
+    func explicitRepositoryUpdateWithoutWorktreesIsNotApplicable() async {
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            coalescingWindow: .zero
+        )
+
+        let admission = await actor.startExplicitRepositoryUpdate(
+            repoId: UUIDv7.generate(),
+            attemptId: UUIDv7.generate()
+        )
+
+        #expect(admission.acceptedLease == nil)
+        await actor.shutdown()
+    }
+
+    @Test("explicit repository update retains one full follower behind insufficient active local work")
+    func explicitRepositoryUpdateFollowsInsufficientActiveWork() async throws {
+        let statusGate = ExplicitUpdateStatusGate()
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/explicit-local-follower-\(worktreeID)")
+        let actor = makeActor(statusGate: statusGate, returnsStatus: true)
+        await register(actor: actor, repositoryID: repositoryID, worktreeID: worktreeID, rootPath: rootPath)
+        await actor.enqueueImmediateRefresh(
+            FileChangeset(
+                worktreeId: worktreeID,
+                rootPath: rootPath,
+                paths: ["tracked.txt"],
+                timestamp: ContinuousClock().now,
+                batchSeq: 1
+            ),
+            triggerSource: .filesystemChange
+        )
+        #expect(await explicitUpdateWaitUntil { await statusGate.callCount == 1 })
+
+        let lease = try #require(
+            await actor.startExplicitRepositoryUpdate(repoId: repositoryID, attemptId: UUIDv7.generate())
+                .acceptedLease
+        )
+        await statusGate.releaseFirst()
+
+        #expect(await explicitUpdateWaitUntil { await statusGate.callCount == 2 })
+        #expect(await lease.settlement() == .completed)
+        await actor.shutdown()
+    }
+
+    @Test("cold explicit repository update admits before local physical settlement")
+    func coldExplicitRepositoryUpdateAdmitsBeforePhysicalSettlement() async throws {
+        let statusGate = ExplicitUpdateStatusGate()
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/explicit-local-\(worktreeID)")
+        let actor = makeActor(statusGate: statusGate, returnsStatus: true)
+        await register(actor: actor, repositoryID: repositoryID, worktreeID: worktreeID, rootPath: rootPath)
+        await actor.setAutomaticEligibleWorktrees([])
+
+        let lease = try #require(
+            await actor.startExplicitRepositoryUpdate(repoId: repositoryID, attemptId: UUIDv7.generate())
+                .acceptedLease
+        )
+
+        #expect(await explicitUpdateWaitUntil { await statusGate.callCount == 1 })
+        await statusGate.releaseFirst()
+        #expect(await lease.settlement() == .completed)
+        await actor.shutdown()
+    }
+
+    private static let cleanStatus = GitWorkingTreeStatus(
+        summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+        branch: "main",
+        origin: nil
+    )
+
+    private func makeActor(
+        statusGate: ExplicitUpdateStatusGate,
+        returnsStatus: Bool
+    ) -> GitWorkingDirectoryProjector {
+        GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { rootPath in
+                await statusGate.recordAndWaitIfFirst(rootPath)
+                return returnsStatus ? Self.cleanStatus : nil
+            },
+            coalescingWindow: .zero,
+            pathExistenceProbe: { _ in true }
+        )
+    }
+
+    private func register(
+        actor: GitWorkingDirectoryProjector,
+        repositoryID: UUID,
+        worktreeID: UUID,
+        rootPath: URL
+    ) async {
+        await actor.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: 1,
+                contextsByWorktreeId: [
+                    worktreeID: WorktreeFilesystemContext(repoId: repositoryID, rootPath: rootPath)
+                ]
+            )
+        )
+    }
+}
+
+private actor ExplicitUpdateStatusGate {
+    private var rootPaths: [URL] = []
+    private var firstCallWaiter: CheckedContinuation<Void, Never>?
+    private var isFirstCallReleased = false
+
+    var callCount: Int { rootPaths.count }
+
+    func recordAndWaitIfFirst(_ rootPath: URL) async {
+        rootPaths.append(rootPath)
+        guard rootPaths.count == 1 else { return }
+        await withCheckedContinuation { continuation in
+            if isFirstCallReleased {
+                continuation.resume()
+            } else {
+                firstCallWaiter = continuation
+            }
+        }
+    }
+
+    func releaseFirst() {
+        isFirstCallReleased = true
+        firstCallWaiter?.resume()
+        firstCallWaiter = nil
+    }
+}
+
+private actor ExplicitUpdateSettlementEventRecorder {
+    enum Event: Equatable {
+        case providerReturned
+        case settled(RepositoryFactSourceUpdateOutcome)
+    }
+
+    private(set) var events: [Event] = []
+
+    func record(_ event: Event) {
+        events.append(event)
+    }
+}
+
+private struct ExplicitUpdateCapacityProvider: GitWorkingTreeStatusProvider {
+    func statusResult(
+        for _: URL,
+        pathspecs _: [String]?
+    ) async -> GitWorkingTreeStatusResult {
+        .unavailable(GitWorkingTreeStatusUnavailable(reason: .readCapacityExceeded))
+    }
+}
+
+private func explicitUpdateWaitUntil(
+    maxTurns: Int = 20_000,
+    _ condition: @escaping () async -> Bool
+) async -> Bool {
+    for _ in 0..<maxTurns {
+        if await condition() { return true }
+        await Task.yield()
+    }
+    return await condition()
+}

@@ -8,6 +8,105 @@ import Testing
 
 @Suite("RemoteReferenceRefreshActor")
 struct RemoteReferenceRefreshActorTests {
+    @Test("explicit repository update reports a genuine promotion failure")
+    func explicitRepositoryUpdateReportsPromotionFailure() async throws {
+        let fixture = RemoteReferenceRefreshFixture(promotionFailuresRemaining: 1)
+        let actor = RemoteReferenceRefreshActor(provider: fixture.provider)
+        await actor.register(
+            repoId: fixture.repoId,
+            worktreeId: fixture.worktreeId,
+            repositoryPath: fixture.repositoryPath,
+            remoteName: "origin",
+            expectedOrigin: fixture.originA
+        )
+
+        let admission = await actor.startExplicitRepositoryUpdate(
+            repoId: fixture.repoId,
+            attemptId: UUIDv7.generate()
+        )
+        let lease = try #require(admission.acceptedLease)
+
+        #expect(await lease.settlement() == .failed)
+        await actor.shutdown()
+    }
+
+    @Test("explicit repository update remains admitted while remote capacity is occupied")
+    func explicitRepositoryUpdateWaitsForCapacity() async throws {
+        let fixture = RemoteReferenceRefreshFixture(suspendStaging: true)
+        let actor = RemoteReferenceRefreshActor(provider: fixture.provider, maximumConcurrentFetches: 1)
+        let secondRepoID = UUIDv7.generate()
+        let secondWorktreeID = UUIDv7.generate()
+        await actor.register(
+            repoId: fixture.repoId,
+            worktreeId: fixture.worktreeId,
+            repositoryPath: fixture.repositoryPath,
+            remoteName: "origin",
+            expectedOrigin: fixture.originA
+        )
+        await actor.register(
+            repoId: secondRepoID,
+            worktreeId: secondWorktreeID,
+            repositoryPath: fixture.repositoryPath.appending(path: "second"),
+            remoteName: "origin",
+            expectedOrigin: fixture.originA
+        )
+        await actor.setDemand(repositoryIds: [fixture.repoId])
+        await fixture.provider.waitUntilStageSuspended()
+
+        let admission = await actor.startExplicitRepositoryUpdate(
+            repoId: secondRepoID,
+            attemptId: UUIDv7.generate()
+        )
+        let lease = try #require(admission.acceptedLease)
+        #expect(await fixture.provider.stageCount == 1)
+
+        await fixture.provider.releaseStage()
+        await fixture.provider.waitForStageCount(2)
+        await fixture.provider.waitUntilStageSuspended()
+        await fixture.provider.releaseStage()
+        #expect(await lease.settlement() == .completed)
+        await actor.shutdown()
+    }
+
+    @Test("explicit repository update without remote registration is not applicable")
+    func explicitRepositoryUpdateWithoutRegistrationIsNotApplicable() async {
+        let actor = RemoteReferenceRefreshActor()
+
+        let admission = await actor.startExplicitRepositoryUpdate(
+            repoId: UUIDv7.generate(),
+            attemptId: UUIDv7.generate()
+        )
+
+        #expect(admission.acceptedLease == nil)
+        await actor.shutdown()
+    }
+
+    @Test("cold explicit repository update remains admitted through remote child settlement")
+    func coldExplicitRepositoryUpdateWaitsForPhysicalSettlement() async throws {
+        let fixture = RemoteReferenceRefreshFixture(suspendStaging: true)
+        let actor = RemoteReferenceRefreshActor(provider: fixture.provider)
+        await actor.register(
+            repoId: fixture.repoId,
+            worktreeId: fixture.worktreeId,
+            repositoryPath: fixture.repositoryPath,
+            remoteName: "origin",
+            expectedOrigin: fixture.originA
+        )
+
+        let admission = await actor.startExplicitRepositoryUpdate(
+            repoId: fixture.repoId,
+            attemptId: UUIDv7.generate()
+        )
+        let lease = try #require(admission.acceptedLease)
+        await fixture.provider.waitUntilStageSuspended()
+
+        await fixture.provider.releaseStage()
+        #expect(await lease.settlement() == .completed)
+        #expect(await fixture.provider.promoteCount == 1)
+
+        await actor.shutdown()
+    }
+
     @Test("current demanded stage promotes and targets represented worktrees")
     func currentDemandPromotesAndRecomputes() async throws {
         let fixture = RemoteReferenceRefreshFixture()
