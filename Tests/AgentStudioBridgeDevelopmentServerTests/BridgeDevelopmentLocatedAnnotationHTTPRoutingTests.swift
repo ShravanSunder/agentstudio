@@ -105,12 +105,11 @@ private func createHTTPSavedLocatedAnnotationBeforeRestart(
         let sessionID = try #require(createOutcome.sessionId)
         let createReceipt = try #require(createOutcome.receipt)
         let draftRevision = try #require(createReceipt.draftRevision)
-        let createInvalidation = try await waitForHTTPAnnotationInvalidation(
+        _ = try await waitForHTTPAnnotationCatalogCommit(
             client: client,
             connection: connection,
             recorder: context.metadataStream.recorder
         )
-        #expect(try httpAnnotationInvalidationIsCompact(createInvalidation))
         let saveOutcome = try await executeHTTPAnnotationCommand(
             client: client,
             connection: connection,
@@ -126,12 +125,12 @@ private func createHTTPSavedLocatedAnnotationBeforeRestart(
             requestSequence: 7
         )
         try #require(saveOutcome.status == .committed)
-        let saveInvalidation = try await waitForHTTPAnnotationInvalidation(
+        _ = try await waitForHTTPAnnotationSessionChange(
             client: client,
             connection: connection,
-            recorder: context.metadataStream.recorder
+            recorder: context.metadataStream.recorder,
+            expectedSessionID: sessionID
         )
-        #expect(try httpAnnotationInvalidationIsCompact(saveInvalidation))
         let savedProjection = try await fetchHTTPFileAnnotationProjection(
             client: client,
             host: runtime.host,
@@ -202,12 +201,6 @@ private func restoreHTTPLocatedAnnotationBeforeDescriptorMaterialization(
             requestSequence: 7
         )
         try #require(refreshOutcome.status == .committed)
-        let refreshInvalidation = try await waitForHTTPAnnotationInvalidation(
-            client: client,
-            connection: context.connection,
-            recorder: context.metadataStream.recorder
-        )
-        #expect(try httpAnnotationInvalidationIsCompact(refreshInvalidation))
         let refreshedProjection = try await fetchHTTPFileAnnotationProjection(
             client: client,
             host: runtime.host,

@@ -145,20 +145,11 @@ func prepareHTTPAnnotationAuthoring(
         recorder: metadataStream.recorder,
         subscriptionID: "file-annotations-authoring"
     )
-    let annotationEvent: BridgeProductWorktreeAnnotationEvent =
-        try await waitForAcknowledgedMetadataFrame(
-            client: client,
-            connection: connection,
-            recorder: metadataStream.recorder
-        ) { frame in
-            guard case .subscriptionData(let dataFrame) = frame,
-                let event = dataFrame.data.fileAnnotationsEvent
-            else { return nil }
-            return event
-        }
-    guard try httpAnnotationInvalidationIsCompact(annotationEvent) else {
-        throw HTTPAnnotationIntegrationError.invalidAnnotationInvalidation
-    }
+    _ = try await waitForHTTPAnnotationCatalogCommit(
+        client: client,
+        connection: connection,
+        recorder: metadataStream.recorder
+    )
     return .init(
         descriptor: descriptor,
         fileSourceGeneration: acceptedFileSource.subscriptionGeneration,
@@ -289,20 +280,11 @@ func prepareHTTPAnnotationLocatedRestore(
         recorder: metadataStream.recorder,
         subscriptionID: "file-annotations-located-restore"
     )
-    let annotationEvent: BridgeProductWorktreeAnnotationEvent =
-        try await waitForAcknowledgedMetadataFrame(
-            client: client,
-            connection: connection,
-            recorder: metadataStream.recorder
-        ) { frame in
-            guard case .subscriptionData(let dataFrame) = frame,
-                let event = dataFrame.data.fileAnnotationsEvent
-            else { return nil }
-            return event
-        }
-    guard try httpAnnotationInvalidationIsCompact(annotationEvent) else {
-        throw HTTPAnnotationIntegrationError.invalidAnnotationInvalidation
-    }
+    _ = try await waitForHTTPAnnotationCatalogCommit(
+        client: client,
+        connection: connection,
+        recorder: metadataStream.recorder
+    )
     return .init(
         connection: connection,
         fileSourceGeneration: acceptedFileSource.subscriptionGeneration,
@@ -322,7 +304,6 @@ struct HTTPMetadataStreamHandle {
 
 enum HTTPAnnotationIntegrationError: Error {
     case annotationCommandFailed
-    case invalidAnnotationInvalidation
     case invalidJSONObject
     case metadataStreamEnded
     case unexpectedAnnotationCommandResponse(String)
@@ -621,34 +602,43 @@ func waitForAcknowledgedSubscription(
     }
 }
 
-func waitForHTTPAnnotationInvalidation(
+func waitForHTTPAnnotationCatalogCommit(
     client: some TestClientProtocol,
     connection: HTTPProductConnection,
     recorder: HTTPMetadataFrameRecorder
-) async throws -> BridgeProductWorktreeAnnotationEvent {
+) async throws -> BridgeProductWorktreeAnnotationEvent.Catalog {
     try await waitForAcknowledgedMetadataFrame(
         client: client,
         connection: connection,
         recorder: recorder
     ) { frame in
         guard case .subscriptionData(let dataFrame) = frame,
-            let event = dataFrame.data.fileAnnotationsEvent
+            let event = dataFrame.data.fileAnnotationsEvent,
+            case .catalog(let catalog) = event,
+            case .commit = catalog.transfer
         else { return nil }
-        return event
+        return catalog
     }
 }
 
-func httpAnnotationInvalidationIsCompact(
-    _ event: BridgeProductWorktreeAnnotationEvent
-) throws -> Bool {
-    let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(event))
-    guard let dictionary = object as? [String: Any] else { return false }
-    return Set(dictionary.keys) == [
-        "eventKind",
-        "operationCorrelationId",
-        "sourceGeneration",
-        "worktreeId",
-    ]
+func waitForHTTPAnnotationSessionChange(
+    client: some TestClientProtocol,
+    connection: HTTPProductConnection,
+    recorder: HTTPMetadataFrameRecorder,
+    expectedSessionID: UUID
+) async throws -> BridgeProductWorktreeAnnotationEvent.SessionChanged {
+    try await waitForAcknowledgedMetadataFrame(
+        client: client,
+        connection: connection,
+        recorder: recorder
+    ) { frame in
+        guard case .subscriptionData(let dataFrame) = frame,
+            let event = dataFrame.data.fileAnnotationsEvent,
+            case .sessionChanged(let sessionChanged) = event,
+            sessionChanged.sessionID.rawValue == expectedSessionID
+        else { return nil }
+        return sessionChanged
+    }
 }
 
 func waitForAcknowledgedMetadataFrame<MatchedValue: Sendable>(

@@ -130,7 +130,7 @@ private func createHTTPRootAndFiveSavedReplies(
             )
             #expect(replyCreateOutcome.status == .committed)
             let replyCreateReceipt = try #require(replyCreateOutcome.receipt)
-            _ = try await waitForHTTPAnnotationInvalidation(
+            _ = try await waitForHTTPAnnotationCatalogCommit(
                 client: client,
                 connection: connection,
                 recorder: context.metadataStream.recorder
@@ -208,7 +208,7 @@ private func createHTTPSavedRoot(
     #expect(createOutcome.status == .committed)
     let sessionID = try #require(createOutcome.sessionId)
     let createReceipt = try #require(createOutcome.receipt)
-    _ = try await waitForHTTPAnnotationInvalidation(
+    _ = try await waitForHTTPAnnotationCatalogCommit(
         client: client,
         connection: connection,
         recorder: recorder
@@ -255,10 +255,11 @@ private func flushAndSaveHTTPAnnotationMessage(
     )
     #expect(flushOutcome.status == .committed)
     let flushReceipt = try #require(flushOutcome.receipt)
-    _ = try await waitForHTTPAnnotationInvalidation(
+    _ = try await waitForHTTPAnnotationSessionChange(
         client: client,
         connection: connection,
-        recorder: recorder
+        recorder: recorder,
+        expectedSessionID: mutation.sessionID
     )
     let saveOutcome = try await executeHTTPAnnotationCommand(
         client: client,
@@ -279,10 +280,11 @@ private func flushAndSaveHTTPAnnotationMessage(
     #expect(saveReceipt.messageId == mutation.createReceipt.messageId)
     #expect(saveReceipt.draftRevision == nil)
     #expect(saveReceipt.savedRevision != nil)
-    _ = try await waitForHTTPAnnotationInvalidation(
+    _ = try await waitForHTTPAnnotationSessionChange(
         client: client,
         connection: connection,
-        recorder: recorder
+        recorder: recorder,
+        expectedSessionID: mutation.sessionID
     )
     return saveReceipt
 }

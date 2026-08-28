@@ -6,6 +6,67 @@ import Testing
 
 @Suite("Worktree annotation metadata event contracts")
 struct WorktreeAnnotationMetadataEventContractTests {
+    @Test("catalog event round trips inside the product metadata frame")
+    func catalogEventRoundTripsInsideProductMetadataFrame() throws {
+        // Arrange
+        let authority = try BridgeProductWorktreeAnnotationEvent.Authority(
+            worktreeID: "worktree-1",
+            applicationSourceGeneration: 7
+        )
+        let sessionID = WorktreeAnnotationSessionID(rawValue: UUIDv7.generate())
+        let threadID = WorktreeAnnotationThreadID(rawValue: UUIDv7.generate())
+        let event = BridgeProductWorktreeAnnotationEvent.catalog(
+            try .init(
+                authority: authority,
+                transfer: .window(
+                    transferID: UUIDv7.generate().uuidString.lowercased(),
+                    catalogRevision: 7,
+                    windowOrdinal: 0,
+                    entries: [
+                        .session(try .init(sessionID: sessionID, semanticRevision: 0)),
+                        .thread(
+                            try .init(
+                                threadID: threadID,
+                                sessionID: sessionID,
+                                scope: .wholeFile,
+                                createdOrdinal: 0
+                            )
+                        ),
+                    ]
+                )
+            )
+        )
+        let frame = try BridgeProductMetadataFrame.subscriptionData(
+            stream: .init(
+                metadataStreamId: "metadata-stream-annotation-catalog",
+                paneSessionId: "pane-session-annotation-catalog",
+                wireVersion: BridgeProductWireContract.version,
+                workerInstanceId: "worker-annotation-catalog"
+            ),
+            streamSequence: 1,
+            subscription: .init(
+                cursor: nil,
+                interestRevision: 0,
+                interestSha256: String(repeating: "a", count: 64),
+                sourceGeneration: 7,
+                subscriptionId: "file-annotations-catalog",
+                subscriptionKind: .fileAnnotations,
+                workerDerivationEpoch: 1
+            ),
+            subscriptionSequence: 1,
+            data: .fileAnnotations(event)
+        )
+        let encoded = try BridgeProductMetadataFrameCodec.encode(frame)
+        let decoder = try BridgeProductMetadataFrameDecoder()
+
+        // Act
+        let decoded = try decoder.append(encoded)
+        try decoder.finish()
+
+        // Assert
+        #expect(decoded == [frame])
+    }
+
     @Test("catalog session and control events round trip through the strict wire contract")
     func eventVariantsRoundTrip() throws {
         // Arrange

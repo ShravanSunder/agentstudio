@@ -49,7 +49,7 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
             )
             let createReceipt = try #require(createOutcome.receipt)
             let sessionID = try #require(createOutcome.sessionId)
-            _ = try await waitForHTTPAnnotationInvalidation(
+            _ = try await waitForHTTPAnnotationCatalogCommit(
                 client: client,
                 connection: connection,
                 recorder: preparation.metadataStream.recorder
@@ -69,10 +69,11 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
                 requestSequence: 7
             )
             #expect(saveOutcome.status == .committed)
-            _ = try await waitForHTTPAnnotationInvalidation(
+            _ = try await waitForHTTPAnnotationSessionChange(
                 client: client,
                 connection: connection,
-                recorder: preparation.metadataStream.recorder
+                recorder: preparation.metadataStream.recorder,
+                expectedSessionID: sessionID
             )
             let projection = try await fetchHTTPFileAnnotationProjection(
                 client: client,
@@ -167,12 +168,12 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
                 guard case .committed = outcome.status,
                     let sessionID = outcome.sessionId
                 else { throw HTTPAnnotationIntegrationError.annotationCommandFailed }
-                let invalidationA = try await waitForHTTPAnnotationInvalidation(
+                let catalogA = try await waitForHTTPAnnotationCatalogCommit(
                     client: clientA,
                     connection: connectionA,
                     recorder: preparationA.metadataStream.recorder
                 )
-                let invalidationB = try await waitForHTTPAnnotationInvalidation(
+                let catalogB = try await waitForHTTPAnnotationCatalogCommit(
                     client: clientB,
                     connection: connectionB,
                     recorder: preparationB.metadataStream.recorder
@@ -194,8 +195,10 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
                     requestSequence: 6
                 )
 
-                #expect(try httpAnnotationInvalidationIsCompact(invalidationA))
-                #expect(try httpAnnotationInvalidationIsCompact(invalidationB))
+                #expect(
+                    catalogA.authority.applicationSourceGeneration
+                        == catalogB.authority.applicationSourceGeneration
+                )
                 #expect(projectionA.header.projectionRevision == projectionB.header.projectionRevision)
                 #expect(projectionA.header.sessions == projectionB.header.sessions)
                 #expect(projectionA.messages == projectionB.messages)
@@ -368,12 +371,11 @@ private func createHTTPAnnotationDraftBeforeRestart(
         guard case .committed = createOutcome.status,
             let sessionID = createOutcome.sessionId
         else { throw HTTPAnnotationIntegrationError.annotationCommandFailed }
-        let invalidation = try await waitForHTTPAnnotationInvalidation(
+        _ = try await waitForHTTPAnnotationCatalogCommit(
             client: client,
             connection: connection,
             recorder: preparation.metadataStream.recorder
         )
-        #expect(try httpAnnotationInvalidationIsCompact(invalidation))
         let projection = try await fetchHTTPFileAnnotationProjection(
             client: client,
             host: runtime.host,
@@ -403,10 +405,11 @@ private func createHTTPAnnotationDraftBeforeRestart(
         guard case .committed = releaseOutcome.status else {
             throw HTTPAnnotationIntegrationError.annotationCommandFailed
         }
-        _ = try await waitForHTTPAnnotationInvalidation(
+        _ = try await waitForHTTPAnnotationSessionChange(
             client: client,
             connection: connection,
-            recorder: preparation.metadataStream.recorder
+            recorder: preparation.metadataStream.recorder,
+            expectedSessionID: sessionID
         )
         let releasedProjection = try await fetchHTTPFileAnnotationProjection(
             client: client,
@@ -492,12 +495,11 @@ private func restoreHTTPAnnotationDraftAfterRestart(
             recorder: metadataStream.recorder,
             subscriptionID: "file-annotations-second"
         )
-        let initialInvalidation = try await waitForHTTPAnnotationInvalidation(
+        _ = try await waitForHTTPAnnotationCatalogCommit(
             client: client,
             connection: connection,
             recorder: metadataStream.recorder
         )
-        #expect(try httpAnnotationInvalidationIsCompact(initialInvalidation))
         let restoredProjection = try await fetchHTTPFileAnnotationProjection(
             client: client,
             host: runtime.host,
