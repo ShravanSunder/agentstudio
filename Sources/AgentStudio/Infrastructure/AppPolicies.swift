@@ -220,6 +220,10 @@ package enum AppPolicies {
     }
 
     package enum GitRefresh {
+        package static let sharedExactItemFingerprintAlgorithm = "sha256-v1"
+        package static let sharedExactItemFingerprintMaximumItemBytes: Int = 8 * 1024 * 1024
+        package static let sharedExactItemFingerprintMaximumUniqueItems: Int = 64
+        package static let sharedExactItemFingerprintMaximumTransactionBytes: Int = 32 * 1024 * 1024
         package static let statusUnavailableConsecutiveFailureThreshold: Int = 2
         package static let defaultPolicy = Policy(
             minimumAutomaticStartInterval: .milliseconds(300)
