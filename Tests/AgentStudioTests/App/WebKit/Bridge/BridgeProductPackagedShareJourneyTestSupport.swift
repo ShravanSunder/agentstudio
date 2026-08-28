@@ -14,7 +14,7 @@ struct BridgeProductPackagedShareJourneyProof: Sendable {
     let clipboardBytes: Data
     let exportedJSON: Data
     let fileHistoryCount: Int
-    let fileOtherSavedCommentsVisible: Bool
+    let fileUnavailableCommentsExcluded: Bool
     let hostWidth: Double
     let reviewHistoryCount: Int
     let reviewPendingCount: Int
@@ -27,7 +27,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
 
         #expect(proof.reviewPendingCount == 1)
         #expect(proof.reviewHistoryCount == 1)
-        #expect(proof.fileOtherSavedCommentsVisible)
+        #expect(proof.fileUnavailableCommentsExcluded)
         #expect(proof.fileHistoryCount == 2)
         #expect(proof.clipboardBytes.contains(Data("Packaged Share comment".utf8)))
         #expect(proof.exportedJSON.contains(Data("Packaged Share comment".utf8)))
@@ -99,7 +99,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             ) {
                 $0.pendingCount == 1
             }
-            try await clickButton(hostedController.page, label: "Done")
+            try await clickButton(hostedController.page, label: "Close Share comments")
 
             let fileProof = try await performFileExport(
                 controller: hostedController,
@@ -109,7 +109,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                 clipboardBytes: clipboardBytes,
                 exportedJSON: fileProof.exportedJSON,
                 fileHistoryCount: fileProof.history.historyCount,
-                fileOtherSavedCommentsVisible: fileProof.beforeExport.otherSavedCommentsVisible,
+                fileUnavailableCommentsExcluded: !fileProof.beforeExport.otherSavedCommentsVisible,
                 hostWidth: 640,
                 reviewHistoryCount: reviewAfterUnhandle.historyCount,
                 reviewPendingCount: reviewAfterUnhandle.pendingCount
@@ -209,7 +209,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
         try await clickButton(controller.page, label: "Share comments")
         try await clickButtonWithPrefix(controller.page, prefix: "All")
         let beforeExport = try await requireShareSnapshot(controller.page, stage: "file-other") {
-            $0.shareVisible && $0.otherSavedCommentsVisible && $0.allCount == 1
+            $0.shareVisible && !$0.otherSavedCommentsVisible && $0.allCount == 1
         }
         try await clickButton(controller.page, label: "Export JSON")
         try await requireFile(exportedJSONURL)
@@ -323,7 +323,9 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                 """
                 const buttonLabel = String(label);
                 const button = Array.from(document.querySelectorAll('button')).find(
-                  candidate => candidate.textContent?.trim() === buttonLabel
+                  candidate =>
+                    candidate.getAttribute('aria-label') === buttonLabel ||
+                    candidate.textContent?.trim() === buttonLabel
                 );
                 return button instanceof HTMLButtonElement && !button.disabled;
                 """,
@@ -339,7 +341,9 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                 """
                 const buttonLabel = String(label);
                 const button = Array.from(document.querySelectorAll('button')).find(
-                  candidate => candidate.textContent?.trim() === buttonLabel
+                  candidate =>
+                    candidate.getAttribute('aria-label') === buttonLabel ||
+                    candidate.textContent?.trim() === buttonLabel
                 );
                 if (!(button instanceof HTMLButtonElement) || button.disabled) return false;
                 button.click();
